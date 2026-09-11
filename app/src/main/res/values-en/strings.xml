@@ -58,6 +58,8 @@
     <string name="home_more_books_on">More books on %1$s</string>
     <string name="home_library_results">In your library (%1$d)</string>
     <string name="home_all_sources">All sources (%1$d)</string>
+    <string name="home_search_on_4read">Search “%1$s” on 4read</string>
+    <string name="home_search_browser_fallback">Nothing on 4read? Search in browser</string>
     <string name="home_browser_only_snackbar">This book is 4read-only — browser needed</string>
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>
@@ -136,6 +138,17 @@
     <string name="feedback_done">Done</string>
     <string name="feedback_later">Not now</string>
 
+    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
+    <string name="narration_claim_action">Same narration — merge</string>
+    <string name="narration_claim_done">Merged. Progress carried over.</string>
+    <string name="book_detail_audio_unavailable">No audio for this book right now — we keep looking in other sources.</string>
+    <string name="book_detail_watch_action">Watch for a source</string>
+    <string name="book_detail_watching">Waiting for a source…</string>
+    <string name="book_detail_stop_watching">Stop watching</string>
+    <!-- ADR-0037 (spec-49 T1): the «Source audio» destination — the personal
+         Source Audio Refusal. -->
+    <string name="source_audio_refusal_title">Source audio</string>
+    <string name="source_audio_refusal_description">Ticked sources stop supplying audio for playback and downloads — metadata, catalog and collections stay. Untick a source to bring it back without re-importing.</string>
     <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
     <string name="player_now_playing">NOW PLAYING</string>
     <string name="player_favorite_add">Add to favourites</string>
@@ -171,13 +184,6 @@
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
     <string name="book_detail_other_narrations">Other narrations</string>
-    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
-    <string name="narration_claim_action">Same narration — merge</string>
-    <string name="narration_claim_done">Merged. Progress carried over.</string>
-    <string name="book_detail_audio_unavailable">No audio for this book right now — we keep looking in other sources.</string>
-    <string name="book_detail_watch_action">Watch for a source</string>
-    <string name="book_detail_watching">Waiting for a source…</string>
-    <string name="book_detail_stop_watching">Stop watching</string>
     <string name="book_detail_maybe_interest">You may also like</string>
     <string name="book_detail_in_series">In the series</string>
     <string name="book_detail_reviews_title">Reviews</string>
@@ -219,13 +225,6 @@
         <item quantity="one">%1$d narrator</item>
         <item quantity="other">%1$d narrators</item>
     </plurals>
-    <!-- ADR-0037 (spec-49 T1): the «Source audio» destination — the personal
-         Source Audio Refusal. -->
-    <string name="source_audio_refusal_title">Source audio</string>
-    <string name="source_audio_refusal_description">Ticked sources stop supplying audio for playback and downloads — metadata, catalog and collections stay. Untick a source to bring it back without re-importing.</string>
-    <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>
-    <string name="source_audio_refusal_publish_description">When on, the app adds one anonymous vote to the shared counter of each ticked source — a count only, no name, books or links. Turning it off stops new votes.</string>
-    <string name="source_audio_refusal_shared_count">Anonymous refusals: %1$d</string>
     <string name="a11y_submission_pane">Submit a link</string>
     <string name="a11y_submission_close">Close</string>
     <string name="submission_sheet_title">Submit a link</string>
@@ -248,4 +247,7 @@
     <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist or a Telegram post.</string>
     <string name="import_option_link">Submit a link</string>
     <string name="import_option_link_subtitle">YouTube video, playlist or TG post</string>
+    <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>
+    <string name="source_audio_refusal_publish_description">When on, the app adds one anonymous vote to the shared counter of each ticked source — a count only, no name, books or links. Turning it off stops new votes.</string>
+    <string name="source_audio_refusal_shared_count">Anonymous refusals: %1$d</string>
 </resources>

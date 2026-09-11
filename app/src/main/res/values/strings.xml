@@ -61,6 +61,8 @@
     <string name="home_more_books_on">Більше книг на %1$s</string>
     <string name="home_library_results">У вашій медіатеці (%1$d)</string>
     <string name="home_all_sources">Усі джерела (%1$d)</string>
+    <string name="home_search_on_4read">Шукати «%1$s» на 4read</string>
+    <string name="home_search_browser_fallback">Нічого на 4read? Шукати в браузері</string>
     <string name="home_browser_only_snackbar">Ця книга лише на 4read — потрібен браузер</string>
     <string name="home_open">Відкрити</string>
     <string name="home_recommendation_updated">Рекомендацію оновлено</string>
@@ -141,6 +143,17 @@
     <string name="feedback_done">Готово</string>
     <string name="feedback_later">Не зараз</string>
 
+    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
+    <string name="narration_claim_action">Це та сама начитка — об’єднати</string>
+    <string name="narration_claim_done">Об’єднано. Прогрес перенесено.</string>
+    <string name="book_detail_audio_unavailable">Аудіо цієї книги зараз недоступне — шукаємо в інших джерелах.</string>
+    <string name="book_detail_watch_action">Поставити на спостереження</string>
+    <string name="book_detail_watching">Чекаємо на джерело…</string>
+    <string name="book_detail_stop_watching">Прибрати спостереження</string>
+    <!-- ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
+         Source Audio Refusal. -->
+    <string name="source_audio_refusal_title">Аудіо джерел</string>
+    <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
     <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
     <string name="player_now_playing">ЗАРАЗ ЗВУЧИТЬ</string>
     <string name="player_favorite_add">Додати в обране</string>
@@ -176,13 +189,6 @@
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
     <string name="book_detail_other_narrations">Інші начитки</string>
-    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
-    <string name="narration_claim_action">Це та сама начитка — об’єднати</string>
-    <string name="narration_claim_done">Об’єднано. Прогрес перенесено.</string>
-    <string name="book_detail_audio_unavailable">Аудіо цієї книги зараз недоступне — шукаємо в інших джерелах.</string>
-    <string name="book_detail_watch_action">Поставити на спостереження</string>
-    <string name="book_detail_watching">Чекаємо на джерело…</string>
-    <string name="book_detail_stop_watching">Прибрати спостереження</string>
     <string name="book_detail_maybe_interest">Можливо, Тебе зацікавить</string>
     <string name="book_detail_in_series">У серії</string>
     <string name="book_detail_reviews_title">Відгуки</string>
@@ -238,13 +244,6 @@
         <item quantity="many">%1$d виконавців</item>
         <item quantity="other">%1$d виконавців</item>
     </plurals>
-    <!-- ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
-         Source Audio Refusal. -->
-    <string name="source_audio_refusal_title">Аудіо джерел</string>
-    <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
-    <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>
-    <string name="source_audio_refusal_publish_description">Коли ввімкнено, застосунок додає один анонімний голос до спільного лічильника кожного позначеного джерела — лише кількість, без імені, книг чи посилань. Вимкнення зупиняє нові голоси.</string>
-    <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
     <string name="a11y_submission_pane">Надіслати посилання</string>
     <string name="a11y_submission_close">Закрити</string>
     <string name="submission_sheet_title">Надіслати посилання</string>
@@ -267,4 +266,7 @@
     <string name="submission_status_unsupported">Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram.</string>
     <string name="import_option_link">Надіслати посилання</string>
     <string name="import_option_link_subtitle">YouTube-відео, плейлист або TG-пост</string>
+    <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>
+    <string name="source_audio_refusal_publish_description">Коли ввімкнено, застосунок додає один анонімний голос до спільного лічильника кожного позначеного джерела — лише кількість, без імені, книг чи посилань. Вимкнення зупиняє нові голоси.</string>
+    <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
 </resources>

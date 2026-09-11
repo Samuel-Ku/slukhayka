@@ -16,9 +16,12 @@ import androidx.compose.ui.test.performClick
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.source.fourReadSearchUrl
+import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.screens.homeFeedContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -27,13 +30,18 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Spec-42 #440 — the explicit 4read overview door and the debug-gating
+ * Spec-42 #440 — the two explicit 4read doors and the debug-gating
  * asymmetry (ADR-0027):
  *
  * 1. On Огляд the «Більше книг на 4read →» row renders when the door is
  *    wired (release AND debug), while the Sluhay row stays debug-only —
  *    the wiring-level pin for the build-flavour asymmetry (the composition
  *    root passes a null sluhay door in release, the 4read door always).
+ * 2. The empty-search CTA («Шукати «запит» на 4read») and the
+ *    «Нічого на 4read? Шукати в браузері» footer reuse [OpenWebSourceRow]
+ *    with a custom prompt — pinned at the row seam: the prompt carries the
+ *    user's query, the tags stay distinct, and tapping fires exactly the
+ *    prefilled transition ([fourReadSearchUrl]).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -84,6 +92,53 @@ class Home4readDoorsTest {
         composeTestRule.waitForIdle()
         assertTrue(doorFired)
     }
+
+    // ------------------------------------------------------------------
+    // Doors 2+3: the search CTAs reuse the row seam with a custom prompt
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `the empty-search CTA carries the query in its prompt and opens the prefilled url`() {
+        var requestedUrl = ""
+        composeTestRule.setContent {
+            TestTheme {
+                OpenWebSourceRow(
+                    displayName = "4read",
+                    onClick = { requestedUrl = fourReadSearchUrl("Сни") },
+                    text = "Шукати «Сни» на 4read",
+                    testTag = "open_4read_search_empty"
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Шукати «Сни» на 4read").assertExists()
+        composeTestRule.onNodeWithTag("open_4read_search_empty").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(
+            "https://4read.org/index.php?do=search&subaction=search&story=%D0%A1%D0%BD%D0%B8",
+            requestedUrl
+        )
+    }
+
+    @Test
+    fun `the no-4read footer carries its own prompt and tag`() {
+        composeTestRule.setContent {
+            TestTheme {
+                OpenWebSourceRow(
+                    displayName = "4read",
+                    onClick = {},
+                    text = "Нічого на 4read? Шукати в браузері",
+                    testTag = "open_4read_search_footer"
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Нічого на 4read? Шукати в браузері").assertExists()
+        composeTestRule.onNodeWithTag("open_4read_search_footer").assertExists()
+    }
+
     // ------------------------------------------------------------------
     // Harness
     // ------------------------------------------------------------------

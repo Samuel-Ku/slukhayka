@@ -790,6 +790,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedBookId = MutableStateFlow<String?>(null)
     val selectedBookId: StateFlow<String?> = _selectedBookId.asStateFlow()
 
+    /** #559 — триває фонове довантаження метаданих відкритої книги. */
+    private val _bookDetailsRefreshing = MutableStateFlow(false)
+    val bookDetailsRefreshing: StateFlow<Boolean> = _bookDetailsRefreshing.asStateFlow()
+
     // AudiobookEntity excludes joined fields from equality. Keep the immutable
     // read row here so pause/progress-only changes reach the open detail screen.
     val selectedBook: StateFlow<com.slukhayka.audiobooks.data.db.BookRow?> = _selectedBookId
@@ -1958,6 +1962,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isPersonLoading: StateFlow<Boolean> = personLoader.isLoading
     val personLoadFailed: StateFlow<Boolean> = personLoader.failed
 
+    /** #559 — індекс людей ще добудовується (книги з'являються хвилинами). */
+    val authorIndexBackfillPending: StateFlow<Boolean> =
+        sourceCatalog.authorIndexBackfillPending
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun openPersonBooks(person: CatalogPerson) {
         val selected = SelectedPerson(person.name, person.path, person.role)
         _selectedPerson.value = selected
@@ -2941,6 +2950,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectBook(bookId: String?) {
         _selectedBookId.value = bookId
+        _bookDetailsRefreshing.value = false
         bookDetailSourceState.select(bookId)
         if (bookId != null) {
             _selectedBookUniverse.value = null
@@ -2949,14 +2959,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // does not keep showing «невідомо» for every chapter.
             probeDurationsAfterImport(bookId)
             viewModelScope.launch(Dispatchers.IO) {
-                // #388 — refresh is best-effort; a FK violation or network
-                // failure must never crash the book page (tapping «Сни» was
-                // force-finishing MainActivity). Degrade gracefully.
-                try {
-                    libraryEntries.refreshBookCoverAndDetails(bookId)
-                } catch (e: Exception) {
-                    android.util.Log.w("MainViewModel", "refreshBookCoverAndDetails failed for $bookId", e)
-                }
+            // #388 — refresh is best-effort; a FK violation or network
+            // failure must never crash the book page (tapping «Сни» was
+            // force-finishing MainActivity). Degrade gracefully.
+            // #559 — the book page shows a quiet status while this runs, so a
+            // slow source page reads as «ще довантажується», not as emptiness.
+            _bookDetailsRefreshing.value = true
+            try {
+                libraryEntries.refreshBookCoverAndDetails(bookId)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "refreshBookCoverAndDetails failed for $bookId", e)
+            } finally {
+                if (_selectedBookId.value == bookId) _bookDetailsRefreshing.value = false
+            }
                 // Spec-25 (#171): resolve the book's series universe lazily —
                 // cache-first read, then the (idempotent) resolution, then the
                 // fresher read. Best-effort: an unseeded series contributes

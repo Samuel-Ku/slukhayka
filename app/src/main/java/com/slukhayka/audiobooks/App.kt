@@ -7,6 +7,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotStore
+import com.slukhayka.audiobooks.data.catalog.PlaybackFallbackResolver
 import com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
@@ -498,10 +499,10 @@ class App : Application() {
             // sitemap enumeration joins the union, and the adapter's search()
             // is the T1-measured honest empty (no server-side filtering).
             AudiobookCoUaAdapter(),
-            // Spec-47 T5 — chytaylo.com.ua joins the registry (T1 verdict
-            // PASS, server-fetch): the /audiobooks listing feeds the rail and
-            // the union; the audio-only content boundary is enforced per page
-            // inside the adapter (no tracks payload → nothing playable).
+            // Spec-47 T3/T5 — chytaylo.com.ua joins the registry (T1 verdict
+            // PASS, Next.js SSR): the /audiobooks listing feeds the union and
+            // the new-arrivals rail, and its search() is the measured honest
+            // empty (the site filters nothing server-side).
             ChytayloAdapter(),
             // Spec-47 T4/T5 — ukrainianaudiobooks.com joins the registry as a
             // WebView-pattern source (T1 verdict GATED — Cloudflare): its feed
@@ -510,13 +511,6 @@ class App : Application() {
             // captured-page seam (ADR-0006). In release builds the browser
             // door stays closed (ADR-0027) — the profile says so.
             UkrainianaudiobooksAdapter(cookieProvider = sharedCookies),
-            // Spec-50 T2 — knigi-online.com.ua joins the registry (T1 verdict
-            // PASS, server-fetch; search verified live 2026-09-10 — fixture
-            // `research/fixtures/knigionline/search-s-nestayko.html`, ADR-0040):
-            // its search feeds global search and the cross-resolve volley, its
-            // sitemap enumeration joins the union, and the cards' category
-            // spans feed the Search Genre Assertion lane (ADR-0040).
-            KnigiOnlineAdapter(),
             // Spec-45 (#405) T2 (#490): the English source — catalogue/search
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).
@@ -578,6 +572,20 @@ class App : Application() {
      * refreshes and mapping verdicts that already happen.
      */
     val sourceWatchStore: SourceWatchStore by lazy { SourceWatchStore(this) }
+
+    /**
+     * #504 — the same-narration direct fallback resolver behind the
+     * player's [chapterFallback] seam: sibling editions (Room rows),
+     * chapter lists (the catalog path) and the refusal set (never fall
+     * back onto a refused source).
+     */
+    val playbackFallbackResolver: PlaybackFallbackResolver by lazy {
+        PlaybackFallbackResolver(
+            allBooks = { audiobookDao.getAllAudiobooksOnce() },
+            chaptersFor = sourceCatalog::getPlayableChapters,
+            refusedSourceIds = { sourceAudioRefusal.refusedSources.value },
+        )
+    }
 
     // Spec-45 (#405) R7 (#514): the persisted App Locale (interface language)
     // — read in MainActivity.attachBaseContext, written by the settings
@@ -911,6 +919,13 @@ class App : Application() {
             sourceCatalog::getPlayableChapters,
             streamUrlHealer = { bookId, chapterIndex, failedUrl ->
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
+            },
+            // #504: a proven-remote 403/404 swaps the same chapter from a
+            // direct source of the same narration (verified sibling), once
+            // per chapter prepare. The manager still decides; this only
+            // answers the lookup.
+            chapterFallback = { book, chapterCount, chapterIndex, failedSourceId ->
+                playbackFallbackResolver.resolve(book, chapterCount, chapterIndex, failedSourceId)
             },
             progressSync = progressSync,
             onBookCompleted = bookFeedbackStore::completed,

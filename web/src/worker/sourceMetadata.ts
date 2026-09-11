@@ -31,6 +31,8 @@ const WEB_IDS = new Set([
   'chytaylo',
   'knigionline',
   'chitaka',
+  // Spec-47 T6: ukrainianaudiobooks is a browser-gated web source too.
+  'ukrainianaudiobooks',
 ])
 
 const factsById = new Map(sources.sources.map((source) => [source.id, source]))

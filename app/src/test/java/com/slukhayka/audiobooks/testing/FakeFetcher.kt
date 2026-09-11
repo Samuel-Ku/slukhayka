@@ -100,6 +100,9 @@ open class FakeFetcher(
     /** URLs requested through [getSizedStream], in call order (test observability). */
     val sizedStreamRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
 
+    /** URLs requested through [getRangeStream], in call order (test observability). */
+    val rangeStreamRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
+
     override fun getSizedStream(url: String, extraHeaders: Map<String, String>): SizedStream? {
         sizedStreamRequests += url
         recordedHeaders += extraHeaders
@@ -118,5 +121,47 @@ open class FakeFetcher(
     override fun getSizedStreamResult(url: String, extraHeaders: Map<String, String>): SizedStreamResult {
         val stream = getSizedStream(url, extraHeaders)
         return SizedStreamResult(if (stream != null) 200 else 0, stream)
+    }
+
+    /**
+     * #387 — honors `Range: bytes=N-` like a range-supporting server: the
+     * configured full bytes sliced from N with a verbatim
+     * `Content-Range: bytes N-(len-1)/len` (206). Unmapped URLs fail like
+     * the other seams (null). The slice math is what the resume policy
+     * verifies against, so a fake that lies here fails honestly downstream.
+     */
+    override fun getRangeStream(url: String, extraHeaders: Map<String, String>): RangeResponse? {
+        rangeStreamRequests += url
+        recordedHeaders += extraHeaders
+        val full = sizedStreamResponses[url]?.first ?: streamResponses[url] ?: return null
+        val range = extraHeaders["Range"]?.let { RangeHeader.parse(it) }
+        if (range == null || range.start <= 0) {
+            return RangeResponse(
+                stream = wrappingStream(full),
+                status = 200,
+                contentLength = full.size.toLong(),
+                contentRange = null,
+                contentType = "audio/mpeg",
+            )
+        }
+        if (range.start >= full.size) return null
+        val slice = full.copyOfRange(range.start, full.size)
+        return RangeResponse(
+            stream = wrappingStream(slice),
+            status = 206,
+            contentLength = slice.size.toLong(),
+            contentRange = "bytes ${range.start}-${full.size - 1}/${full.size}",
+            contentType = "audio/mpeg",
+        )
+    }
+
+    /** Minimal `Range: bytes=N-` parser for the fake (suffix ranges unsupported). */
+    private data class RangeHeader(val start: Int) {
+        companion object {
+            fun parse(header: String): RangeHeader? {
+                val match = Regex("""^bytes=(\d+)-$""").matchEntire(header.trim()) ?: return null
+                return RangeHeader(match.groupValues[1].toIntOrNull() ?: return null)
+            }
+        }
     }
 }

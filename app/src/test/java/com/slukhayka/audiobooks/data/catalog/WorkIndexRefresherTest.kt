@@ -1,11 +1,13 @@
 package com.slukhayka.audiobooks.data.catalog
 
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.source.FakeSourceCookieProvider
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceRequestClass
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -20,9 +22,15 @@ class WorkIndexRefresherTest {
 
     private val coUaUrl = "https://audiobook.co.ua/post-sitemap.xml"
     private val chytayloUrl = "https://chytaylo.com.ua/sitemap.xml"
+    private val sluhayUrl = "https://sluhay.com/news_pages.xml"
 
-    private class FixtureFetcher(var docs: Map<String, String>) : HttpFetcher() {
+    private class FixtureFetcher(
+        var docs: Map<String, String>,
+        /** URLs that answer only with a Cookie header (a session-bound sitemap). */
+        private val sessionRequired: Set<String> = emptySet()
+    ) : HttpFetcher() {
         var calls = 0
+        val headers = mutableMapOf<String, Map<String, String>>()
 
         override fun getText(
             url: String,
@@ -31,6 +39,8 @@ class WorkIndexRefresherTest {
             cacheTtlMillis: Long
         ): String {
             calls++
+            headers[url] = extraHeaders
+            if (url in sessionRequired && extraHeaders["Cookie"].isNullOrBlank()) return ""
             return docs[url].orEmpty()
         }
     }
@@ -134,5 +144,54 @@ class WorkIndexRefresherTest {
         } finally {
             file.delete()
         }
+    }
+
+    @Test
+    fun `a session-bound sitemap carries the host cookie and lands only book urls`() = runTest {
+        // #725 — sluhay.com's inventory sits behind Cloudflare: the carrier
+        // reads the live WebView cookie through the shared provider, and only
+        // the book URLs (never category/tag/static pages) land.
+        val fetcher = FixtureFetcher(
+            docs = mapOf(
+                sluhayUrl to sitemap(
+                    "https://sluhay.com/ukrayinska-literatura/5855-melamed-gennadyy-myy-superdydus.html",
+                    "https://sluhay.com/fantastika/5854-london-dzhek-kynec-kazki.html",
+                    "https://sluhay.com/kazka/",
+                    "https://sluhay.com/top.html"
+                )
+            ),
+            sessionRequired = setOf(sluhayUrl)
+        )
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = null,
+            cookieProvider = FakeSourceCookieProvider(mapOf("sluhay.com" to "cf_clearance=abc")),
+            clock = { 1_000_000L }
+        )
+
+        val built = refresher.refreshIfStale()
+
+        assertEquals("cf_clearance=abc", fetcher.headers[sluhayUrl]?.get("Cookie"))
+        assertEquals("only the two book urls", 2, built?.size)
+    }
+
+    @Test
+    fun `without a session the session-bound sitemap contributes nothing`() = runTest {
+        val fetcher = FixtureFetcher(
+            docs = mapOf(
+                sluhayUrl to sitemap("https://sluhay.com/kazka/5853-melamed-gennadyy-myy-superdydus.html")
+            ),
+            sessionRequired = setOf(sluhayUrl)
+        )
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = null,
+            cookieProvider = FakeSourceCookieProvider(),
+            clock = { 1_000_000L }
+        )
+
+        // Best-effort: a cookie-free request stays blank, nothing is built.
+        assertNull(refresher.refreshIfStale())
+        assertEquals(0, fetcher.headers[sluhayUrl]?.size ?: 0)
     }
 }

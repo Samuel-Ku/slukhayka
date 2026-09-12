@@ -3,18 +3,26 @@ package com.slukhayka.audiobooks.data.catalog
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceBook
+import com.slukhayka.audiobooks.data.source.SourceCookieProvider
 import com.slukhayka.audiobooks.data.source.SourceRequestClass
+import com.slukhayka.audiobooks.data.source.cookieHeadersFor
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Spec-49 follow-up (2026-09-10) — the Work index refresher, layer B: every
- * direct source contributes its book URLs to one local [CatalogWorkIndex],
+ * enumerated source contributes its book URLs to one local [CatalogWorkIndex],
  * refreshed under the catalog TTL through the Source Request Gate as
  * BACKGROUND traffic.
  *
  * Two carriers:
- * - **Sitemaps** (measured 2026-09-10): audiobook.co.ua publishes 2 193 book
- *   URLs over three post-sitemaps; chytaylo.com.ua publishes `/books/<slug>`
- *   in one. URL slugs only, no page fetches; matched by [com.slukhayka.audiobooks.data.merge.SlugMatch].
+ * - **Sitemaps** (measured 2026-09-10 / 2026-09-11): audiobook.co.ua publishes
+ *   2 193 book URLs over three post-sitemaps; chytaylo.com.ua publishes
+ *   `/books/<slug>` in one; sluhay.com publishes 5 826 book URLs in
+ *   `news_pages.xml`. URL slugs only, no page fetches; matched by
+ *   [com.slukhayka.audiobooks.data.merge.SlugMatch]. A session-bound sitemap
+ *   reads the live WebView cookie through [cookieProvider] and contributes
+ *   nothing without it.
  * - **Catalogue cards** through the adapters' own `fetchCatalog` for sources
  *   that expose no book sitemap (knigi-online, sound-books, sluhayua): real
  *   title/author pairs arrive, so the entry carries the exact [MergeKey] and
@@ -22,13 +30,24 @@ import com.slukhayka.audiobooks.data.source.SourceRequestClass
  *
  * The built index is persisted through [store] so a launch inside the TTL
  * serves lookups without a single sitemap request. Best-effort by contract:
- * a failing carrier contributes nothing and never touches the previous index.
+ * a failing carrier contributes nothing and never touches the previous index;
+ * one refresh runs at a time.
  */
 class WorkIndexRefresher(
     private val fetcher: HttpFetcher,
     private val store: WorkIndexStore? = null,
     /** Catalogue-card carriers keyed by source id (their adapters' fetchCatalog). */
     private val cardSources: Map<String, CardSource> = emptyMap(),
+    /**
+     * Spec-42 #427 — the ONE shared host-aware session cookie provider. A
+     * session-bound sitemap (sluhay.com sits behind Cloudflare) answers only
+     * with the live WebView session's cookies; without them the fetch is a
+     * best-effort miss and the carrier contributes nothing. Direct-source
+     * sitemaps read "" here and stay cookie-free. Per grill 2026-09-11
+     * (#725) this fetch is ADR-0039 §8 session traffic: at most one request
+     * per source per catalog TTL, host-scoped, no tokens.
+     */
+    private val cookieProvider: SourceCookieProvider = NO_COOKIES,
     private val clock: () -> Long = System::currentTimeMillis,
     private val ttlMillis: Long = FeedSnapshotPolicy.CATALOG_TTL_MS,
     private val cardLimit: Int = DEFAULT_CARD_LIMIT
@@ -43,6 +62,9 @@ class WorkIndexRefresher(
     /** Guards the one-time store read across concurrent refreshes. */
     private val storeRead = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /** Single-flight: concurrent refreshes never double-fetch a sitemap. */
+    private val refreshMutex = Mutex()
+
     fun lookup(title: String, author: String): CatalogIndexEntry? = current?.lookup(title, author)
 
     /**
@@ -54,39 +76,48 @@ class WorkIndexRefresher(
         val existing = current
         if (!force && existing != null && clock() - refreshedAtMs < ttlMillis) return existing
 
-        if (storeRead.compareAndSet(false, true)) {
-            store?.load()?.let { persisted ->
-                current = CatalogWorkIndex(persisted.entries)
-                refreshedAtMs = persisted.refreshedAtMs
+        return refreshMutex.withLock {
+            val inside = current
+            if (!force && inside != null && clock() - refreshedAtMs < ttlMillis) return@withLock inside
+
+            if (storeRead.compareAndSet(false, true)) {
+                store?.load()?.let { persisted ->
+                    current = CatalogWorkIndex(persisted.entries)
+                    refreshedAtMs = persisted.refreshedAtMs
+                }
             }
-        }
-        val persistedNow = current
-        if (!force && persistedNow != null && clock() - refreshedAtMs < ttlMillis) {
-            return persistedNow
-        }
+            val persistedNow = current
+            if (!force && persistedNow != null && clock() - refreshedAtMs < ttlMillis) {
+                return@withLock persistedNow
+            }
 
-        val sitemap = sitemapEntries()
-        val cards = cardEntries()
-        val entries = buildList {
-            addAll(sitemap)
-            addAll(cards)
-        }.distinctBy { it.sourceId to it.url }
+            val sitemap = sitemapEntries()
+            val cards = cardEntries()
+            val entries = buildList {
+                addAll(sitemap)
+                addAll(cards)
+            }.distinctBy { it.sourceId to it.url }
 
-        if (entries.isEmpty()) return current
-        val built = CatalogWorkIndex(entries)
-        val builtAt = clock()
-        current = built
-        refreshedAtMs = builtAt
-        store?.save(PersistedWorkIndex(entries, builtAt))
-        return built
+            if (entries.isEmpty()) return@withLock current
+            val built = CatalogWorkIndex(entries)
+            val builtAt = clock()
+            current = built
+            refreshedAtMs = builtAt
+            store?.save(PersistedWorkIndex(entries, builtAt))
+            built
+        }
     }
 
     private suspend fun sitemapEntries(): List<CatalogIndexEntry> = buildList {
         for ((sourceId, spec) in SITEMAP_SPECS) {
             for (sitemapUrl in spec.sitemapUrls) {
+                // Spec-42 #427 — just-in-time, host-aware: a session-bound
+                // sitemap carries the concrete URL's own cookie, never another
+                // host's; no cookie means no Cookie header at all.
+                val headers = cookieProvider.cookieHeadersFor(sitemapUrl)
                 val xml = fetcher.getText(
                     sitemapUrl,
-                    emptyMap(),
+                    headers,
                     SourceRequestClass.BACKGROUND,
                     ttlMillis
                 )
@@ -141,8 +172,9 @@ class WorkIndexRefresher(
 
         /**
          * The measured carriers: co.ua posts are all book pages; chytaylo
-         * keeps its books under `/books/` (pages, authors and categories in
-         * the same sitemap).
+         * keeps its books under `/books/`; sluhay.com publishes 5 826 book
+         * URLs in `news_pages.xml` (the only child sitemap carrying books;
+         * the index itself is `/sitemap.xml`).
          */
         val SITEMAP_SPECS: Map<String, SitemapSpec> = mapOf(
             "audiobookcoua" to SitemapSpec(
@@ -154,7 +186,19 @@ class WorkIndexRefresher(
             ) { path -> path.startsWith("https://audiobook.co.ua/") },
             "chytaylo" to SitemapSpec(
                 sitemapUrls = listOf("https://chytaylo.com.ua/sitemap.xml")
-            ) { path -> path.contains("/books/") }
+            ) { path -> path.contains("/books/") },
+            "sluhay" to SitemapSpec(
+                sitemapUrls = listOf("https://sluhay.com/news_pages.xml")
+            ) { path -> SLUHAY_BOOK_PATH_RE.containsMatchIn(path) }
         )
+
+        /** `https://sluhay.com/<category>/<id>-<slug>.html` — the book inventory. */
+        private val SLUHAY_BOOK_PATH_RE =
+            Regex("""^https://sluhay\.com/[a-z0-9-]+/\d+-.+\.html$""")
+
+        /** The pure-JVM default: no session, every sitemap stays cookie-free. */
+        private val NO_COOKIES = object : SourceCookieProvider {
+            override fun cookieFor(url: String): String = ""
+        }
     }
 }

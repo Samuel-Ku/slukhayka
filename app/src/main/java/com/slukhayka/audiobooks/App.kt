@@ -499,6 +499,28 @@ class App : Application() {
     }
 
     /**
+     * #523 — stale-while-revalidate over the collective Огляд blocks: the
+     * persisted block answers instantly, and only a lease owner refreshes a
+     * stale one through ONE source page.
+     */
+    val collectiveFeedRefresh: com.slukhayka.audiobooks.data.collective.CollectiveFeedRefresh by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveFeedRefresh(
+            store = com.slukhayka.audiobooks.data.collective.RoomCollectiveFeedBlockStore(
+                database.audiobookDao()
+            ),
+            lease = com.slukhayka.audiobooks.data.collective.InMemoryCollectiveRefreshLease(),
+            fetch = { blockKey ->
+                val ref = com.slukhayka.audiobooks.data.collective.parseCollectiveBlockKey(blockKey)
+                if (ref == null) {
+                    com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty
+                } else {
+                    sourceCatalog.collectiveBlockFetch(ref.sourceId, ref.kind)
+                }
+            }
+        )
+    }
+
+    /**
      * ADR-0023 (#348) — the narration-ratings store («Оцінка начитки»).
      * Null without Firebase keys: the rating UI simply does not render.
      */

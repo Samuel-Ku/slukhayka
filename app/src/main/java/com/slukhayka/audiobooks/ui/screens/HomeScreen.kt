@@ -212,6 +212,10 @@ fun HomeScreen(
     // on the exact tick an entry is imported or removed.
     val newArrivals = remember(allBooks) { LibraryNewArrivals.project(allBooks) }
 
+    // #523 — the collective Огляд blocks, read from the persisted snapshot
+    // (one lease owner refreshes a stale block through ONE source page).
+    val collectiveBlocks by viewModel.collectiveBlocks.collectAsState()
+
     // Spec-36 T1 (#244): an available app release, resolved by the module's
     // own throttled check — null means everything is current.
     val availableRelease by updateChecker.available.collectAsState()
@@ -237,6 +241,9 @@ fun HomeScreen(
         // #522 — one bounded cursor delta of the collective catalogue: cards
         // other installs verified land in the local mirror, no source request.
         launch { App.instance.collectiveDeltaSync.syncOnce() }
+        // #523 — collective blocks: instant from the persisted snapshot, then
+        // one leased stale-while-revalidate pass per source.
+        launch { viewModel.refreshCollectiveBlocks() }
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()
@@ -397,6 +404,9 @@ fun HomeScreen(
                 genreFacetOptions = genreFacetOptions,
                 collections = collections,
                 newArrivals = newArrivals,
+                // #523 — the collective source blocks (stale-while-revalidate).
+                collectiveBlocks = collectiveBlocks,
+                onOpenCollectiveCard = viewModel::openCollectiveCard,
                 peopleNewArrivals = peopleNewArrivals,
                 recommendedBooks = recommendedBooks,
                 recommendationsReady = recommendationsReady,

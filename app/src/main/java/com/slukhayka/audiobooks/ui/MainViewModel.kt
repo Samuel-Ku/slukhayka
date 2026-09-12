@@ -1809,6 +1809,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // #523 — the collective Огляд blocks: one per DIRECT Ukrainian source,
+    // stale-while-revalidate behind the lease, with the block's provenance.
+    // The previously shown blocks are never erased by a failed pass.
+    private val _collectiveBlocks = MutableStateFlow<
+        List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
+        >(emptyList())
+    val collectiveBlocks: StateFlow<
+        List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
+        > = _collectiveBlocks.asStateFlow()
+
+    fun refreshCollectiveBlocks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val blocks = com.slukhayka.audiobooks.data.collective.collectiveBlockSources()
+                .mapNotNull { facts ->
+                    runCatching {
+                        App.instance.collectiveFeedRefresh.read(
+                            com.slukhayka.audiobooks.data.collective.newArrivalsBlockKey(facts.id)
+                        )
+                    }.getOrNull()
+                }
+            if (blocks.isNotEmpty()) _collectiveBlocks.value = blocks
+        }
+    }
+
+    /** #523 — opens one collective block card through the ordinary doors. */
+    fun openCollectiveCard(card: com.slukhayka.audiobooks.data.collective.CollectiveBlockCard) {
+        catalogCardCoordinator.start(
+            CatalogCardTarget(
+                workId = card.sourceUrl,
+                title = card.title,
+                author = card.author,
+                coverImageUrl = card.coverUrl,
+                mergeKey = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(card.title, card.author),
+                sources = listOf(CatalogCardSource(sourceId = card.sourceId, url = card.sourceUrl)),
+                cardKey = "${card.sourceId}|${card.sourceUrl}"
+            ),
+            CatalogCardAction.OPEN
+        )
+    }
+
     fun closeTop100() {
         _selectedTop100.value = false
         _libraryRating.value = emptyList()

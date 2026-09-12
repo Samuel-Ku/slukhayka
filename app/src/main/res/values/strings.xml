@@ -213,6 +213,10 @@
     <string name="author_index_title">Автори</string>
     <string name="series_index_title">Серії</string>
     <string name="series_mirror_neighbours">Також у Дзеркалі</string>
+    <string name="collective_block_provenance">Джерело: %1$s</string>
+    <string name="collective_block_attempt">Остання спроба: %1$s</string>
+    <string name="collective_block_attempt_ok">оновлено</string>
+    <string name="collective_block_attempt_stale">показано останній добрий знімок</string>
     <string name="library_rating_title">Рейтинг медіатеки</string>
     <string name="author_empty_catalog">Автори з\'являться після завантаження каталогу.</string>
     <string name="author_load_failed">Не вдалося відкрити книги автора. Спробуйте ще раз.</string>

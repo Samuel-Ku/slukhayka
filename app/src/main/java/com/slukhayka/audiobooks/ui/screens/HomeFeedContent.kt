@@ -62,6 +62,9 @@ fun LazyListScope.homeFeedContent(
     genreFacetOptions: List<GenreFacetOption>,
     collections: List<CollectionMatcher.MatchedCollection>,
     newArrivals: List<LibraryNewArrival>,
+    // #523 — collective source blocks; empty until a block is observed.
+    collectiveBlocks: List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock> = emptyList(),
+    onOpenCollectiveCard: (com.slukhayka.audiobooks.data.collective.CollectiveBlockCard) -> Unit = {},
     peopleNewArrivals: PersonNewArrivals.CatalogProjection = PersonNewArrivals.CatalogProjection(emptyList(), emptySet()),
     recommendedBooks: List<RecommendationEngine.Recommendation>,
     recommendationsReady: Boolean = true,
@@ -318,6 +321,15 @@ fun LazyListScope.homeFeedContent(
                 arrivals = newArrivals,
                 onBookClick = { book -> onBookClick(book.id) }
             )
+        }
+    }
+
+    // #523 — collective blocks: a locally persisted source snapshot rendered
+    // with its provenance, refreshed stale-while-revalidate (one lease owner,
+    // one page; everyone else reads the last good snapshot).
+    collectiveBlocks.forEach { block ->
+        item(key = "collective_block_${block.blockKey}") {
+            CollectiveBlockRail(block = block, onCardClick = onOpenCollectiveCard)
         }
     }
 

@@ -546,6 +546,13 @@ class App : Application() {
         )
     }
 
+    /** #530 — the lightweight identity (title, author) of one book row. */
+    suspend fun bookIdentity(bookId: String): Pair<String, String>? =
+        database.audiobookDao().getAudiobookById(bookId)?.let { row ->
+            val book = row.toAudiobookEntity()
+            book.title to book.author
+        }
+
     /**
      * #532 — the bundled cold-start seed, imported ONCE per install through
      * the ordinary merge-on-write path: a clean start shows a local «Огляд»

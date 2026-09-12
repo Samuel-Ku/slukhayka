@@ -54,6 +54,16 @@ class CatalogFallbackOffer(
         )
     }
 
+    /**
+     * #530 — the URL of one offered candidate's Source row, so the listener's
+     * CHOICE opens exactly that source instead of re-running a generic search.
+     * Null when the book has no such row (nothing to open).
+     */
+    suspend fun sourceUrlFor(bookId: String, sourceId: String): String? =
+        dao.getSourcesForBookSync(bookId)
+            .firstOrNull { it.type == sourceId && it.url.isNotBlank() }
+            ?.url
+
     /** The one candidate the action may start by itself, or null (ask first). */
     suspend fun autoStartable(
         bookId: String,

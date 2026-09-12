@@ -114,4 +114,22 @@ class CatalogFallbackOfferTest {
         assertNull(offer.autoStartable("no-sources", currentSourceId = null))
         assertEquals(emptyList<FallbackCandidate>(), offer.offer("no-sources"))
     }
+
+    @Test
+    fun `the choice opens the candidate's own source url`() = runTest {
+        val dao = FakeAudiobookDao()
+        seed(
+            dao,
+            source("soundbooks", editionId = "edition-1"),
+            source("sluhayua", editionId = "edition-1")
+        )
+        val offer = CatalogFallbackOffer(dao, clock = { 1_000_000L })
+
+        // #530 — the listener's pick maps to THAT source's row, so the open
+        // goes to the exact URL instead of a fresh search.
+        assertEquals("https://x/soundbooks", offer.sourceUrlFor(bookId, "soundbooks"))
+        assertEquals("https://x/sluhayua", offer.sourceUrlFor(bookId, "sluhayua"))
+        assertNull("an offered-away source has nothing to open", offer.sourceUrlFor(bookId, "nope"))
+        assertNull(offer.sourceUrlFor("no-sources", "soundbooks"))
+    }
 }

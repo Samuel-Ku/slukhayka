@@ -376,11 +376,10 @@ fun PlayerScreen(
                 viewModel.findAnotherSource(book.title)
             },
             fallbackCandidates = viewModel.fallbackCandidates.collectAsState().value,
-            onSelectFallback = { _ ->
-                // #530 — the listener chose; the existing alternative path
-                // resolves it, and the offer is cleared so it never lingers.
-                viewModel.clearFallbackCandidates()
-                viewModel.findAnotherSource(book.title)
+            onSelectFallback = { candidate ->
+                // #530 — the listener CHOSE: open exactly that source's URL
+                // (never a generic search), and the offer clears itself.
+                viewModel.openFallbackCandidate(book.id, candidate)
             }
         )
 

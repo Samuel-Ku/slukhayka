@@ -2746,6 +2746,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val recommendationWorks = sourceCatalog.allWorks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
         // #483 — a listener interaction with recommendations starts the one-time model install.
@@ -2972,11 +2973,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
         recommendationLibrarySignals,
-        sourceCatalog.unifiedCatalog,
+        recommendationWorks,
         catalogVectors,
         recommendationPreferences,
         recommendationSettings
-    ) { library, catalog, vectors, preferences, settings ->
+    ) { library, works, vectors, preferences, settings ->
         if (!settings.localPersonalizationEnabled) return@combine emptyList()
         // T2: an empty (or not-yet-computed) vector map means the background
         // pass has not finished — degrade to an empty row, never compute on
@@ -2985,35 +2986,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val reducedWorkIds = preferences
             .filter { it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR }
             .mapTo(mutableSetOf()) { it.targetKey }
-        val feedbackSignals = catalog.asSequence()
-            .filter { it.key in reducedWorkIds }
-            .map { result ->
+        val feedbackSignals = works.asSequence()
+            .filter { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) in reducedWorkIds }
+            .map { work ->
                 com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
-                    id = result.key,
-                    title = result.title,
-                    author = result.author,
+                    id = com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(work),
+                    title = work.title,
+                    author = work.author,
                     weight = -1.0
                 )
             }
             .toList()
         val allSignals = currentSignals(library) + feedbackSignals
-        // Candidates are catalogue cards only: every library book is excluded
-        // anyway, and the row's job is to surface books the user does not
-        // know yet. The card id is the Work key, so tapping opens the book
-        // page through the same identity resolution as any other Огляд row
-        // (openRecommendedBook).
-        val candidates = catalog.map { result ->
-            val work = recommendationWorks.value.firstOrNull {
-                it.mergeKey.ifBlank { it.id } == result.key
-            }
-            com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
-                id = result.key,
-                title = result.title,
-                author = result.author,
-                series = work?.seriesTitle.orEmpty(),
-                coverImageUrl = result.coverImageUrl
-            )
-        }
+        // #732 / ADR-0041 — candidates are the Mirror's local Works, including
+        // ones the listener has not imported yet: the row needs no union
+        // refresh and survives a dead network. The card id is the Work key, so
+        // tapping resolves through the same local identity as any other row.
+        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works)
         val knownIds = library.flatMap { lb ->
             listOfNotNull(lb.book.id, lb.book.workId, lb.book.mergeKey.takeIf { it.isNotBlank() })
         }.toMutableSet().apply {
@@ -3104,17 +3093,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * listen.
      */
     fun openRecommendedBook(candidateId: String) {
-        val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
         recommendationPersonalization.recordDetailOpen()
-        openGlobalSearchResult(result)
+        openRecommendedCandidate(candidateId, CatalogCardAction.OPEN)
     }
 
     fun playRecommendedBook(candidateId: String) {
+        openRecommendedCandidate(candidateId, CatalogCardAction.PLAY)
+    }
+
+    /**
+     * #732 / ADR-0041 — a recommended candidate is a local Mirror Work: it is
+     * resolved from the local rows and goes through the ordinary coordinator,
+     * which imports it through the real doors. The union is only a fallback
+     * for a card that has not been persisted yet.
+     */
+    private fun openRecommendedCandidate(candidateId: String, action: CatalogCardAction) {
+        val work = recommendationWorks.value.firstOrNull { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) == candidateId }
+        if (work != null) {
+            catalogCardCoordinator.start(
+                CatalogCardTarget(
+                    workId = work.id,
+                    title = work.title,
+                    author = work.author,
+                    coverImageUrl = work.coverImageUrl,
+                    mergeKey = work.mergeKey,
+                    cardKey = work.id
+                ),
+                action
+            )
+            return
+        }
         val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
-        playGlobalSearchResult(result)
+        when (action) {
+            CatalogCardAction.OPEN -> openGlobalSearchResult(result)
+            else -> playGlobalSearchResult(result)
+        }
     }
 
     fun preflightRecommendedBook(candidateId: String) {
+        val work = recommendationWorks.value.firstOrNull { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) == candidateId }
+        if (work != null) {
+            startCatalogPreflight(
+                CatalogCardTarget(
+                    workId = work.id,
+                    title = work.title,
+                    author = work.author,
+                    coverImageUrl = work.coverImageUrl,
+                    mergeKey = work.mergeKey,
+                    cardKey = work.id
+                )
+            )
+            return
+        }
         sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId }
             ?.let { startCatalogPreflight(it.asCatalogCardTarget()) }
     }

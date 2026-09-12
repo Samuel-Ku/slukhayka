@@ -165,6 +165,11 @@ fun WebSourceBrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf("") }
+    // #528 — the listener-opened category: the path of the category being
+    // browsed and the honest result of the last «add to Огляд» action.
+    var categoryPath by remember(sourceId) { mutableStateOf<String?>(null) }
+    var categoryResult by remember(sourceId) { mutableStateOf("") }
+    val nextCategoryCursor by viewModel.categoryNextCursor.collectAsState()
     var structureMismatch by remember { mutableStateOf<com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.StructureMismatch?>(null) }
     var repairHtml by remember { mutableStateOf("") }
     var repairUrl by remember { mutableStateOf("") }
@@ -318,6 +323,33 @@ fun WebSourceBrowserScreen(
             return false
         }
         return true
+    }
+
+    /**
+     * #528 — the listener opened a category page: offer it to «Огляд» as a
+     * collective block. ONE action fetches exactly this page (the adapter
+     * validates the path, so a foreign or promo page costs no request); when
+     * the SAME category is already being browsed, the action continues with
+     * the cursor the previous page returned. Another install then shows the
+     * block without repeating the category request.
+     */
+    fun addCurrentCategoryToFeed() {
+        val home = com.slukhayka.audiobooks.data.source.SourceRegistry
+            .facts(sourceId)?.homeUrl.orEmpty().trimEnd('/')
+        val pageUrl = currentWebUrl
+        if (home.isEmpty() || !pageUrl.startsWith(home)) {
+            categoryResult = "Це не сторінка $displayName — категорія доступна лише з джерела"
+            return
+        }
+        val path = pageUrl.removePrefix(home)
+        val continuation = categoryPath?.takeIf { it == path }?.let { nextCategoryCursor }
+        categoryPath = path
+        categoryResult = if (continuation != null) {
+            "Відкриваю наступну сторінку категорії…"
+        } else {
+            "Додаю категорію до Огляду…"
+        }
+        viewModel.openSourceCategory(sourceId, path, continuation)
     }
 
     /**
@@ -602,6 +634,22 @@ fun WebSourceBrowserScreen(
                     }
                 }
 
+                // #528 — the category door on its OWN row: one action = one
+                // category page on «Огляд», the next page behind its own tap.
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        onClick = { addCurrentCategoryToFeed() },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Додати категорію до Огляду"
+                        }
+                    ) {
+                        Text(
+                            text = "Категорія → Огляд",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+
                 if (importResult.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -616,6 +664,19 @@ fun WebSourceBrowserScreen(
                     if (structureMismatch != null) {
                         TextButton(onClick = { showRepairConfirmation = true }) { Text(stringResource(R.string.browser_fix_structure)) }
                     }
+                }
+                if (categoryResult.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = categoryResult,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (categoryResult.startsWith("Це не сторінка")) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        modifier = Modifier.testTag("browser_category_result")
+                    )
                 }
                 if (blockedNavMessage.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))

@@ -1,7 +1,10 @@
 /**
- * spec-45 (#405) T12 (#500) — librivox.org joins the web worker as the
- * English-language source. The MVP surfaces ENGLISH books only (the spec's
- * LibriVox start), one card per Work, alongside the Ukrainian sources.
+ * spec-45 (#405) T12 (#500), spec-51 (#742) — librivox.org joins the web
+ * worker as a MULTILINGUAL source: its catalogue spans ~49 languages, and
+ * every record whose own language claim maps through [normalizeLanguage]
+ * becomes a card. One standing exclusion — Russian: a `ru` claim never
+ * becomes a card or an Edition (an admission rule, not a listener
+ * preference). One card per Work, alongside the Ukrainian sources.
  *
  * ## Two transports, ONE sourceId
  *
@@ -16,9 +19,10 @@
  *   into one card by the union's merge key (title|author), never a second
  *   catalogue row — "One book, one card".
  *
- * Every card claims `language = en` (records are English-filtered at the
- * parse level, then normalized through [normalizeLanguage] — the Android
- * LanguageCode rule).
+ * Every card carries its OWN language claim (the api word / archive code,
+ * normalized through [normalizeLanguage]); an unmapped claim keeps the card
+ * with an absent language (US17) — never a guessed tag, and a `ru` claim
+ * never becomes a card at all.
  *
  * Book details are spec-45 T3's archive.org mirror pattern: the registry's
  * buildBook fetches `archive.org/metadata/<identifier>` and [buildBookDetail]
@@ -37,6 +41,15 @@ import { SOURCE_METADATA } from '../sourceMetadata'
 import { normalizeLanguage } from '../language'
 
 const BASE = SOURCE_METADATA.librivox.homeUrl
+
+/**
+ * Spec-51 (#742) — the catalog's one standing language exclusion: a Russian
+ * claim never becomes a card or an Edition («усе, крім російської»). It is an
+ * ADMISSION rule, deliberately not a Content Language Preference: under
+ * «Усі» the preference hides nothing, and unknown rows are never hidden
+ * (US17, ADR-0014).
+ */
+const EXCLUDED_LANGUAGE = 'ru'
 
 /** How many catalogue records one feed request carries (cursor pagination). */
 export const FEED_LIMIT = 30
@@ -94,21 +107,23 @@ function apiBooksFrom(jsonText: string): ApiBook[] | null {
 }
 
 /**
- * English records only (the LibriVox start of spec-45). The API reports the
- * language as a word ("English", "German", …) — the word itself is the
- * filter, and [normalizeLanguage] maps it to its BCP-47 tag, never guessed.
- * Cards carry the archive.org mirror page so ONE page shape serves both
- * transports (T3: playback reads the archive metadata).
+ * Every mapped language becomes a card; a `ru` record is dropped (the one
+ * standing admission exclusion), and an unmapped word keeps the card with an
+ * absent language. The API reports the language as a word ("German", …) —
+ * [normalizeLanguage] maps it, never guessed. Cards carry the archive.org
+ * mirror page so ONE page shape serves both transports (T3: playback reads
+ * the archive metadata).
  */
 function cardFromApiBook(book: ApiBook): CatalogCard | null {
-  if (book.language !== 'English') return null
+  const language = normalizeLanguage(book.language)
+  if (language === EXCLUDED_LANGUAGE) return null
   const identifier = archiveIdentifierOf(book.urlZipFile)
   if (book.title.trim() === '' || identifier === '') return null
   return {
     url: `https://archive.org/details/${identifier}`,
     title: book.title,
     author: book.firstAuthor,
-    language: normalizeLanguage(book.language) ?? undefined,
+    language: language ?? undefined,
     durationSeconds: book.totaltimeSecs > 0 ? book.totaltimeSecs : undefined,
   }
 }
@@ -160,20 +175,28 @@ function cardFromDoc(doc: Record<string, unknown>): CatalogCard | null {
   const identifier = asString(doc['identifier'])
   const title = asString(doc['title'])
   if (identifier === '' || title.trim() === '') return null
+  const language = normalizeLanguage(asString(doc['language']))
+  if (language === EXCLUDED_LANGUAGE) return null
   return {
     url: `https://archive.org/details/${identifier}`,
     title,
     author: asString(doc['creator']),
-    language: normalizeLanguage(asString(doc['language'])) ?? undefined,
+    language: language ?? undefined,
   }
 }
 
-/** Advanced-search URL over the librivoxaudio mirror collection. */
+/**
+ * Advanced-search URL over the librivoxaudio mirror collection.
+ * Spec-51 (#742): the collection clause carries NO language gate — the
+ * mirror serves every admitted language, and the Russian exclusion is
+ * applied on the parsed docs (one rule, both transports). The listener's
+ * Content Language Preference filters the results downstream.
+ */
 export function archiveSearchUrl(query: string, rows = 20): string {
   const clean = query.trim().replaceAll('"', '')
   // The quoted phrase keeps user words like "and"/"or" out of the archive's
-  // query operators; the collection+language clause is the English gate.
-  const q = `collection:librivoxaudio AND language:eng${clean === '' ? '' : ` AND "${clean}"`}`
+  // query operators.
+  const q = `collection:librivoxaudio${clean === '' ? '' : ` AND "${clean}"`}`
   const params = new URLSearchParams()
   params.set('q', q)
   params.set('fl[]', 'identifier')
@@ -205,6 +228,7 @@ export function identifierOf(pageUrl: string): string | null {
  * duplicates, covers and playlists — never chapters); their id3 `title` is
  * the real section name, `track` the order and `length` the clock duration
  * (either `mm:ss`/`h:mm:ss` or decimal seconds — both appear in the wild).
+ * A Russian item honestly yields no detail (never an Edition).
  */
 export function buildBookDetail(jsonText: string, pageUrl: string): BookDetail | null {
   const identifier = identifierOf(pageUrl)
@@ -212,6 +236,8 @@ export function buildBookDetail(jsonText: string, pageUrl: string): BookDetail |
   const parsed = parseJson(jsonText)
   if (parsed === null || !isRecord(parsed)) return null
   const meta = isRecord(parsed['metadata']) ? parsed['metadata'] : {}
+  const language = normalizeLanguage(asString(meta['language']))
+  if (language === EXCLUDED_LANGUAGE) return null
   const files = Array.isArray(parsed['files'])
     ? parsed['files'].filter(isRecord)
     : []
@@ -234,7 +260,7 @@ export function buildBookDetail(jsonText: string, pageUrl: string): BookDetail |
     url: pageUrl,
     title: asString(meta['title']),
     author: asString(meta['creator']),
-    language: normalizeLanguage(asString(meta['language'])) ?? undefined,
+    language: language ?? undefined,
     coverImageUrl: `https://archive.org/download/${identifier}/__ia_thumb.jpg`,
     genres: [],
     descriptionHtml: description === '' ? undefined : description,

@@ -35,4 +35,25 @@ object CombinedAverage {
         if (addends.isEmpty()) return null
         return CombinedAverageResult(value = addends.sum() / addends.size, count = addends.size)
     }
+
+    /**
+     * #739 — the same flat mean when the listener pool arrives as an already
+     * validated aggregate (sum over count) instead of individual ratings: the
+     * cached projection does not keep per-listener rows, so the pool travels
+     * as its two honest numbers. Zero addends → null, exactly as [average] —
+     * a Work with no vote is never a fabricated zero.
+     */
+    fun averageWithListenerAggregate(
+        sourceRatings: List<Double?>,
+        listenerSum: Int,
+        listenerCount: Int
+    ): CombinedAverageResult? {
+        val sourceAddends = sourceRatings.filterNotNull()
+        val count = sourceAddends.size + listenerCount
+        if (count <= 0) return null
+        return CombinedAverageResult(
+            value = (sourceAddends.sum() + listenerSum) / count,
+            count = count
+        )
+    }
 }

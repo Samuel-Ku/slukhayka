@@ -11,6 +11,7 @@ import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -37,6 +38,12 @@ import java.util.concurrent.ConcurrentHashMap
  *   ([CatalogAvailabilityPolicy.isFresh]): a positive verdict is fresh for
  *   6 hours, a negative one for 15 minutes; both are stale at the exact
  *   expiry boundary, so repeated taps never re-request inside the window.
+ * - **A replacement attempt always ends with a verdict** (spec-49 follow-up
+ *   #720): the shared-cache read rides its own short deadline — a store that
+ *   retries forever offline must not starve the volley — and the whole
+ *   resolution is capped by [deadlineMs], the catalog source budget. A
+ *   timeout is an honest "no match" and memoizes like any other miss — never
+ *   a hang the card action cannot leave.
  * - **Best-effort and silent by contract.** A failing source, a failing
  *   union read, a failing store or a corrupt document all degrade to
  *   «no match» — no exception ever escapes.
@@ -71,7 +78,10 @@ class SourceReplacementMapping(
      * resolver keeps its honest path (volley → refusal/browser door).
      */
     private val sessionAlive: (sourceId: String) -> Boolean = { false },
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** #720–#723 — cap the shared-cache read so a slow store never stalls a tap. */
+    private val sharedCacheTimeoutMs: Long = 2_000L,
+    private val deadlineMs: Long = CatalogAvailabilityPolicy.SOURCE_BUDGET_MS
 ) {
 
     /**
@@ -128,7 +138,9 @@ class SourceReplacementMapping(
             .joinToString(" ")
         if (query.isEmpty()) return null
 
-        val match = resolveLocalChain(title, author, mergeKey, query) ?: resolveVolley(query, mergeKey)
+        val match = withTimeoutOrNull(deadlineMs) {
+            resolveLocalChain(title, author, mergeKey, query) ?: resolveVolley(query, mergeKey)
+        }
         verdicts[mergeKey] = Verdict(match != null, now, match)
         return match
     }
@@ -145,7 +157,7 @@ class SourceReplacementMapping(
         mergeKey: String,
         query: String
     ): Match? = resolveFromUnion(mergeKey)
-        ?: resolveFromSharedCache(query, mergeKey)
+        ?: withTimeoutOrNull(sharedCacheTimeoutMs) { resolveFromSharedCache(query, mergeKey) }
         ?: usableIndexMatch(runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull())
 
     /** The capability rule: DIRECT always, BROWSER only with a live session. */

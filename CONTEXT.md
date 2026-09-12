@@ -13,7 +13,7 @@ A specific audiobook rendition of one Work, distinguished by language, narrator,
 _Avoid_: Version, copy, source
 
 **Language**:
-The BCP-47 primary tag (`uk`, `en`, `de`, …) of one Edition's narration. The Work stays language-free — `mergeKey` is title|author — while the Edition id hashes `mergeKey|narrator|language`, so two languages of one Work are two Editions, never two cards (ADR-0029). Only a KNOWN claim yields a tag (`LanguageCode.normalize` / web `normalizeLanguage`: «English»→en, `eng`→en, `en-US`→en); unknown = absent, never guessed, and rows without a language are never hidden by any Content Language Preference (US17). A whole-language source declares one `contentLanguage`; a card may override it per book.
+The BCP-47 primary tag (`uk`, `en`, `de`, …) of one Edition's narration. The Work stays language-free — `mergeKey` is title|author — while the Edition id hashes `mergeKey|narrator|language`, so two languages of one Work are two Editions, never two cards (ADR-0029). Only a KNOWN claim yields a tag (`LanguageCode.normalize` / web `normalizeLanguage`: «English»→en, `eng`→en, `en-US`→en); unknown = absent, never guessed, and rows without a language are never hidden by any Content Language Preference (US17). A whole-language source declares one `contentLanguage`; a card may override it per book. Admission is the adapter's own claim mapped to a tag — the catalog admits every language a source really serves. The one standing exclusion is Russian: a `ru` claim never becomes a card or an Edition («усі крім російської» is an admission rule of the catalog, not a listener preference).
 _Avoid_: language on the Work, guessed language from text/URL heuristics
 
 **Source**:
@@ -47,13 +47,16 @@ _Avoid_: спільна база посилань, збережені підпи
 **Source Request Gate**:
 Один шлюз ввічливості, крізь який проходить кожен HTML/API-запит до домену
 джерела: спершу свіжий кеш (нуль запитів), далі персистентний token bucket на
-домен, далі глобальне горло «один запит у польоті» з джитер-проміжком. Запити
-бувають дією слухача, оновленням за TTL або фонові; фон палить бюджет лише
-коли кошик повний більш ніж наполовину, дія слухача стрибає в голову черги.
-Токен списується на запит; прохід обмежений кошиком — частковий каталог це
-чесний стан, а не фабрикація (ADR-0040).
+домен, далі горло «один запит у польоті» на хост джерела з джитер-проміжком
+між запитами того самого хоста — різні джерела ходять паралельно, тож тап чи
+пошук не стоять у черзі за чужими хостами (уточнення 2026-09-11, #722/#723).
+Запити бувають дією слухача, оновленням за TTL або фонові; фон палить бюджет
+лише коли кошик повний більш ніж наполовину, дія слухача стрибає в голову
+черги. Легасі-блокуючі двері не чекають токена: сухий кошик — чесний Deferred
+одразу. Токен списується на запит; прохід обмежений кошиком — частковий
+каталог це чесний стан, а не фабрикація (ADR-0040).
 Аудіо-стріми та жива браузерна сесія поза шлюзом (ADR-0039).
-_Avoid_: власний ритм кожної фічі, сплеск до багатьох доменів на старті, паузи для аудіо-стрімів
+_Avoid_: власний ритм кожної фічі, сплеск до багатьох доменів на старті, паузи для аудіо-стрімів, глобальне горло на всі джерела
 
 **Source Request Profile**:
 Декларація адаптера на ендпоінт: клас запиту і TTL кешу, які шов
@@ -83,8 +86,12 @@ A device's locator, permission, and availability relationship to a Source. Bindi
 _Avoid_: Source, download
 
 **Source Catalog**:
-The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo; spec-50: chitaka — its fb2/epub/txt pages share the `/knigi/` path but render no `<audio>`) until a separate recorded decision.
-_Avoid_: Store, browse cache, text content of a mixed site as catalog rows
+The union of browseable Works a Source exposes — sections, genres, series listings, people — observed as Metadata Assertions and mirrored into the Catalog Mirror as it is enumerated; no screen renders the Source Catalog directly. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo; spec-50: chitaka — its fb2/epub/txt pages share the `/knigi/` path but render no `<audio>`) until a separate recorded decision.
+_Avoid_: Store, browse cache, text content of a mixed site as catalog rows, a screen rendering the live catalog
+
+**Дзеркало каталогу** (Catalog Mirror):
+Локально збережений перелік Творів, які джерела вже перелічили, разом із придбаними при переліченні Metadata Assertions. Єдина контентна база поверхонь відкриттів — рекомендацій, безкінечного фіду та сусідів на сторінках деталей; полиці стоять на Медіатеці (імпортованих Library Entries). Дзеркало ніколи не є джерелом істини: усе в ньому — чиїсь Metadata Assertions, а твір у Дзеркалі не означає, що слухач його має.
+_Avoid_: Медіатека, живий каталог, сховище істини, імпорт за фактом перелічення
 
 **Search Genre Assertion**:
 Genre-claim, який несе картка пошуку (`SourceBook.genre`) для одного
@@ -145,8 +152,8 @@ _Avoid_: HTML/challenge as proof, catalogue-wide crawl, Work availability,
 cross-Edition fallback, reordering under the listener
 
 **Feed Snapshot**:
-A persisted copy of one Source feed response (homepage sections or page cards) stored in Room with its fetch time. Огляд reads the snapshot first; the network is asked only after the TTL — новинки 6 hours, каталог 24 hours — or on an explicit listener refresh. Books from a snapshot enter through the same upsert path as live fetches: tombstones keep blocking, nothing is ever deleted.
-_Avoid_: re-fetch on every start, feed deletion, snapshot as the only truth
+A persisted copy of one Source feed response (homepage sections or page cards) stored in Room with its fetch time. The ingestion refresh reads the snapshot first; the network is asked only after the TTL — новинки 6 hours, каталог 24 hours — or on an explicit listener refresh. Books from a snapshot enter the Catalog Mirror through the same upsert path as live fetches: tombstones keep blocking, nothing is ever deleted.
+_Avoid_: re-fetch on every start, feed deletion, snapshot as the only truth, a screen rendering a live feed
 
 **Cross-resolve**:
 The one-request check made when a listener taps a card whose only Source needs the browser: the same Work (by MergeKey) is looked up on a Direct Source, and a match imports and plays/opens without the browser. One search per tap, no background crawling; the verdict is memoized with the Edition Availability Assertion windows. Generalized by Replacement Mapping (ADR-0037): all direct sources instead of one, whenever a Work's audio is refused or absent.
@@ -227,7 +234,11 @@ _Avoid_: серверний LLM-прохід, вигаданий автор, в�
 відмови повертає їх без повторного імпорту. Джерело-специфічне й абсолютне —
 не Tombstone (той блокує ввесь Твір разом із метаданими), не відмова на клас
 браузерних джерел, без браузерного виходу всупереч відмові.
-_Avoid_: Tombstone за Твором, відмова на клас, синхронізація, браузерний вихід всупереч відмові
+Окремо від вибору слухача, **скам-джерело** (`scam` у Реєстрі джерел) відмовлене
+вбудовано й назавжди: жодна дія не може його дозволити, жоден запис у базу не
+проходить, а наявні фальшиві Sources/глави/Edition чистить стартовий пас —
+картка Твору лишається чесним «аудіо недоступне».
+_Avoid_: Tombstone за Твором, відмова на клас, синхронізація, браузерний вихід всупереч відмові, скам-джерело як вибір слухача
 
 **Replacement Mapping**:
 Мапування Твору, чиє аудіо відмовлене чи відсутнє, на джерела інших джерел —
@@ -405,17 +416,17 @@ Import dedup is per RENDITION (Edition id), not per Work — the same narration 
 _Avoid_: one card per Work with unreachable second narrations
 
 **Smart collections**:
-The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the catalog union. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
-_Avoid_: network lists, Room persistence of match results
+The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
+_Avoid_: network lists, Room persistence of match results, a collection row for a book the listener does not have
 
 **Live collections**:
-The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll`; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
+The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll` against the Media Library; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
 _Avoid_: raw connections in live sources, live lists persisted to Room
 
 ## Discovery surfaces (spec-28)
 
 **Personal Recommendation**:
-Твір, запропонований слухачеві для наступного прослуховування з урахуванням його смаку, зокрема вже доданий у медіатеку, але ще не розпочатий. Персональні рекомендації допомагають швидко обрати цікаву книгу й залишають місце для відкриття незнайомих авторів.
+Твір, запропонований слухачеві для наступного прослуховування з урахуванням його смаку, зокрема вже доданий у медіатеку, але ще не розпочатий. Кандидати приходять із Дзеркала каталогу та Медіатеки; рекомендація без імпорту відкривається тапом через звичайні двері імпорту. Персональні рекомендації допомагають швидко обрати цікаву книгу й залишають місце для відкриття незнайомих авторів.
 _Avoid_: загальна популярність як доказ особистого смаку, рекомендація як гарантія вподобання
 
 **Recommendation Set**:
@@ -425,6 +436,10 @@ _Avoid_: Feed Snapshot, безперервне перемішування вид
 **Successful Recommendation**:
 Вибір із рекомендацій, після якого слухач реально почав твір і продовжив його слухати в інший день або завершив. Явна низька оцінка твору переважає це поведінкове свідчення вдалого підбору.
 _Avoid_: відкриття картки як успіх, непідтверджений успіх як негативне вподобання
+
+**Рейтинг медіатеки** (Library Rating Chart):
+Впорядкований за спільною середньою (ADR-0022) список Творів медіатеки; у рейтинг входять лише твори з хоч одним свідченням — джерельною оцінкою або відгуком слухача. Твір без свідчень у рейтингу відсутній, а не отримує нуль. Це не чарт джерела і не список усього каталогу.
+_Avoid_: rank за замовчуванням, нуль за відсутності оцінок, чарт 4read
 
 **Exploration Recommendation**:
 Персональна рекомендація, яка знайомить слухача з твором поза найочевиднішим продовженням його звичного смаку. Має підставу очікувати інтерес слухача, зокрема змістовий зв’язок або спільні вподобання інших слухачів.
@@ -462,21 +477,25 @@ _Avoid_: клік як доказ задоволення, Recommendation Signal 
 Локальне уточнення персональних рекомендацій за власними вподобаннями й досвідом слухача. Працює незалежно від його участі у спільному навчанні та від наявності серверного Recommendation Profile.
 _Avoid_: Recommendation Profile, пауза або незавершення як явне несхвалення
 
-**Cross-source «Новинки» rail**:
-One Огляд rail merging the new-arrival books of every Source — 4read's «Новинки» section plus the other sources' new feeds — into a single Work-deduplicated list with a per-Source badge on each card (`SourceCatalog.newArrivals`). It is published on both union triggers (`refreshSourceFeeds` + `fetchCatalogSections`) so it always reflects the fresher input, and the 4read «Новинки» catalogue section row is skipped on Огляд so 4read's new arrivals appear exactly once (spec-28 #192).
-_Avoid_: per-source «Нове» rows, duplicate 4read sections
+**«Новинки» медіатеки**:
+The one Огляд rail of recent arrivals: the listener’s recently imported Works (auto-seeded or manual), Work-deduplicated, with a per-Source badge on each card. It is computed from Library Entries alone — a Source’s own new-arrival feed is never rendered (spec-28 #192, Рішення C).
+_Avoid_: per-source «Нове» rows, source new-arrival feeds, duplicate arrival rails
 
 **«Серії» index screen**:
-A pushed screen listing every Series aggregated from the Source Catalog sections (the «Цикли» row), deduplicated by URL via the pure `CatalogSeriesIndex`; tapping one opens the existing series page with its books and universe context. No new series data source — it only indexes what the catalogue parser already produces (spec-28 #189).
-_Avoid_: inline-only series row, new series data source
+A pushed screen listing every Series present in the Media Library, deduplicated; tapping one opens the series page, whose books come from the Media Library while its neighbours may be revealed from the Catalog Mirror as discovery. No new series data source — it only indexes the Works the listener already has (spec-28 #189).
+_Avoid_: inline-only series row, new series data source, a series row with no library book
 
 **«Колекції» index screen**:
-A pushed screen listing every matched smart collection (Нобелівські лауреати, Шевченківська премія, Букер, live lists); tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
-_Avoid_: duplicated collection behaviour, new collection data source
+A pushed screen listing every smart collection matched against the Media Library (Нобелівські лауреати, Шевченківська премія, Букер, live lists); a collection shows only Works the listener already has, and tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
+_Avoid_: duplicated collection behaviour, new collection data source, a collection row for a book the listener does not have
 
 **Content Language Preference**:
-The local-only set of content languages shown in discovery: «обидві ввімкнені» by default, an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip. Web: `contentLanguagePrefs.filterWorksByLanguage` plus chips that offer only languages with actual content. It never syncs and never touches Listening State.
-_Avoid_: server-side preference, hiding unknown-language rows, an all-off state
+The local-only set of content languages shown in discovery: every known language on by default («Усі»), an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). The offered languages are the ones with actual content, on both platforms. Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip opening the same multiselect. Web: `contentLanguagePrefs.filterWorksByLanguage` plus language chips. It never syncs and never touches Listening State.
+_Avoid_: server-side preference, hiding unknown-language rows, an all-off state, a hardcoded two-language toggle
+
+**First Language Choice**:
+The one-time first-run question «якими мовами хочеш книжки»: after the first successful catalog sync the listener is offered every known content language, all on, with the quick actions «Лише українські» and «Усі». Any answer — explicit selection or quick action — is terminal: persisted locally, never re-asked across restarts, and an already-narrowed preference counts as the answer. It replaces the earlier bilingual uk/en prompt and inherits its fires-once discipline. It shapes the Content Language Preference only; it never syncs and never touches Listening State.
+_Avoid_: asking before any content exists, a second prompt after an answer, pre-selecting from the device locale
 
 ## v1.4 UI consistency (spec-27, ADR-0033)
 

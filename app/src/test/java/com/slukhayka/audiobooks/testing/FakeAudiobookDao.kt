@@ -17,6 +17,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
 import com.slukhayka.audiobooks.data.db.PlaybackFailureEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.SeriesEntity
+import com.slukhayka.audiobooks.data.db.SeriesIndexRow
 import com.slukhayka.audiobooks.data.db.SeriesMemberEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
@@ -30,6 +31,7 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
+import com.slukhayka.audiobooks.data.people.NarratorSummary
 import com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity
 import com.slukhayka.audiobooks.data.db.GenreFacetEntity
 import com.slukhayka.audiobooks.data.db.WorkGenreEntity
@@ -379,6 +381,12 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun updateBookSourceUrl(bookId: String, url: String) {
+        booksState.update { current ->
+            current.map { book -> if (book.id == bookId) book.copy(sourceUrl = url) else book }
+        }
+    }
+
     override suspend fun updateBookMetadata(
         bookId: String,
         author: String?,
@@ -515,11 +523,20 @@ class FakeAudiobookDao(
     override suspend fun getEditionForWork(bookId: String): EditionEntity? =
         editionsState.value.firstOrNull { it.workId == bookId }
 
-    // Spec-45 (#405) T8 (#496): mirror of the DAO probe — the bilingual
-    // prompt fires only when a known-English rendition exists.
-    override suspend fun hasEnglishEditions(): Boolean =
-        editionsState.value.any { it.language == "en" } ||
-            editionFacetsState.value.any { it.language == "en" }
+    // Spec-51 (#742): mirror of the DAO probes — the First Language Choice
+    // fires only when some rendition exists, and it offers exactly the
+    // languages the catalogue holds.
+    override suspend fun knownEditionLanguages(): List<String> =
+        (editionsState.value.map { it.language } + editionFacetsState.value.mapNotNull { it.language })
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    override fun observeKnownEditionLanguages(): Flow<List<String>> =
+        combine(editionsState, editionFacetsState) { editions, facets ->
+            (editions.map { it.language } + facets.mapNotNull { it.language })
+                .filter { it.isNotBlank() }
+                .distinct()
+        }
 
     override fun observeEditions(): Flow<List<EditionEntity>> = editionsState
 
@@ -610,6 +627,9 @@ class FakeAudiobookDao(
     override suspend fun getSourcesForEditionSync(editionId: String): List<SourceEntity> =
         sourcesState.value.filter { it.editionId == editionId }.sortedBy { it.addedAt }
 
+    override suspend fun getSourcesByTypes(types: List<String>): List<SourceEntity> =
+        sourcesState.value.filter { it.type in types }
+
     override suspend fun insertSources(sources: List<SourceEntity>) {
         val incomingIds = sources.map { it.id }.toSet()
         sourcesState.update { current -> current.filterNot { it.id in incomingIds } + sources }
@@ -631,6 +651,10 @@ class FakeAudiobookDao(
         workSourcesState.update { current -> current.filterNot { it.workId == workId && it.sourceUrl == sourceUrl } }
     }
 
+    override suspend fun deleteWorkSourcesBySourceIds(types: List<String>) {
+        workSourcesState.update { current -> current.filterNot { it.sourceId in types } }
+    }
+
     override suspend fun getBookIdBySourceId(sourceId: String): String? =
         sourcesState.value.firstOrNull { it.id == sourceId }?.bookId
 
@@ -646,6 +670,18 @@ class FakeAudiobookDao(
 
     override suspend fun deletePlaybackProgressForBook(bookId: String) {
         progressState.update { current -> current.filterNot { it.bookId == bookId } }
+    }
+
+    override suspend fun deleteChaptersForEdition(editionId: String) {
+        chaptersState.update { current -> current.filterNot { it.editionId == editionId } }
+    }
+
+    override suspend fun deleteBookmarksForEdition(editionId: String) {
+        bookmarksState.update { current -> current.filterNot { it.editionId == editionId } }
+    }
+
+    override suspend fun deletePlaybackProgressForEdition(editionId: String) {
+        progressState.update { current -> current.filterNot { it.editionId == editionId } }
     }
 
     override suspend fun deleteAudiobook(bookId: String) {
@@ -931,6 +967,49 @@ class FakeAudiobookDao(
 
     override suspend fun getAllSeries(): List<SeriesEntity> = seriesState.value
 
+    /** #734 — the fake's owned-only series index mirrors the SQL union. */
+    override suspend fun ownedSeriesIndexRows(): List<SeriesIndexRow> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        val fromWorks = worksState.value
+            .filter { it.id in owned && !it.seriesTitle.isNullOrBlank() }
+            .map { SeriesIndexRow(it.seriesTitle!!, it.seriesUrl) }
+        val ownedSeriesIds = seriesMembersState.value.filter { it.workId in owned }.map { it.seriesId }.toSet()
+        val fromSeries = seriesState.value
+            .filter { it.id in ownedSeriesIds && it.title.isNotBlank() }
+            .map { SeriesIndexRow(it.title, it.url) }
+        return (fromWorks + fromSeries)
+            .distinctBy { it.url ?: it.title }
+            .sortedBy { it.title.lowercase() }
+    }
+
+    override suspend fun libraryBooksForSeries(title: String): List<AudiobookEntity> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        val seriesIds = seriesState.value.filter { it.title == title }.map { it.id }.toSet()
+        val memberWorkIds = seriesMembersState.value
+            .filter { it.seriesId in seriesIds }
+            .map { it.workId }
+            .toSet()
+        val workIds = worksState.value
+            .filter { (it.seriesTitle == title && it.id in owned) || it.id in memberWorkIds }
+            .map { it.id }
+            .toSet()
+        return booksState.value
+            .filter { it.id in workIds }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
+    }
+
+    override suspend fun mirrorNeighboursForSeries(title: String): List<WorkEntity> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        val seriesIds = seriesState.value.filter { it.title == title }.map { it.id }.toSet()
+        val memberWorkIds = seriesMembersState.value
+            .filter { it.seriesId in seriesIds }
+            .map { it.workId }
+            .toSet()
+        return worksState.value
+            .filter { (it.seriesTitle == title || it.id in memberWorkIds) && it.id !in owned }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
+    }
+
     override suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity> =
         seriesMembersState.value.filter { it.workId == workId }
 
@@ -1124,6 +1203,13 @@ class FakeAudiobookDao(
         genreAssertionsState.update { rows -> rows.filterNot { it.workId == workId && it.sourceId == sourceId } }
     }
 
+    override suspend fun deleteEditionFacet(editionId: String) {
+        editionFacetsState.update { current -> current.filterNot { it.editionId == editionId } }
+    }
+
+    override suspend fun getEditionFacet(editionId: String): EditionFacetEntity? =
+        editionFacetsState.value.firstOrNull { it.editionId == editionId }
+
     override suspend fun upsertGenreAssertionState(row: GenreAssertionStateEntity) {
         genreAssertionStatesState.update { rows -> rows.filterNot { it.workId == row.workId && it.sourceId == row.sourceId } + row }
     }
@@ -1184,6 +1270,20 @@ class FakeAudiobookDao(
             }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id))
         }
 
+    /** #736 — the fake's owned-only people index mirrors the SQL EXISTS join. */
+    override fun observeLibraryAuthorIndex(): Flow<List<AuthorSummary>> =
+        combine(authorFacetsState, workFacetsState, libraryEntriesState) { authors, workFacets, entries ->
+            val ownedWorkIds = entries.map { it.workId }.toSet()
+            authors.mapNotNull { author ->
+                val count = workFacets.count {
+                    it.canonicalAuthorId == author.id && it.workId in ownedWorkIds
+                }
+                author.takeIf { count > 0 }?.let {
+                    AuthorSummary(it.id, it.displayName, it.normalizedName, count)
+                }
+            }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id))
+        }
+
     override suspend fun searchAuthors(
         lowerBound: String,
         upperBound: String,
@@ -1204,6 +1304,37 @@ class FakeAudiobookDao(
     override suspend fun worksForAuthor(authorId: String): List<WorkEntity> {
         val ids = workFacetsState.value.filter { it.canonicalAuthorId == authorId }.map { it.workId }.toSet()
         return worksState.value.filter { it.id in ids }.sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
+    }
+
+    /** #736 — the owned Work ids of one author. */
+    override suspend fun ownedWorkIdsForAuthor(authorId: String): List<String> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        return workFacetsState.value
+            .filter { it.canonicalAuthorId == authorId && it.workId in owned }
+            .map { it.workId }
+            .distinct()
+    }
+
+    /** #736 — the fake's owned-only narrator index mirrors the SQL join. */
+    override fun observeLibraryNarrators(): Flow<List<NarratorSummary>> =
+        combine(editionsState, libraryEntriesState) { editions, entries ->
+            val ownedWorkIds = entries.map { it.workId }.toSet()
+            editions
+                .filter { it.workId in ownedWorkIds && it.narrator.isNotBlank() }
+                .groupBy { it.narrator }
+                .map { (narrator, rows) -> NarratorSummary(narrator, rows.map { it.workId }.distinct().size) }
+                .sortedBy { it.displayName.lowercase() }
+        }
+
+    override suspend fun libraryBooksForNarrator(narrator: String): List<AudiobookEntity> {
+        val ownedWorkIds = libraryEntriesState.value.map { it.workId }.toSet()
+        val workIds = editionsState.value
+            .filter { it.narrator == narrator && it.workId in ownedWorkIds }
+            .map { it.workId }
+            .toSet()
+        return booksState.value
+            .filter { it.id in workIds }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
     }
 
     override suspend fun authorForWork(workId: String): AuthorSummary? {

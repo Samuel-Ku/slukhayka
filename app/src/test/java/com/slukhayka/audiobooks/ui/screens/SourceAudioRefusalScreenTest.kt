@@ -81,11 +81,11 @@ class SourceAudioRefusalScreenTest {
     fun `badge renders known counts and stays hidden otherwise`() {
         runBlocking {
             val store = FakeSharedBookMetaStore()
-            store.publishRefusalVote("4read", "uid-1")
-            store.publishRefusalVote("4read", "uid-2")
+            store.publishRefusalVote("soundbooks", "uid-1")
+            store.publishRefusalVote("soundbooks", "uid-2")
             show(freshPrefs(), store)
 
-            compose.onNodeWithTag("source_audio_refusal_4read_shared_count").assertExists()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertExists()
             compose.onNodeWithTag("source_audio_refusal_sluhayua_shared_count").assertDoesNotExist()
         }
     }
@@ -96,11 +96,11 @@ class SourceAudioRefusalScreenTest {
             val store = FakeSharedBookMetaStore()
             show(freshPrefs(), store)
 
-            compose.onNodeWithTag("source_audio_refusal_4read_checkbox").performClick()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
             compose.waitForIdle()
 
-            assertEquals(0L, store.getRefusalCount("4read"))
-            compose.onNodeWithTag("source_audio_refusal_4read_shared_count").assertDoesNotExist()
+            assertEquals(0L, store.getRefusalCount("soundbooks"))
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertDoesNotExist()
         }
     }
 
@@ -112,16 +112,16 @@ class SourceAudioRefusalScreenTest {
             prefs.setPublishRefusals(true)
             show(prefs, store)
 
-            compose.onNodeWithTag("source_audio_refusal_4read_checkbox").performClick()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
             compose.waitForIdle()
-            assertEquals(1L, store.getRefusalCount("4read"))
-            compose.onNodeWithTag("source_audio_refusal_4read_shared_count").assertExists()
+            assertEquals(1L, store.getRefusalCount("soundbooks"))
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertExists()
 
             // Allow and refuse again: the same device never counts twice.
-            compose.onNodeWithTag("source_audio_refusal_4read_checkbox").performClick()
-            compose.onNodeWithTag("source_audio_refusal_4read_checkbox").performClick()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
             compose.waitForIdle()
-            assertEquals(1L, store.getRefusalCount("4read"))
+            assertEquals(1L, store.getRefusalCount("soundbooks"))
         }
     }
 
@@ -150,11 +150,11 @@ class SourceAudioRefusalScreenTest {
             prefs.setPublishRefusals(true)
             show(prefs, store)
 
-            compose.onNodeWithTag("source_audio_refusal_4read_checkbox").performClick()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
             compose.waitForIdle()
 
-            assertTrue("the local refusal stands on its own", prefs.isRefused("4read"))
-            compose.onNodeWithTag("source_audio_refusal_4read_shared_count").assertDoesNotExist()
+            assertTrue("the local refusal stands on its own", prefs.isRefused("soundbooks"))
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertDoesNotExist()
         }
     }
 
@@ -166,11 +166,11 @@ class SourceAudioRefusalScreenTest {
             prefs.setPublishRefusals(true)
             show(prefs, store, uid = null)
 
-            compose.onNodeWithTag("source_audio_refusal_4read_checkbox").performClick()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
             compose.waitForIdle()
 
-            assertEquals(0L, store.getRefusalCount("4read"))
-            assertTrue(prefs.isRefused("4read"))
+            assertEquals(0L, store.getRefusalCount("soundbooks"))
+            assertTrue(prefs.isRefused("soundbooks"))
         }
     }
 }

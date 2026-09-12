@@ -18,8 +18,10 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -188,7 +190,7 @@ class GlobalSearchRepositoryTest {
     @Test
     fun `global search queries all sources and merges deduped into one Work card`() = runBlocking {
         val repository = repo(
-            FakeAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read"))),
+            FakeAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))),
             FakeAdapter("soundbooks", feedBooks = listOf(book("КОБЗАР", "Тарас Шевченко", "soundbooks")))
         )
 
@@ -197,13 +199,13 @@ class GlobalSearchRepositoryTest {
         assertEquals(1, results.size)
         val card = results.single()
         assertEquals("Кобзар", card.title)
-        assertEquals(listOf("soundbooks", "4read"), card.sources.map { it.sourceId })
+        assertEquals(listOf("soundbooks", "sluhayua"), card.sources.map { it.sourceId })
     }
 
     @Test
     fun `feed-only sources are discovered by the query`() = runBlocking {
         val repository = repo(
-            FakeAdapter("4read"), // no search hits
+            FakeAdapter("sluhayua"), // no search hits
             FakeAdapter("lihtar", feedBooks = listOf(book("Лісова пісня", "", "lihtar")))
         )
 
@@ -225,7 +227,7 @@ class GlobalSearchRepositoryTest {
             chapters = listOf(SourceChapter("Розділ 1", "https://cdn.example.com/kobzar/01.mp3"))
         )
         val repository = repo(
-            FakeAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read"))),
+            FakeAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))),
             FakeAdapter("audiobookmp3", feedBooks = listOf(book("Кобзар", "", "audiobookmp3")), detail = detail)
         )
 
@@ -236,13 +238,13 @@ class GlobalSearchRepositoryTest {
         assertEquals(1, results.size)
         assertEquals("Кобзар", results.single().title)
         assertEquals("Тарас Шевченко", results.single().author)
-        assertEquals(listOf("audiobookmp3", "4read"), results.single().sources.map { it.sourceId })
+        assertEquals(listOf("sluhayua", "audiobookmp3"), results.single().sources.map { it.sourceId })
     }
 
     @Test
     fun `global search is ephemeral - nothing is imported into Room`() = runBlocking {
         val repository = repo(
-            FakeAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+            FakeAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")))
         )
 
         repository.searchAllSources("кобзар")
@@ -281,28 +283,6 @@ class GlobalSearchRepositoryTest {
     }
 
     // ---------------------------------------------------------------------
-    // spec-14 T2: 4read search runs entirely through the adapter + shared
-    // HTTP client — the repository owns no 4read search transport/parser.
-    // ---------------------------------------------------------------------
-
-    // Same poster-block markup shape as FourReadAdapterTest.searchPage: real
-    // Cyrillic title in poster__title, author in the first poster__subtitle.
-    private fun fourReadSearchPage(): String = """
-        <html><body>
-        <div class="poster has-overlay grid-item d-flex fd-column">
-            <div class="poster__desc order-last">
-                <a href="https://4read.org/5359-taras-shevchenko-kobzar.html" class="poster__link"><div class="poster__title line-clamp">Кобзар</div></a>
-                <div class="poster__subtitle ws-nowrap">Поезія</div>
-                <div class="poster__subtitle ws-nowrap">Тарас Шевченко</div>
-            </div>
-            <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">
-                <img src="/uploads/posts/2025-05/medium/shevchenko-taras-kobzar.webp" alt="Шевченко Тарас - Кобзар">
-            </div>
-        </div>
-        </body></html>
-    """.trimIndent()
-
-    // ---------------------------------------------------------------------
     // spec-33 T2 (#227): the shared search cache in the search flow — a
     // fresh hit suppresses the source adapters, a miss resolves and writes
     // back, a stale entry re-fetches and refreshes, and the cached path
@@ -326,13 +306,36 @@ class GlobalSearchRepositoryTest {
     /** A fake adapter that counts search invocations — to prove suppression. */
     private class CountingAdapter(
         override val sourceId: String,
-        private val searchBooks: List<SourceBook> = emptyList()
+        private val searchBooks: List<SourceBook> = emptyList(),
+        private val feedBooks: List<SourceBook> = emptyList()
     ) : SourceAdapter {
         var searchCalls = 0
+        var feedCalls = 0
 
         override suspend fun search(query: String): List<SourceBook> {
             searchCalls++
             return searchBooks
+        }
+
+        override suspend fun fetchBookPage(url: String): SourceBookDetail =
+            SourceBookDetail("", "", url = url, chapters = emptyList())
+
+        override suspend fun fetchNew(limit: Int): List<SourceBook> {
+            feedCalls++
+            return feedBooks
+        }
+    }
+
+    /** An adapter whose search waits on a gate — proves the sweep is parallel. */
+    private class GatedAdapter(
+        override val sourceId: String,
+        private val gate: CompletableDeferred<Unit>,
+        private val signal: CompletableDeferred<Unit>? = null
+    ) : SourceAdapter {
+        override suspend fun search(query: String): List<SourceBook> {
+            signal?.complete(Unit)
+            gate.await()
+            return emptyList()
         }
 
         override suspend fun fetchBookPage(url: String): SourceBookDetail =
@@ -345,13 +348,13 @@ class GlobalSearchRepositoryTest {
         title = "Кобзар",
         author = "Тарас Шевченко",
         mergeKey = "кобзар|тарас шевченко",
-        sources = listOf(GlobalSearchSource("4read", "4read", "https://4read.org/5359-taras-shevchenko-kobzar.html"))
+        sources = listOf(GlobalSearchSource("sluhayua", "sluhayua", "https://sluhay.com.ua/5359-taras-shevchenko-kobzar.html"))
     )
 
     @Test
     fun `a fresh cached search hit suppresses the source adapters`() = runBlocking {
         val cache = FakeSearchCache()
-        val adapter = CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+        val adapter = CountingAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")))
         val repository = repo(adapter, searchCache = cache)
         // The cache holds the merged card for the query — as if another
         // listener resolved it earlier today.
@@ -369,7 +372,7 @@ class GlobalSearchRepositoryTest {
     fun `a cache miss resolves from the sources and writes the result back`() = runBlocking {
         val cache = FakeSearchCache()
         val repository = repo(
-            CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read"))),
+            CountingAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))),
             searchCache = cache
         )
 
@@ -386,7 +389,7 @@ class GlobalSearchRepositoryTest {
     @Test
     fun `a cache miss with an empty result writes nothing back`() = runBlocking {
         val cache = FakeSearchCache()
-        val repository = repo(CountingAdapter("4read"), searchCache = cache)
+        val repository = repo(CountingAdapter("sluhayua"), searchCache = cache)
 
         val results = repository.searchAllSources("нічого немає")
 
@@ -398,7 +401,7 @@ class GlobalSearchRepositoryTest {
     @Test
     fun `a stale cached entry re-fetches from the sources and refreshes the cache`() = runBlocking {
         val cache = FakeSearchCache()
-        val adapter = CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+        val adapter = CountingAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")))
         val repository = repo(adapter, searchCache = cache)
         // A yesterday-old entry — past the ~24h freshness window.
         cache.putResults("кобзар", listOf(cachedCard()))
@@ -417,7 +420,7 @@ class GlobalSearchRepositoryTest {
     @Test
     fun `the cached path returns the same result shape as the live path`() = runBlocking {
         val cache = FakeSearchCache()
-        val adapter = CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+        val adapter = CountingAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")))
         val repository = repo(adapter, searchCache = cache)
 
         val live = repository.searchAllSources("кобзар")
@@ -431,23 +434,66 @@ class GlobalSearchRepositoryTest {
     }
 
     @Test
-    fun `4read search runs through the real adapter and the shared HTTP client`() = runBlocking {
-        // The FakeFetcher serves the search-page markup — the adapter is the
-        // real FourReadAdapter, so this proves the door rides the seam: no
-        // repository-owned transport or parser is involved.
-        val fetcher = com.slukhayka.audiobooks.testing.FakeFetcher(responses = emptyMap(), fallback = fourReadSearchPage())
-        val repository = repo(com.slukhayka.audiobooks.data.source.FourReadAdapter(fetcher))
+    fun `a scam source is never queried by global search`() = runBlocking {
+        // #741: 4read is a scam source (52-second artefact) — the sweep skips
+        // it entirely: no request, no card, no badge.
+        val adapter = CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+        val repository = repo(adapter)
 
         val results = repository.searchAllSources("кобзар")
 
-        assertEquals(1, results.size)
-        val card = results.single()
-        // Enriched profile fields (real author + cover) flow from the adapter.
-        assertEquals("Кобзар", card.title)
-        assertEquals("Тарас Шевченко", card.author)
-        assertEquals("4read", card.sources.single().sourceId)
-        assertEquals("https://4read.org/uploads/posts/2025-05/medium/shevchenko-taras-kobzar.webp", card.coverImageUrl)
-        // Search stays ephemeral — nothing is imported into Room.
+        assertEquals(0, results.size)
+        assertEquals(0, adapter.searchCalls)
+        assertEquals(0, adapter.feedCalls)
         assertEquals(0, dao.getAllAudiobooks().first().size)
+    }
+
+    @Test
+    fun `searchSource falls back to the feed when the endpoint has no search`() = runBlocking {
+        // #721 — a direct source without a usable search endpoint answers
+        // from its recent-arrivals feed, exactly as the aggregated search
+        // always did; the replacement volley consumes the same seam.
+        val adapter = CountingAdapter(
+            "soundbooks",
+            feedBooks = listOf(book("Кобзар", "Тарас Шевченко", "soundbooks"))
+        )
+        val repository = repo(adapter)
+
+        val found = repository.searchSource(adapter, "кобзар")
+
+        assertEquals(1, found.size)
+        assertEquals("soundbooks", found.single().sourceId)
+        assertEquals(1, adapter.feedCalls)
+    }
+
+    @Test
+    fun `searchSource never touches the feed when the endpoint answers`() = runBlocking {
+        val adapter = CountingAdapter(
+            "sluhayua",
+            searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")),
+            feedBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))
+        )
+        val repository = repo(adapter)
+
+        val found = repository.searchSource(adapter, "кобзар")
+
+        assertEquals(1, found.size)
+        assertEquals(0, adapter.feedCalls)
+    }
+
+    @Test
+    fun `global search queries sources concurrently - never a sequential crawl`() = runBlocking {
+        // #722 — the first adapter cannot finish until the second has
+        // STARTED: only a parallel volley can ever complete this search.
+        val secondStarted = CompletableDeferred<Unit>()
+        val repository = repo(
+            GatedAdapter("aaa", gate = secondStarted),
+            GatedAdapter("zzz", gate = CompletableDeferred(Unit), signal = secondStarted)
+        )
+
+        val results = withTimeout(10_000) {
+            repository.searchAllSources("кобзар")
+        }
+        assertTrue(results.isEmpty())
     }
 }

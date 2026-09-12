@@ -29,6 +29,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * source of truth. The `local` pseudo-source is never a state: a
  * refusal stops the SOURCE supplying audio, never the listener's own
  * downloaded files.
+ *
+ * A scam source ([SourceRegistry.scamIds]) rides [ALWAYS_REFUSED] through
+ * every read and write: no listener action can allow it, because its audio
+ * is not the book (4read's clean-client stream is a 52-second artefact).
  */
 class SourceAudioRefusal(context: Context) {
 
@@ -81,8 +85,13 @@ class SourceAudioRefusal(context: Context) {
         /**
          * The refusal is about a SOURCE supplying audio. The local
          * pseudo-source is the listener's own files — it is never a state.
+         * Scam sources are refused unconditionally: they ride every read and
+         * write, so no `allow`/empty write can re-enable them.
          */
         fun normalize(sourceIds: Set<String>): Set<String> =
-            sourceIds.filter { it.isNotBlank() && it != "local" }.toSet()
+            sourceIds.filter { it.isNotBlank() && it != "local" }.toSet() + ALWAYS_REFUSED
+
+        /** Sources whose audio is never the book — a scam, not a rendition. */
+        val ALWAYS_REFUSED: Set<String> = SourceRegistry.scamIds()
     }
 }

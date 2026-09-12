@@ -5,9 +5,12 @@ import com.slukhayka.audiobooks.data.LanguageCode
 import com.slukhayka.audiobooks.data.collections.MiniJson
 
 /**
- * Spec-45 (#405) T2 (#490) — librivox.org joins the adapter seam as the
- * English-language source. The MVP surfaces ENGLISH books only (the spec's
- * LibriVox start), one card per Work, alongside the Ukrainian sources.
+ * Spec-45 (#405) T2 (#490), spec-51 (#742) — librivox.org joins the adapter
+ * seam as a MULTILINGUAL source: its catalogue spans ~49 languages, and every
+ * record whose own language claim maps through [LanguageCode] becomes a card.
+ * One standing exclusion — Russian: a `ru` claim never becomes a card or an
+ * Edition (an admission rule, not a Content Language Preference). One card
+ * per Work, alongside the Ukrainian sources.
  *
  * ## Two transports, ONE sourceId
  *
@@ -22,8 +25,10 @@ import com.slukhayka.audiobooks.data.collections.MiniJson
  *   merges into one card (the union's merge key + per-source dedup), never a
  *   second catalogue row — "One book, one card".
  *
- * Every returned card claims `language = en` (records are English-filtered at
- * the query/parse level, then normalized through [LanguageCode]).
+ * Every returned card carries its OWN language claim (the api word / archive
+ * code, normalized through [LanguageCode]); an unmapped claim keeps the card
+ * with an absent language (US17) — never a guessed tag, and a `ru` claim
+ * never becomes a card at all.
  *
  * Book pages (chapters/tracks) are spec-45 T3 (#491); until then
  * [fetchBookPage] honestly reports nothing playable.
@@ -34,14 +39,23 @@ class LibriVoxAdapter(
 
     override val sourceId: String = "librivox"
 
-    /** Spec-45 (#405) — this source speaks English. */
-    override val contentLanguage = "en"
+    /**
+     * Spec-51 (#742) — LibriVox is NOT a whole-language source: each card
+     * carries its own per-record language, so the declared fallback stays
+     * empty (unknown). Stamping "en" here would label a German, Latin or
+     * Esperanto record as English whenever its own claim is unreadable —
+     * unknown is never a guessed tag (ADR-0014, US17).
+     */
+    override val contentLanguage = ""
 
     /**
      * Archive.org advanced-search keyword search over the librivoxaudio
      * collection (the mirror transport). The query rides as a quoted phrase
      * so user words like "and"/"or" never collide with the archive query
-     * operators.
+     * operators. Spec-51 (#742): no language clause — every admitted language
+     * is searched, and the listener's Content Language Preference filters
+     * the results downstream (the former `language:eng` gate hid every
+     * non-English rendition from search).
      */
     override suspend fun search(query: String): List<SourceBook> {
         val cleanQuery = query.trim().replace("\"", "")
@@ -51,8 +65,9 @@ class LibriVoxAdapter(
     }
 
     /**
-     * Newest English recordings of the archive mirror, newest first
-     * (`addeddate desc`) — the archive is the only transport with a date.
+     * Newest recordings of the archive mirror in every admitted language,
+     * newest first (`addeddate desc`) — the archive is the only transport
+     * with a date. Spec-51 (#742): the English-only clause is gone.
      */
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val json = fetcher.getText(archiveSearchUrl("", newestFirst = true, limit = limit), emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
@@ -137,13 +152,18 @@ class LibriVoxAdapter(
 
         fun toSourceBook(): SourceBook? {
             if (title.isBlank() || identifier.isBlank()) return null
+            // Archive metadata reports the language code itself ("eng",
+            // "ger", "rus", …). Spec-51 (#742): the one standing admission
+            // exclusion drops a Russian doc; an unmapped code keeps the card
+            // with an absent language (US17).
+            val languageTag = LanguageCode.normalize(language)
+            if (languageTag == EXCLUDED_LANGUAGE) return null
             return SourceBook(
                 title = title,
                 author = creator,
                 url = "https://archive.org/details/$identifier",
                 coverImageUrl = LibriVoxCover.forIdentifier(identifier),
-                // Archive metadata reports the language code itself ("eng").
-                language = LanguageCode.normalize(language).orEmpty(),
+                language = languageTag.orEmpty(),
                 sourceId = sourceId,
                 // The archive search response carries no real duration.
                 totalDurationSeconds = 0L
@@ -161,28 +181,25 @@ class LibriVoxAdapter(
         val archiveIdentifier: String = archiveIdentifierOf(raw)
 
         /**
-         * English records only (the LibriVox start of spec-45). The API
-         * reports the language as a word ("English", "German", …); the word
-         * is mapped to its BCP-47 tag and normalized — never guessed. Cards
-         * carry the archive.org mirror page (T3 #491 plays from it), the
-         * identifier the api embeds in `url_zip_file`.
-         */
-        /**
-         * A (spec `2026-09-10-remove-4read-source`) — the api's language word
-         * is the source's own claim; a MAPPED language keeps its real BCP-47
-         * tag, an UNMAPPED one keeps the card with an absent language —
+         * A (spec `2026-09-10-remove-4read-source`), spec-51 (#742) — the
+         * api's language word is the source's own claim and maps through the
+         * ONE vocabulary ([LanguageCode]); the adapter keeps no parallel
+         * table. An UNMAPPED word keeps the card with an absent language —
          * visible under any selection, never hidden, never guessed (US17,
-         * ADR-0014). This widens the spec-45 English-only MVP; the wider
-         * catalogue supersedes the English-only decision by volume.
+         * ADR-0014). A Russian word drops the record instead. Cards carry the
+         * archive.org mirror page (T3 #491 plays from it), the identifier the
+         * api embeds in `url_zip_file`.
          */
         fun toSourceBook(): SourceBook? {
             if (title.isBlank() || archiveIdentifier.isBlank()) return null
+            val languageTag = LanguageCode.normalize(language)
+            if (languageTag == EXCLUDED_LANGUAGE) return null
             return SourceBook(
                 title = title,
                 author = author,
                 url = "https://archive.org/details/$archiveIdentifier",
                 coverImageUrl = LibriVoxCover.forIdentifier(archiveIdentifier),
-                language = LanguageCode.normalize(API_LANGUAGE_TAGS[language]).orEmpty(),
+                language = languageTag.orEmpty(),
                 totalDurationSeconds = durationSeconds,
                 sourceId = sourceId
             )
@@ -214,10 +231,16 @@ class LibriVoxAdapter(
         val title = metaObj?.let { string(it, "title") }.orEmpty()
         val author = metaObj?.let { string(it, "creator") }.orEmpty()
         val language = metaObj?.let { string(it, "language") }.orEmpty()
+        // Spec-51 (#742) — the admission exclusion holds at the detail door
+        // too: a Russian item never materialises an Edition, whoever asks.
+        if (LanguageCode.normalize(language) == EXCLUDED_LANGUAGE) {
+            return SourceBookDetail("", "", url = url, chapters = emptyList())
+        }
         val description = metaObj?.let { string(it, "description") }.orEmpty()
-        // Spec-45 (#405) R3 (#510): the archive item carries no narrator
-        // field — the CONFIRMED claim lives in the standard LibriVox
-        // description phrase ("Read in English by <name>"). Absent claim →
+        // Spec-45 (#405) R3 (#510) / spec-51 (#742): the archive item carries
+        // no narrator field — the CONFIRMED claim lives in the standard
+        // LibriVox description phrase ("Read in English by <name>", "Read in
+        // German by <name>"). Absent claim →
         // no name (ADR-0014: never fabricated, the author never becomes the
         // narrator).
         val decodedDescription = decodeEntities(stripTags(description)).trim()
@@ -289,9 +312,14 @@ class LibriVoxAdapter(
         return ""
     }
 
-    /** Advanced-search URL over the librivoxaudio mirror collection. */
+    /**
+     * Advanced-search URL over the librivoxaudio mirror collection.
+     * Spec-51 (#742): the collection clause carries NO language gate — the
+     * mirror serves every admitted language, and the Russian exclusion is
+     * applied on the parsed docs (one rule, both transports).
+     */
     private fun archiveSearchUrl(phrase: String, newestFirst: Boolean, limit: Int = DEFAULT_LIMIT): String {
-        val baseQuery = "collection:librivoxaudio AND language:eng" +
+        val baseQuery = "collection:librivoxaudio" +
             if (phrase.isNotBlank()) " AND $phrase" else ""
         val sort = if (newestFirst) "&sort%5B%5D=addeddate+desc" else ""
         return "https://archive.org/advancedsearch.php" +
@@ -304,28 +332,28 @@ class LibriVoxAdapter(
         java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
     private companion object {
-        /** R3 (#510): LibriVox's standard narrator-claim phrases. */
+        /**
+         * R3 (#510) / spec-51 (#742): LibriVox's standard narrator-claim
+         * phrases. The claim names the recording's language («Read in
+         * English by X», «Read in German by X»), so the language word is
+         * matched generically — an English-only pattern silently dropped
+         * every non-English narrator.
+         */
         val NARRATOR_PATTERNS = listOf(
-            Regex("""[Rr]ead in English by ([^.<>]+)"""),
+            Regex("""[Rr]ead in [A-Za-z]+ by ([^.<>]+)"""),
             Regex("""[Rr]ead by ([^.<>]+)"""),
             Regex("""[Nn]arrated by ([^.<>]+)""")
         )
 
         const val DEFAULT_LIMIT = 20
-        /** The API's language words → BCP-47 tags (only "English" is admitted today). */
-        val API_LANGUAGE_TAGS = mapOf(
-            "English" to "en",
-            "Ukrainian" to "uk",
-            "German" to "de",
-            "French" to "fr",
-            "Spanish" to "es",
-            "Italian" to "it",
-            "Portuguese" to "pt",
-            "Russian" to "ru",
-            "Dutch" to "nl",
-            "Polish" to "pl",
-            "Chinese" to "zh",
-            "Japanese" to "ja"
-        )
+
+        /**
+         * Spec-51 (#742) — the catalog's one standing language exclusion: a
+         * Russian claim never becomes a card or an Edition («усе, крім
+         * російської»). It is an ADMISSION rule, deliberately not a Content
+         * Language Preference: under «Усі» the preference hides nothing, and
+         * unknown rows are never hidden (US17, ADR-0014).
+         */
+        const val EXCLUDED_LANGUAGE = "ru"
     }
 }

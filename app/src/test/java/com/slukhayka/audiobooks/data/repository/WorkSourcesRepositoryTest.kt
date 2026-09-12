@@ -91,7 +91,7 @@ class WorkSourcesRepositoryTest {
     @Test
     fun `book with two sources lists both with their stream-only markers`() = runBlocking {
         val catalog = catalog()
-        // One Work carried by 4read (downloadable) and lihtar (stream-only).
+        // One Work carried by soundbooks (downloadable) and lihtar (stream-only).
         val work = WorkEntity(
             id = "w-merge-1",
             mergeKey = "пасажир|жанкрісторгранже",
@@ -102,10 +102,10 @@ class WorkSourcesRepositoryTest {
         dao.upsertWork(work)
         dao.upsertWorkSource(
             WorkSourceEntity(
-                id = "w-merge-1|4read|1",
+                id = "w-merge-1|soundbooks|1",
                 workId = work.id,
-                sourceId = "4read",
-                sourceUrl = "https://4read.org/pasazhir.html",
+                sourceId = "soundbooks",
+                sourceUrl = "https://sound-books.net/pasazhir.html",
                 streamOnly = false,
                 addedAt = 0L
             )
@@ -120,31 +120,31 @@ class WorkSourcesRepositoryTest {
                 addedAt = 0L
             )
         )
-        libraryBook("lib-1", "Пасажир", "https://4read.org/pasazhir.html", workId = work.id)
+        libraryBook("lib-1", "Пасажир", "https://sound-books.net/pasazhir.html", workId = work.id)
 
         val rows = catalog.sourcesForBook("lib-1")
 
         assertEquals(2, rows.size)
-        val fourRead = rows.first { it.sourceId == "4read" }
+        val soundbooks = rows.first { it.sourceId == "soundbooks" }
         val lihtar = rows.first { it.sourceId == "lihtar" }
-        assertEquals("4read", fourRead.sourceName)
+        assertEquals("Sound-Books", soundbooks.sourceName)
         assertEquals("Lihtar", lihtar.sourceName)
-        assertFalse(fourRead.streamOnly)
+        assertFalse(soundbooks.streamOnly)
         assertTrue(lihtar.streamOnly)
-        assertEquals("https://4read.org/pasazhir.html", fourRead.url)
+        assertEquals("https://sound-books.net/pasazhir.html", soundbooks.url)
     }
 
     @Test
     fun `pre-merge library row falls back to its own single source`() = runBlocking {
         val catalog = catalog()
         // No workId / no editions yet — the row predates the merge.
-        libraryBook("lib-legacy", "Стара книга", "https://4read.org/stara.html")
+        libraryBook("lib-legacy", "Стара книга", "https://sound-books.net/stara.html")
 
         val rows = catalog.sourcesForBook("lib-legacy")
 
         assertEquals(1, rows.size)
-        assertEquals("4read", rows.single().sourceId)
-        assertEquals("4read", rows.single().sourceName)
+        assertEquals("soundbooks", rows.single().sourceId)
+        assertEquals("Sound-Books", rows.single().sourceName)
         assertFalse(rows.single().streamOnly)
     }
 

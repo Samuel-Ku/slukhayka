@@ -71,9 +71,21 @@ open class FakeFetcher(
         }
     }
 
-    override fun getText(url: String): String = responses[url] ?: fallback
+    /**
+     * URLs requested through the text door, in call order. Spec-51 (#742)
+     * needs it to assert a QUERY shape (the archive search no longer gates
+     * on `language:eng`) without pinning an exact URL key, which would make
+     * every other fixture brittle.
+     */
+    val requestedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+
+    override fun getText(url: String): String {
+        requestedUrls += url
+        return responses[url] ?: fallback
+    }
 
     override fun getText(url: String, extraHeaders: Map<String, String>): String {
+        requestedUrls += url
         recordedHeaders += extraHeaders
         return responses[url] ?: fallback
     }
@@ -86,6 +98,7 @@ open class FakeFetcher(
     ): String {
         // Header-less requests are not part of the recorded-headers contract
         // (the pre-gate getText(url) door recorded nothing either).
+        requestedUrls += url
         if (extraHeaders.isNotEmpty()) recordedHeaders += extraHeaders
         return responses[url] ?: fallback
     }

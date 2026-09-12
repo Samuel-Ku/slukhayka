@@ -1,5 +1,5 @@
 import type { CatalogCard, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from './types'
-import { SOURCE_ORDER, sourceContentLanguage } from './sourceMetadata'
+import { ALL_WEB_ORDER, sourceContentLanguage } from './sourceMetadata'
 import { normalizeLanguage } from './language'
 
 export type SourceCards = { sourceId: SourceId; cards: CatalogCard[] }
@@ -10,8 +10,8 @@ export type SourceCards = { sourceId: SourceId; cards: CatalogCard[] }
 // Edition*, never a reason to replace that Edition with a different narrator.
 const SOURCE_PRIORITY: Record<SourceId, number> = Object.fromEntries(
   [
-    ...SOURCE_ORDER.filter((sourceId) => sourceId !== "fourread"),
-    ...SOURCE_ORDER.filter((sourceId) => sourceId === "fourread"),
+    ...ALL_WEB_ORDER.filter((sourceId) => sourceId !== "fourread"),
+    ...ALL_WEB_ORDER.filter((sourceId) => sourceId === "fourread"),
   ].map((sourceId, index) => [sourceId, index]),
 ) as Record<SourceId, number>
 

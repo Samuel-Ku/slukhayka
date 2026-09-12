@@ -82,7 +82,12 @@ open class HttpFetcher(
     ): String {
         val gate = effectiveGate(url, extraHeaders) ?: return getTextResult(url, extraHeaders).second
         val outcome = runBlocking {
-            gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
+            // The blocking door never waits: a dry bucket defers immediately
+            // and the jitter gap is skipped, so taps and global search stay
+            // responsive (the 2026-09-10 device regression).
+            gate.run(url, requestClass, cacheTtlMillis, canWait = false) {
+                executeText(url, extraHeaders)
+            }
         }
         return when (outcome) {
             is GateOutcome.Fresh -> outcome.value
@@ -196,6 +201,13 @@ open class HttpFetcher(
      * Open so fixture fakes can decide without network.
      */
     open fun isReachable(url: String, extraHeaders: Map<String, String> = emptyMap()): Boolean {
+        // A cleartext URL can never pass the platform's network security policy
+        // (UnknownServiceException). Probing it only burns the socket budget and
+        // spams the log with a stack trace per seed candidate — skip it honestly.
+        if (url.startsWith("http://", ignoreCase = true)) {
+            Log.d("HttpFetcher", "reachability probe skipped for cleartext URL: $url")
+            return false
+        }
         val request = buildRequest(url, extraHeaders).newBuilder().head().build()
         return try {
             TransportClients.okHttp.newCall(request).execute().use { response ->

@@ -1,6 +1,7 @@
 /**
- * spec-45 T12 (#500) — тести порту LibriVoxAdapter (librivox.org JSON API +
- * archive.org mirror; одна sourceId, мова en).
+ * spec-45 T12 (#500), spec-51 (#742) — тести порту LibriVoxAdapter
+ * (librivox.org JSON API + archive.org mirror; одна sourceId, багатомовний
+ * admission крім ru).
  */
 import { describe, expect, it } from 'vitest'
 import { archiveSearchUrl, buildBookDetail, catalogUrlOf, identifierOf, librivoxAdapter } from '../librivox'
@@ -34,11 +35,18 @@ describe('librivox adapter — catalogue feed (librivox.org JSON API)', () => {
     expect(catalog?.nextPageUrl).toBeUndefined()
   })
 
-  it('drops non-English records at parse level (the LibriVox start)', () => {
+  it('admits every mapped language and drops the russian record (spec-51)', () => {
     const catalog = librivoxAdapter.parseCatalog(apiMixedJson, FEED_URL)
     const cards = catalog?.sections[0]?.cards ?? []
-    expect(cards).toHaveLength(1)
+    // English + German survive; the Russian record never becomes a card.
+    expect(cards).toHaveLength(2)
     expect(cards[0]).toMatchObject({ title: 'Treasure Island', language: 'en' })
+    expect(cards[1]).toMatchObject({
+      title: 'Die Schatzinsel',
+      language: 'de',
+      url: 'https://archive.org/details/die_schatzinsel_2212_librivox',
+    })
+    expect(cards.some((card) => card.language === 'ru')).toBe(false)
   })
 
   it('continues the catalogue only after a full feed page', () => {
@@ -78,12 +86,27 @@ describe('librivox adapter — search (archive.org mirror)', () => {
     })
   })
 
-  it('builds a quoted-phrase archive search url inside the librivoxaudio collection', () => {
+  it('drops russian mirror docs and keeps every other mapped language', () => {
+    const json = JSON.stringify({
+      response: {
+        docs: [
+          { identifier: 'voina_i_mir_2601_librivox', title: 'Война и мир', creator: 'Лев Толстой', language: 'rus' },
+          { identifier: 'die_schatzinsel_2212_librivox', title: 'Die Schatzinsel', creator: 'Robert Louis Stevenson', language: 'ger' },
+        ],
+      },
+    })
+    const cards = librivoxAdapter.search!(json, 'https://archive.org/advancedsearch.php')
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({ title: 'Die Schatzinsel', language: 'de' })
+  })
+
+  it('builds a quoted-phrase archive search url with no english gate', () => {
     const url = new URL(archiveSearchUrl('the count of monte cristo'))
     expect(url.hostname).toBe('archive.org')
     const q = url.searchParams.get('q') ?? ''
     expect(q).toContain('collection:librivoxaudio')
-    expect(q).toContain('language:eng')
+    expect(q).not.toContain('language:eng')
+    expect(q).not.toContain('language')
     expect(q).toContain('"the count of monte cristo"')
   })
 })
@@ -125,6 +148,14 @@ describe('librivox adapter — book detail (archive.org metadata)', () => {
     expect(chapters[6].streamUrl).toBe(
       'https://archive.org/download/jacko_and_jumpo_2007_librivox/jacko%20and%20jumpo%2007.mp3',
     )
+  })
+
+  it('refuses a russian archive item — no Edition, no chapters', () => {
+    const json = JSON.stringify({
+      metadata: { title: 'Война и мир', creator: 'Лев Толстой', language: 'rus' },
+      files: [{ format: 'VBR MP3', name: 'voina_01.mp3', title: '01 - Глава', track: '1', length: '10:00' }],
+    })
+    expect(buildBookDetail(json, 'https://archive.org/details/voina_i_mir_2601_librivox')).toBeNull()
   })
 
   it('a non-archive page url honestly yields no detail', () => {
@@ -172,8 +203,10 @@ describe('librivox — registry and metadata', () => {
     expect(REGISTRY.librivox.allowedHosts).toEqual(['librivox.org', 'archive.org'])
   })
 
-  it('declares the English content language for the whole source', () => {
-    expect(sourceContentLanguage('librivox')).toBe('en')
+  it('declares no whole-source language — each card carries its own claim', () => {
+    // Spec-51 (#742): stamping "en" would label a German/Latin record as
+    // English whenever its own claim is unreadable; unknown is never guessed.
+    expect(sourceContentLanguage('librivox')).toBe('')
     expect(librivoxAdapter.displayName).toBe('LibriVox')
   })
 })

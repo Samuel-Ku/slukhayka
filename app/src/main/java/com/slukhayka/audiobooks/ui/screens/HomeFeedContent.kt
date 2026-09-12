@@ -23,6 +23,7 @@ import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -60,7 +61,10 @@ fun LazyListScope.homeFeedContent(
     sections: List<CatalogSection>,
     genreFacetOptions: List<GenreFacetOption>,
     collections: List<CollectionMatcher.MatchedCollection>,
-    newArrivals: List<GlobalSearchResult>,
+    newArrivals: List<LibraryNewArrival>,
+    // #523 — collective source blocks; empty until a block is observed.
+    collectiveBlocks: List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock> = emptyList(),
+    onOpenCollectiveCard: (com.slukhayka.audiobooks.data.collective.CollectiveBlockCard) -> Unit = {},
     peopleNewArrivals: PersonNewArrivals.CatalogProjection = PersonNewArrivals.CatalogProjection(emptyList(), emptySet()),
     recommendedBooks: List<RecommendationEngine.Recommendation>,
     recommendationsReady: Boolean = true,
@@ -72,7 +76,7 @@ fun LazyListScope.homeFeedContent(
     feedGenreFilters: Set<String>,
     feedSortByTitle: Boolean,
     contentLanguages: Set<String>? = null,
-    onCycleContentLanguage: () -> Unit = {},
+    onOpenContentLanguages: () -> Unit = {},
     onRefreshCatalog: () -> Unit,
     onGoToLibrary: () -> Unit,
     onOpenTop100: () -> Unit,
@@ -91,7 +95,6 @@ fun LazyListScope.homeFeedContent(
     onOpenFeedFilters: (() -> Unit)? = null,
     feedFilterTriggerModifier: Modifier = Modifier,
     onOpenWebSource: (() -> Unit)? = null,
-    onOpenWebSource4read: (() -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
     onOpenRecommendationConsent: () -> Unit = {},
@@ -145,7 +148,7 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
-    // Catalogue navigation — the site's header menu: ТОП 100,
+    // Catalogue navigation — the site's header menu: Рейтинг,
     // Виконавці (narrators) and Автори (authors), plus the spec-28
     // «Серії» (#189) and «Колекції» (#190) indexes. ADR-0018: these
     // NAVIGATE, so they are NavigationChips (filled, no outline) —
@@ -307,21 +310,26 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
-    // spec-28 (#192): «Новинки» — the ONE cross-source new-arrivals
-    // rail (4read's «Новинки» section + every other source's feed,
-    // merged by Work, a source badge per card), re-homed from
-    // Слухати. Tapping a card resolves-and-plays exactly like the
-    // global-search cards. The «Новинки» catalogue section is skipped
-    // below so 4read's new arrivals appear exactly once on the screen.
+    // ADR-0041 / #733: «Новинки» — the one library-first new-arrivals rail:
+    // the Медіатека's newest imports, one card per Work with the source badge
+    // it was imported from. Tapping opens the book the listener already owns;
+    // no live source is rendered here (the «Новинки» catalogue section below
+    // is still skipped so nothing duplicates the rail).
     if (newArrivals.isNotEmpty()) {
         item {
             NewArrivalsRail(
-                results = newArrivals,
-                onBookClick = { result -> onOpenGlobalSearchResult(result) },
-                actionState = catalogCardActionState,
-                onOpenBrowser = onOpenCatalogBrowser,
-                onPreflight = onPreflightGlobalSearchResult
+                arrivals = newArrivals,
+                onBookClick = { book -> onBookClick(book.id) }
             )
+        }
+    }
+
+    // #523 — collective blocks: a locally persisted source snapshot rendered
+    // with its provenance, refreshed stale-while-revalidate (one lease owner,
+    // one page; everyone else reads the last good snapshot).
+    collectiveBlocks.forEach { block ->
+        item(key = "collective_block_${block.blockKey}") {
+            CollectiveBlockRail(block = block, onCardClick = onOpenCollectiveCard)
         }
     }
 
@@ -455,20 +463,6 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
-    // Spec-42 #440 — the 4read door is the ONE release-accessible browser
-    // exception (ADR-0027): it shows in both release and debug builds, so a
-    // release listener can reach the 4read catalogue through the in-app
-    // browser. The Sluhay door above stays debug-only.
-    if (onOpenWebSource4read != null) {
-        item {
-            OpenWebSourceRow(
-                displayName = "4read",
-                onClick = onOpenWebSource4read,
-                testTag = "open_web_source_4read"
-            )
-        }
-    }
-
     // spec-42 T1 (#302): compact controls are the one home for feed sort and
     // genre. The persisted, Room-backed Work Pager remains the LAST element
     // of Огляд, so the curated shelves above never drown in the endless list.
@@ -484,7 +478,7 @@ fun LazyListScope.homeFeedContent(
             onOpenFilters = onOpenFeedFilters,
             filterTriggerModifier = feedFilterTriggerModifier,
             contentLanguages = contentLanguages,
-            onCycleContentLanguage = onCycleContentLanguage
+            onOpenContentLanguages = onOpenContentLanguages
         )
     }
     if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {

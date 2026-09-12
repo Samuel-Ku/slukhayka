@@ -1,38 +1,28 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.BookCoverImage
-import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
@@ -41,14 +31,15 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
- * Full-screen ТОП 100 АудіоКниг (`/top-100.html`): a ranked list of the
- * site's top books. Each row shows the rank badge, the cover, title, author
- * and — when the page carried it — the real total duration. Books are
- * upserted into Room so tapping one opens its detail and it is playable.
+ * #738 / ADR-0041 — the library rating replaces the source's ТОП-100 chart:
+ * a ranked list of the listener's OWN Works, ordered by the honest combined
+ * average (ADR-0022) over source ratings and listener ratings. A Work without
+ * any vote is absent, never a fabricated zero; the whole read is local, so the
+ * screen is stable offline and never captures a chart through a browser.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Top100Screen(
+fun LibraryRatingScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
     onBookClick: (String) -> Unit,
@@ -56,29 +47,27 @@ fun Top100Screen(
     onBookFocusRestored: (String) -> Unit = {},
     listState: LazyListState = rememberLazyListState()
 ) {
-    val books by viewModel.top100Books.collectAsState()
-    val isLoading by viewModel.isTop100Loading.collectAsState()
-    val loadFailed by viewModel.top100LoadFailed.collectAsState()
+    val rows by viewModel.libraryRating.collectAsState()
+    val isLoading by viewModel.isLibraryRatingLoading.collectAsState()
+    val loadFailed by viewModel.libraryRatingLoadFailed.collectAsState()
     val returnFocusRequester = remember { FocusRequester() }
 
     // v1.4 E6 (ADR-0033): the honest count rides the scaffold's subtitle
     // (R10), rendered only when it is real (ADR-0014).
     IndexScreenScaffold(
-        title = stringResource(R.string.top100_index_title),
+        title = stringResource(R.string.library_rating_title),
         onBackClick = onBackClick,
-        subtitle = if (!isLoading && !loadFailed && books.isNotEmpty()) {
-            pluralStringResource(R.plurals.best_book_count, books.size, books.size)
+        subtitle = if (!isLoading && !loadFailed && rows.isNotEmpty()) {
+            pluralStringResource(R.plurals.library_rating_count, rows.size, rows.size)
         } else {
             null
         }
     ) { padding ->
-        LaunchedEffect(restoreFocusBookId, books, isLoading, loadFailed) {
+        LaunchedEffect(restoreFocusBookId, rows, isLoading, loadFailed) {
             val bookId = restoreFocusBookId ?: return@LaunchedEffect
             if (isLoading || loadFailed) return@LaunchedEffect
-            val bookIndex = books.indexOfFirst { it.id == bookId }
+            val bookIndex = rows.indexOfFirst { it.book.id == bookId }
             if (bookIndex < 0) return@LaunchedEffect
-            // The count moved into the scaffold's subtitle (v1.4 E6);
-            // ranked books start at item zero now.
             listState.scrollToItem(bookIndex)
             withFrameNanos { }
             if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
@@ -90,7 +79,7 @@ fun Top100Screen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .testTag("top100_screen"),
+                .testTag("library_rating_screen"),
             contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
         ) {
             when {
@@ -106,28 +95,18 @@ fun Top100Screen(
 
                 loadFailed -> {
                     item {
-                        Column(
+                        SecondaryMessageState(
+                            message = stringResource(R.string.secondary_library_rating_error),
                             modifier = Modifier.fillMaxWidth().padding(48.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            SecondaryMessageState(
-                                message = stringResource(R.string.secondary_top100_error),
-                                modifier = Modifier.fillMaxWidth(),
-                                isError = true
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            OutlinedButton(
-                                onClick = { viewModel.openTop100InBrowser() },
-                                modifier = Modifier.testTag("top100_open_browser")
-                            ) { Text(stringResource(R.string.top100_open_chart)) }
-                        }
+                            isError = true
+                        )
                     }
                 }
 
-                books.isEmpty() -> {
+                rows.isEmpty() -> {
                     item {
                         SecondaryMessageState(
-                            message = stringResource(R.string.secondary_top100_empty),
+                            message = stringResource(R.string.secondary_library_rating_empty),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp)
@@ -136,21 +115,20 @@ fun Top100Screen(
                 }
 
                 else -> {
-                    // The count lives in the scaffold's subtitle (v1.4 E6,
-                    // ADR-0033; spec-27 #204 BUG-006 pluralization preserved).
-                    itemsIndexed(books, key = { _, book -> book.id }) { index, book ->
+                    itemsIndexed(rows, key = { _, row -> row.book.id }) { index, row ->
                         // v1.4 C3 (ADR-0033): the canonical flat row — rank
-                        // badge in the leading slot, ▶ as a separate 48 dp
-                        // target, divider instead of a card border.
+                        // badge in the leading slot, ▶ as a separate 48 dp target.
                         val rank = index + 1
                         val podium = rank <= 3
+                        val votes = pluralStringResource(R.plurals.library_rating_votes, row.count, row.count)
                         BookRow(
-                            title = book.title,
-                            book = book,
-                            author = book.displayAuthor.takeIf { it.isNotBlank() },
-                            // Real duration shown only when known (ADR-0014).
-                            stats = if (book.totalDurationSeconds > 0L) MainViewModel.formatTime(book.totalDurationSeconds) else null,
-                            onClick = { onBookClick(book.id) },
+                            title = row.book.title,
+                            book = row.book,
+                            author = row.book.displayAuthor.takeIf { it.isNotBlank() },
+                            // ADR-0014: the real average and its real vote count,
+                            // rounded only here for display.
+                            stats = "${formatRatingAverage(row.average)} · $votes",
+                            onClick = { onBookClick(row.book.id) },
                             leading = {
                                 Box(
                                     modifier = Modifier
@@ -172,21 +150,21 @@ fun Top100Screen(
                             trailing = {
                                 IconButton(
                                     onClick = {
-                                        viewModel.playAudiobook(book)
+                                        viewModel.playAudiobook(row.book)
                                         viewModel.setShowFullPlayer(true)
                                     },
                                     modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = stringResource(R.string.secondary_play_book, book.title),
+                                        contentDescription = stringResource(R.string.secondary_play_book, row.book.title),
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(26.dp)
                                     )
                                 }
                             },
-                            testTag = "top100_rank_$rank",
-                            modifier = if (book.id == restoreFocusBookId) {
+                            testTag = "library_rating_rank_$rank",
+                            modifier = if (row.book.id == restoreFocusBookId) {
                                 Modifier.focusRequester(returnFocusRequester)
                             } else {
                                 Modifier
@@ -198,3 +176,7 @@ fun Top100Screen(
         }
     }
 }
+
+/** ADR-0022: the rule never rounds; the surface does, for display only. */
+internal fun formatRatingAverage(average: Double): String =
+    String.format(java.util.Locale.getDefault(), "%.1f", average)

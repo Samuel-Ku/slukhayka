@@ -13,7 +13,7 @@ import {
   type AvailabilityVerdict,
 } from './catalogAvailability'
 import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
-import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
+import { isScamSourceKey, SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
 import { mergeWorkFeed, rankEditionsForPlayback } from '../worker/workFeed'
 import { useTranslate, useUiLocale } from '../i18n/locale'
 import type { DomainStore } from '../local/domain'
@@ -25,6 +25,12 @@ import {
   saveContentLanguagePrefs,
   toggleLanguage,
 } from './contentLanguagePrefs'
+import {
+  isFirstLanguageChoiceAnswered,
+  markFirstLanguageChoiceAnswered,
+  shouldAskFirstLanguageChoice,
+} from './firstLanguageChoice'
+import { FirstLanguageChoiceSheet } from './FirstLanguageChoiceSheet'
 import { BookRow, CycleCard, EmptyStateRow, MetadataChip, PosterCard, SectionHeader, TabHeader } from './components'
 import { CollectionsIndexPanel, PeopleIndexPanel, SeriesIndexPanel, Top100IndexPanel } from './catalogIndexes'
 import { FiltersSheet, StickyFiltersToolbar } from './catalogFilters'
@@ -72,7 +78,7 @@ function pillStyle(active: boolean): CSSProperties {
 }
 
 /** spec-43/T3+T4 — огляд із перемикачем джерел і пошуком. */
-export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore, listening, recommendationPrefs, participation, personBookmarks }: {
+export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore, listening, recommendationPrefs, participation, personBookmarks, showFirstLanguageChoice = false }: {
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
   /** #584 W1.2 — «зберегти»: creates the Library Entry for this Work. */
@@ -87,6 +93,8 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   participation?: RecommendationParticipation
   /** #582 W0.4 — the people-index rows' bookmark toggle (no seam → no buttons). */
   personBookmarks?: PersonBookmarkSyncController
+  /** spec-51 (#742) — show the one-time First Language Choice once the first sync brought content. */
+  showFirstLanguageChoice?: boolean
 }) {
   const t = useTranslate()
   const locale = useUiLocale()
@@ -182,6 +190,14 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   // spec-45 T13 — the persisted content-language preference; empty = all.
   const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
   const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
+  // spec-51 (#742) — the one-time First Language Choice (fires after the first
+  // sync with content; any answer is terminal).
+  const [firstChoiceAnswered, setFirstChoiceAnswered] = useState<boolean>(() => isFirstLanguageChoiceAnswered())
+  const answerFirstLanguageChoice = (next: string[]): void => {
+    applyLanguages(next)
+    markFirstLanguageChoiceAnswered()
+    setFirstChoiceAnswered(true)
+  }
   const loadMoreMarker = useRef<HTMLDivElement | null>(null)
   // #584 W1.3 — the listener's deliberate hides: a tombstoned Work never
   // re-enters discovery, whatever the catalog refresh brings back.
@@ -205,6 +221,9 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   const visibleGenreWorks = filterWorksByLanguage(byDurations((genreWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey))), contentLanguages)
   const visibleSearch = filterWorksByLanguage((searchWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
   const languageOptions = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], contentLanguages)
+  // The First Language Choice offers every language with actual content, all
+  // on (the empty selection), never a hardcoded pair.
+  const firstChoiceLanguages = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], [])
   // W3.1 — «Колекції» match LOCALLY against the merged union (the same Works
   // the feed shows); a tombstoned or language-hidden Work never appears here.
   const collections = useMemo(() => matchAllCollections(SHIPPED_COLLECTIONS, visibleWorks), [visibleWorks])
@@ -438,6 +457,9 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
 
   return (
     <div>
+      {showFirstLanguageChoice && shouldAskFirstLanguageChoice({ hasContent: firstChoiceLanguages.length > 0, answered: firstChoiceAnswered, selection: contentLanguages }) && (
+        <FirstLanguageChoiceSheet languages={firstChoiceLanguages} onAnswer={answerFirstLanguageChoice} />
+      )}
       <TabHeader
         title={t('tabCatalog')}
         search
@@ -902,7 +924,16 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay, o
     setState('checking')
     setSessionSource(null)
     const details = new Map<string, BookDetail>()
-    const candidates = rankedSources.map((candidate) => ({ ...candidate, editionId }))
+    // A scam source (4read) never enters the playback race: its audio is not
+    // the book. With no candidates left the card reads the honest
+    // «Джерело не віддає аудіо» instead of a fake browser door.
+    const candidates = rankedSources
+      .filter((candidate) => !isScamSourceKey(candidate.sourceId))
+      .map((candidate) => ({ ...candidate, editionId }))
+    if (candidates.length === 0) {
+      setState('audio-missing')
+      return
+    }
     void raceEditionSources(editionId, candidates, async (candidate, signal): Promise<Exclude<AvailabilityVerdict, 'verified-profile'>> => {
       if (actionAbort.signal.aborted || signal.aborted) return 'timeout'
       if (sourceNeedsBrowserSession(candidate.sourceId)) return 'session-required'

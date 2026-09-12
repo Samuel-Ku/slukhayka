@@ -15,7 +15,6 @@ import com.slukhayka.audiobooks.data.authors.authorMatchesOrEmpty
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
-import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
 import com.slukhayka.audiobooks.data.catalog.CatalogFetchResult
 import com.slukhayka.audiobooks.data.db.*
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -39,7 +38,9 @@ import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
+import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.facets.orderContentLanguages
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
@@ -138,8 +139,6 @@ data class SelectedWebSource(
     val recoveryBookId: String? = null,
     val recoveryChapterIndex: Int? = null,
     val recoveryPositionMs: Long = 0L,
-    val captureTop100: Boolean = false,
-    val captureSeriesUrl: String? = null,
     val automaticRecovery: Boolean = false,
     val cloudflareChallenge: Boolean = false
 )
@@ -310,43 +309,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerState: StateFlow<PlayerState> = playerManager.playerState
     private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
 
-    private val _narrationSwitchPrompt = MutableStateFlow<NarrationSwitchPrompt?>(null)
-    val narrationSwitchPrompt: StateFlow<NarrationSwitchPrompt?> =
-        _narrationSwitchPrompt.asStateFlow()
-    private var pendingNarrationSwitchAction: (() -> Unit)? = null
-    private var approvedNarrationEditionKey: String? = null
+    // #520 — the confirmation state machine is a pure module; the ViewModel
+    // only feeds it the currently playing book and exposes its prompt.
+    private val narrationSwitchGate = NarrationSwitchGate()
+    val narrationSwitchPrompt: StateFlow<NarrationSwitchPrompt?> = narrationSwitchGate.prompt
 
     private fun withNarrationSwitchConfirmation(
         target: NarrationSwitchIdentity,
         action: () -> Unit
     ) {
         val current = playerState.value.currentBook?.let(::narrationSwitchIdentity)
-        if (!requiresNarrationSwitchConfirmation(current, target, approvedNarrationEditionKey)) {
-            action()
-            return
-        }
-        pendingNarrationSwitchAction = action
-        _narrationSwitchPrompt.value = NarrationSwitchPrompt(
-            currentNarrator = current?.narrator.orEmpty(),
-            targetNarrator = target.narrator,
-            title = target.title,
-            targetEditionKey = target.editionKey
-        )
+        narrationSwitchGate.request(current, target, action)
     }
 
-    fun confirmNarrationSwitch() {
-        val prompt = _narrationSwitchPrompt.value ?: return
-        val action = pendingNarrationSwitchAction ?: return
-        approvedNarrationEditionKey = prompt.targetEditionKey
-        pendingNarrationSwitchAction = null
-        _narrationSwitchPrompt.value = null
-        action()
-    }
+    fun confirmNarrationSwitch() = narrationSwitchGate.confirm()
 
-    fun dismissNarrationSwitch() {
-        pendingNarrationSwitchAction = null
-        _narrationSwitchPrompt.value = null
-    }
+    fun dismissNarrationSwitch() = narrationSwitchGate.dismiss()
 
     // Spec-49 T2b — the player-preparation twin of the card-tap mapping.
     // A refused-only (or sourceless) library book asks the resolver once
@@ -640,13 +618,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // #394 — notification button actions are handled by the App-scoped
         // DownloadNotificationActionCoordinator (works with no Activity);
         // the VM-side collect was removed with that change.
-        // Spec-45 (#405) T8 (#496): re-evaluate the one-time bilingual prompt
-        // on every process start — a previous session may have synced the
-        // first English books before the listener ever saw the question
-        // (idempotent: the persisted marker lets it fire at most once ever).
+        // Spec-51 (#742) T2: re-evaluate the one-time First Language Choice on
+        // every process start — a previous session may have synced the first
+        // books before the listener ever saw the question (idempotent: the
+        // persisted marker lets it fire at most once ever).
         viewModelScope.launch(Dispatchers.IO) {
             delay(1_500)
-            App.instance.bilingualPrompt.evaluate()
+            App.instance.firstLanguageChoice.evaluate()
         }
         // Spec-45 (#405) R6 (#513): a content-language change re-filters the
         // ALREADY SHOWN global-search results — the listener never re-enters
@@ -669,14 +647,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Spec-45 (#405) T8 (#496): called when a catalogue sync completes — the
-     * sync may have written the first known-English rendition, so the
-     * one-time bilingual prompt re-evaluates (idempotent, fires at most once
-     * ever; [BilingualPromptEngine.evaluate] never re-asks after an answer).
+     * Spec-51 (#742) T2: called when a catalogue sync completes — the sync may
+     * have written the first rendition, so the one-time First Language Choice
+     * re-evaluates (idempotent, fires at most once ever;
+     * [FirstLanguageChoiceEngine.evaluate] never re-asks after an answer).
      */
     fun onCatalogueSynced() {
         viewModelScope.launch(Dispatchers.IO) {
-            App.instance.bilingualPrompt.evaluate()
+            App.instance.firstLanguageChoice.evaluate()
         }
     }
 
@@ -904,17 +882,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Spec-42 #440 — open the 4read catalogue pre-filled with [query] in the
-     * in-app browser (release-accessible per ADR-0027). The target URL is the
-     * source's declared search door (ADR-0036); 4read resolves to the in-app
-     * browser in every build via [browserDestinationFor].
-     */
-    fun open4readSearch(query: String) {
-        val searchDoor = BrowserRecoveryProfiles.forSource(SourceIds.FOUR_READ).searchDoor ?: return
-        openWebSource(sourceId = SourceIds.FOUR_READ, homeUrl = searchDoor(query), displayName = "4read")
-    }
-
+    
     fun closeWebSource() {
         _selectedWebSource.value = null
         CatalogBrowserFocusReturn.publishAfterBrowserClose()
@@ -989,53 +957,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Opens 4read's in-app browser as an explicit user action — “Відкрити браузер”. */
-    fun open4ReadBrowser() {
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = "4read",
-            homeUrl = "https://4read.org/",
-            displayName = "4read"
-        )
-    }
-
-    /** Opens 4read search with prefilled Work title — “Знайти на 4read”. */
-    fun open4ReadSearch(workTitle: String) {
-        val searchDoor = BrowserRecoveryProfiles.forSource(SourceIds.FOUR_READ).searchDoor ?: return
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = SourceIds.FOUR_READ,
-            homeUrl = searchDoor(workTitle),
-            displayName = "4read"
-        )
-    }
-
-    /**
-     * Spec-42 #425 entry — the 4read door-path recovery (ADR-0036: the
-     * generalized door path is [openDoorRecovery]; the profile supplies the
-     * search door and the last-resort home).
-     */
-    fun open4ReadRecovery(
-        bookId: String,
-        chapterIndex: Int,
-        positionMs: Long,
-        automatic: Boolean = false
-    ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            // ADR-0037: a refused source's recovery door does not exist. An
-            // automatic attempt reports the honest retry-unavailable instead
-            // of opening the browser; an explicit action is silently refused.
-            if (SourceIds.FOUR_READ in refusedAudioSourceIdsOf(
-                    runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
-                )
-            ) {
-                withContext(Dispatchers.Main) {
-                    if (automatic) playerManager.reportRetryUnavailable()
-                }
-                return@launch
-            }
-            openDoorRecovery(bookId, SourceIds.FOUR_READ, chapterIndex, positionMs, automatic)
-        }
-    }
-
+    
+    
     /**
      * ADR-0036 (spec-48 T1) — the door-path recovery for any source whose
      * profile declares a search door: no stored URL → the pre-filled search;
@@ -1293,10 +1216,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * #471 — відкриває браузер ЛЮБОГО BROWSER джерела як явну дію
-     * відновлення (узагальнює [open4ReadRecovery] beyond 4read). ADR-0036:
-     * розгалуження читає профіль, не порівняння рядків — джерело з пошуковою
-     * дверима відновлюється крізь дверний шлях (4read), решта — крізь
-     * збережений URL.
+     * відновлення (ADR-0036: розгалуження читає профіль, не порівняння
+     * рядків — джерело з пошуковою дверима відновлюється крізь дверний шлях,
+     * решта — крізь збережений URL). Двигун лишається dormant для майбутніх
+     * browser-джерел; жодне UI не викликає його для 4read (#741).
      */
     fun openBrowserRecovery(
         bookId: String,
@@ -1537,11 +1460,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedSeries: StateFlow<SelectedSeries?> = _selectedSeries.asStateFlow()
 
     private val seriesLoader = KeyedCatalogLoader<SelectedSeries, AudiobookEntity>(viewModelScope) {
-        sourceCatalog.fetchSeriesBooksResult(it.url)
+        // #734 / ADR-0041 — the series page reads the Медіатека, never the
+        // source's own series page; the Дзеркало neighbours load separately.
+        com.slukhayka.audiobooks.data.catalog.CatalogFetchResult.Success(
+            sourceCatalog.libraryBooksForSeries(it.title)
+        )
     }
     val seriesBooks: StateFlow<List<AudiobookEntity>> = seriesLoader.items
     val isSeriesLoading: StateFlow<Boolean> = seriesLoader.isLoading
     val seriesLoadFailed: StateFlow<Boolean> = seriesLoader.failed
+
+    /** #734 — the series' known but not-owned Works (Дзеркало neighbours). */
+    private val _seriesNeighbours = MutableStateFlow<List<WorkEntity>>(emptyList())
+    val seriesNeighbours: StateFlow<List<WorkEntity>> = _seriesNeighbours.asStateFlow()
+    private var seriesNeighboursJob: Job? = null
 
     // Spec-25 (#171): the resolved universe context of the CURRENT series
     // page (the header block: universe name, position, precedes/follows
@@ -1555,6 +1487,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedSeries.value = selected
         seriesLoader.open(selected)
         _selectedSeriesUniverse.value = null
+        // #734 — the Дзеркало neighbours of the cycle, loaded beside the
+        // owned books so the page can offer finds without a source render.
+        _seriesNeighbours.value = emptyList()
+        seriesNeighboursJob?.cancel()
+        seriesNeighboursJob = viewModelScope.launch(Dispatchers.IO) {
+            val neighbours = runCatching { sourceCatalog.mirrorNeighboursForSeries(title) }
+                .getOrDefault(emptyList())
+            if (_selectedSeries.value == selected) _seriesNeighbours.value = neighbours
+        }
         seriesUniverseJob?.cancel()
         seriesUniverseJob = viewModelScope.launch(Dispatchers.IO) {
             // The universe lookup is an independent cache/refresh sidecar, so
@@ -1577,36 +1518,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         seriesUniverseJob?.cancel()
         seriesUniverseJob = null
         _selectedSeriesUniverse.value = null
+        seriesNeighboursJob?.cancel()
+        seriesNeighboursJob = null
+        _seriesNeighbours.value = emptyList()
     }
 
-    /** Explicit 4read browser door for a cycle whose direct page is challenged. */
-    fun openSeriesInBrowser() {
-        val series = _selectedSeries.value ?: return
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = "4read",
-            homeUrl = series.url,
-            displayName = "4read",
-            captureSeriesUrl = series.url
+    /**
+     * #734 — a Дзеркало neighbour of the open cycle: the ordinary coordinator
+     * imports it through the real doors and opens it (never a fake card).
+     */
+    fun openSeriesNeighbour(work: WorkEntity) {
+        catalogCardCoordinator.start(
+            CatalogCardTarget(
+                workId = work.id,
+                title = work.title,
+                author = work.author,
+                coverImageUrl = work.coverImageUrl,
+                mergeKey = work.mergeKey,
+                cardKey = work.id
+            ),
+            CatalogCardAction.OPEN
         )
     }
-
-    fun importCapturedSeries(html: String, onComplete: (Boolean) -> Unit) {
-        val series = _selectedSeries.value
-        if (series == null) {
-            onComplete(false)
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val result = sourceCatalog.importCapturedSeriesBooksResult(series.url, html)
-            withContext(Dispatchers.Main) {
-                if (result is CatalogFetchResult.Success && _selectedSeries.value == series) {
-                    seriesLoader.open(series)
-                }
-                onComplete(result is CatalogFetchResult.Success)
-            }
-        }
-    }
-
     // spec-28 (#189): the «Серії» index — every series aggregated from the
     // catalogue sections, deduplicated by URL. No new data source: the index
     // re-shapes what the catalogue parser already produces. One read-only
@@ -1620,15 +1553,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val seriesIndex: StateFlow<List<CatalogSeries>> = _seriesIndex.asStateFlow()
 
     fun openSeriesIndex() {
-        _seriesIndex.value = CatalogSeriesIndex.aggregate(sourceCatalog.catalogSections.value)
+        // #734 / ADR-0041 — the index lists only cycles the listener has a
+        // book in; a source section never contributes a series.
+        _seriesIndex.value = emptyList()
         _seriesIndexOpen.value = true
         viewModelScope.launch(Dispatchers.IO) {
-            val catalogueSeries = CatalogSeriesIndex.aggregate(sourceCatalog.catalogSections.value)
             val localSeries = sourceCatalog.localSeriesIndex()
-            val merged = (catalogueSeries + localSeries)
-                .distinctBy { it.url }
-                .sortedBy { it.title.lowercase() }
-            if (_seriesIndexOpen.value) _seriesIndex.value = merged
+            if (_seriesIndexOpen.value) _seriesIndex.value = localSeries
         }
     }
 
@@ -1746,17 +1677,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         App.instance.contentLanguagePrefs.setLanguages(languages)
     }
 
-    /** Огляд chip (US8): Усі → Українська → English → Усі. */
-    fun cycleContentLanguages() {
-        val current = App.instance.contentLanguagePrefs.languages.value
-        App.instance.contentLanguagePrefs.setLanguages(
-            when {
-                current == setOf("uk", "en") -> setOf("uk")
-                current == setOf("uk") -> setOf("en")
-                else -> setOf("uk", "en")
+    /**
+     * Spec-51 (#742) T3 — the languages the «Мови контенту» screen offers:
+     * what the catalogue actually holds, in the ONE repo order (uk, en, then
+     * alphabetical). A language nobody has a rendition in is never offered;
+     * the screen appends a still-selected language itself, so a selection is
+     * never stranded invisibly. Replaces the Огляд chip's old cycle, which
+     * only worked while there were exactly two languages.
+     */
+    val contentLanguageOptions: StateFlow<List<String>> =
+        App.instance.audiobookDao.observeKnownEditionLanguages()
+            .map { tags ->
+                orderContentLanguages(tags.filter { it in ContentLanguagePrefs.KNOWN_CONTENT_LANGUAGES })
             }
-        )
-    }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination (⚙️
     // overflow) — navigation only; the screen reads/writes the App Locale
@@ -1824,71 +1758,140 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         genreLoader.close()
     }
 
-    // ТОП 100 АудіоКниг (`/top-100.html`): a ranked book list.
+    // #738 — the library rating destination (local, offline).
     private val _selectedTop100 = MutableStateFlow(false)
     val selectedTop100: StateFlow<Boolean> = _selectedTop100.asStateFlow()
 
-    private val top100Loader = KeyedCatalogLoader<Unit, AudiobookEntity>(viewModelScope) {
-        sourceCatalog.fetchTop100Result()
-    }
-    val top100Books: StateFlow<List<AudiobookEntity>> = top100Loader.items
-    val isTop100Loading: StateFlow<Boolean> = top100Loader.isLoading
-    val top100LoadFailed: StateFlow<Boolean> = top100Loader.failed
+    // #738 — the library rating replaces the source ТОП-100 chart: a LOCAL,
+    // offline ranking over owned Works, so there is no loader, no capture
+    // door and no source request.
+    private val _libraryRating =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.LibraryRating>>(emptyList())
+    val libraryRating: StateFlow<List<com.slukhayka.audiobooks.data.reviews.LibraryRating>> =
+        _libraryRating.asStateFlow()
+
+    private val _isLibraryRatingLoading = MutableStateFlow(false)
+    val isLibraryRatingLoading: StateFlow<Boolean> = _isLibraryRatingLoading.asStateFlow()
+
+    private val _libraryRatingLoadFailed = MutableStateFlow(false)
+    val libraryRatingLoadFailed: StateFlow<Boolean> = _libraryRatingLoadFailed.asStateFlow()
 
     fun openTop100() {
         _selectedTop100.value = true
-        top100Loader.open(Unit)
-    }
-
-    /** Explicit 4read door used when Cloudflare rejects the ranking HTTP call. */
-    fun openTop100InBrowser() {
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = "4read",
-            homeUrl = "https://4read.org/top-100.html",
-            displayName = "4read",
-            captureTop100 = true
-        )
-    }
-
-    fun importCapturedTop100(html: String, onComplete: (Boolean) -> Unit) {
+        loadLibraryRating()
+        // #739 — a bounded, TTL'd refresh of the shared-review aggregate; the
+        // screen already shows the last known projection and re-reads only
+        // when the pass actually changed something.
         viewModelScope.launch(Dispatchers.IO) {
-            val result = sourceCatalog.importCapturedTop100Result(html)
-            withContext(Dispatchers.Main) {
-                if (result is CatalogFetchResult.Success) top100Loader.open(Unit)
-                onComplete(result is CatalogFetchResult.Success)
-            }
+            val updated = runCatching { App.instance.libraryRatingRefresh.refreshIfDue() }.getOrDefault(0)
+            if (updated > 0 && _selectedTop100.value) loadLibraryRating()
         }
+    }
+
+    private fun loadLibraryRating() {
+        _isLibraryRatingLoading.value = true
+        _libraryRatingLoadFailed.value = false
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { sourceCatalog.libraryRatingRanking() }
+                .onSuccess { ranked ->
+                    if (_selectedTop100.value) {
+                        _libraryRating.value = ranked
+                        _isLibraryRatingLoading.value = false
+                    }
+                }
+                .onFailure {
+                    if (_selectedTop100.value) {
+                        _libraryRating.value = emptyList()
+                        _libraryRatingLoadFailed.value = true
+                        _isLibraryRatingLoading.value = false
+                    }
+                }
+        }
+    }
+
+    // #523 — the collective Огляд blocks: one per DIRECT Ukrainian source,
+    // stale-while-revalidate behind the lease, with the block's provenance.
+    // The previously shown blocks are never erased by a failed pass.
+    private val _collectiveBlocks = MutableStateFlow<
+        List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
+        >(emptyList())
+    val collectiveBlocks: StateFlow<
+        List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
+        > = _collectiveBlocks.asStateFlow()
+
+    fun refreshCollectiveBlocks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val blocks = com.slukhayka.audiobooks.data.collective.collectiveBlockSources()
+                .mapNotNull { facts ->
+                    runCatching {
+                        App.instance.collectiveFeedRefresh.read(
+                            com.slukhayka.audiobooks.data.collective.newArrivalsBlockKey(facts.id)
+                        )
+                    }.getOrNull()
+                }
+            if (blocks.isNotEmpty()) _collectiveBlocks.value = blocks
+        }
+    }
+
+    /** #523 — opens one collective block card through the ordinary doors. */
+    fun openCollectiveCard(card: com.slukhayka.audiobooks.data.collective.CollectiveBlockCard) {
+        catalogCardCoordinator.start(
+            CatalogCardTarget(
+                workId = card.sourceUrl,
+                title = card.title,
+                author = card.author,
+                coverImageUrl = card.coverUrl,
+                mergeKey = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(card.title, card.author),
+                sources = listOf(CatalogCardSource(sourceId = card.sourceId, url = card.sourceUrl)),
+                cardKey = "${card.sourceId}|${card.sourceUrl}"
+            ),
+            CatalogCardAction.OPEN
+        )
     }
 
     fun closeTop100() {
         _selectedTop100.value = false
-        top100Loader.close()
+        _libraryRating.value = emptyList()
+        _isLibraryRatingLoading.value = false
+        _libraryRatingLoadFailed.value = false
     }
 
-    // Виконавці / Автори index pages (`/readers.html`, `/avtors.html`).
+    // Виконавці index. #736 / ADR-0041 — the listener's OWN narrators, read
+    // from the Медіатека (owned Editions), never a provider page: the list is
+    // live and offline, so it has no loading or failure state anymore.
     private val _selectedPeopleKind = MutableStateFlow<PeopleKind?>(null)
     val selectedPeopleKind: StateFlow<PeopleKind?> = _selectedPeopleKind.asStateFlow()
 
-    private val peopleLoader = KeyedCatalogLoader<PeopleKind, CatalogPerson>(viewModelScope) {
-        sourceCatalog.fetchPeopleResult(it.url)
-    }
-    val peopleEntries: StateFlow<List<CatalogPerson>> = peopleLoader.items
-    val isPeopleLoading: StateFlow<Boolean> = peopleLoader.isLoading
-    val peopleLoadFailed: StateFlow<Boolean> = peopleLoader.failed
+    val peopleEntries: StateFlow<List<CatalogPerson>> =
+        sourceCatalog.libraryNarrators
+            .map { narrators ->
+                narrators.map {
+                    CatalogPerson(
+                        name = it.displayName,
+                        path = "",
+                        bookCount = it.workCount,
+                        role = com.slukhayka.audiobooks.data.db.PersonRole.NARRATOR
+                    )
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _isPeopleLoading = MutableStateFlow(false)
+    val isPeopleLoading: StateFlow<Boolean> = _isPeopleLoading.asStateFlow()
+
+    private val _peopleLoadFailed = MutableStateFlow(false)
+    val peopleLoadFailed: StateFlow<Boolean> = _peopleLoadFailed.asStateFlow()
 
     fun openPeople(kind: PeopleKind) {
         _selectedPeopleKind.value = kind
-        peopleLoader.open(kind)
     }
 
     fun closePeople() {
         _selectedPeopleKind.value = null
-        peopleLoader.close()
     }
 
-    // Canonical cross-source author destinations. Provider narrator pages keep
-    // using [selectedPeopleKind]; author discovery always reads the local Work
-    // index, so it remains instant and does not depend on a provider page.
+    // Canonical cross-source author destinations. Author discovery always
+    // reads the local Work index, so it remains instant and provider-free.
     private val _authorsIndexOpen = MutableStateFlow(false)
     val authorsIndexOpen: StateFlow<Boolean> = _authorsIndexOpen.asStateFlow()
 
@@ -1900,6 +1903,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _canonicalAuthorWorks = MutableStateFlow<List<WorkEntity>>(emptyList())
     val canonicalAuthorWorks: StateFlow<List<WorkEntity>> = _canonicalAuthorWorks.asStateFlow()
+
+    /** #736 — the subset of [canonicalAuthorWorks] the listener actually owns. */
+    private val _canonicalAuthorOwnedWorkIds = MutableStateFlow<Set<String>>(emptySet())
+    val canonicalAuthorOwnedWorkIds: StateFlow<Set<String>> =
+        _canonicalAuthorOwnedWorkIds.asStateFlow()
 
     private val _isCanonicalAuthorLoading = MutableStateFlow(false)
     val isCanonicalAuthorLoading: StateFlow<Boolean> = _isCanonicalAuthorLoading.asStateFlow()
@@ -1940,13 +1948,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _authorsIndexScrollIndex.value = authorIndex
         _selectedCanonicalAuthor.value = author
         _canonicalAuthorWorks.value = emptyList()
+        _canonicalAuthorOwnedWorkIds.value = emptySet()
         _canonicalAuthorLoadFailed.value = false
         _isCanonicalAuthorLoading.value = true
         viewModelScope.launch(Dispatchers.IO) {
             val works = runCatching { sourceCatalog.authorWorks(author.id) }
+            // #736 — the page unions the Медіатека with mirror neighbours; the
+            // owned set marks which is which.
+            val owned = runCatching { sourceCatalog.authorOwnedWorkIds(author.id) }
+                .getOrDefault(emptySet())
             if (_selectedCanonicalAuthor.value?.id == author.id) {
                 works.onSuccess { _canonicalAuthorWorks.value = it }
                     .onFailure { _canonicalAuthorLoadFailed.value = true }
+                _canonicalAuthorOwnedWorkIds.value = owned
                 _isCanonicalAuthorLoading.value = false
             }
         }
@@ -1968,6 +1982,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeCanonicalAuthor() {
         _selectedCanonicalAuthor.value = null
         _canonicalAuthorWorks.value = emptyList()
+        _canonicalAuthorOwnedWorkIds.value = emptySet()
         _isCanonicalAuthorLoading.value = false
         _canonicalAuthorLoadFailed.value = false
     }
@@ -1997,7 +2012,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedPerson: StateFlow<SelectedPerson?> = _selectedPerson.asStateFlow()
 
     private val personLoader = KeyedCatalogLoader<SelectedPerson, AudiobookEntity>(viewModelScope) {
-        sourceCatalog.fetchPersonBooksResult(it.path)
+        // #736 / ADR-0041 — a local person (the narrator index) reads the
+        // listener's own books; a blank path never becomes a provider request.
+        if (it.path.isBlank()) {
+            com.slukhayka.audiobooks.data.catalog.CatalogFetchResult.Success(
+                sourceCatalog.libraryBooksForNarrator(it.name)
+            )
+        } else {
+            sourceCatalog.fetchPersonBooksResult(it.path)
+        }
     }
     val personBooks: StateFlow<List<AudiobookEntity>> = personLoader.items
     val isPersonLoading: StateFlow<Boolean> = personLoader.isLoading
@@ -2724,6 +2747,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val recommendationWorks = sourceCatalog.allWorks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
         // #483 — a listener interaction with recommendations starts the one-time model install.
@@ -2950,11 +2974,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
         recommendationLibrarySignals,
-        sourceCatalog.unifiedCatalog,
+        recommendationWorks,
         catalogVectors,
         recommendationPreferences,
         recommendationSettings
-    ) { library, catalog, vectors, preferences, settings ->
+    ) { library, works, vectors, preferences, settings ->
         if (!settings.localPersonalizationEnabled) return@combine emptyList()
         // T2: an empty (or not-yet-computed) vector map means the background
         // pass has not finished — degrade to an empty row, never compute on
@@ -2963,35 +2987,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val reducedWorkIds = preferences
             .filter { it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR }
             .mapTo(mutableSetOf()) { it.targetKey }
-        val feedbackSignals = catalog.asSequence()
-            .filter { it.key in reducedWorkIds }
-            .map { result ->
+        val feedbackSignals = works.asSequence()
+            .filter { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) in reducedWorkIds }
+            .map { work ->
                 com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
-                    id = result.key,
-                    title = result.title,
-                    author = result.author,
+                    id = com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(work),
+                    title = work.title,
+                    author = work.author,
                     weight = -1.0
                 )
             }
             .toList()
         val allSignals = currentSignals(library) + feedbackSignals
-        // Candidates are catalogue cards only: every library book is excluded
-        // anyway, and the row's job is to surface books the user does not
-        // know yet. The card id is the Work key, so tapping opens the book
-        // page through the same identity resolution as any other Огляд row
-        // (openRecommendedBook).
-        val candidates = catalog.map { result ->
-            val work = recommendationWorks.value.firstOrNull {
-                it.mergeKey.ifBlank { it.id } == result.key
-            }
-            com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
-                id = result.key,
-                title = result.title,
-                author = result.author,
-                series = work?.seriesTitle.orEmpty(),
-                coverImageUrl = result.coverImageUrl
-            )
-        }
+        // #732 / ADR-0041 — candidates are the Mirror's local Works, including
+        // ones the listener has not imported yet: the row needs no union
+        // refresh and survives a dead network. The card id is the Work key, so
+        // tapping resolves through the same local identity as any other row.
+        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works)
         val knownIds = library.flatMap { lb ->
             listOfNotNull(lb.book.id, lb.book.workId, lb.book.mergeKey.takeIf { it.isNotBlank() })
         }.toMutableSet().apply {
@@ -3082,17 +3094,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * listen.
      */
     fun openRecommendedBook(candidateId: String) {
-        val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
         recommendationPersonalization.recordDetailOpen()
-        openGlobalSearchResult(result)
+        openRecommendedCandidate(candidateId, CatalogCardAction.OPEN)
     }
 
     fun playRecommendedBook(candidateId: String) {
+        openRecommendedCandidate(candidateId, CatalogCardAction.PLAY)
+    }
+
+    /**
+     * #732 / ADR-0041 — a recommended candidate is a local Mirror Work: it is
+     * resolved from the local rows and goes through the ordinary coordinator,
+     * which imports it through the real doors. The union is only a fallback
+     * for a card that has not been persisted yet.
+     */
+    private fun openRecommendedCandidate(candidateId: String, action: CatalogCardAction) {
+        val work = recommendationWorks.value.firstOrNull { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) == candidateId }
+        if (work != null) {
+            catalogCardCoordinator.start(
+                CatalogCardTarget(
+                    workId = work.id,
+                    title = work.title,
+                    author = work.author,
+                    coverImageUrl = work.coverImageUrl,
+                    mergeKey = work.mergeKey,
+                    cardKey = work.id
+                ),
+                action
+            )
+            return
+        }
         val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
-        playGlobalSearchResult(result)
+        when (action) {
+            CatalogCardAction.OPEN -> openGlobalSearchResult(result)
+            else -> playGlobalSearchResult(result)
+        }
     }
 
     fun preflightRecommendedBook(candidateId: String) {
+        val work = recommendationWorks.value.firstOrNull { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) == candidateId }
+        if (work != null) {
+            startCatalogPreflight(
+                CatalogCardTarget(
+                    workId = work.id,
+                    title = work.title,
+                    author = work.author,
+                    coverImageUrl = work.coverImageUrl,
+                    mergeKey = work.mergeKey,
+                    cardKey = work.id
+                )
+            )
+            return
+        }
         sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId }
             ?.let { startCatalogPreflight(it.asCatalogCardTarget()) }
     }
@@ -4422,18 +4475,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** One-shot user-facing message for import outcomes (consumed by the UI). */
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
-
-    /**
-     * Honest refusal for a browser-only search card (#434): the work title is
-     * carried so the UI can open the prefilled 4read browser search.
-     */
-    data class BrowserNeededImport(val workTitle: String)
-    private val _browserNeededImport = MutableStateFlow<BrowserNeededImport?>(null)
-    val browserNeededImport: StateFlow<BrowserNeededImport?> = _browserNeededImport.asStateFlow()
-
-    fun consumeBrowserNeededImport() {
-        _browserNeededImport.value = null
-    }
 
     /** The pending smart-import preview (wayfinder #29), null when none. */
     private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)

@@ -72,6 +72,19 @@ const INVALID_DURATION_CONFLICT = {
   source: "x".repeat(101),
 };
 
+// #522 — one collective catalogue card: public book facts, no personal fields.
+const VALID_CARD = {
+  sourceId: "soundbooks",
+  sourceUrl: "https://sound-books.net/kobzar",
+  title: "Кобзар",
+  author: "Тарас Шевченко",
+  narrator: "Диктор",
+  language: "uk",
+  observedAt: 1700000000000,
+};
+const CARD_WITH_QUERY = { ...VALID_CARD, query: "шевченко" };
+const OVERLONG_CARD = { ...VALID_CARD, title: "т".repeat(301) };
+
 function durationConflictId(conflict) {
   return `${conflict.editionId}|${conflict.candidateSeconds}|${conflict.method}`;
 }
@@ -269,6 +282,15 @@ const MATRIX = [
   ["F21", `book_facets/${DUPLICATE_ALIAS_WORK_FACET.assertionId}`, "create", null, DUPLICATE_ALIAS_WORK_FACET, "DENY", "alias values унікальні"],
   ["F22", `book_facets/${DUPLICATE_GENRE_WORK_FACET.assertionId}`, "create", null, DUPLICATE_GENRE_WORK_FACET, "DENY", "genre ids унікальні"],
   ["F23", `book_facets/${DUPLICATE_SERIES_WORK_FACET.assertionId}`, "create", null, DUPLICATE_SERIES_WORK_FACET, "DENY", "Series ids унікальні"],
+  // #522 — the collective catalogue cards lane.
+  ["K1", "catalog_cards/qa_k1", "get", null, null, "ALLOW", "картка — публічний факт, читання відкрите"],
+  ["K2", "catalog_cards/qa_k2", "create", "uid-alice", VALID_CARD, "ALLOW", "bounded card (+AppCheck у проді)"],
+  ["K3", "catalog_cards/qa_k3", "create", "uid-alice", CARD_WITH_QUERY, "DENY", "зайве поле query (hasOnly)"],
+  ["K4", "catalog_cards/qa_k4", "create", "uid-alice", OVERLONG_CARD, "DENY", "title поза межею"],
+  ["K5", "catalog_cards/qa_k5", "create", null, VALID_CARD, "DENY", "нема auth"],
+  ["K6", "catalog_cards/qa_k6", "create", "uid-alice", VALID_CARD, "DENY", "нема AppCheck-токена"],
+  ["K7", "catalog_cards/qa_k7", "update", "uid-alice", VALID_CARD, "ALLOW", "повторна публікація тієї самої картки"],
+  ["K8", "catalog_cards/qa_k2", "delete", "uid-alice", null, "DENY", "client delete заборонений"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -284,6 +306,8 @@ const EVIDENCE = {
   F11: "open", F12: "open", F13: "open", F14: "open", F15: "open",
   F16: "open", F17: "open", F18: "open", F19: "open",
   F20: "open", F21: "open", F22: "open", F23: "open",
+  K1: "as-is", K2: "open", K3: "open", K4: "open", K5: "open",
+  K6: "as-is", K7: "open", K8: "open",
 };
 
 function b64(o) {

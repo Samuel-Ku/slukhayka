@@ -61,6 +61,13 @@ data class SourceFacts(
      */
     val order: Int = Int.MAX_VALUE,
     val streamOnly: Boolean = false,
+    /**
+     * A scam source: the audio it serves for a clean client is not the book
+     * (4read's is a 52-second artefact). Never imported, offered, played,
+     * downloaded or mirrored — the hard refusal ([SourceAudioRefusal.ALWAYS_REFUSED])
+     * and every write gate read this one fact.
+     */
+    val scam: Boolean = false,
     val referer: RefererRule? = null,
     /** Search-endpoint URL template with a `{q}` placeholder (worker/global search). */
     val searchUrl: String? = null,
@@ -87,6 +94,8 @@ object SourceRegistry {
             contentLanguage = "uk",
             accessMode = SourceAccessMode.BROWSER,
             order = 0,
+            streamOnly = true,
+            scam = true,
             referer = RefererRule("https://4read.org/", setOf("4read.org", "reasd.org")),
             searchUrl = "https://4read.org/index.php?do=search&subaction=search&story={q}",
             transportHosts = setOf("4read.org", "reasd.org"),
@@ -100,7 +109,9 @@ object SourceRegistry {
                 manifestPlaceholder = "\\{v1\\}",
                 manifestPlaceholderReplacement = "https://4read.org/m3u/",
                 searchDoor = "https://4read.org/index.php?do=search&subaction=search&story={q}",
-                releaseBrowserDoor = true
+                // #741: the release browser door is retired with the scam
+                // decision — no 4read surface opens in a release build.
+                releaseBrowserDoor = false
             )
         ),
         SourceFacts(
@@ -166,7 +177,7 @@ object SourceRegistry {
             id = "librivox",
             displayName = "LibriVox",
             homeUrl = "https://librivox.org",
-            contentLanguage = "en",
+            contentLanguage = "",
             accessMode = SourceAccessMode.DIRECT,
             order = 6,
             catalogUrl = "https://librivox.org/api/feed/audiobooks/?format=json",
@@ -275,6 +286,12 @@ object SourceRegistry {
 
     /** Stream-only verdict from the registry; unknown ids are not stream-only. */
     fun streamOnlyFor(sourceId: String): Boolean = byId[sourceId]?.streamOnly == true
+
+    /** The scam sources — audio that is never the book. */
+    fun scamIds(): Set<String> = entries.filter { it.scam }.map { it.id }.toSet()
+
+    /** Whether [sourceId] is a scam source; unknown ids are not. */
+    fun isScam(sourceId: String): Boolean = byId[sourceId]?.scam == true
 
     /** All ids in the ONE registry order (lower [SourceFacts.order] first). */
     fun orderedSourceIds(): List<String> = entries.sortedBy { it.order }.map { it.id }

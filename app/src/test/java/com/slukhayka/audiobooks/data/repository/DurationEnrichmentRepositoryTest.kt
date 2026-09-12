@@ -20,6 +20,7 @@ import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -33,6 +34,10 @@ import org.robolectric.annotation.Config
  * adapter reports real durations; the pass writes them into book rows for
  * unknown-duration books only, respects its batch limit, survives failing
  * fetches, and throttles itself.
+ *
+ * #740 — the pass routes by each book's OWN `sourceId`: a direct source
+ * enriches, a browser/scam source and a source without an adapter degrade
+ * honestly (no request, no crash).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -62,10 +67,10 @@ class DurationEnrichmentRepositoryTest {
      * configured — the failing-fetch case.
      */
     private class FakeBookAdapter(
+        override val sourceId: String,
         private val durationFor: Map<String, Long?>
     ) : SourceAdapter {
         val fetchedUrls = mutableListOf<String>()
-        override val sourceId: String get() = "4read"
         override val sessionBound: Boolean get() = false
 
         override suspend fun search(query: String): List<SourceBook> = emptyList()
@@ -85,18 +90,21 @@ class DurationEnrichmentRepositoryTest {
         }
     }
 
-    private fun book(id: String, durationSeconds: Long, url: String = "https://4read.org/$id.html") =
-        AudiobookEntity(
-            id = id,
-            title = "Книга $id",
-            author = "Автор",
-            narrator = "",
-            description = "",
-            coverDrawableRes = 0,
-            sourceUrl = url,
-            genre = "",
-            totalDurationSeconds = durationSeconds
-        )
+    private fun book(
+        id: String,
+        durationSeconds: Long,
+        url: String = "https://sound-books.net/$id.html"
+    ) = AudiobookEntity(
+        id = id,
+        title = "Книга $id",
+        author = "Автор",
+        narrator = "",
+        description = "",
+        coverDrawableRes = 0,
+        sourceUrl = url,
+        genre = "",
+        totalDurationSeconds = durationSeconds
+    )
 
     private suspend fun insertLibraryBooks(books: List<AudiobookEntity>) {
         dao.insertAudiobooks(books)
@@ -122,7 +130,15 @@ class DurationEnrichmentRepositoryTest {
     }
 
     private fun repo(adapter: FakeBookAdapter, store: FakeSharedBookMetaStore? = null) =
-        DurationEnrichment(dao, adapter::fetchBookPage, sharedStore = store)
+        repo(listOf(adapter), store)
+
+    /** #740 — the pass resolves each book's own adapter from this list. */
+    private fun repo(adapters: List<FakeBookAdapter>, store: FakeSharedBookMetaStore? = null) =
+        DurationEnrichment(
+            dao,
+            adapterFor = { sourceId -> adapters.firstOrNull { it.sourceId == sourceId } },
+            sharedStore = store
+        )
 
     private fun runEnrich(repo: DurationEnrichment, batchLimit: Int = 5, now: Long = 1_700_000_000_000L): Int =
         runBlocking { repo.enrichUnknownDurations(batchLimit = batchLimit, now = { now }) }
@@ -145,9 +161,10 @@ class DurationEnrichmentRepositoryTest {
             )
         }
         val adapter = FakeBookAdapter(
+            DIRECT_SOURCE,
             mapOf(
-                "https://4read.org/a.html" to 7200L,
-                "https://4read.org/b.html" to 43_200L
+                "https://sound-books.net/a.html" to 7200L,
+                "https://sound-books.net/b.html" to 43_200L
             )
         )
         val repo = repo(adapter)
@@ -163,10 +180,80 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `the fabricated legacy 4-hour placeholder counts as unknown and is enriched`() {
         runBlocking { insertLibraryBooks(listOf(book("legacy", DurationBuckets.FABRICATED_LEGACY_SECONDS))) }
-        val adapter = FakeBookAdapter(mapOf("https://4read.org/legacy.html" to 9000L))
+        val adapter = FakeBookAdapter(DIRECT_SOURCE, mapOf("https://sound-books.net/legacy.html" to 9000L))
 
         assertEquals(1, runEnrich(repo(adapter)))
         assertEquals(9000L, durationOf("legacy"))
+    }
+
+    // ---------------------------------------------------------------------
+    // #740 — routing by the book's own sourceId and honest degradation
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `each book is fetched through its own source adapter`() {
+        runBlocking {
+            insertLibraryBooks(
+                listOf(
+                    book("sb", 0L, url = "https://sound-books.net/sb.html"),
+                    book("sl", 0L, url = "https://sluhay.com.ua/sl")
+                )
+            )
+        }
+        val soundBooks = FakeBookAdapter("soundbooks", mapOf("https://sound-books.net/sb.html" to 3_600L))
+        val sluhayUa = FakeBookAdapter("sluhayua", mapOf("https://sluhay.com.ua/sl" to 5_400L))
+
+        assertEquals(2, runEnrich(repo(listOf(soundBooks, sluhayUa))))
+
+        assertEquals(listOf("https://sound-books.net/sb.html"), soundBooks.fetchedUrls)
+        assertEquals(listOf("https://sluhay.com.ua/sl"), sluhayUa.fetchedUrls)
+        assertEquals(3_600L, durationOf("sb"))
+        assertEquals(5_400L, durationOf("sl"))
+    }
+
+    @Test
+    fun `a browser-gated scam source is never fetched and does not break the pass`() {
+        runBlocking {
+            insertLibraryBooks(
+                listOf(
+                    book("bad", 0L, url = "https://4read.org/bad.html"),
+                    book("ok", 0L, url = "https://sound-books.net/ok.html")
+                )
+            )
+        }
+        // Even with an adapter registered for the source, the pass must not
+        // touch a browser/scam source (ADR-0039, #741).
+        val fourRead = FakeBookAdapter("4read", mapOf("https://4read.org/bad.html" to 1_000L))
+        val soundBooks = FakeBookAdapter("soundbooks", mapOf("https://sound-books.net/ok.html" to 2_000L))
+
+        assertEquals(1, runEnrich(repo(listOf(fourRead, soundBooks))))
+
+        assertTrue(fourRead.fetchedUrls.isEmpty())
+        assertEquals(listOf("https://sound-books.net/ok.html"), soundBooks.fetchedUrls)
+        assertEquals(0L, durationOf("bad"))
+        assertEquals(2_000L, durationOf("ok"))
+    }
+
+    @Test
+    fun `a source without an adapter degrades honestly, without a request`() {
+        runBlocking {
+            insertLibraryBooks(listOf(book("orphan", 0L, url = "https://unknown.example/orphan.html")))
+        }
+        val soundBooks = FakeBookAdapter("soundbooks", emptyMap())
+
+        assertEquals(0, runEnrich(repo(soundBooks)))
+        assertTrue(soundBooks.fetchedUrls.isEmpty())
+        assertEquals(0L, durationOf("orphan"))
+    }
+
+    @Test
+    fun `the registry decides which sources are implicitly unfetchable`() {
+        // 4read is browser-gated and a scam: never an implicit background fetch.
+        assertTrue(DurationEnrichment.isImplicitlyUnfetchable("4read"))
+        // Direct sources are enrichable; an unknown id is unknown, not banned.
+        assertFalse(DurationEnrichment.isImplicitlyUnfetchable("soundbooks"))
+        assertFalse(DurationEnrichment.isImplicitlyUnfetchable("sluhayua"))
+        assertFalse(DurationEnrichment.isImplicitlyUnfetchable("unknown"))
     }
 
     // ---------------------------------------------------------------------
@@ -178,7 +265,7 @@ class DurationEnrichmentRepositoryTest {
         runBlocking {
             insertLibraryBooks(listOf(book("fail", 0L), book("ok", 0L)))
         }
-        val adapter = FakeBookAdapter(mapOf("https://4read.org/ok.html" to 5400L))
+        val adapter = FakeBookAdapter(DIRECT_SOURCE, mapOf("https://sound-books.net/ok.html" to 5400L))
         val repo = repo(adapter)
 
         assertEquals(1, runEnrich(repo))
@@ -189,7 +276,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `a page without a duration never writes zero over the row`() {
         runBlocking { insertLibraryBooks(listOf(book("noduration", 0L))) }
-        val adapter = FakeBookAdapter(mapOf("https://4read.org/noduration.html" to null))
+        val adapter = FakeBookAdapter(DIRECT_SOURCE, mapOf("https://sound-books.net/noduration.html" to null))
         val repo = repo(adapter)
 
         assertEquals(0, runEnrich(repo))
@@ -199,7 +286,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `local imports with a blank source url are skipped, never fetched`() {
         runBlocking { insertLibraryBooks(listOf(book("local", 0L, url = ""))) }
-        val adapter = FakeBookAdapter(emptyMap())
+        val adapter = FakeBookAdapter(DIRECT_SOURCE, emptyMap())
         val repo = repo(adapter)
 
         assertEquals(0, runEnrich(repo))
@@ -217,7 +304,8 @@ class DurationEnrichmentRepositoryTest {
             insertLibraryBooks((1..5).map { book("b$it", 0L) })
         }
         val adapter = FakeBookAdapter(
-            (1..5).associate { "https://4read.org/b$it.html" to 3600L }
+            DIRECT_SOURCE,
+            (1..5).associate { "https://sound-books.net/b$it.html" to 3600L }
         )
         val repo = repo(adapter)
 
@@ -234,7 +322,10 @@ class DurationEnrichmentRepositoryTest {
         runBlocking {
             insertLibraryBooks((1..4).map { book("c$it", 0L) })
         }
-        val adapter = FakeBookAdapter((1..4).associate { "https://4read.org/c$it.html" to 3600L })
+        val adapter = FakeBookAdapter(
+            DIRECT_SOURCE,
+            (1..4).associate { "https://sound-books.net/c$it.html" to 3600L }
+        )
         val repo = repo(adapter)
         val interval = DurationEnrichment.MIN_ENRICHMENT_INTERVAL_MS
 
@@ -248,6 +339,9 @@ class DurationEnrichmentRepositoryTest {
     }
 
     companion object {
+        /** A direct (enrichable) registry source — never 4read. */
+        private const val DIRECT_SOURCE = "soundbooks"
+
         /** Realistic epoch so the very first pass is never throttled. */
         private const val START_EPOCH = 1_700_000_000_000L
     }
@@ -255,7 +349,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `no unknown-duration books means nothing is fetched`() {
         runBlocking { insertLibraryBooks(listOf(book("known", 3600L), book("also", 86_400L))) }
-        val adapter = FakeBookAdapter(emptyMap())
+        val adapter = FakeBookAdapter(DIRECT_SOURCE, emptyMap())
         val repo = repo(adapter)
 
         assertEquals(0, runEnrich(repo))
@@ -268,7 +362,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `a derived duration is written back to the shared store`() = runBlocking {
         val store = FakeSharedBookMetaStore()
-        val adapter = FakeBookAdapter(durationFor = mapOf("https://4read.org/b1.html" to 3_600L))
+        val adapter = FakeBookAdapter(DIRECT_SOURCE, mapOf("https://sound-books.net/b1.html" to 3_600L))
         insertLibraryBooks(listOf(book("b1", durationSeconds = 0L)))
 
         runEnrich(repo(adapter, store))
@@ -276,7 +370,7 @@ class DurationEnrichmentRepositoryTest {
         assertEquals(1, store.durationPuts.size)
         val (editionId, duration, provenance) = store.durationPuts.single()
         assertEquals(3_600L, duration)
-        assertEquals("4read", provenance.source)
+        assertEquals(DIRECT_SOURCE, provenance.source)
         assertEquals(DurationProvenance.METHOD_SOURCE_METADATA, provenance.method)
         // The Edition id matches the book's rendition identity.
         assertEquals(EditionId.forBook(MergeKey.keyFor("Книга b1", "Автор"), "b1", ""), editionId)
@@ -285,7 +379,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `a failing shared write never breaks the enrichment pass`() = runBlocking {
         val store = FakeSharedBookMetaStore(throwOnPut = true)
-        val adapter = FakeBookAdapter(durationFor = mapOf("https://4read.org/b1.html" to 3_600L))
+        val adapter = FakeBookAdapter(DIRECT_SOURCE, mapOf("https://sound-books.net/b1.html" to 3_600L))
         insertLibraryBooks(listOf(book("b1", durationSeconds = 0L)))
 
         val enriched = runEnrich(repo(adapter, store))

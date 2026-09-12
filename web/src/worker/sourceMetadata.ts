@@ -42,11 +42,33 @@ function factsOf(webId: SourceId) {
 }
 
 /**
- * The registry order (ADR-0038): every web source in the carrier's `order`.
+ * The scam sources (ADR-0038 carrier fact): 4read's clean-client audio is a
+ * 52-second artefact, never the book. The worker never serves them — no
+ * catalog, search, feed or book fetch — and the HTTP host allowlist drops
+ * their hosts too.
  */
-export const SOURCE_ORDER: readonly SourceId[] = sources.sources
+const SCAM_IDS: ReadonlySet<string> = new Set(
+  sources.sources
+    .filter((source) => (source as { scam?: boolean }).scam === true)
+    .map((source) => source.id),
+)
+
+/** Whether a web key (fourread) or a canonical id (4read) is a scam source. */
+export function isScamSourceKey(webKey: string): boolean {
+  return SCAM_IDS.has(WEB_KEY_TO_ID[webKey] ?? webKey)
+}
+
+/** Every web source the worker knows, in the carrier's `order`. */
+export const ALL_WEB_ORDER: readonly SourceId[] = sources.sources
   .filter((source) => WEB_IDS.has(source.id))
   .map((source) => ID_TO_WEB_KEY[source.id] ?? (source.id as SourceId))
+
+/**
+ * The registry order (ADR-0038): every SERVED web source in the carrier's
+ * `order` — scam sources are excluded.
+ */
+export const SOURCE_ORDER: readonly SourceId[] = ALL_WEB_ORDER
+  .filter((webId) => !isScamSourceKey(webId))
 
 export const SOURCE_METADATA: Record<SourceId, {
   label: string
@@ -60,7 +82,7 @@ export const SOURCE_METADATA: Record<SourceId, {
    */
   contentLanguage: string
 }> = Object.fromEntries(
-  SOURCE_ORDER.map((webId) => {
+  ALL_WEB_ORDER.map((webId) => {
     const facts = factsOf(webId)!
     return [
       webId,

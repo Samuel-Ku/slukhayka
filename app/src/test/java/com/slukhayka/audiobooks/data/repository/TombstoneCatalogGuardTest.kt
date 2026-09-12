@@ -124,51 +124,7 @@ class TombstoneCatalogGuardTest {
 
     private val seriesUrl = "https://4read.org/xfsearch/cikl/maksym-temnyj/"
 
-    private val top100Html = """
-        <div class="linek d-flex ai-center has-overlay card">
-            <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-02/medium/x.webp"></div>
-            <div class="linek__desc flex-grow-1">
-                <a href="https://4read.org/6945-dzho-aberkrombi-chorti.html"><div class="linek__title ws-nowrap">Чорти - Джо Аберкромбі</div></a>
-                <div class="linek__meta ws-nowrap"><span>Триває:</span> 21:42:42</div>
-            </div>
-        </div>
-    """.trimIndent()
-
     // --- The guard at the upsert -------------------------------------------
-
-    @Test
-    fun `captured top100 page imports the browser-verified ranking without HTTP`() = runBlocking {
-        val result = catalog().importCapturedTop100Result(top100Html)
-
-        val books = (result as CatalogFetchResult.Success).value
-        assertEquals(1, books.size)
-        assertEquals("Чорти", books.single().title)
-        assertNotNull(dao.getAudiobookById("4read-6945-dzho-aberkrombi-chorti"))
-    }
-
-    @Test
-    fun `captured top100 challenge page is rejected`() = runBlocking {
-        val result = catalog().importCapturedTop100Result("<html><title>Just a moment...</title></html>")
-
-        assertTrue(result is CatalogFetchResult.Failure)
-    }
-
-    @Test
-    fun `captured series page imports the browser-verified cycle without HTTP`() = runBlocking {
-        val catalog = catalog()
-        val result = catalog.importCapturedSeriesBooksResult(
-            seriesUrl,
-            poster(
-                "https://4read.org/6945-dzho-aberkrombi-chorti.html",
-                "Чорти",
-                "Джо Аберкромбі"
-            )
-        )
-
-        val books = (result as CatalogFetchResult.Success).value
-        assertEquals(1, books.size)
-        assertNotNull(dao.getAudiobookById("4read-6945-dzho-aberkrombi-chorti"))
-    }
 
     @Test
     fun `tombstoned catalog upsert is a no-op - nothing lands`() = runBlocking {
@@ -372,11 +328,11 @@ class TombstoneCatalogGuardTest {
         val detail = SourceBookDetail(
             title = "Неостанній бій",
             author = "Костянтин Шелест",
-            url = "https://4read.org/7589-neostannij-bij.html",
-            chapters = listOf(SourceChapter("Глава 1", "https://4read.org/uploads/audio/7589/01.mp3"))
+            url = "https://sound-books.net/7589-neostannij-bij.html",
+            chapters = listOf(SourceChapter("Глава 1", "https://arch.sound-books.net/7589/01.mp3"))
         )
-        val imports = LibraryImport(dao, context, listOf(FakeAdapter("4read", detail)))
-        val bookId = imports.importFromSourceUrl("4read", detail.url)!!.id
+        val imports = LibraryImport(dao, context, listOf(FakeAdapter("soundbooks", detail)))
+        val bookId = imports.importFromSourceUrl("soundbooks", detail.url)!!.id
 
         // Explicitly delete the imported book (tombstone written) — a catalog
         // upsert of the same poster must be a no-op.
@@ -393,7 +349,7 @@ class TombstoneCatalogGuardTest {
         )
 
         // Re-importing explicitly resurrects it and clears the marker.
-        val resurrected = imports.importFromSourceUrl("4read", detail.url)!!
+        val resurrected = imports.importFromSourceUrl("soundbooks", detail.url)!!
         assertEquals(bookId, resurrected.id)
         assertNotNull(dao.getAudiobookById(bookId))
         assertTrue(!dao.isBookTombstoned(bookId))

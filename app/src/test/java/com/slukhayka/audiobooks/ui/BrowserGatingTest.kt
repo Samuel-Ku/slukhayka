@@ -12,20 +12,20 @@ import org.junit.Test
  * Spec-15 T2 / Spec-42 #425 — the debug-gating rules of the in-app browser surfaces, pinned
  * on the pure seam (no Android build variant needed):
  *
- * - 4read is a WebView-pattern source in release builds (spec-42 #425) — its
- *   "open on site" / recovery action is ALWAYS the in-app browser;
+ * - #741: no source declares a release browser door any more — 4read's is
+ *   retired with the scam decision, so a release build never opens an in-app
+ *   surface implicitly;
  * - a WebView-source surface (sluhay first) is an in-app destination only in
  *   debug builds; release builds open the system browser.
  * - Spec-48 T3 — the gating reads the Browser Recovery Profiles: every
- *   profiled source is gated identically (in-app in debug, system in
- *   release), and 4read's release door comes from its profile flag alone.
+ *   profiled source is gated identically (in-app in debug, system in release).
  */
 class BrowserGatingTest {
 
     @Test
-    fun `4read open-on-site is always the in-app browser - release-accessible recovery`() {
+    fun `4read has no release browser door - release opens the system browser`() {
         assertEquals(BrowserDestination.IN_APP_BROWSER, browserDestinationFor(isDebug = true, sourceId = "4read"))
-        assertEquals(BrowserDestination.IN_APP_BROWSER, browserDestinationFor(isDebug = false, sourceId = "4read"))
+        assertEquals(BrowserDestination.SYSTEM_BROWSER, browserDestinationFor(isDebug = false, sourceId = "4read"))
     }
 
     @Test
@@ -49,11 +49,11 @@ class BrowserGatingTest {
     }
 
     @Test
-    fun `only 4read's profile declares the release browser door`() {
-        // ADR-0027 — the release door is a per-source decided privilege, a
-        // profile flag that is true for 4read only. Connecting a source is
-        // data; enabling a release door is a recorded decision.
-        assertTrue(BrowserRecoveryProfiles.forSource("4read").releaseBrowserDoor)
+    fun `no profile declares a release browser door - the privilege is retired`() {
+        // ADR-0027 — the release door is a per-source decided privilege.
+        // #741 retired 4read's; connecting a source stays data, enabling a
+        // release door stays a recorded decision.
+        assertFalse(BrowserRecoveryProfiles.forSource("4read").releaseBrowserDoor)
         assertFalse(BrowserRecoveryProfiles.forSource("sluhay").releaseBrowserDoor)
         assertFalse(BrowserRecoveryProfiles.forSource("sluhayknigi").releaseBrowserDoor)
         assertFalse(BrowserRecoveryProfiles.forSource("ukrainianaudiobooks").releaseBrowserDoor)

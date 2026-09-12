@@ -8,8 +8,11 @@ import com.slukhayka.audiobooks.data.collections.CollectionEntry
 import com.slukhayka.audiobooks.data.collections.CollectionList
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
@@ -216,13 +219,17 @@ class ContentLanguageSurfacesTest {
     }
 
     @Test
-    fun `smart collections match only the visible union`() = runBlocking {
+    fun `smart collections read the library and ignore the content-language selection`() = runBlocking {
         val selection = MutableStateFlow(setOf("uk"))
         val austen = CollectionList(
             id = "en-classics",
             name = "Jane Austen",
             entries = listOf(CollectionEntry("Jane Austen", "Emma"))
         )
+        // #735 / ADR-0041: the collection corpus is the Медіатека, not the
+        // ephemeral union, and the Медіатека is not a discovery surface — the
+        // content-language preference never hides a book the listener owns.
+        own("Emma", "Jane Austen")
         val catalog = repo(
             selection,
             listOf(
@@ -232,12 +239,43 @@ class ContentLanguageSurfacesTest {
             collections = listOf(austen)
         )
         catalog.refreshUnifiedCatalog()
-        // Emma is hidden → the English collection has no corpus → absent.
-        assertTrue("no collection may render hidden cards", catalog.smartCollections.value.isEmpty())
+        // Emma is hidden from the union (en under a uk selection) but owned,
+        // so her collection still renders her.
+        assertTrue(catalog.unifiedCatalog.value.none { it.title == "Emma" })
+        assertEquals(listOf("en-classics"), catalog.smartCollections.value.map { it.id })
+        assertEquals(listOf("Emma"), catalog.smartCollections.value.single().books.map { it.title })
 
         selection.value = emptySet()
         catalog.refreshUnifiedCatalog()
         assertEquals(listOf("en-classics"), catalog.smartCollections.value.map { it.id })
         assertEquals(listOf("Emma"), catalog.smartCollections.value.single().books.map { it.title })
+    }
+
+    /** #735 — a row the listener actually owns; the collection corpus. */
+    private suspend fun own(title: String, author: String) {
+        val id = "owned-${title.hashCode()}"
+        dao.insertAudiobooks(
+            listOf(
+                AudiobookEntity(
+                    id = id,
+                    title = title,
+                    author = author,
+                    narrator = "",
+                    description = "",
+                    coverDrawableRes = 0,
+                    genre = "",
+                    sourceUrl = "https://librivox.example/owned"
+                )
+            )
+        )
+        val workId = MergeKey.keyFor(title, author)
+        dao.upsertWork(WorkEntity(id = workId, mergeKey = workId, title = title, author = author, addedAt = 0L))
+        dao.upsertLibraryEntry(
+            id = id,
+            workId = workId,
+            isFavorite = false,
+            createdAt = 0L,
+            downloadProgress = 0f
+        )
     }
 }

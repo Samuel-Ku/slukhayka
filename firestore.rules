@@ -241,6 +241,32 @@ service cloud.firestore {
         && (!('workId' in before) || before.workId == after.workId);
     }
 
+    // #522 — one collective catalogue card is a small ANONYMOUS public fact:
+    // the book's bibliographic identity plus the source that serves it. The
+    // allowed-field list is the primary privacy gate: a document that smuggles
+    // a query, contributor id, position, cookie, session header or track URL
+    // is rejected whole. Bounds mirror CollectiveCardCodec/Limits so a
+    // document the rules accept is one the app can decode.
+    function isWellFormedCatalogCard(d) {
+      return d.keys().hasOnly([
+          'sourceId', 'sourceUrl', 'title', 'author', 'narrator', 'language',
+          'coverUrl', 'seriesTitle', 'seriesIndex', 'durationSeconds',
+          'chapterCount', 'observedAt'
+        ])
+        && d.sourceId is string && d.sourceId.size() > 0 && d.sourceId.size() <= 64
+        && d.sourceUrl is string && d.sourceUrl.size() > 0 && d.sourceUrl.size() <= 2000
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 300
+        && d.author is string && d.author.size() > 0 && d.author.size() <= 200
+        && (!('narrator' in d) || (d.narrator is string && d.narrator.size() <= 200))
+        && (!('language' in d) || (d.language is string && d.language.size() <= 16))
+        && (!('coverUrl' in d) || (d.coverUrl is string && d.coverUrl.size() <= 2000))
+        && (!('seriesTitle' in d) || (d.seriesTitle is string && d.seriesTitle.size() <= 300))
+        && (!('seriesIndex' in d) || d.seriesIndex is number)
+        && (!('durationSeconds' in d) || (d.durationSeconds is number && d.durationSeconds >= 0))
+        && (!('chapterCount' in d) || (d.chapterCount is number && d.chapterCount >= 0))
+        && d.observedAt is number;
+    }
+
     // Spec-40 #277 — listener reviews of a Work: readable by everyone (the
     // block renders on every book page), writable only by the review's own
     // author under App Check. The document key is `${workId}_${uid}` but the
@@ -488,6 +514,16 @@ service cloud.firestore {
         && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid
         && isWellFormedPersonBookmark(request.resource.data);
       allow delete: if isAppCheckValid() && request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    // #522 — the collective catalogue cards: an anonymous PUBLIC fact, so
+    // reads are public like the other shared-fact collections; writes go only
+    // through the well-formed shape above, and a client never deletes one.
+    match /catalog_cards/{document} {
+      allow read: if true;
+      allow create, update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCatalogCard(request.resource.data);
+      allow delete: if false;
     }
   }
 }

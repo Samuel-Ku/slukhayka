@@ -24,7 +24,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * spec-28 (#198) — snapshot pins for the Огляд navigation row: the five
- * [com.slukhayka.audiobooks.ui.components.NavigationChip]s (ТОП 100 /
+ * [com.slukhayka.audiobooks.ui.components.NavigationChip]s (Рейтинг /
  * Виконавці / Автори / Серії / Колекції). Filled, outline-free — the
  * «перейти» form per ADR-0018 — and each chip forwards its tap. Stateless
  * pure-`@Composable` inputs, no `MainViewModel`.
@@ -52,7 +52,7 @@ class NavigationChipSnapshotTest {
             }
         }
 
-        composeTestRule.onNodeWithText("ТОП 100").assertExists()
+        composeTestRule.onNodeWithText("Рейтинг").assertExists()
         composeTestRule.onNodeWithText("Серії").assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/navigation_chip_row.png"
@@ -75,7 +75,7 @@ class NavigationChipSnapshotTest {
             }
         }
 
-        composeTestRule.onNodeWithText("ТОП 100").performClick()
+        composeTestRule.onNodeWithText("Рейтинг").performClick()
         assertEquals("top100", opened)
 
         composeTestRule.onNodeWithText("Серії").performClick()

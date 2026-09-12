@@ -62,6 +62,7 @@ import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
 import com.slukhayka.audiobooks.ui.screens.AppLocaleScreen
 import com.slukhayka.audiobooks.ui.screens.ContentLanguageScreen
+import com.slukhayka.audiobooks.ui.screens.FirstLanguageChoiceSheet
 import com.slukhayka.audiobooks.ui.screens.NetworkPrivacyScreen
 import com.slukhayka.audiobooks.ui.screens.PeopleScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
@@ -71,7 +72,7 @@ import com.slukhayka.audiobooks.ui.screens.RecommendationSettingsScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesScreen
 import com.slukhayka.audiobooks.ui.screens.StorageDestinationScreen
-import com.slukhayka.audiobooks.ui.screens.Top100Screen
+import com.slukhayka.audiobooks.ui.screens.LibraryRatingScreen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -241,8 +242,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val narrationSwitchPrompt by viewModel.narrationSwitchPrompt.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
-    val bilingualPrompt = App.instance.bilingualPrompt
-    val bilingualPromptVisible by bilingualPrompt.visible.collectAsState()
+    val firstLanguageChoice = App.instance.firstLanguageChoice
+    val firstChoiceVisible by firstLanguageChoice.visible.collectAsState()
+    val firstChoiceLanguages by firstLanguageChoice.languages.collectAsState()
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -268,13 +270,14 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
-    // Spec-45 (#405) T8 (#496): the one-time bilingual prompt (US9) — shown
-    // after the first sync that found English books; either action dismisses
-    // it permanently (the engine's persisted marker).
-    if (bilingualPromptVisible) {
-        BilingualContentPrompt(
-            onKeepEnglish = bilingualPrompt::keepEnglish,
-            onUkrainianOnly = bilingualPrompt::ukrainianOnly
+    // Spec-51 (#742) T2: the one-time First Language Choice — shown after the
+    // first sync that wrote renditions; EVERY action (including dismissal)
+    // answers permanently through the engine's persisted marker.
+    if (firstChoiceVisible) {
+        FirstLanguageChoiceSheet(
+            languages = firstChoiceLanguages,
+            onUkrainianOnly = firstLanguageChoice::ukrainianOnly,
+            onDone = firstLanguageChoice::apply
         )
     }
 
@@ -331,6 +334,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val privacySettingsOpen by viewModel.privacySettingsOpen.collectAsState()
     val recommendationSettingsOpen by viewModel.recommendationSettingsOpen.collectAsState()
     val contentLanguagesOpen by viewModel.contentLanguagesOpen.collectAsState()
+    val contentLanguageOptions by viewModel.contentLanguageOptions.collectAsState()
     val sourceAudioRefusalOpen by viewModel.sourceAudioRefusalOpen.collectAsState()
     val appLocaleOpen by viewModel.appLocaleOpen.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
@@ -342,6 +346,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val authorsIndexResults by viewModel.authorsIndexResults.collectAsState()
     val selectedCanonicalAuthor by viewModel.selectedCanonicalAuthor.collectAsState()
     val canonicalAuthorWorks by viewModel.canonicalAuthorWorks.collectAsState()
+    val canonicalAuthorOwnedWorkIds by viewModel.canonicalAuthorOwnedWorkIds.collectAsState()
     val isCanonicalAuthorLoading by viewModel.isCanonicalAuthorLoading.collectAsState()
     val canonicalAuthorLoadFailed by viewModel.canonicalAuthorLoadFailed.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
@@ -483,7 +488,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 .testTag("app_background")
                 .accessibilityModalBackground(
                     modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt ||
-                        bilingualPromptVisible || narrationSwitchPrompt != null
+                        firstChoiceVisible || narrationSwitchPrompt != null
                 ),
             bottomBar = {
                 Column {
@@ -543,8 +548,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         recoveryBookId = selectedWebSource!!.recoveryBookId,
                         recoveryChapterIndex = selectedWebSource!!.recoveryChapterIndex,
                         recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
-                        captureTop100 = selectedWebSource!!.captureTop100,
-                        captureSeriesUrl = selectedWebSource!!.captureSeriesUrl,
                         automaticRecovery = selectedWebSource!!.automaticRecovery,
                         cloudflareChallenge = selectedWebSource!!.cloudflareChallenge,
                         onCloudflareChallengeChanged = { required ->
@@ -736,6 +739,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // the ViewModel only owns navigation.
                     contentLanguagesOpen -> ContentLanguageScreen(
                         prefs = App.instance.contentLanguagePrefs,
+                        // Spec-51 (#742): the offered list is the catalogue's
+                        // real languages, never a hardcoded pair.
+                        availableLanguages = contentLanguageOptions,
                         onBackClick = {
                             viewModel.closeContentLanguages()
                         }
@@ -813,8 +819,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listState = genreBookListState
                     )
 
-                    // ТОП 100 АудіоКниг (`/top-100.html`).
-                    selectedTop100 -> Top100Screen(
+                    // #738 — the library rating (local, offline).
+                    selectedTop100 -> LibraryRatingScreen(
                         viewModel = viewModel,
                         onBackClick = {
                             secondaryBookRoute = SecondaryBookRouteFrame()
@@ -844,6 +850,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     selectedCanonicalAuthor != null -> CanonicalAuthorScreen(
                         author = selectedCanonicalAuthor!!,
                         works = canonicalAuthorWorks,
+                        ownedWorkIds = canonicalAuthorOwnedWorkIds,
                         isLoading = isCanonicalAuthorLoading,
                         loadFailed = canonicalAuthorLoadFailed,
                         onBackClick = { viewModel.closeCanonicalAuthor() },
@@ -854,7 +861,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     authorsIndexOpen -> {
                         // The full 10k-capable alphabetical projection is cold:
                         // collect it only while its destination is visible.
-                        val canonicalAuthors by viewModel.sourceCatalog.authors.collectAsState(initial = emptyList())
+                        // #736 — the default list is the Медіатека's people; a
+                        // search result set still spans the full index.
+                        val canonicalAuthors by viewModel.sourceCatalog.libraryAuthors.collectAsState(initial = emptyList())
                         val authorList = authorsIndexResults ?: canonicalAuthors
                         AuthorsIndexScreen(
                             authors = authorList,
@@ -988,18 +997,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // Sluhay» exit CTA (spec-28 #192, moved from
                             // Listen) renders only in debug builds — in
                             // release the same row would open an in-app
-                            // browser that cannot exist.
-                            // Spec-42 #440 (ADR-0027): the 4read door is the one
-                            // release-accessible browser exception, so it is wired
-                            // in BOTH build flavours (unlike the debug-only Sluhay
-                            // door just above).
-                            onOpenWebSource4read = {
-                                viewModel.openWebSource(
-                                    sourceId = "4read",
-                                    homeUrl = "https://4read.org/",
-                                    displayName = "4read"
-                                )
-                            },
+                            // browser that cannot exist. The 4read door is
+                            // gone (#741): the source is scam.
                             onOpenWebSource = if (BuildConfig.DEBUG) {
                                 {
                                     viewModel.openWebSource(
@@ -1088,7 +1087,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     com.slukhayka.audiobooks.ui.screens.BookFeedbackHost(
         viewModel.bookFeedback, viewModel.bookFeedbackStore,
         foreground = appVisibility == AppVisibility.FOREGROUND,
-        allowAutomatic = !crashReportingState.shouldShowPrompt && !bilingualPromptVisible && narrationSwitchPrompt == null
+        allowAutomatic = !crashReportingState.shouldShowPrompt && !firstChoiceVisible && narrationSwitchPrompt == null
     )
 
     }
@@ -1132,7 +1131,21 @@ internal fun NarrationSwitchConfirmationPrompt(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.narration_switch_title)) },
         text = {
-            Text(stringResource(R.string.narration_switch_body, current, target, prompt.title))
+            Column {
+                Text(stringResource(R.string.narration_switch_body, current, target, prompt.title))
+                // #520 — name the found narration's source when it is known;
+                // unknown provenance renders nothing rather than a guess.
+                if (prompt.targetSourceName.isNotBlank()) {
+                    Text(
+                        text = stringResource(
+                            R.string.narration_switch_source,
+                            prompt.targetSourceName
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
@@ -1142,35 +1155,6 @@ internal fun NarrationSwitchConfirmationPrompt(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.narration_switch_cancel))
-            }
-        }
-    )
-}
-
-/**
- * Spec-45 (#405) T8 (#496) — the one-time bilingual prompt (US9): after the
- * first sync that found English books, ask once whether to keep or hide them.
- * No neutral dismissal (system back is inert) — the listener answers, and the
- * choice is terminal. The AlertDialog surfaces the full sentence plus both
- * actions to TalkBack.
- */
-@Composable
-internal fun BilingualContentPrompt(
-    onKeepEnglish: () -> Unit,
-    onUkrainianOnly: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = { },
-        title = { Text(stringResource(R.string.bilingual_prompt_title)) },
-        text = { Text(stringResource(R.string.bilingual_prompt_body)) },
-        confirmButton = {
-            TextButton(onClick = onKeepEnglish) {
-                Text(stringResource(R.string.bilingual_prompt_keep))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onUkrainianOnly) {
-                Text(stringResource(R.string.bilingual_prompt_uk_only))
             }
         }
     )

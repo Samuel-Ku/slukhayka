@@ -8,8 +8,8 @@
     <string name="secondary_series_empty">У цьому циклі поки немає книг.</string>
     <string name="secondary_genre_error">Не вдалося завантажити книги жанру. Перевірте з’єднання.</string>
     <string name="secondary_genre_empty">У цьому жанрі поки немає книг.</string>
-    <string name="secondary_top100_error">Не вдалося завантажити рейтинг. Перевірте з’єднання.</string>
-    <string name="secondary_top100_empty">У рейтингу поки немає книг.</string>
+    <string name="secondary_library_rating_error">Не вдалося порахувати рейтинг медіатеки.</string>
+    <string name="secondary_library_rating_empty">У медіатеці ще немає книг з оцінками.</string>
     <string name="secondary_people_error">Не вдалося завантажити список. Перевірте з’єднання.</string>
     <string name="secondary_people_empty">У цьому списку поки нікого немає.</string>
     <string name="secondary_person_books_error">Не вдалося завантажити книги. Перевірте з’єднання.</string>

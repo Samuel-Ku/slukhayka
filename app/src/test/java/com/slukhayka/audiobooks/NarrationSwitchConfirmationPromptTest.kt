@@ -63,4 +63,34 @@ class NarrationSwitchConfirmationPromptTest {
         compose.onNodeWithText("Перемкнути").performClick()
         assertTrue(confirmed)
     }
+
+    @Test
+    fun `the found narration's source is named when known`() {
+        compose.setContent {
+            AudiobookTheme {
+                NarrationSwitchConfirmationPrompt(
+                    prompt.copy(targetSourceName = "Sound-Books"),
+                    {},
+                    {}
+                )
+            }
+        }
+
+        compose.onNodeWithText("Джерело: Sound-Books").assertExists()
+    }
+
+    @Test
+    fun `unknown source renders no source line`() {
+        compose.setContent {
+            AudiobookTheme {
+                NarrationSwitchConfirmationPrompt(prompt, {}, {})
+            }
+        }
+
+        // The body is present; provenance is honestly absent, never guessed.
+        compose.onNodeWithText(
+            "Поточна начитка — Диктор А. Для «Проблема з миром» вибрано іншу — Диктор Б. Її позиція прослуховування зберігається окремо."
+        ).assertExists()
+        compose.onNodeWithText("Джерело: ", substring = true).assertDoesNotExist()
+    }
 }

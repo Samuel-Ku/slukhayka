@@ -267,6 +267,34 @@ service cloud.firestore {
         && d.observedAt is number;
     }
 
+    // #527 — one SHARED collective block: the Source-scoped identity, the
+    // provenance URL, the honest window/version and the cards in the source's
+    // own order. The allowed-field set is the gate: a query, a cookie/session
+    // header, a contributor identity or a track URL can never ride along, and a
+    // card list is bounded and non-empty.
+    function isWellFormedCatalogBlock(d) {
+      return d.keys().hasOnly([
+          'blockKey', 'sourceId', 'kind', 'name', 'provenanceUrl',
+          'fetchedAt', 'staleAfter', 'version', 'cards'
+        ])
+        && d.blockKey is string && d.blockKey.size() > 0 && d.blockKey.size() <= 200
+        && d.sourceId is string && d.sourceId.size() > 0 && d.sourceId.size() <= 64
+        && d.kind is string && d.kind.size() > 0 && d.kind.size() <= 32
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 200
+        && d.provenanceUrl is string && d.provenanceUrl.size() > 0 && d.provenanceUrl.size() <= 2000
+        && d.fetchedAt is number && d.fetchedAt > 0
+        && d.staleAfter is number && d.staleAfter >= d.fetchedAt
+        && d.version is number && d.version >= 0
+        && d.cards is list && d.cards.size() > 0 && d.cards.size() <= 100;
+    }
+
+    match /catalog_blocks/{document} {
+      allow read: if true;
+      allow create, update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCatalogBlock(request.resource.data);
+      allow delete: if false;
+    }
+
     // Spec-40 #277 — listener reviews of a Work: readable by everyone (the
     // block renders on every book page), writable only by the review's own
     // author under App Check. The document key is `${workId}_${uid}` but the

@@ -539,7 +539,27 @@ class App : Application() {
                 } else {
                     sourceCatalog.collectiveBlockFetch(ref.sourceId, ref.kind)
                 }
-            }
+            },
+            // #527 — the ONE owner that observed the block shares it, so another
+            // install shows it without repeating the genre/catalogue request.
+            onActivated = { block -> collectiveBlockStore?.putBlock(block) }
+        )
+    }
+
+    /** #527 — the shared block lane's transport (null without Firebase keys). */
+    private val collectiveBlockStore: com.slukhayka.audiobooks.data.collective.CollectiveBlockStore? by lazy {
+        com.slukhayka.audiobooks.data.collective.FirestoreCollectiveBlockStore.create(this)
+    }
+
+    /** #527 — mirrors other installs' observed blocks into the local snapshots. */
+    val collectiveBlockSync: com.slukhayka.audiobooks.data.collective.CollectiveBlockSync by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveBlockSync(
+            store = collectiveBlockStore,
+            local = com.slukhayka.audiobooks.data.collective.RoomCollectiveFeedBlockStore(
+                database.audiobookDao()
+            ),
+            cursorStore = com.slukhayka.audiobooks.data.collective
+                .SharedPreferencesCollectiveBlockSyncCursorStore(this)
         )
     }
 

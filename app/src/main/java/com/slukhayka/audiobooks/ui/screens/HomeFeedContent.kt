@@ -23,6 +23,7 @@ import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -60,7 +61,7 @@ fun LazyListScope.homeFeedContent(
     sections: List<CatalogSection>,
     genreFacetOptions: List<GenreFacetOption>,
     collections: List<CollectionMatcher.MatchedCollection>,
-    newArrivals: List<GlobalSearchResult>,
+    newArrivals: List<LibraryNewArrival>,
     peopleNewArrivals: PersonNewArrivals.CatalogProjection = PersonNewArrivals.CatalogProjection(emptyList(), emptySet()),
     recommendedBooks: List<RecommendationEngine.Recommendation>,
     recommendationsReady: Boolean = true,
@@ -306,20 +307,16 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
-    // spec-28 (#192): «Новинки» — the ONE cross-source new-arrivals
-    // rail (4read's «Новинки» section + every other source's feed,
-    // merged by Work, a source badge per card), re-homed from
-    // Слухати. Tapping a card resolves-and-plays exactly like the
-    // global-search cards. The «Новинки» catalogue section is skipped
-    // below so 4read's new arrivals appear exactly once on the screen.
+    // ADR-0041 / #733: «Новинки» — the one library-first new-arrivals rail:
+    // the Медіатека's newest imports, one card per Work with the source badge
+    // it was imported from. Tapping opens the book the listener already owns;
+    // no live source is rendered here (the «Новинки» catalogue section below
+    // is still skipped so nothing duplicates the rail).
     if (newArrivals.isNotEmpty()) {
         item {
             NewArrivalsRail(
-                results = newArrivals,
-                onBookClick = { result -> onOpenGlobalSearchResult(result) },
-                actionState = catalogCardActionState,
-                onOpenBrowser = onOpenCatalogBrowser,
-                onPreflight = onPreflightGlobalSearchResult
+                arrivals = newArrivals,
+                onBookClick = { book -> onBookClick(book.id) }
             )
         }
     }

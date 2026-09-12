@@ -77,6 +77,8 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrivals
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
@@ -204,11 +206,11 @@ fun HomeScreen(
     // empty.
     val collections by sourceCatalog.smartCollections.collectAsState()
 
-    // spec-28 (#192): the cross-source «Новинки» rail — 4read's new arrivals
-    // plus every other source's new feed, merged by Work with a source badge
-    // per card (re-homed from Слухати; the «Новинки» catalogue section below
-    // is skipped so 4read appears exactly once).
-    val newArrivals by sourceCatalog.newArrivals.collectAsState()
+    // ADR-0041 / #733: the «Новинки» rail is the Медіатека's newest imports —
+    // one card per Work, newest first, with the source badge it was imported
+    // from. No live Source Catalog, so the rail is offline-readable and moves
+    // on the exact tick an entry is imported or removed.
+    val newArrivals = remember(allBooks) { LibraryNewArrivals.project(allBooks) }
 
     // Spec-36 T1 (#244): an available app release, resolved by the module's
     // own throttled check — null means everything is current.
@@ -855,18 +857,17 @@ fun DurationSection(
 }
 
 /**
- * spec-28 (#192) — the cross-source «Новинки» rail: 4read's new arrivals
- * plus every other source's new feed, merged by Work with a source badge
- * per card. Public and stateless (pure `@Composable` inputs) so the
- * snapshot seam can pin the rail from fixture data.
+ * ADR-0041 / #733 — the library-first «Новинки» rail: one card per recently
+ * imported Work, newest first, with the badge of the source it was imported
+ * from. It reads the Медіатека only (never a live Source Catalog), so it
+ * stays readable offline and changes the instant an entry is imported or
+ * removed. Public and stateless (pure `@Composable` inputs) so the snapshot
+ * seam can pin the rail from fixture data.
  */
 @Composable
 fun NewArrivalsRail(
-    results: List<GlobalSearchResult>,
-    onBookClick: (GlobalSearchResult) -> Unit,
-    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onOpenBrowser: () -> Unit = {},
-    onPreflight: (GlobalSearchResult) -> Unit = {},
+    arrivals: List<LibraryNewArrival>,
+    onBookClick: (AudiobookEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.testTag("new_arrivals_rail")) {
@@ -875,32 +876,15 @@ fun NewArrivalsRail(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(results, key = { it.key }) { result ->
-                // spec-28 (#192): the merged rail card carries a chip per
-                // Source that carries the Work — provenance is the rail's
-                // reason to exist (Work-dedup would hide it otherwise).
-                // v1.4 C4 (ADR-0033): MetadataChip, not the old pill.
+            items(arrivals, key = { it.workKey }) { arrival ->
                 Column(
                     modifier = Modifier.width(PosterWidth),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PosterCard(
-                        result = result,
-                        onClick = { onBookClick(result) },
-                        preflightKey = result.key,
-                        onPreflight = { onPreflight(result) },
-                        actionHost = { CatalogCardStatus(result.key, actionState, onOpenBrowser) }
-                    )
-                    if (result.sources.isNotEmpty()) {
+                    PosterCard(book = arrival.book, onClick = { onBookClick(arrival.book) })
+                    if (arrival.sourceName.isNotBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs, Alignment.CenterHorizontally),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            result.sources.forEach { source ->
-                                MetadataChip(source = source.sourceName)
-                            }
-                        }
+                        MetadataChip(source = arrival.sourceName)
                     }
                 }
             }

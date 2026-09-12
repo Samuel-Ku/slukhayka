@@ -41,6 +41,9 @@ class SourceDownloadPermissionRefresh(
             val verdict = RobotsDownloadRules.verdictFor(body, cataloguePath)
             if (verdict == DownloadPermissionVerdict.UNKNOWN) continue
             store.record(DownloadPermissionRecord(verdict, clock()), sourceId)
+            // #527 — positive proof that the live gate actually recorded a
+            // verdict on-device (successful fetches are otherwise silent).
+            android.util.Log.w("DownloadPermission", "recorded $verdict for $sourceId")
             recorded++
         }
         return recorded

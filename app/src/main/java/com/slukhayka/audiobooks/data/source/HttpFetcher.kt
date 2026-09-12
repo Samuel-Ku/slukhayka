@@ -46,6 +46,14 @@ import java.net.URI
 open class HttpFetcher(
     private val userAgent: String? = null,
     private val referer: String? = null,
+    /**
+     * #527 — the hosts (exact or subdomain) the site [referer] may travel to.
+     * An EMPTY set keeps the legacy "any host" behaviour for an adapter that
+     * never leaves its own domain; an adapter that talks to a media CDN names
+     * its hosts here, so the site's Referer can never leak to an unrelated
+     * third party (spec-13 per-source referer rule).
+     */
+    private val refererHosts: Set<String> = emptySet(),
     private val sourceGate: SourceRequestGate? = null,
     /** Class used by the plain [getText] door; explicit calls override it. */
     private val defaultRequestClass: SourceRequestClass = SourceRequestClass.BACKGROUND,
@@ -342,7 +350,7 @@ open class HttpFetcher(
             .header("User-Agent", userAgent ?: BrowserIdentity.currentUserAgent())
             .header("Accept", BrowserIdentity.ACCEPT_HEADER)
             .header("Accept-Language", BrowserIdentity.ACCEPT_LANGUAGE_HEADER)
-            .apply { if (referer != null) header("Referer", referer!!) }
+            .apply { if (referer != null && refererAllowedFor(url, refererHosts)) header("Referer", referer!!) }
             .apply { extraHeaders.forEach { (name, value) -> header(name, value) } }
             .build()
     }

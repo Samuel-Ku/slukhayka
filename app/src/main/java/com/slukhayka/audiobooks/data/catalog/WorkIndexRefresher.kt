@@ -175,7 +175,7 @@ class WorkIndexRefresher(
                 // the previous good index is never erased.
                 val parsed = SitemapParser.parse(response.body, spec.accept) ?: continue
                 for (entry in parsed) {
-                    val slug = entry.canonicalUrl.substringAfterLast('/')
+                    val slug = spec.slugOf(entry.canonicalUrl).trim()
                     if (slug.isBlank()) continue
                     entries += CatalogIndexEntry(sourceId = sourceId, url = entry.url, slug = slug)
                 }
@@ -216,9 +216,14 @@ class WorkIndexRefresher(
         /** #526 — the sitemap's own "nothing changed" answer. */
         private const val HTTP_NOT_MODIFIED = 304
 
-        /** One source's sitemap URLs plus the book-URL filter. */
+        /**
+         * One source's sitemap URLs, the book-URL filter, and how the URL maps
+         * to the slug matching runs on (a source may prefix its slugs with a
+         * section marker that is not part of the Work identity).
+         */
         data class SitemapSpec(
             val sitemapUrls: List<String>,
+            val slugOf: (canonicalUrl: String) -> String = { it.substringAfterLast('/') },
             val accept: (path: String) -> Boolean
         )
 
@@ -241,7 +246,21 @@ class WorkIndexRefresher(
             ) { path -> path.contains("/books/") },
             "sluhay" to SitemapSpec(
                 sitemapUrls = listOf("https://sluhay.com/news_pages.xml")
-            ) { path -> SLUHAY_BOOK_PATH_RE.containsMatchIn(path) }
+            ) { path -> SLUHAY_BOOK_PATH_RE.containsMatchIn(path) },
+            // #527 — audiobook-mp3.com publishes its Ukrainian inventory in
+            // robots.txt (`sitemap_books-uk.xml`, measured 2026-09-12: 6 219
+            // `/uk-audio-<id>-<slug>` URLs). The site's own `/sitemap.xml` is
+            // an HTML 404 page, so only this child sitemap is read.
+            "audiobookmp3" to SitemapSpec(
+                sitemapUrls = listOf("https://audiobook-mp3.com/sitemap_books-uk.xml"),
+                accept = { path -> path.startsWith("https://audiobook-mp3.com/uk-audio-") },
+                // `/uk-audio-<id>-<author>-<title>`: the section marker and the
+                // numeric id are not part of the Work identity, so matching runs
+                // on the author-title tail only.
+                slugOf = { url ->
+                    url.substringAfterLast('/').replace(Regex("^uk-audio-\\d+-"), "")
+                }
+            )
         )
 
         /** `https://sluhay.com/<category>/<id>-<slug>.html` — the book inventory. */

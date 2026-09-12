@@ -378,4 +378,35 @@ class WorkIndexRefresherTest {
         indexFile.delete()
         validatorsFile.delete()
     }
+
+    @Test
+    fun `the audiobookmp3 uk sitemap lands its inventory`() = runTest {
+        val mp3Url = "https://audiobook-mp3.com/sitemap_books-uk.xml"
+        val fetcher = FixtureFetcher(
+            docs = mapOf(
+                mp3Url to sitemap(
+                    "https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv",
+                    "https://audiobook-mp3.com/about-us"
+                )
+            )
+        )
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = null,
+            cardSources = emptyMap(),
+            clock = { 1_000_000L }
+        )
+
+        val built = refresher.refreshIfStale()
+
+        assertEquals("only the book page is an entry", 1, built!!.entriesFor("audiobookmp3").size)
+        assertEquals(
+            "https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv",
+            built.entriesFor("audiobookmp3").single().url
+        )
+        assertTrue(
+            "the Cyrillic query matches the transliterated slug locally",
+            refresher.candidates("Клуб боягузів", "Андрій Кокотюха").isNotEmpty()
+        )
+    }
 }

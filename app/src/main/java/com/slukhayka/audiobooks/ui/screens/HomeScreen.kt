@@ -234,6 +234,9 @@ fun HomeScreen(
         launch { sourceCatalog.syncSharedFacets() }
         launch { sourceCatalog.syncSharedSubmissions() }
         launch { sourceCatalog.syncSharedTombstones() }
+        // #522 — one bounded cursor delta of the collective catalogue: cards
+        // other installs verified land in the local mirror, no source request.
+        launch { App.instance.collectiveDeltaSync.syncOnce() }
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()

@@ -125,7 +125,6 @@
     <string name="feed_more">Докладніше</string>
     <string name="update_hide">Приховати</string>
     <string name="speed_default_for_all">Стандарт для всіх</string>
-    <string name="top100_open_chart">Відкрити рейтинг у 4read</string>
     <string name="book_detail_mark_listened">Позначити прослуханим</string>
     <string name="book_detail_unmark_listened">Зняти позначку</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
@@ -214,7 +213,7 @@
     <string name="author_index_title">Автори</string>
     <string name="series_index_title">Серії</string>
     <string name="series_mirror_neighbours">Також у Дзеркалі</string>
-    <string name="top100_index_title">ТОП 100 АудіоКниг</string>
+    <string name="library_rating_title">Рейтинг медіатеки</string>
     <string name="author_empty_catalog">Автори з\'являться після завантаження каталогу.</string>
     <string name="author_load_failed">Не вдалося відкрити книги автора. Спробуйте ще раз.</string>
     <string name="author_empty_works">Книг цього автора поки немає в каталозі.</string>
@@ -237,11 +236,17 @@
         <item quantity="many">%1$d серій</item>
         <item quantity="other">%1$d серій</item>
     </plurals>
-    <plurals name="best_book_count">
-        <item quantity="one">%1$d найкраща книга</item>
-        <item quantity="few">%1$d найкращі книги</item>
-        <item quantity="many">%1$d найкращих книг</item>
-        <item quantity="other">%1$d найкращих книг</item>
+    <plurals name="library_rating_count">
+        <item quantity="one">%1$d книга у рейтингу</item>
+        <item quantity="few">%1$d книги у рейтингу</item>
+        <item quantity="many">%1$d книг у рейтингу</item>
+        <item quantity="other">%1$d книг у рейтингу</item>
+    </plurals>
+    <plurals name="library_rating_votes">
+        <item quantity="one">%1$d оцінка</item>
+        <item quantity="few">%1$d оцінки</item>
+        <item quantity="many">%1$d оцінок</item>
+        <item quantity="other">%1$d оцінок</item>
     </plurals>
     <plurals name="book_in_cycle_count">
         <item quantity="one">%1$d книга у циклі</item>

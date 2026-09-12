@@ -512,7 +512,7 @@ class SecondaryScreensAccessibilityTest {
                     Box(Modifier.width(320.dp).height(480.dp)) {
                         // v1.4: the canonical row — rank badge rides the
                         // leading slot, ▶ the trailing slot, exactly as
-                        // Top100Screen composes them.
+                        // LibraryRatingScreen composes them.
                         BookRow(
                             title = book.title,
                             book = book,
@@ -547,14 +547,14 @@ class SecondaryScreensAccessibilityTest {
                                     )
                                 }
                             },
-                            testTag = "top100_rank_1"
+                            testTag = "library_rating_rank_1"
                         )
                     }
                 }
             }
         }
 
-        composeTestRule.onNodeWithTag("top100_rank_1")
+        composeTestRule.onNodeWithTag("library_rating_rank_1")
             .assertHeightIsAtLeast(48.dp)
             .assertTextContains("1")
             .assertTextContains(book.title)

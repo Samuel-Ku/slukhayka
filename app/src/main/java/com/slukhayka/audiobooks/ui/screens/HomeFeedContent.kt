@@ -145,7 +145,7 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
-    // Catalogue navigation — the site's header menu: ТОП 100,
+    // Catalogue navigation — the site's header menu: Рейтинг,
     // Виконавці (narrators) and Автори (authors), plus the spec-28
     // «Серії» (#189) and «Колекції» (#190) indexes. ADR-0018: these
     // NAVIGATE, so they are NavigationChips (filled, no outline) —

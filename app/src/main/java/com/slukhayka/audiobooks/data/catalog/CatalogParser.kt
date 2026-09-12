@@ -333,53 +333,6 @@ object CatalogParser {
     }
 
     /**
-     * Parses the ТОП 100 page (`/top-100.html`) into its ranked books. The
-     * page uses `linek` cards (not posters): a cover, a "Title - Author" line
-     * and a real "Триває:" duration. Rank is the list order (1-based).
-     *
-     * ```
-     * <div class="linek d-flex ai-center has-overlay card">
-     *   <div class="linek__img img-fit-cover"><img src="/uploads/.../x.webp"></div>
-     *   <div class="linek__desc flex-grow-1">
-     *     <a href="https://4read.org/6945-....html"><div class="linek__title ws-nowrap">Чорти - Джо Аберкромбі</div></a>
-     *     <div class="linek__meta ws-nowrap"><span>Триває:</span> 21:42:42</div>
-     *   </div>
-     * </div>
-     * ```
-     */
-    fun parseTop100(html: String): List<CatalogBook> {
-        val opener = """<div class="linek d-flex ai-center has-overlay card">"""
-        val indices = Regex(Regex.escape(opener)).findAll(html).map { it.range.first }.toList()
-        if (indices.isEmpty()) return emptyList()
-        val chunks = indices.mapIndexed { i, start ->
-            html.substring(start, indices.getOrNull(i + 1) ?: html.length)
-        }
-        return chunks.mapNotNull { chunk ->
-            val bookUrl = bookUrlRegex.find(chunk)?.value ?: return@mapNotNull null
-            val titleLine = Regex("""class="linek__title ws-nowrap">([^<]+)</div>""").find(chunk)
-                ?.groupValues?.get(1)
-                ?.let { decodeEntities(it.trim()) }
-                ?.takeIf { it.length >= 2 }
-                ?: return@mapNotNull null
-            // "Title - Author": split at the LAST separator so titles that
-            // themselves contain " - " stay intact.
-            val split = titleLine.lastIndexOf(" - ")
-            val title = if (split > 0) titleLine.substring(0, split).trim() else titleLine
-            val author = if (split > 0) titleLine.substring(split + 3).trim() else ""
-            val cover = toAbsoluteUrl(Regex("""<img[^>]+src="([^"]+)""").find(chunk)?.groupValues?.get(1))
-            val duration = parseInlineDuration(chunk)
-            CatalogBook(
-                id = bookId(bookUrl),
-                title = title,
-                author = author,
-                url = bookUrl,
-                coverImageUrl = cover,
-                totalDurationSeconds = duration
-            )
-        }
-    }
-
-    /**
      * Parses the Виконавці/Автори index pages (`/readers.html`, `/avtors.html`)
      * into people. Each entry is
      * `<li><a href="/xfsearch/chitaet/Ім'я/">Ім'я - N книг</a></li>`, so the

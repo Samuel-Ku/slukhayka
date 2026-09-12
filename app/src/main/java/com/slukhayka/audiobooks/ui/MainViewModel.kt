@@ -139,7 +139,6 @@ data class SelectedWebSource(
     val recoveryBookId: String? = null,
     val recoveryChapterIndex: Int? = null,
     val recoveryPositionMs: Long = 0L,
-    val captureTop100: Boolean = false,
     val captureSeriesUrl: String? = null,
     val automaticRecovery: Boolean = false,
     val cloudflareChallenge: Boolean = false
@@ -1824,35 +1823,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         genreLoader.close()
     }
 
-    // ТОП 100 АудіоКниг (`/top-100.html`): a ranked book list.
+    // #738 — the library rating destination (local, offline).
     private val _selectedTop100 = MutableStateFlow(false)
     val selectedTop100: StateFlow<Boolean> = _selectedTop100.asStateFlow()
 
-    private val top100Loader = KeyedCatalogLoader<Unit, AudiobookEntity>(viewModelScope) {
-        sourceCatalog.fetchTop100Result()
-    }
-    val top100Books: StateFlow<List<AudiobookEntity>> = top100Loader.items
-    val isTop100Loading: StateFlow<Boolean> = top100Loader.isLoading
-    val top100LoadFailed: StateFlow<Boolean> = top100Loader.failed
+    // #738 — the library rating replaces the source ТОП-100 chart: a LOCAL,
+    // offline ranking over owned Works, so there is no loader, no capture
+    // door and no source request.
+    private val _libraryRating =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.LibraryRating>>(emptyList())
+    val libraryRating: StateFlow<List<com.slukhayka.audiobooks.data.reviews.LibraryRating>> =
+        _libraryRating.asStateFlow()
+
+    private val _isLibraryRatingLoading = MutableStateFlow(false)
+    val isLibraryRatingLoading: StateFlow<Boolean> = _isLibraryRatingLoading.asStateFlow()
+
+    private val _libraryRatingLoadFailed = MutableStateFlow(false)
+    val libraryRatingLoadFailed: StateFlow<Boolean> = _libraryRatingLoadFailed.asStateFlow()
 
     fun openTop100() {
         _selectedTop100.value = true
-        top100Loader.open(Unit)
-    }
-
-    fun importCapturedTop100(html: String, onComplete: (Boolean) -> Unit) {
+        _isLibraryRatingLoading.value = true
+        _libraryRatingLoadFailed.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            val result = sourceCatalog.importCapturedTop100Result(html)
-            withContext(Dispatchers.Main) {
-                if (result is CatalogFetchResult.Success) top100Loader.open(Unit)
-                onComplete(result is CatalogFetchResult.Success)
-            }
+            runCatching { sourceCatalog.libraryRatingRanking() }
+                .onSuccess { ranked ->
+                    if (_selectedTop100.value) {
+                        _libraryRating.value = ranked
+                        _isLibraryRatingLoading.value = false
+                    }
+                }
+                .onFailure {
+                    if (_selectedTop100.value) {
+                        _libraryRating.value = emptyList()
+                        _libraryRatingLoadFailed.value = true
+                        _isLibraryRatingLoading.value = false
+                    }
+                }
         }
     }
 
     fun closeTop100() {
         _selectedTop100.value = false
-        top100Loader.close()
+        _libraryRating.value = emptyList()
+        _isLibraryRatingLoading.value = false
+        _libraryRatingLoadFailed.value = false
     }
 
     // Виконавці index. #736 / ADR-0041 — the listener's OWN narrators, read

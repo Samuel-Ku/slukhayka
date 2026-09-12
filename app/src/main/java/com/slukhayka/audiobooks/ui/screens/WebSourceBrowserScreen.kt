@@ -132,7 +132,6 @@ fun WebSourceBrowserScreen(
     recoveryBookId: String? = null,
     recoveryChapterIndex: Int? = null,
     recoveryPositionMs: Long = 0L,
-    captureTop100: Boolean = false,
     captureSeriesUrl: String? = null,
     automaticRecovery: Boolean = false,
     cloudflareChallenge: Boolean = false,
@@ -459,35 +458,6 @@ fun WebSourceBrowserScreen(
         }
     }
 
-    /** Captures only the verified ranking page; browser cookies never leave WebView. */
-    fun importTop100Page() {
-        val instance = webViewInstance ?: return
-        val pageUrl = currentWebUrl
-        if (sourceId != "4read" || !pageUrl.substringBefore('?').endsWith("/top-100.html")) {
-            importResult = "Відкрийте сторінку рейтингу"
-            return
-        }
-        isImporting = true
-        importResult = ""
-        instance.evaluateJavascript("document.documentElement.outerHTML") { raw ->
-            val decoded = raw?.trim()?.let { value ->
-                val inner = if (value.startsWith("\"") && value.endsWith("\"")) {
-                    value.substring(1, value.length - 1)
-                } else value
-                unescapeCapturedHtml(inner)
-            }.orEmpty()
-            viewModel.importCapturedTop100(decoded) { success ->
-                isImporting = false
-                if (success) {
-                    importResult = "Рейтинг завантажено"
-                    onClose()
-                } else {
-                    importResult = "Рейтинг ще не доступний — завершіть перевірку сторінки і спробуйте знову"
-                }
-            }
-        }
-    }
-
     /** Captures the requested cycle only after the listener opened it in 4read. */
     fun importSeriesPage() {
         val instance = webViewInstance ?: return
@@ -518,9 +488,9 @@ fun WebSourceBrowserScreen(
 
     // #478 — the first valid signal starts the import without the button:
     // intercepted audio (the listener pressed the site's play) or a playlist
-    // reference probed in the finished DOM. Once per page; capture-only
-    // modes (top-100 / series) never auto-import.
-    val autoCaptureEnabled = !captureTop100 && captureSeriesUrl == null
+    // reference probed in the finished DOM. Once per page; the capture-only
+    // series mode never auto-imports.
+    val autoCaptureEnabled = captureSeriesUrl == null
     LaunchedEffect(lastCapturedAudioCount, pagePlaylistRefUrl, currentWebUrl, isImporting) {
         if (isImporting) return@LaunchedEffect
         if (shouldAutoImportPage(
@@ -640,7 +610,6 @@ fun WebSourceBrowserScreen(
                     Button(
                         onClick = {
                             when {
-                                captureTop100 -> importTop100Page()
                                 captureSeriesUrl != null -> importSeriesPage()
                                 else -> importCurrentPage()
                             }
@@ -659,9 +628,8 @@ fun WebSourceBrowserScreen(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = if (isImporting) {
-                                if (captureTop100 || captureSeriesUrl != null) "Завантажую…" else "Додаю…"
+                                if (captureSeriesUrl != null) "Завантажую…" else "Додаю…"
                             } else when {
-                                captureTop100 -> "Завантажити рейтинг"
                                 captureSeriesUrl != null -> "Завантажити цикл"
                                 else -> "Додати до медіатеки"
                             },

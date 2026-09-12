@@ -6,25 +6,21 @@ import com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy
 
 /**
  * #738 / ADR-0022 — the local evidence of one owned Work for the library
- * rating: the source ratings observed for it (never a default/placeholder
- * value) and the listener ratings known locally. A pool may be empty; the
- * combined average decides honestly whether any vote exists.
+ * rating: the owned book itself, the source ratings observed for it (never a
+ * default/placeholder value) and the listener ratings known locally. A pool
+ * may be empty; the combined average decides honestly whether any vote exists.
  */
 data class LibraryRatingEvidence(
+    val book: AudiobookEntity,
     val workKey: String,
-    val title: String,
-    val author: String,
-    val coverImageUrl: String?,
     val sourceRatings: List<Double?>,
     val listenerRatings: List<Int>
 )
 
 /** One ranked row of the library rating: only Works with real votes appear. */
 data class LibraryRating(
+    val book: AudiobookEntity,
     val workKey: String,
-    val title: String,
-    val author: String,
-    val coverImageUrl: String?,
     val average: Double,
     val count: Int
 )
@@ -42,17 +38,15 @@ object LibraryRatingRanking {
             val combined = CombinedAverage.average(item.sourceRatings, item.listenerRatings)
                 ?: return@mapNotNull null
             LibraryRating(
+                book = item.book,
                 workKey = item.workKey,
-                title = item.title,
-                author = item.author,
-                coverImageUrl = item.coverImageUrl,
                 average = combined.value,
                 count = combined.count
             )
         }.sortedWith(
             compareByDescending<LibraryRating> { it.average }
                 .thenByDescending { it.count }
-                .thenBy { it.title.lowercase() }
+                .thenBy { it.book.title.lowercase() }
                 .thenBy { it.workKey }
         )
 }
@@ -78,12 +72,9 @@ fun libraryRatingEvidence(
     return books
         .groupBy { it.mergeKey.ifBlank { it.workId.orEmpty().ifBlank { it.id } } }
         .map { (key, members) ->
-            val representative = members.first()
             LibraryRatingEvidence(
+                book = members.first(),
                 workKey = key,
-                title = representative.title,
-                author = representative.author,
-                coverImageUrl = representative.coverImageUrl,
                 sourceRatings = ratingsByWork[key].orEmpty(),
                 listenerRatings = listenerRatingsByWork[key].orEmpty()
             )

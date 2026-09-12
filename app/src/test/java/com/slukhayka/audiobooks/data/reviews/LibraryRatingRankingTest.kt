@@ -33,6 +33,19 @@ class LibraryRatingRankingTest {
         it.workId = workId
     }
 
+    private fun evidence(
+        id: String,
+        title: String,
+        workKey: String = "mk-$id",
+        sourceRatings: List<Double?> = emptyList(),
+        listenerRatings: List<Int> = emptyList()
+    ) = LibraryRatingEvidence(
+        book = book(id, title, mergeKey = workKey),
+        workKey = workKey,
+        sourceRatings = sourceRatings,
+        listenerRatings = listenerRatings
+    )
+
     private fun rating(mergeKey: String, value: String, sourceId: String = "soundbooks") =
         PopularityAssertionEntity(
             id = "$sourceId-$mergeKey-$value",
@@ -45,11 +58,7 @@ class LibraryRatingRankingTest {
 
     @Test
     fun `a work without any vote is absent, never zero`() {
-        val ranked = LibraryRatingRanking.rank(
-            listOf(
-                LibraryRatingEvidence("mk", "Книга", "Автор", null, emptyList(), emptyList())
-            )
-        )
+        val ranked = LibraryRatingRanking.rank(listOf(evidence("b", "Книга")))
 
         assertTrue(ranked.isEmpty())
     }
@@ -59,7 +68,7 @@ class LibraryRatingRankingTest {
         val ranked = LibraryRatingRanking.rank(
             listOf(
                 // Sources 4.0 and 5.0 + listener 3 → (4+5+3)/3 = 4.0, count 3.
-                LibraryRatingEvidence("mk", "Книга", "Автор", null, listOf(4.0, 5.0), listOf(3))
+                evidence("b", "Книга", sourceRatings = listOf(4.0, 5.0), listenerRatings = listOf(3))
             )
         )
 
@@ -70,9 +79,7 @@ class LibraryRatingRankingTest {
     @Test
     fun `invalid listener ratings never poison the average`() {
         val ranked = LibraryRatingRanking.rank(
-            listOf(
-                LibraryRatingEvidence("mk", "Книга", "Автор", null, listOf(5.0), listOf(0, 7))
-            )
+            listOf(evidence("b", "Книга", sourceRatings = listOf(5.0), listenerRatings = listOf(0, 7)))
         )
 
         assertEquals(5.0, ranked.single().average, 0.0001)
@@ -83,13 +90,13 @@ class LibraryRatingRankingTest {
     fun `ordering is average, then vote count, then title`() {
         val ranked = LibraryRatingRanking.rank(
             listOf(
-                LibraryRatingEvidence("a", "Альфа", null.orEmpty(), null, listOf(4.5), emptyList()),
-                LibraryRatingEvidence("b", "Бета", "", null, listOf(4.5, 4.5), emptyList()),
-                LibraryRatingEvidence("c", "Гама", "", null, listOf(5.0), emptyList())
+                evidence("a", "Альфа", sourceRatings = listOf(4.5)),
+                evidence("b", "Бета", sourceRatings = listOf(4.5, 4.5)),
+                evidence("c", "Гама", sourceRatings = listOf(5.0))
             )
         )
 
-        assertEquals(listOf("Гама", "Бета", "Альфа"), ranked.map { it.title })
+        assertEquals(listOf("Гама", "Бета", "Альфа"), ranked.map { it.book.title })
     }
 
     @Test
@@ -107,7 +114,7 @@ class LibraryRatingRankingTest {
         )
 
         val ranked = LibraryRatingRanking.rank(evidence)
-        assertEquals(listOf("Кобзар"), ranked.map { it.title })
+        assertEquals(listOf("Кобзар"), ranked.map { it.book.title })
         assertEquals(4.7, ranked.single().average, 0.0001)
         assertEquals(1, ranked.single().count)
     }

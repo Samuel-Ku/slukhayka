@@ -971,7 +971,7 @@ private fun FeedbackMenuItem(label: String, onClick: () -> Unit) {
 }
 
 /**
- * spec-28 (#198) — the Огляд five-chip navigation row (ТОП 100 / Виконавці /
+ * spec-28 (#198) — the Огляд five-chip navigation row (Рейтинг / Виконавці /
  * Автори / Серії / Колекції), as [NavigationChip]s per ADR-0018: filled,
  * outline-free — the «перейти» form, never the filter form. Public and
  * stateless (pure callbacks) so the snapshot seam pins the real row.
@@ -988,7 +988,7 @@ fun CatalogNavRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            NavigationChip(title = "ТОП 100", onClick = onTop100Click)
+            NavigationChip(title = "Рейтинг", onClick = onTop100Click)
         }
         item {
             NavigationChip(

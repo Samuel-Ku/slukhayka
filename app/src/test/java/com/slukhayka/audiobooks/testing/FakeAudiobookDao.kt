@@ -1225,6 +1225,20 @@ class FakeAudiobookDao(
             }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id))
         }
 
+    /** #736 — the fake's owned-only people index mirrors the SQL EXISTS join. */
+    override fun observeLibraryAuthorIndex(): Flow<List<AuthorSummary>> =
+        combine(authorFacetsState, workFacetsState, libraryEntriesState) { authors, workFacets, entries ->
+            val ownedWorkIds = entries.map { it.workId }.toSet()
+            authors.mapNotNull { author ->
+                val count = workFacets.count {
+                    it.canonicalAuthorId == author.id && it.workId in ownedWorkIds
+                }
+                author.takeIf { count > 0 }?.let {
+                    AuthorSummary(it.id, it.displayName, it.normalizedName, count)
+                }
+            }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id))
+        }
+
     override suspend fun searchAuthors(
         lowerBound: String,
         upperBound: String,
@@ -1245,6 +1259,15 @@ class FakeAudiobookDao(
     override suspend fun worksForAuthor(authorId: String): List<WorkEntity> {
         val ids = workFacetsState.value.filter { it.canonicalAuthorId == authorId }.map { it.workId }.toSet()
         return worksState.value.filter { it.id in ids }.sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
+    }
+
+    /** #736 — the owned Work ids of one author. */
+    override suspend fun ownedWorkIdsForAuthor(authorId: String): List<String> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        return workFacetsState.value
+            .filter { it.canonicalAuthorId == authorId && it.workId in owned }
+            .map { it.workId }
+            .distinct()
     }
 
     override suspend fun authorForWork(workId: String): AuthorSummary? {

@@ -1156,6 +1156,21 @@ interface AudiobookDao {
     )
     fun observeAuthorIndex(): Flow<List<AuthorSummary>>
 
+    /**
+     * #736 / ADR-0041 — the people the listener actually has in the Медіатека:
+     * only authors with at least one owned (Library Entry) Work, counted over
+     * those owned Works. The full [observeAuthorIndex] stays for search, so a
+     * non-owned author is still discoverable — the index SCREEN is library-only.
+     */
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
+            "FROM author_facets a JOIN work_facets wf ON wf.canonicalAuthorId=a.id " +
+            "WHERE EXISTS (SELECT 1 FROM library_entries le WHERE le.workId = wf.workId) " +
+            "GROUP BY a.id, a.displayName, a.normalizedName " +
+            "ORDER BY a.normalizedName ASC, a.id ASC"
+    )
+    fun observeLibraryAuthorIndex(): Flow<List<AuthorSummary>>
+
     @Query(
         "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
             "FROM author_aliases aa INDEXED BY index_author_aliases_normalizedAlias " +
@@ -1172,6 +1187,18 @@ interface AudiobookDao {
             "WHERE wf.canonicalAuthorId=:authorId ORDER BY w.title COLLATE NOCASE ASC, w.id ASC"
     )
     suspend fun worksForAuthor(authorId: String): List<WorkEntity>
+
+    /**
+     * #736 — which of an author's Works the listener owns. The person page
+     * shows every known Work (Медіатека + Дзеркало neighbours) and uses this
+     * set to mark the owned ones first and the mirror neighbours as finds.
+     */
+    @Query(
+        "SELECT w.id FROM works w JOIN work_facets wf ON wf.workId=w.id " +
+            "JOIN library_entries le ON le.workId=w.id " +
+            "WHERE wf.canonicalAuthorId=:authorId"
+    )
+    suspend fun ownedWorkIdsForAuthor(authorId: String): List<String>
 
     @Query(
         "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT allWf.workId) AS workCount " +

@@ -1855,6 +1855,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _canonicalAuthorWorks = MutableStateFlow<List<WorkEntity>>(emptyList())
     val canonicalAuthorWorks: StateFlow<List<WorkEntity>> = _canonicalAuthorWorks.asStateFlow()
 
+    /** #736 — the subset of [canonicalAuthorWorks] the listener actually owns. */
+    private val _canonicalAuthorOwnedWorkIds = MutableStateFlow<Set<String>>(emptySet())
+    val canonicalAuthorOwnedWorkIds: StateFlow<Set<String>> =
+        _canonicalAuthorOwnedWorkIds.asStateFlow()
+
     private val _isCanonicalAuthorLoading = MutableStateFlow(false)
     val isCanonicalAuthorLoading: StateFlow<Boolean> = _isCanonicalAuthorLoading.asStateFlow()
 
@@ -1894,13 +1899,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _authorsIndexScrollIndex.value = authorIndex
         _selectedCanonicalAuthor.value = author
         _canonicalAuthorWorks.value = emptyList()
+        _canonicalAuthorOwnedWorkIds.value = emptySet()
         _canonicalAuthorLoadFailed.value = false
         _isCanonicalAuthorLoading.value = true
         viewModelScope.launch(Dispatchers.IO) {
             val works = runCatching { sourceCatalog.authorWorks(author.id) }
+            // #736 — the page unions the Медіатека with mirror neighbours; the
+            // owned set marks which is which.
+            val owned = runCatching { sourceCatalog.authorOwnedWorkIds(author.id) }
+                .getOrDefault(emptySet())
             if (_selectedCanonicalAuthor.value?.id == author.id) {
                 works.onSuccess { _canonicalAuthorWorks.value = it }
                     .onFailure { _canonicalAuthorLoadFailed.value = true }
+                _canonicalAuthorOwnedWorkIds.value = owned
                 _isCanonicalAuthorLoading.value = false
             }
         }
@@ -1922,6 +1933,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeCanonicalAuthor() {
         _selectedCanonicalAuthor.value = null
         _canonicalAuthorWorks.value = emptyList()
+        _canonicalAuthorOwnedWorkIds.value = emptySet()
         _isCanonicalAuthorLoading.value = false
         _canonicalAuthorLoadFailed.value = false
     }

@@ -312,43 +312,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerState: StateFlow<PlayerState> = playerManager.playerState
     private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
 
-    private val _narrationSwitchPrompt = MutableStateFlow<NarrationSwitchPrompt?>(null)
-    val narrationSwitchPrompt: StateFlow<NarrationSwitchPrompt?> =
-        _narrationSwitchPrompt.asStateFlow()
-    private var pendingNarrationSwitchAction: (() -> Unit)? = null
-    private var approvedNarrationEditionKey: String? = null
+    // #520 — the confirmation state machine is a pure module; the ViewModel
+    // only feeds it the currently playing book and exposes its prompt.
+    private val narrationSwitchGate = NarrationSwitchGate()
+    val narrationSwitchPrompt: StateFlow<NarrationSwitchPrompt?> = narrationSwitchGate.prompt
 
     private fun withNarrationSwitchConfirmation(
         target: NarrationSwitchIdentity,
         action: () -> Unit
     ) {
         val current = playerState.value.currentBook?.let(::narrationSwitchIdentity)
-        if (!requiresNarrationSwitchConfirmation(current, target, approvedNarrationEditionKey)) {
-            action()
-            return
-        }
-        pendingNarrationSwitchAction = action
-        _narrationSwitchPrompt.value = NarrationSwitchPrompt(
-            currentNarrator = current?.narrator.orEmpty(),
-            targetNarrator = target.narrator,
-            title = target.title,
-            targetEditionKey = target.editionKey
-        )
+        narrationSwitchGate.request(current, target, action)
     }
 
-    fun confirmNarrationSwitch() {
-        val prompt = _narrationSwitchPrompt.value ?: return
-        val action = pendingNarrationSwitchAction ?: return
-        approvedNarrationEditionKey = prompt.targetEditionKey
-        pendingNarrationSwitchAction = null
-        _narrationSwitchPrompt.value = null
-        action()
-    }
+    fun confirmNarrationSwitch() = narrationSwitchGate.confirm()
 
-    fun dismissNarrationSwitch() {
-        pendingNarrationSwitchAction = null
-        _narrationSwitchPrompt.value = null
-    }
+    fun dismissNarrationSwitch() = narrationSwitchGate.dismiss()
 
     // Spec-49 T2b — the player-preparation twin of the card-tap mapping.
     // A refused-only (or sourceless) library book asks the resolver once

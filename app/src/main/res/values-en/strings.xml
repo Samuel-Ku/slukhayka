@@ -57,6 +57,7 @@
     <string name="home_long_books">Long — 10+ hours</string>
     <string name="home_more_books_on">More books on %1$s</string>
     <string name="home_library_results">In your library (%1$d)</string>
+    <string name="home_library_no_matches">Not in your library</string>
     <string name="home_all_sources">All sources (%1$d)</string>
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>

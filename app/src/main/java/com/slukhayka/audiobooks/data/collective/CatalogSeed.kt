@@ -45,7 +45,14 @@ class CatalogSeedImporter(
     suspend fun importOnce(seed: List<CollectiveCardPublication>): Int {
         var imported = 0
         for (entry in seed) {
-            val accepted = runCatching { apply(entry) }.getOrDefault(false)
+            val accepted = try {
+                apply(entry)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                // Cancellation is never a per-entry failure to swallow.
+                throw cancelled
+            } catch (e: Exception) {
+                false
+            }
             if (accepted) imported++
         }
         return imported

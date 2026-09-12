@@ -546,6 +546,27 @@ class App : Application() {
         )
     }
 
+    /**
+     * #532 — the bundled cold-start seed, imported ONCE per install through
+     * the ordinary merge-on-write path: a clean start shows a local «Огляд»
+     * with no Firestore and no Source request.
+     */
+    val coldStartSeed: com.slukhayka.audiobooks.data.collective.ColdStartSeed by lazy {
+        com.slukhayka.audiobooks.data.collective.ColdStartSeed(
+            importer = com.slukhayka.audiobooks.data.collective.CatalogSeedImporter { entry ->
+                sourceCatalog.applyCollectiveCard(entry) != null
+            },
+            seed = runCatching {
+                assets.open("catalog_seed.json").bufferedReader().use { reader ->
+                    com.slukhayka.audiobooks.data.collective.CatalogSeedCodec.parse(reader.readText())
+                }
+            }.getOrDefault(emptyList()),
+            flag = com.slukhayka.audiobooks.data.collective.PrefsColdStartSeedFlag(
+                getSharedPreferences("cold_start_seed", MODE_PRIVATE)
+            )
+        )
+    }
+
     /** #530 — the bounded cooldown records of failed Sources. */
     val sourceCooldownStore: com.slukhayka.audiobooks.data.editions.SourceCooldownStore by lazy {
         com.slukhayka.audiobooks.data.editions.SourceCooldownStore(

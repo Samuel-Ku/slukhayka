@@ -1531,6 +1531,32 @@ class SourceCatalog(
     }
 
     /**
+     * #522 — mirrors ONE accepted collective card into the local
+     * Work/Edition/Source rows through the SAME merge-on-write seam every
+     * catalogue write uses, so a card observed on another install surfaces on
+     * «Огляд» without a source request and re-applying it is a no-op. An
+     * out-of-bounds card is rejected whole (null): a malformed contribution is
+     * never materialized as a half-fact.
+     */
+    suspend fun applyCollectiveCard(
+        card: com.slukhayka.audiobooks.data.collective.CollectiveCardPublication
+    ): WorkWriteResult? {
+        if (!com.slukhayka.audiobooks.data.collective.CollectiveCardLimits.isPublishable(card)) return null
+        return writeWorkEdition(
+            sourceId = card.sourceId,
+            title = card.title,
+            author = card.author,
+            narrator = card.narrator,
+            sourceUrl = card.sourceUrl,
+            coverImageUrl = card.coverUrl,
+            durationSeconds = card.durationSeconds,
+            seriesTitle = card.seriesTitle,
+            seriesIndex = card.seriesIndex,
+            language = card.language
+        )
+    }
+
+    /**
      * ADR-0041 (#731) — the Catalog Mirror write-through: every enumerated
      * card that carries a Work identity (title, author, url) lands in the
      * local works/editions layer through the same merge-on-write door as

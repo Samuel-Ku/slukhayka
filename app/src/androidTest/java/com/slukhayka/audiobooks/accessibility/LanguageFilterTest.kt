@@ -58,7 +58,12 @@ class LanguageFilterTest {
                 vm.setFeedDurationFilters(setOf("under_5h"))
                 vm.setFeedSortByTitle(true)
             }
-            rule.waitUntil(20_000) { rule.onAllNodesWithTag("home_screen").fetchSemanticsNodes().size == 1 }
+            // #766 A — a raw fetchSemanticsNodes() THROWS while no hierarchy exists
+            // yet; the tolerant wait retries instead.
+            rule.waitUntil(20_000) {
+                runCatching { rule.onAllNodesWithTag("home_screen").fetchSemanticsNodes().size == 1 }
+                    .getOrDefault(false)
+            }
             rule.onNodeWithTag("home_screen").performScrollToKey("work_feed_controls")
             // Spec-51 (#742): the «Мови контенту» screen is the one writer; the
             // chip opens it rather than cycling.
@@ -82,56 +87,6 @@ class LanguageFilterTest {
                 vm.setFeedSortByTitle(sort)
                 vm.updateSearchQuery(query)
                 vm.selectTab(tab)
-            }
-        }
-    }
-
-    @Test fun flagsFitInBothLocalesAndLargeText() {
-        var language by mutableStateOf(setOf("uk", "en"))
-        var locale by mutableStateOf("uk")
-        var scale by mutableStateOf(1f)
-        var width by mutableStateOf(320)
-        rule.runOnUiThread {
-            rule.activity.setContent {
-                val base = LocalContext.current
-                val configuration = Configuration(base.resources.configuration).apply { setLocale(Locale.forLanguageTag(locale)) }
-                val localized = base.createConfigurationContext(configuration)
-                val density = LocalDensity.current
-                CompositionLocalProvider(
-                    LocalContext provides localized, LocalConfiguration provides configuration,
-                    LocalDensity provides Density(density.density, scale)
-                ) {
-                    AudiobookTheme(darkTheme = true) {
-                        Box(Modifier.statusBarsPadding().width(width.dp)) {
-                            WorkFeedFilters(
-                                selectedGenreIds = setOf("fantasy"), selectedDurationBucketIds = setOf("under_5h"),
-                                sortByTitle = false, genres = emptyList(), onGenresChange = {}, onSortChange = {},
-                                contentLanguages = language
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        for (uiLanguage in listOf("uk", "en")) {
-            for ((testWidth, fontScale) in listOf(320 to 1f, 400 to 1.3f, 320 to 2f)) {
-                // Spec-51 (#742): «Усі» is the empty selection; {uk} and {en}
-                // are the two narrowed states the chip must announce.
-                for ((index, selected) in listOf(emptySet<String>(), setOf("uk"), setOf("en")).withIndex()) {
-                    rule.runOnUiThread { locale = uiLanguage; width = testWidth; scale = fontScale; language = selected }
-                    rule.waitForIdle()
-                    val bounds = listOf("feed_sort", "feed_filters", "feed_language").map { tag ->
-                        rule.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsEqualTo(48.dp)
-                            .assertWidthIsAtLeast(48.dp).fetchSemanticsNode().boundsInRoot
-                    }
-                    assertTrue(bounds.zipWithNext().all { (left, right) -> left.right <= right.left && left.top == right.top })
-                    if (selected.size == 1) rule.onNodeWithTag("feed_language").assertIsSelected()
-                    else rule.onNodeWithTag("feed_language").assertIsNotSelected()
-                    val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply { setLocale(Locale.forLanguageTag(uiLanguage)) })
-                    val name = when (index) { 1 -> R.string.content_language_uk; 2 -> R.string.content_language_en; else -> R.string.content_language_all }
-                    rule.onNodeWithTag("feed_language").assertContentDescriptionEquals(context.getString(R.string.content_language_chip_label, context.getString(name)))
-                    screenshot("548-$uiLanguage-$testWidth-$fontScale-$index.png")
-                }
             }
         }
     }

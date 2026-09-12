@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import com.slukhayka.audiobooks.testing.TestHostActivity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
@@ -26,7 +27,7 @@ import org.junit.Test
 
 /** Local fixture only: never publishes a test review or changes real playback/data. */
 class BookFeedbackUiTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val rule = createAndroidComposeRule<TestHostActivity>()
     private class Memory : FeedbackPreferences {
         val values = mutableMapOf<String, String?>()
         var pendingIds = emptySet<String>()
@@ -51,7 +52,7 @@ class BookFeedbackUiTest {
         val c = BookFeedbackController(scope, local, { book }, { "edition" }, { null }, null, null)
         var foreground by mutableStateOf(false)
         try {
-            rule.runOnUiThread { rule.activity.setContent {
+            rule.runOnUiThread { rule.setContent {
                 val density = LocalDensity.current
                 CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                     AudiobookTheme { Surface { BookFeedbackHost(c, local, foreground, true) } }
@@ -87,7 +88,7 @@ class BookFeedbackUiTest {
     @Test fun chapterListEndsWithAReachableFeedbackAction() {
         var tapped = false
         val chapters = (0..5).map { ChapterEntity(id = "fixture-$it", bookId = "fixture", title = "Розділ ${it + 1}", chapterIndex = it, durationSeconds = 60) }
-        rule.runOnUiThread { rule.activity.setContent {
+        rule.runOnUiThread { rule.setContent {
             AudiobookTheme { ChapterBottomSheet(chapters, 0, {}, {}, onFeedback = { tapped = true }) }
         } }
         rule.onNodeWithTag("chapter_sheet_heading").performTouchInput { swipeUp() }

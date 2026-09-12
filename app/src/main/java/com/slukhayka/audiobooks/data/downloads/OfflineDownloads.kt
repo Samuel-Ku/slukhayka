@@ -10,7 +10,7 @@ import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
-import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import com.slukhayka.audiobooks.data.source.downloadPermittedFor
 import com.slukhayka.audiobooks.data.db.DownloadState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
@@ -97,7 +97,20 @@ class OfflineDownloads(
      * production uses `filesDir`. Null (default) keeps every pre-existing
      * call site valid.
      */
-    private val filesDirOverride: File? = null
+    private val filesDirOverride: File? = null,
+    /**
+     * #527 — the persisted LIVE rules verdicts: a source that declares
+     * `liveDownloadPermission` downloads only under a fresh ALLOWED record;
+     * null (or no record) keeps it OFF. Sources without the fact are unaffected.
+     * LAST: keeps every pre-existing positional call site valid.
+     */
+    private val downloadPermissions: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore? = null,
+    /**
+     * #530 — the Source availability history (bounded cooldown + last
+     * success). Null keeps every pre-existing call site valid and records
+     * nothing.
+     */
+    private val sourceCooldown: com.slukhayka.audiobooks.data.editions.SourceCooldownStore? = null
 ) {
 
     /** Null when neither an override nor a Context is available. */
@@ -374,8 +387,10 @@ class OfflineDownloads(
         val sourceId = playable.firstOrNull()?.sourceId
             ?: streamOnlyBook?.let { sourceIdForUrl(it.sourceUrl) }
             ?: "unknown"
-        if (streamOnlyFor(sourceId)) {
-            Log.w("OfflineDownloads", "downloadAudiobookOffline refused: book $bookId is stream-only")
+        // #527 — stream-only/scam sources are always refused; a source with the
+        // live-permission fact needs a FRESH ALLOWED verdict (fail closed).
+        if (!downloadPermittedFor(sourceId, downloadPermissions, nowMillis())) {
+            Log.w("OfflineDownloads", "downloadAudiobookOffline refused: no download permission for $sourceId")
             return OfflineDownloadResult(0, 0)
         }
 
@@ -428,6 +443,41 @@ class OfflineDownloads(
         val isApproximate = estimated.isApproximate
         val downloadedBytes = AtomicLong(0)
         _downloadBytesProgress.value = _downloadBytesProgress.value + (bookId to DownloadBytesProgress(0, total, 0, estimatedTotalBytes, isApproximate))
+
+        // #531 — the cross-source resume rule, evaluated BEFORE any file write.
+        // A ready file is addressed by Edition + chapter (never by the source
+        // that wrote it), so chapters already on disk are kept and only the
+        // MISSING ones are requested. A chapter set that spans more than one
+        // Edition is an unsafe mapping: NOTHING is written and the work pauses
+        // honestly instead of mixing two narrations into one Edition.
+        val editionIds = playable.mapNotNull { it.chapter.editionId }.distinct()
+        val mappingSafe = editionIds.size <= 1
+        val resumePlan = com.slukhayka.audiobooks.data.editions.CrossSourceResumePolicy.plan(
+            readyChapterIndexes = playable
+                .filter { pair ->
+                    val readyFile = File(audioDir, "${pair.chapter.id}.mp3")
+                    readyFile.exists() && readyFile.length() > READY_FILE_MIN_BYTES
+                }
+                .map { it.chapter.chapterIndex }
+                .toSet(),
+            requiredChapterIndexes = playable.map { it.chapter.chapterIndex },
+            sameEdition = mappingSafe,
+            chapterMappingSafe = mappingSafe
+        )
+        if (resumePlan.decision == com.slukhayka.audiobooks.data.editions.ResumeDecision.PAUSE_INCOMPATIBLE) {
+            Log.w(
+                "OfflineDownloads",
+                "downloadAudiobookOffline paused: chapter mapping spans ${editionIds.size} " +
+                    "editions for bookId=$bookId"
+            )
+            dao.updateDownloadStateWithState(
+                bookId,
+                isDownloaded = false,
+                progress = 0f,
+                state = DownloadState.PAUSED
+            )
+            return OfflineDownloadResult(0, 0)
+        }
 
         dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.DOWNLOADING)
 
@@ -914,6 +964,11 @@ class OfflineDownloads(
             // A stale generation writes nothing — a restarted queue owns the
             // terminal state. (Deliberately silent: this path runs in
             // cancellation flows exercised by pure-JVM tests.)
+            // #530 AC4 — the Source's own availability history: a run that
+            // landed at least one chapter is a real success for that source.
+            if (success > 0) {
+                runCatching { sourceCooldown?.recordSuccess(sourceId, nowMillis()) }
+            }
             return OfflineDownloadResult(
                 downloadedChapters = success,
                 totalChapters = total,
@@ -1275,5 +1330,8 @@ class OfflineDownloads(
     companion object {
         /** Single source of truth for the offline-audio directory name. */
         const val OFFLINE_AUDIO_DIR = "audiobooks"
+
+        /** #531 — a file at least this big is a READY chapter, never a stub. */
+        private const val READY_FILE_MIN_BYTES = 100L
     }
 }

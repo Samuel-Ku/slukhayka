@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.source.SourceAdapter
@@ -16,6 +17,7 @@ import com.slukhayka.audiobooks.testing.FakeFetcher
 import java.io.ByteArrayInputStream
 import java.io.File
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.mapNotNull
@@ -372,5 +374,88 @@ class OfflineDownloadsReliabilityTest {
         val bookId = importBook(imports)
         val result = downloads.downloadAudiobookOffline(bookId)
         assertEquals(1, result.downloadedChapters)
+    }
+
+    @Test
+    fun `a chapter mapping across two editions pauses and writes no file`() = runBlocking {
+        val url = "https://cdn.example.com/track-0.mp3"
+        val audio = ByteArray(2048) { 0x42 }
+        val fetcher = FakeFetcher(sizedStreamResponses = mapOf(url to (audio to audio.size.toLong())))
+        val (imports, _, downloads) = harness(2, { url }, fetcher)
+        val bookId = importBook(imports)
+
+        // #531 — a chapter set spanning TWO Editions is an unsafe mapping:
+        // nothing may be written, and the work pauses honestly.
+        val chapters = dao.getChaptersListForBook(bookId)
+        dao.insertChapters(
+            chapters.mapIndexed { index, chapter ->
+                if (index == 0) chapter else chapter.copy(editionId = "other-edition")
+            }
+        )
+
+        val result = downloads.downloadAudiobookOffline(bookId)
+
+        assertEquals(0, result.downloadedChapters)
+        assertEquals(DownloadState.PAUSED, dao.getAudiobookById(bookId)?.downloadState)
+        val audioDir = File(context.filesDir, OfflineDownloads.OFFLINE_AUDIO_DIR)
+        assertTrue(
+            "no chapter file may be written for an unsafe mapping",
+            audioDir.listFiles().orEmpty().none { it.name.endsWith(".mp3") }
+        )
+    }
+
+    @Test
+    fun `a paused book never cancels or corrupts a parallel download of another book`() = runBlocking {
+        val urlA = "https://cdn.example.com/a.mp3"
+        val urlB = "https://cdn.example.com/b.mp3"
+        val audio = ByteArray(2048) { 0x42 }
+        val fetcher = FakeFetcher(
+            sizedStreamResponses = mapOf(
+                urlA to (audio to audio.size.toLong()),
+                urlB to (audio to audio.size.toLong())
+            )
+        )
+        val (importsA, _, downloadsA) = harness(
+            numChapters = 2,
+            streamUrl = { urlA },
+            fetcher = fetcher,
+            sourceUrl = "https://sluhay.com/a.html"
+        )
+        val (importsB, _, downloadsB) = harness(
+            numChapters = 2,
+            streamUrl = { urlB },
+            fetcher = fetcher,
+            sourceId = "chytaylo",
+            sourceUrl = "https://chytaylo.com.ua/b.html"
+        )
+        val bookA = importBook(importsA, "https://sluhay.com/a.html")
+        val bookB = importBook(importsB, "https://chytaylo.com.ua/b.html", sourceId = "chytaylo")
+
+        // Book A gets an unsafe two-Edition mapping; book B stays untouched.
+        val chaptersA = dao.getChaptersListForBook(bookA)
+        dao.insertChapters(
+            chaptersA.mapIndexed { index, chapter ->
+                if (index == 0) chapter else chapter.copy(editionId = "other-edition")
+            }
+        )
+
+        val paused = async { downloadsA.downloadAudiobookOffline(bookA) }
+        val healthy = async { downloadsB.downloadAudiobookOffline(bookB) }
+
+        assertEquals("the unsafe book writes nothing", 0, paused.await().downloadedChapters)
+        assertEquals("the other book still downloads fully", 2, healthy.await().downloadedChapters)
+        assertEquals(DownloadState.PAUSED, dao.getAudiobookById(bookA)?.downloadState)
+
+        val audioDir = File(context.filesDir, OfflineDownloads.OFFLINE_AUDIO_DIR)
+        assertTrue(
+            "the paused book has no files",
+            dao.getChaptersListForBook(bookA).none { File(audioDir, "${it.id}.mp3").exists() }
+        )
+        // The healthy book's own tracks are the loop's written-file evidence.
+        assertEquals(
+            "the healthy book has every downloaded track on disk",
+            2,
+            dao.getTracksForBookSync(bookB).count { it.isDownloaded && it.localFilePath != null }
+        )
     }
 }

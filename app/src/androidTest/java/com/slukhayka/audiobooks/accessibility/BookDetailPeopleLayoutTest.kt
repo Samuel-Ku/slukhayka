@@ -36,7 +36,7 @@ import org.junit.Test
 
 /** Device layout fixture; does not edit the listener's library or saved bookmarks. */
 class BookDetailPeopleLayoutTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val rule = createAndroidComposeRule<com.slukhayka.audiobooks.testing.TestHostActivity>()
 
     @Test fun longNamesKeepTheirBookmarkAndDistinctSourceAddresses() {
         val book = AudiobookEntity(
@@ -49,7 +49,7 @@ class BookDetailPeopleLayoutTest {
         var authorMarked by mutableStateOf(false)
         var narratorMarked by mutableStateOf(false)
         rule.activity.runOnUiThread {
-            rule.activity.setContent {
+            rule.setContent {
                 AudiobookTheme(darkTheme = true) {
                     Surface {
                         Column(Modifier.width(320.dp)) {

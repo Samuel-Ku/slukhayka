@@ -239,4 +239,109 @@ class CollectiveFeedRefreshTest {
         assertTrue(value.isStale(value.staleAfter))
         assertNotNull(value.refreshed(listOf(card("Б")), fetchedAt = 2_000L, attempt = CollectiveAttempt(2_000L, CollectiveAttemptStatus.SUCCESS)))
     }
+
+    @Test
+    fun `an activated block is offered to the shared lane`() = runBlocking {
+        val store = InMemoryCollectiveFeedBlockStore()
+        store.activate(block(listOf(card("Стара")), fetchedAt = now - 7L * 60 * 60 * 1000))
+        val published = mutableListOf<CollectiveFeedBlock>()
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = { CollectiveRefreshOutcome.Success(block(listOf(card("Нова")), fetchedAt = 0L)) },
+            clock = { now },
+            onActivated = { published += it }
+        )
+
+        refresh.read(key)
+
+        assertEquals(1, published.size)
+        assertEquals(listOf("Нова"), published.single().cards.map { it.title })
+        assertEquals(2L, published.single().version)
+    }
+
+    @Test
+    fun `a failing publish never breaks the local read`() = runBlocking {
+        val refresh = CollectiveFeedRefresh(
+            store = InMemoryCollectiveFeedBlockStore(),
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = { CollectiveRefreshOutcome.Success(block(listOf(card("А")), fetchedAt = 0L)) },
+            clock = { now },
+            onActivated = { throw IllegalStateException("shared lane down") }
+        )
+
+        val rendered = refresh.read(key)
+
+        assertEquals(listOf("А"), rendered!!.cards.map { it.title })
+    }
+
+    // --- #528 — an explicit listener action ---------------------------------
+
+    @Test
+    fun `an explicit action bypasses the TTL and shares the new block`() = runBlocking {
+        val store = InMemoryCollectiveFeedBlockStore()
+        // FRESH: a background read would never touch the source.
+        store.activate(block(listOf(card("Стара")), fetchedAt = now))
+        val published = mutableListOf<CollectiveFeedBlock>()
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = { CollectiveRefreshOutcome.Empty },
+            clock = { now },
+            onActivated = { published += it }
+        )
+
+        val rendered = refresh.observeExplicit(key) {
+            CollectiveRefreshOutcome.Success(block(listOf(card("Відкрита")), fetchedAt = 0L))
+        }
+
+        assertEquals(listOf("Відкрита"), rendered!!.cards.map { it.title })
+        assertEquals(2L, rendered.version)
+        assertEquals(1, published.size)
+        assertEquals(listOf("Відкрита"), published.single().cards.map { it.title })
+    }
+
+    @Test
+    fun `an explicit action wins over a held lease`() = runBlocking {
+        val store = InMemoryCollectiveFeedBlockStore()
+        val lease = InMemoryCollectiveRefreshLease()
+        // Another client holds the background refresh lease right now.
+        lease.acquire(key, now, 60_000L)
+        var calls = 0
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = lease,
+            fetch = { calls++; CollectiveRefreshOutcome.Empty },
+            clock = { now }
+        )
+
+        val rendered = refresh.observeExplicit(key) {
+            calls++
+            CollectiveRefreshOutcome.Success(block(listOf(card("Моя дія")), fetchedAt = 0L))
+        }
+
+        assertEquals("the listener's action is its own owner", 1, calls)
+        assertEquals(listOf("Моя дія"), rendered!!.cards.map { it.title })
+    }
+
+    @Test
+    fun `an explicit failure keeps the previous block and records the status`() = runBlocking {
+        val store = InMemoryCollectiveFeedBlockStore()
+        val good = block(listOf(card("Стара")), fetchedAt = now)
+        store.activate(good)
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = { CollectiveRefreshOutcome.Empty },
+            clock = { now }
+        )
+
+        val rendered = refresh.observeExplicit(key) {
+            CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.CHALLENGE)
+        }
+
+        assertEquals(good.cards, rendered!!.cards)
+        assertEquals(1L, rendered.version)
+        assertEquals(CollectiveAttemptStatus.CHALLENGE, rendered.lastAttempt.status)
+    }
 }

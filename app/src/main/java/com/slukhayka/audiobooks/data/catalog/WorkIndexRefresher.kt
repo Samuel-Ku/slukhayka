@@ -29,9 +29,12 @@ import kotlinx.coroutines.sync.withLock
  *   matches without transliteration heuristics.
  *
  * The built index is persisted through [store] so a launch inside the TTL
- * serves lookups without a single sitemap request. Best-effort by contract:
- * a failing carrier contributes nothing and never touches the previous index;
- * one refresh runs at a time.
+ * serves lookups without a single sitemap request. #526 — the sitemap lane's
+ * TTL is a WEEK ([SitemapPolicy.SITEMAP_TTL_MS]): a URL inventory moves
+ * slowly, and the parsed document is bounded, canonicalized and
+ * host-allowlisted by [SitemapParser]. Best-effort by contract: a failing,
+ * malformed or oversized carrier contributes nothing and never touches the
+ * previous index; one refresh runs at a time.
  */
 class WorkIndexRefresher(
     private val fetcher: HttpFetcher,
@@ -48,8 +51,10 @@ class WorkIndexRefresher(
      * per source per catalog TTL, host-scoped, no tokens.
      */
     private val cookieProvider: SourceCookieProvider = NO_COOKIES,
+    /** #526 — persisted ETag/Last-Modified validators of the sitemap lane. */
+    private val validatorStore: SitemapValidatorStore? = null,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val ttlMillis: Long = FeedSnapshotPolicy.CATALOG_TTL_MS,
+    private val ttlMillis: Long = SitemapPolicy.SITEMAP_TTL_MS,
     private val cardLimit: Int = DEFAULT_CARD_LIMIT
 ) {
 
@@ -66,6 +71,17 @@ class WorkIndexRefresher(
     private val refreshMutex = Mutex()
 
     fun lookup(title: String, author: String): CatalogIndexEntry? = current?.lookup(title, author)
+
+    /**
+     * #526 — the bounded candidate list of one explicit action: at most three
+     * canonical URLs, all of the SAME source as the best match, exact
+     * MergeKey hits first. Reading the index makes no request at all.
+     */
+    fun candidates(
+        title: String,
+        author: String,
+        limit: Int = CatalogWorkIndex.MAX_CANDIDATES
+    ): List<CatalogIndexEntry> = current?.candidates(title, author, limit).orEmpty()
 
     /**
      * Refreshes when the in-memory or persisted index is absent or older
@@ -94,10 +110,18 @@ class WorkIndexRefresher(
             val sitemap = sitemapEntries()
             val cards = cardEntries()
             val entries = buildList {
-                addAll(sitemap)
+                addAll(sitemap.entries)
                 addAll(cards)
             }.distinctBy { it.sourceId to it.url }
 
+            // #526 — every sitemap answered 304: the persisted index still
+            // describes every carrier, so extend its life instead of dropping it.
+            if (entries.isEmpty() && sitemap.allNotModified && current != null) {
+                val extended = clock()
+                refreshedAtMs = extended
+                store?.save(PersistedWorkIndex(current!!.allEntriesSnapshot, extended))
+                return@withLock current
+            }
             if (entries.isEmpty()) return@withLock current
             val built = CatalogWorkIndex(entries)
             val builtAt = clock()
@@ -108,30 +132,57 @@ class WorkIndexRefresher(
         }
     }
 
-    private suspend fun sitemapEntries(): List<CatalogIndexEntry> = buildList {
+    /** One sitemap sweep: the entries plus whether every carrier answered 304. */
+    private data class SitemapScan(
+        val entries: List<CatalogIndexEntry>,
+        val allNotModified: Boolean
+    )
+
+    private suspend fun sitemapEntries(): SitemapScan {
+        val validators = validatorStore?.load().orEmpty()
+        val nextValidators = mutableMapOf<String, SitemapValidator>()
+        val entries = mutableListOf<CatalogIndexEntry>()
+        var carriers = 0
+        var notModified = 0
         for ((sourceId, spec) in SITEMAP_SPECS) {
             for (sitemapUrl in spec.sitemapUrls) {
+                carriers++
                 // Spec-42 #427 — just-in-time, host-aware: a session-bound
                 // sitemap carries the concrete URL's own cookie, never another
                 // host's; no cookie means no Cookie header at all.
                 val headers = cookieProvider.cookieHeadersFor(sitemapUrl)
-                val xml = fetcher.getText(
+                val known = validators[sitemapUrl]
+                val response = fetcher.getTextConditional(
                     sitemapUrl,
                     headers,
-                    SourceRequestClass.BACKGROUND,
-                    ttlMillis
+                    known?.etag,
+                    known?.lastModified
                 )
-                if (xml.isBlank()) continue
-                for (match in LOC.findAll(xml)) {
-                    val loc = match.groupValues[1].trim()
-                    val path = loc.substringBefore('?').trimEnd('/')
-                    if (!spec.accept(path)) continue
-                    val slug = path.substringAfterLast('/')
+                if (response.status == HTTP_NOT_MODIFIED) {
+                    notModified++
+                    known?.let { nextValidators[sitemapUrl] = it }
+                    // The stored index still holds this carrier's URLs.
+                    entries += current?.entriesFor(sourceId).orEmpty()
+                        .filter { entry -> spec.accept(SitemapParser.canonicalUrl(entry.url) ?: entry.url) }
+                    continue
+                }
+                if (response.body.isBlank()) continue
+                response.etag?.takeIf { it.isNotBlank() }?.let { etag ->
+                    nextValidators[sitemapUrl] = SitemapValidator(etag, response.lastModified)
+                }
+                // #526 — bounded, canonicalized, host-allowlisted. An
+                // oversized or malformed document contributes nothing here;
+                // the previous good index is never erased.
+                val parsed = SitemapParser.parse(response.body, spec.accept) ?: continue
+                for (entry in parsed) {
+                    val slug = spec.slugOf(entry.canonicalUrl).trim()
                     if (slug.isBlank()) continue
-                    add(CatalogIndexEntry(sourceId = sourceId, url = loc, slug = slug))
+                    entries += CatalogIndexEntry(sourceId = sourceId, url = entry.url, slug = slug)
                 }
             }
         }
+        if (nextValidators.isNotEmpty()) validatorStore?.save(nextValidators)
+        return SitemapScan(entries, carriers > 0 && notModified == carriers)
     }
 
     /** A source's catalogue-card enumeration — its adapter's `fetchCatalog`. */
@@ -162,11 +213,17 @@ class WorkIndexRefresher(
         /** Bounded: the index is a discovery shortcut, not a full crawl. */
         const val DEFAULT_CARD_LIMIT = 100
 
-        private val LOC = Regex("<loc>\\s*([^<\\s]+)\\s*</loc>")
+        /** #526 — the sitemap's own "nothing changed" answer. */
+        private const val HTTP_NOT_MODIFIED = 304
 
-        /** One source's sitemap URLs plus the book-URL filter. */
+        /**
+         * One source's sitemap URLs, the book-URL filter, and how the URL maps
+         * to the slug matching runs on (a source may prefix its slugs with a
+         * section marker that is not part of the Work identity).
+         */
         data class SitemapSpec(
             val sitemapUrls: List<String>,
+            val slugOf: (canonicalUrl: String) -> String = { it.substringAfterLast('/') },
             val accept: (path: String) -> Boolean
         )
 
@@ -189,7 +246,21 @@ class WorkIndexRefresher(
             ) { path -> path.contains("/books/") },
             "sluhay" to SitemapSpec(
                 sitemapUrls = listOf("https://sluhay.com/news_pages.xml")
-            ) { path -> SLUHAY_BOOK_PATH_RE.containsMatchIn(path) }
+            ) { path -> SLUHAY_BOOK_PATH_RE.containsMatchIn(path) },
+            // #527 — audiobook-mp3.com publishes its Ukrainian inventory in
+            // robots.txt (`sitemap_books-uk.xml`, measured 2026-09-12: 6 219
+            // `/uk-audio-<id>-<slug>` URLs). The site's own `/sitemap.xml` is
+            // an HTML 404 page, so only this child sitemap is read.
+            "audiobookmp3" to SitemapSpec(
+                sitemapUrls = listOf("https://audiobook-mp3.com/sitemap_books-uk.xml"),
+                accept = { path -> path.startsWith("https://audiobook-mp3.com/uk-audio-") },
+                // `/uk-audio-<id>-<author>-<title>`: the section marker and the
+                // numeric id are not part of the Work identity, so matching runs
+                // on the author-title tail only.
+                slugOf = { url ->
+                    url.substringAfterLast('/').replace(Regex("^uk-audio-\\d+-"), "")
+                }
+            )
         )
 
         /** `https://sluhay.com/<category>/<id>-<slug>.html` — the book inventory. */

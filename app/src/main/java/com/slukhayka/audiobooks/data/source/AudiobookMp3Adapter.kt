@@ -36,7 +36,7 @@ import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
  *   4read-gated; out of T4 scope).
  */
 class AudiobookMp3Adapter(
-    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://audiobook-mp3.com/uk"),
+    private val fetcher: HttpFetcher = registryFetcher(),
     /** Spec #462 ID5 (#468) — how many genre pages one catalogue walk opens. */
     private val genrePageLimit: Int = GENRE_PAGE_LIMIT
 ) : SourceAdapter {
@@ -175,6 +175,27 @@ class AudiobookMp3Adapter(
         return books
     }
 
+    /**
+     * #527 — ONE genre page for ONE listener action: exactly one request to
+     * the page the listener opened (`/uk-genre-<id>-<slug>`), its tiles in
+     * page order. A blank or foreign path is an honest empty with NO request;
+     * page 2 is the next action's call, never an implicit walk.
+     */
+    override suspend fun fetchGenrePage(genrePath: String, cursor: String?, limit: Int): GenrePage {
+        // The genre page has no pagination of its own: one action, one page,
+        // no cursor. A continuation cursor is therefore never produced.
+        val path = genrePath.trim()
+        if (cursor != null || !GENRE_PATH.matches(path)) return GenrePage(emptyList())
+        val html = fetcher.getText(
+            "https://audiobook-mp3.com$path",
+            emptyMap(),
+            SourceRequestClass.LISTENER_ACTION,
+            0L
+        )
+        if (html.isEmpty()) return GenrePage(emptyList())
+        return GenrePage(parseTiles(html, limit))
+    }
+
     /** Parses one listing page's cover tiles + text anchors into [SourceBook] rows. */
     private fun parseTiles(html: String, limit: Int): List<SourceBook> {
         // Each entry's cover rides in its own tile: <a class="image-abook"
@@ -299,6 +320,22 @@ class AudiobookMp3Adapter(
 
     private companion object {
         /**
+         * #527 — the transport's Referer is the REGISTRY's scoped rule
+         * (ADR-0038), so the site Referer reaches the source and its media CDN
+         * (`*.redirectto.cc`, which 403s without it) and never a third party.
+         * The literal fallback keeps the scope even if the registry lookup
+         * fails — an unscoped referer would be a leak (SEC-004).
+         */
+        fun registryFetcher(): HttpFetcher {
+            val rule = SourceRegistry.facts("audiobookmp3")?.referer
+            return HttpFetcher(
+                referer = rule?.value ?: "https://audiobook-mp3.com/uk",
+                refererHosts = rule?.scopeHosts?.takeIf { it.isNotEmpty() }
+                    ?: setOf("audiobook-mp3.com", "redirectto.cc")
+            )
+        }
+
+        /**
          * Spec #462 ID5 (#468) — the named (and per-instance configurable,
          * via [genrePageLimit]) genre limit that replaced the old magic
          * `take(6)`: one user-initiated catalogue refresh walks this many
@@ -315,6 +352,9 @@ class AudiobookMp3Adapter(
         val SITE_URL_TAIL = Regex("""\s*(?:audiobook-mp3\.com/uk|audiobook-mp3\.com)\s*$""", RegexOption.IGNORE_CASE)
         // Genre (category) pages of the full catalogue — `/uk-genre-<id>-<slug>`.
         val GENRE_LINK = Regex("""href="(/uk-genre-\d+-[^"]+)"""", RegexOption.IGNORE_CASE)
+
+        /** #527 — the ONLY genre paths a listener action may open. */
+        private val GENRE_PATH = Regex("""^/uk-genre-\d+-[^/?#]+$""")
         // The «Автор:» panel row (<span>Автор:</span> <a …>) and the older
         // plain «Автор: <a …>» form both resolve to the same link.
         val AUTHOR_LINK = Regex("""Автор:(?:\s*</span>)?\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)

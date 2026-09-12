@@ -207,6 +207,14 @@
     <string name="series_index_title">Series</string>
     <string name="series_mirror_neighbours">Also in the mirror</string>
     <string name="collective_block_provenance">Source: %1$s</string>
+    <string name="fallback_candidates_title">Other sources</string>
+    <string name="fallback_kind_local">On this device</string>
+    <string name="fallback_kind_current">Current source</string>
+    <string name="fallback_kind_same_edition">Same narration</string>
+    <string name="fallback_kind_browser">Through the source browser</string>
+    <string name="fallback_kind_other_edition">Different narration</string>
+    <string name="fallback_candidate_play">Play</string>
+    <string name="fallback_candidate_switch">Switch</string>
     <string name="collective_block_attempt">Last attempt: %1$s</string>
     <string name="collective_block_attempt_ok">refreshed</string>
     <string name="collective_block_attempt_stale">showing the last good snapshot</string>

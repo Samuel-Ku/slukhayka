@@ -597,4 +597,79 @@ class SourceReplacementMappingTest {
         assertEquals(0, searches.total)
         assertTrue(cache.written.isEmpty())
     }
+
+    // --- #526 — the bounded sitemap-candidate lane -------------------------
+
+    private fun candidate(sourceId: String, url: String) =
+        SourceReplacementMapping.Match(
+            sourceId = sourceId,
+            url = url,
+            title = "Книга",
+            author = "Автор",
+            narrator = "",
+            coverImageUrl = null
+        )
+
+    @Test
+    fun `the candidate lane opens at most three pages and stops at the first verified`() = runTest {
+        val searches = CountingSearches()
+        val verified = mutableListOf<String>()
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            cache = FakeCache(),
+            workIndexCandidates = { _, _, _ ->
+                (1..5).map { candidate("audiobookcoua", "https://audiobook.co.ua/$it") }
+            },
+            verifyCandidate = { match ->
+                verified += match.url
+                match.url.endsWith("/3")
+            }
+        )
+
+        val match = resolver.resolve("Книга", "Автор", MergeKey.keyFor("Книга", "Автор"))
+
+        assertEquals("https://audiobook.co.ua/3", match?.url)
+        assertEquals(3, verified.size)
+        assertEquals("a verified candidate never reaches the volley", 0, searches.total)
+    }
+
+    @Test
+    fun `an unverified candidate budget ends at three and never crawls`() = runTest {
+        var verifications = 0
+        val resolver = SourceReplacementMapping(
+            directSearches = emptyMap(),
+            union = { emptyList() },
+            cache = FakeCache(),
+            workIndexCandidates = { _, _, _ ->
+                (1..10).map { candidate("audiobookcoua", "https://audiobook.co.ua/$it") }
+            },
+            verifyCandidate = { verifications++; false }
+        )
+
+        assertNull(resolver.resolve("Книга", "Автор", MergeKey.keyFor("Книга", "Автор")))
+        assertEquals("never more than three candidate pages", 3, verifications)
+    }
+
+    @Test
+    fun `a browser candidate without a session is skipped unverified`() = runTest {
+        val verified = mutableListOf<String>()
+        val resolver = SourceReplacementMapping(
+            directSearches = emptyMap(),
+            union = { emptyList() },
+            cache = FakeCache(),
+            workIndexCandidates = { _, _, _ ->
+                listOf(
+                    candidate("ukrainianaudiobooks", "https://ukrainianaudiobooks.com/x"),
+                    candidate("audiobookcoua", "https://audiobook.co.ua/ok")
+                )
+            },
+            verifyCandidate = { match -> verified += match.url; true }
+        )
+
+        val match = resolver.resolve("Книга", "Автор", MergeKey.keyFor("Книга", "Автор"))
+
+        assertEquals("https://audiobook.co.ua/ok", match?.url)
+        assertEquals("the unusable browser candidate costs no request", listOf("https://audiobook.co.ua/ok"), verified)
+    }
 }

@@ -235,6 +235,9 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         // One cancellable delta chain for this active Огляд session. Filters,
         // cards and recompositions only read Room; none of them touch Firestore.
+        // #532 — seed the cold start FIRST, so a clean install's first «Огляд»
+        // already shows local content (no Firestore, no Source request).
+        App.instance.coldStartSeed.runOnce()
         launch { sourceCatalog.syncSharedFacets() }
         launch { sourceCatalog.syncSharedSubmissions() }
         launch { sourceCatalog.syncSharedTombstones() }
@@ -244,6 +247,12 @@ fun HomeScreen(
         // #523 — collective blocks: instant from the persisted snapshot, then
         // one leased stale-while-revalidate pass per source.
         launch { viewModel.refreshCollectiveBlocks() }
+        // #527 — blocks other installs observed land locally, so this install
+        // never repeats the genre/catalogue request for them.
+        launch { App.instance.collectiveBlockSync.syncOnce() }
+        // #527 — the download gate's live rules check (one robots request per
+        // declared source per week); downloads stay OFF until it confirms.
+        launch { App.instance.sourceDownloadPermissionRefresh.refreshOnce() }
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()

@@ -295,6 +295,24 @@ class App : Application() {
                     )
                 }
             },
+            // #526 — the bounded sitemap-candidate lane: at most three URLs of
+            // one source, each verified by ONE book-page request before it is
+            // trusted; the resolver never opens more than that.
+            workIndexCandidates = { title, author, _ ->
+                workIndexRefresher.candidates(title, author).map { entry ->
+                    com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping.Match(
+                        sourceId = entry.sourceId,
+                        url = entry.url,
+                        title = title,
+                        author = author,
+                        narrator = "",
+                        coverImageUrl = null
+                    )
+                }
+            },
+            verifyCandidate = { match ->
+                sourceCatalog.verifyIndexCandidate(match.sourceId, match.url)
+            },
             // #725 — a session-backed BROWSER match is usable only while the
             // listener's first-party session exists (ADR-0037 amendment).
             sessionAlive = { sourceId ->
@@ -331,7 +349,12 @@ class App : Application() {
             // ONE shared host-aware provider reads the live WebView cookie
             // just-in-time; without a session the carrier contributes nothing.
             // ADR-0039 §8 traffic: one request per source per catalog TTL.
-            cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
+            cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider,
+            // #526 — ETag/Last-Modified of the sitemap lane survive a restart,
+            // so the post-TTL sweep is conditional and a 304 extends the index.
+            validatorStore = com.slukhayka.audiobooks.data.catalog.SitemapValidatorStore(
+                java.io.File(filesDir, "sitemap_validators.tsv")
+            )
         )
     }
 
@@ -516,7 +539,90 @@ class App : Application() {
                 } else {
                     sourceCatalog.collectiveBlockFetch(ref.sourceId, ref.kind)
                 }
-            }
+            },
+            // #527 — the ONE owner that observed the block shares it, so another
+            // install shows it without repeating the genre/catalogue request.
+            onActivated = { block -> collectiveBlockStore?.putBlock(block) }
+        )
+    }
+
+    /** #530 — the lightweight identity (title, author) of one book row. */
+    suspend fun bookIdentity(bookId: String): Pair<String, String>? =
+        database.audiobookDao().getAudiobookById(bookId)?.let { row ->
+            val book = row.toAudiobookEntity()
+            book.title to book.author
+        }
+
+    /**
+     * #532 — the bundled cold-start seed, imported ONCE per install through
+     * the ordinary merge-on-write path: a clean start shows a local «Огляд»
+     * with no Firestore and no Source request.
+     */
+    val coldStartSeed: com.slukhayka.audiobooks.data.collective.ColdStartSeed by lazy {
+        com.slukhayka.audiobooks.data.collective.ColdStartSeed(
+            importer = com.slukhayka.audiobooks.data.collective.CatalogSeedImporter { entry ->
+                sourceCatalog.applyCollectiveCard(entry) != null
+            },
+            seed = runCatching {
+                assets.open("catalog_seed.json").bufferedReader().use { reader ->
+                    com.slukhayka.audiobooks.data.collective.CatalogSeedCodec.parse(reader.readText())
+                }
+            }.getOrDefault(emptyList()),
+            flag = com.slukhayka.audiobooks.data.collective.PrefsColdStartSeedFlag(
+                getSharedPreferences("cold_start_seed", MODE_PRIVATE)
+            )
+        )
+    }
+
+    /** #530 — the bounded cooldown records of failed Sources. */
+    val sourceCooldownStore: com.slukhayka.audiobooks.data.editions.SourceCooldownStore by lazy {
+        com.slukhayka.audiobooks.data.editions.SourceCooldownStore(
+            java.io.File(filesDir, "source_cooldown.tsv")
+        )
+    }
+
+    /** #530 — the ordered fallback offer of #519's action (zero requests). */
+    val catalogFallbackOffer: com.slukhayka.audiobooks.data.editions.CatalogFallbackOffer by lazy {
+        com.slukhayka.audiobooks.data.editions.CatalogFallbackOffer(
+            dao = database.audiobookDao(),
+            cooldown = sourceCooldownStore
+        )
+    }
+
+    /** #527 — the persisted live download-permission verdicts (fail closed). */
+    val sourceDownloadPermissions: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore by lazy {
+        com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore(
+            java.io.File(filesDir, "download_permissions.tsv")
+        )
+    }
+
+    /**
+     * #527 — the ONE live rules check of the download gate: it reads a
+     * source's robots.txt (one BACKGROUND request per declared source per
+     * TTL) and records the verdict for the media path. Best-effort: a failed
+     * or blank fetch never fabricates permission.
+     */
+    val sourceDownloadPermissionRefresh: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionRefresh by lazy {
+        com.slukhayka.audiobooks.data.source.SourceDownloadPermissionRefresh(
+            fetcher = HttpFetcher(),
+            store = sourceDownloadPermissions
+        )
+    }
+
+    /** #527 — the shared block lane's transport (null without Firebase keys). */
+    private val collectiveBlockStore: com.slukhayka.audiobooks.data.collective.CollectiveBlockStore? by lazy {
+        com.slukhayka.audiobooks.data.collective.FirestoreCollectiveBlockStore.create(this)
+    }
+
+    /** #527 — mirrors other installs' observed blocks into the local snapshots. */
+    val collectiveBlockSync: com.slukhayka.audiobooks.data.collective.CollectiveBlockSync by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveBlockSync(
+            store = collectiveBlockStore,
+            local = com.slukhayka.audiobooks.data.collective.RoomCollectiveFeedBlockStore(
+                database.audiobookDao()
+            ),
+            cursorStore = com.slukhayka.audiobooks.data.collective
+                .SharedPreferencesCollectiveBlockSyncCursorStore(this)
         )
     }
 
@@ -809,6 +915,10 @@ class App : Application() {
             database.audiobookDao(),
             this,
             sourceCatalog,
+            // #527 — the persisted LIVE rules verdicts of the download gate.
+            downloadPermissions = sourceDownloadPermissions,
+            // #530 — a completed chapter records the Source's own success.
+            sourceCooldown = sourceCooldownStore,
             // ADR-0037 (spec-49 T1): a refused-only book refuses the download
             // up front, before any pacing, fetch or file write.
             sourceAudioRefusal = sourceAudioRefusal.refusedSources,

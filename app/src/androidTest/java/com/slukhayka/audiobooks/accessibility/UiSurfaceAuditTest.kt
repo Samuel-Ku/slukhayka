@@ -34,10 +34,12 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.library.*
 import com.slukhayka.audiobooks.ui.screens.*
+import com.slukhayka.audiobooks.ui.screens.bookdetail.*
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import java.io.File
 import java.util.Locale
@@ -103,7 +105,7 @@ class UiSurfaceAuditTest {
                                         ), onClick = {})
                                     }
                                     "catalog_empty" -> Column { EmptyCatalogState({}, {}) }
-                                    "cycle" -> Column { PersonalCycleCard(PersonalCycle("Епоха божевілля", "audit", null, 0, 12, false), {}) }
+                                    "cycle" -> Column { CycleCard("Епоха божевілля", null, {}) }
                                     "library_empty" -> LibraryEmptyState({}, {})
                                     "library_row" -> Column { LibraryBookCard(buildLibraryBooks(listOf(book), emptyList(), mapOf(book.id to chapters)).single(), grid = false, onClick = {}) }
                                     "library_grid" -> LazyVerticalGrid(
@@ -112,7 +114,7 @@ class UiSurfaceAuditTest {
                                     ) { items(2) { LibraryBookCard(buildLibraryBooks(listOf(book), emptyList(), mapOf(book.id to chapters)).single(), grid = true, onClick = {}) } }
                                     "library_filters" -> LibraryFilterSheet(LibraryFilter.ALL, LibrarySort.RECENTLY_LISTENED, false, {}, {}, { gridSelected = it }, {})
                                     "delete_dialog" -> ClearCacheConfirmDialog(3, 1024L * 1024 * 120, {}, {})
-                                    "speed" -> SpeedSheet(1.25f, {}, {}, {}, {})
+                                    "speed" -> SpeedSheet(1.25f, {}, {}, {})
                                     "timer" -> SleepTimerSheet(currentTimerMinutes = 15, onSelectTimer = {}, onDismiss = {})
                                     "chapters" -> ChapterBottomSheet(chapters, 1, {}, {})
                                     "bookmark" -> BookmarkBottomSheet(120, chapters[1].title, {}, {})

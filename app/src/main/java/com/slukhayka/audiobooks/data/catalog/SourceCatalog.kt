@@ -272,6 +272,17 @@ class SourceCatalog(
     /** #736 — the owned Work ids of one author, for the person-page split. */
     suspend fun authorOwnedWorkIds(authorId: String): Set<String> = authorIndex.ownedWorkIds(authorId)
 
+    /**
+     * #736 / ADR-0041 — the «Виконавці» index reads the Медіатека: only the
+     * narration of owned Editions, newest rows visible instantly, offline.
+     */
+    val libraryNarrators: Flow<List<com.slukhayka.audiobooks.data.people.NarratorSummary>> =
+        dao.observeLibraryNarrators()
+
+    /** #736 — the listener's owned books of one narrator. */
+    suspend fun libraryBooksForNarrator(narrator: String): List<com.slukhayka.audiobooks.data.db.AudiobookEntity> =
+        dao.libraryBooksForNarrator(narrator)
+
     suspend fun authorForWork(workId: String): AuthorSummary? = authorIndex.authorForWork(workId)
 
     private val fourReadAdapter: SourceAdapter =

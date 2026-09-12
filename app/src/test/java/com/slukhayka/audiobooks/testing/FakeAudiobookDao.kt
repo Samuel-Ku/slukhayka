@@ -30,6 +30,7 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
+import com.slukhayka.audiobooks.data.people.NarratorSummary
 import com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity
 import com.slukhayka.audiobooks.data.db.GenreFacetEntity
 import com.slukhayka.audiobooks.data.db.WorkGenreEntity
@@ -1268,6 +1269,28 @@ class FakeAudiobookDao(
             .filter { it.canonicalAuthorId == authorId && it.workId in owned }
             .map { it.workId }
             .distinct()
+    }
+
+    /** #736 — the fake's owned-only narrator index mirrors the SQL join. */
+    override fun observeLibraryNarrators(): Flow<List<NarratorSummary>> =
+        combine(editionsState, libraryEntriesState) { editions, entries ->
+            val ownedWorkIds = entries.map { it.workId }.toSet()
+            editions
+                .filter { it.workId in ownedWorkIds && it.narrator.isNotBlank() }
+                .groupBy { it.narrator }
+                .map { (narrator, rows) -> NarratorSummary(narrator, rows.map { it.workId }.distinct().size) }
+                .sortedBy { it.displayName.lowercase() }
+        }
+
+    override suspend fun libraryBooksForNarrator(narrator: String): List<AudiobookEntity> {
+        val ownedWorkIds = libraryEntriesState.value.map { it.workId }.toSet()
+        val workIds = editionsState.value
+            .filter { it.narrator == narrator && it.workId in ownedWorkIds }
+            .map { it.workId }
+            .toSet()
+        return booksState.value
+            .filter { it.id in workIds }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
     }
 
     override suspend fun authorForWork(workId: String): AuthorSummary? {

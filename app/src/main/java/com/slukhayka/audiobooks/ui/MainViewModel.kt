@@ -1819,30 +1819,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         top100Loader.close()
     }
 
-    // Виконавці / Автори index pages (`/readers.html`, `/avtors.html`).
+    // Виконавці index. #736 / ADR-0041 — the listener's OWN narrators, read
+    // from the Медіатека (owned Editions), never a provider page: the list is
+    // live and offline, so it has no loading or failure state anymore.
     private val _selectedPeopleKind = MutableStateFlow<PeopleKind?>(null)
     val selectedPeopleKind: StateFlow<PeopleKind?> = _selectedPeopleKind.asStateFlow()
 
-    private val peopleLoader = KeyedCatalogLoader<PeopleKind, CatalogPerson>(viewModelScope) {
-        sourceCatalog.fetchPeopleResult(it.url)
-    }
-    val peopleEntries: StateFlow<List<CatalogPerson>> = peopleLoader.items
-    val isPeopleLoading: StateFlow<Boolean> = peopleLoader.isLoading
-    val peopleLoadFailed: StateFlow<Boolean> = peopleLoader.failed
+    val peopleEntries: StateFlow<List<CatalogPerson>> =
+        sourceCatalog.libraryNarrators
+            .map { narrators ->
+                narrators.map {
+                    CatalogPerson(
+                        name = it.displayName,
+                        path = "",
+                        bookCount = it.workCount,
+                        role = com.slukhayka.audiobooks.data.db.PersonRole.NARRATOR
+                    )
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _isPeopleLoading = MutableStateFlow(false)
+    val isPeopleLoading: StateFlow<Boolean> = _isPeopleLoading.asStateFlow()
+
+    private val _peopleLoadFailed = MutableStateFlow(false)
+    val peopleLoadFailed: StateFlow<Boolean> = _peopleLoadFailed.asStateFlow()
 
     fun openPeople(kind: PeopleKind) {
         _selectedPeopleKind.value = kind
-        peopleLoader.open(kind)
     }
 
     fun closePeople() {
         _selectedPeopleKind.value = null
-        peopleLoader.close()
     }
 
-    // Canonical cross-source author destinations. Provider narrator pages keep
-    // using [selectedPeopleKind]; author discovery always reads the local Work
-    // index, so it remains instant and does not depend on a provider page.
+    // Canonical cross-source author destinations. Author discovery always
+    // reads the local Work index, so it remains instant and provider-free.
     private val _authorsIndexOpen = MutableStateFlow(false)
     val authorsIndexOpen: StateFlow<Boolean> = _authorsIndexOpen.asStateFlow()
 
@@ -1963,7 +1975,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedPerson: StateFlow<SelectedPerson?> = _selectedPerson.asStateFlow()
 
     private val personLoader = KeyedCatalogLoader<SelectedPerson, AudiobookEntity>(viewModelScope) {
-        sourceCatalog.fetchPersonBooksResult(it.path)
+        // #736 / ADR-0041 — a local person (the narrator index) reads the
+        // listener's own books; a blank path never becomes a provider request.
+        if (it.path.isBlank()) {
+            com.slukhayka.audiobooks.data.catalog.CatalogFetchResult.Success(
+                sourceCatalog.libraryBooksForNarrator(it.name)
+            )
+        } else {
+            sourceCatalog.fetchPersonBooksResult(it.path)
+        }
     }
     val personBooks: StateFlow<List<AudiobookEntity>> = personLoader.items
     val isPersonLoading: StateFlow<Boolean> = personLoader.isLoading

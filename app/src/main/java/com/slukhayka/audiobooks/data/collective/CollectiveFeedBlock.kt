@@ -37,6 +37,29 @@ data class CollectiveBlockCard(
     val coverUrl: String? = null
 )
 
+/** #523 — the Source+kind a stable block key names. */
+data class CollectiveBlockRef(
+    val sourceId: String,
+    val kind: CollectiveBlockKind
+)
+
+/** #523 — the ONE stable, Source-scoped block identity. */
+fun collectiveBlockKey(sourceId: String, kind: CollectiveBlockKind): String =
+    "$sourceId|${kind.name}"
+
+/** Parses a block key back to its Source+kind; null for anything else. */
+fun parseCollectiveBlockKey(blockKey: String): CollectiveBlockRef? {
+    val separator = blockKey.lastIndexOf('|')
+    if (separator <= 0) return null
+    val sourceId = blockKey.substring(0, separator)
+    val kind = CollectiveBlockKind.entries.firstOrNull { it.name == blockKey.substring(separator + 1) }
+        ?: return null
+    return CollectiveBlockRef(sourceId, kind)
+}
+
+/** #523 — the `feed_snapshots` feed key one block persists under. */
+fun collectiveFeedKey(kind: CollectiveBlockKind): String = "collective-${kind.name.lowercase()}"
+
 /** The status of the latest refresh attempt — honest, never a guess. */
 enum class CollectiveAttemptStatus {
     SUCCESS,

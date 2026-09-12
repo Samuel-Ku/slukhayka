@@ -699,6 +699,68 @@ class SourceCatalog(
     }
 
     /**
+     * #523 — opens AT MOST ONE page of one collective block and maps the
+     * outcome honestly: a non-empty page becomes a candidate block (identity,
+     * provenance and the source's own card order), an empty answer and a
+     * thrown transport failure are distinct non-erasing outcomes. The caller
+     * ([com.slukhayka.audiobooks.data.collective.CollectiveFeedRefresh]) owns
+     * the lease, the time window and the last-good preservation.
+     *
+     * Only the new-arrivals kind is served here for now; the recommendations
+     * and collections kinds ride the live-collection lane (a #523 follow-up)
+     * and honestly report an empty attempt until then.
+     */
+    suspend fun collectiveBlockFetch(
+        sourceId: String,
+        kind: com.slukhayka.audiobooks.data.collective.CollectiveBlockKind
+    ): com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome = withContext(Dispatchers.IO) {
+        if (kind != com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.NEW_ARRIVALS) {
+            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty
+        }
+        val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+            ?: return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Failure(
+                com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.NOT_FOUND
+            )
+        val books = try {
+            adapter.fetchNew()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Failure(
+                com.slukhayka.audiobooks.data.collective.classifyCollectiveFailure(e)
+            )
+        }
+        if (books.isEmpty()) {
+            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty
+        }
+        com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
+            com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
+                blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind),
+                sourceId = sourceId,
+                kind = kind,
+                name = sourceDisplayName(sourceId),
+                provenanceUrl = SourceRegistry.facts(sourceId)?.homeUrl.orEmpty(),
+                cards = books.map { book ->
+                    com.slukhayka.audiobooks.data.collective.CollectiveBlockCard(
+                        sourceId = book.sourceId.ifBlank { sourceId },
+                        sourceUrl = book.url,
+                        title = book.title,
+                        author = book.author,
+                        coverUrl = book.coverImageUrl
+                    )
+                },
+                fetchedAt = 0L,
+                staleAfter = 0L,
+                version = 0L,
+                lastAttempt = com.slukhayka.audiobooks.data.collective.CollectiveAttempt(
+                    0L,
+                    com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.SUCCESS
+                )
+            )
+        )
+    }
+
+    /**
      * Spec-49 follow-up (#721) — one adapter's search with the
      * no-endpoint fallback the aggregated search always had: a source
      * without a usable search endpoint answers from its recent-arrivals

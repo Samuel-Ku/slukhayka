@@ -2004,25 +2004,6 @@ class SourceCatalog(
             }
         }
 
-    /** Imports a 4read cycle from the listener-approved browser session. */
-    suspend fun importCapturedSeriesBooksResult(
-        seriesUrl: String,
-        html: String
-    ): CatalogFetchResult<List<AudiobookEntity>> = withContext(Dispatchers.IO) {
-        try {
-            val parsed = CatalogParser.parseSeriesPage(html)
-            if (parsed.isEmpty()) return@withContext CatalogFetchResult.Failure
-            val books = parsed.mapNotNull { libraryImport.upsertCatalogBook(it) }
-            seriesBooksCache[seriesUrl] = books
-            CatalogFetchResult.Success(books)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Log.w("SourceCatalog", "Captured series import failed for $seriesUrl", failure)
-            CatalogFetchResult.Failure
-        }
-    }
-
     /** Backward-compatible best-effort list API for non-UI consumers. */
     suspend fun fetchSeriesBooks(seriesUrl: String): List<AudiobookEntity> =
         fetchSeriesBooksResult(seriesUrl).valueOrEmpty()

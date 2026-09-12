@@ -548,7 +548,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         recoveryBookId = selectedWebSource!!.recoveryBookId,
                         recoveryChapterIndex = selectedWebSource!!.recoveryChapterIndex,
                         recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
-                        captureSeriesUrl = selectedWebSource!!.captureSeriesUrl,
                         automaticRecovery = selectedWebSource!!.automaticRecovery,
                         cloudflareChallenge = selectedWebSource!!.cloudflareChallenge,
                         onCloudflareChallengeChanged = { required ->

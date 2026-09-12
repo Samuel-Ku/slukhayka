@@ -10,6 +10,7 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 __pycache__/
+/node_modules/
 *.pyc
 /build
 /captures

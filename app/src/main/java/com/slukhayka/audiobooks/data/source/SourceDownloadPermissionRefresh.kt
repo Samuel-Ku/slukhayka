@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.data.source
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
 /**
  * #527 — the live rules check that feeds the download gate. For every source
  * that declares [SourceFacts.liveDownloadPermission] it reads the source's
@@ -25,9 +28,15 @@ class SourceDownloadPermissionRefresh(
             val facts = SourceRegistry.facts(sourceId) ?: continue
             val home = facts.homeUrl.takeIf { it.isNotBlank() } ?: continue
             val robotsUrl = home.trimEnd('/') + "/robots.txt"
-            val body = runCatching {
-                fetcher.getText(robotsUrl, emptyMap(), SourceRequestClass.BACKGROUND, TTL_MS)
-            }.getOrDefault("")
+            // #533 (measured on-device): this pass is launched from a
+            // LaunchedEffect, i.e. on the MAIN dispatcher, so the robots.txt
+            // GET threw NetworkOnMainThreadException and the permission gate
+            // silently never worked. One background pass = one IO hop.
+            val body = withContext(Dispatchers.IO) {
+                runCatching {
+                    fetcher.getText(robotsUrl, emptyMap(), SourceRequestClass.BACKGROUND, TTL_MS)
+                }.getOrDefault("")
+            }
             if (body.isBlank()) continue
             val verdict = RobotsDownloadRules.verdictFor(body, cataloguePath)
             if (verdict == DownloadPermissionVerdict.UNKNOWN) continue

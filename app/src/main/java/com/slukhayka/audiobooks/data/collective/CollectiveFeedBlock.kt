@@ -127,3 +127,17 @@ sealed interface CollectiveRefreshOutcome {
 
     data class Failure(val status: CollectiveAttemptStatus) : CollectiveRefreshOutcome
 }
+
+/**
+ * #523 — the honest status of a failed one-page fetch. The adapters themselves
+ * fail closed to an empty list (their transport returns "" on any non-200), so
+ * a source-side 403/404/challenge surfaces as [CollectiveAttemptStatus.EMPTY];
+ * an exception the transport DID throw is classified here rather than guessed.
+ */
+fun classifyCollectiveFailure(error: Throwable): CollectiveAttemptStatus = when (error) {
+    is java.net.SocketTimeoutException -> CollectiveAttemptStatus.TIMEOUT
+    is java.net.UnknownHostException -> CollectiveAttemptStatus.TIMEOUT
+    is java.net.ConnectException -> CollectiveAttemptStatus.TIMEOUT
+    is java.io.IOException -> CollectiveAttemptStatus.TIMEOUT
+    else -> CollectiveAttemptStatus.PARSE_FAILURE
+}

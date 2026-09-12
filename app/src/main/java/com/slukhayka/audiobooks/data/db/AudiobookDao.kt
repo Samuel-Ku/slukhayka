@@ -510,6 +510,52 @@ interface AudiobookDao {
     @Query("SELECT * FROM series")
     suspend fun getAllSeries(): List<SeriesEntity>
 
+    /**
+     * #734 / ADR-0041 — the «Серії» index corpus: only cycles the listener
+     * actually has a book in, from BOTH the Work's own series fields and the
+     * resolved series memberships. An enumerated-only cycle never appears.
+     */
+    @Query(
+        "SELECT DISTINCT title, url FROM (" +
+            "SELECT w.seriesTitle AS title, w.seriesUrl AS url " +
+            "FROM works w JOIN library_entries le ON le.workId = w.id " +
+            "WHERE w.seriesTitle IS NOT NULL AND w.seriesTitle != '' " +
+            "UNION " +
+            "SELECT s.title AS title, s.url AS url " +
+            "FROM series s " +
+            "JOIN series_members sm ON sm.seriesId = s.id " +
+            "JOIN library_entries le ON le.workId = sm.workId " +
+            "WHERE s.title != ''" +
+            ") ORDER BY title COLLATE NOCASE ASC"
+    )
+    suspend fun ownedSeriesIndexRows(): List<SeriesIndexRow>
+
+    /** #734 — the listener's owned books of one series (by title). */
+    @Query(
+        "SELECT DISTINCT a.* FROM audiobooks a " +
+            "JOIN library_entries le ON le.id = a.id " +
+            "LEFT JOIN works w ON w.id = le.workId " +
+            "LEFT JOIN series_members sm ON sm.workId = le.workId " +
+            "LEFT JOIN series s ON s.id = sm.seriesId " +
+            "WHERE w.seriesTitle = :title OR s.title = :title " +
+            "ORDER BY w.seriesIndex IS NULL, w.seriesIndex ASC, a.title COLLATE NOCASE ASC, a.id ASC"
+    )
+    suspend fun libraryBooksForSeries(title: String): List<AudiobookEntity>
+
+    /**
+     * #734 — the Дзеркало neighbours of one series: known Works the listener
+     * does NOT own, offered as finds on the series page (import on tap).
+     */
+    @Query(
+        "SELECT DISTINCT w.* FROM works w " +
+            "LEFT JOIN series_members sm ON sm.workId = w.id " +
+            "LEFT JOIN series s ON s.id = sm.seriesId " +
+            "WHERE (w.seriesTitle = :title OR s.title = :title) " +
+            "AND NOT EXISTS (SELECT 1 FROM library_entries le WHERE le.workId = w.id) " +
+            "ORDER BY w.seriesIndex IS NULL, w.seriesIndex ASC, w.title COLLATE NOCASE ASC, w.id ASC"
+    )
+    suspend fun mirrorNeighboursForSeries(title: String): List<WorkEntity>
+
     /** The ordered series of one universe — precedes/follows come from neighbors. */
     @Query("SELECT * FROM series WHERE universeId = :universeId ORDER BY positionInUniverse ASC")
     suspend fun getSeriesInUniverse(universeId: String): List<SeriesEntity>

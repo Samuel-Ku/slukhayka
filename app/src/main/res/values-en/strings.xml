@@ -206,6 +206,7 @@
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Authors</string>
     <string name="series_index_title">Series</string>
+    <string name="series_mirror_neighbours">Also in the mirror</string>
     <string name="top100_index_title">Top 100 Audiobooks</string>
     <string name="author_empty_catalog">Authors will appear once the catalogue loads.</string>
     <string name="author_load_failed">Couldn\'t open this author\'s books. Try again.</string>

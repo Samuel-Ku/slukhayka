@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -21,12 +22,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.universe.SeriesRef
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
+import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
@@ -53,6 +58,8 @@ fun SeriesScreen(
     val loadFailed by viewModel.seriesLoadFailed.collectAsState()
     // Spec-25 (#171): the universe of the opened series (header block).
     val seriesUniverse by viewModel.selectedSeriesUniverse.collectAsState()
+    // #734 — the cycle's Дзеркало neighbours (known, not owned).
+    val neighbours by viewModel.seriesNeighbours.collectAsState()
 
     val currentSeries = series ?: return
     val returnFocusRequester = remember { FocusRequester() }
@@ -159,9 +166,57 @@ fun SeriesScreen(
                             }
                         )
                     }
+                    // #734 — neighbours from the Дзеркало: known but not owned
+                    // Works of this cycle, marked and imported on tap.
+                    if (neighbours.isNotEmpty()) {
+                        item(key = "series_mirror_header") {
+                            AppSectionHeader(
+                                title = stringResource(R.string.series_mirror_neighbours),
+                                level = SectionHeaderLevel.GROUP
+                            )
+                        }
+                        items(neighbours, key = { "mirror-${it.id}" }) { work ->
+                            SeriesNeighbourRow(
+                                work = work,
+                                onClick = { viewModel.openSeriesNeighbour(work) }
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * #734 — one Дзеркало neighbour row of a series: a known Work the listener
+ * does not own yet, marked as a find and opened (imported) on tap.
+ */
+@Composable
+private fun SeriesNeighbourRow(work: WorkEntity, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag("series_neighbour_${work.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                work.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                work.author,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        MetadataChip(text = stringResource(R.string.author_mirror_neighbour))
     }
 }
 

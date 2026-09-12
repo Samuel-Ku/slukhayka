@@ -516,11 +516,11 @@ service cloud.firestore {
       allow delete: if isAppCheckValid() && request.auth != null && resource.data.uid == request.auth.uid;
     }
 
-    // #522 — the collective catalogue cards: readable by any App Check-valid
-    // install (they are ordinary public book facts), writable only through the
-    // well-formed shape above and never deletable from a client.
+    // #522 — the collective catalogue cards: an anonymous PUBLIC fact, so
+    // reads are public like the other shared-fact collections; writes go only
+    // through the well-formed shape above, and a client never deletes one.
     match /catalog_cards/{document} {
-      allow read: if isAppCheckValid();
+      allow read: if true;
       allow create, update: if isAppCheckValid() && request.auth != null
         && isWellFormedCatalogCard(request.resource.data);
       allow delete: if false;

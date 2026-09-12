@@ -96,4 +96,35 @@ class CollectiveCardApplyRoomTest {
         assertTrue(dao.observeWorks().first().isEmpty())
         assertTrue(dao.observeEditions().first().isEmpty())
     }
+
+    @Test
+    fun `a mirrored card survives a new instance of the local database`() = runBlocking {
+        // #522 — a file-backed DB: what a delta wrote must still be there when
+        // the process opens the library again.
+        val name = "collective-card-reopen.db"
+        context.deleteDatabase(name)
+        val first = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val contract = SourceCatalog(first.audiobookDao(), emptyList(), LibraryImport(first.audiobookDao(), context, emptyList()))
+            assertNotNull(contract.applyCollectiveCard(card()))
+            assertEquals(1, first.audiobookDao().observeWorks().first().size)
+        } finally {
+            first.close()
+        }
+
+        val reopened = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            assertEquals(1, reopened.audiobookDao().observeWorks().first().size)
+            assertEquals(1, reopened.audiobookDao().observeEditions().first().size)
+            val work = reopened.audiobookDao().observeWorks().first().single()
+            assertEquals(1, reopened.audiobookDao().observeWorkSourcesForWork(work.id).first().size)
+        } finally {
+            reopened.close()
+            context.deleteDatabase(name)
+        }
+    }
 }

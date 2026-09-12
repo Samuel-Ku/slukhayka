@@ -1129,7 +1129,21 @@ internal fun NarrationSwitchConfirmationPrompt(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.narration_switch_title)) },
         text = {
-            Text(stringResource(R.string.narration_switch_body, current, target, prompt.title))
+            Column {
+                Text(stringResource(R.string.narration_switch_body, current, target, prompt.title))
+                // #520 — name the found narration's source when it is known;
+                // unknown provenance renders nothing rather than a guess.
+                if (prompt.targetSourceName.isNotBlank()) {
+                    Text(
+                        text = stringResource(
+                            R.string.narration_switch_source,
+                            prompt.targetSourceName
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {

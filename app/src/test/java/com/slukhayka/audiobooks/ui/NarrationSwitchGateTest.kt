@@ -1,9 +1,12 @@
 package com.slukhayka.audiobooks.ui
 
+import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -108,6 +111,108 @@ class NarrationSwitchGateTest {
                 narrationSwitchIdentity(english)
             )
         )
+    }
+
+    @Test
+    fun `identity carries the source name of the found narration`() {
+        val owned = book("local-a", "https://sound-books.net/book")
+        assertEquals("Sound-Books", narrationSwitchIdentity(owned).sourceName)
+
+        // A merged card repeats the same source per URL — the prompt names it
+        // once, never twice.
+        val result = GlobalSearchResult(
+            title = "Проблема з миром",
+            author = "Джон Доу",
+            narrator = "Диктор Б",
+            mergeKey = current.workKey,
+            sources = listOf(
+                GlobalSearchSource("soundbooks", "Sound-Books", "https://sound-books.net/book", "edition-b"),
+                GlobalSearchSource("soundbooks", "Sound-Books", "https://arch.sound-books.net/book", "edition-b")
+            )
+        )
+        assertEquals("Sound-Books", narrationSwitchIdentity(result).sourceName)
+
+        val catalog = CatalogBook(
+            id = "b",
+            title = "Проблема з миром",
+            author = "Джон Доу",
+            url = "https://librivox.org/book",
+            coverImageUrl = null,
+            narrator = "Диктор Б"
+        )
+        assertEquals("LibriVox", narrationSwitchIdentity(catalog).sourceName)
+    }
+
+    private val target = current.copy(
+        editionKey = "edition-narrator-b",
+        narrator = "Диктор Б",
+        sourceName = "Sound-Books"
+    )
+
+    @Test
+    fun `request defers the action and publishes a prompt with the source`() {
+        val gate = NarrationSwitchGate()
+        var ran = false
+
+        val immediate = gate.request(current, target) { ran = true }
+
+        assertFalse("nothing runs before confirmation", ran)
+        assertFalse(immediate)
+        val prompt = gate.prompt.value!!
+        assertEquals("Диктор А", prompt.currentNarrator)
+        assertEquals("Диктор Б", prompt.targetNarrator)
+        assertEquals("Sound-Books", prompt.targetSourceName)
+        assertEquals("edition-narrator-b", prompt.targetEditionKey)
+    }
+
+    @Test
+    fun `confirm runs the deferred action exactly once`() {
+        val gate = NarrationSwitchGate()
+        var runs = 0
+        gate.request(current, target) { runs++ }
+
+        gate.confirm()
+        gate.confirm()
+
+        assertEquals(1, runs)
+        assertNull(gate.prompt.value)
+    }
+
+    @Test
+    fun `dismiss drops the deferred action and changes nothing`() {
+        val gate = NarrationSwitchGate()
+        var ran = false
+        gate.request(current, target) { ran = true }
+
+        gate.dismiss()
+
+        assertFalse("refusal never starts the candidate", ran)
+        assertNull(gate.prompt.value)
+    }
+
+    @Test
+    fun `the same Edition runs immediately without a prompt`() {
+        val gate = NarrationSwitchGate()
+        var ran = false
+
+        val immediate = gate.request(current, current.copy(title = "та сама начитка")) { ran = true }
+
+        assertTrue(ran)
+        assertTrue(immediate)
+        assertNull(gate.prompt.value)
+    }
+
+    @Test
+    fun `one approval covers a later request for the same target`() {
+        val gate = NarrationSwitchGate()
+        gate.request(current, target) {}
+        gate.confirm()
+
+        var ran = false
+        val immediate = gate.request(current, target) { ran = true }
+
+        assertTrue("the approved target never asks twice", ran)
+        assertTrue(immediate)
     }
 
     private fun book(id: String, sourceUrl: String) = AudiobookEntity(

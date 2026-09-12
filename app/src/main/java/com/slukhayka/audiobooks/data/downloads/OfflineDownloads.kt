@@ -10,7 +10,7 @@ import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
-import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import com.slukhayka.audiobooks.data.source.downloadPermittedFor
 import com.slukhayka.audiobooks.data.db.DownloadState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
@@ -97,7 +97,14 @@ class OfflineDownloads(
      * production uses `filesDir`. Null (default) keeps every pre-existing
      * call site valid.
      */
-    private val filesDirOverride: File? = null
+    private val filesDirOverride: File? = null,
+    /**
+     * #527 — the persisted LIVE rules verdicts: a source that declares
+     * `liveDownloadPermission` downloads only under a fresh ALLOWED record;
+     * null (or no record) keeps it OFF. Sources without the fact are unaffected.
+     * LAST: keeps every pre-existing positional call site valid.
+     */
+    private val downloadPermissions: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore? = null
 ) {
 
     /** Null when neither an override nor a Context is available. */
@@ -374,8 +381,10 @@ class OfflineDownloads(
         val sourceId = playable.firstOrNull()?.sourceId
             ?: streamOnlyBook?.let { sourceIdForUrl(it.sourceUrl) }
             ?: "unknown"
-        if (streamOnlyFor(sourceId)) {
-            Log.w("OfflineDownloads", "downloadAudiobookOffline refused: book $bookId is stream-only")
+        // #527 — stream-only/scam sources are always refused; a source with the
+        // live-permission fact needs a FRESH ALLOWED verdict (fail closed).
+        if (!downloadPermittedFor(sourceId, downloadPermissions, nowMillis())) {
+            Log.w("OfflineDownloads", "downloadAudiobookOffline refused: no download permission for $sourceId")
             return OfflineDownloadResult(0, 0)
         }
 

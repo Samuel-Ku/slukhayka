@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #766 A2 — the content-free test host lives in the APP process (the debug
+     source set), because createAndroidComposeRule launches it from the app
+     context; a host declared in androidTest would resolve to the test process. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.slukhayka.audiobooks.testing.TestHostActivity"
+            android:exported="false" />
+    </application>
+</manifest>

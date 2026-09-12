@@ -295,6 +295,24 @@ class App : Application() {
                     )
                 }
             },
+            // #526 — the bounded sitemap-candidate lane: at most three URLs of
+            // one source, each verified by ONE book-page request before it is
+            // trusted; the resolver never opens more than that.
+            workIndexCandidates = { title, author, _ ->
+                workIndexRefresher.candidates(title, author).map { entry ->
+                    com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping.Match(
+                        sourceId = entry.sourceId,
+                        url = entry.url,
+                        title = title,
+                        author = author,
+                        narrator = "",
+                        coverImageUrl = null
+                    )
+                }
+            },
+            verifyCandidate = { match ->
+                sourceCatalog.verifyIndexCandidate(match.sourceId, match.url)
+            },
             // #725 — a session-backed BROWSER match is usable only while the
             // listener's first-party session exists (ADR-0037 amendment).
             sessionAlive = { sourceId ->

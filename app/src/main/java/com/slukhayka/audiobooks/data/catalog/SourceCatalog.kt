@@ -761,6 +761,21 @@ class SourceCatalog(
     }
 
     /**
+     * #526 — verifies ONE sitemap candidate page: a single book-page request
+     * that must yield at least one chapter. False on any failure (a 404, a
+     * challenge, an empty parse), so the resolver can spend its three-candidate
+     * budget on the next URL — and never more.
+     */
+    suspend fun verifyIndexCandidate(sourceId: String, url: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: return@withContext false
+            val detail = runCatching { adapter.fetchBookPage(url) }.getOrNull()
+                ?: return@withContext false
+            detail.chapters.isNotEmpty()
+        }
+
+    /**
      * Spec-49 follow-up (#721) — one adapter's search with the
      * no-endpoint fallback the aggregated search always had: a source
      * without a usable search endpoint answers from its recent-arrivals

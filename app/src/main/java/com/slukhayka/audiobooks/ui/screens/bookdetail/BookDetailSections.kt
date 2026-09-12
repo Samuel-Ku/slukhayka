@@ -277,10 +277,13 @@ fun BookDetailCanonicalSummary(
     if (presentation.narrator.isNotBlank()) {
         BoxWithConstraints(
             modifier = Modifier
-                // User report (#561 follow-up): two stacked 48 dp link rows read
-                // as a hole between Автор and Озвучує. The overlap keeps every
-                // target its full 48 dp while the visible text pitch tightens.
-                .offset(y = (-8).dp)
+                // #766 B — the -8dp overlap (#561 follow-up) does NOT keep
+                // every target its full 48dp: the next row draws over this one,
+                // so ATF's TouchTargetSizeCheck measures the AUTHOR row as
+                // 140px/40dp instead of the 168px/48dp the layout claims (the
+                // unmerged tree shows the row at 48dp, ATF at 40dp —
+                // the 8dp overlap is exactly the difference). No offset: the
+                // rows sit flush and each keeps its real 48dp target.
                 .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {

@@ -254,6 +254,18 @@ class AudioPlaybackEspressoTest {
             .performClick()
         composeTestRule.waitForIdle()
 
+        // #765 — separate (a) the tap never reaches onPlayClick from (b)
+        // playback started but currentBook was not set: after the tap the
+        // ViewModel MUST have chosen the book AND raised the player flag.
+        val vm = ViewModelProvider(composeTestRule.activity).get(MainViewModel::class.java)
+        val afterTap = vm.playerState.value
+        org.junit.Assert.assertEquals(
+            "the tap must select the fixture book as the current playback book " +
+                "(currentBook=${afterTap.currentBook?.id}, showFullPlayer=${vm.showFullPlayer.value})",
+            fixtureBookId,
+            afterTap.currentBook?.id
+        )
+
         // 4. Sanity: the Player scaffold is on screen.
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("full_player_screen"),

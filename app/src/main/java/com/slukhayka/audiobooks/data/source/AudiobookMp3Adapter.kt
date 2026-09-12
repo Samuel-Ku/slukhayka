@@ -36,13 +36,7 @@ import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
  *   4read-gated; out of T4 scope).
  */
 class AudiobookMp3Adapter(
-    private val fetcher: HttpFetcher = HttpFetcher(
-        referer = "https://audiobook-mp3.com/uk",
-        // #527 — the site Referer travels ONLY to the site and the media CDN it
-        // owns (`*.redirectto.cc`, `cdn.audiobook-mp3.com`), never to a third
-        // party. The CDN 403s without it, so the allowlist is load-bearing.
-        refererHosts = REFERER_HOSTS
-    ),
+    private val fetcher: HttpFetcher = registryFetcher(),
     /** Spec #462 ID5 (#468) — how many genre pages one catalogue walk opens. */
     private val genrePageLimit: Int = GENRE_PAGE_LIMIT
 ) : SourceAdapter {
@@ -305,11 +299,20 @@ class AudiobookMp3Adapter(
 
     private companion object {
         /**
-         * #527 — the ONLY hosts the site Referer may reach: the source itself
-         * (book pages, covers on `cdn.audiobook-mp3.com`) and its media CDN
-         * (`*.redirectto.cc`, both the playlist and the track files).
+         * #527 — the transport's Referer is the REGISTRY's scoped rule
+         * (ADR-0038), so the site Referer reaches the source and its media CDN
+         * (`*.redirectto.cc`, which 403s without it) and never a third party.
+         * The literal fallback keeps the scope even if the registry lookup
+         * fails — an unscoped referer would be a leak (SEC-004).
          */
-        val REFERER_HOSTS = setOf("audiobook-mp3.com", "redirectto.cc")
+        fun registryFetcher(): HttpFetcher {
+            val rule = SourceRegistry.facts("audiobookmp3")?.referer
+            return HttpFetcher(
+                referer = rule?.value ?: "https://audiobook-mp3.com/uk",
+                refererHosts = rule?.scopeHosts?.takeIf { it.isNotEmpty() }
+                    ?: setOf("audiobook-mp3.com", "redirectto.cc")
+            )
+        }
 
         /**
          * Spec #462 ID5 (#468) — the named (and per-instance configurable,

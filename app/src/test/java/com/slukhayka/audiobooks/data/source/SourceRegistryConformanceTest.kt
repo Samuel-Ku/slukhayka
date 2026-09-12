@@ -100,6 +100,23 @@ class SourceRegistryConformanceTest {
             mapOf("Referer" to "https://sluhay.com/"),
             SourceRegistry.refererHeaderFor("sluhay", "https://cdn.redirectto.cc/x.mp3")
         )
+        // #527 — audiobookmp3's referer reaches the site and its media CDN
+        // (`*.redirectto.cc`) and nothing else.
+        assertEquals(
+            mapOf("Referer" to "https://audiobook-mp3.com/uk"),
+            SourceRegistry.refererHeaderFor(
+                "audiobookmp3",
+                "https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-0.mp3"
+            )
+        )
+        assertEquals(
+            mapOf("Referer" to "https://audiobook-mp3.com/uk"),
+            SourceRegistry.refererHeaderFor("audiobookmp3", "https://audiobook-mp3.com/uk-audio-6163-x")
+        )
+        assertEquals(
+            emptyMap<String, String>(),
+            SourceRegistry.refererHeaderFor("audiobookmp3", "https://evil.example/track-0.mp3")
+        )
         // Sources without a rule never carry a Referer.
         assertEquals(
             emptyMap<String, String>(),

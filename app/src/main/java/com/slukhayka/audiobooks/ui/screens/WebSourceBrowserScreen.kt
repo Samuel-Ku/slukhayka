@@ -132,7 +132,6 @@ fun WebSourceBrowserScreen(
     recoveryBookId: String? = null,
     recoveryChapterIndex: Int? = null,
     recoveryPositionMs: Long = 0L,
-    captureSeriesUrl: String? = null,
     automaticRecovery: Boolean = false,
     cloudflareChallenge: Boolean = false,
     onCloudflareChallengeChanged: (Boolean) -> Unit = {},
@@ -148,12 +147,12 @@ fun WebSourceBrowserScreen(
     var showMethodNotice by remember(sourceId) {
         mutableStateOf(
             entryNotice != null &&
-                !sessionPrefs.getBoolean("4read_method_notice_seen", false)
+                !sessionPrefs.getBoolean("method_notice_seen_$sourceId", false)
         )
     }
     LaunchedEffect(sourceId) {
         if (entryNotice != null) {
-            sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
+            sessionPrefs.edit().putBoolean("method_notice_seen_$sourceId", true).apply()
         }
     }
     var urlInput by remember { mutableStateOf(homeUrl) }
@@ -458,39 +457,11 @@ fun WebSourceBrowserScreen(
         }
     }
 
-    /** Captures the requested cycle only after the listener opened it in 4read. */
-    fun importSeriesPage() {
-        val instance = webViewInstance ?: return
-        if (sourceId != "4read" || captureSeriesUrl == null ||
-            !SourceBrowserPolicy.isUrlAllowed(currentWebUrl, sourceId)
-        ) {
-            importResult = "Відкрийте сторінку циклу"
-            return
-        }
-        isImporting = true
-        importResult = ""
-        instance.evaluateJavascript("document.documentElement.outerHTML") { raw ->
-            val decoded = raw?.trim()?.let { value ->
-                val inner = if (value.startsWith("\"") && value.endsWith("\"")) value.substring(1, value.length - 1) else value
-                unescapeCapturedHtml(inner)
-            }.orEmpty()
-            viewModel.importCapturedSeries(decoded) { success ->
-                isImporting = false
-                if (success) {
-                    importResult = "Цикл завантажено"
-                    onClose()
-                } else {
-                    importResult = "Цикл ще не доступний — завершіть перевірку сторінки і спробуйте знову"
-                }
-            }
-        }
-    }
-
+    
     // #478 — the first valid signal starts the import without the button:
     // intercepted audio (the listener pressed the site's play) or a playlist
-    // reference probed in the finished DOM. Once per page; the capture-only
-    // series mode never auto-imports.
-    val autoCaptureEnabled = captureSeriesUrl == null
+    // reference probed in the finished DOM. Once per page.
+    val autoCaptureEnabled = true
     LaunchedEffect(lastCapturedAudioCount, pagePlaylistRefUrl, currentWebUrl, isImporting) {
         if (isImporting) return@LaunchedEffect
         if (shouldAutoImportPage(
@@ -609,10 +580,7 @@ fun WebSourceBrowserScreen(
                     // site's «Слухати» first — the captured tracks show below).
                     Button(
                         onClick = {
-                            when {
-                                captureSeriesUrl != null -> importSeriesPage()
-                                else -> importCurrentPage()
-                            }
+                            importCurrentPage()
                         },
                         enabled = !isImporting,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -627,12 +595,7 @@ fun WebSourceBrowserScreen(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (isImporting) {
-                                if (captureSeriesUrl != null) "Завантажую…" else "Додаю…"
-                            } else when {
-                                captureSeriesUrl != null -> "Завантажити цикл"
-                                else -> "Додати до медіатеки"
-                            },
+                            text = if (isImporting) "Додаю…" else "Додати до медіатеки",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimary
                         )
@@ -833,7 +796,7 @@ fun WebSourceBrowserScreen(
                     )
                     TextButton(onClick = {
                         showMethodNotice = false
-                        sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
+                        sessionPrefs.edit().putBoolean("method_notice_seen_$sourceId", true).apply()
                     }) {
                         Text(stringResource(R.string.browser_got_it))
                     }
@@ -1269,7 +1232,7 @@ fun WebSourceBrowserScreen(
             runCatching {
                 val cookieManager = android.webkit.CookieManager.getInstance()
                 cookieManager.flush()
-                sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
+                sessionPrefs.edit().putBoolean("method_notice_seen_$sourceId", true).apply()
             }
         }
     }

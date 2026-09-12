@@ -127,23 +127,6 @@ class TombstoneCatalogGuardTest {
     // --- The guard at the upsert -------------------------------------------
 
     @Test
-    fun `captured series page imports the browser-verified cycle without HTTP`() = runBlocking {
-        val catalog = catalog()
-        val result = catalog.importCapturedSeriesBooksResult(
-            seriesUrl,
-            poster(
-                "https://4read.org/6945-dzho-aberkrombi-chorti.html",
-                "Чорти",
-                "Джо Аберкромбі"
-            )
-        )
-
-        val books = (result as CatalogFetchResult.Success).value
-        assertEquals(1, books.size)
-        assertNotNull(dao.getAudiobookById("4read-6945-dzho-aberkrombi-chorti"))
-    }
-
-    @Test
     fun `tombstoned catalog upsert is a no-op - nothing lands`() = runBlocking {
         val catalog = catalog()
         dao.insertTombstone(TombstoneEntity(bookId = "4read-7589-neostannij-bij"))

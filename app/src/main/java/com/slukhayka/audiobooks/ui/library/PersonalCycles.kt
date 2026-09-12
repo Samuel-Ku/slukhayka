@@ -5,8 +5,6 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
-import com.slukhayka.audiobooks.data.source.SourceIds
-import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 
 /**
  * One card of the spec-39 «Ваші цикли» shelf: a Series (cycle) the listener
@@ -107,12 +105,14 @@ object PersonalCycles {
         val ownCycles = ownGroups.mapNotNull { (identity, members) ->
             val built = members.map(::memberOf)
 
-            // Openability: at least one member must carry a 4read URL.
-            val fourReadUrls = fourReadUrlsOf(members.map { it.seriesUrl })
-            if (fourReadUrls.isEmpty()) return@mapNotNull null
+            // #741 — openability is source-agnostic: the series page is a
+            // local, library-first surface, so any member's series URL is
+            // enough identity (no 4read requirement).
+            val seriesUrls = seriesUrlsOf(members.map { it.seriesUrl })
+            if (seriesUrls.isEmpty()) return@mapNotNull null
 
             val canonicalUrl =
-                mostFrequentSpelling(fourReadUrls) ?: return@mapNotNull null
+                mostFrequentSpelling(seriesUrls) ?: return@mapNotNull null
             val displayTitle =
                 mostFrequentSpelling(members.mapNotNull { it.seriesTitle }) ?: identity
 
@@ -179,13 +179,13 @@ object PersonalCycles {
             if (identity in ownedIdentities || identity in similarSeen) continue
 
             val group = worksByIdentity[identity].orEmpty()
-            val fourReadUrls = fourReadUrlsOf(group.map { it.seriesUrl })
-            if (fourReadUrls.isEmpty()) continue
+            val seriesUrls = seriesUrlsOf(group.map { it.seriesUrl })
+            if (seriesUrls.isEmpty()) continue
 
             similarSeen += identity
             similarCycles += PersonalCycle(
                 title = mostFrequentSpelling(group.mapNotNull { it.seriesTitle }) ?: identity,
-                url = mostFrequentSpelling(fourReadUrls)!!,
+                url = mostFrequentSpelling(seriesUrls)!!,
                 coverImageUrl = group.firstOrNull { !it.coverImageUrl.isNullOrBlank() }?.coverImageUrl,
                 // The listener owns nothing here — the chip replaces progress.
                 listenedCount = 0,
@@ -205,10 +205,9 @@ object PersonalCycles {
     }
 
     /** The subset of series URLs the series-page path can actually open. */
-    private fun fourReadUrlsOf(seriesUrls: List<String?>): List<String> =
-        seriesUrls.mapNotNull { url ->
-            url?.takeIf { sourceIdForUrl(it) == SourceIds.FOUR_READ }
-        }
+    /** #741 — any non-blank series URL identifies a cycle; no source filter. */
+    private fun seriesUrlsOf(seriesUrls: List<String?>): List<String> =
+        seriesUrls.mapNotNull { url -> url?.takeIf { it.isNotBlank() } }
 
     /**
      * The most frequent spelling in first-seen order; strict `>` keeps the

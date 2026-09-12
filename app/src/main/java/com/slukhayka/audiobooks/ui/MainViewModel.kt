@@ -139,7 +139,6 @@ data class SelectedWebSource(
     val recoveryBookId: String? = null,
     val recoveryChapterIndex: Int? = null,
     val recoveryPositionMs: Long = 0L,
-    val captureSeriesUrl: String? = null,
     val automaticRecovery: Boolean = false,
     val cloudflareChallenge: Boolean = false
 )
@@ -883,17 +882,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Spec-42 #440 — open the 4read catalogue pre-filled with [query] in the
-     * in-app browser (release-accessible per ADR-0027). The target URL is the
-     * source's declared search door (ADR-0036); 4read resolves to the in-app
-     * browser in every build via [browserDestinationFor].
-     */
-    fun open4readSearch(query: String) {
-        val searchDoor = BrowserRecoveryProfiles.forSource(SourceIds.FOUR_READ).searchDoor ?: return
-        openWebSource(sourceId = SourceIds.FOUR_READ, homeUrl = searchDoor(query), displayName = "4read")
-    }
-
+    
     fun closeWebSource() {
         _selectedWebSource.value = null
         CatalogBrowserFocusReturn.publishAfterBrowserClose()
@@ -968,44 +957,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Opens 4read's in-app browser as an explicit user action — “Відкрити браузер”. */
-    fun open4ReadBrowser() {
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = "4read",
-            homeUrl = "https://4read.org/",
-            displayName = "4read"
-        )
-    }
-
-    /**
-     * Spec-42 #425 entry — the 4read door-path recovery (ADR-0036: the
-     * generalized door path is [openDoorRecovery]; the profile supplies the
-     * search door and the last-resort home). Dormant since #741: no UI wires
-     * this door any more; the engine stays for future browser sources.
-     */
-    fun open4ReadRecovery(
-        bookId: String,
-        chapterIndex: Int,
-        positionMs: Long,
-        automatic: Boolean = false
-    ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            // ADR-0037: a refused source's recovery door does not exist. An
-            // automatic attempt reports the honest retry-unavailable instead
-            // of opening the browser; an explicit action is silently refused.
-            if (SourceIds.FOUR_READ in refusedAudioSourceIdsOf(
-                    runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
-                )
-            ) {
-                withContext(Dispatchers.Main) {
-                    if (automatic) playerManager.reportRetryUnavailable()
-                }
-                return@launch
-            }
-            openDoorRecovery(bookId, SourceIds.FOUR_READ, chapterIndex, positionMs, automatic)
-        }
-    }
-
+    
+    
     /**
      * ADR-0036 (spec-48 T1) — the door-path recovery for any source whose
      * profile declares a search door: no stored URL → the pre-filled search;
@@ -1263,10 +1216,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * #471 — відкриває браузер ЛЮБОГО BROWSER джерела як явну дію
-     * відновлення (узагальнює [open4ReadRecovery] beyond 4read). ADR-0036:
-     * розгалуження читає профіль, не порівняння рядків — джерело з пошуковою
-     * дверима відновлюється крізь дверний шлях (4read), решта — крізь
-     * збережений URL.
+     * відновлення (ADR-0036: розгалуження читає профіль, не порівняння
+     * рядків — джерело з пошуковою дверима відновлюється крізь дверний шлях,
+     * решта — крізь збережений URL). Двигун лишається dormant для майбутніх
+     * browser-джерел; жодне UI не викликає його для 4read (#741).
      */
     fun openBrowserRecovery(
         bookId: String,
@@ -1587,24 +1540,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             CatalogCardAction.OPEN
         )
     }
-
-    fun importCapturedSeries(html: String, onComplete: (Boolean) -> Unit) {
-        val series = _selectedSeries.value
-        if (series == null) {
-            onComplete(false)
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val result = sourceCatalog.importCapturedSeriesBooksResult(series.url, html)
-            withContext(Dispatchers.Main) {
-                if (result is CatalogFetchResult.Success && _selectedSeries.value == series) {
-                    seriesLoader.open(series)
-                }
-                onComplete(result is CatalogFetchResult.Success)
-            }
-        }
-    }
-
     // spec-28 (#189): the «Серії» index — every series aggregated from the
     // catalogue sections, deduplicated by URL. No new data source: the index
     // re-shapes what the catalogue parser already produces. One read-only

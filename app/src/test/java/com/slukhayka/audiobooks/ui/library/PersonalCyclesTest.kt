@@ -12,7 +12,7 @@ import org.junit.Test
 /**
  * Pure JVM tests for the spec-39 «Ваші цикли» shelf builder: grouping by the
  * normalized series title, unfinished-first ranking with a recency order,
- * the 15-card cap, the deterministic canonical 4read URL, and honest counts —
+ * the 15-card cap, the deterministic canonical series URL, and honest counts —
  * a progress line only from real numbers. The spec-39 T2 tier pins the lift
  * of RecommendationEngine picks to cycle level: own cycles first, similar
  * after with a reason, never a suggestion of something already owned.
@@ -135,7 +135,7 @@ class PersonalCyclesTest {
     // --- canonical URL ------------------------------------------------------
 
     @Test
-    fun `canonical url is the most frequent 4read url among members`() {
+    fun `canonical url is the most frequent series url among members`() {
         val common = "https://4read.org/xfsearch/cikl/vidmak/"
         val rare = "https://4read.org/xfsearch/cikl/vidmak-saga/"
         val shelf = PersonalCycles.build(
@@ -166,10 +166,12 @@ class PersonalCyclesTest {
     }
 
     @Test
-    fun `a cycle whose members carry no 4read url is omitted entirely`() {
+    fun `a cycle whose members carry no series url is omitted entirely`() {
+        // #741 — the rule is source-agnostic, but a cycle still needs SOME
+        // address to be openable: no URL anywhere means no card.
         val shelf = PersonalCycles.build(
             libraryBooks = listOf(
-                book("b1", seriesTitle = "Слушай-цикл", seriesUrl = "https://sluhay.com.ua/series/x/"),
+                book("b1", seriesTitle = "Без адреси", seriesUrl = null),
                 book("b2", seriesTitle = "Без адреси", seriesUrl = null)
             ),
             progress = emptyList(),
@@ -408,31 +410,31 @@ class PersonalCyclesTest {
     }
 
     @Test
-    fun `a similar cycle needs an openable 4read url somewhere in its group`() {
+    fun `a similar cycle needs an openable series url somewhere in its group`() {
         val shelf = PersonalCycles.build(
             libraryBooks = emptyList(),
             progress = emptyList(),
             works = listOf(
-                // The candidate's own Work is stream-only elsewhere; another
-                // same-identity Work carries the 4read page — openable.
+                // #741 — any source's series URL opens the local series page;
+                // the first-seen spelling wins on a tie.
                 work("w1", "Цикл", seriesUrl = "https://sluhay.com.ua/s/x/", mergeKey = "ц|а"),
                 work("w2", "Цикл", seriesUrl = "https://4read.org/c/")
             ),
             recommendations = listOf(rec("ц|а", reason = "R"))
         )
         assertEquals(1, shelf.size)
-        assertEquals("https://4read.org/c/", shelf.single().url)
+        assertEquals("https://sluhay.com.ua/s/x/", shelf.single().url)
     }
 
     @Test
-    fun `an identity group with no 4read url anywhere never renders`() {
+    fun `a similar identity group with no series url never renders`() {
         val shelf = PersonalCycles.build(
             libraryBooks = emptyList(),
             progress = emptyList(),
             works = listOf(
-                work("w1", "Тільки sluhay", seriesUrl = "https://sluhay.com.ua/s/y/", mergeKey = "т|а")
+                work("w1", "Без адреси", seriesUrl = null, mergeKey = "б|а")
             ),
-            recommendations = listOf(rec("т|а", reason = "R"))
+            recommendations = listOf(rec("б|а", reason = "R"))
         )
         assertTrue(shelf.isEmpty())
     }
@@ -458,7 +460,7 @@ class PersonalCyclesTest {
     @Test
     fun `an omitted own cycle is still excluded from the similar tier`() {
         // The listener owns «Мертвий цикл» but it renders nowhere: no member
-        // carries a 4read url. The engine may still propose a catalogue book
+        // carries a series url. The engine may still propose a catalogue book
         // of that same named cycle — it must not appear as a suggestion.
         val shelf = PersonalCycles.build(
             libraryBooks = listOf(

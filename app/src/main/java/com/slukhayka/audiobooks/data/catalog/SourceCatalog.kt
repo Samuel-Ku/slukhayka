@@ -2200,6 +2200,24 @@ class SourceCatalog(
         withContext(Dispatchers.IO) { dao.mirrorNeighboursForSeries(title) }
 
     /**
+     * #738 / ADR-0022 — the library rating read from LOCAL evidence only:
+     * owned books plus the persisted source-rating assertions, ranked by the
+     * honest combined average. A Work with no vote is absent, and the read
+     * never touches the network (stable offline).
+     */
+    suspend fun libraryRatingRanking(): List<com.slukhayka.audiobooks.data.reviews.LibraryRating> =
+        withContext(Dispatchers.IO) {
+            com.slukhayka.audiobooks.data.reviews.LibraryRatingRanking.rank(
+                com.slukhayka.audiobooks.data.reviews.libraryRatingEvidence(
+                    books = dao.getAllAudiobooksOnce().map { it.toAudiobookEntity() },
+                    ratingAssertions = dao.popularityAssertions(
+                        com.slukhayka.audiobooks.data.db.PopularityAssertionEntity.KIND_RATING
+                    )
+                )
+            )
+        }
+
+    /**
      * Inserts the book if absent; otherwise returns the stored row. Series
      * metadata (spec-9 T1) is written on insert and back-filled on an existing
      * row when the parsed poster carries it, so a later homepage sync enriches

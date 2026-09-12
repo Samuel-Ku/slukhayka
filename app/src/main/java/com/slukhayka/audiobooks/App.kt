@@ -546,6 +546,21 @@ class App : Application() {
         )
     }
 
+    /** #530 — the bounded cooldown records of failed Sources. */
+    val sourceCooldownStore: com.slukhayka.audiobooks.data.editions.SourceCooldownStore by lazy {
+        com.slukhayka.audiobooks.data.editions.SourceCooldownStore(
+            java.io.File(filesDir, "source_cooldown.tsv")
+        )
+    }
+
+    /** #530 — the ordered fallback offer of #519's action (zero requests). */
+    val catalogFallbackOffer: com.slukhayka.audiobooks.data.editions.CatalogFallbackOffer by lazy {
+        com.slukhayka.audiobooks.data.editions.CatalogFallbackOffer(
+            dao = database.audiobookDao(),
+            cooldown = sourceCooldownStore
+        )
+    }
+
     /** #527 — the persisted live download-permission verdicts (fail closed). */
     val sourceDownloadPermissions: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore by lazy {
         com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore(

@@ -438,6 +438,41 @@ class OfflineDownloads(
         val downloadedBytes = AtomicLong(0)
         _downloadBytesProgress.value = _downloadBytesProgress.value + (bookId to DownloadBytesProgress(0, total, 0, estimatedTotalBytes, isApproximate))
 
+        // #531 — the cross-source resume rule, evaluated BEFORE any file write.
+        // A ready file is addressed by Edition + chapter (never by the source
+        // that wrote it), so chapters already on disk are kept and only the
+        // MISSING ones are requested. A chapter set that spans more than one
+        // Edition is an unsafe mapping: NOTHING is written and the work pauses
+        // honestly instead of mixing two narrations into one Edition.
+        val editionIds = playable.mapNotNull { it.chapter.editionId }.distinct()
+        val mappingSafe = editionIds.size <= 1
+        val resumePlan = com.slukhayka.audiobooks.data.editions.CrossSourceResumePolicy.plan(
+            readyChapterIndexes = playable
+                .filter { pair ->
+                    val readyFile = File(audioDir, "${pair.chapter.id}.mp3")
+                    readyFile.exists() && readyFile.length() > READY_FILE_MIN_BYTES
+                }
+                .map { it.chapter.chapterIndex }
+                .toSet(),
+            requiredChapterIndexes = playable.map { it.chapter.chapterIndex },
+            sameEdition = mappingSafe,
+            chapterMappingSafe = mappingSafe
+        )
+        if (resumePlan.decision == com.slukhayka.audiobooks.data.editions.ResumeDecision.PAUSE_INCOMPATIBLE) {
+            Log.w(
+                "OfflineDownloads",
+                "downloadAudiobookOffline paused: chapter mapping spans ${editionIds.size} " +
+                    "editions for bookId=$bookId"
+            )
+            dao.updateDownloadStateWithState(
+                bookId,
+                isDownloaded = false,
+                progress = 0f,
+                state = DownloadState.PAUSED
+            )
+            return OfflineDownloadResult(0, 0)
+        }
+
         dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.DOWNLOADING)
 
         try {
@@ -1284,5 +1319,8 @@ class OfflineDownloads(
     companion object {
         /** Single source of truth for the offline-audio directory name. */
         const val OFFLINE_AUDIO_DIR = "audiobooks"
+
+        /** #531 — a file at least this big is a READY chapter, never a stub. */
+        private const val READY_FILE_MIN_BYTES = 100L
     }
 }

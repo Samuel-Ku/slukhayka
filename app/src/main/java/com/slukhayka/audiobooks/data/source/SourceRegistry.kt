@@ -160,8 +160,14 @@ object SourceRegistry {
             contentLanguage = "uk",
             accessMode = SourceAccessMode.DIRECT,
             order = 4,
-            referer = RefererRule("https://audiobook-mp3.com/uk"),
-            transportHosts = setOf("audiobook-mp3.com")
+            // #527 — the site referer is scoped: the book pages and covers on
+            // audiobook-mp3.com, plus the media CDN (`*.redirectto.cc`) that
+            // 403s without it. Never a third party (SEC-004).
+            referer = RefererRule(
+                "https://audiobook-mp3.com/uk",
+                setOf("audiobook-mp3.com", "redirectto.cc")
+            ),
+            transportHosts = setOf("audiobook-mp3.com", "redirectto.cc")
         ),
         SourceFacts(
             id = "lihtar",

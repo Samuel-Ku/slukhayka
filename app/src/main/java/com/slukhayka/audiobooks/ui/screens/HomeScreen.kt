@@ -235,6 +235,9 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         // One cancellable delta chain for this active Огляд session. Filters,
         // cards and recompositions only read Room; none of them touch Firestore.
+        // #532 — seed the cold start FIRST, so a clean install's first «Огляд»
+        // already shows local content (no Firestore, no Source request).
+        App.instance.coldStartSeed.runOnce()
         launch { sourceCatalog.syncSharedFacets() }
         launch { sourceCatalog.syncSharedSubmissions() }
         launch { sourceCatalog.syncSharedTombstones() }

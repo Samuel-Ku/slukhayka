@@ -14,10 +14,11 @@ fun streamOnlyFor(sourceId: String): Boolean = SourceRegistry.streamOnlyFor(sour
 /**
  * Extra HTTP headers the streaming/download paths must send per source
  * (spec-13 T2). ADR-0038 — the registry's scoped `referer` rule applies:
- * an unscoped rule (sluhay/sluhayknigi/audiobookmp3) rides every stream host;
- * a scoped one (4read: its own `s*.reasd.org` audio hosts; soundbooks: the
- * archive host) only its hosts. Everything else gets no header (SEC-004:
- * never leak a Referer onto a host that does not need one).
+ * an unscoped rule (sluhay/sluhayknigi) rides every stream host; a scoped one
+ * (4read: its own `s*.reasd.org` audio hosts; soundbooks: the archive host;
+ * #527 audiobookmp3: the site plus its `*.redirectto.cc` media CDN) only its
+ * hosts. Everything else gets no header (SEC-004: never leak a Referer onto a
+ * host that does not need one).
  */
 fun headersFor(sourceId: String, streamUrl: String): Map<String, String> =
     SourceRegistry.refererHeaderFor(sourceId, streamUrl)

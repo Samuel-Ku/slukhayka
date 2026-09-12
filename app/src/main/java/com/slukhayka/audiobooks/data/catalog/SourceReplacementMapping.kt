@@ -72,6 +72,18 @@ class SourceReplacementMapping(
      */
     private val workIndex: (suspend (title: String, author: String, mergeKey: String) -> Match?)? = null,
     /**
+     * #526 — the BOUNDED candidate list of one explicit action: at most three
+     * unverified sitemap URLs of ONE source, best match first. Each candidate
+     * may cost ONE page request to verify ([verifyCandidate]), so the whole
+     * action never opens more than three pages of that source; the bound is
+     * enforced here regardless of what the seam returns.
+     */
+    private val workIndexCandidates: (
+        suspend (title: String, author: String, mergeKey: String) -> List<Match>
+        )? = null,
+    /** #526 — verifies ONE candidate page (one request). Null accepts as-is. */
+    private val verifyCandidate: (suspend (Match) -> Boolean)? = null,
+    /**
      * #725 / ADR-0037 — a Work-index match may point at a session-backed
      * BROWSER source (sluhay.com): usable only while the listener's live
      * first-party session exists. Without one the entry is skipped and the
@@ -158,7 +170,35 @@ class SourceReplacementMapping(
         query: String
     ): Match? = resolveFromUnion(mergeKey)
         ?: withTimeoutOrNull(sharedCacheTimeoutMs) { resolveFromSharedCache(query, mergeKey) }
-        ?: usableIndexMatch(runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull())
+        ?: resolveFromIndex(title, author, mergeKey)
+
+    /**
+     * #526 — the bounded index half: at most [CatalogWorkIndex.MAX_CANDIDATES]
+     * candidate pages of one source, best match first. A candidate is opened
+     * (one request through [verifyCandidate]) only while the budget lasts; the
+     * first verified one wins, everything else is an honest null. Without a
+     * candidate seam the single [workIndex] match keeps its old behaviour.
+     */
+    private suspend fun resolveFromIndex(
+        title: String,
+        author: String,
+        mergeKey: String
+    ): Match? {
+        val candidates = workIndexCandidates
+            ?.let { seam -> runCatching { seam(title, author, mergeKey) }.getOrNull() }
+            .orEmpty()
+            .take(CatalogWorkIndex.MAX_CANDIDATES)
+        if (candidates.isEmpty()) {
+            return usableIndexMatch(runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull())
+        }
+        for (candidate in candidates) {
+            if (!isUsableNow(candidate.sourceId)) continue
+            val verify = verifyCandidate
+            val verified = if (verify == null) true else runCatching { verify(candidate) }.getOrDefault(false)
+            if (verified) return candidate
+        }
+        return null
+    }
 
     /** The capability rule: DIRECT always, BROWSER only with a live session. */
     private fun isUsableNow(sourceId: String): Boolean =

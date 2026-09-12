@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -146,7 +147,7 @@ class AudioPlaybackEspressoTest {
                 coverDrawableRes = 0,
                 coverImageUrl = null,
                 genre = "Test",
-                sourceUrl = "https://fixtures.4read.invalid/$fixtureBookId.html",
+                sourceUrl = "https://sound-books.net/fixtures/$fixtureBookId.html",
                 isDownloaded = true,
                 totalDurationSeconds = 1L,
                 totalChapters = 1,
@@ -170,15 +171,17 @@ class AudioPlaybackEspressoTest {
                 durationSeconds = 1L
             )
             val source = com.slukhayka.audiobooks.data.db.SourceEntity(
-                id = "4read-$editionId",
+                id = "soundbooks-$editionId",
                 bookId = fixtureBookId,
                 editionId = editionId,
-                type = "4read",
-                url = "https://fixtures.4read.invalid/$fixtureBookId.html",
+                // #764-follow-up: a NON-scam source id — a 4read row would be
+                // purged at startup and the edition (with its chapters) with it.
+                type = "soundbooks",
+                url = "https://sound-books.net/fixtures/$fixtureBookId.html",
                 streamOnly = false
             )
             val track = com.slukhayka.audiobooks.data.db.SourceTrackEntity(
-                id = "4read-$editionId-tr-1",
+                id = "soundbooks-$editionId-tr-1",
                 sourceId = source.id,
                 trackIndex = 0,
                 // Keeping `url` to a fixed, deterministic value so that a
@@ -219,6 +222,17 @@ class AudioPlaybackEspressoTest {
         composeTestRule.onNodeWithTag("tab_library").performClick()
         composeTestRule.waitForIdle()
 
+        // #765 — isolate RESOLUTION from the UI: if this list is empty the
+        // player can never render (PlayerScreen early-returns on a null
+        // currentBook), and the timeout below is a resolution bug, not a UI one.
+        val resolved = runBlocking {
+            (app as com.slukhayka.audiobooks.App).sourceCatalog.getPlayableChapters(fixtureBookId)
+        }
+        org.junit.Assert.assertTrue(
+            "resolution returned ${resolved.size} playable chapters for the seeded book",
+            resolved.isNotEmpty()
+        )
+
         // 2. Tap the seeded fixture book; navigates into BookDetailScreen.
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("library_book_item_$fixtureBookId"),
@@ -236,10 +250,26 @@ class AudioPlaybackEspressoTest {
             hasTestTag("book_detail_chapter_$fixtureChapterId"),
             timeoutMillis = NAV_TIMEOUT_MS
         )
+        // #765 — the node EXISTING in the semantics tree is not the same as it
+        // being on screen: the book page is a long scroll, and a click on an
+        // off-screen node dispatches nothing (which is exactly the measured
+        // `showFullPlayer=false` after the tap). Bring it into view first.
         composeTestRule
             .onNodeWithTag("book_detail_chapter_$fixtureChapterId")
+            .performScrollTo()
+            .assertIsDisplayed()
             .performClick()
         composeTestRule.waitForIdle()
+
+        // #765 — separate (a) the tap never reaches onPlayClick from (b)
+        // playback started but currentBook was not set: after the tap the
+        // ViewModel MUST have chosen the book AND raised the player flag.
+        val vm = ViewModelProvider(composeTestRule.activity).get(MainViewModel::class.java)
+        // Preparation is asynchronous, so WAIT (bounded) rather than assert on
+        // the instant after the tap.
+        composeTestRule.waitUntil(NAV_TIMEOUT_MS) {
+            vm.playerState.value.currentBook?.id == fixtureBookId
+        }
 
         // 4. Sanity: the Player scaffold is on screen.
         composeTestRule.waitUntilExactlyOneExists(

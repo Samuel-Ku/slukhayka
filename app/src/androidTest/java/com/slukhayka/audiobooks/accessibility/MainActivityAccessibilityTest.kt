@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
@@ -223,14 +224,30 @@ class MainActivityAccessibilityTest {
         )
 
         composeTestRule.enableAccessibilityChecks()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("tab_library").performClick()
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("library_book_item_$fixtureBookId"),
             timeoutMillis = NAV_TIMEOUT_MS
         )
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsDisplayed()
             .performClick()
@@ -243,7 +260,15 @@ class MainActivityAccessibilityTest {
             .performScrollToNode(hasTestTag("book_detail_chapter_$fixtureChapterId"))
         val chapter = composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
         chapter.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         chapter.performClick()
 
         composeTestRule.waitUntilExactlyOneExists(
@@ -311,7 +336,15 @@ class MainActivityAccessibilityTest {
                 "00:15 із 00:30"
             )
         )
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         val speedTrigger = composeTestRule.onNodeWithTag("speed_chip")
         speedTrigger.performClick()
@@ -336,7 +369,15 @@ class MainActivityAccessibilityTest {
         composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
             kotlin.math.abs(currentViewModel().playerState.value.playbackSpeed - 1.25f) < 0.01f
         }
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
             .performClick()
         waitUntilGone("speed_sheet")
@@ -358,7 +399,15 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -369,7 +418,15 @@ class MainActivityAccessibilityTest {
         }
         waitUntilGone("sleep_timer_sheet")
         waitUntilFocused("sleep_timer_chip")
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
         bookmarkTrigger.performClick()
@@ -394,7 +451,15 @@ class MainActivityAccessibilityTest {
                         ) == true
                 }
             )
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithTag("save_bookmark_button")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -410,7 +475,15 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithText("Закладку додано на", substring = true)
             .assertIsDisplayed()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("close_player_button")
             .performClick()
@@ -442,7 +515,15 @@ class MainActivityAccessibilityTest {
                     node.config.getOrNull(SemanticsProperties.HideFromAccessibility) == null
                 }
             )
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("book_detail_back_button")
             .performClick()
@@ -455,7 +536,15 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsFocused()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("tab_settings")
             .performClick()
@@ -481,7 +570,15 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("settings_Profile")
             .assertIsFocused()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
     }
 
     private fun currentViewModel(): MainViewModel =
@@ -557,5 +654,19 @@ class MainActivityAccessibilityTest {
         private const val FIXTURE_DURATION_SECONDS = 30L
         private const val NAV_TIMEOUT_MS = 20_000L
         private const val PLAYBACK_TIMEOUT_MS = 5_000L
+    }
+
+    /** #766 B — a file-backed semantics dump (logcat evicted the real one). */
+    private var a11yDumpIndex = 0
+
+    private fun dumpA11yTree() {
+        val text = runCatching { composeTestRule.onRoot().printToString() }.getOrNull() ?: return
+        // External app storage: adb pull can read it even though the app is
+        // not run-as debuggable.
+        val dir = File(
+            composeTestRule.activity.getExternalFilesDir(null) ?: composeTestRule.activity.filesDir,
+            "a11y_dumps"
+        ).apply { mkdirs() }
+        runCatching { File(dir, "tree-${a11yDumpIndex++}.txt").writeText(text) }
     }
 }

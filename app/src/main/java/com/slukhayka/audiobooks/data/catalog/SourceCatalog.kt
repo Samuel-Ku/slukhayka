@@ -761,6 +761,89 @@ class SourceCatalog(
     }
 
     /**
+     * #527/#528 — the COLLECTIONS candidate of ONE listener-chosen genre page:
+     * exactly one request through the adapter's [SourceAdapter.fetchGenrePage],
+     * plus the CURSOR of the next page. The next page is a SEPARATE action
+     * (`collectiveGenreBlockFetch(sourceId, genrePath, cursor)`), so a listener
+     * tap never walks a source. The block carries the genre URL as its
+     * provenance, so the rail names what the listener opened.
+     */
+    suspend fun collectiveGenreBlockFetch(
+        sourceId: String,
+        genrePath: String,
+        cursor: String? = null
+    ): com.slukhayka.audiobooks.data.collective.CollectiveGenreFetch = withContext(Dispatchers.IO) {
+        val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+            ?: return@withContext com.slukhayka.audiobooks.data.collective.CollectiveGenreFetch(
+                com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Failure(
+                    com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.NOT_FOUND
+                )
+            )
+        val page = try {
+            adapter.fetchGenrePage(genrePath, cursor)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveGenreFetch(
+                com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Failure(
+                    com.slukhayka.audiobooks.data.collective.classifyCollectiveFailure(e)
+                )
+            )
+        }
+        if (page.books.isEmpty()) {
+            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveGenreFetch(
+                com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty,
+                page.nextCursor
+            )
+        }
+        val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
+        com.slukhayka.audiobooks.data.collective.CollectiveGenreFetch(
+            outcome = com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
+                com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
+                    blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind),
+                    sourceId = sourceId,
+                    kind = kind,
+                    name = sourceDisplayName(sourceId),
+                    provenanceUrl = SourceRegistry.facts(sourceId)?.homeUrl.orEmpty() +
+                        (cursor ?: genrePath),
+                    cards = page.books.map { book ->
+                        com.slukhayka.audiobooks.data.collective.CollectiveBlockCard(
+                            sourceId = book.sourceId.ifBlank { sourceId },
+                            sourceUrl = book.url,
+                            title = book.title,
+                            author = book.author,
+                            coverUrl = book.coverImageUrl
+                        )
+                    },
+                    fetchedAt = 0L,
+                    staleAfter = 0L,
+                    version = 0L,
+                    lastAttempt = com.slukhayka.audiobooks.data.collective.CollectiveAttempt(
+                        0L,
+                        com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.SUCCESS
+                    )
+                )
+            ),
+            nextCursor = page.nextCursor
+        )
+    }
+
+    /**
+     * #526 — verifies ONE sitemap candidate page: a single book-page request
+     * that must yield at least one chapter. False on any failure (a 404, a
+     * challenge, an empty parse), so the resolver can spend its three-candidate
+     * budget on the next URL — and never more.
+     */
+    suspend fun verifyIndexCandidate(sourceId: String, url: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: return@withContext false
+            val detail = runCatching { adapter.fetchBookPage(url) }.getOrNull()
+                ?: return@withContext false
+            detail.chapters.isNotEmpty()
+        }
+
+    /**
      * Spec-49 follow-up (#721) — one adapter's search with the
      * no-endpoint fallback the aggregated search always had: a source
      * without a usable search endpoint answers from its recent-arrivals

@@ -20,7 +20,13 @@ class CollectiveFeedRefresh(
     private val lease: CollectiveRefreshLease,
     private val fetch: suspend (blockKey: String) -> CollectiveRefreshOutcome,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val leaseTtlMs: Long = DEFAULT_LEASE_TTL_MS
+    private val leaseTtlMs: Long = DEFAULT_LEASE_TTL_MS,
+    /**
+     * #527 — called with the block a refresh just ACTIVATED, so the one owner
+     * that observed it can share it (the collective lane). Best-effort: a
+     * failing publish never changes what the local listener sees.
+     */
+    private val onActivated: (suspend (CollectiveFeedBlock) -> Unit)? = null
 ) {
 
     /** The block to render: the last good one, refreshed at most once per TTL. */
@@ -41,6 +47,40 @@ class CollectiveFeedRefresh(
             lease.release(blockKey)
         }
 
+        return applyOutcome(blockKey, active, outcome)
+    }
+
+    /**
+     * #528 — an EXPLICIT listener action (they opened a category): the page is
+     * fetched NOW and, when it is a valid non-empty candidate, activated and
+     * shared. Neither the TTL nor the lease applies — the listener asked, so
+     * the action is its own owner — but a failure still keeps the previous
+     * block and only records the attempt. The caller passes the fetch it needs
+     * (a category path + that action's cursor).
+     *
+     * @return the block now active for the key, or null when none ever was.
+     */
+    suspend fun observeExplicit(
+        blockKey: String,
+        fetch: suspend (String) -> CollectiveRefreshOutcome = this.fetch
+    ): CollectiveFeedBlock? {
+        val active = store.active(blockKey)
+        val outcome = try {
+            fetch(blockKey)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
+        }
+        return applyOutcome(blockKey, active, outcome)
+    }
+
+    /** The ONE activation path: a valid non-empty candidate wins, everything else keeps the block. */
+    private suspend fun applyOutcome(
+        blockKey: String,
+        active: CollectiveFeedBlock?,
+        outcome: CollectiveRefreshOutcome
+    ): CollectiveFeedBlock? {
         val at = clock()
         return when (outcome) {
             is CollectiveRefreshOutcome.Success -> {
@@ -52,6 +92,9 @@ class CollectiveFeedRefresh(
                     lastAttempt = CollectiveAttempt(at, CollectiveAttemptStatus.SUCCESS)
                 )
                 if (store.activate(activated)) {
+                    // #527 — share what this owner just observed; a failing
+                    // publish leaves the local block exactly as it is.
+                    runCatching { onActivated?.invoke(activated) }
                     activated
                 } else {
                     store.recordAttempt(blockKey, CollectiveAttempt(at, CollectiveAttemptStatus.EMPTY))

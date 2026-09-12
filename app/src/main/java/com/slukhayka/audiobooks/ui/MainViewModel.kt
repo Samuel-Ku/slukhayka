@@ -1819,6 +1819,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
         > = _collectiveBlocks.asStateFlow()
 
+    // #530 — the ordered fallback offer of #519's action: loaded on the
+    // listener's explicit request, never automatically.
+    private val _fallbackCandidates = MutableStateFlow<
+        List<com.slukhayka.audiobooks.data.editions.FallbackCandidate>
+        >(emptyList())
+    val fallbackCandidates: StateFlow<
+        List<com.slukhayka.audiobooks.data.editions.FallbackCandidate>
+        > = _fallbackCandidates.asStateFlow()
+
+    /**
+     * #530 — the action asks for alternatives: the offer is built from the
+     * book's OWN Source rows (zero requests) and the source the listener is in
+     * right now. Nothing is started here — the caller decides from the offer.
+     */
+    fun loadFallbackCandidates(bookId: String, currentSourceId: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val offer = runCatching {
+                App.instance.catalogFallbackOffer.offer(bookId, currentSourceId)
+            }.getOrDefault(emptyList())
+            _fallbackCandidates.value = offer
+        }
+    }
+
+    /**
+     * #530 — the listener CHOSE one offered candidate: open exactly that
+     * Source's URL through the ordinary catalogue door (no search, no guess).
+     * An alternate Direct Source of the same Edition continues the listening;
+     * another narration stays what the listener just confirmed.
+     */
+    fun openFallbackCandidate(
+        bookId: String,
+        candidate: com.slukhayka.audiobooks.data.editions.FallbackCandidate
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val url = runCatching {
+                App.instance.catalogFallbackOffer.sourceUrlFor(bookId, candidate.sourceId)
+            }.getOrNull() ?: return@launch
+            val book = runCatching {
+                App.instance.bookIdentity(bookId)
+            }.getOrNull()
+            withContext(Dispatchers.Main) {
+                clearFallbackCandidates()
+                catalogCardCoordinator.start(
+                    CatalogCardTarget(
+                        workId = url,
+                        title = book?.first.orEmpty(),
+                        author = book?.second.orEmpty(),
+                        mergeKey = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(
+                            book?.first.orEmpty(),
+                            book?.second.orEmpty()
+                        ),
+                        sources = listOf(CatalogCardSource(sourceId = candidate.sourceId, url = url)),
+                        cardKey = "${candidate.sourceId}|$url"
+                    ),
+                    CatalogCardAction.OPEN
+                )
+            }
+        }
+    }
+
+    /**
+     * #530 — records ONE failure of a Source so it parks in the bounded
+     * cooldown instead of being retried in a loop. A local/unknown id is not a
+     * Source failure and is ignored.
+     */
+    fun recordSourceFailure(sourceId: String) {
+        if (sourceId.isBlank() || sourceId == "local" || sourceId == "unknown") return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                App.instance.sourceCooldownStore.recordFailure(sourceId, System.currentTimeMillis())
+            }
+        }
+    }
+
+    fun clearFallbackCandidates() {
+        _fallbackCandidates.value = emptyList()
+    }
+
     fun refreshCollectiveBlocks() {
         viewModelScope.launch(Dispatchers.IO) {
             val blocks = com.slukhayka.audiobooks.data.collective.collectiveBlockSources()
@@ -1847,6 +1925,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ),
             CatalogCardAction.OPEN
         )
+    }
+
+    /** #528 — the cursor the NEXT page of the last opened category needs. */
+    private val _categoryNextCursor = MutableStateFlow<String?>(null)
+    val categoryNextCursor: StateFlow<String?> = _categoryNextCursor.asStateFlow()
+
+    /**
+     * #528 — the listener opened ONE category page: fetch it, activate it
+     * locally and SHARE it through the collective lane, and remember the
+     * cursor the next action needs. The TTL and the lease do not apply (the
+     * listener asked); a failure keeps the previous block.
+     */
+    fun openSourceCategory(sourceId: String, genrePath: String, cursor: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
+            val key = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind)
+            val block = App.instance.collectiveFeedRefresh.observeExplicit(key) {
+                val fetched = sourceCatalog.collectiveGenreBlockFetch(sourceId, genrePath, cursor)
+                _categoryNextCursor.value = fetched.nextCursor
+                fetched.outcome
+            }
+            if (block != null) {
+                _collectiveBlocks.value =
+                    _collectiveBlocks.value.filterNot { it.blockKey == key } + block
+            }
+        }
     }
 
     fun closeTop100() {

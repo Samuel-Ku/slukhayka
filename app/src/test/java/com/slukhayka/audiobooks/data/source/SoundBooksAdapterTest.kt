@@ -792,4 +792,55 @@ class SoundBooksAdapterTest {
         assertEquals("", detail.title)
         assertEquals(0, detail.chapters.size)
     }
+
+    // --- #528 — one category action = one page, next via a paced cursor ----
+
+    @Test
+    fun `one category action is one page and the cursor opens the next`() = runBlocking {
+        val pauses = mutableListOf<Long>()
+        val categoryOne = homepage + """
+            <div class="pagination"><a href="/fantastyka/page/2/">2</a></div>
+        """.trimIndent()
+        val fetcher = FakeFetcher(
+            mapOf(
+                "https://sound-books.net/fantastyka/" to categoryOne,
+                "https://sound-books.net/fantastyka/page/2/" to homepage
+            )
+        )
+        val adapter = SoundBooksAdapter(
+            fetcher = fetcher,
+            pacing = PacingPolicy(PacingParams(1_000, 3_000, 6, 60_000), Random(42)),
+            pauseMillis = { pauses += it }
+        )
+
+        val first = adapter.fetchGenrePage("/fantastyka/")
+
+        assertEquals("exactly one request for one action", 1, fetcher.requestedUrls.size)
+        assertEquals("https://sound-books.net/fantastyka/", fetcher.requestedUrls.single())
+        assertTrue(first.books.isNotEmpty())
+        assertEquals("/fantastyka/page/2/", first.nextCursor)
+        assertTrue("a first page is not a continuation, so it does not pause", pauses.isEmpty())
+
+        val second = adapter.fetchGenrePage("/fantastyka/", first.nextCursor)
+
+        assertEquals("the cursor is a separate action", 2, fetcher.requestedUrls.size)
+        assertEquals("https://sound-books.net/fantastyka/page/2/", fetcher.requestedUrls[1])
+        assertNull("the last page carries no cursor", second.nextCursor)
+        assertEquals("the continuation observes the rhythm", 1, pauses.size)
+        assertTrue(pauses.single() >= 1_000)
+    }
+
+    @Test
+    fun `a foreign promo or malformed category path costs no request`() = runBlocking {
+        val fetcher = FakeFetcher()
+        val adapter = SoundBooksAdapter(fetcher = fetcher)
+
+        assertTrue(adapter.fetchGenrePage("/reklama/").books.isEmpty())
+        assertTrue(adapter.fetchGenrePage("https://evil.example/fantastyka/").books.isEmpty())
+        assertTrue(adapter.fetchGenrePage("/fantastyka").books.isEmpty())
+        assertTrue(
+            adapter.fetchGenrePage("/fantastyka/", cursor = "/reklama/page/2/").books.isEmpty()
+        )
+        assertEquals(0, fetcher.requestedUrls.size)
+    }
 }

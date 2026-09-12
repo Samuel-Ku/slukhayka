@@ -126,6 +126,42 @@ class LihtarAdapter(
         return books
     }
 
+    /**
+     * #529 — ONE listener-opened category page: exactly one request to
+     * `/biblioteka/<category>`. Measured 2026-09-12: a lihtar category is ONE
+     * page (no pagination links), so there is never a cursor and the next page
+     * does not exist — the listener action is the only trigger. Cards carry
+     * what the category page honestly shows (the transliterated slug); the real
+     * Cyrillic title/author resolve on the book page when the card is opened,
+     * so one action never follows every book link in the category.
+     */
+    override suspend fun fetchGenrePage(genrePath: String, cursor: String?, limit: Int): GenrePage {
+        val path = genrePath.trim()
+        // A lihtar category has no page 2: a continuation is a malformed call.
+        if (cursor != null || !CATEGORY_PATH.matches(path)) return GenrePage(emptyList())
+        val html = fetcher.getText(
+            "https://lihtar.in.ua$path",
+            emptyMap(),
+            SourceRequestClass.LISTENER_ACTION,
+            0L
+        )
+        if (html.isEmpty()) return GenrePage(emptyList())
+        val books = BOOK_LINK.findAll(html)
+            .map { it.groupValues[1] }
+            .distinct()
+            .take(limit)
+            .map { url ->
+                SourceBook(
+                    title = slugTitle(url),
+                    author = "",
+                    url = url,
+                    sourceId = sourceId
+                )
+            }
+            .toList()
+        return GenrePage(books)
+    }
+
     /** Real title, author, cover and duration of a book page, best-effort. */
     private data class PageMeta(
         val title: String,
@@ -202,5 +238,8 @@ class LihtarAdapter(
         val AUDIO_SRC = Regex("""<audio[^>]+src="(https://web\.lihtar\.in\.ua/audio/[^"]+)"""", RegexOption.IGNORE_CASE)
         val CATEGORY_LINK = Regex("""href="(https://lihtar\.in\.ua/biblioteka/[a-z0-9-]+)"""", RegexOption.IGNORE_CASE)
         val BOOK_LINK = Regex("""href="(https://lihtar\.in\.ua/biblioteka/[a-z0-9-]+/[a-z0-9-]+)"""", RegexOption.IGNORE_CASE)
+
+        /** #529 — the only category path shapes a listener action may open. */
+        private val CATEGORY_PATH = Regex("""^/biblioteka/[a-z0-9-]+$""")
     }
 }

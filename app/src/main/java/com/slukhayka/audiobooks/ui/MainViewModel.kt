@@ -1843,6 +1843,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * #530 — the listener CHOSE one offered candidate: open exactly that
+     * Source's URL through the ordinary catalogue door (no search, no guess).
+     * An alternate Direct Source of the same Edition continues the listening;
+     * another narration stays what the listener just confirmed.
+     */
+    fun openFallbackCandidate(
+        bookId: String,
+        candidate: com.slukhayka.audiobooks.data.editions.FallbackCandidate
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val url = runCatching {
+                App.instance.catalogFallbackOffer.sourceUrlFor(bookId, candidate.sourceId)
+            }.getOrNull() ?: return@launch
+            val book = runCatching {
+                App.instance.bookIdentity(bookId)
+            }.getOrNull()
+            withContext(Dispatchers.Main) {
+                clearFallbackCandidates()
+                catalogCardCoordinator.start(
+                    CatalogCardTarget(
+                        workId = url,
+                        title = book?.first.orEmpty(),
+                        author = book?.second.orEmpty(),
+                        mergeKey = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(
+                            book?.first.orEmpty(),
+                            book?.second.orEmpty()
+                        ),
+                        sources = listOf(CatalogCardSource(sourceId = candidate.sourceId, url = url)),
+                        cardKey = "${candidate.sourceId}|$url"
+                    ),
+                    CatalogCardAction.OPEN
+                )
+            }
+        }
+    }
+
+    /**
      * #530 — records ONE failure of a Source so it parks in the bounded
      * cooldown instead of being retried in a loop. A local/unknown id is not a
      * Source failure and is ignored.

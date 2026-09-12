@@ -1842,6 +1842,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * #530 — records ONE failure of a Source so it parks in the bounded
+     * cooldown instead of being retried in a loop. A local/unknown id is not a
+     * Source failure and is ignored.
+     */
+    fun recordSourceFailure(sourceId: String) {
+        if (sourceId.isBlank() || sourceId == "local" || sourceId == "unknown") return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                App.instance.sourceCooldownStore.recordFailure(sourceId, System.currentTimeMillis())
+            }
+        }
+    }
+
     fun clearFallbackCandidates() {
         _fallbackCandidates.value = emptyList()
     }

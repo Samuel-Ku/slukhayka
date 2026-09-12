@@ -576,7 +576,14 @@ class App : Application() {
                     coverImageUrl = entry.coverUrl,
                     seriesTitle = entry.seriesTitle,
                     seriesIndex = entry.seriesIndex,
-                    totalDurationSeconds = entry.durationSeconds ?: 0L,
+                    // ADR-0014 honest numbers: the card's claimed duration is
+                    // NOT the real one (measured on-device: card said 28:53
+                    // while the stream ran ~1 min). Writing the claim marks the
+                    // row as "duration known", and DurationEnrichment then
+                    // SKIPS it (it only fills books without a known duration) —
+                    // so the lie would be permanent. 0 = unknown, and the
+                    // enrichment fills the measured value.
+                    totalDurationSeconds = 0L,
                     mergeKey = com.slukhayka.audiobooks.data.merge.MergeKey
                         .keyFor(entry.title, entry.author),
                     narrator = entry.narrator

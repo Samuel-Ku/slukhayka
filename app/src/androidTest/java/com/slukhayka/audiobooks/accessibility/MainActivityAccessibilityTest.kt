@@ -233,7 +233,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
@@ -251,7 +255,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
@@ -275,7 +283,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         chapter.performClick()
@@ -354,7 +366,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
@@ -390,7 +406,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
@@ -423,7 +443,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
@@ -445,7 +469,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
@@ -481,7 +509,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithTag("save_bookmark_button")
@@ -508,7 +540,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
@@ -551,7 +587,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
@@ -575,7 +615,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
@@ -612,7 +656,11 @@ class MainActivityAccessibilityTest {
             // must not mask the signal, which is exactly what happened while
             // this wrapper called onRoot() unguarded (a popup makes the root
             // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            val tree = runCatching {
+                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
+                val count = roots.fetchSemanticsNodes().size
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            }.getOrNull()
             throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
     }

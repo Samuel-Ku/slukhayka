@@ -42,5 +42,36 @@ class CatalogWorkIndex(private val entries: List<CatalogIndexEntry>) {
         return entries.firstOrNull { it.mergeKey.isBlank() && SlugMatch.slugMatches(it.slug, title, author) }
     }
 
+    /**
+     * #526 — the bounded candidate list for ONE explicit action: the exact
+     * MergeKey matches first, then the slug matches, all of the SAME source as
+     * the best match and never more than [limit] canonical URLs. Three is the
+     * whole budget: the caller may open a candidate page only inside it, so a
+     * failed candidate costs at most two more requests, never a crawl.
+     */
+    fun candidates(
+        title: String,
+        author: String,
+        limit: Int = MAX_CANDIDATES
+    ): List<CatalogIndexEntry> {
+        if (limit <= 0) return emptyList()
+        val key = MergeKey.keyFor(title, author)
+        val exact = if (key.isBlank()) {
+            emptyList()
+        } else {
+            entries.filter { it.mergeKey.isNotBlank() && it.mergeKey == key }
+        }
+        val best = exact.firstOrNull() ?: lookup(title, author) ?: return emptyList()
+        // One source per action: its own candidates only.
+        val pool = (exact.ifEmpty { entries.filter { SlugMatch.slugMatches(it.slug, title, author) } })
+            .filter { it.sourceId == best.sourceId }
+        return pool.distinctBy { it.url }.take(limit)
+    }
+
     val size: Int get() = entries.size
+
+    companion object {
+        /** #526 — one action opens at most three candidate pages of one source. */
+        const val MAX_CANDIDATES: Int = 3
+    }
 }

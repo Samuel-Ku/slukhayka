@@ -2,9 +2,12 @@ package com.slukhayka.audiobooks.player
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.db.EditionEntity
+import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.testing.FakeAudiobookDao
 import com.slukhayka.audiobooks.testing.TestDataFactory
@@ -59,7 +62,7 @@ class SpeedAndRewindManagerTest {
             books = TestDataFactory.dataBooks(),
             chapters = TestDataFactory.dataChapters()
         )
-        listeningState = ListeningStateStore(dao)
+        listeningState = ListeningStateStore(dao, dispatcher)
     }
 
     @After
@@ -81,7 +84,8 @@ class SpeedAndRewindManagerTest {
             injectedPlayerFactory = factory,
             now = { clockMs },
             settings = settings,
-            widgetSyncEnabled = false
+            widgetSyncEnabled = false,
+            ioDispatcher = dispatcher
         )
         try {
             body(manager, factory)
@@ -114,6 +118,50 @@ class SpeedAndRewindManagerTest {
         manager.setDefaultSpeed(1.5f)
         manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
         assertEquals(1.5f, manager.playerState.value.playbackSpeed, SPEED_TOLERANCE)
+    }
+
+    @Test
+    fun `changing speed remembers it for the book`() = managerTest { manager, _ ->
+        seedListeningStateRow()
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
+
+        manager.setPlaybackSpeed(1.5f)
+        testScheduler.advanceTimeBy(AudioPlayerManager.PREFERRED_SPEED_SAVE_DEBOUNCE_MS + 100L)
+        testScheduler.runCurrent()
+
+        assertEquals(
+            1.5f,
+            dao.getPlaybackProgressSync(book.id)?.preferredSpeed ?: 0f,
+            SPEED_TOLERANCE
+        )
+    }
+
+    @Test
+    fun `switching books does not drop the previous book's remembered speed`() = managerTest { manager, _ ->
+        val other = TestDataFactory.dataBooks()[0]
+        seedListeningStateRow(book)
+        seedListeningStateRow(other)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
+        manager.setPlaybackSpeed(1.5f)
+
+        val otherChapters = TestDataFactory.chaptersFor(other)
+        val otherPlayable = otherChapters.zip(TestDataFactory.tracksFor(other, "speed-fixture")) { chapter, track ->
+            com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(chapter, track)
+        }
+        manager.loadAndPlayBook(other, otherChapters, playable = otherPlayable, initialChapterIndex = 0, autoPlay = false)
+        manager.setPlaybackSpeed(2.0f)
+
+        testScheduler.advanceTimeBy(AudioPlayerManager.PREFERRED_SPEED_SAVE_DEBOUNCE_MS + 100L)
+        testScheduler.runCurrent()
+
+        assertEquals(1.5f, dao.getPlaybackProgressSync(book.id)?.preferredSpeed ?: 0f, SPEED_TOLERANCE)
+        assertEquals(2.0f, dao.getPlaybackProgressSync(other.id)?.preferredSpeed ?: 0f, SPEED_TOLERANCE)
+    }
+
+    private suspend fun seedListeningStateRow(target: AudiobookEntity = book) {
+        val editionId = EditionId.forBook(target.mergeKey, target.id, target.narrator)
+        dao.replaceEdition(EditionEntity(id = editionId, workId = target.id))
+        dao.savePlaybackProgress(PlaybackProgressEntity(editionId = editionId, bookId = target.id))
     }
 
     // ---------------------------------------------------------------------

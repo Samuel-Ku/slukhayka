@@ -502,6 +502,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             }
                         },
                         onSkipNextClick = { viewModel.playerManager.nextChapter() },
+                        onRewindClick = { viewModel.playerManager.skipBackward() },
                         onBarClick = { viewModel.setShowFullPlayer(true) },
                         // ADR-0024 (#362): ready when this device can cast and
                         // the current chapter carries a stream Source.

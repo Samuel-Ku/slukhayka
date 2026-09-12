@@ -583,6 +583,13 @@ fun BookDetailScreen(
                     // page itself — the place where the user decides a book is
                     // worth keeping at hand.
                     val isFavoriteThis = favoriteBooks.any { it.id == currentBook.id }
+                    // Issue #752: the manual «Прослухано» state is the stored
+                    // Listening State flag (not the percent-derived finish).
+                    val isListenedThis = progress?.isCompleted == true
+                    val listenedStateDescription = stringResource(
+                        if (isListenedThis) R.string.book_detail_listened_state_on
+                        else R.string.book_detail_listened_state_off
+                    )
                     FavoriteButton(
                         isFavorite = isFavoriteThis,
                         bookTitle = currentBook.title,
@@ -639,6 +646,26 @@ fun BookDetailScreen(
                                     }
                                 )
                             }
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            if (isListenedThis) R.string.book_detail_unmark_listened
+                                            else R.string.book_detail_mark_listened
+                                        )
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                },
+                                modifier = Modifier
+                                    .testTag("book_detail_listened_toggle")
+                                    .semantics { stateDescription = listenedStateDescription },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    viewModel.setCompleted(currentBook.id, !isListenedThis)
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
                                 leadingIcon = {

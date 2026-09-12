@@ -425,10 +425,6 @@ fun PlayerScreen(
         PlayerQuickTool.Speed -> SpeedSheet(
             currentSpeed = playerState.playbackSpeed,
             onSpeedChange = viewModel.playerManager::setPlaybackSpeed,
-            onSaveForBook = {
-                viewModel.playerManager.savePreferredSpeed(playerState.playbackSpeed)
-                activeTool = null
-            },
             onSetDefault = {
                 viewModel.playerManager.setDefaultSpeed(playerState.playbackSpeed)
                 activeTool = null

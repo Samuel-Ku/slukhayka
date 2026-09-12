@@ -263,7 +263,6 @@ class PlayerAccessibilityTest {
                                 PlayerQuickTool.Speed -> SpeedSheet(
                                     currentSpeed = 1.25f,
                                     onSpeedChange = {},
-                                    onSaveForBook = { activeTool = null },
                                     onSetDefault = { activeTool = null },
                                     onDismiss = { activeTool = null }
                                 )

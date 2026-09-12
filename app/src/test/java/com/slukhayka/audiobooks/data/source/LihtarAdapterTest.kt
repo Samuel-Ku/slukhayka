@@ -231,4 +231,50 @@ class LihtarAdapterTest {
         assertEquals("", books[2].author)
         assertEquals(null, books[2].coverImageUrl)
     }
+
+    // --- #529 — one category action = one page, never a crawl --------------
+
+    @Test
+    fun `one category action is exactly one request and never follows every book link`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf("https://lihtar.in.ua/biblioteka/dytjacha-literatura" to childCategoryPage)
+        )
+        val adapter = LihtarAdapter(fetcher)
+
+        val page = adapter.fetchGenrePage("/biblioteka/dytjacha-literatura")
+
+        // ONE request: the category page itself. Enriching every card from its
+        // book page would be a crawl, so the card keeps the honest slug until
+        // the listener opens it.
+        assertEquals("one page, one request", 1, fetcher.requestedUrls.size)
+        assertEquals("https://lihtar.in.ua/biblioteka/dytjacha-literatura", fetcher.requestedUrls.single())
+        assertEquals(3, page.books.size)
+        assertEquals("Bojahuz", page.books[0].title)
+        assertEquals("lihtar", page.books[0].sourceId)
+        assertNull("a lihtar category is ONE page — no cursor exists", page.nextCursor)
+    }
+
+    @Test
+    fun `a foreign path or a continuation cursor costs no request`() = runBlocking {
+        val fetcher = FakeFetcher()
+        val adapter = LihtarAdapter(fetcher)
+
+        assertTrue(adapter.fetchGenrePage("/biblioteka").books.isEmpty())
+        assertTrue(adapter.fetchGenrePage("https://evil.example/biblioteka/x").books.isEmpty())
+        assertTrue(adapter.fetchGenrePage("/biblioteka/x/y").books.isEmpty())
+        assertTrue(
+            adapter.fetchGenrePage("/biblioteka/x", cursor = "/biblioteka/x/page/2").books.isEmpty()
+        )
+        assertEquals(0, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `an empty category answer is an honest empty page`() = runBlocking {
+        val adapter = LihtarAdapter(FakeFetcher())
+
+        val page = adapter.fetchGenrePage("/biblioteka/khudozhnja-literatura")
+
+        assertTrue(page.books.isEmpty())
+        assertNull(page.nextCursor)
+    }
 }

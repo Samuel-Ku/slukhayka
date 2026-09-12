@@ -9,8 +9,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
-import com.slukhayka.audiobooks.data.source.GlobalSearchResult
-import com.slukhayka.audiobooks.data.source.GlobalSearchSource
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.ui.screens.NewArrivalsRail
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
@@ -24,10 +24,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * spec-28 (#192) — snapshot pin for the cross-source «Новинки» rail: one
- * horizontal row of cover cards, each carrying a badge per source that
- * carries the Work (4read + Sound-Books on the merged card). Pure
- * `@Composable` inputs — no `MainViewModel`.
+ * ADR-0041 / #733 — snapshot pin for the library-first «Новинки» rail: one
+ * card per recently imported Work with the badge of the source it was
+ * imported from. Pure `@Composable` inputs — no `MainViewModel`.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -39,32 +38,32 @@ class NewArrivalsRailSnapshotTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
-    private val results = listOf(
-        // The same Work on two sources — one card, two badges.
-        GlobalSearchResult(
-            title = "Вкради мене... Зараз!",
-            author = "Сергій Оріанець",
-            mergeKey = "вкради-мене-зараз|сергій-оріанець",
-            coverImageUrl = null,
-            sources = listOf(
-                GlobalSearchSource("4read", "4read", "https://4read.org/7611-vkradi-mene-zaraz.html"),
-                GlobalSearchSource("soundbooks", "Sound-Books", "https://sound-books.net/vkrady")
-            )
-        ),
-        GlobalSearchResult(
-            title = "Темна матерія",
-            author = "Блейк Крауч",
-            mergeKey = "темна-матерія|блейк-крауч",
-            coverImageUrl = null,
-            sources = listOf(GlobalSearchSource("soundbooks", "Sound-Books", "https://sound-books.net/temna"))
-        ),
-        GlobalSearchResult(
-            title = "Неостанній бій",
-            author = "Костянтин Шелест",
-            mergeKey = "неостанній-бій|костянтин-шелест",
-            coverImageUrl = null,
-            sources = listOf(GlobalSearchSource("4read", "4read", "https://4read.org/7589-neostannij-bij.html"))
-        )
+    private val arrivals = listOf(
+        arrival("a1", "Вкради мене... Зараз!", "Сергій Оріанець", "4read", 3_000L),
+        arrival("a2", "Темна матерія", "Блейк Крауч", "Sound-Books", 2_000L),
+        arrival("a3", "Неостанній бій", "Костянтин Шелест", "Локальна", 1_000L)
+    )
+
+    private fun arrival(
+        id: String,
+        title: String,
+        author: String,
+        sourceName: String,
+        addedAt: Long
+    ): LibraryNewArrival = LibraryNewArrival(
+        workKey = "work-$id",
+        book = AudiobookEntity(
+            id = id,
+            title = title,
+            author = author,
+            narrator = "",
+            description = "",
+            coverDrawableRes = 0,
+            genre = "",
+            sourceUrl = ""
+        ).also { it.createdAt = addedAt },
+        sourceName = sourceName,
+        addedAt = addedAt
     )
 
     @Test
@@ -72,19 +71,25 @@ class NewArrivalsRailSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 RailSurface {
-                    NewArrivalsRail(results = results, onBookClick = {})
+                    NewArrivalsRail(arrivals = arrivals, onBookClick = {})
                 }
             }
         }
 
         // Self-verifying on top of the image: the header renders (uppercased
-        // by CatalogRowHeader), and the badges appear exactly once per card
-        // that carries the source — the merged card shows both.
+        // by CatalogRowHeader), and each card carries exactly one badge — the
+        // source its Library Entry was imported from.
         composeTestRule.onNodeWithText("Новинки", ignoreCase = true).assertExists()
-        // The merged card carries both badges; the single-source cards carry
-        // one each — so each badge label appears exactly twice.
-        assertEquals(2, composeTestRule.onAllNodesWithText("4read").fetchSemanticsNodes().size)
-        assertEquals(2, composeTestRule.onAllNodesWithText("Sound-Books").fetchSemanticsNodes().size)
+        composeTestRule.onNodeWithText("4read").assertExists()
+        composeTestRule.onNodeWithText("Sound-Books").assertExists()
+        composeTestRule.onNodeWithText("Локальна").assertExists()
+        // Three distinct Work keys = three cards = three badges, no duplicates.
+        assertEquals(
+            3,
+            composeTestRule.onAllNodesWithText("4read").fetchSemanticsNodes().size +
+                composeTestRule.onAllNodesWithText("Sound-Books").fetchSemanticsNodes().size +
+                composeTestRule.onAllNodesWithText("Локальна").fetchSemanticsNodes().size
+        )
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/new_arrivals_rail.png"
         )

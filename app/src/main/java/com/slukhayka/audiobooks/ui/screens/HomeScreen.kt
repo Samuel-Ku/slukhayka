@@ -79,6 +79,7 @@ import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.entries.LibraryNewArrivals
+import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
@@ -88,7 +89,6 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
@@ -293,11 +293,7 @@ fun HomeScreen(
     var searchRequested by rememberSaveable { mutableStateOf(false) }
     val searchExpanded = searchRequested || searchQuery.isNotBlank()
 
-    val filteredBooks = allBooks.filter { book ->
-        searchQuery.isBlank() ||
-            book.title.contains(searchQuery, ignoreCase = true) ||
-            book.author.contains(searchQuery, ignoreCase = true)
-    }
+    val filteredBooks = allBooks.matchingLibraryQuery(searchQuery)
 
     // Text-search mode: genre filtering has one home in the feed sheet.
     val inSearchMode = searchQuery.isNotBlank()
@@ -351,72 +347,23 @@ fun HomeScreen(
                 }
             }
 
-            // In-library matches next, then the spec-10 T4 global section
-            // (all sources, imported on tap).
-            item {
-                Text(
-                    text = stringResource(R.string.home_library_results, filteredBooks.size),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .semantics { heading() }
-                )
-            }
-            if (filteredBooks.isEmpty()) {
-                item {
-                    EmptyState(
-                        icon = Icons.Default.SearchOff,
-                        title = stringResource(R.string.home_search_no_results),
-                        body = stringResource(R.string.home_search_no_results_hint),
-                        modifier = Modifier.semantics(mergeDescendants = true) {
-                            liveRegion = LiveRegionMode.Polite
-                        }
-                    )
-                }
-            }
-            items(filteredBooks, key = { it.id }) { book ->
-                BookRow(
-                    book = book,
-                    onClick = { onBookClick(book.id) },
-                    onPlayClick = { onPlayClick(book) }
-                )
-            }
-
-            // Spec-10 T4: aggregated search across every verified source —
-            // one card per Work with a source badge each. Only once the query
-            // is long enough to actually search (the ViewModel debounces at
-            // >= 2 chars).
-            if (searchQuery.trim().length >= 2) {
-                item {
-                    Text(
-                        text = stringResource(R.string.home_all_sources, globalResults.size),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .semantics { heading() }
-                    )
-                }
-                if (globalResults.isEmpty()) {
-                    item {
-                        GlobalSearchStatus(
-                            isLoading = isGlobalSearchLoading,
-                            hasError = globalSearchError,
-                            resultsEmpty = true
-                        )
-                    }
-                }
-                items(globalResults, key = { it.key }) { result ->
-                    GlobalSearchResultCard(
-                        result = result,
-                        onClick = { viewModel.openGlobalSearchResult(result) },
-                        actionState = catalogCardActionState,
-                        onOpenBrowser = viewModel::openCatalogBrowserRequired,
-                        onPreflight = { viewModel.preflightGlobalSearchResult(result) }
-                    )
-                }
-            }
+            // #737 / ADR-0041: the two search sections — the listener's own
+            // Медіатека first (offline, instant), the live Source Catalog
+            // below. Extracted to a stateless emitter so order and empty
+            // states are pinned without a ViewModel.
+            searchResultsContent(
+                localBooks = filteredBooks,
+                globalResults = globalResults,
+                liveSearchActive = searchQuery.trim().length >= 2,
+                isGlobalLoading = isGlobalSearchLoading,
+                globalError = globalSearchError,
+                onOpenLocalBook = { onBookClick(it.id) },
+                onPlayLocalBook = { onPlayClick(it) },
+                onOpenGlobalResult = { viewModel.openGlobalSearchResult(it) },
+                catalogCardActionState = catalogCardActionState,
+                onOpenCatalogBrowser = viewModel::openCatalogBrowserRequired,
+                onPreflightGlobalResult = { viewModel.preflightGlobalSearchResult(it) }
+            )
         } else {
             // ---- Netflix feed ---------------------------------------------
             // spec-42 T1 (#302): one hierarchy keeps curated content above the

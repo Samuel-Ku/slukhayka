@@ -7,6 +7,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonIdentity
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -172,5 +173,26 @@ class LibraryImportDirectPageTest {
         assertNull(result)
         assertEquals("no fetch for a scam source", 0, adapter.fetchCalls)
         assertEquals(0, dao.getAllAudiobooks().first().size)
+    }
+
+    /**
+     * #737 — a live source hit imported through the ordinary door becomes a
+     * LOCAL search hit: the same row the library-first section matches
+     * offline, so the second search never needs the network again.
+     */
+    @Test
+    fun `an imported source hit is found by the library-first search`() = runBlocking {
+        val adapter = FakeBrowserAdapter("sluhay") { detail() }
+        val imports = imports(adapter)
+
+        val booksBefore = dao.getAllAudiobooks().first().map { it.toAudiobookEntity() }
+        assertTrue(booksBefore.matchingLibraryQuery("Боварі").isEmpty())
+
+        imports.importBrowserSourceDirectPage("sluhay", detail().url)
+
+        val booksAfter = dao.getAllAudiobooks().first().map { it.toAudiobookEntity() }
+        assertEquals(1, booksAfter.matchingLibraryQuery("Боварі").size)
+        assertEquals(1, booksAfter.matchingLibraryQuery("Флобер").size)
+        assertTrue(booksAfter.matchingLibraryQuery("Місто").isEmpty())
     }
 }

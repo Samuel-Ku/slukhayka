@@ -60,6 +60,7 @@
     <string name="home_long_books">Довгі — від 10 годин</string>
     <string name="home_more_books_on">Більше книг на %1$s</string>
     <string name="home_library_results">У вашій медіатеці (%1$d)</string>
+    <string name="home_library_no_matches">Немає у вашій медіатеці</string>
     <string name="home_all_sources">Усі джерела (%1$d)</string>
     <string name="home_open">Відкрити</string>
     <string name="home_recommendation_updated">Рекомендацію оновлено</string>

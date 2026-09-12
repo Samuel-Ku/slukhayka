@@ -366,9 +366,13 @@ fun PlayerScreen(
                 )
             },
             onFindAnotherSource = {
-                // #530 — the action ALSO asks for the ordered offer; nothing
-                // starts from it without the listener's own choice below.
-                viewModel.loadFallbackCandidates(book.id)
+                // #530 — the source that just failed parks in its bounded
+                // cooldown (never deleted, never a retry loop), and the action
+                // ALSO asks for the ordered offer; nothing starts from it
+                // without the listener's own choice below.
+                val failedSource = com.slukhayka.audiobooks.data.source.sourceIdForUrl(book.sourceUrl)
+                viewModel.recordSourceFailure(failedSource)
+                viewModel.loadFallbackCandidates(book.id, failedSource)
                 viewModel.findAnotherSource(book.title)
             },
             fallbackCandidates = viewModel.fallbackCandidates.collectAsState().value,

@@ -62,6 +62,15 @@
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>
     <string name="library_remaining">%1$s left</string>
+    <!-- ADR-0042 §1 (spec-56 T1): the honest availability state on the card. -->
+    <string name="library_availability_checking">Checking availability…</string>
+    <string name="library_availability_not_found">No sources found · checked %1$s</string>
+    <string name="library_availability_found">Found in %1$s</string>
+    <string name="library_availability_refused">Source audio is off</string>
+    <!-- #397: honest partial-offline badge; full offline stays «Offline». -->
+    <string name="offline_partial_badge">Offline (%1$d/%2$d)</string>
+    <string name="book_detail_chapter_delete_copy">Delete chapter copy</string>
+    <string name="book_detail_chapter_delete_copy_confirm">Delete the offline copy of this chapter? Other downloaded chapters stay.</string>
     <!-- v1.4 E5: player chrome off hardcoded strings (English twins). -->
     <string name="player_chapter_fallback">Chapter %1$d</string>
     <string name="player_feedback_chapter_end">Until chapter end</string>
@@ -111,6 +120,7 @@
     <string name="feed_more">Learn more</string>
     <string name="update_hide">Hide</string>
     <string name="speed_default_for_all">Default for all</string>
+    <string name="top100_open_chart">Open the chart in 4read</string>
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>

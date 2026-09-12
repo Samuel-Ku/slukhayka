@@ -53,6 +53,19 @@ class SourceWatchStoreTest {
     }
 
     @Test
+    fun `auto-watch after a manual watch keeps one entry and the seen state`() = runBlocking {
+        val store = SourceWatchStore(context())
+        store.watch("книга|автор", "work-1")
+        store.markSeen("книга|автор", setOf("soundbooks"))
+
+        // The automatic T2 path goes through the same idempotent door.
+        store.watch("книга|автор", "work-1")
+
+        assertEquals(mapOf("книга|автор" to "work-1"), store.watched.first())
+        assertEquals(setOf("soundbooks"), store.seenFor("книга|автор"))
+    }
+
+    @Test
     fun `unwatch drops the watch and the already-notified state`() = runBlocking {
         val context = context()
         val store = SourceWatchStore(context)

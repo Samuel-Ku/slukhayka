@@ -251,6 +251,26 @@ interface AudiobookDao {
     )
     suspend fun getTracksForBookSync(bookId: String): List<SourceTrackEntity>
 
+    /** The tracks of every source of a book as a Flow — per-chapter offline state (#397). */
+    @Query(
+        "SELECT st.* FROM source_tracks st JOIN sources s ON s.id = st.sourceId " +
+            "WHERE s.bookId = :bookId ORDER BY st.trackIndex ASC"
+    )
+    fun getTracksForBook(bookId: String): Flow<List<SourceTrackEntity>>
+
+    /**
+     * #397 — one row per book with its Source Track totals, for the honest
+     * partial-offline badge («Офлайн (N/M)»). Full offline stays
+     * `downloaded == total`.
+     */
+    @Query(
+        "SELECT s.bookId AS bookId, COUNT(st.id) AS total, " +
+            "SUM(CASE WHEN st.isDownloaded THEN 1 ELSE 0 END) AS downloaded " +
+            "FROM source_tracks st JOIN sources s ON s.id = st.sourceId " +
+            "GROUP BY s.bookId"
+    )
+    fun observeBookDownloadCounts(): Flow<List<BookDownloadCount>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTracks(tracks: List<SourceTrackEntity>)
 
@@ -1304,4 +1324,18 @@ interface AudiobookDao {
     /** Every assertion of one kind — expiry is the caller's ([com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy.isFresh]). */
     @Query("SELECT * FROM popularity_assertions WHERE kind = :kind")
     suspend fun popularityAssertions(kind: String): List<PopularityAssertionEntity>
+
+    // --- Embedding vectors (#482) -------------------------------------------
+
+    /** The cached vectors for the given Work ids (misses are simply absent). */
+    @Query("SELECT * FROM embedding_vectors WHERE workId IN (:workIds)")
+    suspend fun embeddingVectors(workIds: List<String>): List<EmbeddingVectorEntity>
+
+    /** Every cached vector — the catalogue/signal pools read it in one pass. */
+    @Query("SELECT * FROM embedding_vectors")
+    suspend fun allEmbeddingVectors(): List<EmbeddingVectorEntity>
+
+    /** Upserts vectors (REPLACE by workId — a changed text overwrites its row). */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEmbeddingVectors(rows: List<EmbeddingVectorEntity>)
 }

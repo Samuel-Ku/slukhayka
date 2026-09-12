@@ -539,6 +539,9 @@ fun PlayerScreenContent(
     val chaptersFocusRequester = remember { FocusRequester() }
     val bookmarksFocusRequester = remember { FocusRequester() }
     var restoreTool by remember { mutableStateOf<PlayerQuickTool?>(null) }
+    // #597 — the local, user-shared problem report (allowlisted fields only).
+    val reportContext = LocalContext.current
+    var showProblemReport by remember { mutableStateOf(false) }
     val playerNarrator = book.displayNarrator
     val editionDescription = if (playerNarrator.isNotBlank()) {
         stringResource(R.string.a11y_player_edition, playerNarrator)
@@ -800,9 +803,66 @@ fun PlayerScreenContent(
                                 TextButton(onClick = onFindAnotherSource, modifier = Modifier.heightIn(min = 48.dp).testTag("player_find_another_source")) {
                                     Text(stringResource(R.string.player_find_another_source))
                                 }
+                                // #597 — a secondary diagnostic action; it never
+                                // crowds the primary retry/source buttons.
+                                TextButton(onClick = { showProblemReport = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("player_problem_report")) {
+                                    Text(stringResource(R.string.player_problem_report_view))
+                                }
                             }
                         }
                     }
+                }
+
+                if (showProblemReport) {
+                    // #597 — allowlisted fields only; the listener reviews the
+                    // whole text and shares it explicitly (never automatic).
+                    val report = com.slukhayka.audiobooks.data.diagnostics.PlaybackProblemReport.build(
+                        category = playerState.errorKind.name,
+                        stage = "PLAYBACK",
+                        appVersion = com.slukhayka.audiobooks.BuildConfig.VERSION_NAME,
+                        appVariant = if (com.slukhayka.audiobooks.BuildConfig.DEBUG) "debug" else "release",
+                        androidRelease = android.os.Build.VERSION.RELEASE ?: "unknown",
+                        androidSdk = android.os.Build.VERSION.SDK_INT,
+                        webViewVersion = if (android.os.Build.VERSION.SDK_INT >= 26) {
+                            runCatching { android.webkit.WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
+                        } else {
+                            null
+                        }
+                    )
+                    AlertDialog(
+                        onDismissRequest = { showProblemReport = false },
+                        title = { Text(stringResource(R.string.player_problem_report_title)) },
+                        text = {
+                            Column {
+                                Text(report.toPlainText())
+                                Spacer(Modifier.height(AppDimens.SpaceSm))
+                                Text(
+                                    text = stringResource(R.string.player_problem_report_body_note),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showProblemReport = false
+                                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_TEXT, report.toPlainText())
+                                }
+                                runCatching {
+                                    reportContext.startActivity(android.content.Intent.createChooser(send, null))
+                                }
+                            }) {
+                                Text(stringResource(R.string.player_problem_report_share))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showProblemReport = false }) {
+                                Text(stringResource(R.string.player_problem_report_close))
+                            }
+                        }
+                    )
                 }
 
                 Spacer(Modifier.height(AppDimens.SpaceLg))

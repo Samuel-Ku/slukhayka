@@ -365,7 +365,19 @@ fun PlayerScreen(
                     current.currentPositionMs
                 )
             },
-            onFindAnotherSource = { viewModel.findAnotherSource(book.title) }
+            onFindAnotherSource = {
+                // #530 — the action ALSO asks for the ordered offer; nothing
+                // starts from it without the listener's own choice below.
+                viewModel.loadFallbackCandidates(book.id)
+                viewModel.findAnotherSource(book.title)
+            },
+            fallbackCandidates = viewModel.fallbackCandidates.collectAsState().value,
+            onSelectFallback = { _ ->
+                // #530 — the listener chose; the existing alternative path
+                // resolves it, and the offer is cleared so it never lingers.
+                viewModel.clearFallbackCandidates()
+                viewModel.findAnotherSource(book.title)
+            }
         )
 
         SnackbarHost(
@@ -526,7 +538,10 @@ fun PlayerScreenContent(
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
     onShowAllBookmarks: () -> Unit = {},
     onRetryPlayback: () -> Unit = {},
-    onFindAnotherSource: () -> Unit = {}
+    onFindAnotherSource: () -> Unit = {},
+    // #530 — the ordered fallback offer of #519's action; empty renders nothing.
+    fallbackCandidates: List<com.slukhayka.audiobooks.data.editions.FallbackCandidate> = emptyList(),
+    onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {}
 ) {
     val background = MaterialTheme.colorScheme.background
     val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
@@ -811,6 +826,16 @@ fun PlayerScreenContent(
                             }
                         }
                     }
+                }
+
+                // #530 — the ordered alternatives, shown before anything
+                // switches; a different narration carries «Перемкнути».
+                if (fallbackCandidates.isNotEmpty()) {
+                    Spacer(Modifier.height(AppDimens.SpaceSm))
+                    FallbackCandidatesCard(
+                        candidates = fallbackCandidates,
+                        onSelect = onSelectFallback
+                    )
                 }
 
                 if (showProblemReport) {

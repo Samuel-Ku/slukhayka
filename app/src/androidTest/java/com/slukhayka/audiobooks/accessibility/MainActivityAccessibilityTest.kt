@@ -235,6 +235,7 @@ class MainActivityAccessibilityTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.enableAccessibilityChecks()
+        try {   // #766 — CI-tree capture: catch ACTION failures too
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
@@ -518,6 +519,16 @@ class MainActivityAccessibilityTest {
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (actionFailure: Throwable) {
+            val roots = composeTestRule.onAllNodes(
+                androidx.compose.ui.test.isRoot(),
+                useUnmergedTree = true
+            )
+            val count = roots.fetchSemanticsNodes().size
+            throw AssertionError(
+                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
+            )
+        }
     }
 
     private fun currentViewModel(): MainViewModel =

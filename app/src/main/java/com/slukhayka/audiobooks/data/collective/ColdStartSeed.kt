@@ -31,18 +31,13 @@ class ColdStartSeed(
 
     /** @return true when this run actually seeded the local catalogue. */
     suspend fun runOnce(): Boolean {
-        android.util.Log.w("ColdStartSeed", "runOnce entry: done=${flag.isDone()} seed=${seed.size}")
         if (flag.isDone()) return false
         // An EMPTY seed is never a legitimate state: the asset is bundled, so
         // emptiness means the read failed. Marking the flag here would disable
         // the cold start FOREVER and silently — leave it unset and retry.
         if (seed.isEmpty()) return false
         val imported = try {
-            val applied = importer.importOnce(seed)
-            // #532 — the ONE line that separates "the asset did not read" from
-            // "the rows did not land".
-            android.util.Log.w("ColdStartSeed", "seed parsed=${seed.size} imported=$applied")
-            applied
+            importer.importOnce(seed)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (e: Exception) {

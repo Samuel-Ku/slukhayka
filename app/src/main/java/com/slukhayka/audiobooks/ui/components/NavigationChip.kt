@@ -20,7 +20,7 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * even when the labels match — «Роман» can legitimately be both a
  * NavigationChip (open the genre) and a FilterChip (narrow the feed).
  *
- * spec-28 (#198): the Огляд nav row (ТОП 100 / Виконавці / Автори / Серії /
+ * spec-28 (#198): the Огляд nav row (Рейтинг / Виконавці / Автори / Серії /
  * Колекції) and the «Жанри» row navigate → they use this chip, never a
  * filter-shaped chip.
  */

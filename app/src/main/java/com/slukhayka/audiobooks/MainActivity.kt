@@ -72,7 +72,7 @@ import com.slukhayka.audiobooks.ui.screens.RecommendationSettingsScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesScreen
 import com.slukhayka.audiobooks.ui.screens.StorageDestinationScreen
-import com.slukhayka.audiobooks.ui.screens.Top100Screen
+import com.slukhayka.audiobooks.ui.screens.LibraryRatingScreen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -548,7 +548,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         recoveryBookId = selectedWebSource!!.recoveryBookId,
                         recoveryChapterIndex = selectedWebSource!!.recoveryChapterIndex,
                         recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
-                        captureTop100 = selectedWebSource!!.captureTop100,
                         captureSeriesUrl = selectedWebSource!!.captureSeriesUrl,
                         automaticRecovery = selectedWebSource!!.automaticRecovery,
                         cloudflareChallenge = selectedWebSource!!.cloudflareChallenge,
@@ -821,8 +820,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listState = genreBookListState
                     )
 
-                    // ТОП 100 АудіоКниг (`/top-100.html`).
-                    selectedTop100 -> Top100Screen(
+                    // #738 — the library rating (local, offline).
+                    selectedTop100 -> LibraryRatingScreen(
                         viewModel = viewModel,
                         onBackClick = {
                             secondaryBookRoute = SecondaryBookRouteFrame()

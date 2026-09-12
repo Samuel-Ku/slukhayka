@@ -120,7 +120,6 @@
     <string name="feed_more">Learn more</string>
     <string name="update_hide">Hide</string>
     <string name="speed_default_for_all">Default for all</string>
-    <string name="top100_open_chart">Open the chart in 4read</string>
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
@@ -207,7 +206,7 @@
     <string name="author_index_title">Authors</string>
     <string name="series_index_title">Series</string>
     <string name="series_mirror_neighbours">Also in the mirror</string>
-    <string name="top100_index_title">Top 100 Audiobooks</string>
+    <string name="library_rating_title">Library rating</string>
     <string name="author_empty_catalog">Authors will appear once the catalogue loads.</string>
     <string name="author_load_failed">Couldn\'t open this author\'s books. Try again.</string>
     <string name="author_empty_works">No books by this author in the catalogue yet.</string>
@@ -224,9 +223,13 @@
         <item quantity="one">%1$d series</item>
         <item quantity="other">%1$d series</item>
     </plurals>
-    <plurals name="best_book_count">
-        <item quantity="one">%1$d best book</item>
-        <item quantity="other">%1$d best books</item>
+    <plurals name="library_rating_count">
+        <item quantity="one">%1$d rated book</item>
+        <item quantity="other">%1$d rated books</item>
+    </plurals>
+    <plurals name="library_rating_votes">
+        <item quantity="one">%1$d vote</item>
+        <item quantity="other">%1$d votes</item>
     </plurals>
     <plurals name="book_in_cycle_count">
         <item quantity="one">%1$d book in the cycle</item>

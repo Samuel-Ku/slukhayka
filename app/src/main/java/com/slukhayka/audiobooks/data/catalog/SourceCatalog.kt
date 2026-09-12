@@ -2058,52 +2058,6 @@ class SourceCatalog(
         genreUrl: String
     ): CatalogFetchResult<List<AudiobookEntity>> = fetchSeriesBooksResult(genreUrl)
 
-    /**
-     * ТОП 100 АудіоКниг (`/top-100.html`): ranked `linek` cards, not posters.
-     * Upserted into Room (like series/genre pages) so every entry is playable
-     * and opens its own detail. Cached per session; rank is the list order.
-     */
-    private var top100Cache: List<AudiobookEntity>? = null
-
-    /** Captures the ranking from the listener-approved 4read WebView session. */
-    suspend fun importCapturedTop100Result(html: String): CatalogFetchResult<List<AudiobookEntity>> =
-        withContext(Dispatchers.IO) {
-            try {
-                val parsed = CatalogParser.parseTop100(html)
-                // Challenge pages contain no ranking cards; never cache one as a result.
-                if (parsed.isEmpty()) return@withContext CatalogFetchResult.Failure
-                val books = parsed.mapNotNull { libraryImport.upsertCatalogBook(it) }
-                top100Cache = books
-                CatalogFetchResult.Success(books)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                Log.w("SourceCatalog", "Captured Top-100 import failed", failure)
-                CatalogFetchResult.Failure
-            }
-        }
-    suspend fun fetchTop100Result(): CatalogFetchResult<List<AudiobookEntity>> =
-        withContext(Dispatchers.IO) {
-            top100Cache?.let { return@withContext CatalogFetchResult.Success(it) }
-            try {
-                val html = fourReadFetcher.getText("https://4read.org/top-100.html")
-                if (html.isBlank()) return@withContext CatalogFetchResult.Failure
-                // ADR-0005: the upsert's persistence-layer guard drops tombstoned
-                // Works — the published list is what actually landed.
-                val books = CatalogParser.parseTop100(html)
-                    .mapNotNull { libraryImport.upsertCatalogBook(it) }
-                top100Cache = books
-                CatalogFetchResult.Success(books)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                Log.w("SourceCatalog", "Top-100 fetch failed", failure)
-                CatalogFetchResult.Failure
-            }
-        }
-
-    suspend fun fetchTop100(): List<AudiobookEntity> = fetchTop100Result().valueOrEmpty()
-
     /** Виконавці/Автори index pages, cached per URL for the session. */
     private val peopleCache = java.util.concurrent.ConcurrentHashMap<String, List<CatalogPerson>>()
     suspend fun fetchPeopleResult(url: String): CatalogFetchResult<List<CatalogPerson>> =

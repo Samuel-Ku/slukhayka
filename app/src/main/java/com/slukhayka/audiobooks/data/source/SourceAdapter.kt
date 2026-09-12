@@ -33,6 +33,16 @@ data class SourceBook(
     val language: String = ""
 )
 
+/**
+ * #528 — one listener-opened genre/category page: its cards in page order and
+ * the cursor of the NEXT page (null = the last page). A cursor is opaque to
+ * the caller: it is whatever the source needs to ask for page 2.
+ */
+data class GenrePage(
+    val books: List<SourceBook>,
+    val nextCursor: String? = null
+)
+
 /** One chapter of a book as parsed from a source book page. */
 data class SourceChapter(
     val title: String,
@@ -165,12 +175,17 @@ interface SourceAdapter {
     suspend fun fetchCatalog(limit: Int = 40): List<SourceBook> = fetchNew(limit)
 
     /**
-     * #527 — ONE listener-chosen genre/category page: exactly one request for
-     * exactly the page the listener opened. Pagination is a SEPARATE action
-     * (a new call), never a walk; the default is an honest empty for sources
-     * that expose no such door.
+     * #527/#528 — ONE listener-chosen genre/category page plus the CURSOR of
+     * the next one: exactly one request for exactly the page the listener
+     * opened. The next page is a SEPARATE action (`fetchGenrePage(path, cursor)`)
+     * and rides the source's pacing, so pagination is a paced cursor, never an
+     * implicit walk. The default is an honest empty for sources with no door.
      */
-    suspend fun fetchGenrePage(genrePath: String, limit: Int = 40): List<SourceBook> = emptyList()
+    suspend fun fetchGenrePage(
+        genrePath: String,
+        cursor: String? = null,
+        limit: Int = 40
+    ): GenrePage = GenrePage(emptyList())
 
     /**
      * WebView-pattern sources (spec-13): discovery only works through the

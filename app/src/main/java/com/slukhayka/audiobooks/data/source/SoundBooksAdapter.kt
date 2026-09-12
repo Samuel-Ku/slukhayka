@@ -168,6 +168,46 @@ class SoundBooksAdapter(
         return books
     }
 
+    /**
+     * #528 — ONE listener-opened category page and the cursor of the next.
+     * Exactly one request: the category's first page, or — when the caller
+     * passes the cursor from the previous action — the NEXT page, behind the
+     * ordinary pacing pause. A foreign path, the promo section or a malformed
+     * cursor costs no request at all. Discovery never touches the
+     * robots-discouraged site search.
+     */
+    override suspend fun fetchGenrePage(genrePath: String, cursor: String?, limit: Int): GenrePage {
+        val path = (cursor ?: genrePath).trim()
+        if (!isAllowedCategoryPath(path)) return GenrePage(emptyList())
+        // A continuation is a new action, but it still observes the rhythm.
+        if (cursor != null) pauseMillis(pacing.nextPauseMillis())
+        val html = fetcher.getText(
+            "https://sound-books.net$path",
+            emptyMap(),
+            SourceRequestClass.LISTENER_ACTION,
+            0L
+        )
+        if (html.isEmpty()) return GenrePage(emptyList())
+        return GenrePage(parseTiles(html, limit), nextCategoryPage(path, html))
+    }
+
+    /** `/fantastyka/` or `/fantastyka/page/2/` — the ONLY shapes a category has. */
+    private fun isAllowedCategoryPath(path: String): Boolean =
+        CATEGORY_PATH.matches(path) && !path.startsWith("/reklama/")
+
+    /** The category's NEXT page path, or null on the last page. */
+    private fun nextCategoryPage(path: String, html: String): String? {
+        val slug = path.trim('/').substringBefore("/page/")
+        if (slug.isBlank()) return null
+        val current = PAGE_NUMBER.find(path)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        val next = PAGE_PATH.findAll(html).mapNotNull { match ->
+            val linkedSlug = match.groupValues[1]
+            val page = match.groupValues[2].toIntOrNull()
+            if (linkedSlug == slug && page != null && page > current) page else null
+        }.minOrNull() ?: return null
+        return "/$slug/page/$next/"
+    }
+
     /** The duration/genre a listing card carries, keyed by its .html url. */
     private data class CardExtras(
         val durationSeconds: Long = 0L,
@@ -354,6 +394,15 @@ class SoundBooksAdapter(
         val COVER_TILE = Regex("""<a\s+class="short-img[^"]*"\s+href="(https://sound-books\.net/[^"]+\.html)"[^>]*>\s*<img[^>]*(?:data-src|src)="([^"]+)"(?:[^>]*\s+alt="([^"]*)")?""", RegexOption.IGNORE_CASE)
         // Category sections of the full catalogue (`https://sound-books.net/<slug>/`).
         val CATEGORY_LINK = Regex("""href="(https://sound-books\.net/[a-z-]+/)"""", RegexOption.IGNORE_CASE)
+
+        /** #528 — the only category path shapes a listener action may open. */
+        private val CATEGORY_PATH = Regex("""^/[a-z0-9-]+/(?:page/\d+/)?$""")
+
+        /** #528 — a pagination link of one category page. */
+        private val PAGE_PATH = Regex("""href="/([a-z0-9-]+)/page/(\d+)/"""", RegexOption.IGNORE_CASE)
+
+        /** #528 — the page number inside a continuation path. */
+        private val PAGE_NUMBER = Regex("""/page/(\d+)/""")
 
         /**
          * #558 — site promo sections that render in the same tiles as books.

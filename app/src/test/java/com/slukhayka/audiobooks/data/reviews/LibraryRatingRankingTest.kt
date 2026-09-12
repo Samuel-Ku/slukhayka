@@ -132,4 +132,23 @@ class LibraryRatingRankingTest {
         assertEquals(1, evidence.size)
         assertEquals(1, LibraryRatingRanking.rank(evidence).size)
     }
+
+    @Test
+    fun `the cached listener aggregate joins the source pool`() {
+        val ranked = LibraryRatingRanking.rank(
+            listOf(
+                LibraryRatingEvidence(
+                    book = book("b", "Книга", mergeKey = "к|а"),
+                    workKey = "к|а",
+                    sourceRatings = listOf(4.0),
+                    listenerRatings = emptyList(),
+                    listenerRatingAggregate = ListenerRatingAggregate(sum = 8, count = 2)
+                )
+            )
+        )
+
+        // (4.0 + 8) / (1 + 2) = 4.0 over three real votes.
+        assertEquals(4.0, ranked.single().average, 0.0001)
+        assertEquals(3, ranked.single().count)
+    }
 }

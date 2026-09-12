@@ -459,6 +459,18 @@ class App : Application() {
     }
 
     /**
+     * #739 — the bounded, TTL'd pass that fills the local listener aggregate
+     * of the library rating from the shared reviews. Null-store (no Firebase
+     * keys) simply means no pass runs and the rating stays source-only.
+     */
+    val libraryRatingRefresh: com.slukhayka.audiobooks.data.reviews.LibraryRatingRefresh by lazy {
+        com.slukhayka.audiobooks.data.reviews.LibraryRatingRefresh(
+            dao = database.audiobookDao(),
+            reviews = listenerReviews
+        )
+    }
+
+    /**
      * ADR-0023 (#348) — the narration-ratings store («Оцінка начитки»).
      * Null without Firebase keys: the rating UI simply does not render.
      */

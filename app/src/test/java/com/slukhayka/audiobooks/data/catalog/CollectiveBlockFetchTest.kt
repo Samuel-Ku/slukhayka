@@ -59,6 +59,13 @@ class CollectiveBlockFetchTest {
             return books
         }
         override suspend fun fetchCatalog(limit: Int): List<SourceBook> = emptyList()
+
+        /** #527 — the listener genre door: one call = one page. */
+        var genreCalls = 0
+        override suspend fun fetchGenrePage(genrePath: String, limit: Int): List<SourceBook> {
+            genreCalls++
+            return books
+        }
     }
 
     private fun catalog(adapters: List<SourceAdapter>): SourceCatalog {
@@ -145,5 +152,34 @@ class CollectiveBlockFetchTest {
         assertEquals(CollectiveAttemptStatus.TIMEOUT, classifyCollectiveFailure(SocketTimeoutException()))
         assertEquals(CollectiveAttemptStatus.TIMEOUT, classifyCollectiveFailure(IOException("network")))
         assertEquals(CollectiveAttemptStatus.PARSE_FAILURE, classifyCollectiveFailure(IllegalStateException("html")))
+    }
+
+    @Test
+    fun `a listener genre page becomes a COLLECTIONS block with one request`() = runBlocking {
+        val adapter = FakeAdapter("audiobookmp3", listOf(book("Клуб боягузів")))
+        val outcome = catalog(listOf(adapter))
+            .collectiveGenreBlockFetch("audiobookmp3", "/uk-genre-12-fantastyka")
+
+        assertTrue(outcome is CollectiveRefreshOutcome.Success)
+        val block = (outcome as CollectiveRefreshOutcome.Success).block
+        assertEquals(CollectiveBlockKind.COLLECTIONS, block.kind)
+        assertEquals("audiobookmp3", block.sourceId)
+        assertEquals("https://audiobook-mp3.com/uk-genre-12-fantastyka", block.provenanceUrl)
+        assertEquals(listOf("Клуб боягузів"), block.cards.map { it.title })
+        assertEquals("one page for one action", 1, adapter.genreCalls)
+
+        // A source without the genre door is an honest empty.
+        assertEquals(
+            CollectiveRefreshOutcome.Empty,
+            catalog(listOf(FakeEmptyGenreAdapter("lihtar")))
+                .collectiveGenreBlockFetch("lihtar", "/genre")
+        )
+    }
+
+    private class FakeEmptyGenreAdapter(override val sourceId: String) : SourceAdapter {
+        override suspend fun search(query: String): List<SourceBook> = emptyList()
+        override suspend fun fetchBookPage(url: String): SourceBookDetail =
+            SourceBookDetail("", "", url = url, chapters = emptyList())
+        override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
     }
 }

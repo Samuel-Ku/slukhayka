@@ -165,6 +165,14 @@ interface SourceAdapter {
     suspend fun fetchCatalog(limit: Int = 40): List<SourceBook> = fetchNew(limit)
 
     /**
+     * #527 — ONE listener-chosen genre/category page: exactly one request for
+     * exactly the page the listener opened. Pagination is a SEPARATE action
+     * (a new call), never a walk; the default is an honest empty for sources
+     * that expose no such door.
+     */
+    suspend fun fetchGenrePage(genrePath: String, limit: Int = 40): List<SourceBook> = emptyList()
+
+    /**
      * WebView-pattern sources (spec-13): discovery only works through the
      * live browser session (Cloudflare). The feed pipeline turns an
      * absent/stale session into a «відкрити джерело, щоб оновити» CTA row

@@ -458,4 +458,36 @@ class AudiobookMp3AdapterTest {
         assertEquals("Книга 1", books[0].title)
         assertEquals("Книга 2", books[1].title)
     }
+
+    // --- #527 — one genre action = one page --------------------------------
+
+    @Test
+    fun `one genre action is exactly one request`() = runBlocking {
+        val genrePath = "/uk-genre-12-fantastyka"
+        val fetcher = FakeFetcher(mapOf("https://audiobook-mp3.com$genrePath" to richHomepage))
+        val adapter = AudiobookMp3Adapter(fetcher)
+
+        val books = adapter.fetchGenrePage(genrePath)
+
+        assertEquals("exactly one page for one action", 1, fetcher.requestedUrls.size)
+        assertEquals("https://audiobook-mp3.com$genrePath", fetcher.requestedUrls.single())
+        assertEquals(1, books.size)
+        assertEquals("Соломон Кейн", books[0].title)
+
+        // Pagination is the NEXT action, not an implicit walk.
+        adapter.fetchGenrePage(genrePath)
+        assertEquals(2, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `a blank or foreign genre path costs no request`() = runBlocking {
+        val fetcher = FakeFetcher()
+        val adapter = AudiobookMp3Adapter(fetcher)
+
+        assertTrue(adapter.fetchGenrePage("").isEmpty())
+        assertTrue(adapter.fetchGenrePage("https://evil.example/uk-genre-1-x").isEmpty())
+        assertTrue(adapter.fetchGenrePage("/uk-audio-6163-x").isEmpty())
+        assertTrue(adapter.fetchGenrePage("/uk-genre-x/../secret").isEmpty())
+        assertEquals(0, fetcher.requestedUrls.size)
+    }
 }

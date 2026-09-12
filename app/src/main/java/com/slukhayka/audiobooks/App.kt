@@ -282,8 +282,66 @@ class App : Application() {
                     }
                 }
             },
-            cache = searchCache?.refusalAware(sourceAudioRefusal.refusedSources)
+            cache = searchCache?.refusalAware(sourceAudioRefusal.refusedSources),
+            workIndex = { title, author, _ ->
+                workIndexRefresher.lookup(title, author)?.let { entry ->
+                    com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping.Match(
+                        sourceId = entry.sourceId,
+                        url = entry.url,
+                        title = title,
+                        author = author,
+                        narrator = "",
+                        coverImageUrl = null
+                    )
+                }
+            },
+            // #725 — a session-backed BROWSER match is usable only while the
+            // listener's first-party session exists (ADR-0037 amendment).
+            sessionAlive = { sourceId ->
+                val home = com.slukhayka.audiobooks.data.source.SourceRegistry
+                    .facts(sourceId)?.homeUrl.orEmpty()
+                home.isNotBlank() && com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession(
+                    com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider.cookieFor(home)
+                )
+            }
         )
+    }
+
+    /**
+     * The local Work index: sitemap URLs (audiobook.co.ua, chytaylo,
+     * sluhay.com) plus catalogue-card enumeration for the sources without a
+     * book sitemap (knigi-online, sound-books, sluhayua), persisted between
+     * launches under the catalog TTL. Consulted by [directSourceResolve] with
+     * zero requests.
+     */
+    val workIndexRefresher: com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher by lazy {
+        val cards = HashMap<String, com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher.CardSource>()
+        for (sourceId in listOf("knigionline", "soundbooks", "sluhayua")) {
+            cards[sourceId] = com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher.CardSource { limit ->
+                sourceAdapters.firstOrNull { it.sourceId == sourceId }?.fetchCatalog(limit).orEmpty()
+            }
+        }
+        com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher(
+            fetcher = HttpFetcher(),
+            store = com.slukhayka.audiobooks.data.catalog.WorkIndexStore(
+                java.io.File(filesDir, "work_index.tsv")
+            ),
+            cardSources = cards,
+            // #725 — sluhay's book sitemap is session-bound (Cloudflare): the
+            // ONE shared host-aware provider reads the live WebView cookie
+            // just-in-time; without a session the carrier contributes nothing.
+            // ADR-0039 §8 traffic: one request per source per catalog TTL.
+            cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
+        )
+    }
+
+    /**
+     * ADR-0042 §1 — the persisted last availability verdict per Work, so the
+     * library card keeps showing the honest state (and its time) across
+     * restarts. Local and never synced, like the refusal.
+     */
+    val libraryAvailabilityStore: com.slukhayka.audiobooks.data.availability.LibraryAvailabilityStore by lazy {
+        com.slukhayka.audiobooks.data.availability.LibraryAvailabilityStore(this)
     }
 
     /**
@@ -1016,6 +1074,12 @@ class App : Application() {
         // open Firestore; bookmark sync starts immediately below.
         installAppCheckIfConfigured()
         CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
+        // ADR-0042 — warm the local Work index on start (BACKGROUND traffic
+        // through the Source Request Gate); the per-Work checks are driven by
+        // the availability queue (visible cards first, a daily delta scan).
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { workIndexRefresher.refreshIfStale() }
+        }
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;

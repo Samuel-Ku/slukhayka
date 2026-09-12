@@ -9,7 +9,14 @@
     <string name="action_apply">Apply</string>
     <string name="action_delete">Delete</string>
 
-    <string name="recommendations_title">Personal recommendations</string>
+    <string name="recommendations_title">Personal recommendations</string>    <string name="recommendations_model_title">Recommendation model</string>
+    <string name="recommendations_model_full">Downloaded — recommendations run on the full E5 model.</string>
+    <string name="recommendations_model_downloading">Downloading… %1$d%%</string>
+    <string name="recommendations_model_downloading_unknown">Downloading…</string>
+    <string name="recommendations_model_simplified">Simplified mode: the full model is not downloaded yet, matching uses keywords.</string>
+    <string name="recommendations_model_failed">The model download failed. Simplified mode stays active.</string>
+    <string name="recommendations_model_retry">Retry download</string>
+
     <string name="recommendations_local_title">Learn only on this device</string>
     <string name="recommendations_local_description">Your chosen books, progress, and declines never leave the device.</string>
     <string name="recommendations_shared_title">Help improve the shared model</string>

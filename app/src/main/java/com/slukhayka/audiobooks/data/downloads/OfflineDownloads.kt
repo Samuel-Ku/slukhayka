@@ -276,7 +276,13 @@ class OfflineDownloads(
     private val estimatedSizes = ConcurrentHashMap<String, EstimatedSize>()
 
     /** #392 — optional size preview; never a prerequisite for downloading audio. */
-    suspend fun estimateOfflineSize(bookId: String): EstimatedSize = withContext(downloadDispatcher) {
+    suspend fun estimateOfflineSize(bookId: String): EstimatedSize = estimateOfflineSize(bookId, chapterIds = null)
+
+    /**
+     * #396 — the size of ONLY the selected chapters (`null` = the whole book),
+     * so the selective bar can price «Завантажити обрані (N) • X МБ» honestly.
+     */
+    suspend fun estimateOfflineSize(bookId: String, chapterIds: Set<String>?): EstimatedSize = withContext(downloadDispatcher) {
         val book = dao.getAudiobookById(bookId)
         val sourceId = book?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
         val playable = try {
@@ -284,6 +290,7 @@ class OfflineDownloads(
             // playback doctrine — the estimate must still see remote chapters.
             sourceCatalog.getPlayableChapters(bookId, applyLocalLock = false)
         } catch (_: Exception) { emptyList() }
+            .let { chapters -> if (chapterIds == null) chapters else chapters.filter { it.chapter.id in chapterIds } }
         if (playable.isEmpty()) return@withContext EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = 0)
         var total: Long = 0
         var known = 0
@@ -298,12 +305,21 @@ class OfflineDownloads(
         }
         val estimate = if (known == 0) EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = playable.size)
         else EstimatedSize(total, isApproximate = known < playable.size, knownCount = known, totalCount = playable.size)
-        estimatedSizes[bookId] = estimate
+        // The whole-book estimate is cached; a subset is a transient preview.
+        if (chapterIds == null) estimatedSizes[bookId] = estimate
         return@withContext estimate
     }
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult =
         downloadAudiobookOffline(bookId, requestedChapterIds = null)
+
+    /**
+     * #396 — downloads ONLY the selected chapters (by chapter id) through the
+     * same pipeline (URL/hash dedup, pacing, private route). A repeated call
+     * with other ids adds them without re-downloading finished Source Tracks.
+     */
+    suspend fun downloadSelectedChapters(bookId: String, chapterIds: Set<String>): OfflineDownloadResult =
+        downloadAudiobookOffline(bookId, requestedChapterIds = chapterIds)
 
     private suspend fun downloadAudiobookOffline(
         bookId: String,
@@ -1182,6 +1198,47 @@ class OfflineDownloads(
         // to IDLE. Without this, a PAUSED download that gets its files
         // removed would stay stuck in PAUSED state with no files on disk.
         dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
+    }
+
+    /**
+     * #397 — removes the offline copy of ONE chapter (its Source Tracks) and
+     * keeps the rest. Reference-counted like [removeOfflineDownload]: a file
+     * shared with another downloaded track is not deleted. The book-level
+     * `isDownloaded` becomes true only when every track is still on disk, so
+     * a partial removal leaves an honest «Офлайн (N/M)» state.
+     */
+    suspend fun removeChapterDownload(bookId: String, chapterIndex: Int) {
+        val tracks = dao.getTracksForBookSync(bookId)
+            .filter { it.trackIndex == chapterIndex && it.isDownloaded }
+        for (track in tracks) {
+            val path = track.localFilePath
+            if (path != null) {
+                val referencing = try { dao.getTracksByFilePath(path) } catch (e: Exception) { emptyList() }
+                val otherRefs = referencing.filter { it.id != track.id }
+                if (otherRefs.isEmpty()) {
+                    val file = File(path)
+                    if (file.exists()) {
+                        try { file.delete() } catch (_: Exception) {}
+                    }
+                }
+            }
+            dao.updateTrackDownloadState(track.id, isDownloaded = false, filePath = null)
+            dao.updateTrackContentHash(track.id, null)
+        }
+        recomputeBookDownloadState(bookId)
+    }
+
+    private suspend fun recomputeBookDownloadState(bookId: String) {
+        val tracks = dao.getTracksForBookSync(bookId)
+        val total = tracks.size
+        val downloaded = tracks.count { it.isDownloaded }
+        val all = total > 0 && downloaded == total
+        dao.updateDownloadStateWithState(
+            bookId,
+            isDownloaded = all,
+            progress = if (all) 1f else 0f,
+            state = DownloadState.IDLE
+        )
     }
 
     fun getAudioCacheSizeBytes(): Long {

@@ -65,7 +65,21 @@ class SourceReplacementMapping(
     /** The local union read — zero requests, whatever the catalog already holds. */
     private val union: suspend () -> List<GlobalSearchResult>,
     private val cache: SearchCache? = null,
+    /**
+     * The local sitemap Work index seam (spec-49 follow-up): answers from
+     * book URLs already enumerated, with zero requests. Consulted between the
+     * shared cache and the live volley; a null/absent index changes nothing.
+     */
+    private val workIndex: (suspend (title: String, author: String, mergeKey: String) -> Match?)? = null,
+    /**
+     * #725 / ADR-0037 — a Work-index match may point at a session-backed
+     * BROWSER source (sluhay.com): usable only while the listener's live
+     * first-party session exists. Without one the entry is skipped and the
+     * resolver keeps its honest path (volley → refusal/browser door).
+     */
+    private val sessionAlive: (sourceId: String) -> Boolean = { false },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** #720–#723 — cap the shared-cache read so a slow store never stalls a tap. */
     private val sharedCacheTimeoutMs: Long = 2_000L,
     private val deadlineMs: Long = CatalogAvailabilityPolicy.SOURCE_BUDGET_MS
 ) {
@@ -97,18 +111,27 @@ class SourceReplacementMapping(
 
     /**
      * The direct counterpart of the Work, or null. Fires no network request
-     * while a fresh memo, the union or the shared cache answers — and at most
-     * ONE parallel volley when they all miss.
+     * while a fresh memo, the union, the shared cache or the local Work index
+     * answers — and at most ONE parallel volley when they all miss.
+     *
+     * [force] bypasses the verdict memo for a listener-initiated re-check
+     * (spec-56 T2): the tap asks for current truth, not the cached verdict.
      */
-    suspend fun resolve(title: String, author: String, mergeKey: String): Match? {
+    suspend fun resolve(title: String, author: String, mergeKey: String, force: Boolean = false): Match? {
         if (mergeKey.isBlank()) return null
         val now = clock()
-        verdicts[mergeKey]?.let { verdict ->
-            if (CatalogAvailabilityPolicy.isFresh(verdict.matched, verdict.observedAtMillis, now)) {
-                return verdict.match
+        if (!force) {
+            verdicts[mergeKey]?.let { verdict ->
+                if (CatalogAvailabilityPolicy.isFresh(verdict.matched, verdict.observedAtMillis, now)) {
+                    val match = verdict.match
+                    // #725 — a session-backed match lives only as long as its
+                    // session: a lapsed session makes the memo stale, so the
+                    // call falls through to a fresh resolution.
+                    if (match == null || isUsableNow(match.sourceId)) return match
+                }
             }
-            verdicts.remove(mergeKey, verdict)
         }
+        verdicts.remove(mergeKey)
 
         val query = listOf(title.trim(), author.trim())
             .filter { it.isNotEmpty() }
@@ -116,17 +139,51 @@ class SourceReplacementMapping(
         if (query.isEmpty()) return null
 
         val match = withTimeoutOrNull(deadlineMs) {
-            resolveFromUnion(mergeKey)
-                ?: withTimeoutOrNull(sharedCacheTimeoutMs) { resolveFromSharedCache(query, mergeKey) }
-                ?: resolveVolley(query, mergeKey)
+            resolveLocalChain(title, author, mergeKey, query) ?: resolveVolley(query, mergeKey)
         }
         verdicts[mergeKey] = Verdict(match != null, now, match)
         return match
     }
 
+    /**
+     * The zero-request half of the chain: union → shared cache → local Work
+     * index. A Work-index match may point at a session-backed BROWSER source;
+     * it is usable only with a live session — a working transport, not a new
+     * browser door — otherwise it is skipped and the honest path stays.
+     */
+    private suspend fun resolveLocalChain(
+        title: String,
+        author: String,
+        mergeKey: String,
+        query: String
+    ): Match? = resolveFromUnion(mergeKey)
+        ?: withTimeoutOrNull(sharedCacheTimeoutMs) { resolveFromSharedCache(query, mergeKey) }
+        ?: usableIndexMatch(runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull())
+
+    /** The capability rule: DIRECT always, BROWSER only with a live session. */
+    private fun isUsableNow(sourceId: String): Boolean =
+        SourceAccessPolicy.modeFor(sourceId) == SourceAccessMode.DIRECT || sessionAlive(sourceId)
+
+    private fun usableIndexMatch(match: Match?): Match? = match?.takeIf { isUsableNow(it.sourceId) }
+
     /** The union the catalog already holds — a pure local read, zero requests. */
     private suspend fun resolveFromUnion(mergeKey: String): Match? =
         matchIn(runCatching { union() }.getOrDefault(emptyList()), mergeKey)
+
+    /**
+     * The zero-request half of [resolve]: union → shared cache → local Work
+     * index, never the live volley. The background availability queue uses
+     * this so a background scan spends no source tokens at all; the live
+     * volley stays listener-initiated (spec-56 T3).
+     */
+    suspend fun resolveLocalOnly(title: String, author: String, mergeKey: String): Match? {
+        if (mergeKey.isBlank()) return null
+        val query = listOf(title.trim(), author.trim())
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+        if (query.isEmpty()) return null
+        return resolveLocalChain(title, author, mergeKey, query)
+    }
 
     /** Fresh shared-base entry serves the touch without a volley. */
     private suspend fun resolveFromSharedCache(query: String, mergeKey: String): Match? {

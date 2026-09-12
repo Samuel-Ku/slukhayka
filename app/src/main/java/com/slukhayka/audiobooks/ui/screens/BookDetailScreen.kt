@@ -133,6 +133,10 @@ fun BookDetailScreen(
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
     val bookSources by viewModel.bookSources.collectAsState()
+    // #397 — partial-offline counts (badge) and the open book's downloaded
+    // chapter indices (per-chapter delete).
+    val bookDownloadCounts by viewModel.bookDownloadCounts.collectAsState()
+    val downloadedIndices by viewModel.selectedBookDownloadedIndices.collectAsState()
 
     // #40 decision 1: the favourite toggle lives on the book page itself.
     val favoriteBooks by viewModel.libraryEntries.getFavoriteAudiobooks()
@@ -147,6 +151,12 @@ fun BookDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
+    // #397 — the chapter whose offline copy is pending deletion.
+    var pendingChapterDeleteIndex by remember { mutableStateOf<Int?>(null) }
+    // #396 — selective download: long-press a chapter to pick several.
+    var selectionMode by remember { mutableStateOf(false) }
+    val selectedChapterIds = remember { mutableStateListOf<String>() }
+    val selectedDownloadSize by viewModel.selectedDownloadSize.collectAsState()
     var playerReturnFocusChapterId by remember { mutableStateOf<String?>(null) }
     var playerReturnFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     val deleteTriggerFocusRequester = remember { FocusRequester() }
@@ -172,6 +182,12 @@ fun BookDetailScreen(
     val narrationRatingDeleteFocusRequester = remember { FocusRequester() }
 
     val currentBook = book ?: return
+    // #396 — price only the selected chapters, cancelably.
+    LaunchedEffect(selectionMode, selectedChapterIds.toList()) {
+        if (selectionMode) {
+            viewModel.estimateSelectedChaptersSize(currentBook.id, selectedChapterIds.toSet())
+        }
+    }
     // ADR-0037 §2/§4 (spec-49 T3) — the honest unavailable state and the
     // Source Watch (§6, the T4 seam): the refused-only page offers the
     // watch, never a browser door.
@@ -463,6 +479,73 @@ fun BookDetailScreen(
                 showReviewForm || bookmarkToDelete != null || reviewToDelete != null ||
                 showNarrationRatingDeleteConfirm
         ),
+        bottomBar = {
+            // #396 — the selective-download bar: selected count + priced
+            // selected download, a "download all" escape hatch, and cancel.
+            if (selectionMode) {
+                val size = selectedDownloadSize
+                val sizeLabel = when {
+                    size?.totalBytes != null && size.totalBytes!! > 0 ->
+                        if (size.isApproximate) {
+                            stringResource(R.string.book_detail_size_approximate, size.totalBytes!! / (1024 * 1024))
+                        } else {
+                            stringResource(R.string.book_detail_size_format, size.totalBytes!! / (1024 * 1024))
+                        }
+                    else -> stringResource(R.string.book_detail_size_unknown)
+                }
+                Surface(tonalElevation = 3.dp) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.book_detail_selected_count,
+                                selectedChapterIds.size,
+                                chapters.size
+                            ),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = {
+                                if (!isDownloadingThis) {
+                                    viewModel.downloadSelectedChapters(currentBook.id, selectedChapterIds.toSet())
+                                    selectionMode = false
+                                    selectedChapterIds.clear()
+                                }
+                            },
+                            enabled = selectedChapterIds.isNotEmpty() && !isDownloadingThis,
+                            modifier = Modifier.testTag("book_detail_download_selected")
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.book_detail_download_selected,
+                                    selectedChapterIds.size,
+                                    sizeLabel
+                                )
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                if (!isDownloadingThis) {
+                                    viewModel.downloadBookOffline(currentBook.id)
+                                    selectionMode = false
+                                    selectedChapterIds.clear()
+                                }
+                            },
+                            enabled = !isDownloadingThis,
+                            modifier = Modifier.testTag("book_detail_download_all")
+                        ) {
+                            Text(stringResource(R.string.book_detail_download_all))
+                        }
+                    }
+                }
+            }
+        },
         topBar = {
             // The host Scaffold in MainActivity already consumed the status
             // bar (innerPadding.top), so this inner TopAppBar must NOT add
@@ -806,6 +889,22 @@ fun BookDetailScreen(
                         )
                     }
 
+                    // #397 — honest partial offline on the Edition header.
+                    bookDownloadCounts[currentBook.id]
+                        ?.takeIf { it.downloaded > 0 && it.downloaded < it.total }
+                        ?.let { count ->
+                            Text(
+                                text = stringResource(
+                                    R.string.offline_partial_badge,
+                                    count.downloaded,
+                                    count.total
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                            )
+                        }
+
                     Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
 
                     BookDetailDescription(detailPresentation)
@@ -978,7 +1077,23 @@ fun BookDetailScreen(
                             }
                             viewModel.setShowFullPlayer(true)
                         },
-                        onPauseClick = { viewModel.playerManager.pause() }
+                        onPauseClick = { viewModel.playerManager.pause() },
+                        isDownloadedCopy = downloadedIndices.contains(index),
+                        onDeleteCopy = { pendingChapterDeleteIndex = index },
+                        selectionMode = selectionMode,
+                        isSelected = chapter.id in selectedChapterIds,
+                        selectable = !downloadedIndices.contains(index),
+                        onLongClick = {
+                            if (!selectionMode) selectionMode = true
+                            if (!downloadedIndices.contains(index)) {
+                                if (chapter.id in selectedChapterIds) selectedChapterIds.remove(chapter.id)
+                                else selectedChapterIds.add(chapter.id)
+                            }
+                        },
+                        onToggleSelect = {
+                            if (chapter.id in selectedChapterIds) selectedChapterIds.remove(chapter.id)
+                            else selectedChapterIds.add(chapter.id)
+                        }
                     )
                 }
             } else {
@@ -1273,6 +1388,28 @@ fun BookDetailScreen(
                 }
             },
             onDismiss = { bookmarkToDelete = null }
+        )
+    }
+
+    // #397 — deleting ONE chapter's offline copy keeps the rest of the book.
+    pendingChapterDeleteIndex?.let { chapterIndex ->
+        AlertDialog(
+            onDismissRequest = { pendingChapterDeleteIndex = null },
+            title = { Text(stringResource(R.string.book_detail_chapter_delete_copy)) },
+            text = { Text(stringResource(R.string.book_detail_chapter_delete_copy_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingChapterDeleteIndex = null
+                    viewModel.removeChapterDownload(currentBook.id, chapterIndex)
+                }) {
+                    Text(stringResource(R.string.book_detail_bookmark_delete_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingChapterDeleteIndex = null }) {
+                    Text(stringResource(R.string.book_detail_cancel))
+                }
+            }
         )
     }
 

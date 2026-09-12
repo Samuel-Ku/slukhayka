@@ -90,14 +90,16 @@ class OutcomeMessagesTest {
         newBooks: Int = 0,
         missingFiles: Int = 0,
         movedFiles: Int = 0,
-        duplicateFiles: Int = 0
+        duplicateFiles: Int = 0,
+        structuralChangeRejected: Boolean = false
     ) = LibraryImport.RescanReport(
         treeUri = "content://tree",
         newChapters = newChapters,
         newBooks = newBooks,
         missingFiles = missingFiles,
         movedFiles = movedFiles,
-        duplicateFiles = duplicateFiles
+        duplicateFiles = duplicateFiles,
+        structuralChangeRejected = structuralChangeRejected
     )
 
     private data class RescanCase(
@@ -106,7 +108,8 @@ class OutcomeMessagesTest {
         val missing: Int,
         val moved: Int,
         val duplicates: Int,
-        val expected: String
+        val expected: String,
+        val rejected: Boolean = false
     )
 
     @Test
@@ -119,18 +122,24 @@ class OutcomeMessagesTest {
             RescanCase(2, 0, 0, 0, 0, "Пересканування завершено: +2 глав"),
             RescanCase(0, 0, 0, 0, 0, "Пересканування завершено — змін не знайдено"),
             RescanCase(0, 0, 1, 0, 0, "Пересканування завершено — змін не знайдено · 1 файлів зникло"),
-            RescanCase(0, 0, 0, 2, 0, "Пересканування завершено — змін не знайдено · 2 перейменовано")
+            RescanCase(0, 0, 0, 2, 0, "Пересканування завершено — змін не знайдено · 2 перейменовано"),
+            RescanCase(
+                0, 0, 0, 0, 0,
+                "Пересканування завершено: структурну зміну відхилено — підтвердьте новий перелік розділів",
+                rejected = true
+            )
         )
-        cases.forEach { (newChapters, newBooks, missing, moved, duplicates, expected) ->
+        cases.forEach { (newChapters, newBooks, missing, moved, duplicates, expected, rejected) ->
             val totals = rescan(
                 newChapters = newChapters,
                 newBooks = newBooks,
                 missingFiles = missing,
                 movedFiles = moved,
-                duplicateFiles = duplicates
+                duplicateFiles = duplicates,
+                structuralChangeRejected = rejected
             )
             assertEquals(
-                "rescanOutcome(newChapters=$newChapters, newBooks=$newBooks, missing=$missing, moved=$moved, duplicates=$duplicates)",
+                "rescanOutcome(newChapters=$newChapters, newBooks=$newBooks, missing=$missing, moved=$moved, duplicates=$duplicates, rejected=$rejected)",
                 expected,
                 OutcomeMessages.rescanOutcome(totals)
             )

@@ -86,6 +86,15 @@ class SourceReplacementMappingTest {
         sourceId = "4read"
     )
 
+    private fun indexMatch(sourceId: String, url: String) = SourceReplacementMapping.Match(
+        sourceId = sourceId,
+        url = url,
+        title = "Книга",
+        author = "Автор",
+        narrator = "",
+        coverImageUrl = null
+    )
+
     @Test
     fun `union hit serves the match with zero requests`() = runTest {
         val searches = CountingSearches(
@@ -176,6 +185,146 @@ class SourceReplacementMappingTest {
         assertEquals("https://sluhay.com.ua/42", resolver.resolve("Книга", "Автор", mergeKey)?.url)
         assertEquals("https://sluhay.com.ua/42", resolver.resolve("Книга", "Автор", mergeKey)?.url)
         assertEquals(1, searches.total)
+    }
+
+    @Test
+    fun `a forced re-check bypasses a fresh memo`() = runTest {
+        val searches = CountingSearches(
+            "sluhayua" to listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
+        )
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        resolver.resolve("Книга", "Автор", mergeKey)
+        resolver.resolve("Книга", "Автор", mergeKey, force = true)
+
+        assertEquals(2, searches.total)
+    }
+
+    @Test
+    fun `a local-only resolve never fires the volley`() = runTest {
+        val searches = CountingSearches(
+            "sluhayua" to listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
+        )
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        assertNull(resolver.resolveLocalOnly("Книга", "Автор", mergeKey))
+        assertEquals(0, searches.total)
+    }
+
+    @Test
+    fun `a local-only resolve answers from the work index with zero requests`() = runTest {
+        val searches = CountingSearches("sluhayua" to emptyList())
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ -> indexMatch("sluhayua", "https://sluhay.com.ua/42") },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        assertEquals("https://sluhay.com.ua/42", resolver.resolveLocalOnly("Книга", "Автор", mergeKey)?.url)
+        assertEquals(0, searches.total)
+    }
+
+    @Test
+    fun `a direct work-index match needs no session`() = runTest {
+        // ADR-0042/0037 — direct index entries keep working unchanged; the
+        // session seam only gates BROWSER entries.
+        val searches = CountingSearches("soundbooks" to emptyList())
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ -> indexMatch("soundbooks", "https://sound-books.net/42") },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        assertEquals("https://sound-books.net/42", resolver.resolve("Книга", "Автор", mergeKey)?.url)
+        assertEquals(0, searches.total)
+    }
+
+    @Test
+    fun `a browser work-index match is skipped without a session and accepted with one`() = runTest {
+        // #725 — sluhay.com is session-backed BROWSER: a live first-party
+        // session is a working transport, not a new browser door; without one
+        // the entry is skipped and the volley runs (and still skips browser
+        // members by the shared DIRECT filter).
+        val searches = CountingSearches("sluhay" to listOf(directBook("sluhay", "https://sluhay.com/42")))
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        val withoutSession = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ -> indexMatch("sluhay", "https://sluhay.com/42") },
+            sessionAlive = { false },
+            clock = { 1_000_000L }
+        )
+        assertNull(withoutSession.resolve("Книга", "Автор", mergeKey))
+        assertEquals("the volley ran and skipped the browser member", 1, searches.total)
+
+        val withSession = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ -> indexMatch("sluhay", "https://sluhay.com/42") },
+            sessionAlive = { it == "sluhay" },
+            clock = { 1_000_000L }
+        )
+        assertEquals("https://sluhay.com/42", withSession.resolve("Книга", "Автор", mergeKey)?.url)
+    }
+
+    @Test
+    fun `a browser work-index match is gated in the local-only resolve too`() = runTest {
+        val searches = CountingSearches("sluhay" to emptyList())
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        val withoutSession = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ -> indexMatch("sluhay", "https://sluhay.com/42") },
+            sessionAlive = { false },
+            clock = { 1_000_000L }
+        )
+        assertNull(withoutSession.resolveLocalOnly("Книга", "Автор", mergeKey))
+
+        val withSession = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ -> indexMatch("sluhay", "https://sluhay.com/42") },
+            sessionAlive = { it == "sluhay" },
+            clock = { 1_000_000L }
+        )
+        assertEquals("https://sluhay.com/42", withSession.resolveLocalOnly("Книга", "Автор", mergeKey)?.url)
+        assertEquals("local-only never fires the volley", 0, searches.total)
+    }
+
+    @Test
+    fun `a lapsed session drops the memoized browser match`() = runTest {
+        var alive = true
+        val searches = CountingSearches("sluhay" to listOf(directBook("sluhay", "https://sluhay.com/42")))
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ -> indexMatch("sluhay", "https://sluhay.com/42") },
+            sessionAlive = { alive },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        assertEquals("https://sluhay.com/42", resolver.resolve("Книга", "Автор", mergeKey)?.url)
+
+        // The positive 6h memo must not outlive the session it depends on.
+        alive = false
+        assertNull(resolver.resolve("Книга", "Автор", mergeKey))
     }
 
     @Test

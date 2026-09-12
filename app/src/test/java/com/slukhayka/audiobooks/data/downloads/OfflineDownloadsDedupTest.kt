@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.ui.library.OutcomeMessages
 import java.io.ByteArrayInputStream
 import java.io.File
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -388,5 +389,28 @@ class OfflineDownloadsDedupTest {
         // Shared count should appear in message when >0
         val withShared = OfflineDownloads.OfflineDownloadResult(downloadedChapters = 1, totalChapters = 2, sharedChapters = 1)
         assertTrue(OutcomeMessages.downloadOutcome(withShared).contains("спільно"))
+    }
+
+    @Test
+    fun `downloadSelectedChapters fetches only the chosen chapters and is incremental`() = runBlocking {
+        val urlByIndex = (0..2).associateWith { "https://cdn.example.com/track-$it.mp3" }
+        val audio = ByteArray(1024) { 0x7 }
+        val responses: Map<String, Pair<ByteArray, Long?>> =
+            urlByIndex.values.associateWith { audio to audio.size.toLong() }
+        val fetcher = FakeFetcher(sizedStreamResponses = responses)
+        val (imports, _, downloads) = harness(3, { urlByIndex.getValue(it) }, fetcher)
+        val bookId = importBook(imports)
+        val chapters = dao.getChaptersForBook(bookId).first()
+
+        downloads.downloadSelectedChapters(bookId, setOf(chapters[0].id, chapters[2].id))
+
+        val tracks = dao.getTracksForBookSync(bookId)
+        assertTrue(tracks.first { it.trackIndex == 0 }.isDownloaded)
+        assertFalse(tracks.first { it.trackIndex == 1 }.isDownloaded)
+        assertTrue(tracks.first { it.trackIndex == 2 }.isDownloaded)
+
+        // A later call with the middle chapter adds it without disturbing the rest.
+        downloads.downloadSelectedChapters(bookId, setOf(chapters[1].id))
+        assertEquals(3, dao.getTracksForBookSync(bookId).count { it.isDownloaded })
     }
 }

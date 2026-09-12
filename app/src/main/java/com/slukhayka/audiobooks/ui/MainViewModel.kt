@@ -27,6 +27,11 @@ import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
+import com.slukhayka.audiobooks.data.availability.AvailabilityCheckQueue
+import com.slukhayka.audiobooks.data.availability.AvailabilityDailyScan
+import com.slukhayka.audiobooks.data.availability.AvailabilityStatus
+import com.slukhayka.audiobooks.data.availability.AvailabilityView
+import com.slukhayka.audiobooks.data.availability.LibraryAvailabilityPolicy
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
@@ -702,6 +707,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) { books, progress, chapters ->
         com.slukhayka.audiobooks.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
+    // projection of the book's own source, the persisted verdicts and the
+    // refusal set. Clean books (available audio) are absent from the map, so
+    // the card never gets noise.
+    val libraryAvailability: StateFlow<Map<String, AvailabilityView>> = combine(
+        libraryBooks,
+        App.instance.libraryAvailabilityStore.verdicts,
+        App.instance.sourceAudioRefusal.refusedSources
+    ) { books, verdicts, refused ->
+        buildMap {
+            for (entry in books) {
+                val book = entry.book
+                // A local copy or an offline download always plays.
+                if (entry.isLocal || book.isDownloaded) continue
+                val mergeKey = book.mergeKey
+                if (mergeKey.isBlank()) continue
+                val available = LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)
+                val refusedId = LibraryAvailabilityPolicy.refusedSourceId(book.sourceUrl, refused)
+                LibraryAvailabilityPolicy.viewFor(available, refusedId, verdicts[mergeKey])
+                    ?.let { view -> put(mergeKey, view) }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // Wayfinder #62 — the rule-based personalized Listen: local-only prefs
     // (order / hidden / dismissed) feed the pure ListenComposer, whose output
@@ -2672,33 +2701,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
+        // #483 — a listener interaction with recommendations starts the one-time model install.
+        if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
         _recommendationsReady.value = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val catalog = sourceCatalog.unifiedCatalog.value
+                // #484 — the pool is the PERSISTENT Room catalogue, not the
+                // ephemeral union: suggestions are stable across sessions and
+                // cover the whole library. Priority: library works first,
+                // then active-feed (union) works, then the rest.
+                val unionKeys = sourceCatalog.unifiedCatalog.value.mapTo(HashSet()) { it.key }
                 val library = libraryBooks.value
-                val worksByKey = recommendationWorks.value.associateBy { it.mergeKey.ifBlank { it.id } }
-                val candidates = catalog.map { result ->
-                    val work = worksByKey[result.key]
-                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
-                        id = result.key,
-                        title = result.title,
-                        author = result.author,
-                        series = work?.seriesTitle.orEmpty()
-                    )
+                val libraryKeys = library.mapTo(HashSet()) { lb ->
+                    lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } }
                 }
-                if (candidates.isEmpty()) {
+                val works = recommendationWorks.value
+                if (works.isEmpty()) {
                     _catalogVectors.value = emptyMap()
                     return@launch
                 }
-                // Catalogue vectors go through the versioned file cache; the
-                // few library signal vectors embed right here on IO too (T4:
-                // never on the UI thread). The combine only reads the
+                val candidates = works.map { work ->
+                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
+                        id = work.mergeKey.ifBlank { work.id },
+                        title = work.title,
+                        author = work.author,
+                        series = work.seriesTitle.orEmpty()
+                    )
+                }.sortedWith(
+                    compareByDescending<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate> {
+                        it.id in libraryKeys
+                    }.thenByDescending { it.id in unionKeys }.thenBy { it.id }
+                )
+                // Catalogue vectors warm gradually (a bounded batch per pass);
+                // the few library signal vectors embed right here on IO too
+                // (T4: never on the UI thread). The combine only reads the
                 // published map.
-                val vectors = embeddingService.vectorsFor(candidates, embedder).toMutableMap()
-                for (signal in currentSignals(library)) {
-                    if (signal.id !in vectors) vectors[signal.id] = embedder.embed(signal.text)
+                val vectors = embeddingService
+                    .vectorsFor(candidates, currentEmbedder(), limit = EMBEDDING_BATCH)
+                    .toMutableMap()
+                // #482 — signal vectors go through the SAME per-book cache:
+                // only new/changed signals embed, the rest are a Room read.
+                val signals = currentSignals(library)
+                val signalTexts = signals.associate { it.id to it.text }
+                val cachedSignals = embeddingCache.loadFresh(signalTexts)
+                val persistSignals = LinkedHashMap<String, Pair<String, FloatArray>>()
+                for (signal in signals) {
+                    if (signal.id in vectors || signal.id in cachedSignals) continue
+                    try {
+                        val vector = currentEmbedder().embed(signal.text)
+                        vectors[signal.id] = vector
+                        persistSignals[signal.id] = signal.text to vector
+                    } catch (e: Exception) {
+                        // A failing signal simply misses — the row degrades.
+                    }
                 }
+                cachedSignals.forEach { (id, vector) -> vectors.putIfAbsent(id, vector) }
+                if (persistSignals.isNotEmpty()) embeddingCache.save(persistSignals)
                 _catalogVectors.value = vectors
             } finally {
                 _recommendationsReady.value = true
@@ -2716,31 +2774,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Q7: catalogue vectors come from the file cache keyed by catalogue
     // version (CatalogEmbeddingService) — the background pass recomputes
     // only on a version change; the row reads the cached map.
-    private val embeddingCache = com.slukhayka.audiobooks.data.recommend.EmbeddingCache(
-        File(application.filesDir, "embeddings")
+    private val embeddingCache = com.slukhayka.audiobooks.data.recommend.RoomEmbeddingCache(
+        App.instance.audiobookDao
     )
     private val embeddingService = com.slukhayka.audiobooks.data.recommend.CatalogEmbeddingService(embeddingCache)
 
+    private val embeddingModelDir = File(application.filesDir, "models/e5")
+    private val _embeddingModelState = MutableStateFlow<com.slukhayka.audiobooks.data.recommend.EmbeddingModelState>(
+        com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.NotInstalled
+    )
+    /** #483 — the honest model state the settings/row render. */
+    val embeddingModelState: StateFlow<com.slukhayka.audiobooks.data.recommend.EmbeddingModelState> =
+        _embeddingModelState.asStateFlow()
+    private val modelInstaller = com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller(
+        dir = embeddingModelDir,
+        fetcher = com.slukhayka.audiobooks.data.source.HttpFetcher(),
+        onState = { _embeddingModelState.value = it }
+    )
+    private val _embeddingInstallInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    @Volatile
+    private var embedderInstance: com.slukhayka.audiobooks.data.recommend.TextEmbedder? = null
+
+    private fun currentEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
+        embedderInstance?.let { return it }
+        return synchronized(this) {
+            embedderInstance ?: loadEmbedder().also { embedderInstance = it }
+        }
+    }
+
     /**
      * The production embedder (spec-19 T3/T4): the ONNX multilingual-e5-small
-     * model under assets/models/e5 (fetched by the downloadE5Model Gradle
-     * task — never committed). Created lazily, so the first — and only — load
-     * happens on the IO dispatcher inside the background pass, never on the
-     * UI thread. When the asset is absent or fails to load, the keyword
-     * baseline takes over (T2 contract: the row degrades, never crashes).
+     * model. Loaded from the runtime-installed copy first (#483), then the
+     * dev-time asset, else the keyword baseline (T2 contract: the row
+     * degrades, never crashes). Loaded lazily on the IO dispatcher inside the
+     * background pass, never on the UI thread.
      */
-    private val embedder: com.slukhayka.audiobooks.data.recommend.TextEmbedder by lazy {
+    private fun loadEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
+        val fromFiles = try {
+            val model = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MODEL_NAME)
+                .takeIf { it.length() >= com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MIN_MODEL_BYTES }
+            val tokenizer = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.TOKENIZER_NAME)
+                .takeIf { it.length() > 0L }
+            if (model != null && tokenizer != null) {
+                com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
+                    ai.onnxruntime.OrtEnvironment.getEnvironment(), model.readBytes(), tokenizer.readBytes()
+                )
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+        if (fromFiles != null) return fromFiles
         val fromAssets = try {
-            val model = application.assets.open("models/e5/model.onnx").use { it.readBytes() }
-            val tokenizer = application.assets.open("models/e5/tokenizer.json").use { it.readBytes() }
+            val assets = getApplication<Application>().assets
+            val model = assets.open("models/e5/model.onnx").use { it.readBytes() }
+            val tokenizer = assets.open("models/e5/tokenizer.json").use { it.readBytes() }
             com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
                 ai.onnxruntime.OrtEnvironment.getEnvironment(), model, tokenizer
             )
         } catch (e: Exception) {
             null
         }
-        fromAssets ?: com.slukhayka.audiobooks.data.recommend.KeywordEmbedder()
+        return fromAssets ?: com.slukhayka.audiobooks.data.recommend.KeywordEmbedder()
     }
+
+    /**
+     * #483 — starts the one-time model download on listener interaction
+     * (Overview or settings). Idempotent and single-flight; a successful
+     * install rebuilds the embedder and re-embeds with the full model.
+     */
+    fun ensureEmbeddingModel() {
+        if (_embeddingModelState.value is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) return
+        if (!_embeddingInstallInFlight.compareAndSet(false, true)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val state = modelInstaller.ensureInstalled()
+                if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
+                    synchronized(this@MainViewModel) { embedderInstance = null }
+                    refreshEmbeddingVectors()
+                }
+            } finally {
+                _embeddingInstallInFlight.set(false)
+            }
+        }
+    }
+
+    init {
+        if (modelInstaller.isInstalled()) {
+            _embeddingModelState.value = com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed
+        }
+    }
+
 
     /**
      * The weighted listening signals (Q3): favourite 1.0 > completed 0.8 >
@@ -2772,8 +2898,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         recommendationPersonalization.preferences
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * #481 — the library as the recommendation row sees it: re-emitted only
+     * when a signal BOUNDARY moves (started / completed / favourite / a Work
+     * added-removed), never on an intermediate 5-second progress tick. The
+     * pure [RecommendationRefreshPolicy] owns the key.
+     */
+    private val recommendationLibrarySignals: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> =
+        libraryBooks
+            .map { books ->
+                books to com.slukhayka.audiobooks.data.recommend.RecommendationRefreshPolicy.libraryKey(
+                    books.map { lb ->
+                        com.slukhayka.audiobooks.data.recommend.RecommendationRefreshPolicy.WorkSignal(
+                            id = lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } },
+                            isFavorite = lb.book.isFavorite,
+                            started = lb.percent > 0f,
+                            completed = lb.isCompleted
+                        )
+                    }
+                )
+            }
+            .distinctUntilChanged { old, new -> old.second == new.second }
+            .map { it.first }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), libraryBooks.value)
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
-        libraryBooks,
+        recommendationLibrarySignals,
         sourceCatalog.unifiedCatalog,
         catalogVectors,
         recommendationPreferences,
@@ -2836,10 +2987,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val merged = vectors.toMutableMap()
         val missing = allSignals.filter { it.id !in merged }
         if (missing.isNotEmpty()) {
-            if (embedder is com.slukhayka.audiobooks.data.recommend.OnnxEmbedder) {
+            if (currentEmbedder() is com.slukhayka.audiobooks.data.recommend.OnnxEmbedder) {
                 refreshEmbeddingVectors()
             } else {
-                for (signal in missing) merged[signal.id] = embedder.embed(signal.text)
+                for (signal in missing) merged[signal.id] = currentEmbedder().embed(signal.text)
             }
         }
         // #486 — the persisted source signals (#485): fresh rank positions and
@@ -2892,7 +3043,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             popularityByWorkId = popularityByWorkId,
             sourceLabelsByWorkId = sourceLabelsByWorkId
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.debounce(1_000L).flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val pendingRecommendationBookId = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
@@ -3081,6 +3233,170 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
                 App.instance.sourceWatchStore.unwatch(mergeKey)
             }
+        }
+    }
+
+    private val availabilityQueue = AvailabilityCheckQueue()
+    private var availabilityDraining = false
+
+    /**
+     * Spec-56 T2 (#729) — every problem Work joins the Source Watch
+     * automatically, without a listener action and idempotently: a Work
+     * whose audio is not available anywhere is exactly the Work the watch
+     * exists for. Zero-request (state + store only); the manual watch and
+     * notification paths stay untouched, so the two ways in never duplicate
+     * an entry.
+     */
+    fun ensureProblemWorksWatched() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val refused = App.instance.sourceAudioRefusal.refusedSources.value
+                val store = App.instance.sourceWatchStore
+                for (entry in libraryBooks.value) {
+                    val book = entry.book
+                    // A local copy or an offline download already plays; the
+                    // watch is for Works whose audio is genuinely absent.
+                    if (entry.isLocal || book.isDownloaded) continue
+                    val mergeKey = book.mergeKey.takeIf { it.isNotBlank() } ?: continue
+                    if (store.isWatched(mergeKey)) continue
+                    if (LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)) continue
+                    val workId = book.workId?.takeIf { it.isNotBlank() } ?: mergeKey
+                    store.watch(mergeKey, workId)
+                }
+            }
+        }
+    }
+
+    /**
+     * Spec-56 T2 (#729) — a tap on the availability status asks for current
+     * truth: a fresh resolve that bypasses the memo, bounded by the catalog
+     * source budget so the tap can never hang, while the card shows
+     * «перевіряємо». Offline (a bounded attempt that never completed) keeps
+     * the last honest verdict instead of fabricating a fresh one; a
+     * completed miss records an honest, time-stamped «джерел не знайдено».
+     * A found source notifies Source Watch exactly as the tap path does.
+     */
+    fun recheckAvailability(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
+                val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
+                checkAndRecord(book.title, book.author, mergeKey, force = true)
+            }
+        }
+    }
+
+    /**
+     * Spec-56 T3 (#730) — the visible cards set the order: they jump the
+     * queue, while the rest of the library is a delta scan due at most once
+     * a day. Nothing checks the whole backlog on start, and a restart inside
+     * the day never repeats the scan.
+     */
+    fun onAvailabilityVisible(visibleMergeKeys: List<String>) {
+        availabilityQueue.requestVisible(visibleMergeKeys)
+        enqueueDailyBacklogIfDue()
+        drainAvailabilityQueue()
+    }
+
+    private fun enqueueDailyBacklogIfDue() {
+        val store = App.instance.libraryAvailabilityStore
+        val now = System.currentTimeMillis()
+        if (!AvailabilityDailyScan.isDue(store.lastDailyScanAtMs(), now)) return
+        val refused = App.instance.sourceAudioRefusal.refusedSources.value
+        val backlog = libraryBooks.value
+            .asSequence()
+            .filter { !it.isLocal && !it.book.isDownloaded }
+            .filterNot { LibraryAvailabilityPolicy.hasAvailableAudio(it.book.sourceUrl, refused) }
+            .mapNotNull { it.book.mergeKey.takeIf { key -> key.isNotBlank() } }
+            .toList()
+        availabilityQueue.requestBacklog(backlog)
+        store.recordDailyScan(now)
+    }
+
+    private fun drainAvailabilityQueue() {
+        if (availabilityDraining) return
+        availabilityDraining = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                while (true) {
+                    val mergeKey = availabilityQueue.next() ?: break
+                    val entry = libraryBooks.value.firstOrNull { it.book.mergeKey == mergeKey } ?: continue
+                    runCatching {
+                        checkAndRecord(entry.book.title, entry.book.author, mergeKey, background = true)
+                    }
+                    delay(AVAILABILITY_CHECK_PAUSE_MS)
+                }
+            } finally {
+                availabilityDraining = false
+            }
+        }
+    }
+
+    /**
+     * One bounded check of a Work; records the honest verdict and lets Source
+     * Watch announce a found source.
+     *
+     * - [background] (the queue) is zero-request: union → shared cache → local
+     *   Work index only, so a background scan spends NO source tokens at all.
+     *   A local miss is not a verdict — the previous one stands, and the live
+     *   volley waits for a listener tap.
+     * - listener-initiated (the tap) bypasses the memo ([force]) and runs the
+     *   full resolve under the source budget; a bounded attempt that never
+     *   completed (offline) keeps the previous verdict instead of fabricating
+     *   a fresh one, and a completed miss records an honest «джерел не знайдено».
+     */
+    private suspend fun checkAndRecord(
+        title: String,
+        author: String,
+        mergeKey: String,
+        force: Boolean = false,
+        background: Boolean = false
+    ) {
+        val store = App.instance.libraryAvailabilityStore
+        if (background) {
+            val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+                App.instance.directSourceResolve.resolveLocalOnly(title, author, mergeKey)
+            }
+            if (match != null) {
+                store.record(
+                    mergeKey,
+                    AvailabilityStatus.FOUND,
+                    sourceId = match.sourceId,
+                    observedAtMs = System.currentTimeMillis()
+                )
+                SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
+            }
+            return
+        }
+        val previous = store.verdictFor(mergeKey)
+        store.record(mergeKey, AvailabilityStatus.CHECKING, observedAtMs = 0L)
+        var completed = false
+        val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+            val resolved = App.instance.directSourceResolve
+                .resolve(title, author, mergeKey, force = force)
+            completed = true
+            resolved
+        }
+        if (!completed) {
+            if (previous != null) {
+                store.record(mergeKey, previous.status, previous.sourceId, previous.observedAtMs)
+            }
+            return
+        }
+        if (match != null) {
+            store.record(
+                mergeKey,
+                AvailabilityStatus.FOUND,
+                sourceId = match.sourceId,
+                observedAtMs = System.currentTimeMillis()
+            )
+            SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
+        } else {
+            store.record(
+                mergeKey,
+                AvailabilityStatus.NOT_FOUND,
+                observedAtMs = System.currentTimeMillis()
+            )
         }
     }
 
@@ -3773,6 +4089,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         offlineDownloads.registerDownloadJob(bookId, job)
     }
 
+    // #396 — selective download of chosen chapters. The size preview is a
+    // separate, cancelable HEAD sweep restricted to the selected chapters.
+    private val _selectedDownloadSize = MutableStateFlow<OfflineDownloads.EstimatedSize?>(null)
+    val selectedDownloadSize: StateFlow<OfflineDownloads.EstimatedSize?> = _selectedDownloadSize.asStateFlow()
+    private var selectedSizeJob: kotlinx.coroutines.Job? = null
+
+    fun estimateSelectedChaptersSize(bookId: String, chapterIds: Set<String>) {
+        selectedSizeJob?.cancel()
+        if (chapterIds.isEmpty()) {
+            _selectedDownloadSize.value = null
+            return
+        }
+        selectedSizeJob = viewModelScope.launch(Dispatchers.IO) {
+            _selectedDownloadSize.value = runCatching {
+                offlineDownloads.estimateOfflineSize(bookId, chapterIds)
+            }.getOrNull()
+        }
+    }
+
+    fun downloadSelectedChapters(bookId: String, chapterIds: Set<String>) {
+        if (chapterIds.isEmpty()) return
+        if (_downloadingBookId.value != null) {
+            android.widget.Toast.makeText(getApplication(), "Вже завантажується інша книга", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        _downloadingBookId.value = bookId
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val book = libraryEntries.getBookSync(bookId)
+                startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
+                offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
+                val result = offlineDownloads.downloadSelectedChapters(bookId, chapterIds)
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
+                    _downloadRecoveryBookId.value = bookId.takeIf { result.requiresBrowserRefresh }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Selective download failed", e)
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = OutcomeMessages.downloadFailure()
+                    _downloadRecoveryBookId.value = null
+                }
+            } finally {
+                if (offlineDownloads.unregisterDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)) {
+                    _downloadingBookId.value = null
+                    stopDownloadNotification()
+                }
+                refreshCacheSize()
+            }
+        }
+        offlineDownloads.registerDownloadJob(bookId, job)
+    }
+
     // #394 — Download controls: pause / continue / cancel
     fun pauseDownload(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -3826,6 +4197,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             refreshCacheSize()
         }
     }
+
+    /**
+     * #397 — per-book Source Track download counts for the honest partial
+     * offline badge («Офлайн (N/M)»); full offline stays `downloaded == total`.
+     */
+    val bookDownloadCounts: StateFlow<Map<String, com.slukhayka.audiobooks.data.db.BookDownloadCount>> =
+        App.instance.audiobookDao.observeBookDownloadCounts()
+            .map { counts -> counts.associateBy { it.bookId } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** #397 — deletes the offline copy of ONE chapter, keeping the rest. */
+    fun removeChapterDownload(bookId: String, chapterIndex: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { offlineDownloads.removeChapterDownload(bookId, chapterIndex) }
+            refreshCacheSize()
+        }
+    }
+
+    /** #397 — chapters of the open book whose Source Tracks are on disk. */
+    val selectedBookDownloadedIndices: StateFlow<Set<Int>> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) {
+                flowOf(emptySet())
+            } else {
+                App.instance.audiobookDao.getTracksForBook(bookId)
+                    .map { tracks -> tracks.filter { it.isDownloaded }.map { it.trackIndex }.toSet() }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     // #393 — download notification helpers
     private var downloadProgressJob: kotlinx.coroutines.Job? = null
@@ -3982,7 +4382,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         newBooks = acc.newBooks + r.newBooks,
                         missingFiles = acc.missingFiles + r.missingFiles,
                         movedFiles = acc.movedFiles + r.movedFiles,
-                        duplicateFiles = acc.duplicateFiles + r.duplicateFiles
+                        duplicateFiles = acc.duplicateFiles + r.duplicateFiles,
+                        structuralChangeRejected = acc.structuralChangeRejected || r.structuralChangeRejected
                     )
                 }
                 _importMessage.value = OutcomeMessages.rescanOutcome(totals)
@@ -4019,6 +4420,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     companion object {
+        /** Human rhythm between queued availability checks; the gate throttles requests. */
+        private const val AVAILABILITY_CHECK_PAUSE_MS = 200L
+
+        /** #484 — how many new/changed works one embedding pass warms. */
+        private const val EMBEDDING_BATCH = 150
+
         fun formatTime(seconds: Long): String {
             val hrs = seconds / 3600
             val mins = (seconds % 3600) / 60

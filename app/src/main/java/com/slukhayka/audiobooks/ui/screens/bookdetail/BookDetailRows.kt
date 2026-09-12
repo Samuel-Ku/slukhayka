@@ -4,6 +4,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.mutableStateOf
@@ -91,6 +93,7 @@ import com.slukhayka.audiobooks.ui.library.bookPositionAndTotal
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChapterRowItem(
     chapter: ChapterEntity,
@@ -99,7 +102,17 @@ fun ChapterRowItem(
     isPlaying: Boolean,
     focusRequester: FocusRequester? = null,
     onPlayClick: () -> Unit,
-    onPauseClick: () -> Unit
+    onPauseClick: () -> Unit,
+    // #397 — the chapter's Source Track copy is on disk; the listener may
+    // delete just this chapter's copy.
+    isDownloadedCopy: Boolean = false,
+    onDeleteCopy: (() -> Unit)? = null,
+    // #396 — selection mode: long-press enters it, picking toggles a chapter.
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    selectable: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
+    onToggleSelect: (() -> Unit)? = null
 ) {
     val duration = chapter.durationSeconds.takeIf { it > 0L }?.let(MainViewModel::formatTime)
     val chapterSummary = if (duration != null) {
@@ -114,15 +127,20 @@ fun ChapterRowItem(
             else -> R.string.book_detail_chapter_not_current
         }
     )
-    val actionLabel = stringResource(
-        when {
-            isPlaying -> R.string.book_detail_chapter_pause
-            isCurrent -> R.string.book_detail_chapter_resume
-            else -> R.string.book_detail_chapter_play
-        },
-        chapter.title
-    )
-    val onAction = if (isPlaying) onPauseClick else onPlayClick
+    val actionLabel = when {
+        selectionMode && selectable -> stringResource(
+            if (isSelected) R.string.book_detail_chapter_deselect else R.string.book_detail_chapter_select,
+            chapter.title
+        )
+        isPlaying -> stringResource(R.string.book_detail_chapter_pause, chapter.title)
+        isCurrent -> stringResource(R.string.book_detail_chapter_resume, chapter.title)
+        else -> stringResource(R.string.book_detail_chapter_play, chapter.title)
+    }
+    val onAction: () -> Unit = when {
+        selectionMode && selectable -> onToggleSelect ?: onPlayClick
+        isPlaying -> onPauseClick
+        else -> onPlayClick
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -149,7 +167,7 @@ fun ChapterRowItem(
                 // A modal must return to this one node even in Touch mode;
                 // clickable's SystemDefined focusability otherwise rejects it.
                 .focusProperties { canFocus = true }
-                .clickable(onClickLabel = actionLabel, onClick = onAction)
+                .combinedClickable(onClickLabel = actionLabel, onClick = onAction, onLongClick = onLongClick)
                 .semantics(mergeDescendants = true) {
                     contentDescription = chapterSummary
                     stateDescription = chapterState
@@ -200,12 +218,45 @@ fun ChapterRowItem(
                 }
             }
 
-            Icon(
-                imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
+            if (selectionMode) {
+                // #396 — already-downloaded chapters are marked and not
+                // selectable; the rest carry a checkbox.
+                if (isDownloadedCopy) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = stringResource(
+                            R.string.book_detail_chapter_already_downloaded,
+                            chapter.title
+                        ),
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { onToggleSelect?.invoke() },
+                        modifier = Modifier.testTag("chapter_select_${chapter.id}")
+                    )
+                }
+            } else {
+                if (isDownloadedCopy && onDeleteCopy != null) {
+                    IconButton(onClick = onDeleteCopy) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.book_detail_chapter_delete_copy),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
         }
     }
 }

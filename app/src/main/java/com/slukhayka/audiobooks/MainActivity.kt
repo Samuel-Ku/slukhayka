@@ -346,6 +346,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val authorsIndexResults by viewModel.authorsIndexResults.collectAsState()
     val selectedCanonicalAuthor by viewModel.selectedCanonicalAuthor.collectAsState()
     val canonicalAuthorWorks by viewModel.canonicalAuthorWorks.collectAsState()
+    val canonicalAuthorOwnedWorkIds by viewModel.canonicalAuthorOwnedWorkIds.collectAsState()
     val isCanonicalAuthorLoading by viewModel.isCanonicalAuthorLoading.collectAsState()
     val canonicalAuthorLoadFailed by viewModel.canonicalAuthorLoadFailed.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
@@ -851,6 +852,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     selectedCanonicalAuthor != null -> CanonicalAuthorScreen(
                         author = selectedCanonicalAuthor!!,
                         works = canonicalAuthorWorks,
+                        ownedWorkIds = canonicalAuthorOwnedWorkIds,
                         isLoading = isCanonicalAuthorLoading,
                         loadFailed = canonicalAuthorLoadFailed,
                         onBackClick = { viewModel.closeCanonicalAuthor() },
@@ -861,7 +863,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     authorsIndexOpen -> {
                         // The full 10k-capable alphabetical projection is cold:
                         // collect it only while its destination is visible.
-                        val canonicalAuthors by viewModel.sourceCatalog.authors.collectAsState(initial = emptyList())
+                        // #736 — the default list is the Медіатека's people; a
+                        // search result set still spans the full index.
+                        val canonicalAuthors by viewModel.sourceCatalog.libraryAuthors.collectAsState(initial = emptyList())
                         val authorList = authorsIndexResults ?: canonicalAuthors
                         AuthorsIndexScreen(
                             authors = authorList,

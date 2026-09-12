@@ -217,6 +217,7 @@
     <string name="author_empty_catalog">Автори з\'являться після завантаження каталогу.</string>
     <string name="author_load_failed">Не вдалося відкрити книги автора. Спробуйте ще раз.</string>
     <string name="author_empty_works">Книг цього автора поки немає в каталозі.</string>
+    <string name="author_mirror_neighbour">З Дзеркала</string>
     <plurals name="author_count">
         <item quantity="one">%1$d автор</item>
         <item quantity="few">%1$d автори</item>

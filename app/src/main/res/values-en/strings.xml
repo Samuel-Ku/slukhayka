@@ -210,6 +210,7 @@
     <string name="author_empty_catalog">Authors will appear once the catalogue loads.</string>
     <string name="author_load_failed">Couldn\'t open this author\'s books. Try again.</string>
     <string name="author_empty_works">No books by this author in the catalogue yet.</string>
+    <string name="author_mirror_neighbour">From the mirror</string>
     <plurals name="author_count">
         <item quantity="one">%1$d author</item>
         <item quantity="other">%1$d authors</item>

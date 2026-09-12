@@ -80,6 +80,40 @@ class AuthorIndexRoomTest {
     }
 
     @Test
+    fun `library index lists only authors with an owned Work`() = runBlocking {
+        val dao = db.audiobookDao()
+        val owned = WorkEntity("w-owned", "w-owned", "Кобзар", "Тарас Шевченко", addedAt = 3)
+        val mirror = WorkEntity("w-mirror", "w-mirror", "Гайдамаки", "Тарас Шевченко", addedAt = 2)
+        val unowned = WorkEntity("w-unowned", "w-unowned", "Місто", "Валер'ян Підмогильний", addedAt = 1)
+        listOf(owned, mirror, unowned).forEach { dao.upsertWork(it) }
+        index.indexWorks(listOf(owned, mirror, unowned), sourceId = "catalog-union")
+        // Only ONE Work of Shevchenko is a Library Entry; Pidmohylnyi owns nothing.
+        dao.upsertLibraryEntry(
+            id = "book-owned",
+            workId = "w-owned",
+            isFavorite = false,
+            createdAt = 0L,
+            downloadProgress = 0f
+        )
+
+        assertEquals(
+            listOf("Тарас Шевченко"),
+            index.libraryAuthors.first().map { it.displayName }
+        )
+        assertEquals(listOf(1), index.libraryAuthors.first().map { it.workCount })
+
+        // The full index (author search) still discovers the not-yet-owned author.
+        assertEquals(
+            listOf("Валер'ян Підмогильний", "Тарас Шевченко"),
+            index.authors.first().map { it.displayName }
+        )
+        assertEquals(
+            setOf("w-owned"),
+            index.ownedWorkIds(AuthorIdentity.fromWorkName("Тарас Шевченко").id)
+        )
+    }
+
+    @Test
     fun `first local read backfills persisted Works without network or provider people`() = runBlocking {
         db.audiobookDao().upsertWork(
             WorkEntity("legacy-work", "legacy-work", "Intermezzo", "Михайло Коцюбинський", addedAt = 1)

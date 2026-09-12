@@ -257,10 +257,20 @@ class SourceCatalog(
     val authorIndexBackfillPending: Flow<Boolean> get() = authorIndex.backfillPending
     val authors = authorIndex.authors
 
+    /**
+     * #736 / ADR-0041 — the people index screen reads the Медіатека, not the
+     * mirror: only authors with an owned Work. Author search keeps [authors]
+     * and [searchAuthors] over the full index, so discovery still works.
+     */
+    val libraryAuthors = authorIndex.libraryAuthors
+
     suspend fun searchAuthors(query: String, limit: Int = AuthorIndex.DEFAULT_SEARCH_LIMIT): List<AuthorSummary> =
         authorIndex.search(query, limit)
 
     suspend fun authorWorks(authorId: String): List<WorkEntity> = authorIndex.works(authorId)
+
+    /** #736 — the owned Work ids of one author, for the person-page split. */
+    suspend fun authorOwnedWorkIds(authorId: String): Set<String> = authorIndex.ownedWorkIds(authorId)
 
     suspend fun authorForWork(workId: String): AuthorSummary? = authorIndex.authorForWork(workId)
 

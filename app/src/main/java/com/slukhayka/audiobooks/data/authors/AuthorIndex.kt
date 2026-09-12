@@ -29,6 +29,13 @@ interface AuthorIndex {
     val authors: Flow<List<AuthorSummary>>
 
     /**
+     * #736 / ADR-0041 — the people the listener actually has in the Медіатека:
+     * only authors with at least one owned Work. The index SCREEN reads this;
+     * [search] keeps the full index so a not-yet-owned author stays findable.
+     */
+    val libraryAuthors: Flow<List<AuthorSummary>>
+
+    /**
      * #559 — поки true, початковий backfill індексу ще добирає свої сторінки:
      * індекс людей на екранах зростає хвилинами, і слухач мусить бачити, що
      * це добудова, а не остаточний список.
@@ -37,6 +44,9 @@ interface AuthorIndex {
 
     suspend fun search(query: String, limit: Int = DEFAULT_SEARCH_LIMIT): List<AuthorSummary>
     suspend fun works(authorId: String): List<WorkEntity>
+
+    /** #736 — the owned Work ids of one author, for the person-page split. */
+    suspend fun ownedWorkIds(authorId: String): Set<String>
     suspend fun authorForWork(workId: String): AuthorSummary?
     suspend fun indexWorks(works: List<WorkEntity>, sourceId: String)
     suspend fun applyAssertion(
@@ -71,6 +81,11 @@ class RoomAuthorIndex(
         emitAll(dao.observeAuthorIndex())
     }
 
+    override val libraryAuthors: Flow<List<AuthorSummary>> = flow {
+        ensureBackfilled()
+        emitAll(dao.observeLibraryAuthorIndex())
+    }
+
     override suspend fun search(query: String, limit: Int): List<AuthorSummary> {
         val normalized = AuthorIdentity.searchableQuery(query) ?: return emptyList()
         ensureBackfilled()
@@ -84,6 +99,11 @@ class RoomAuthorIndex(
     override suspend fun works(authorId: String): List<WorkEntity> {
         ensureBackfilled()
         return dao.worksForAuthor(authorId)
+    }
+
+    override suspend fun ownedWorkIds(authorId: String): Set<String> {
+        ensureBackfilled()
+        return dao.ownedWorkIdsForAuthor(authorId).toSet()
     }
 
     override suspend fun authorForWork(workId: String): AuthorSummary? {

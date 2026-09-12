@@ -146,7 +146,7 @@ class AudioPlaybackEspressoTest {
                 coverDrawableRes = 0,
                 coverImageUrl = null,
                 genre = "Test",
-                sourceUrl = "https://fixtures.4read.invalid/$fixtureBookId.html",
+                sourceUrl = "https://sound-books.net/fixtures/$fixtureBookId.html",
                 isDownloaded = true,
                 totalDurationSeconds = 1L,
                 totalChapters = 1,
@@ -170,15 +170,17 @@ class AudioPlaybackEspressoTest {
                 durationSeconds = 1L
             )
             val source = com.slukhayka.audiobooks.data.db.SourceEntity(
-                id = "4read-$editionId",
+                id = "soundbooks-$editionId",
                 bookId = fixtureBookId,
                 editionId = editionId,
-                type = "4read",
-                url = "https://fixtures.4read.invalid/$fixtureBookId.html",
+                // #764-follow-up: a NON-scam source id — a 4read row would be
+                // purged at startup and the edition (with its chapters) with it.
+                type = "soundbooks",
+                url = "https://sound-books.net/fixtures/$fixtureBookId.html",
                 streamOnly = false
             )
             val track = com.slukhayka.audiobooks.data.db.SourceTrackEntity(
-                id = "4read-$editionId-tr-1",
+                id = "soundbooks-$editionId-tr-1",
                 sourceId = source.id,
                 trackIndex = 0,
                 // Keeping `url` to a fixed, deterministic value so that a

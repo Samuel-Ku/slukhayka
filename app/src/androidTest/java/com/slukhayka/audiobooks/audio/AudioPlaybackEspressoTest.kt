@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -249,8 +250,14 @@ class AudioPlaybackEspressoTest {
             hasTestTag("book_detail_chapter_$fixtureChapterId"),
             timeoutMillis = NAV_TIMEOUT_MS
         )
+        // #765 — the node EXISTING in the semantics tree is not the same as it
+        // being on screen: the book page is a long scroll, and a click on an
+        // off-screen node dispatches nothing (which is exactly the measured
+        // `showFullPlayer=false` after the tap). Bring it into view first.
         composeTestRule
             .onNodeWithTag("book_detail_chapter_$fixtureChapterId")
+            .performScrollTo()
+            .assertIsDisplayed()
             .performClick()
         composeTestRule.waitForIdle()
 
@@ -258,13 +265,11 @@ class AudioPlaybackEspressoTest {
         // playback started but currentBook was not set: after the tap the
         // ViewModel MUST have chosen the book AND raised the player flag.
         val vm = ViewModelProvider(composeTestRule.activity).get(MainViewModel::class.java)
-        val afterTap = vm.playerState.value
-        org.junit.Assert.assertEquals(
-            "the tap must select the fixture book as the current playback book " +
-                "(currentBook=${afterTap.currentBook?.id}, showFullPlayer=${vm.showFullPlayer.value})",
-            fixtureBookId,
-            afterTap.currentBook?.id
-        )
+        // Preparation is asynchronous, so WAIT (bounded) rather than assert on
+        // the instant after the tap.
+        composeTestRule.waitUntil(NAV_TIMEOUT_MS) {
+            vm.playerState.value.currentBook?.id == fixtureBookId
+        }
 
         // 4. Sanity: the Player scaffold is on screen.
         composeTestRule.waitUntilExactlyOneExists(

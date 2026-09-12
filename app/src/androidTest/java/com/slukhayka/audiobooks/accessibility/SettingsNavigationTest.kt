@@ -55,7 +55,12 @@ class SettingsNavigationTest {
     }
 
     private fun waitFor(tag: String) {
-        rule.waitUntil(20_000) { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().size == 1 }
+        rule.waitUntil(20_000) {
+            // #766 A — a raw fetchSemanticsNodes() THROWS while no hierarchy
+            // exists yet; the tolerant wait retries instead.
+            runCatching { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().size == 1 }
+                .getOrDefault(false)
+        }
     }
 
     @Test fun allDestinationsReturnToTheirSettingsRow() {

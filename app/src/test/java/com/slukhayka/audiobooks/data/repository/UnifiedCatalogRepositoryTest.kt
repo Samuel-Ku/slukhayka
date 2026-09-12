@@ -27,8 +27,9 @@ import org.robolectric.annotation.Config
  * injected fake adapters — no network. Tests external behaviour: every
  * source's catalogue enumeration is collected, books merge into one card per
  * Work via MergeKey with a badge per carried source, 4read is excluded (its
- * catalogue is natively browsed), and the union is ephemeral — nothing lands
- * in Room until a card is tapped.
+ * catalogue is natively browsed), and the union is not an import — the
+ * enumeration lands in the Catalog Mirror while no Library Entry appears
+ * until a card is tapped (ADR-0041).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -143,7 +144,7 @@ class UnifiedCatalogRepositoryTest {
     }
 
     @Test
-    fun `union is ephemeral - nothing is imported into Room`() = runBlocking {
+    fun `union is not an import - no Library Entry lands before a tap`() = runBlocking {
         val repository = repo(
             FakeAdapter("soundbooks", listOf(book("Кобзар", "Тарас Шевченко", "soundbooks")))
         )

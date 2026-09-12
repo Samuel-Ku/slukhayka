@@ -32,7 +32,9 @@ import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
@@ -79,6 +81,34 @@ class HomeFeedPhoneFoldSnapshotTest {
             coverImageUrl = null,
             sources = listOf(GlobalSearchSource("soundbooks", "Sound-Books", "https://sound-books.net/temna"))
         )
+    )
+
+    /** ADR-0041 / #733 — the «Новинки» rail is the library's newest imports. */
+    private val libraryArrivals = listOf(
+        libraryArrival("a1", "Вкради мене... Зараз!", "Сергій Оріанець", "4read", 2_000L),
+        libraryArrival("a2", "Темна матерія", "Блейк Крауч", "Sound-Books", 1_000L)
+    )
+
+    private fun libraryArrival(
+        id: String,
+        title: String,
+        author: String,
+        sourceName: String,
+        addedAt: Long
+    ): LibraryNewArrival = LibraryNewArrival(
+        workKey = "work-$id",
+        book = AudiobookEntity(
+            id = id,
+            title = title,
+            author = author,
+            narrator = "",
+            description = "",
+            coverDrawableRes = 0,
+            genre = "",
+            sourceUrl = ""
+        ).also { it.createdAt = addedAt },
+        sourceName = sourceName,
+        addedAt = addedAt
     )
 
     private val books = listOf(
@@ -245,7 +275,7 @@ class HomeFeedPhoneFoldSnapshotTest {
                             GenreFacetOption("detective", "Детективи", 1)
                         ),
                         collections = collections,
-                        newArrivals = results,
+                        newArrivals = libraryArrivals,
                         recommendedBooks = recommendedBooks,
                         recommendationsReady = recommendationsReady,
                         personalCycles = emptyList(),

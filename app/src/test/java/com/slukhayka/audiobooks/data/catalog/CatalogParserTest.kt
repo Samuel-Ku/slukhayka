@@ -229,43 +229,6 @@ class CatalogParserTest {
     }
 
     @Test
-    fun `top 100 linek cards parse into ranked books with real duration`() {
-        val html = """
-            <div class="sect__content count-items">
-                <div class="linek d-flex ai-center has-overlay card">
-                    <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-02/medium/x.webp" loading="lazy"></div>
-                    <div class="linek__desc flex-grow-1">
-                        <a href="https://4read.org/6945-dzho-aberkrombi-chorti.html"><div class="linek__title ws-nowrap">Чорти - Джо Аберкромбі</div></a>
-                        <div class="linek__meta ws-nowrap"><span>Триває:</span> 21:42:42</div>
-                    </div>
-                </div>
-                <div class="linek d-flex ai-center has-overlay card">
-                    <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-01/medium/y.webp" loading="lazy"></div>
-                    <div class="linek__desc flex-grow-1">
-                        <a href="https://4read.org/7001-vkradi-mene-zaraz.html"><div class="linek__title ws-nowrap">Вкради мене... Зараз! - Сергій Оріанець</div></a>
-                        <div class="linek__meta ws-nowrap"><span>Триває:</span> 8:05:00</div>
-                    </div>
-                </div>
-            </div>
-        """.trimIndent()
-
-        val books = CatalogParser.parseTop100(html)
-
-        assertEquals(2, books.size)
-        val first = books[0]
-        assertEquals("4read-6945-dzho-aberkrombi-chorti", first.id)
-        // "Title - Author" split at the LAST separator.
-        assertEquals("Чорти", first.title)
-        assertEquals("Джо Аберкромбі", first.author)
-        assertEquals(21 * 3600L + 42 * 60L + 42L, first.totalDurationSeconds)
-        assertEquals("https://4read.org/uploads/posts/2026-02/medium/x.webp", first.coverImageUrl)
-        // A title that itself contains " - " keeps it intact.
-        assertEquals("Вкради мене... Зараз!", books[1].title)
-        assertEquals("Сергій Оріанець", books[1].author)
-        assertEquals(8 * 3600L + 5 * 60L, books[1].totalDurationSeconds)
-    }
-
-    @Test
     fun `people list parses narrators and authors with book counts`() {
         val readers = """
             <h1>Усі виконавці:</h1>
@@ -348,11 +311,9 @@ class CatalogParserTest {
     }
 
     @Test
-    fun `top100 and people lists degrade to empty on malformed html`() {
+    fun `popular and people lists degrade to empty on malformed html`() {
         assertTrue(CatalogParser.parsePopularBooks("").isEmpty())
         assertTrue(CatalogParser.parsePopularBooks("<html><body><p>no popular</p></body></html>").isEmpty())
-        assertTrue(CatalogParser.parseTop100("").isEmpty())
-        assertTrue(CatalogParser.parseTop100("<html><body><p>no linek</p></body></html>").isEmpty())
         assertTrue(CatalogParser.parsePeopleList("").isEmpty())
         assertTrue(CatalogParser.parsePeopleList("<html><body><p>no people</p></body></html>").isEmpty())
     }

@@ -126,7 +126,9 @@ fun BookDetailScreen(
     val playerState by viewModel.playerState.collectAsState()
     val downloadingBookId by viewModel.downloadingBookId.collectAsState()
     val downloadMessage by viewModel.downloadMessage.collectAsState()
-    val downloadRecoveryBookId by viewModel.downloadRecoveryBookId.collectAsState()
+    // #741: the 4read browser-recovery suggestion is gone; the download
+    // failure stays honest text only.
+
     // Spec-15 T5: what every source carrying the Work says about it.
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
@@ -377,16 +379,11 @@ fun BookDetailScreen(
             viewModel.consumeNarrationClaimDone()
         }
     }
-    LaunchedEffect(downloadMessage, downloadRecoveryBookId) {
+    LaunchedEffect(downloadMessage) {
         downloadMessage?.let { message ->
-            val recoveryBookId = downloadRecoveryBookId
-            val result = snackbarHostState.showSnackbar(
-                message = message,
-                actionLabel = recoveryBookId?.let { "Оновити через браузер" }
-            )
-            if (result == SnackbarResult.ActionPerformed && recoveryBookId != null) {
-                viewModel.open4ReadRecovery(recoveryBookId, chapterIndex = 0, positionMs = 0L)
-            }
+            // #741: the download failure is honest text only — no 4read
+            // browser-recovery door is offered from the UI any more.
+            snackbarHostState.showSnackbar(message)
             viewModel.consumeDownloadMessage()
             viewModel.consumeDownloadRecovery()
         }
@@ -626,16 +623,9 @@ fun BookDetailScreen(
                             expanded = showOverflowMenu,
                             onDismissRequest = { showOverflowMenu = false }
                         ) {
-                            if (currentBook.sourceUrl.contains("4read.org")) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.a11y_book_detail_open_site, currentBook.title)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        viewModel.openWebSource("4read", currentBook.sourceUrl, "4read")
-                                    }
-                                )
-                            }
+                            // #741: the 4read "open on site" item is gone —
+                            // the source is scam and its release browser door
+                            // is retired.
                             if (currentBook.sourceUrl.contains("sluhay.com") && !currentBook.sourceUrl.contains("sluhay.com.ua")) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.a11y_book_detail_open_sluhay, currentBook.title)) },

@@ -39,7 +39,7 @@ import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesSharedTombstoneSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesSubmissionSyncCursorStore
-import com.slukhayka.audiobooks.data.facets.BilingualPromptEngine
+import com.slukhayka.audiobooks.data.facets.FirstLanguageChoiceEngine
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
@@ -261,7 +261,11 @@ class App : Application() {
                         if (adapter.sourceId in sourceAudioRefusal.refusedSources.value) {
                             emptyList()
                         } else {
-                            adapter.search(query)
+                            // #721 — the resolver consumes the SAME
+                            // search-with-feed-fallback seam the global
+                            // search serves, so a source without a search
+                            // endpoint is just as findable by auto-mapping.
+                            sourceCatalog.searchSource(adapter, query)
                         }
                     }
                 adapter.sourceId to search
@@ -455,6 +459,68 @@ class App : Application() {
     }
 
     /**
+     * #739 — the bounded, TTL'd pass that fills the local listener aggregate
+     * of the library rating from the shared reviews. Null-store (no Firebase
+     * keys) simply means no pass runs and the rating stays source-only.
+     */
+    val libraryRatingRefresh: com.slukhayka.audiobooks.data.reviews.LibraryRatingRefresh by lazy {
+        com.slukhayka.audiobooks.data.reviews.LibraryRatingRefresh(
+            dao = database.audiobookDao(),
+            reviews = listenerReviews
+        )
+    }
+
+    /**
+     * #522 — the collective catalogue lane. The transport is null without
+     * Firebase keys: publishing and the delta then simply do not run, and the
+     * local mirror keeps working.
+     */
+    private val collectiveCardStore: com.slukhayka.audiobooks.data.collective.CollectiveCardStore? by lazy {
+        com.slukhayka.audiobooks.data.collective.FirestoreCollectiveCardStore.create(this)
+    }
+
+    /** #522 — offers a verified direct-source book's public card to the lane. */
+    val collectiveCatalogPublisher: com.slukhayka.audiobooks.data.collective.CollectiveCatalogPublisher by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveCatalogPublisher(
+            store = collectiveCardStore,
+            book = { id -> database.audiobookDao().getAudiobookById(id)?.toAudiobookEntity() },
+            sources = { id -> database.audiobookDao().getSourcesForBookSync(id) }
+        )
+    }
+
+    /** #522 — the bounded cursor delta that mirrors other installs' cards. */
+    val collectiveDeltaSync: com.slukhayka.audiobooks.data.collective.CollectiveDeltaSync by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveDeltaSync(
+            store = collectiveCardStore,
+            apply = { card -> sourceCatalog.applyCollectiveCard(card) != null },
+            cursorStore = com.slukhayka.audiobooks.data.collective
+                .SharedPreferencesCollectiveSyncCursorStore(this)
+        )
+    }
+
+    /**
+     * #523 — stale-while-revalidate over the collective Огляд blocks: the
+     * persisted block answers instantly, and only a lease owner refreshes a
+     * stale one through ONE source page.
+     */
+    val collectiveFeedRefresh: com.slukhayka.audiobooks.data.collective.CollectiveFeedRefresh by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveFeedRefresh(
+            store = com.slukhayka.audiobooks.data.collective.RoomCollectiveFeedBlockStore(
+                database.audiobookDao()
+            ),
+            lease = com.slukhayka.audiobooks.data.collective.InMemoryCollectiveRefreshLease(),
+            fetch = { blockKey ->
+                val ref = com.slukhayka.audiobooks.data.collective.parseCollectiveBlockKey(blockKey)
+                if (ref == null) {
+                    com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty
+                } else {
+                    sourceCatalog.collectiveBlockFetch(ref.sourceId, ref.kind)
+                }
+            }
+        )
+    }
+
+    /**
      * ADR-0023 (#348) — the narration-ratings store («Оцінка начитки»).
      * Null without Firebase keys: the rating UI simply does not render.
      */
@@ -602,7 +668,12 @@ class App : Application() {
             // chain (cheap — one resolve) and spreads the update through the
             // shared base. Best-effort and silent — the import itself never
             // depends on it.
-            onWorkImported = { workId -> runCatching { seriesUniverses.validateChainFor(workId) } },
+            onWorkImported = { workId ->
+                runCatching { seriesUniverses.validateChainFor(workId) }
+                // #522 — a verified import offers its public card to the
+                // collective lane; best-effort, never blocks the import.
+                runCatching { collectiveCatalogPublisher.publishVerified(workId) }
+            },
             // Spec-32 T2/T3 (#232/#233): a resolved page writes its full
             // profile to the shared base (the next listener skips the page
             // fetch), and a card import reads a fresh profile back instead of
@@ -611,7 +682,11 @@ class App : Application() {
             verifiedProfileReader = verifiedSourceProfileReader,
             // #581 W0.3 — an imported Work mirrors as an `entry` row for the
             // web Медіатека (best-effort, silent on failure).
-            workRelationshipsSync = workRelationshipsSync
+            workRelationshipsSync = workRelationshipsSync,
+            // #618 — every local Edition's writes ride ONE Room transaction:
+            // an injected failure rolls the whole Edition back instead of
+            // leaving a half-written card (and its promoted files are removed).
+            writeBatchRunner = { block -> database.withTransaction { block() } }
         )
     }
 
@@ -651,13 +726,14 @@ class App : Application() {
     val appLocalePrefs: AppLocalePrefs by lazy { AppLocalePrefs(this) }
 
     /**
-     * Spec-45 (#405) T8 (#496): the one-time bilingual prompt — after the
-     * first sync that writes an `en` Edition, the listener answers once
-     * whether to keep or hide English (US9). One app-scoped owner; sync
-     * call sites run [BilingualPromptEngine.evaluate] when they complete.
+     * Spec-51 (#742) T2: the one-time First Language Choice — after the first
+     * sync that writes any rendition, the listener answers once which
+     * languages to show (the spec-45 prompt's fires-once discipline, the
+     * multilingual question). One app-scoped owner; sync call sites run
+     * [FirstLanguageChoiceEngine.evaluate] when they complete.
      */
-    val bilingualPrompt: BilingualPromptEngine by lazy {
-        BilingualPromptEngine(contentLanguagePrefs) { audiobookDao.hasEnglishEditions() }
+    val firstLanguageChoice: FirstLanguageChoiceEngine by lazy {
+        FirstLanguageChoiceEngine(contentLanguagePrefs) { audiobookDao.knownEditionLanguages() }
     }
 
     /** Source Catalog: browse/sync/search + chapter materialisation. */
@@ -812,14 +888,17 @@ class App : Application() {
 
     /**
      * spec-18 T2 (#113): the throttled background duration-enrichment pass.
-     * The page fetch rides the 4read source adapter — the same seam every
-     * other door uses.
+     * #740: the page fetch resolves each book's OWN source adapter — never a
+     * fixed source; a source with no adapter degrades honestly.
      */
     val durationEnrichment: DurationEnrichment by lazy {
-        val fourRead = sourceAdapters.first { it.sourceId == "4read" }
         // Spec-30 T4 (#219): a page-derived duration writes back to the
         // shared base so the next listener reads it instead of re-fetching.
-        DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage, sharedStore = sharedMetaStore)
+        DurationEnrichment(
+            database.audiobookDao(),
+            adapterFor = { sourceId -> sourceAdapters.firstOrNull { it.sourceId == sourceId } },
+            sharedStore = sharedMetaStore
+        )
     }
 
     /**
@@ -855,7 +934,10 @@ class App : Application() {
             streamProbe = { url -> HttpFetcher().isReachable(url) },
             known = { mergeKey -> database.audiobookDao().findByMergeKey(mergeKey) != null },
             import = { sourceId, detail ->
-                libraryImport.importBookFromSource(sourceId, detail)
+                // A scam source is never seeded into the library.
+                if (!com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(sourceId)) {
+                    libraryImport.importBookFromSource(sourceId, detail)
+                }
             }
         )
     }
@@ -910,6 +992,16 @@ class App : Application() {
      */
     val storedMetadataScrub: StoredMetadataScrub by lazy {
         StoredMetadataScrub(database.audiobookDao())
+    }
+
+    /**
+     * The one-time scam-source purge: 4read's 52-second artefact rows leave
+     * the library DB (fake Edition + chapters + sources + tracks + files),
+     * while the Work and the library card stay as an honest «аудіо
+     * недоступне». Idempotent — a second run finds nothing.
+     */
+    val scamSourcePurge: com.slukhayka.audiobooks.data.source.ScamSourcePurge by lazy {
+        com.slukhayka.audiobooks.data.source.ScamSourcePurge(database.audiobookDao())
     }
 
     /**
@@ -1085,6 +1177,8 @@ class App : Application() {
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { storedMetadataScrub.scrubOnce() }
             runCatching { duplicateWorkMerger.mergeOnce() }
+            // Scam rows leave before anything can read them as a book.
+            runCatching { scamSourcePurge.purgeOnce() }
         }
         // Spec-26 T6 (#180): pour the curated universe asset into the shared
         // base (one document per curated series, idempotent — a re-seed on a

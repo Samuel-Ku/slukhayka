@@ -57,10 +57,8 @@
     <string name="home_long_books">Long — 10+ hours</string>
     <string name="home_more_books_on">More books on %1$s</string>
     <string name="home_library_results">In your library (%1$d)</string>
+    <string name="home_library_no_matches">Not in your library</string>
     <string name="home_all_sources">All sources (%1$d)</string>
-    <string name="home_search_on_4read">Search “%1$s” on 4read</string>
-    <string name="home_search_browser_fallback">Nothing on 4read? Search in browser</string>
-    <string name="home_browser_only_snackbar">This book is 4read-only — browser needed</string>
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>
     <string name="library_remaining">%1$s left</string>
@@ -116,14 +114,12 @@
     <string name="profile_unmute">Unmute</string>
     <string name="profile_write_review">Write a review</string>
     <string name="bookdetail_wrong_universe">Wrong universe?</string>
-    <string name="bookdetail_open_cycle">Open the cycle in 4read</string>
     <string name="bookdetail_precedes">Precedes: “%1$s”</string>
     <string name="bookdetail_continues">Continues: “%1$s”</string>
     <string name="feed_help_recommendations">Help recommendations get better?</string>
     <string name="feed_more">Learn more</string>
     <string name="update_hide">Hide</string>
     <string name="speed_default_for_all">Default for all</string>
-    <string name="top100_open_chart">Open the chart in 4read</string>
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
@@ -209,10 +205,16 @@
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Authors</string>
     <string name="series_index_title">Series</string>
-    <string name="top100_index_title">Top 100 Audiobooks</string>
+    <string name="series_mirror_neighbours">Also in the mirror</string>
+    <string name="collective_block_provenance">Source: %1$s</string>
+    <string name="collective_block_attempt">Last attempt: %1$s</string>
+    <string name="collective_block_attempt_ok">refreshed</string>
+    <string name="collective_block_attempt_stale">showing the last good snapshot</string>
+    <string name="library_rating_title">Library rating</string>
     <string name="author_empty_catalog">Authors will appear once the catalogue loads.</string>
     <string name="author_load_failed">Couldn\'t open this author\'s books. Try again.</string>
     <string name="author_empty_works">No books by this author in the catalogue yet.</string>
+    <string name="author_mirror_neighbour">From the mirror</string>
     <plurals name="author_count">
         <item quantity="one">%1$d author</item>
         <item quantity="other">%1$d authors</item>
@@ -225,9 +227,13 @@
         <item quantity="one">%1$d series</item>
         <item quantity="other">%1$d series</item>
     </plurals>
-    <plurals name="best_book_count">
-        <item quantity="one">%1$d best book</item>
-        <item quantity="other">%1$d best books</item>
+    <plurals name="library_rating_count">
+        <item quantity="one">%1$d rated book</item>
+        <item quantity="other">%1$d rated books</item>
+    </plurals>
+    <plurals name="library_rating_votes">
+        <item quantity="one">%1$d vote</item>
+        <item quantity="other">%1$d votes</item>
     </plurals>
     <plurals name="book_in_cycle_count">
         <item quantity="one">%1$d book in the cycle</item>

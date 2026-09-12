@@ -25,7 +25,9 @@ import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
@@ -75,6 +77,50 @@ class HomeFeedOrderSnapshotTest {
             coverImageUrl = null,
             sources = listOf(GlobalSearchSource("soundbooks", "Sound-Books", "https://sound-books.net/temna"))
         )
+    )
+
+    /**
+     * ADR-0041 / #733: the rail is the library's newest imports, so its
+     * fixtures are Library Entries (not live search results). The Work
+     * identity is `workKey`; the badge is the entry's source name.
+     */
+    private val libraryArrivals = listOf(
+        libraryArrival(
+            id = "a1",
+            title = "Вкради мене... Зараз!",
+            author = "Сергій Оріанець",
+            sourceName = "4read",
+            addedAt = 2_000L
+        ),
+        libraryArrival(
+            id = "a2",
+            title = "Темна матерія",
+            author = "Блейк Крауч",
+            sourceName = "Sound-Books",
+            addedAt = 1_000L
+        )
+    )
+
+    private fun libraryArrival(
+        id: String,
+        title: String,
+        author: String,
+        sourceName: String,
+        addedAt: Long
+    ): LibraryNewArrival = LibraryNewArrival(
+        workKey = "work-$id",
+        book = AudiobookEntity(
+            id = id,
+            title = title,
+            author = author,
+            narrator = "",
+            description = "",
+            coverDrawableRes = 0,
+            genre = "",
+            sourceUrl = ""
+        ).also { it.createdAt = addedAt },
+        sourceName = sourceName,
+        addedAt = addedAt
     )
 
     private val books = listOf(
@@ -152,7 +198,7 @@ class HomeFeedOrderSnapshotTest {
                                 GenreFacetOption("detective", "Детективи", 1)
                             ),
                             collections = collections,
-                            newArrivals = results,
+                            newArrivals = libraryArrivals,
                             recommendedBooks = recommendations,
                             personalCycles = emptyList(),
                             shortBooks = books,
@@ -265,7 +311,7 @@ class HomeFeedOrderSnapshotTest {
                                 GenreFacetOption("detective", "Детективи", 1)
                             ),
                             collections = collections,
-                            newArrivals = results,
+                            newArrivals = libraryArrivals,
                             recommendedBooks = recommendations,
                             personalCycles = cycles,
                             shortBooks = books,

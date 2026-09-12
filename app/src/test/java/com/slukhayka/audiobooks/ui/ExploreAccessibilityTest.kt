@@ -41,9 +41,11 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.SourceEntity
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
@@ -249,30 +251,44 @@ class ExploreAccessibilityTest {
         CatalogBrowserFocusReturn.consume(row.workId)
     }
 
+    /**
+     * ADR-0041 / #733: the «Новинки» rail is the listener's own library —
+     * every card opens an owned book (no source resolution, no preflight) and
+     * carries the source badge it was imported from.
+     */
     @Test
-    fun newArrivalsPreflightsOnlyTheLazyViewportAndItsBuffer() {
-        val results = (0 until 50).map { index ->
-            result.copy(
-                title = "${result.title} $index",
-                mergeKey = "${result.mergeKey}|$index",
-                sources = result.sources.map { it.copy(url = "https://example.invalid/$index") }
+    fun libraryNewArrivalsRailOpensTheOwnedBookAndShowsTheSourceBadge() {
+        val arrivals = listOf(
+            LibraryNewArrival(
+                workKey = "work-a1",
+                book = AudiobookEntity(
+                    id = "a1",
+                    title = "Темна матерія",
+                    author = "Блейк Крауч",
+                    narrator = "",
+                    description = "",
+                    coverDrawableRes = 0,
+                    genre = "",
+                    sourceUrl = "https://sound-books.net/temna"
+                ),
+                sourceName = "Sound-Books",
+                addedAt = 1_000L
             )
-        }
-        var preflightCount = 0
+        )
+        var opened: String? = null
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                Box(Modifier.width(320.dp).height(300.dp)) {
-                    NewArrivalsRail(
-                        results = results,
-                        onBookClick = {},
-                        onPreflight = { preflightCount++ }
-                    )
+                Box(Modifier.width(420.dp).height(600.dp)) {
+                    NewArrivalsRail(arrivals = arrivals, onBookClick = { opened = it.id })
                 }
             }
         }
 
         compose.waitForIdle()
-        org.junit.Assert.assertTrue(preflightCount in 1 until results.size)
+        compose.onNodeWithTag("new_arrivals_rail").assertIsDisplayed()
+        compose.onNodeWithText("Sound-Books").assertIsDisplayed()
+        compose.onNodeWithTag("compact_book_a1").performClick()
+        org.junit.Assert.assertEquals("a1", opened)
     }
 
     @Test

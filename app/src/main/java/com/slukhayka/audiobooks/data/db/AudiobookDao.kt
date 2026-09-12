@@ -78,6 +78,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM sources WHERE editionId = :editionId ORDER BY addedAt ASC")
     suspend fun getSourcesForEditionSync(editionId: String): List<SourceEntity>
 
+    /** Every source row of the given types — the scam purge's entry query. */
+    @Query("SELECT * FROM sources WHERE type IN (:types)")
+    suspend fun getSourcesByTypes(types: List<String>): List<SourceEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSources(sources: List<SourceEntity>)
 
@@ -205,6 +209,10 @@ interface AudiobookDao {
     /** Real chapter/duration counts once the book's chapters are known. */
     @Query("UPDATE audiobooks SET totalChapters = :totalChapters, totalDurationSeconds = :totalDurationSeconds WHERE id = :bookId")
     suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long)
+
+    /** The purge's card reset: a scam book keeps its card but loses the fake page URL. */
+    @Query("UPDATE audiobooks SET sourceUrl = :url WHERE id = :bookId")
+    suspend fun updateBookSourceUrl(bookId: String, url: String)
 
     /**
      * Back-fills the real page metadata (author, narrator, genre, rating)
@@ -341,6 +349,10 @@ interface AudiobookDao {
     @Query("DELETE FROM work_sources WHERE workId = :workId AND sourceUrl = :sourceUrl")
     suspend fun deleteWorkSourceForUrl(workId: String, sourceUrl: String)
 
+    /** The scam purge — removes every catalog claim of the scam source types. */
+    @Query("DELETE FROM work_sources WHERE sourceId IN (:types)")
+    suspend fun deleteWorkSourcesBySourceIds(types: List<String>)
+
     @Query("SELECT * FROM sources WHERE id = :sourceId LIMIT 1")
     suspend fun getSourceById(sourceId: String): SourceEntity?
 
@@ -372,21 +384,31 @@ interface AudiobookDao {
     suspend fun getEditionForWork(bookId: String): EditionEntity?
 
     /**
-     * Spec-45 (#405) T8 (#496): whether the catalogue holds any known-English
-     * rendition (Edition row or facet row) — the one-time bilingual prompt
-     * fires only after the first sync that actually wrote an `en` Edition
-     * (US9). Codes are stored normalized (BCP-47) by the T1 write-through.
+     * Spec-51 (#742) T1/T2 — every content language the catalogue actually
+     * holds: the Edition rows and the facet rows the T1 write-through fills.
+     * The First Language Choice offers exactly this list (a language nobody
+     * has a rendition in is never offered), and an empty answer means no
+     * sync has written anything yet — the question waits. Codes are stored
+     * normalized (BCP-47).
      */
     @Query(
         """
-        SELECT EXISTS(
-            SELECT 1 FROM edition_facets WHERE language = 'en'
-            UNION
-            SELECT 1 FROM editions WHERE language = 'en'
-        )
+        SELECT DISTINCT language FROM edition_facets WHERE language != ''
+        UNION
+        SELECT DISTINCT language FROM editions WHERE language != ''
         """
     )
-    suspend fun hasEnglishEditions(): Boolean
+    suspend fun knownEditionLanguages(): List<String>
+
+    /** The Room flow twin of [knownEditionLanguages] for the settings screen. */
+    @Query(
+        """
+        SELECT DISTINCT language FROM edition_facets WHERE language != ''
+        UNION
+        SELECT DISTINCT language FROM editions WHERE language != ''
+        """
+    )
+    fun observeKnownEditionLanguages(): Flow<List<String>>
 
     /** Every known rendition, for local projections such as person-bookmark news. */
     @Query("SELECT * FROM editions ORDER BY addedAt DESC")
@@ -487,6 +509,52 @@ interface AudiobookDao {
     /** Every cached series row — the context read matches across providers. */
     @Query("SELECT * FROM series")
     suspend fun getAllSeries(): List<SeriesEntity>
+
+    /**
+     * #734 / ADR-0041 — the «Серії» index corpus: only cycles the listener
+     * actually has a book in, from BOTH the Work's own series fields and the
+     * resolved series memberships. An enumerated-only cycle never appears.
+     */
+    @Query(
+        "SELECT DISTINCT title, url FROM (" +
+            "SELECT w.seriesTitle AS title, w.seriesUrl AS url " +
+            "FROM works w JOIN library_entries le ON le.workId = w.id " +
+            "WHERE w.seriesTitle IS NOT NULL AND w.seriesTitle != '' " +
+            "UNION " +
+            "SELECT s.title AS title, s.url AS url " +
+            "FROM series s " +
+            "JOIN series_members sm ON sm.seriesId = s.id " +
+            "JOIN library_entries le ON le.workId = sm.workId " +
+            "WHERE s.title != ''" +
+            ") ORDER BY title COLLATE NOCASE ASC"
+    )
+    suspend fun ownedSeriesIndexRows(): List<SeriesIndexRow>
+
+    /** #734 — the listener's owned books of one series (by title). */
+    @Query(
+        "SELECT DISTINCT a.* FROM audiobooks a " +
+            "JOIN library_entries le ON le.id = a.id " +
+            "LEFT JOIN works w ON w.id = le.workId " +
+            "LEFT JOIN series_members sm ON sm.workId = le.workId " +
+            "LEFT JOIN series s ON s.id = sm.seriesId " +
+            "WHERE w.seriesTitle = :title OR s.title = :title " +
+            "ORDER BY w.seriesIndex IS NULL, w.seriesIndex ASC, a.title COLLATE NOCASE ASC, a.id ASC"
+    )
+    suspend fun libraryBooksForSeries(title: String): List<AudiobookEntity>
+
+    /**
+     * #734 — the Дзеркало neighbours of one series: known Works the listener
+     * does NOT own, offered as finds on the series page (import on tap).
+     */
+    @Query(
+        "SELECT DISTINCT w.* FROM works w " +
+            "LEFT JOIN series_members sm ON sm.workId = w.id " +
+            "LEFT JOIN series s ON s.id = sm.seriesId " +
+            "WHERE (w.seriesTitle = :title OR s.title = :title) " +
+            "AND NOT EXISTS (SELECT 1 FROM library_entries le WHERE le.workId = w.id) " +
+            "ORDER BY w.seriesIndex IS NULL, w.seriesIndex ASC, w.title COLLATE NOCASE ASC, w.id ASC"
+    )
+    suspend fun mirrorNeighboursForSeries(title: String): List<WorkEntity>
 
     /** The ordered series of one universe — precedes/follows come from neighbors. */
     @Query("SELECT * FROM series WHERE universeId = :universeId ORDER BY positionInUniverse ASC")
@@ -674,6 +742,17 @@ interface AudiobookDao {
 
     @Query("DELETE FROM playback_progress WHERE bookId = :bookId")
     suspend fun deletePlaybackProgressForBook(bookId: String)
+
+    // --- The scam purge's Edition-scoped deletes (ADR-0007 keys) -----------
+
+    @Query("DELETE FROM chapters WHERE editionId = :editionId")
+    suspend fun deleteChaptersForEdition(editionId: String)
+
+    @Query("DELETE FROM bookmarks WHERE editionId = :editionId")
+    suspend fun deleteBookmarksForEdition(editionId: String)
+
+    @Query("DELETE FROM playback_progress WHERE editionId = :editionId")
+    suspend fun deletePlaybackProgressForEdition(editionId: String)
 
     /**
      * #445 — the explicitly confirmed repair door for a Chapter topology that
@@ -1044,6 +1123,13 @@ interface AudiobookDao {
     @Query("DELETE FROM work_genres WHERE workId=:workId AND sourceId=:sourceId")
     suspend fun deleteWorkGenresForSource(workId: String, sourceId: String)
 
+    /** The scam purge — removes the Edition's facet projection with it. */
+    @Query("DELETE FROM edition_facets WHERE editionId = :editionId")
+    suspend fun deleteEditionFacet(editionId: String)
+
+    @Query("SELECT * FROM edition_facets WHERE editionId = :editionId LIMIT 1")
+    suspend fun getEditionFacet(editionId: String): com.slukhayka.audiobooks.data.db.EditionFacetEntity?
+
     @Query("DELETE FROM genre_assertions WHERE workId=:workId AND sourceId=:sourceId")
     suspend fun deleteGenreAssertionsForSource(workId: String, sourceId: String)
 
@@ -1116,6 +1202,21 @@ interface AudiobookDao {
     )
     fun observeAuthorIndex(): Flow<List<AuthorSummary>>
 
+    /**
+     * #736 / ADR-0041 — the people the listener actually has in the Медіатека:
+     * only authors with at least one owned (Library Entry) Work, counted over
+     * those owned Works. The full [observeAuthorIndex] stays for search, so a
+     * non-owned author is still discoverable — the index SCREEN is library-only.
+     */
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
+            "FROM author_facets a JOIN work_facets wf ON wf.canonicalAuthorId=a.id " +
+            "WHERE EXISTS (SELECT 1 FROM library_entries le WHERE le.workId = wf.workId) " +
+            "GROUP BY a.id, a.displayName, a.normalizedName " +
+            "ORDER BY a.normalizedName ASC, a.id ASC"
+    )
+    fun observeLibraryAuthorIndex(): Flow<List<AuthorSummary>>
+
     @Query(
         "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
             "FROM author_aliases aa INDEXED BY index_author_aliases_normalizedAlias " +
@@ -1132,6 +1233,41 @@ interface AudiobookDao {
             "WHERE wf.canonicalAuthorId=:authorId ORDER BY w.title COLLATE NOCASE ASC, w.id ASC"
     )
     suspend fun worksForAuthor(authorId: String): List<WorkEntity>
+
+    /**
+     * #736 — which of an author's Works the listener owns. The person page
+     * shows every known Work (Медіатека + Дзеркало neighbours) and uses this
+     * set to mark the owned ones first and the mirror neighbours as finds.
+     */
+    @Query(
+        "SELECT w.id FROM works w JOIN work_facets wf ON wf.workId=w.id " +
+            "JOIN library_entries le ON le.workId=w.id " +
+            "WHERE wf.canonicalAuthorId=:authorId"
+    )
+    suspend fun ownedWorkIdsForAuthor(authorId: String): List<String>
+
+    /**
+     * #736 / ADR-0041 — the narrators the listener actually has: only the
+     * narration of an owned Edition, counted over owned Works. The «Виконавці»
+     * index reads this instead of a provider page.
+     */
+    @Query(
+        "SELECT e.narrator AS displayName, COUNT(DISTINCT e.workId) AS workCount " +
+            "FROM editions e JOIN library_entries le ON le.workId = e.workId " +
+            "WHERE e.narrator IS NOT NULL AND e.narrator != '' " +
+            "GROUP BY e.narrator ORDER BY e.narrator COLLATE NOCASE ASC"
+    )
+    fun observeLibraryNarrators(): Flow<List<com.slukhayka.audiobooks.data.people.NarratorSummary>>
+
+    /** #736 — the listener's owned books of one narrator, for the person page. */
+    @Query(
+        "SELECT a.* FROM audiobooks a " +
+            "JOIN library_entries le ON le.id = a.id " +
+            "JOIN editions e ON e.workId = le.workId " +
+            "WHERE e.narrator = :narrator " +
+            "ORDER BY a.title COLLATE NOCASE ASC, a.id ASC"
+    )
+    suspend fun libraryBooksForNarrator(narrator: String): List<AudiobookEntity>
 
     @Query(
         "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT allWf.workId) AS workCount " +

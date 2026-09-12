@@ -7,7 +7,8 @@
       "contentLanguage": "uk",
       "accessMode": "BROWSER",
       "order": 0,
-      "streamOnly": false,
+      "streamOnly": true,
+      "scam": true,
       "referer": { "value": "https://4read.org/", "scopeHosts": ["4read.org", "reasd.org"] },
       "searchUrl": "https://4read.org/index.php?do=search&subaction=search&story={q}",
       "transportHosts": ["4read.org", "reasd.org"],
@@ -20,7 +21,7 @@
         "manifestPlaceholder": "\\{v1\\}",
         "manifestPlaceholderReplacement": "https://4read.org/m3u/",
         "searchDoor": "https://4read.org/index.php?do=search&subaction=search&story={q}",
-        "releaseBrowserDoor": true
+        "releaseBrowserDoor": false
       }
     },
     {
@@ -87,7 +88,7 @@
       "id": "librivox",
       "displayName": "LibriVox",
       "homeUrl": "https://librivox.org",
-      "contentLanguage": "en",
+      "contentLanguage": "",
       "accessMode": "DIRECT",
       "order": 6,
       "streamOnly": false,

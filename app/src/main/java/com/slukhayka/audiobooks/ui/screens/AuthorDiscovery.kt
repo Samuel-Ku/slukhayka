@@ -49,6 +49,7 @@ import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.IndexEmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import kotlinx.coroutines.launch
@@ -90,7 +91,11 @@ fun CanonicalAuthorScreen(
     loadFailed: Boolean,
     onBackClick: () -> Unit,
     onWorkClick: (WorkEntity) -> Unit,
-    personBookmarks: PersonBookmarks
+    personBookmarks: PersonBookmarks,
+    // #736 — the owned subset, so the page leads with the Медіатека and marks
+    // the Дзеркало neighbours it can still add by tap. Null = ownership not
+    // known yet: nothing is marked and the title order is kept.
+    ownedWorkIds: Set<String>? = null
 ) {
     val identity = remember(author.displayName) {
         personBookmarks.identity(PersonRole.AUTHOR, author.displayName)
@@ -137,7 +142,8 @@ fun CanonicalAuthorScreen(
             onWorkClick = onWorkClick,
             modifier = Modifier.padding(padding),
             isLoading = isLoading,
-            loadFailed = loadFailed
+            loadFailed = loadFailed,
+            ownedWorkIds = ownedWorkIds
         )
     }
 }
@@ -209,7 +215,10 @@ fun CanonicalAuthorContent(
     modifier: Modifier = Modifier,
     isLoading: Boolean = false,
     loadFailed: Boolean = false,
-    initialScrollIndex: Int = 0
+    initialScrollIndex: Int = 0,
+    // #736 — the listener's own Works lead; the rest are Дзеркало neighbours,
+    // shown after them and marked as finds. Null = not known, no marks.
+    ownedWorkIds: Set<String>? = null
 ) {
     if (isLoading) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -231,8 +240,20 @@ fun CanonicalAuthorContent(
         )
         return
     }
+    // Owned first, then the mirror neighbours; title order inside each group.
+    val orderedWorks = remember(works, ownedWorkIds) {
+        if (ownedWorkIds == null) {
+            works
+        } else {
+            works.sortedWith(
+                compareByDescending<WorkEntity> { it.id in ownedWorkIds }
+                    .thenBy { it.title.lowercase() }
+                    .thenBy { it.id }
+            )
+        }
+    }
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = initialScrollIndex.coerceIn(0, (works.size - 1).coerceAtLeast(0))
+        initialFirstVisibleItemIndex = initialScrollIndex.coerceIn(0, (orderedWorks.size - 1).coerceAtLeast(0))
     )
     LazyColumn(
         state = listState,
@@ -240,7 +261,7 @@ fun CanonicalAuthorContent(
         contentPadding = PaddingValues(top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
         // The count lives in the scaffold's subtitle (v1.4 E6, ADR-0033).
-        items(works, key = WorkEntity::id) { work ->
+        items(orderedWorks, key = WorkEntity::id) { work ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -253,6 +274,9 @@ fun CanonicalAuthorContent(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(work.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(work.author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (ownedWorkIds != null && work.id !in ownedWorkIds) {
+                    MetadataChip(text = stringResource(R.string.author_mirror_neighbour))
                 }
                 Icon(Icons.Default.ChevronRight, contentDescription = null)
             }

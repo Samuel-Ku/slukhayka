@@ -60,7 +60,6 @@ import coil.request.ImageRequest
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.MetadataChip
-import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.applySourceCoverHeaders
@@ -78,6 +77,9 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
+import com.slukhayka.audiobooks.data.entries.LibraryNewArrivals
+import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
@@ -87,7 +89,6 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
@@ -136,10 +137,7 @@ fun HomeScreen(
     onPlayClick: (AudiobookEntity) -> Unit,
     // spec-28 (#192): the «Більше книг на Sluhay» exit CTA — wired from the
     // composition root exactly like on Listen (debug-only, spec-13 T3/T2).
-    onOpenWebSource: (() -> Unit)? = null,
-    // Spec-42 #440: the 4read door is release-accessible (ADR-0027) — wired
-    // unconditionally from the composition root.
-    onOpenWebSource4read: (() -> Unit)? = null
+    onOpenWebSource: (() -> Unit)? = null
 ) {
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
@@ -208,11 +206,15 @@ fun HomeScreen(
     // empty.
     val collections by sourceCatalog.smartCollections.collectAsState()
 
-    // spec-28 (#192): the cross-source «Новинки» rail — 4read's new arrivals
-    // plus every other source's new feed, merged by Work with a source badge
-    // per card (re-homed from Слухати; the «Новинки» catalogue section below
-    // is skipped so 4read appears exactly once).
-    val newArrivals by sourceCatalog.newArrivals.collectAsState()
+    // ADR-0041 / #733: the «Новинки» rail is the Медіатека's newest imports —
+    // one card per Work, newest first, with the source badge it was imported
+    // from. No live Source Catalog, so the rail is offline-readable and moves
+    // on the exact tick an entry is imported or removed.
+    val newArrivals = remember(allBooks) { LibraryNewArrivals.project(allBooks) }
+
+    // #523 — the collective Огляд blocks, read from the persisted snapshot
+    // (one lease owner refreshes a stale block through ONE source page).
+    val collectiveBlocks by viewModel.collectiveBlocks.collectAsState()
 
     // Spec-36 T1 (#244): an available app release, resolved by the module's
     // own throttled check — null means everything is current.
@@ -227,31 +229,21 @@ fun HomeScreen(
     // the embedding pass stays orchestrated by the ViewModel (single-flight).
     val scope = rememberCoroutineScope()
     val recommendationSnackbar = remember { SnackbarHostState() }
-    // #434: a browser-only search card cannot import silently — offer the
-    // explicit 4read browser door with the work title prefilled.
-    val browserNeededImport by viewModel.browserNeededImport.collectAsState()
-    val browserOnlyMessage = stringResource(R.string.home_browser_only_snackbar)
     val openLabel = stringResource(R.string.home_open)
     val recommendationUpdated = stringResource(R.string.home_recommendation_updated)
     val cancelLabel = stringResource(R.string.download_action_cancel)
-    LaunchedEffect(browserNeededImport) {
-        val needed = browserNeededImport ?: return@LaunchedEffect
-        val result = recommendationSnackbar.showSnackbar(
-            message = browserOnlyMessage,
-            actionLabel = openLabel,
-            withDismissAction = true
-        )
-        if (result == SnackbarResult.ActionPerformed) {
-            viewModel.open4ReadSearch(needed.workTitle)
-        }
-        viewModel.consumeBrowserNeededImport()
-    }
     LaunchedEffect(Unit) {
         // One cancellable delta chain for this active Огляд session. Filters,
         // cards and recompositions only read Room; none of them touch Firestore.
         launch { sourceCatalog.syncSharedFacets() }
         launch { sourceCatalog.syncSharedSubmissions() }
         launch { sourceCatalog.syncSharedTombstones() }
+        // #522 — one bounded cursor delta of the collective catalogue: cards
+        // other installs verified land in the local mirror, no source request.
+        launch { App.instance.collectiveDeltaSync.syncOnce() }
+        // #523 — collective blocks: instant from the persisted snapshot, then
+        // one leased stale-while-revalidate pass per source.
+        launch { viewModel.refreshCollectiveBlocks() }
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()
@@ -311,11 +303,7 @@ fun HomeScreen(
     var searchRequested by rememberSaveable { mutableStateOf(false) }
     val searchExpanded = searchRequested || searchQuery.isNotBlank()
 
-    val filteredBooks = allBooks.filter { book ->
-        searchQuery.isBlank() ||
-            book.title.contains(searchQuery, ignoreCase = true) ||
-            book.author.contains(searchQuery, ignoreCase = true)
-    }
+    val filteredBooks = allBooks.matchingLibraryQuery(searchQuery)
 
     // Text-search mode: genre filtering has one home in the feed sheet.
     val inSearchMode = searchQuery.isNotBlank()
@@ -369,96 +357,23 @@ fun HomeScreen(
                 }
             }
 
-            // In-library matches next, then the spec-10 T4 global section
-            // (all sources, imported on tap).
-            item {
-                Text(
-                    text = stringResource(R.string.home_library_results, filteredBooks.size),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .semantics { heading() }
-                )
-            }
-            if (filteredBooks.isEmpty()) {
-                item {
-                    EmptyState(
-                        icon = Icons.Default.SearchOff,
-                        title = stringResource(R.string.home_search_no_results),
-                        body = stringResource(R.string.home_search_no_results_hint),
-                        modifier = Modifier.semantics(mergeDescendants = true) {
-                            liveRegion = LiveRegionMode.Polite
-                        }
-                    )
-                }
-            }
-            items(filteredBooks, key = { it.id }) { book ->
-                BookRow(
-                    book = book,
-                    onClick = { onBookClick(book.id) },
-                    onPlayClick = { onPlayClick(book) }
-                )
-            }
-
-            // Spec-10 T4: aggregated search across every verified source —
-            // one card per Work with a source badge each. Only once the query
-            // is long enough to actually search (the ViewModel debounces at
-            // >= 2 chars).
-            if (searchQuery.trim().length >= 2) {
-                item {
-                    Text(
-                        text = stringResource(R.string.home_all_sources, globalResults.size),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .semantics { heading() }
-                    )
-                }
-                if (globalResults.isEmpty()) {
-                    item {
-                        GlobalSearchStatus(
-                            isLoading = isGlobalSearchLoading,
-                            hasError = globalSearchError,
-                            resultsEmpty = true
-                        )
-                    }
-                    // Spec-42 #440: empty result set — offer the 4read catalogue
-                    // pre-filled with the query (release-accessible, ADR-0027).
-                    item {
-                        OpenWebSourceRow(
-                            displayName = "4read",
-                            onClick = { viewModel.open4readSearch(searchQuery) },
-                            text = stringResource(R.string.home_search_on_4read, searchQuery.trim()),
-                            testTag = "open_4read_search_empty"
-                        )
-                    }
-                } else {
-                    // Some sources matched, but none resolved to 4read: surface a
-                    // browser door below the results (spec-42 #440).
-                    val has4read = globalResults.any { it.sources.any { s -> s.sourceId == "4read" } }
-                    if (!has4read) {
-                        item {
-                            OpenWebSourceRow(
-                                displayName = "4read",
-                                onClick = { viewModel.open4readSearch(searchQuery) },
-                                text = stringResource(R.string.home_search_browser_fallback),
-                                testTag = "open_4read_search_footer"
-                            )
-                        }
-                    }
-                }
-                items(globalResults, key = { it.key }) { result ->
-                    GlobalSearchResultCard(
-                        result = result,
-                        onClick = { viewModel.openGlobalSearchResult(result) },
-                        actionState = catalogCardActionState,
-                        onOpenBrowser = viewModel::openCatalogBrowserRequired,
-                        onPreflight = { viewModel.preflightGlobalSearchResult(result) }
-                    )
-                }
-            }
+            // #737 / ADR-0041: the two search sections — the listener's own
+            // Медіатека first (offline, instant), the live Source Catalog
+            // below. Extracted to a stateless emitter so order and empty
+            // states are pinned without a ViewModel.
+            searchResultsContent(
+                localBooks = filteredBooks,
+                globalResults = globalResults,
+                liveSearchActive = searchQuery.trim().length >= 2,
+                isGlobalLoading = isGlobalSearchLoading,
+                globalError = globalSearchError,
+                onOpenLocalBook = { onBookClick(it.id) },
+                onPlayLocalBook = { onPlayClick(it) },
+                onOpenGlobalResult = { viewModel.openGlobalSearchResult(it) },
+                catalogCardActionState = catalogCardActionState,
+                onOpenCatalogBrowser = viewModel::openCatalogBrowserRequired,
+                onPreflightGlobalResult = { viewModel.preflightGlobalSearchResult(it) }
+            )
         } else {
             // ---- Netflix feed ---------------------------------------------
             // spec-42 T1 (#302): one hierarchy keeps curated content above the
@@ -489,6 +404,9 @@ fun HomeScreen(
                 genreFacetOptions = genreFacetOptions,
                 collections = collections,
                 newArrivals = newArrivals,
+                // #523 — the collective source blocks (stale-while-revalidate).
+                collectiveBlocks = collectiveBlocks,
+                onOpenCollectiveCard = viewModel::openCollectiveCard,
                 peopleNewArrivals = peopleNewArrivals,
                 recommendedBooks = recommendedBooks,
                 recommendationsReady = recommendationsReady,
@@ -503,7 +421,7 @@ fun HomeScreen(
                 // Spec-45 (#405) T6 (#494): the «Мова» chip mirrors the ONE
                 // persisted preference (both on = «Усі»); one tap cycles it.
                 contentLanguages = contentLanguages,
-                onCycleContentLanguage = viewModel::cycleContentLanguages,
+                onOpenContentLanguages = viewModel::openContentLanguages,
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections(forceRefresh = true) } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
@@ -538,7 +456,6 @@ fun HomeScreen(
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
-                onOpenWebSource4read = onOpenWebSource4read,
                 onRecommendationFeedback = { rec, kind ->
                     scope.launch {
                         val token = withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -900,18 +817,17 @@ fun DurationSection(
 }
 
 /**
- * spec-28 (#192) — the cross-source «Новинки» rail: 4read's new arrivals
- * plus every other source's new feed, merged by Work with a source badge
- * per card. Public and stateless (pure `@Composable` inputs) so the
- * snapshot seam can pin the rail from fixture data.
+ * ADR-0041 / #733 — the library-first «Новинки» rail: one card per recently
+ * imported Work, newest first, with the badge of the source it was imported
+ * from. It reads the Медіатека only (never a live Source Catalog), so it
+ * stays readable offline and changes the instant an entry is imported or
+ * removed. Public and stateless (pure `@Composable` inputs) so the snapshot
+ * seam can pin the rail from fixture data.
  */
 @Composable
 fun NewArrivalsRail(
-    results: List<GlobalSearchResult>,
-    onBookClick: (GlobalSearchResult) -> Unit,
-    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onOpenBrowser: () -> Unit = {},
-    onPreflight: (GlobalSearchResult) -> Unit = {},
+    arrivals: List<LibraryNewArrival>,
+    onBookClick: (AudiobookEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.testTag("new_arrivals_rail")) {
@@ -920,32 +836,15 @@ fun NewArrivalsRail(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(results, key = { it.key }) { result ->
-                // spec-28 (#192): the merged rail card carries a chip per
-                // Source that carries the Work — provenance is the rail's
-                // reason to exist (Work-dedup would hide it otherwise).
-                // v1.4 C4 (ADR-0033): MetadataChip, not the old pill.
+            items(arrivals, key = { it.workKey }) { arrival ->
                 Column(
                     modifier = Modifier.width(PosterWidth),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PosterCard(
-                        result = result,
-                        onClick = { onBookClick(result) },
-                        preflightKey = result.key,
-                        onPreflight = { onPreflight(result) },
-                        actionHost = { CatalogCardStatus(result.key, actionState, onOpenBrowser) }
-                    )
-                    if (result.sources.isNotEmpty()) {
+                    PosterCard(book = arrival.book, onClick = { onBookClick(arrival.book) })
+                    if (arrival.sourceName.isNotBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs, Alignment.CenterHorizontally),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            result.sources.forEach { source ->
-                                MetadataChip(source = source.sourceName)
-                            }
-                        }
+                        MetadataChip(source = arrival.sourceName)
                     }
                 }
             }
@@ -1085,7 +984,7 @@ private fun FeedbackMenuItem(label: String, onClick: () -> Unit) {
 }
 
 /**
- * spec-28 (#198) — the Огляд five-chip navigation row (ТОП 100 / Виконавці /
+ * spec-28 (#198) — the Огляд five-chip navigation row (Рейтинг / Виконавці /
  * Автори / Серії / Колекції), as [NavigationChip]s per ADR-0018: filled,
  * outline-free — the «перейти» form, never the filter form. Public and
  * stateless (pure callbacks) so the snapshot seam pins the real row.
@@ -1102,13 +1001,15 @@ fun CatalogNavRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            NavigationChip(title = "ТОП 100", onClick = onTop100Click)
+            NavigationChip(title = "Рейтинг", onClick = onTop100Click)
         }
         item {
             NavigationChip(
                 title = "Виконавці",
                 onClick = {
-                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Виконавці", "https://4read.org/readers.html"))
+                    // #736 — the narrator index is local (the Медіатека), so a
+                    // PeopleKind carries no provider URL anymore.
+                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Виконавці", url = ""))
                 }
             )
         }
@@ -1116,7 +1017,7 @@ fun CatalogNavRow(
             NavigationChip(
                 title = "Автори",
                 onClick = {
-                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Автори", "https://4read.org/avtors.html"))
+                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Автори", url = ""))
                 }
             )
         }
@@ -1362,7 +1263,7 @@ fun WorkFeedFilters(
     // Spec-45 (#405) T6 (#494): the «Мова» chip — one tap cycles the
     // content-language preference (US8); the chip reads the current state.
     contentLanguages: Set<String>? = null,
-    onCycleContentLanguage: () -> Unit = {}
+    onOpenContentLanguages: () -> Unit = {}
 ) {
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
@@ -1445,7 +1346,7 @@ fun WorkFeedFilters(
                         .testTag("feed_filters")
                 )
                 contentLanguages?.let { languages ->
-                    ContentLanguageChip(languages, onCycleContentLanguage)
+                    ContentLanguageChip(languages, onOpenContentLanguages)
                 }
             }
         }

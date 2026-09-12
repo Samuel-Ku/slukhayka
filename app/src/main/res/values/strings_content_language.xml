@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Spec-45 (#405) T6 (#494): the content-language preference surfaces —
-     the ⚙️ «Мови контенту» destination and the Огляд «Мова» chip (US6/8). -->
+<!-- Spec-45 (#405) T6 (#494), spec-51 (#742): the content-language preference
+     surfaces — the ⚙️ «Мови контенту» destination, the Огляд «Мова» chip and
+     the one-time First Language Choice (US6/US7/US8/US9). -->
 <resources>
     <string name="content_languages_title">Мови контенту</string>
-    <string name="content_languages_description">Показувати книжки лише обраними мовами озвучення. «Усі» — і українські, і англійські. Книжки з невідомою мовою завжди залишаються видимими.</string>
+    <string name="content_languages_description">Показувати книжки лише обраними мовами озвучення. «Усі» — усі мови каталогу. Книжки з невідомою мовою завжди залишаються видимими.</string>
     <string name="content_language_uk">Українська</string>
     <string name="content_language_en">English</string>
     <string name="content_language_all">Усі</string>
     <string name="content_language_chip_label">Мова: %1$s</string>
-    <!-- Spec-45 (#405) T8 (#496): the one-time bilingual prompt (US9). -->
-    <string name="bilingual_prompt_title">Англомовні книжки</string>
-    <string name="bilingual_prompt_body">Знайдено англомовні книжки — залишити чи сховати?</string>
-    <string name="bilingual_prompt_keep">Залишити</string>
-    <string name="bilingual_prompt_uk_only">Лише українські</string>
+    <!-- Spec-51 (#742) T2: the one-time First Language Choice. -->
+    <string name="first_language_choice_title">Якими мовами показувати книжки?</string>
+    <string name="first_language_choice_body">Обери мови озвучення — потім це можна змінити в налаштуваннях. Книжки з невідомою мовою залишаються видимими.</string>
+    <string name="first_language_choice_ukrainian_only">Лише українські</string>
+    <string name="first_language_choice_all">Усі</string>
+    <string name="first_language_choice_done">Готово</string>
 </resources>

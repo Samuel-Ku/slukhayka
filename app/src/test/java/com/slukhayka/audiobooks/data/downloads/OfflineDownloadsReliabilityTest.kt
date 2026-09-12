@@ -127,114 +127,32 @@ class OfflineDownloadsReliabilityTest {
     }
 
     @Test
-    fun `4read offline download sends the source referer`() = runBlocking {
-        val url = "https://s1.reasd.org/5370/01-bunker.mp3"
+    fun `sluhay offline download sends the source referer`() = runBlocking {
+        val url = "https://cdn.redirectto.cc/5370/01-bunker.mp3"
         val audio = ByteArray(2048) { 0x42 }
         val fetcher = FakeFetcher(sizedStreamResponses = mapOf(url to (audio to audio.size.toLong())))
         val (imports, _, downloads) = harness(
             numChapters = 1,
             streamUrl = { url },
             fetcher = fetcher,
-            sourceId = "4read",
-            sourceUrl = "https://4read.org/5370-gu-goui-bunker-iluziia.html"
+            sourceId = "sluhay",
+            sourceUrl = "https://sluhay.com/svitova-literatura/5370-pasazhir.html"
         )
         val bookId = importBook(
             imports,
-            "https://4read.org/5370-gu-goui-bunker-iluziia.html",
-            sourceId = "4read"
+            "https://sluhay.com/svitova-literatura/5370-pasazhir.html",
+            sourceId = "sluhay"
         )
 
         val result = downloads.downloadAudiobookOffline(bookId)
 
         assertEquals(1, result.downloadedChapters)
-        assertEquals(listOf(mapOf("Referer" to "https://4read.org/")), fetcher.recordedHeaders)
+        assertEquals(listOf(mapOf("Referer" to "https://sluhay.com/")), fetcher.recordedHeaders)
     }
 
-    @Test
-    fun `4read browser refresh resumes only the persisted failed and pending chapters`() = runBlocking {
-        val urls = (0..2).map { "https://s1.reasd.org/5370/0$it-bunker.mp3" }
-        val refreshedUrls = (0..2).map { "https://s1.reasd.org/5370/new-0$it-bunker.mp3" }
-        val audio = ByteArray(2048) { 0x42 }
-        val requestedUrls = mutableListOf<String>()
-        val fetcher = object : HttpFetcher() {
-            override fun getSizedStreamResult(
-                url: String,
-                extraHeaders: Map<String, String>
-            ): SizedStreamResult {
-                requestedUrls += url
-                val status = when (url) {
-                    urls[0] -> 200
-                    urls[1] -> 403
-                    refreshedUrls[1], refreshedUrls[2] -> 200
-                    else -> 0
-                }
-                val stream = if (status == 200) SizedStream(ByteArrayInputStream(audio), audio.size.toLong()) else null
-                return SizedStreamResult(status, stream)
-            }
-        }
-        val (imports, catalog, downloads) = harness(
-            numChapters = 3,
-            streamUrl = { urls[it] },
-            fetcher = fetcher,
-            sourceId = "4read",
-            sourceUrl = "https://4read.org/5370-gu-goui-bunker-iluziia.html"
-        )
-        val bookId = importBook(
-            imports,
-            "https://4read.org/5370-gu-goui-bunker-iluziia.html",
-            sourceId = "4read"
-        )
-
-        val blocked = downloads.downloadAudiobookOffline(bookId)
-
-        assertTrue(blocked.requiresBrowserRefresh)
-        assertEquals(listOf(urls[0], urls[1]), requestedUrls)
-        assertEquals(setOf(dao.getChaptersListForBook(bookId)[1].id), downloads.pendingBrowserRefresh(bookId)!!.failedChapterIds)
-        assertEquals(2, downloads.pendingBrowserRefresh(bookId)!!.pendingChapterIds.size)
-
-        // Recreate the deep module: the queue is a persisted operation, not
-        // in-memory recovery state from the failed attempt.
-        val recreatedDownloads = OfflineDownloads(dao, context, catalog, fetcher, pauseFor = { })
-        val beforeRecovery = recreatedDownloads.resumePendingBrowserRefresh(bookId)!!
-        assertTrue(beforeRecovery.requiresBrowserRefresh)
-        assertEquals(listOf(urls[0], urls[1]), requestedUrls)
-
-        val recoveredDetail = SourceBookDetail(
-            title = "Пасажир",
-            author = "Жан-Крістоф Гранже",
-            url = "https://4read.org/5370-gu-goui-bunker-iluziia.html",
-            chapters = refreshedUrls.mapIndexed { index, url -> SourceChapter("Пасажир ${index + 1}", url) }
-        )
-        val recoveryAdapter = object : SourceAdapter {
-            override val sourceId: String = "4read"
-            override suspend fun search(query: String): List<SourceBook> = emptyList()
-            override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
-            override suspend fun fetchCatalog(limit: Int): List<SourceBook> = emptyList()
-            override suspend fun fetchBookPage(url: String): SourceBookDetail = recoveredDetail
-            override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail? =
-                recoveredDetail.takeIf { html == "recovered" }
-        }
-        val recovery = BrowserRecoveryCoordinator(
-            dao = dao,
-            libraryImport = LibraryImport(dao, context, listOf(recoveryAdapter)),
-            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> true }
-        )
-        val recoveryOutcome = recovery.recover(
-            bookId = bookId,
-            sourceId = "4read",
-            url = "https://4read.org/5370-gu-goui-bunker-iluziia.html",
-            html = "recovered"
-        )
-        assertTrue(recoveryOutcome is BrowserRecoveryCoordinator.Outcome.Success)
-        assertEquals(refreshedUrls, dao.getTracksForBookSync(bookId).sortedBy { it.trackIndex }.map { it.url })
-        recreatedDownloads.confirmBrowserRefresh(bookId)
-        val resumed = recreatedDownloads.resumePendingBrowserRefresh(bookId)!!
-
-        assertEquals(2, resumed.downloadedChapters + resumed.sharedChapters + resumed.reusedChapters)
-        assertEquals(listOf(urls[0], urls[1], refreshedUrls[1], refreshedUrls[2]), requestedUrls)
-        assertNull(recreatedDownloads.pendingBrowserRefresh(bookId))
-        assertTrue(dao.getTracksForBookSync(bookId).all { it.isDownloaded })
-    }
+    // The 4read browser-refresh download queue is dormant: 4read is a scam
+    // source (52-second artefact), never downloaded. The machinery stays for
+    // a future browser source; its tests return with that source.
 
     private suspend fun importBook(
         imports: LibraryImport,

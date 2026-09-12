@@ -41,7 +41,7 @@ class LanguageFilterTest {
         }
     }
 
-    @Test fun liveCyclePreservesOtherFilters() {
+    @Test fun liveLanguageChangePreservesOtherFilters() {
         val vm = ViewModelProvider(rule.activity)[MainViewModel::class.java]
         val languages = vm.contentLanguages.value
         val genres = vm.feedGenreFilters.value
@@ -60,8 +60,10 @@ class LanguageFilterTest {
             }
             rule.waitUntil(20_000) { rule.onAllNodesWithTag("home_screen").fetchSemanticsNodes().size == 1 }
             rule.onNodeWithTag("home_screen").performScrollToKey("work_feed_controls")
-            listOf(setOf("uk"), setOf("en"), setOf("uk", "en")).forEachIndexed { index, expected ->
-                rule.onNodeWithTag("feed_language").performClick()
+            // Spec-51 (#742): the «Мови контенту» screen is the one writer; the
+            // chip opens it rather than cycling.
+            listOf(setOf("uk"), setOf("en"), emptySet<String>()).forEachIndexed { index, expected ->
+                rule.runOnUiThread { vm.setContentLanguages(expected) }
                 rule.waitUntil(10_000) { vm.contentLanguages.value == expected }
                 assertEquals(setOf("fantasy"), vm.feedGenreFilters.value)
                 assertEquals(setOf("under_5h"), vm.feedDurationFilters.value)
@@ -113,7 +115,9 @@ class LanguageFilterTest {
         }
         for (uiLanguage in listOf("uk", "en")) {
             for ((testWidth, fontScale) in listOf(320 to 1f, 400 to 1.3f, 320 to 2f)) {
-                for ((index, selected) in listOf(setOf("uk", "en"), setOf("uk"), setOf("en")).withIndex()) {
+                // Spec-51 (#742): «Усі» is the empty selection; {uk} and {en}
+                // are the two narrowed states the chip must announce.
+                for ((index, selected) in listOf(emptySet<String>(), setOf("uk"), setOf("en")).withIndex()) {
                     rule.runOnUiThread { locale = uiLanguage; width = testWidth; scale = fontScale; language = selected }
                     rule.waitForIdle()
                     val bounds = listOf("feed_sort", "feed_filters", "feed_language").map { tag ->

@@ -34,5 +34,12 @@ data class PopularityAssertionEntity(
 
         /** The source's claimed rating on a resolved page ([rawValue] = the double). */
         const val KIND_RATING: String = "rating"
+
+        /**
+         * #739 — the aggregate of the shared listener reviews of one Work:
+         * [rawValue] = "sum:count" over the valid 1..5 ratings, with NO
+         * contributor identity stored. [observedAt] is the pass time (TTL).
+         */
+        const val KIND_LISTENER_RATING: String = "listener_rating"
     }
 }

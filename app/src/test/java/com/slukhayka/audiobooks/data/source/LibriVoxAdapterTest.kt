@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.source
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,6 +22,10 @@ import org.junit.Test
  *   escape (R2 #509 regression), and whose description has no narrator claim
  * - `librivox-api-feed-escaped.json` — crafted API feed with an escaped
  *   quote/brace title plus a German record (R2 #509 regression)
+ *
+ * Spec-51 (#742) adds the multilingual admission cases: the Russian drop in
+ * the mirror transport and at the detail door, the un-gated archive queries,
+ * and the non-English narrator claim.
  */
 class LibriVoxAdapterTest {
 
@@ -288,5 +293,78 @@ class LibriVoxAdapterTest {
         assertEquals(SourceAccessMode.DIRECT, SourceAccessPolicy.modeFor("librivox"))
         assertEquals("LibriVox", sourceDisplayName("librivox"))
         assertEquals("librivox", sourceIdForUrl("https://archive.org/details/socialism_2609_librivox"))
+    }
+
+    @Test
+    fun `search drops russian mirror docs and keeps every other mapped language`() = runBlocking {
+        // Spec-51 (#742): the mirror now serves the whole collection; a
+        // "rus" doc is dropped at parse (the one standing exclusion), while
+        // a German doc keeps its real language — and the English gate that
+        // used to hide it is gone.
+        val json = """
+            {"response":{"docs":[
+              {"identifier":"voina_i_mir_2601_librivox","title":"Война и мир","creator":"Лев Толстой","language":"rus"},
+              {"identifier":"die_schatzinsel_2212_librivox","title":"Die Schatzinsel","creator":"Robert Louis Stevenson","language":"ger"}
+            ]}}
+        """.trimIndent()
+        val adapter = LibriVoxAdapter(FakeFetcher(fallback = json))
+
+        val cards = adapter.search("Stevenson")
+
+        assertEquals(1, cards.size)
+        assertEquals("Die Schatzinsel", cards.single().title)
+        assertEquals("de", cards.single().language)
+        assertEquals("https://archive.org/details/die_schatzinsel_2212_librivox", cards.single().url)
+    }
+
+    @Test
+    fun `the archive queries no longer gate on english`() = runBlocking {
+        // Spec-51 (#742): search and new arrivals cover every admitted
+        // language — the listener's Content Language Preference filters the
+        // results downstream instead of the query hiding non-English rows.
+        val fetcher = FakeFetcher(fallback = "{\"response\":{\"docs\":[]}}")
+        val adapter = LibriVoxAdapter(fetcher)
+
+        adapter.search("Kafka")
+        adapter.fetchNew(5)
+
+        assertEquals(2, fetcher.requestedUrls.size)
+        assertTrue(fetcher.requestedUrls.all { it.contains("collection%3Alibrivoxaudio") })
+        assertFalse(fetcher.requestedUrls.any { it.contains("language%3Aeng") || it.contains("language:eng") })
+    }
+
+    @Test
+    fun `fetchBookPage refuses a russian archive item`() = runBlocking {
+        val json = """
+            {"metadata":{"title":"Война и мир","creator":"Лев Толстой","language":"rus",
+             "description":"<p>Read in Russian by Кто-то</p>"},
+             "files":[{"format":"VBR MP3","name":"voina_01.mp3","title":"01 - Глава","track":"1","length":"10:00"}]}
+        """.trimIndent()
+        val adapter = LibriVoxAdapter(FakeFetcher(fallback = json))
+
+        val detail = adapter.fetchBookPage("https://archive.org/details/voina_i_mir_2601_librivox")
+
+        // The admission exclusion holds at the detail door: no Edition, no
+        // playable chapters — never a Russian source materialised silently.
+        assertTrue(detail.chapters.isEmpty())
+        assertEquals("", detail.title)
+    }
+
+    @Test
+    fun `fetchBookPage reads a non-english narrator claim`() = runBlocking {
+        val json = """
+            {"metadata":{"title":"Die Schatzinsel","creator":"Robert Louis Stevenson","language":"ger",
+             "description":"<p>Read in German by Otto Normal</p>"},
+             "files":[{"format":"VBR MP3","name":"die_schatzinsel_01.mp3","title":"01 - Kapitel","track":"1","length":"10:00"}]}
+        """.trimIndent()
+        val adapter = LibriVoxAdapter(FakeFetcher(fallback = json))
+
+        val detail = adapter.fetchBookPage("https://archive.org/details/die_schatzinsel_2601_librivox")
+
+        // The claim names its own language — «Read in German by X» is read
+        // for what it is, never filtered through an English-only pattern.
+        assertEquals("de", detail.language)
+        assertEquals("Otto Normal", detail.narrator)
+        assertEquals(1, detail.chapters.size)
     }
 }

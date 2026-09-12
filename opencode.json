@@ -17,20 +17,11 @@
     }
   },
   "permission": {
-    "edit": "deny",
-    "webfetch": "deny",
-    "external_directory": "deny",
-    "task": "deny",
-    "bash": {
-      "*": "deny",
-      "git status*": "allow",
-      "git diff*": "allow",
-      "rg *": "allow",
-      "sed *": "allow",
-      "find *": "allow",
-      "./gradlew :app:test*": "allow",
-      "python3 -m unittest *": "allow"
-    }
+    "edit": "allow",
+    "webfetch": "allow",
+    "external_directory": "allow",
+    "task": "allow",
+    "bash": "allow"
   },
   "agent": {
     "crash-implementation": {

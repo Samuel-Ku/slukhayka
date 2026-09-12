@@ -101,6 +101,41 @@ object PopularityAssertionPolicy {
     fun ratingValue(rawValue: String): Double? = rawValue.toDoubleOrNull()
 
     /**
+     * #739 — the aggregate of a Work's shared listener reviews, stored as one
+     * provenance-bearing row: [sum] over [count] valid 1..5 ratings, with no
+     * contributor identity. Null when nobody rated it — an absent claim is
+     * never recorded as a zero.
+     */
+    fun listenerRatingRecord(
+        mergeKey: String,
+        sum: Int,
+        count: Int,
+        observedAt: Long
+    ): PopularityAssertionEntity? {
+        if (mergeKey.isBlank() || count <= 0) return null
+        return PopularityAssertionEntity(
+            id = popularityAssertionId(LISTENER_SOURCE_ID, mergeKey),
+            kind = PopularityAssertionEntity.KIND_LISTENER_RATING,
+            mergeKey = mergeKey,
+            rawValue = "$sum:$count",
+            sourceId = LISTENER_SOURCE_ID,
+            observedAt = observedAt
+        )
+    }
+
+    /** Parses a stored listener aggregate back to (sum, count); null otherwise. */
+    fun listenerRatingValue(rawValue: String): Pair<Int, Int>? {
+        val parts = rawValue.split(':')
+        if (parts.size != 2) return null
+        val sum = parts[0].toIntOrNull() ?: return null
+        val count = parts[1].toIntOrNull() ?: return null
+        return if (count > 0 && sum in count..(count * 5)) sum to count else null
+    }
+
+    /** #739 — the stored source id of the listener aggregate (no contributor). */
+    const val LISTENER_SOURCE_ID: String = "listeners"
+
+    /**
      * #486 — the human-facing source name behind a rank assertion's stored
      * list id (the badge on a «джерело радить» card). Known live collections
      * get their short names; anything else shows the raw id — never a guess.

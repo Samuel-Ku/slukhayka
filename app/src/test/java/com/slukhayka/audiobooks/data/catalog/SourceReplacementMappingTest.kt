@@ -4,9 +4,11 @@ import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.search.SearchCache
 import com.slukhayka.audiobooks.data.search.SearchQueryKey
 import com.slukhayka.audiobooks.data.search.SearchResultCodec
+import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -542,6 +544,41 @@ class SourceReplacementMappingTest {
         // alone — no further requests, never a fabricated refresh.
         assertEquals("https://sluhay.com.ua/42", resolver.resolve("Книга", "Автор", mergeKey)?.url)
         assertEquals(afterFirst, searches.total)
+    }
+
+    @Test
+    fun `a stalling shared cache is a bounded miss - the volley still runs`() = runTest {
+        val searches = CountingSearches(
+            "sluhayua" to listOf(
+                directBook("sluhayua", "https://sluhay.com.ua/other", title = "Інша книга", author = "Інший автор")
+            )
+        )
+        // #720 — a store that retries forever offline must not starve the
+        // sweep: the shared-cache step rides its own short deadline, so a
+        // call that never answers degrades to a miss, the volley still runs,
+        // and the verdict is memoized like any other negative.
+        val stallingCache = object : SearchCache {
+            override suspend fun getResults(query: String): List<GlobalSearchResult>? {
+                awaitCancellation()
+            }
+
+            override suspend fun readDocument(queryKey: String): Map<String, Any>? {
+                awaitCancellation()
+            }
+
+            override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) = Unit
+        }
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            cache = stallingCache
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        assertNull(resolver.resolve("Книга", "Автор", mergeKey))
+        assertEquals("the volley ran despite the stalled cache", 1, searches.total)
+        assertNull(resolver.resolve("Книга", "Автор", mergeKey))
+        assertEquals("the miss memoized with zero further requests", 1, searches.total)
     }
 
     @Test

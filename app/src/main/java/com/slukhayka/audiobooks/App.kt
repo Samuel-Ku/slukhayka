@@ -331,7 +331,12 @@ class App : Application() {
             // ONE shared host-aware provider reads the live WebView cookie
             // just-in-time; without a session the carrier contributes nothing.
             // ADR-0039 §8 traffic: one request per source per catalog TTL.
-            cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
+            cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider,
+            // #526 — ETag/Last-Modified of the sitemap lane survive a restart,
+            // so the post-TTL sweep is conditional and a 304 extends the index.
+            validatorStore = com.slukhayka.audiobooks.data.catalog.SitemapValidatorStore(
+                java.io.File(filesDir, "sitemap_validators.tsv")
+            )
         )
     }
 

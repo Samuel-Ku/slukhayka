@@ -471,6 +471,34 @@ class App : Application() {
     }
 
     /**
+     * #522 — the collective catalogue lane. The transport is null without
+     * Firebase keys: publishing and the delta then simply do not run, and the
+     * local mirror keeps working.
+     */
+    private val collectiveCardStore: com.slukhayka.audiobooks.data.collective.CollectiveCardStore? by lazy {
+        com.slukhayka.audiobooks.data.collective.FirestoreCollectiveCardStore.create(this)
+    }
+
+    /** #522 — offers a verified direct-source book's public card to the lane. */
+    val collectiveCatalogPublisher: com.slukhayka.audiobooks.data.collective.CollectiveCatalogPublisher by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveCatalogPublisher(
+            store = collectiveCardStore,
+            book = { id -> database.audiobookDao().getAudiobookById(id)?.toAudiobookEntity() },
+            sources = { id -> database.audiobookDao().getSourcesForBookSync(id) }
+        )
+    }
+
+    /** #522 — the bounded cursor delta that mirrors other installs' cards. */
+    val collectiveDeltaSync: com.slukhayka.audiobooks.data.collective.CollectiveDeltaSync by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveDeltaSync(
+            store = collectiveCardStore,
+            apply = { card -> sourceCatalog.applyCollectiveCard(card) != null },
+            cursorStore = com.slukhayka.audiobooks.data.collective
+                .SharedPreferencesCollectiveSyncCursorStore(this)
+        )
+    }
+
+    /**
      * ADR-0023 (#348) — the narration-ratings store («Оцінка начитки»).
      * Null without Firebase keys: the rating UI simply does not render.
      */
@@ -618,7 +646,12 @@ class App : Application() {
             // chain (cheap — one resolve) and spreads the update through the
             // shared base. Best-effort and silent — the import itself never
             // depends on it.
-            onWorkImported = { workId -> runCatching { seriesUniverses.validateChainFor(workId) } },
+            onWorkImported = { workId ->
+                runCatching { seriesUniverses.validateChainFor(workId) }
+                // #522 — a verified import offers its public card to the
+                // collective lane; best-effort, never blocks the import.
+                runCatching { collectiveCatalogPublisher.publishVerified(workId) }
+            },
             // Spec-32 T2/T3 (#232/#233): a resolved page writes its full
             // profile to the shared base (the next listener skips the page
             // fetch), and a card import reads a fresh profile back instead of

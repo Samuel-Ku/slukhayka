@@ -71,6 +71,17 @@ class WorkIndexRefresher(
     fun lookup(title: String, author: String): CatalogIndexEntry? = current?.lookup(title, author)
 
     /**
+     * #526 — the bounded candidate list of one explicit action: at most three
+     * canonical URLs, all of the SAME source as the best match, exact
+     * MergeKey hits first. Reading the index makes no request at all.
+     */
+    fun candidates(
+        title: String,
+        author: String,
+        limit: Int = CatalogWorkIndex.MAX_CANDIDATES
+    ): List<CatalogIndexEntry> = current?.candidates(title, author, limit).orEmpty()
+
+    /**
      * Refreshes when the in-memory or persisted index is absent or older
      * than the TTL (or when [force]). Returns the served index, or null when
      * nothing was ever built.

@@ -260,4 +260,23 @@ class WorkIndexRefresherTest {
         assertEquals("the last good index is still served", built.size, again!!.size)
         file.delete()
     }
+
+    @Test
+    fun `reading candidates makes no request and stays inside the bound`() = runTest {
+        val fetcher = fetcher()
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = null,
+            cardSources = emptyMap(),
+            clock = { 1_000_000L }
+        )
+        refresher.refreshIfStale()
+        val afterRefresh = fetcher.calls
+
+        val candidates = refresher.candidates("Ігри Джеральда", "Стівен Кінг")
+
+        assertTrue(candidates.isNotEmpty())
+        assertTrue("at most three candidate pages", candidates.size <= CatalogWorkIndex.MAX_CANDIDATES)
+        assertEquals("the index answers locally — no hidden crawl", afterRefresh, fetcher.calls)
+    }
 }

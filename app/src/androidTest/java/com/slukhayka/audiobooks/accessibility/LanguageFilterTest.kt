@@ -58,7 +58,12 @@ class LanguageFilterTest {
                 vm.setFeedDurationFilters(setOf("under_5h"))
                 vm.setFeedSortByTitle(true)
             }
-            rule.waitUntil(20_000) { rule.onAllNodesWithTag("home_screen").fetchSemanticsNodes().size == 1 }
+            // #766 A — a raw fetchSemanticsNodes() THROWS while no hierarchy exists
+            // yet; the tolerant wait retries instead.
+            rule.waitUntil(20_000) {
+                runCatching { rule.onAllNodesWithTag("home_screen").fetchSemanticsNodes().size == 1 }
+                    .getOrDefault(false)
+            }
             rule.onNodeWithTag("home_screen").performScrollToKey("work_feed_controls")
             // Spec-51 (#742): the «Мови контенту» screen is the one writer; the
             // chip opens it rather than cycling.

@@ -221,6 +221,17 @@ class AudioPlaybackEspressoTest {
         composeTestRule.onNodeWithTag("tab_library").performClick()
         composeTestRule.waitForIdle()
 
+        // #765 — isolate RESOLUTION from the UI: if this list is empty the
+        // player can never render (PlayerScreen early-returns on a null
+        // currentBook), and the timeout below is a resolution bug, not a UI one.
+        val resolved = runBlocking {
+            (app as com.slukhayka.audiobooks.App).sourceCatalog.getPlayableChapters(fixtureBookId)
+        }
+        org.junit.Assert.assertTrue(
+            "resolution returned ${resolved.size} playable chapters for the seeded book",
+            resolved.isNotEmpty()
+        )
+
         // 2. Tap the seeded fixture book; navigates into BookDetailScreen.
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("library_book_item_$fixtureBookId"),

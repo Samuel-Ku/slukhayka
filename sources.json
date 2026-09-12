@@ -71,6 +71,7 @@
       "accessMode": "DIRECT",
       "order": 4,
       "streamOnly": false,
+      "liveDownloadPermission": true,
       "referer": { "value": "https://audiobook-mp3.com/uk", "scopeHosts": ["audiobook-mp3.com", "redirectto.cc"] },
       "transportHosts": ["audiobook-mp3.com", "redirectto.cc"]
     },

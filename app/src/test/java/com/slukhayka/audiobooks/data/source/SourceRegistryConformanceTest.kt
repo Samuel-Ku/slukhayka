@@ -134,6 +134,7 @@ class SourceRegistryConformanceTest {
         accessMode = SourceAccessMode.valueOf(raw.requireString("accessMode")),
         order = raw.int("order"),
         streamOnly = raw.bool("streamOnly"),
+        liveDownloadPermission = raw.bool("liveDownloadPermission"),
         scam = raw.bool("scam"),
         referer = raw.map("referer")?.let {
             RefererRule(value = it.requireString("value"), scopeHosts = it.stringSet("scopeHosts"))

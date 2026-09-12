@@ -546,6 +546,26 @@ class App : Application() {
         )
     }
 
+    /** #527 — the persisted live download-permission verdicts (fail closed). */
+    val sourceDownloadPermissions: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore by lazy {
+        com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore(
+            java.io.File(filesDir, "download_permissions.tsv")
+        )
+    }
+
+    /**
+     * #527 — the ONE live rules check of the download gate: it reads a
+     * source's robots.txt (one BACKGROUND request per declared source per
+     * TTL) and records the verdict for the media path. Best-effort: a failed
+     * or blank fetch never fabricates permission.
+     */
+    val sourceDownloadPermissionRefresh: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionRefresh by lazy {
+        com.slukhayka.audiobooks.data.source.SourceDownloadPermissionRefresh(
+            fetcher = HttpFetcher(),
+            store = sourceDownloadPermissions
+        )
+    }
+
     /** #527 — the shared block lane's transport (null without Firebase keys). */
     private val collectiveBlockStore: com.slukhayka.audiobooks.data.collective.CollectiveBlockStore? by lazy {
         com.slukhayka.audiobooks.data.collective.FirestoreCollectiveBlockStore.create(this)
@@ -852,6 +872,8 @@ class App : Application() {
             database.audiobookDao(),
             this,
             sourceCatalog,
+            // #527 — the persisted LIVE rules verdicts of the download gate.
+            downloadPermissions = sourceDownloadPermissions,
             // ADR-0037 (spec-49 T1): a refused-only book refuses the download
             // up front, before any pacing, fetch or file write.
             sourceAudioRefusal = sourceAudioRefusal.refusedSources,

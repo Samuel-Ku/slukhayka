@@ -247,6 +247,9 @@ fun HomeScreen(
         // #527 — blocks other installs observed land locally, so this install
         // never repeats the genre/catalogue request for them.
         launch { App.instance.collectiveBlockSync.syncOnce() }
+        // #527 — the download gate's live rules check (one robots request per
+        // declared source per week); downloads stay OFF until it confirms.
+        launch { App.instance.sourceDownloadPermissionRefresh.refreshOnce() }
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()

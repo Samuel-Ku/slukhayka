@@ -237,20 +237,7 @@ class MainActivityAccessibilityTest {
         composeTestRule.enableAccessibilityChecks()
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("tab_library").performClick()
         composeTestRule.waitUntilExactlyOneExists(
@@ -259,20 +246,7 @@ class MainActivityAccessibilityTest {
         )
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsDisplayed()
             .performClick()
@@ -287,20 +261,7 @@ class MainActivityAccessibilityTest {
         chapter.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         chapter.performClick()
 
         composeTestRule.waitUntilExactlyOneExists(
@@ -370,20 +331,7 @@ class MainActivityAccessibilityTest {
         )
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         val speedTrigger = composeTestRule.onNodeWithTag("speed_chip")
         speedTrigger.performClick()
@@ -410,20 +358,7 @@ class MainActivityAccessibilityTest {
         }
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
             .performClick()
         waitUntilGone("speed_sheet")
@@ -447,20 +382,7 @@ class MainActivityAccessibilityTest {
             .assertIsSelected()
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -473,20 +395,7 @@ class MainActivityAccessibilityTest {
         waitUntilFocused("sleep_timer_chip")
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
         bookmarkTrigger.performClick()
@@ -513,20 +422,7 @@ class MainActivityAccessibilityTest {
             )
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("save_bookmark_button")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -544,20 +440,7 @@ class MainActivityAccessibilityTest {
             .assertIsDisplayed()
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("close_player_button")
             .performClick()
@@ -591,20 +474,7 @@ class MainActivityAccessibilityTest {
             )
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("book_detail_back_button")
             .performClick()
@@ -619,20 +489,7 @@ class MainActivityAccessibilityTest {
             .assertIsFocused()
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("tab_settings")
             .performClick()
@@ -660,20 +517,7 @@ class MainActivityAccessibilityTest {
             .assertIsFocused()
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
-        try {
-            composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (failure: Throwable) {
-            // The ATF exception is the SIGNAL; the tree is best-effort — and it
-            // must not mask the signal, which is exactly what happened while
-            // this wrapper called onRoot() unguarded (a popup makes the root
-            // ambiguous and the report became "2 nodes satisfy isRoot").
-            val tree = runCatching {
-                val roots = composeTestRule.onAllNodes(androidx.compose.ui.test.isRoot())
-                val count = roots.fetchSemanticsNodes().size
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            }.getOrNull()
-            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
-        }
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
     }
 
     private fun currentViewModel(): MainViewModel =

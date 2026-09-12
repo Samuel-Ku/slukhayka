@@ -134,7 +134,7 @@ class WorkIndexRefresherTest {
                 fetcher = fetcher,
                 store = WorkIndexStore(file),
                 cardSources = cardSources(),
-                clock = { 1_000_000L + FeedSnapshotPolicy.CATALOG_TTL_MS + 1 }
+                clock = { 1_000_000L + SitemapPolicy.SITEMAP_TTL_MS + 1 }
             )
 
             val built = refresher.refreshIfStale()
@@ -193,5 +193,71 @@ class WorkIndexRefresherTest {
         // Best-effort: a cookie-free request stays blank, nothing is built.
         assertNull(refresher.refreshIfStale())
         assertEquals(0, fetcher.headers[sluhayUrl]?.size ?: 0)
+    }
+
+    // --- #526 — the sitemap index as a cheap weekly URL inventory ----------
+
+    @Test
+    fun `the persisted sitemap index lives a week across restarts`() = runTest {
+        val file = File.createTempFile("work-index", ".tsv").apply { delete() }
+        var now = 1_000_000L
+        val first = fetcher()
+        WorkIndexRefresher(
+            fetcher = first,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        ).refreshIfStale()
+        val firstCalls = first.calls
+        assertTrue(firstCalls > 0)
+
+        // A restart inside the week reads the file, not the network.
+        now += SitemapPolicy.SITEMAP_TTL_MS - 1
+        val second = fetcher()
+        WorkIndexRefresher(
+            fetcher = second,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        ).refreshIfStale()
+        assertEquals("inside the week no sitemap is requested", 0, second.calls)
+
+        // Past the week it reads them again.
+        now += 2
+        val third = fetcher()
+        WorkIndexRefresher(
+            fetcher = third,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        ).refreshIfStale()
+        assertTrue("past the week the sitemaps are read again", third.calls > 0)
+        file.delete()
+    }
+
+    @Test
+    fun `a malformed sitemap never erases the last good index`() = runTest {
+        val file = File.createTempFile("work-index", ".tsv").apply { delete() }
+        var now = 1_000_000L
+        val fetcher = fetcher()
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        )
+        val built = refresher.refreshIfStale()
+        assertTrue(built!!.size > 0)
+
+        // Past the TTL the sources answer garbage — the previous index stays.
+        now += SitemapPolicy.SITEMAP_TTL_MS + 1
+        fetcher.docs = mapOf(
+            coUaUrl to "<html>challenge</html>",
+            chytayloUrl to "<html>challenge</html>"
+        )
+        val again = refresher.refreshIfStale()
+
+        assertEquals("the last good index is still served", built.size, again!!.size)
+        file.delete()
     }
 }

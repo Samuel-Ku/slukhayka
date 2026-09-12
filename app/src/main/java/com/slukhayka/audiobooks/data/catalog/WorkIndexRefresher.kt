@@ -29,9 +29,12 @@ import kotlinx.coroutines.sync.withLock
  *   matches without transliteration heuristics.
  *
  * The built index is persisted through [store] so a launch inside the TTL
- * serves lookups without a single sitemap request. Best-effort by contract:
- * a failing carrier contributes nothing and never touches the previous index;
- * one refresh runs at a time.
+ * serves lookups without a single sitemap request. #526 — the sitemap lane's
+ * TTL is a WEEK ([SitemapPolicy.SITEMAP_TTL_MS]): a URL inventory moves
+ * slowly, and the parsed document is bounded, canonicalized and
+ * host-allowlisted by [SitemapParser]. Best-effort by contract: a failing,
+ * malformed or oversized carrier contributes nothing and never touches the
+ * previous index; one refresh runs at a time.
  */
 class WorkIndexRefresher(
     private val fetcher: HttpFetcher,
@@ -49,7 +52,7 @@ class WorkIndexRefresher(
      */
     private val cookieProvider: SourceCookieProvider = NO_COOKIES,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val ttlMillis: Long = FeedSnapshotPolicy.CATALOG_TTL_MS,
+    private val ttlMillis: Long = SitemapPolicy.SITEMAP_TTL_MS,
     private val cardLimit: Int = DEFAULT_CARD_LIMIT
 ) {
 
@@ -122,13 +125,14 @@ class WorkIndexRefresher(
                     ttlMillis
                 )
                 if (xml.isBlank()) continue
-                for (match in LOC.findAll(xml)) {
-                    val loc = match.groupValues[1].trim()
-                    val path = loc.substringBefore('?').trimEnd('/')
-                    if (!spec.accept(path)) continue
-                    val slug = path.substringAfterLast('/')
+                // #526 — bounded, canonicalized, host-allowlisted. An
+                // oversized or malformed document contributes nothing here;
+                // the previous good index is never erased.
+                val parsed = SitemapParser.parse(xml, spec.accept) ?: continue
+                for (entry in parsed) {
+                    val slug = entry.canonicalUrl.substringAfterLast('/')
                     if (slug.isBlank()) continue
-                    add(CatalogIndexEntry(sourceId = sourceId, url = loc, slug = slug))
+                    add(CatalogIndexEntry(sourceId = sourceId, url = entry.url, slug = slug))
                 }
             }
         }
@@ -161,8 +165,6 @@ class WorkIndexRefresher(
 
         /** Bounded: the index is a discovery shortcut, not a full crawl. */
         const val DEFAULT_CARD_LIMIT = 100
-
-        private val LOC = Regex("<loc>\\s*([^<\\s]+)\\s*</loc>")
 
         /** One source's sitemap URLs plus the book-URL filter. */
         data class SitemapSpec(

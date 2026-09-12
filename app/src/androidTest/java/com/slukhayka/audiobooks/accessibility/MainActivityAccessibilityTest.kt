@@ -224,20 +224,30 @@ class MainActivityAccessibilityTest {
         )
 
         composeTestRule.enableAccessibilityChecks()
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("tab_library").performClick()
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("library_book_item_$fixtureBookId"),
             timeoutMillis = NAV_TIMEOUT_MS
         )
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsDisplayed()
             .performClick()
@@ -250,10 +260,15 @@ class MainActivityAccessibilityTest {
             .performScrollToNode(hasTestTag("book_detail_chapter_$fixtureChapterId"))
         val chapter = composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
         chapter.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         chapter.performClick()
 
         composeTestRule.waitUntilExactlyOneExists(
@@ -321,10 +336,15 @@ class MainActivityAccessibilityTest {
                 "00:15 із 00:30"
             )
         )
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         val speedTrigger = composeTestRule.onNodeWithTag("speed_chip")
         speedTrigger.performClick()
@@ -349,10 +369,15 @@ class MainActivityAccessibilityTest {
         composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
             kotlin.math.abs(currentViewModel().playerState.value.playbackSpeed - 1.25f) < 0.01f
         }
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
             .performClick()
         waitUntilGone("speed_sheet")
@@ -374,10 +399,15 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -388,10 +418,15 @@ class MainActivityAccessibilityTest {
         }
         waitUntilGone("sleep_timer_sheet")
         waitUntilFocused("sleep_timer_chip")
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
         bookmarkTrigger.performClick()
@@ -416,10 +451,15 @@ class MainActivityAccessibilityTest {
                         ) == true
                 }
             )
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
         composeTestRule.onNodeWithTag("save_bookmark_button")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -435,10 +475,15 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithText("Закладку додано на", substring = true)
             .assertIsDisplayed()
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("close_player_button")
             .performClick()
@@ -470,10 +515,15 @@ class MainActivityAccessibilityTest {
                     node.config.getOrNull(SemanticsProperties.HideFromAccessibility) == null
                 }
             )
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("book_detail_back_button")
             .performClick()
@@ -486,10 +536,15 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsFocused()
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
 
         composeTestRule.onNodeWithTag("tab_settings")
             .performClick()
@@ -515,10 +570,15 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("settings_Profile")
             .assertIsFocused()
-        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
-        // tree that mattered.
-        dumpA11yTree()
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        // #766 B — attach the tree to the failure: the report is the ONE
+        // channel the harness already retrieves.
+        try {
+            composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        } catch (failure: Throwable) {
+            // No cause: the runner reports the CAUSE's message, so the tree
+            // must BE the message of the thrown error.
+            throw AssertionError(composeTestRule.onRoot().printToString())
+        }
     }
 
     private fun currentViewModel(): MainViewModel =

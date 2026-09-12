@@ -59,11 +59,18 @@ class SourceReplacementMapping(
     private val union: suspend () -> List<GlobalSearchResult>,
     private val cache: SearchCache? = null,
     /**
-     * The local sitemap Work index seam (ADR-0042): answers from book URLs
-     * already enumerated, with zero requests. Consulted between the shared
-     * cache and the live volley; a null/absent index changes nothing.
+     * The local sitemap Work index seam (spec-49 follow-up): answers from
+     * book URLs already enumerated, with zero requests. Consulted between the
+     * shared cache and the live volley; a null/absent index changes nothing.
      */
     private val workIndex: (suspend (title: String, author: String, mergeKey: String) -> Match?)? = null,
+    /**
+     * #725 / ADR-0037 — a Work-index match may point at a session-backed
+     * BROWSER source (sluhay.com): usable only while the listener's live
+     * first-party session exists. Without one the entry is skipped and the
+     * resolver keeps its honest path (volley → refusal/browser door).
+     */
+    private val sessionAlive: (sourceId: String) -> Boolean = { false },
     private val clock: () -> Long = System::currentTimeMillis
 ) {
 
@@ -106,7 +113,11 @@ class SourceReplacementMapping(
         if (!force) {
             verdicts[mergeKey]?.let { verdict ->
                 if (CatalogAvailabilityPolicy.isFresh(verdict.matched, verdict.observedAtMillis, now)) {
-                    return verdict.match
+                    val match = verdict.match
+                    // #725 — a session-backed match lives only as long as its
+                    // session: a lapsed session makes the memo stale, so the
+                    // call falls through to a fresh resolution.
+                    if (match == null || isUsableNow(match.sourceId)) return match
                 }
             }
         }
@@ -117,13 +128,31 @@ class SourceReplacementMapping(
             .joinToString(" ")
         if (query.isEmpty()) return null
 
-        val match = resolveFromUnion(mergeKey)
-            ?: resolveFromSharedCache(query, mergeKey)
-            ?: runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull()
-            ?: resolveVolley(query, mergeKey)
+        val match = resolveLocalChain(title, author, mergeKey, query) ?: resolveVolley(query, mergeKey)
         verdicts[mergeKey] = Verdict(match != null, now, match)
         return match
     }
+
+    /**
+     * The zero-request half of the chain: union → shared cache → local Work
+     * index. A Work-index match may point at a session-backed BROWSER source;
+     * it is usable only with a live session — a working transport, not a new
+     * browser door — otherwise it is skipped and the honest path stays.
+     */
+    private suspend fun resolveLocalChain(
+        title: String,
+        author: String,
+        mergeKey: String,
+        query: String
+    ): Match? = resolveFromUnion(mergeKey)
+        ?: resolveFromSharedCache(query, mergeKey)
+        ?: usableIndexMatch(runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull())
+
+    /** The capability rule: DIRECT always, BROWSER only with a live session. */
+    private fun isUsableNow(sourceId: String): Boolean =
+        SourceAccessPolicy.modeFor(sourceId) == SourceAccessMode.DIRECT || sessionAlive(sourceId)
+
+    private fun usableIndexMatch(match: Match?): Match? = match?.takeIf { isUsableNow(it.sourceId) }
 
     /** The union the catalog already holds — a pure local read, zero requests. */
     private suspend fun resolveFromUnion(mergeKey: String): Match? =
@@ -141,9 +170,7 @@ class SourceReplacementMapping(
             .filter { it.isNotEmpty() }
             .joinToString(" ")
         if (query.isEmpty()) return null
-        return resolveFromUnion(mergeKey)
-            ?: resolveFromSharedCache(query, mergeKey)
-            ?: runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull()
+        return resolveLocalChain(title, author, mergeKey, query)
     }
 
     /** Fresh shared-base entry serves the touch without a volley. */

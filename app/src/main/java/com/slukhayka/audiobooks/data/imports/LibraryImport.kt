@@ -45,6 +45,8 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -98,9 +100,25 @@ class LibraryImport(
     // tests / without Firebase — imports then behave exactly as before.
     // Best-effort and silent by the seam's contract: a failing write never
     // breaks the import.
-    private val workRelationshipsSync: WorkRelationshipsSync? = null
+    private val workRelationshipsSync: WorkRelationshipsSync? = null,
+    /**
+     * #618 — the Room transaction seam. Every write of ONE local Edition runs
+     * inside it, so a failure rolls the whole Edition back (no half-written
+     * Work/Chapters/Tracks) instead of leaving a partial card. Tests inject
+     * an in-memory `withTransaction`; the default is a pass-through for
+     * callers that do not exercise atomicity.
+     */
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
+
+    /**
+     * #618 — one local import/rescan of an Edition at a time. Serialising the
+     * local write paths is what makes the dedupe/topology re-checks before
+     * commit meaningful: two taps can never race the same bytes into two
+     * cards. Process-local by design (a single app process owns the library).
+     */
+    private val localWriteMutex = Mutex()
 
     // Spec-45 (#405) R1 (#508): the shared facet-projection seam — the SAME
     // writer SourceCatalog and the shared delta lane use, so an Edition's
@@ -1480,6 +1498,10 @@ class LibraryImport(
      */
     suspend fun importLocalAudioStream(displayName: String, stream: java.io.InputStream): AudiobookEntity =
         withContext(Dispatchers.IO) {
+        // #618 — the single-file door is a local write too: same lock, same
+        // staging sweep, same per-Edition transaction as the folder door.
+        localWriteMutex.withLock {
+            cleanupStaging()
             val base = sanitizeLocalBaseName(displayName)
             val dest = copyLocalAudioStream(base, localFileExtension(displayName), stream)
             // ADR-0007: the content hash lives on the TRACK rows (a local
@@ -1491,7 +1513,7 @@ class LibraryImport(
                 // the track row — resolve the owner book through the source.
                 val ownerBookId = dao.getBookIdBySourceId(existing.sourceId)
                     ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
-                return@withContext dao.getAudiobookById(ownerBookId)?.toAudiobookEntity()
+                return@withLock dao.getAudiobookById(ownerBookId)?.toAudiobookEntity()
                     ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
             }
             insertLocalBook(
@@ -1500,6 +1522,7 @@ class LibraryImport(
                 description = "Імпортований аудіофайл: $displayName",
                 chapters = listOf(LocalChapterInput(title = base, filePath = dest.path, contentHash = dest.sha256Hex))
             )
+        }
         }
 
     /**
@@ -1545,6 +1568,11 @@ class LibraryImport(
      */
     suspend fun applyImportPlan(plan: ImportPlan, sourceTreeUri: String? = null): LocalImportResult =
         withContext(Dispatchers.IO) {
+        // #618 — the plan door writes local Editions too: it shares the ONE
+        // local-write lock and sweeps stale staging leftovers like the direct
+        // import and the rescan.
+        localWriteMutex.withLock {
+            cleanupStaging()
             var booksImported = 0
             var filesImported = 0
             var skippedFiles = 0
@@ -1682,6 +1710,7 @@ class LibraryImport(
                 duplicateFiles = duplicateFiles
             )
         }
+        }
 
     /**
      * Core of the local import (T7 single-file + Block 4 folder): groups the
@@ -1699,6 +1728,11 @@ class LibraryImport(
      */
     suspend fun importAudioEntries(entries: List<LocalAudioEntry>, sourceTreeUri: String? = null): LocalImportResult =
         withContext(Dispatchers.IO) {
+        // #618 — one local write at a time, with stale staging leftovers swept
+        // first: a pass never races another pass for the same bytes, and a
+        // process death never leaves a readable partial file behind.
+        localWriteMutex.withLock {
+            cleanupStaging()
             var booksImported = 0
             var filesImported = 0
             var skippedFiles = 0
@@ -1736,13 +1770,24 @@ class LibraryImport(
                 val base = sanitizeLocalBaseName(entry.fileName)
                 val chapter = copyUnlessDuplicate(base, base, localFileExtension(entry.fileName), entry.openStream)
                     ?: continue
-                insertLocalBook(
-                    title = base,
-                    author = LOCAL_FILE_AUTHOR,
-                    description = "Імпортований аудіофайл: ${entry.fileName}",
-                    chapters = listOf(chapter),
-                    sourceTreeUri = sourceTreeUri
-                )
+                try {
+                    insertLocalBook(
+                        title = base,
+                        author = LOCAL_FILE_AUTHOR,
+                        description = "Імпортований аудіофайл: ${entry.fileName}",
+                        chapters = listOf(chapter),
+                        sourceTreeUri = sourceTreeUri
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // #618 — a failed Edition rolls back alone; the copies of
+                    // other Editions stay committed. Its file was removed by
+                    // the rollback, so the hash is free for a retry.
+                    Log.w("AudiobookRepo", "Local book import rolled back", e)
+                    seenHashes.remove(chapter.contentHash)
+                    continue
+                }
                 booksImported++
                 filesImported++
             }
@@ -1759,17 +1804,25 @@ class LibraryImport(
                     val chapter = copyUnlessDuplicate("$bookTitle-$chapterTitle", chapterTitle, localFileExtension(entry.fileName), entry.openStream)
                         ?: continue
                     chapters.add(chapter)
-                    filesImported++
                 }
                 if (chapters.isNotEmpty()) {
-                    insertLocalBook(
-                        title = bookTitle,
-                        author = LOCAL_FOLDER_AUTHOR,
-                        description = "Імпортовано з папки «$folder» — ${chapters.size} файл(ів)",
-                        chapters = chapters,
-                        sourceTreeUri = sourceTreeUri
-                    )
+                    try {
+                        insertLocalBook(
+                            title = bookTitle,
+                            author = LOCAL_FOLDER_AUTHOR,
+                            description = "Імпортовано з папки «$folder» — ${chapters.size} файл(ів)",
+                            chapters = chapters,
+                            sourceTreeUri = sourceTreeUri
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("AudiobookRepo", "Local folder import rolled back", e)
+                        chapters.forEach { seenHashes.remove(it.contentHash) }
+                        continue
+                    }
                     booksImported++
+                    filesImported += chapters.size
                 }
             }
 
@@ -1779,6 +1832,7 @@ class LibraryImport(
                 skippedFiles = skippedFiles,
                 duplicateFiles = duplicateFiles
             )
+        }
         }
 
     /** Strips the extension and unsafe characters from a file/folder display name. */
@@ -1793,34 +1847,108 @@ class LibraryImport(
     private fun localFileExtension(fileName: String): String =
         fileName.substringAfterLast('.', "").ifBlank { "mp3" }.lowercase().take(5)
 
-    /** Copies a stream into the private local-imports dir under a unique name. */
+    /**
+     * Copies a stream into the private local-imports dir under a unique name.
+     *
+     * #618 — the bytes are written and hashed in the app-private STAGING dir
+     * first and only then promoted (atomically renamed) into the library dir.
+     * A copy that dies half-way leaves no readable file in the library dir,
+     * and a leftover staged file from a process death is removed by the next
+     * local pass ([cleanupStaging]). The target name is computed up front so
+     * the promoted path — the one the DB rows reference — is known before the
+     * transaction commits.
+     */
     private fun copyLocalAudioStream(baseName: String, extension: String, stream: java.io.InputStream): CopiedLocalFile {
         val ctx = context ?: throw IllegalStateException("local import requires Context")
         val audioDir = File(ctx.filesDir, LOCAL_AUDIO_DIR)
         if (!audioDir.exists()) audioDir.mkdirs()
+        val stagingDir = File(ctx.filesDir, LOCAL_STAGING_DIR)
+        if (!stagingDir.exists()) stagingDir.mkdirs()
         // Unique suffix (counter-based, unlike the old timestamp-only one) so
         // rapid folder imports never collide within the same millisecond. The
         // original extension is preserved so ExoPlayer detects the container.
-        val destFile = File(audioDir, "$baseName-${localImportSeq.incrementAndGet()}.$extension")
+        val fileName = "$baseName-${localImportSeq.incrementAndGet()}.$extension"
+        val destFile = File(audioDir, fileName)
+        val stagedFile = File(stagingDir, fileName)
         val digest = java.security.MessageDigest.getInstance("SHA-256")
-        stream.use { input ->
-            destFile.outputStream().use { output ->
-                val buffer = ByteArray(HASH_BUFFER_SIZE)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    if (read > 0) {
-                        output.write(buffer, 0, read)
-                        digest.update(buffer, 0, read)
+        try {
+            stream.use { input ->
+                stagedFile.outputStream().use { output ->
+                    val buffer = ByteArray(HASH_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        if (read > 0) {
+                            output.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
+                        }
                     }
                 }
             }
+            // Promote by rename (same volume); fall back to a copy when the
+            // filesystem refuses it, and never leave the staged original.
+            if (!stagedFile.renameTo(destFile)) {
+                stagedFile.copyTo(destFile, overwrite = false)
+                stagedFile.delete()
+            }
+        } catch (e: Exception) {
+            stagedFile.delete()
+            destFile.delete()
+            throw e
         }
         return CopiedLocalFile(path = destFile.absolutePath, sha256Hex = sha256Hex(digest.digest()))
     }
 
-    /** Creates one local book with the given chapters (title, localFilePath). */
+    /**
+     * #618 — removes the safe leftovers of local attempts that died before
+     * their commit. Only the app-private staging dir is swept: a library file
+     * (a committed private copy) is never a candidate. Best-effort: a failing
+     * cleanup never masks the pass that follows.
+     */
+    private fun cleanupStaging() {
+        val ctx = context ?: return
+        val stagingDir = File(ctx.filesDir, LOCAL_STAGING_DIR)
+        if (!stagingDir.isDirectory) return
+        runCatching {
+            stagingDir.listFiles()?.forEach { leftover ->
+                if (leftover.isFile && !leftover.delete()) {
+                    Log.w("AudiobookRepo", "Could not remove staged leftover ${leftover.name}")
+                }
+            }
+        }.onFailure { Log.w("AudiobookRepo", "Staging cleanup failed", it) }
+    }
+
+    /**
+     * #618 — creates one local Edition atomically: the bytes were copied and
+     * promoted before this call, and every related Room write (audiobook row,
+     * library entry, edition, chapters, source, tracks, tombstone) runs in
+     * ONE transaction. A failure rolls the rows back and removes the promoted
+     * private copies of this attempt, so no partial card and no orphan file
+     * survive. Existing private copies are never touched — only the files
+     * passed in [chapters].
+     */
     private suspend fun insertLocalBook(
+        title: String,
+        author: String,
+        description: String,
+        chapters: List<LocalChapterInput>,
+        sourceTreeUri: String? = null
+    ): AudiobookEntity {
+        var created: AudiobookEntity? = null
+        try {
+            writeBatchRunner {
+                created = writeLocalBookRows(title, author, description, chapters, sourceTreeUri)
+            }
+        } catch (e: Exception) {
+            // Roll back the promoted copies of THIS attempt; a cleanup failure
+            // never masks the primary exception.
+            chapters.forEach { input -> runCatching { File(input.filePath).delete() } }
+            throw e
+        }
+        return created ?: throw IllegalStateException("local book transaction produced no row")
+    }
+
+    private suspend fun writeLocalBookRows(
         title: String,
         author: String,
         description: String,
@@ -1993,12 +2121,16 @@ class LibraryImport(
      */
     suspend fun rescanAudioEntries(entries: List<LocalAudioEntry>, treeUri: String): RescanReport =
         withContext(Dispatchers.IO) {
+        // #618 — a rescan is a local write: serialise it with imports and sweep
+        // stale staging leftovers before it runs.
+        localWriteMutex.withLock {
+        cleanupStaging()
         // Hash every file once — pure stream read, the re-scan baseline.
         val scanned = entries.mapNotNull { entry ->
             val hash = runCatching { contentHashOf(entry.openStream()) }.getOrNull()
             if (hash.isNullOrBlank()) null else FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
         }
-        if (scanned.isEmpty()) return@withContext RescanReport(treeUri)
+        if (scanned.isEmpty()) return@withLock RescanReport(treeUri)
 
         // ADR-0007: hashes live on the track rows — the library-wide dedupe
         // pool is every track's content hash.
@@ -2032,13 +2164,21 @@ class LibraryImport(
                     report = report.copy(duplicateFiles = report.duplicateFiles + files.size)
                     continue
                 }
-                val created = insertLocalBook(
-                    title = title,
-                    author = LOCAL_FOLDER_AUTHOR,
-                    description = "Імпортовано з папки «${files.first().parentFolder ?: title}» — ${newInputs.size} файл(ів)",
-                    chapters = newInputs,
-                    sourceTreeUri = treeUri
-                )
+                val created = try {
+                    insertLocalBook(
+                        title = title,
+                        author = LOCAL_FOLDER_AUTHOR,
+                        description = "Імпортовано з папки «${files.first().parentFolder ?: title}» — ${newInputs.size} файл(ів)",
+                        chapters = newInputs,
+                        sourceTreeUri = treeUri
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // #618 — one Edition's rollback never aborts the rescan.
+                    Log.w("AudiobookRepo", "Re-scan new book rolled back", e)
+                    continue
+                }
                 report = report.copy(
                     newBooks = report.newBooks + 1,
                     newChapters = report.newChapters + newInputs.size,
@@ -2097,11 +2237,21 @@ class LibraryImport(
                 report = report.copy(duplicateFiles = report.duplicateFiles + diff.newFiles.size)
                 continue
             }
-            appendLocalChapters(book.id, localSource, chapters, newInputs)
+            try {
+                appendLocalChapters(book.id, localSource, chapters, newInputs)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // #618 — the append rolled back alone; the rest of the rescan
+                // and every already-committed Edition stay intact.
+                Log.w("AudiobookRepo", "Re-scan append rolled back", e)
+                continue
+            }
             report = report.copy(newChapters = report.newChapters + newInputs.size)
             updateFingerprintFor(book.id, localSource)
         }
         report
+        }
     }
 
     /**
@@ -2148,6 +2298,24 @@ class LibraryImport(
      * (completion clears) while the listener's position is preserved.
      */
     private suspend fun appendLocalChapters(
+        bookId: String,
+        localSource: SourceEntity,
+        existingChapters: List<ChapterEntity>,
+        newInputs: List<LocalChapterInput>
+    ) {
+        try {
+            writeBatchRunner {
+                writeAppendedLocalChapters(bookId, localSource, existingChapters, newInputs)
+            }
+        } catch (e: Exception) {
+            // #618 — the append is one transaction: roll the new rows back and
+            // remove the promoted copies of this attempt only.
+            newInputs.forEach { input -> runCatching { File(input.filePath).delete() } }
+            throw e
+        }
+    }
+
+    private suspend fun writeAppendedLocalChapters(
         bookId: String,
         localSource: SourceEntity,
         existingChapters: List<ChapterEntity>,
@@ -2236,6 +2404,9 @@ class LibraryImport(
     companion object {
         /** Directory holding user-imported local audio files (spec #8 T7). */
         const val LOCAL_AUDIO_DIR = "local_imports"
+
+        /** #618 — the app-private dir where local copies are staged before promotion. */
+        const val LOCAL_STAGING_DIR = "local_imports_staging"
 
         /** Author/genre labels for locally-imported books. */
         private const val LOCAL_FILE_AUTHOR = "Локальний файл"

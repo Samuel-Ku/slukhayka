@@ -615,7 +615,11 @@ class App : Application() {
             verifiedProfileReader = verifiedSourceProfileReader,
             // #581 W0.3 — an imported Work mirrors as an `entry` row for the
             // web Медіатека (best-effort, silent on failure).
-            workRelationshipsSync = workRelationshipsSync
+            workRelationshipsSync = workRelationshipsSync,
+            // #618 — every local Edition's writes ride ONE Room transaction:
+            // an injected failure rolls the whole Edition back instead of
+            // leaving a half-written card (and its promoted files are removed).
+            writeBatchRunner = { block -> database.withTransaction { block() } }
         )
     }
 

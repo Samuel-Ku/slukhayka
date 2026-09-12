@@ -7,6 +7,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertTopPositionInRootIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.App
@@ -46,5 +49,32 @@ class WebSourceBrowserLayoutTest {
 
         composeTestRule.onNodeWithContentDescription("Закрити браузер джерела «4read»")
             .assertTopPositionInRootIsEqualTo(12.dp)
+    }
+
+    @Test
+    fun theBrowserOffersTheCategoryDoorToOglad() {
+        val app = ApplicationProvider.getApplicationContext<App>()
+        val viewModel = MainViewModel(app)
+
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Box(Modifier.width(411.dp).height(900.dp)) {
+                    WebSourceBrowserScreen(
+                        viewModel = viewModel,
+                        sourceId = "soundbooks",
+                        homeUrl = "https://sound-books.net/",
+                        displayName = "Sound-Books",
+                        onClose = {}
+                    )
+                }
+            }
+        }
+
+        // #528 — ONE category action; the result line reports what happened.
+        composeTestRule.onNodeWithContentDescription("Додати категорію до Огляду")
+            .assertExists()
+            .performClick()
+        composeTestRule.onNodeWithTag("browser_category_result")
+            .assertTextContains("Додаю категорію до Огляду", substring = true)
     }
 }

@@ -85,6 +85,28 @@ const VALID_CARD = {
 const CARD_WITH_QUERY = { ...VALID_CARD, query: "шевченко" };
 const OVERLONG_CARD = { ...VALID_CARD, title: "т".repeat(301) };
 
+// #527 — one shared collective block: identity, provenance and ordered cards.
+const VALID_BLOCK = {
+  blockKey: "audiobookmp3|NEW_ARRIVALS",
+  sourceId: "audiobookmp3",
+  kind: "NEW_ARRIVALS",
+  name: "Новинки audiobook-mp3",
+  provenanceUrl: "https://audiobook-mp3.com/uk",
+  fetchedAt: 1700000000000,
+  staleAfter: 1700021600000,
+  version: 1,
+  cards: [
+    {
+      sourceId: "audiobookmp3",
+      sourceUrl: "https://audiobook-mp3.com/uk-audio-6163-x",
+      title: "Клуб боягузів",
+      author: "Андрій Кокотюха",
+    },
+  ],
+};
+const BLOCK_WITH_QUERY = { ...VALID_BLOCK, query: "кокотюха" };
+const EMPTY_BLOCK = { ...VALID_BLOCK, cards: [] };
+
 function durationConflictId(conflict) {
   return `${conflict.editionId}|${conflict.candidateSeconds}|${conflict.method}`;
 }
@@ -291,6 +313,14 @@ const MATRIX = [
   ["K6", "catalog_cards/qa_k6", "create", "uid-alice", VALID_CARD, "DENY", "нема AppCheck-токена"],
   ["K7", "catalog_cards/qa_k7", "update", "uid-alice", VALID_CARD, "ALLOW", "повторна публікація тієї самої картки"],
   ["K8", "catalog_cards/qa_k2", "delete", "uid-alice", null, "DENY", "client delete заборонений"],
+  // #527 — the shared collective blocks.
+  ["L1", "catalog_blocks/qa_l1", "get", null, null, "ALLOW", "блок — публічний факт, читання відкрите"],
+  ["L2", "catalog_blocks/qa_l2", "create", "uid-alice", VALID_BLOCK, "ALLOW", "bounded block (+AppCheck у проді)"],
+  ["L3", "catalog_blocks/qa_l3", "create", "uid-alice", BLOCK_WITH_QUERY, "DENY", "зайве поле query (hasOnly)"],
+  ["L4", "catalog_blocks/qa_l4", "create", "uid-alice", EMPTY_BLOCK, "DENY", "порожній блок не публікується"],
+  ["L5", "catalog_blocks/qa_l5", "create", null, VALID_BLOCK, "DENY", "нема auth"],
+  ["L6", "catalog_blocks/qa_l6", "create", "uid-alice", VALID_BLOCK, "DENY", "нема AppCheck-токена"],
+  ["L7", "catalog_blocks/qa_l2", "delete", "uid-alice", null, "DENY", "client delete заборонений"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -308,6 +338,8 @@ const EVIDENCE = {
   F20: "open", F21: "open", F22: "open", F23: "open",
   K1: "as-is", K2: "open", K3: "open", K4: "open", K5: "open",
   K6: "as-is", K7: "open", K8: "open",
+  L1: "as-is", L2: "open", L3: "open", L4: "open", L5: "open",
+  L6: "as-is", L7: "open",
 };
 
 function b64(o) {

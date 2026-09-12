@@ -7,6 +7,7 @@ import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceRequestClass
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,10 +28,13 @@ class WorkIndexRefresherTest {
     private class FixtureFetcher(
         var docs: Map<String, String>,
         /** URLs that answer only with a Cookie header (a session-bound sitemap). */
-        private val sessionRequired: Set<String> = emptySet()
+        private val sessionRequired: Set<String> = emptySet(),
+        /** #526 — the ETag each URL serves; a matching If-None-Match earns a 304. */
+        val etags: MutableMap<String, String> = mutableMapOf()
     ) : HttpFetcher() {
         var calls = 0
         val headers = mutableMapOf<String, Map<String, String>>()
+        val conditionalHeaders = mutableMapOf<String, Map<String, String>>()
 
         override fun getText(
             url: String,
@@ -42,6 +46,28 @@ class WorkIndexRefresherTest {
             headers[url] = extraHeaders
             if (url in sessionRequired && extraHeaders["Cookie"].isNullOrBlank()) return ""
             return docs[url].orEmpty()
+        }
+
+        override fun getTextConditional(
+            url: String,
+            extraHeaders: Map<String, String>,
+            etag: String?,
+            lastModified: String?
+        ): ConditionalText {
+            calls++
+            headers[url] = extraHeaders
+            conditionalHeaders[url] = buildMap {
+                etag?.let { put("If-None-Match", it) }
+                lastModified?.let { put("If-Modified-Since", it) }
+            }
+            if (url in sessionRequired && extraHeaders["Cookie"].isNullOrBlank()) {
+                return ConditionalText(0, "", etag, lastModified)
+            }
+            val served = etags[url]
+            if (served != null && etag == served) {
+                return ConditionalText(304, "", served, lastModified)
+            }
+            return ConditionalText(200, docs[url].orEmpty(), served, lastModified)
         }
     }
 
@@ -134,7 +160,7 @@ class WorkIndexRefresherTest {
                 fetcher = fetcher,
                 store = WorkIndexStore(file),
                 cardSources = cardSources(),
-                clock = { 1_000_000L + FeedSnapshotPolicy.CATALOG_TTL_MS + 1 }
+                clock = { 1_000_000L + SitemapPolicy.SITEMAP_TTL_MS + 1 }
             )
 
             val built = refresher.refreshIfStale()
@@ -193,5 +219,194 @@ class WorkIndexRefresherTest {
         // Best-effort: a cookie-free request stays blank, nothing is built.
         assertNull(refresher.refreshIfStale())
         assertEquals(0, fetcher.headers[sluhayUrl]?.size ?: 0)
+    }
+
+    // --- #526 — the sitemap index as a cheap weekly URL inventory ----------
+
+    @Test
+    fun `the persisted sitemap index lives a week across restarts`() = runTest {
+        val file = File.createTempFile("work-index", ".tsv").apply { delete() }
+        var now = 1_000_000L
+        val first = fetcher()
+        WorkIndexRefresher(
+            fetcher = first,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        ).refreshIfStale()
+        val firstCalls = first.calls
+        assertTrue(firstCalls > 0)
+
+        // A restart inside the week reads the file, not the network.
+        now += SitemapPolicy.SITEMAP_TTL_MS - 1
+        val second = fetcher()
+        WorkIndexRefresher(
+            fetcher = second,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        ).refreshIfStale()
+        assertEquals("inside the week no sitemap is requested", 0, second.calls)
+
+        // Past the week it reads them again.
+        now += 2
+        val third = fetcher()
+        WorkIndexRefresher(
+            fetcher = third,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        ).refreshIfStale()
+        assertTrue("past the week the sitemaps are read again", third.calls > 0)
+        file.delete()
+    }
+
+    @Test
+    fun `a malformed sitemap never erases the last good index`() = runTest {
+        val file = File.createTempFile("work-index", ".tsv").apply { delete() }
+        var now = 1_000_000L
+        val fetcher = fetcher()
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = WorkIndexStore(file),
+            cardSources = emptyMap(),
+            clock = { now }
+        )
+        val built = refresher.refreshIfStale()
+        assertTrue(built!!.size > 0)
+
+        // Past the TTL the sources answer garbage — the previous index stays.
+        now += SitemapPolicy.SITEMAP_TTL_MS + 1
+        fetcher.docs = mapOf(
+            coUaUrl to "<html>challenge</html>",
+            chytayloUrl to "<html>challenge</html>"
+        )
+        val again = refresher.refreshIfStale()
+
+        assertEquals("the last good index is still served", built.size, again!!.size)
+        file.delete()
+    }
+
+    @Test
+    fun `reading candidates makes no request and stays inside the bound`() = runTest {
+        val fetcher = fetcher()
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = null,
+            cardSources = emptyMap(),
+            clock = { 1_000_000L }
+        )
+        refresher.refreshIfStale()
+        val afterRefresh = fetcher.calls
+
+        val candidates = refresher.candidates("Ігри Джеральда", "Стівен Кінг")
+
+        assertTrue(candidates.isNotEmpty())
+        assertTrue("at most three candidate pages", candidates.size <= CatalogWorkIndex.MAX_CANDIDATES)
+        assertEquals("the index answers locally — no hidden crawl", afterRefresh, fetcher.calls)
+    }
+
+    @Test
+    fun `a conditional 304 extends the index without re-downloading it`() = runTest {
+        val indexFile = File.createTempFile("work-index", ".tsv").apply { delete() }
+        val validatorsFile = File.createTempFile("sitemap-validators", ".tsv").apply { delete() }
+        var now = 1_000_000L
+        val fetcher = FixtureFetcher(
+            docs = mapOf(
+                coUaUrl to sitemap("https://audiobook.co.ua/igra-dzheralda-stiven-king/"),
+                chytayloUrl to sitemap("https://chytaylo.com.ua/books/tini-zabutykh-predkiv")
+            ),
+            etags = mutableMapOf(coUaUrl to "\"v1\"", chytayloUrl to "\"c1\"")
+        )
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = WorkIndexStore(indexFile),
+            cardSources = emptyMap(),
+            validatorStore = SitemapValidatorStore(validatorsFile),
+            clock = { now }
+        )
+        val built = refresher.refreshIfStale()
+        assertTrue(built!!.size > 0)
+        assertTrue("the validator is persisted", validatorsFile.readText().contains("\"v1\""))
+
+        // Past the week the sweep is CONDITIONAL and both carriers answer 304.
+        now += SitemapPolicy.SITEMAP_TTL_MS + 1
+        val callsBefore = fetcher.calls
+        val again = refresher.refreshIfStale()
+        assertEquals("the same index is served", built.size, again!!.size)
+        assertEquals("\"v1\"", fetcher.conditionalHeaders[coUaUrl]?.get("If-None-Match"))
+
+        // A 304 extended the window: the next read makes no request at all.
+        val callsAfterSweep = fetcher.calls
+        assertTrue(callsAfterSweep > callsBefore)
+        refresher.refreshIfStale()
+        assertEquals("a 304 renewed the week", callsAfterSweep, fetcher.calls)
+        indexFile.delete()
+        validatorsFile.delete()
+    }
+
+    @Test
+    fun `a partial 304 keeps that carrier's stored entries`() = runTest {
+        val indexFile = File.createTempFile("work-index", ".tsv").apply { delete() }
+        val validatorsFile = File.createTempFile("sitemap-validators", ".tsv").apply { delete() }
+        var now = 1_000_000L
+        val fetcher = FixtureFetcher(
+            docs = mapOf(
+                coUaUrl to sitemap("https://audiobook.co.ua/igra-dzheralda-stiven-king/"),
+                chytayloUrl to sitemap("https://chytaylo.com.ua/books/tini-zabutykh-predkiv")
+            ),
+            etags = mutableMapOf(coUaUrl to "\"v1\"", chytayloUrl to "\"c1\"")
+        )
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = WorkIndexStore(indexFile),
+            cardSources = emptyMap(),
+            validatorStore = SitemapValidatorStore(validatorsFile),
+            clock = { now }
+        )
+        refresher.refreshIfStale()
+
+        // co.ua is unchanged (304) while chytaylo publishes a new book.
+        now += SitemapPolicy.SITEMAP_TTL_MS + 1
+        fetcher.docs = fetcher.docs + (chytayloUrl to sitemap("https://chytaylo.com.ua/books/nova-knyga"))
+        fetcher.etags[chytayloUrl] = "\"c2\""
+        val again = refresher.refreshIfStale()
+
+        assertNotNull("the 304 carrier's stored entries are reused", again!!.lookup("Ігри Джеральда", "Стівен Кінг"))
+        assertEquals("chytaylo", again.entriesFor("chytaylo").single().sourceId)
+        assertTrue(again.entriesFor("chytaylo").single().url.contains("nova-knyga"))
+        indexFile.delete()
+        validatorsFile.delete()
+    }
+
+    @Test
+    fun `the audiobookmp3 uk sitemap lands its inventory`() = runTest {
+        val mp3Url = "https://audiobook-mp3.com/sitemap_books-uk.xml"
+        val fetcher = FixtureFetcher(
+            docs = mapOf(
+                mp3Url to sitemap(
+                    "https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv",
+                    "https://audiobook-mp3.com/about-us"
+                )
+            )
+        )
+        val refresher = WorkIndexRefresher(
+            fetcher = fetcher,
+            store = null,
+            cardSources = emptyMap(),
+            clock = { 1_000_000L }
+        )
+
+        val built = refresher.refreshIfStale()
+
+        assertEquals("only the book page is an entry", 1, built!!.entriesFor("audiobookmp3").size)
+        assertEquals(
+            "https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv",
+            built.entriesFor("audiobookmp3").single().url
+        )
+        assertTrue(
+            "the Cyrillic query matches the transliterated slug locally",
+            refresher.candidates("Клуб боягузів", "Андрій Кокотюха").isNotEmpty()
+        )
     }
 }

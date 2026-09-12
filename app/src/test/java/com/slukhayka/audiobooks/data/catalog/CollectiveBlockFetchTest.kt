@@ -9,12 +9,14 @@ import com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome
 import com.slukhayka.audiobooks.data.collective.classifyCollectiveFailure
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.source.GenrePage
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -59,6 +61,17 @@ class CollectiveBlockFetchTest {
             return books
         }
         override suspend fun fetchCatalog(limit: Int): List<SourceBook> = emptyList()
+
+        /** #527 — the listener genre door: one call = one page. */
+        var genreCalls = 0
+        override suspend fun fetchGenrePage(
+            genrePath: String,
+            cursor: String?,
+            limit: Int
+        ): GenrePage {
+            genreCalls++
+            return GenrePage(books, nextCursor = if (cursor == null) "$genrePath/page/2/" else null)
+        }
     }
 
     private fun catalog(adapters: List<SourceAdapter>): SourceCatalog {
@@ -145,5 +158,41 @@ class CollectiveBlockFetchTest {
         assertEquals(CollectiveAttemptStatus.TIMEOUT, classifyCollectiveFailure(SocketTimeoutException()))
         assertEquals(CollectiveAttemptStatus.TIMEOUT, classifyCollectiveFailure(IOException("network")))
         assertEquals(CollectiveAttemptStatus.PARSE_FAILURE, classifyCollectiveFailure(IllegalStateException("html")))
+    }
+
+    @Test
+    fun `a listener genre page becomes a COLLECTIONS block with one request`() = runBlocking {
+        val adapter = FakeAdapter("audiobookmp3", listOf(book("Клуб боягузів")))
+        val fetch = catalog(listOf(adapter))
+            .collectiveGenreBlockFetch("audiobookmp3", "/uk-genre-12-fantastyka")
+
+        assertTrue(fetch.outcome is CollectiveRefreshOutcome.Success)
+        val block = (fetch.outcome as CollectiveRefreshOutcome.Success).block
+        assertEquals(CollectiveBlockKind.COLLECTIONS, block.kind)
+        assertEquals("audiobookmp3", block.sourceId)
+        assertEquals("https://audiobook-mp3.com/uk-genre-12-fantastyka", block.provenanceUrl)
+        assertEquals(listOf("Клуб боягузів"), block.cards.map { it.title })
+        assertEquals("one page for one action", 1, adapter.genreCalls)
+        assertEquals("/uk-genre-12-fantastyka/page/2/", fetch.nextCursor)
+
+        // The cursor is the NEXT action's call, not an implicit walk.
+        val second = catalog(listOf(adapter))
+            .collectiveGenreBlockFetch("audiobookmp3", "/uk-genre-12-fantastyka", fetch.nextCursor)
+        assertTrue(second.outcome is CollectiveRefreshOutcome.Success)
+        assertNull("the last page has no cursor", second.nextCursor)
+
+        // A source without the genre door is an honest empty.
+        assertEquals(
+            CollectiveRefreshOutcome.Empty,
+            catalog(listOf(FakeEmptyGenreAdapter("lihtar")))
+                .collectiveGenreBlockFetch("lihtar", "/genre").outcome
+        )
+    }
+
+    private class FakeEmptyGenreAdapter(override val sourceId: String) : SourceAdapter {
+        override suspend fun search(query: String): List<SourceBook> = emptyList()
+        override suspend fun fetchBookPage(url: String): SourceBookDetail =
+            SourceBookDetail("", "", url = url, chapters = emptyList())
+        override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
     }
 }

@@ -160,10 +160,13 @@ class OfflineDownloadsPacingTest {
         val result = downloads.downloadAudiobookOffline(bookId)
 
         assertEquals(4, result.downloadedChapters)
-        assertEquals("the policy is consulted exactly once per fresh fetch", 4, attempts.size)
+        // #527 adds ONE clock read up front (the download-permission gate's
+        // "now"); the PACING reads below are still exactly one per fetch.
+        val pacingReads = attempts.drop(1)
+        assertEquals("the policy is consulted exactly once per fresh fetch", 4, pacingReads.size)
         assertTrue(
             "every fetch sits behind a pause of at least the policy minimum",
-            attempts.all { it >= params.minPauseMillis }
+            pacingReads.all { it >= params.minPauseMillis }
         )
     }
 

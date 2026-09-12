@@ -113,6 +113,16 @@ data class CollectiveFeedBlock(
     )
 }
 
+/**
+ * #528 — the result of ONE listener genre action: the candidate refresh
+ * outcome plus the cursor of the NEXT page (null = last page). Passing the
+ * cursor back is a separate action, so pagination is always listener-driven.
+ */
+data class CollectiveGenreFetch(
+    val outcome: CollectiveRefreshOutcome,
+    val nextCursor: String? = null
+)
+
 /** The result of one attempted source refresh. */
 sealed interface CollectiveRefreshOutcome {
     /**

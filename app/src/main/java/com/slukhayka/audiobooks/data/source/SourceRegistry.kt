@@ -62,6 +62,13 @@ data class SourceFacts(
     val order: Int = Int.MAX_VALUE,
     val streamOnly: Boolean = false,
     /**
+     * #527 — this source's download permission must be confirmed by a LIVE
+     * rules check (its robots.txt) before any download starts. Fail closed:
+     * without a fresh ALLOWED verdict downloads stay OFF, and the static
+     * [streamOnly] refusal still applies on top.
+     */
+    val liveDownloadPermission: Boolean = false,
+    /**
      * A scam source: the audio it serves for a clean client is not the book
      * (4read's is a 52-second artefact). Never imported, offered, played,
      * downloaded or mirrored — the hard refusal ([SourceAudioRefusal.ALWAYS_REFUSED])
@@ -160,8 +167,17 @@ object SourceRegistry {
             contentLanguage = "uk",
             accessMode = SourceAccessMode.DIRECT,
             order = 4,
-            referer = RefererRule("https://audiobook-mp3.com/uk"),
-            transportHosts = setOf("audiobook-mp3.com")
+            // #527 — the site referer is scoped: the book pages and covers on
+            // audiobook-mp3.com, plus the media CDN (`*.redirectto.cc`) that
+            // 403s without it. Never a third party (SEC-004).
+            referer = RefererRule(
+                "https://audiobook-mp3.com/uk",
+                setOf("audiobook-mp3.com", "redirectto.cc")
+            ),
+            // #527 — the source's own rules decide: downloads stay OFF until a
+            // live robots check confirms them.
+            liveDownloadPermission = true,
+            transportHosts = setOf("audiobook-mp3.com", "redirectto.cc")
         ),
         SourceFacts(
             id = "lihtar",
@@ -286,6 +302,10 @@ object SourceRegistry {
 
     /** Stream-only verdict from the registry; unknown ids are not stream-only. */
     fun streamOnlyFor(sourceId: String): Boolean = byId[sourceId]?.streamOnly == true
+
+    /** #527 — whether this source needs a live rules verdict before downloading. */
+    fun requiresLiveDownloadPermission(sourceId: String): Boolean =
+        byId[sourceId]?.liveDownloadPermission == true
 
     /** The scam sources — audio that is never the book. */
     fun scamIds(): Set<String> = entries.filter { it.scam }.map { it.id }.toSet()

@@ -214,6 +214,14 @@
     <string name="series_index_title">Серії</string>
     <string name="series_mirror_neighbours">Також у Дзеркалі</string>
     <string name="collective_block_provenance">Джерело: %1$s</string>
+    <string name="fallback_candidates_title">Інші джерела</string>
+    <string name="fallback_kind_local">На пристрої</string>
+    <string name="fallback_kind_current">Поточне джерело</string>
+    <string name="fallback_kind_same_edition">Те саме прочитання</string>
+    <string name="fallback_kind_browser">Через браузер джерела</string>
+    <string name="fallback_kind_other_edition">Інша начитка</string>
+    <string name="fallback_candidate_play">Слухати</string>
+    <string name="fallback_candidate_switch">Перемкнути</string>
     <string name="collective_block_attempt">Остання спроба: %1$s</string>
     <string name="collective_block_attempt_ok">оновлено</string>
     <string name="collective_block_attempt_stale">показано останній добрий знімок</string>

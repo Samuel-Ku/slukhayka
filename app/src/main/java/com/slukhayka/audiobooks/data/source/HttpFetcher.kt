@@ -46,6 +46,14 @@ import java.net.URI
 open class HttpFetcher(
     private val userAgent: String? = null,
     private val referer: String? = null,
+    /**
+     * #527 — the hosts (exact or subdomain) the site [referer] may travel to.
+     * An EMPTY set keeps the legacy "any host" behaviour for an adapter that
+     * never leaves its own domain; an adapter that talks to a media CDN names
+     * its hosts here, so the site's Referer can never leak to an unrelated
+     * third party (spec-13 per-source referer rule).
+     */
+    private val refererHosts: Set<String> = emptySet(),
     private val sourceGate: SourceRequestGate? = null,
     /** Class used by the plain [getText] door; explicit calls override it. */
     private val defaultRequestClass: SourceRequestClass = SourceRequestClass.BACKGROUND,
@@ -110,6 +118,42 @@ open class HttpFetcher(
         val response = executeRequest(url, extraHeaders) ?: return 0 to ""
         return response.use {
             if (it.code == HTTP_OK) it.code to it.body.stringOrEmpty() else it.code to ""
+        }
+    }
+
+    /**
+     * #526 — one CONDITIONAL GET: the caller's stored validator travels as
+     * `If-None-Match`/`If-Modified-Since`, and the response's own validator
+     * headers come back. A 304 carries no body by design — [ConditionalText.status]
+     * is what the caller decides on. Open so fixture fakes can drive it.
+     */
+    data class ConditionalText(
+        val status: Int,
+        val body: String,
+        val etag: String?,
+        val lastModified: String?
+    )
+
+    open fun getTextConditional(
+        url: String,
+        extraHeaders: Map<String, String>,
+        etag: String?,
+        lastModified: String?
+    ): ConditionalText {
+        val headers = buildMap {
+            putAll(extraHeaders)
+            etag?.takeIf { it.isNotBlank() }?.let { put("If-None-Match", it) }
+            lastModified?.takeIf { it.isNotBlank() }?.let { put("If-Modified-Since", it) }
+        }
+        val response = executeRequest(url, headers)
+            ?: return ConditionalText(0, "", etag, lastModified)
+        return response.use {
+            ConditionalText(
+                status = it.code,
+                body = if (it.code == HTTP_OK) it.body.stringOrEmpty() else "",
+                etag = it.header("ETag") ?: etag,
+                lastModified = it.header("Last-Modified") ?: lastModified
+            )
         }
     }
 
@@ -306,7 +350,7 @@ open class HttpFetcher(
             .header("User-Agent", userAgent ?: BrowserIdentity.currentUserAgent())
             .header("Accept", BrowserIdentity.ACCEPT_HEADER)
             .header("Accept-Language", BrowserIdentity.ACCEPT_LANGUAGE_HEADER)
-            .apply { if (referer != null) header("Referer", referer!!) }
+            .apply { if (referer != null && refererAllowedFor(url, refererHosts)) header("Referer", referer!!) }
             .apply { extraHeaders.forEach { (name, value) -> header(name, value) } }
             .build()
     }

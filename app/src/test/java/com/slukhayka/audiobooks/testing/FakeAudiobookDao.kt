@@ -17,6 +17,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
 import com.slukhayka.audiobooks.data.db.PlaybackFailureEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.SeriesEntity
+import com.slukhayka.audiobooks.data.db.SeriesIndexRow
 import com.slukhayka.audiobooks.data.db.SeriesMemberEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
@@ -965,6 +966,49 @@ class FakeAudiobookDao(
         seriesState.value.filter { it.universeId == universeId }.sortedBy { it.positionInUniverse }
 
     override suspend fun getAllSeries(): List<SeriesEntity> = seriesState.value
+
+    /** #734 — the fake's owned-only series index mirrors the SQL union. */
+    override suspend fun ownedSeriesIndexRows(): List<SeriesIndexRow> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        val fromWorks = worksState.value
+            .filter { it.id in owned && !it.seriesTitle.isNullOrBlank() }
+            .map { SeriesIndexRow(it.seriesTitle!!, it.seriesUrl) }
+        val ownedSeriesIds = seriesMembersState.value.filter { it.workId in owned }.map { it.seriesId }.toSet()
+        val fromSeries = seriesState.value
+            .filter { it.id in ownedSeriesIds && it.title.isNotBlank() }
+            .map { SeriesIndexRow(it.title, it.url) }
+        return (fromWorks + fromSeries)
+            .distinctBy { it.url ?: it.title }
+            .sortedBy { it.title.lowercase() }
+    }
+
+    override suspend fun libraryBooksForSeries(title: String): List<AudiobookEntity> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        val seriesIds = seriesState.value.filter { it.title == title }.map { it.id }.toSet()
+        val memberWorkIds = seriesMembersState.value
+            .filter { it.seriesId in seriesIds }
+            .map { it.workId }
+            .toSet()
+        val workIds = worksState.value
+            .filter { (it.seriesTitle == title && it.id in owned) || it.id in memberWorkIds }
+            .map { it.id }
+            .toSet()
+        return booksState.value
+            .filter { it.id in workIds }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
+    }
+
+    override suspend fun mirrorNeighboursForSeries(title: String): List<WorkEntity> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        val seriesIds = seriesState.value.filter { it.title == title }.map { it.id }.toSet()
+        val memberWorkIds = seriesMembersState.value
+            .filter { it.seriesId in seriesIds }
+            .map { it.workId }
+            .toSet()
+        return worksState.value
+            .filter { (it.seriesTitle == title || it.id in memberWorkIds) && it.id !in owned }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
+    }
 
     override suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity> =
         seriesMembersState.value.filter { it.workId == workId }

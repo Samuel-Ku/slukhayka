@@ -2175,11 +2175,13 @@ class SourceCatalog(
     private val seriesBooksCache = java.util.concurrent.ConcurrentHashMap<String, List<AudiobookEntity>>()
 
     /**
-     * Already-resolved series remain browseable when 4read's catalogue request
-     * is challenged. A local row with no provider URL is not a navigable card.
+     * #734 / ADR-0041 — the «Серії» index is the Медіатека: only cycles with
+     * at least one owned book, from the Work's own series fields and resolved
+     * memberships. An enumerated-only cycle never appears. A local row with no
+     * provider URL is not a navigable card.
      */
     suspend fun localSeriesIndex(): List<CatalogSeries> = withContext(Dispatchers.IO) {
-        dao.getAllSeries()
+        dao.ownedSeriesIndexRows()
             .mapNotNull { row ->
                 row.url?.takeIf(String::isNotBlank)?.let { url ->
                     CatalogSeries(title = row.title, url = url, coverImageUrl = null)
@@ -2188,6 +2190,14 @@ class SourceCatalog(
             .distinctBy { it.url }
             .sortedBy { it.title.lowercase() }
     }
+
+    /** #734 — the listener's owned books of one series, read locally. */
+    suspend fun libraryBooksForSeries(title: String): List<AudiobookEntity> =
+        withContext(Dispatchers.IO) { dao.libraryBooksForSeries(title) }
+
+    /** #734 — the series' known but not-owned Works (Дзеркало neighbours). */
+    suspend fun mirrorNeighboursForSeries(title: String): List<WorkEntity> =
+        withContext(Dispatchers.IO) { dao.mirrorNeighboursForSeries(title) }
 
     /**
      * Inserts the book if absent; otherwise returns the stored row. Series

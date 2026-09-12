@@ -213,6 +213,7 @@
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Автори</string>
     <string name="series_index_title">Серії</string>
+    <string name="series_mirror_neighbours">Також у Дзеркалі</string>
     <string name="top100_index_title">ТОП 100 АудіоКниг</string>
     <string name="author_empty_catalog">Автори з\'являться після завантаження каталогу.</string>
     <string name="author_load_failed">Не вдалося відкрити книги автора. Спробуйте ще раз.</string>

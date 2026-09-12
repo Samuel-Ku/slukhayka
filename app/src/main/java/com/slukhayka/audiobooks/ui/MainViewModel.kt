@@ -15,7 +15,6 @@ import com.slukhayka.audiobooks.data.authors.authorMatchesOrEmpty
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
-import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
 import com.slukhayka.audiobooks.data.catalog.CatalogFetchResult
 import com.slukhayka.audiobooks.data.db.*
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -1509,11 +1508,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedSeries: StateFlow<SelectedSeries?> = _selectedSeries.asStateFlow()
 
     private val seriesLoader = KeyedCatalogLoader<SelectedSeries, AudiobookEntity>(viewModelScope) {
-        sourceCatalog.fetchSeriesBooksResult(it.url)
+        // #734 / ADR-0041 — the series page reads the Медіатека, never the
+        // source's own series page; the Дзеркало neighbours load separately.
+        com.slukhayka.audiobooks.data.catalog.CatalogFetchResult.Success(
+            sourceCatalog.libraryBooksForSeries(it.title)
+        )
     }
     val seriesBooks: StateFlow<List<AudiobookEntity>> = seriesLoader.items
     val isSeriesLoading: StateFlow<Boolean> = seriesLoader.isLoading
     val seriesLoadFailed: StateFlow<Boolean> = seriesLoader.failed
+
+    /** #734 — the series' known but not-owned Works (Дзеркало neighbours). */
+    private val _seriesNeighbours = MutableStateFlow<List<WorkEntity>>(emptyList())
+    val seriesNeighbours: StateFlow<List<WorkEntity>> = _seriesNeighbours.asStateFlow()
+    private var seriesNeighboursJob: Job? = null
 
     // Spec-25 (#171): the resolved universe context of the CURRENT series
     // page (the header block: universe name, position, precedes/follows
@@ -1527,6 +1535,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedSeries.value = selected
         seriesLoader.open(selected)
         _selectedSeriesUniverse.value = null
+        // #734 — the Дзеркало neighbours of the cycle, loaded beside the
+        // owned books so the page can offer finds without a source render.
+        _seriesNeighbours.value = emptyList()
+        seriesNeighboursJob?.cancel()
+        seriesNeighboursJob = viewModelScope.launch(Dispatchers.IO) {
+            val neighbours = runCatching { sourceCatalog.mirrorNeighboursForSeries(title) }
+                .getOrDefault(emptyList())
+            if (_selectedSeries.value == selected) _seriesNeighbours.value = neighbours
+        }
         seriesUniverseJob?.cancel()
         seriesUniverseJob = viewModelScope.launch(Dispatchers.IO) {
             // The universe lookup is an independent cache/refresh sidecar, so
@@ -1549,6 +1566,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         seriesUniverseJob?.cancel()
         seriesUniverseJob = null
         _selectedSeriesUniverse.value = null
+        seriesNeighboursJob?.cancel()
+        seriesNeighboursJob = null
+        _seriesNeighbours.value = emptyList()
+    }
+
+    /**
+     * #734 — a Дзеркало neighbour of the open cycle: the ordinary coordinator
+     * imports it through the real doors and opens it (never a fake card).
+     */
+    fun openSeriesNeighbour(work: WorkEntity) {
+        catalogCardCoordinator.start(
+            CatalogCardTarget(
+                workId = work.id,
+                title = work.title,
+                author = work.author,
+                coverImageUrl = work.coverImageUrl,
+                mergeKey = work.mergeKey,
+                cardKey = work.id
+            ),
+            CatalogCardAction.OPEN
+        )
     }
 
     fun importCapturedSeries(html: String, onComplete: (Boolean) -> Unit) {
@@ -1581,15 +1619,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val seriesIndex: StateFlow<List<CatalogSeries>> = _seriesIndex.asStateFlow()
 
     fun openSeriesIndex() {
-        _seriesIndex.value = CatalogSeriesIndex.aggregate(sourceCatalog.catalogSections.value)
+        // #734 / ADR-0041 — the index lists only cycles the listener has a
+        // book in; a source section never contributes a series.
+        _seriesIndex.value = emptyList()
         _seriesIndexOpen.value = true
         viewModelScope.launch(Dispatchers.IO) {
-            val catalogueSeries = CatalogSeriesIndex.aggregate(sourceCatalog.catalogSections.value)
             val localSeries = sourceCatalog.localSeriesIndex()
-            val merged = (catalogueSeries + localSeries)
-                .distinctBy { it.url }
-                .sortedBy { it.title.lowercase() }
-            if (_seriesIndexOpen.value) _seriesIndex.value = merged
+            if (_seriesIndexOpen.value) _seriesIndex.value = localSeries
         }
     }
 

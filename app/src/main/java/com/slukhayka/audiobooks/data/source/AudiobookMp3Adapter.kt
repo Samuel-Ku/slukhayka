@@ -181,17 +181,19 @@ class AudiobookMp3Adapter(
      * page order. A blank or foreign path is an honest empty with NO request;
      * page 2 is the next action's call, never an implicit walk.
      */
-    override suspend fun fetchGenrePage(genrePath: String, limit: Int): List<SourceBook> {
+    override suspend fun fetchGenrePage(genrePath: String, cursor: String?, limit: Int): GenrePage {
+        // The genre page has no pagination of its own: one action, one page,
+        // no cursor. A continuation cursor is therefore never produced.
         val path = genrePath.trim()
-        if (!GENRE_PATH.matches(path)) return emptyList()
+        if (cursor != null || !GENRE_PATH.matches(path)) return GenrePage(emptyList())
         val html = fetcher.getText(
             "https://audiobook-mp3.com$path",
             emptyMap(),
             SourceRequestClass.LISTENER_ACTION,
             0L
         )
-        if (html.isEmpty()) return emptyList()
-        return parseTiles(html, limit)
+        if (html.isEmpty()) return GenrePage(emptyList())
+        return GenrePage(parseTiles(html, limit))
     }
 
     /** Parses one listing page's cover tiles + text anchors into [SourceBook] rows. */

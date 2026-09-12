@@ -7,7 +7,9 @@ data class SourceFailureRecord(
     val sourceId: String,
     val consecutiveFailures: Int,
     val lastFailedAt: Long,
-    val cooldownUntil: Long
+    val cooldownUntil: Long,
+    /** #530 AC4 — the Source's own availability history: its last success. */
+    val lastSuccessAt: Long? = null
 )
 
 /**
@@ -42,12 +44,24 @@ object SourceCooldownPolicy {
             sourceId = sourceId,
             consecutiveFailures = failures,
             lastFailedAt = now,
-            cooldownUntil = now + cooldown
+            cooldownUntil = now + cooldown,
+            // The success history survives a later failure.
+            lastSuccessAt = previous?.lastSuccessAt
         )
     }
 
-    /** A success clears the cooldown: null means "no record, fully eligible". */
-    fun recordSuccess(): SourceFailureRecord? = null
+    /**
+     * A success clears the cooldown immediately but KEEPS the Source's
+     * availability history (its last success) — the record is never deleted.
+     */
+    fun recordSuccess(sourceId: String, previous: SourceFailureRecord?, now: Long): SourceFailureRecord =
+        SourceFailureRecord(
+            sourceId = sourceId,
+            consecutiveFailures = 0,
+            lastFailedAt = previous?.lastFailedAt ?: 0L,
+            cooldownUntil = 0L,
+            lastSuccessAt = now
+        )
 
     /** True while the Source is parked and must be skipped as a candidate. */
     fun isCoolingDown(record: SourceFailureRecord?, now: Long): Boolean =
@@ -70,7 +84,8 @@ class SourceCooldownStore(private val file: File) {
                 val failures = parts[1].toIntOrNull() ?: return@mapNotNull null
                 val lastFailedAt = parts[2].toLongOrNull() ?: return@mapNotNull null
                 val cooldownUntil = parts[3].toLongOrNull() ?: return@mapNotNull null
-                parts[0] to SourceFailureRecord(parts[0], failures, lastFailedAt, cooldownUntil)
+                val lastSuccessAt = parts.getOrNull(4)?.toLongOrNull()
+                parts[0] to SourceFailureRecord(parts[0], failures, lastFailedAt, cooldownUntil, lastSuccessAt)
             }.toMap()
         }.getOrDefault(emptyMap())
     }
@@ -88,10 +103,11 @@ class SourceCooldownStore(private val file: File) {
     }
 
     /** A success clears the record; the Source is immediately eligible again. */
-    fun recordSuccess(sourceId: String) {
+    fun recordSuccess(sourceId: String, now: Long) {
         if (sourceId.isBlank()) return
         val records = load().toMutableMap()
-        if (records.remove(sourceId) != null) save(records)
+        records[sourceId] = SourceCooldownPolicy.recordSuccess(sourceId, records[sourceId], now)
+        save(records)
     }
 
     fun record(sourceId: String): SourceFailureRecord? = load()[sourceId]
@@ -109,7 +125,8 @@ class SourceCooldownStore(private val file: File) {
                         record.sourceId,
                         record.consecutiveFailures.toString(),
                         record.lastFailedAt.toString(),
-                        record.cooldownUntil.toString()
+                        record.cooldownUntil.toString(),
+                        record.lastSuccessAt?.toString().orEmpty()
                     ).joinToString("\t")
                 }
             )

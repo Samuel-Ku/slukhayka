@@ -1849,6 +1849,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /** #528 — the cursor the NEXT page of the last opened category needs. */
+    private val _categoryNextCursor = MutableStateFlow<String?>(null)
+    val categoryNextCursor: StateFlow<String?> = _categoryNextCursor.asStateFlow()
+
+    /**
+     * #528 — the listener opened ONE category page: fetch it, activate it
+     * locally and SHARE it through the collective lane, and remember the
+     * cursor the next action needs. The TTL and the lease do not apply (the
+     * listener asked); a failure keeps the previous block.
+     */
+    fun openSourceCategory(sourceId: String, genrePath: String, cursor: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
+            val key = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind)
+            val block = App.instance.collectiveFeedRefresh.observeExplicit(key) {
+                val fetched = sourceCatalog.collectiveGenreBlockFetch(sourceId, genrePath, cursor)
+                _categoryNextCursor.value = fetched.nextCursor
+                fetched.outcome
+            }
+            if (block != null) {
+                _collectiveBlocks.value =
+                    _collectiveBlocks.value.filterNot { it.blockKey == key } + block
+            }
+        }
+    }
+
     fun closeTop100() {
         _selectedTop100.value = false
         _libraryRating.value = emptyList()

@@ -181,7 +181,8 @@ class LibraryModelTest {
 
         assertEquals("Sluhay", sluhay.sourceName)
         assertEquals("Sound-Books", soundbooks.sourceName)
-        assertEquals("4read", fourRead.sourceName)
+        // #741 — a removed/scam source is not branded at all: no chip.
+        assertEquals("", fourRead.sourceName)
         assertEquals("Локальна", local.sourceName)
     }
 

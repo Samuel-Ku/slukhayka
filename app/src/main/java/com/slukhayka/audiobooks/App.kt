@@ -561,7 +561,30 @@ class App : Application() {
     val coldStartSeed: com.slukhayka.audiobooks.data.collective.ColdStartSeed by lazy {
         com.slukhayka.audiobooks.data.collective.ColdStartSeed(
             importer = com.slukhayka.audiobooks.data.collective.CatalogSeedImporter { entry ->
-                sourceCatalog.applyCollectiveCard(entry) != null
+                // #532 — the seed must land in the LISTENER'S LIBRARY, not only
+                // in the catalogue Mirror: both Огляд and Медіатека are
+                // library-first (ADR-0041), so a Mirror-only row renders
+                // nowhere (measured on-device: 23/23 imported, 0 visible).
+                // upsertCatalogBook writes the library row from the card's own
+                // public facts, with no network.
+                val book = com.slukhayka.audiobooks.data.catalog.CatalogBook(
+                    id = "seed-${entry.sourceId}-" +
+                        Integer.toHexString(entry.sourceUrl.hashCode()),
+                    title = entry.title,
+                    author = entry.author,
+                    url = entry.sourceUrl,
+                    coverImageUrl = entry.coverUrl,
+                    seriesTitle = entry.seriesTitle,
+                    seriesIndex = entry.seriesIndex,
+                    totalDurationSeconds = entry.durationSeconds ?: 0L,
+                    mergeKey = com.slukhayka.audiobooks.data.merge.MergeKey
+                        .keyFor(entry.title, entry.author),
+                    narrator = entry.narrator
+                )
+                val landed = runCatching { libraryImport.upsertCatalogBook(book) }.getOrNull() != null
+                // The Mirror claim rides along for discovery surfaces.
+                sourceCatalog.applyCollectiveCard(entry)
+                landed
             },
             seed = runCatching {
                 assets.open("catalog_seed.json").bufferedReader().use { reader ->

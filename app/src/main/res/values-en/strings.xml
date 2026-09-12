@@ -123,8 +123,11 @@
     <string name="feed_more">Learn more</string>
     <string name="update_hide">Hide</string>
     <string name="speed_default_for_all">Default for all</string>
-    <string name="speed_remember_for_book">Remember for this book</string>
     <string name="top100_open_chart">Open the chart in 4read</string>
+    <string name="book_detail_mark_listened">Mark as listened</string>
+    <string name="book_detail_unmark_listened">Remove mark</string>
+    <string name="book_detail_listened_state_on">Marked as listened</string>
+    <string name="book_detail_listened_state_off">Not marked as listened</string>
     <string name="author_all_found">All found authors</string>
     <string name="nav_settings">Settings</string>
     <string name="mini_player_other_book_chapter">In player · %1$s</string>

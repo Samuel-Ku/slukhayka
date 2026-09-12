@@ -36,7 +36,6 @@ class SpeedSheetTest {
                 SpeedSheet(
                     currentSpeed = 1.0f,
                     onSpeedChange = { changedSpeed = it },
-                    onSaveForBook = {},
                     onSetDefault = {},
                     onDismiss = {}
                 )

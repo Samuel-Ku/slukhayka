@@ -567,13 +567,35 @@ class AudioPlayerManagerTest {
         val mp3Book = book.copy(
             sourceUrl = "https://audiobook-mp3.com/uk/1/2/3.html"
         )
+        // #527 — the referer is a SCOPED registry fact: it rides to the media
+        // CDN the source really uses (`*.redirectto.cc`), never anywhere else.
+        val cdnPlayable = playable.mapIndexed { index, pair ->
+            pair.copy(
+                track = pair.track?.copy(
+                    url = "https://9giiu0g54k8c.redirectto.cc/s05/1/2/3/track-$index.mp3"
+                )
+            )
+        }
 
-        manager.loadAndPlayBook(mp3Book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(mp3Book, chapters, playable = cdnPlayable, initialChapterIndex = 0, autoPlay = false)
 
         assertEquals(
             mapOf("Referer" to "https://audiobook-mp3.com/uk"),
             manager.lastAppliedStreamHeaders
         )
+    }
+
+    @Test
+    fun `audiobookmp3 referer never leaks onto a foreign stream host`() = playerTest { manager, _ ->
+        val mp3Book = book.copy(
+            sourceUrl = "https://audiobook-mp3.com/uk/1/2/3.html"
+        )
+
+        // The fixture tracks live on a host the source does not own: no
+        // Referer at all (SEC-004).
+        manager.loadAndPlayBook(mp3Book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
+
+        assertEquals(emptyMap<String, String>(), manager.lastAppliedStreamHeaders)
     }
 
     @Test

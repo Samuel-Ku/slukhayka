@@ -239,4 +239,39 @@ class CollectiveFeedRefreshTest {
         assertTrue(value.isStale(value.staleAfter))
         assertNotNull(value.refreshed(listOf(card("Б")), fetchedAt = 2_000L, attempt = CollectiveAttempt(2_000L, CollectiveAttemptStatus.SUCCESS)))
     }
+
+    @Test
+    fun `an activated block is offered to the shared lane`() = runBlocking {
+        val store = InMemoryCollectiveFeedBlockStore()
+        store.activate(block(listOf(card("Стара")), fetchedAt = now - 7L * 60 * 60 * 1000))
+        val published = mutableListOf<CollectiveFeedBlock>()
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = { CollectiveRefreshOutcome.Success(block(listOf(card("Нова")), fetchedAt = 0L)) },
+            clock = { now },
+            onActivated = { published += it }
+        )
+
+        refresh.read(key)
+
+        assertEquals(1, published.size)
+        assertEquals(listOf("Нова"), published.single().cards.map { it.title })
+        assertEquals(2L, published.single().version)
+    }
+
+    @Test
+    fun `a failing publish never breaks the local read`() = runBlocking {
+        val refresh = CollectiveFeedRefresh(
+            store = InMemoryCollectiveFeedBlockStore(),
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = { CollectiveRefreshOutcome.Success(block(listOf(card("А")), fetchedAt = 0L)) },
+            clock = { now },
+            onActivated = { throw IllegalStateException("shared lane down") }
+        )
+
+        val rendered = refresh.read(key)
+
+        assertEquals(listOf("А"), rendered!!.cards.map { it.title })
+    }
 }

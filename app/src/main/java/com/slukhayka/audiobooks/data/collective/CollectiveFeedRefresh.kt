@@ -20,7 +20,13 @@ class CollectiveFeedRefresh(
     private val lease: CollectiveRefreshLease,
     private val fetch: suspend (blockKey: String) -> CollectiveRefreshOutcome,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val leaseTtlMs: Long = DEFAULT_LEASE_TTL_MS
+    private val leaseTtlMs: Long = DEFAULT_LEASE_TTL_MS,
+    /**
+     * #527 — called with the block a refresh just ACTIVATED, so the one owner
+     * that observed it can share it (the collective lane). Best-effort: a
+     * failing publish never changes what the local listener sees.
+     */
+    private val onActivated: (suspend (CollectiveFeedBlock) -> Unit)? = null
 ) {
 
     /** The block to render: the last good one, refreshed at most once per TTL. */
@@ -52,6 +58,9 @@ class CollectiveFeedRefresh(
                     lastAttempt = CollectiveAttempt(at, CollectiveAttemptStatus.SUCCESS)
                 )
                 if (store.activate(activated)) {
+                    // #527 — share what this owner just observed; a failing
+                    // publish leaves the local block exactly as it is.
+                    runCatching { onActivated?.invoke(activated) }
                     activated
                 } else {
                     store.recordAttempt(blockKey, CollectiveAttempt(at, CollectiveAttemptStatus.EMPTY))

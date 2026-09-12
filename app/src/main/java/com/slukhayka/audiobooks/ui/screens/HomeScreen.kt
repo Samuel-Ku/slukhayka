@@ -244,6 +244,9 @@ fun HomeScreen(
         // #523 — collective blocks: instant from the persisted snapshot, then
         // one leased stale-while-revalidate pass per source.
         launch { viewModel.refreshCollectiveBlocks() }
+        // #527 — blocks other installs observed land locally, so this install
+        // never repeats the genre/catalogue request for them.
+        launch { App.instance.collectiveBlockSync.syncOnce() }
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()

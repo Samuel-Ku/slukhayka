@@ -85,6 +85,8 @@ object OutcomeMessages {
                 append(": +${totals.newChapters} глав")
                 if (totals.newBooks > 0) append(" (${totals.newBooks} нових книг)")
             }
+            totals.structuralChangeRejected ->
+                append(": структурну зміну відхилено — підтвердьте новий перелік розділів")
             else -> append(" — змін не знайдено")
         }
         if (totals.missingFiles > 0) append(" · ${totals.missingFiles} файлів зникло")

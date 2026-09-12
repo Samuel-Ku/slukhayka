@@ -325,6 +325,15 @@ class SourceCatalog(
     val smartCollections: StateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>> =
         _smartCollections.asStateFlow()
 
+    /**
+     * #735 — the match corpus of the last collections recompute: the
+     * Медіатека rows projected to one card per Work. Cached because the
+     * content-language reprojection recomputes the collections without
+     * re-reading Room, and collections no longer depend on the visible union.
+     */
+    @Volatile
+    private var collectionsMatchCorpus: List<GlobalSearchResult> = emptyList()
+
     // Spec-39 T1 (#261): every locally known Work — the library ∪ synced
     // catalogue union rows. The honest Y of the «Ваші цикли» shelf counts
     // against this base; the flow is read-only, nothing here persists.
@@ -391,16 +400,20 @@ class SourceCatalog(
                 _unifiedCatalogMerged.value = merged
                 val visible = merged.visibleInContentLanguages(contentLanguageSelection.value)
                 _unifiedCatalog.value = visible
-                // Spec-16 T2 + follow-up: the collections ride the same
-                // recompute — the union is the match corpus, so a changed
-                // union (or a changed live list) changes the collections with
-                // it. Live sources are best-effort and TTL-cached; matchAll
-                // drops empty collections.
+                // Spec-16 T2 + follow-up, #735/ADR-0041: the collections ride
+                // the same recompute, but their corpus is the Медіатека — the
+                // listener's own rows — not the ephemeral union. A Work outside
+                // the library never appears in a collection. Live sources stay
+                // best-effort and TTL-cached; matchAll drops empty collections.
                 _liveCollections.value = liveCollectionsFor()
+                collectionsMatchCorpus =
+                    com.slukhayka.audiobooks.data.collections.libraryMatchCorpus(
+                        dao.getAllAudiobooksOnce().map { it.toAudiobookEntity() }
+                    )
                 _smartCollections.value =
                     com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
                         collectionLists + _liveCollections.value,
-                        visible
+                        collectionsMatchCorpus
                     )
                 visible
             } finally {
@@ -512,13 +525,14 @@ class SourceCatalog(
     }
 
     private fun recomputeCollections() {
-        // Spec-16 T2: collections match over the VISIBLE union corpus — a
-        // hidden-language card never renders inside a collection. Empty
-        // collections are absent from the flow.
+        // #735 / ADR-0041: collections match the Медіатека corpus cached at
+        // the last refresh — an owned Work shows in its collection regardless
+        // of the content-language selection, and a Work the listener does not
+        // own can never appear. Empty collections are absent from the flow.
         _smartCollections.value =
             com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
                 collectionLists + _liveCollections.value,
-                _unifiedCatalog.value
+                collectionsMatchCorpus
             )
     }
 

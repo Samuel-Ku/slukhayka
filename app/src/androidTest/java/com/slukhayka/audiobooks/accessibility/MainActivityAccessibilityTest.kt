@@ -19,6 +19,7 @@ import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -222,6 +223,16 @@ class MainActivityAccessibilityTest {
             hasTestTag("listen_screen"),
             timeoutMillis = NAV_TIMEOUT_MS
         )
+
+        // #766 — a CLEAN install shows the first-run language sheet, which
+        // covers «Слухати» with a framework scrim (clickable «Dismiss», no
+        // label). Auditing through a dialog is meaningless: answer it the way
+        // a listener does, then audit the real screen.
+        runCatching {
+            val done = composeTestRule.onAllNodesWithText("Готово").fetchSemanticsNodes()
+            if (done.isNotEmpty()) composeTestRule.onAllNodesWithText("Готово")[0].performClick()
+        }
+        composeTestRule.waitForIdle()
 
         composeTestRule.enableAccessibilityChecks()
         // #766 B — attach the tree to the failure: the report is the ONE

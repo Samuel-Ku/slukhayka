@@ -229,9 +229,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
         composeTestRule.onNodeWithTag("tab_library").performClick()
@@ -244,9 +247,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsDisplayed()
@@ -265,9 +271,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         chapter.performClick()
 
@@ -341,9 +350,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
         val speedTrigger = composeTestRule.onNodeWithTag("speed_chip")
@@ -374,9 +386,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
             .performClick()
@@ -404,9 +419,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
@@ -423,9 +441,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
@@ -456,9 +477,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
         composeTestRule.onNodeWithTag("save_bookmark_button")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
@@ -480,9 +504,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
         composeTestRule.onNodeWithTag("close_player_button")
@@ -520,9 +547,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
         composeTestRule.onNodeWithTag("book_detail_back_button")
@@ -541,9 +571,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
 
         composeTestRule.onNodeWithTag("tab_settings")
@@ -575,9 +608,12 @@ class MainActivityAccessibilityTest {
         try {
             composeTestRule.onRoot().tryPerformAccessibilityChecks()
         } catch (failure: Throwable) {
-            // No cause: the runner reports the CAUSE's message, so the tree
-            // must BE the message of the thrown error.
-            throw AssertionError(composeTestRule.onRoot().printToString())
+            // The ATF exception is the SIGNAL; the tree is best-effort — and it
+            // must not mask the signal, which is exactly what happened while
+            // this wrapper called onRoot() unguarded (a popup makes the root
+            // ambiguous and the report became "2 nodes satisfy isRoot").
+            val tree = runCatching { composeTestRule.onRoot().printToString() }.getOrNull()
+            throw AssertionError(tree ?: "a11y check failed: ${failure.message}", failure)
         }
     }
 

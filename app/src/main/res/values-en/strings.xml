@@ -206,6 +206,10 @@
     <string name="author_index_title">Authors</string>
     <string name="series_index_title">Series</string>
     <string name="series_mirror_neighbours">Also in the mirror</string>
+    <string name="collective_block_provenance">Source: %1$s</string>
+    <string name="collective_block_attempt">Last attempt: %1$s</string>
+    <string name="collective_block_attempt_ok">refreshed</string>
+    <string name="collective_block_attempt_stale">showing the last good snapshot</string>
     <string name="library_rating_title">Library rating</string>
     <string name="author_empty_catalog">Authors will appear once the catalogue loads.</string>
     <string name="author_load_failed">Couldn\'t open this author\'s books. Try again.</string>

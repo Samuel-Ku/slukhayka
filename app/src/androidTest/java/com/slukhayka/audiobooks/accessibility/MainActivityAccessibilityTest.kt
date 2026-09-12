@@ -11,7 +11,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.printToLog
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
@@ -224,8 +224,9 @@ class MainActivityAccessibilityTest {
         )
 
         composeTestRule.enableAccessibilityChecks()
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("tab_library").performClick()
@@ -233,8 +234,9 @@ class MainActivityAccessibilityTest {
             hasTestTag("library_book_item_$fixtureBookId"),
             timeoutMillis = NAV_TIMEOUT_MS
         )
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsDisplayed()
@@ -248,8 +250,9 @@ class MainActivityAccessibilityTest {
             .performScrollToNode(hasTestTag("book_detail_chapter_$fixtureChapterId"))
         val chapter = composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
         chapter.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         chapter.performClick()
 
@@ -318,8 +321,9 @@ class MainActivityAccessibilityTest {
                 "00:15 із 00:30"
             )
         )
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         val speedTrigger = composeTestRule.onNodeWithTag("speed_chip")
@@ -345,8 +349,9 @@ class MainActivityAccessibilityTest {
         composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
             kotlin.math.abs(currentViewModel().playerState.value.playbackSpeed - 1.25f) < 0.01f
         }
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
             .performClick()
@@ -369,8 +374,9 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
@@ -382,8 +388,9 @@ class MainActivityAccessibilityTest {
         }
         waitUntilGone("sleep_timer_sheet")
         waitUntilFocused("sleep_timer_chip")
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
@@ -409,8 +416,9 @@ class MainActivityAccessibilityTest {
                         ) == true
                 }
             )
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("save_bookmark_button")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
@@ -427,8 +435,9 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithText("Закладку додано на", substring = true)
             .assertIsDisplayed()
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("close_player_button")
@@ -461,8 +470,9 @@ class MainActivityAccessibilityTest {
                     node.config.getOrNull(SemanticsProperties.HideFromAccessibility) == null
                 }
             )
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("book_detail_back_button")
@@ -476,8 +486,9 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsFocused()
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("tab_settings")
@@ -504,8 +515,9 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("settings_Profile")
             .assertIsFocused()
-        // #766 B — dump the tree so the ATF bounds map to real nodes.
-        composeTestRule.onRoot().printToLog("A11Y_TREE")
+        // #766 B — dump the tree to a FILE: logcat's ring buffer evicted the
+        // tree that mattered.
+        dumpA11yTree()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
     }
 
@@ -582,5 +594,19 @@ class MainActivityAccessibilityTest {
         private const val FIXTURE_DURATION_SECONDS = 30L
         private const val NAV_TIMEOUT_MS = 20_000L
         private const val PLAYBACK_TIMEOUT_MS = 5_000L
+    }
+
+    /** #766 B — a file-backed semantics dump (logcat evicted the real one). */
+    private var a11yDumpIndex = 0
+
+    private fun dumpA11yTree() {
+        val text = runCatching { composeTestRule.onRoot().printToString() }.getOrNull() ?: return
+        // External app storage: adb pull can read it even though the app is
+        // not run-as debuggable.
+        val dir = File(
+            composeTestRule.activity.getExternalFilesDir(null) ?: composeTestRule.activity.filesDir,
+            "a11y_dumps"
+        ).apply { mkdirs() }
+        runCatching { File(dir, "tree-${a11yDumpIndex++}.txt").writeText(text) }
     }
 }

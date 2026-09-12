@@ -781,10 +781,10 @@ fun LibraryBookCard(
         book.book.isDownloaded -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_offline)
         else -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_online)
     }
-    val sourceState = stringResource(
-        com.slukhayka.audiobooks.R.string.a11y_library_source,
-        book.sourceName
-    )
+    // #741 — a removed source has no name, so the label is honestly absent.
+    val sourceState = book.sourceName
+        .takeIf { it.isNotBlank() }
+        ?.let { stringResource(com.slukhayka.audiobooks.R.string.a11y_library_source, it) }
     val availabilityState = availabilityLabel(availability)
     val state = listOfNotNull(progressState, sourceAvailability, sourceState, availabilityState)
         .joinToString(". ")
@@ -842,7 +842,7 @@ private fun LibraryBookRowContent(
         badges = {
             // C4: the canonical provenance chip — the local SourceBadge was
             // a pixel-duplicate of MetadataChip(source=…).
-            MetadataChip(source = book.sourceName)
+            if (book.sourceName.isNotBlank()) MetadataChip(source = book.sourceName)
             if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
                 // #397 — honest partial offline: N of M Source Tracks on disk.
                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
@@ -977,7 +977,7 @@ private fun LibraryBookGridContent(
                 }
                 // C4: the canonical provenance chip (the local SourceBadge
                 // was a pixel-duplicate of MetadataChip(source=…)).
-                MetadataChip(source = book.sourceName)
+                if (book.sourceName.isNotBlank()) MetadataChip(source = book.sourceName)
                 if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
                     // #397 — honest partial offline: N of M Source Tracks on disk.
                     Text(

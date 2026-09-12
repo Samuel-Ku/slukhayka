@@ -142,8 +142,10 @@ class LibraryAccessibilityTest {
             .assert(
                 SemanticsMatcher.expectValue(
                     SemanticsProperties.StateDescription,
+                    // #741 — a removed/scam source is not branded: no source
+                    // label is announced for a 4read row.
                     "Прослухано 45 відсотків, залишилося 18 хв. " +
-                        "Завантажено для прослуховування без інтернету. Джерело: 4read"
+                        "Завантажено для прослуховування без інтернету"
                 )
             )
     }

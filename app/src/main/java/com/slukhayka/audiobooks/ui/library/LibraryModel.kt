@@ -6,6 +6,7 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import java.util.Locale
@@ -108,11 +109,17 @@ data class LibraryBook(
 
     /**
      * Spec-15 T6 — the small source badge of the card: «Локальна» for local
-     * imports, else the source's display name (4read, Sluhay, Sound-Books, …)
-     * from the URL — never the hardcoded «4read» for a multi-source library.
+     * imports, else the source's display name (Sluhay, Sound-Books, …) from
+     * the URL — never the hardcoded «4read» for a multi-source library.
+     *
+     * #741 — a removed/scam source is not branded at all: the card shows no
+     * provenance chip rather than naming a source the app no longer serves.
      */
     val sourceName: String
-        get() = sourceDisplayName(sourceIdForUrl(book.sourceUrl))
+        get() {
+            val sourceId = sourceIdForUrl(book.sourceUrl)
+            return if (SourceRegistry.isScam(sourceId)) "" else sourceDisplayName(sourceId)
+        }
 
     /** «Сага про Дріззта · Книга 2» — or just the series title, or null. */
     val seriesLabel: String?

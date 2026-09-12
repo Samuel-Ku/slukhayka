@@ -51,6 +51,8 @@ class WorkIndexRefresher(
      * per source per catalog TTL, host-scoped, no tokens.
      */
     private val cookieProvider: SourceCookieProvider = NO_COOKIES,
+    /** #526 — persisted ETag/Last-Modified validators of the sitemap lane. */
+    private val validatorStore: SitemapValidatorStore? = null,
     private val clock: () -> Long = System::currentTimeMillis,
     private val ttlMillis: Long = SitemapPolicy.SITEMAP_TTL_MS,
     private val cardLimit: Int = DEFAULT_CARD_LIMIT
@@ -108,10 +110,18 @@ class WorkIndexRefresher(
             val sitemap = sitemapEntries()
             val cards = cardEntries()
             val entries = buildList {
-                addAll(sitemap)
+                addAll(sitemap.entries)
                 addAll(cards)
             }.distinctBy { it.sourceId to it.url }
 
+            // #526 — every sitemap answered 304: the persisted index still
+            // describes every carrier, so extend its life instead of dropping it.
+            if (entries.isEmpty() && sitemap.allNotModified && current != null) {
+                val extended = clock()
+                refreshedAtMs = extended
+                store?.save(PersistedWorkIndex(current!!.allEntriesSnapshot, extended))
+                return@withLock current
+            }
             if (entries.isEmpty()) return@withLock current
             val built = CatalogWorkIndex(entries)
             val builtAt = clock()
@@ -122,31 +132,57 @@ class WorkIndexRefresher(
         }
     }
 
-    private suspend fun sitemapEntries(): List<CatalogIndexEntry> = buildList {
+    /** One sitemap sweep: the entries plus whether every carrier answered 304. */
+    private data class SitemapScan(
+        val entries: List<CatalogIndexEntry>,
+        val allNotModified: Boolean
+    )
+
+    private suspend fun sitemapEntries(): SitemapScan {
+        val validators = validatorStore?.load().orEmpty()
+        val nextValidators = mutableMapOf<String, SitemapValidator>()
+        val entries = mutableListOf<CatalogIndexEntry>()
+        var carriers = 0
+        var notModified = 0
         for ((sourceId, spec) in SITEMAP_SPECS) {
             for (sitemapUrl in spec.sitemapUrls) {
+                carriers++
                 // Spec-42 #427 — just-in-time, host-aware: a session-bound
                 // sitemap carries the concrete URL's own cookie, never another
                 // host's; no cookie means no Cookie header at all.
                 val headers = cookieProvider.cookieHeadersFor(sitemapUrl)
-                val xml = fetcher.getText(
+                val known = validators[sitemapUrl]
+                val response = fetcher.getTextConditional(
                     sitemapUrl,
                     headers,
-                    SourceRequestClass.BACKGROUND,
-                    ttlMillis
+                    known?.etag,
+                    known?.lastModified
                 )
-                if (xml.isBlank()) continue
+                if (response.status == HTTP_NOT_MODIFIED) {
+                    notModified++
+                    known?.let { nextValidators[sitemapUrl] = it }
+                    // The stored index still holds this carrier's URLs.
+                    entries += current?.entriesFor(sourceId).orEmpty()
+                        .filter { entry -> spec.accept(SitemapParser.canonicalUrl(entry.url) ?: entry.url) }
+                    continue
+                }
+                if (response.body.isBlank()) continue
+                response.etag?.takeIf { it.isNotBlank() }?.let { etag ->
+                    nextValidators[sitemapUrl] = SitemapValidator(etag, response.lastModified)
+                }
                 // #526 — bounded, canonicalized, host-allowlisted. An
                 // oversized or malformed document contributes nothing here;
                 // the previous good index is never erased.
-                val parsed = SitemapParser.parse(xml, spec.accept) ?: continue
+                val parsed = SitemapParser.parse(response.body, spec.accept) ?: continue
                 for (entry in parsed) {
                     val slug = entry.canonicalUrl.substringAfterLast('/')
                     if (slug.isBlank()) continue
-                    add(CatalogIndexEntry(sourceId = sourceId, url = entry.url, slug = slug))
+                    entries += CatalogIndexEntry(sourceId = sourceId, url = entry.url, slug = slug)
                 }
             }
         }
+        if (nextValidators.isNotEmpty()) validatorStore?.save(nextValidators)
+        return SitemapScan(entries, carriers > 0 && notModified == carriers)
     }
 
     /** A source's catalogue-card enumeration — its adapter's `fetchCatalog`. */
@@ -176,6 +212,9 @@ class WorkIndexRefresher(
 
         /** Bounded: the index is a discovery shortcut, not a full crawl. */
         const val DEFAULT_CARD_LIMIT = 100
+
+        /** #526 — the sitemap's own "nothing changed" answer. */
+        private const val HTTP_NOT_MODIFIED = 304
 
         /** One source's sitemap URLs plus the book-URL filter. */
         data class SitemapSpec(

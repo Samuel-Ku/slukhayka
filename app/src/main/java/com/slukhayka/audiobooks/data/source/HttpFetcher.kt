@@ -114,6 +114,42 @@ open class HttpFetcher(
     }
 
     /**
+     * #526 — one CONDITIONAL GET: the caller's stored validator travels as
+     * `If-None-Match`/`If-Modified-Since`, and the response's own validator
+     * headers come back. A 304 carries no body by design — [ConditionalText.status]
+     * is what the caller decides on. Open so fixture fakes can drive it.
+     */
+    data class ConditionalText(
+        val status: Int,
+        val body: String,
+        val etag: String?,
+        val lastModified: String?
+    )
+
+    open fun getTextConditional(
+        url: String,
+        extraHeaders: Map<String, String>,
+        etag: String?,
+        lastModified: String?
+    ): ConditionalText {
+        val headers = buildMap {
+            putAll(extraHeaders)
+            etag?.takeIf { it.isNotBlank() }?.let { put("If-None-Match", it) }
+            lastModified?.takeIf { it.isNotBlank() }?.let { put("If-Modified-Since", it) }
+        }
+        val response = executeRequest(url, headers)
+            ?: return ConditionalText(0, "", etag, lastModified)
+        return response.use {
+            ConditionalText(
+                status = it.code,
+                body = if (it.code == HTTP_OK) it.body.stringOrEmpty() else "",
+                etag = it.header("ETag") ?: etag,
+                lastModified = it.header("Last-Modified") ?: lastModified
+            )
+        }
+    }
+
+    /**
      * ADR-0039 / spec #681 T2 (#683) — the gated text door: the ONE place an
      * HTML/API request to a Source domain crosses the [SourceRequestGate]
      * (fresh cache -> class-aware token -> single-flight -> one-in-flight

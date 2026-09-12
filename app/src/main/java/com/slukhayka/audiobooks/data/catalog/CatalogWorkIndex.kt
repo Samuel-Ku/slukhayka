@@ -70,6 +70,13 @@ class CatalogWorkIndex(private val entries: List<CatalogIndexEntry>) {
 
     val size: Int get() = entries.size
 
+    /** #526 — the entries of one source, for reuse when a sitemap answers 304. */
+    fun entriesFor(sourceId: String): List<CatalogIndexEntry> =
+        entries.filter { it.sourceId == sourceId }
+
+    /** #526 — the whole index, for re-persisting after a 304-only sweep. */
+    val allEntriesSnapshot: List<CatalogIndexEntry> get() = entries
+
     companion object {
         /** #526 — one action opens at most three candidate pages of one source. */
         const val MAX_CANDIDATES: Int = 3

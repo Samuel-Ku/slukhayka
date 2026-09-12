@@ -250,12 +250,17 @@ fun BookDetailCanonicalSummary(
                         .widthIn(max = textMaxWidth)
                         .focusRequester(authorFocusRequester)
                         .focusProperties { canFocus = true }
+                        // #766 B — ORDER MATTERS: with heightIn applied BEFORE
+                        // clickable, the touch target measured the text's natural
+                        // height (~40dp) even though the layout box was 48dp, and
+                        // ATF (TouchTargetSizeCheck) flagged it. The clickable must
+                        // wrap the constrained layout.
                         .testTag("book_detail_author_link")
-                        .heightIn(min = 48.dp)
                         .clickable {
                             onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
                             onAuthorClick(presentation.author)
                         }
+                        .heightIn(min = 48.dp)
                         .wrapContentHeight(Alignment.CenterVertically)
                 )
                 PersonBookmarkButton(
@@ -290,12 +295,17 @@ fun BookDetailCanonicalSummary(
                         .widthIn(max = textMaxWidth)
                         .focusRequester(narratorFocusRequester)
                         .focusProperties { canFocus = true }
+                        // #766 B — ORDER MATTERS: with heightIn applied BEFORE
+                        // clickable, the touch target measured the text's natural
+                        // height (~40dp) even though the layout box was 48dp, and
+                        // ATF (TouchTargetSizeCheck) flagged it. The clickable must
+                        // wrap the constrained layout.
                         .testTag("book_detail_narrator_link")
-                        .heightIn(min = 48.dp)
                         .clickable {
                             onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
                             onNarratorClick(presentation.narrator)
                         }
+                        .heightIn(min = 48.dp)
                         .wrapContentHeight(Alignment.CenterVertically)
                         .semantics { stateDescription = currentEditionState }
                 )

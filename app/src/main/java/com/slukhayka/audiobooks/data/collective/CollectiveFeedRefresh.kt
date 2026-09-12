@@ -47,6 +47,40 @@ class CollectiveFeedRefresh(
             lease.release(blockKey)
         }
 
+        return applyOutcome(blockKey, active, outcome)
+    }
+
+    /**
+     * #528 — an EXPLICIT listener action (they opened a category): the page is
+     * fetched NOW and, when it is a valid non-empty candidate, activated and
+     * shared. Neither the TTL nor the lease applies — the listener asked, so
+     * the action is its own owner — but a failure still keeps the previous
+     * block and only records the attempt. The caller passes the fetch it needs
+     * (a category path + that action's cursor).
+     *
+     * @return the block now active for the key, or null when none ever was.
+     */
+    suspend fun observeExplicit(
+        blockKey: String,
+        fetch: suspend (String) -> CollectiveRefreshOutcome = this.fetch
+    ): CollectiveFeedBlock? {
+        val active = store.active(blockKey)
+        val outcome = try {
+            fetch(blockKey)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
+        }
+        return applyOutcome(blockKey, active, outcome)
+    }
+
+    /** The ONE activation path: a valid non-empty candidate wins, everything else keeps the block. */
+    private suspend fun applyOutcome(
+        blockKey: String,
+        active: CollectiveFeedBlock?,
+        outcome: CollectiveRefreshOutcome
+    ): CollectiveFeedBlock? {
         val at = clock()
         return when (outcome) {
             is CollectiveRefreshOutcome.Success -> {

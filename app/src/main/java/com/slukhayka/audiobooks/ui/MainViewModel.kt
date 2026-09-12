@@ -1819,6 +1819,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
         > = _collectiveBlocks.asStateFlow()
 
+    // #530 — the ordered fallback offer of #519's action: loaded on the
+    // listener's explicit request, never automatically.
+    private val _fallbackCandidates = MutableStateFlow<
+        List<com.slukhayka.audiobooks.data.editions.FallbackCandidate>
+        >(emptyList())
+    val fallbackCandidates: StateFlow<
+        List<com.slukhayka.audiobooks.data.editions.FallbackCandidate>
+        > = _fallbackCandidates.asStateFlow()
+
+    /**
+     * #530 — the action asks for alternatives: the offer is built from the
+     * book's OWN Source rows (zero requests) and the source the listener is in
+     * right now. Nothing is started here — the caller decides from the offer.
+     */
+    fun loadFallbackCandidates(bookId: String, currentSourceId: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val offer = runCatching {
+                App.instance.catalogFallbackOffer.offer(bookId, currentSourceId)
+            }.getOrDefault(emptyList())
+            _fallbackCandidates.value = offer
+        }
+    }
+
+    fun clearFallbackCandidates() {
+        _fallbackCandidates.value = emptyList()
+    }
+
     fun refreshCollectiveBlocks() {
         viewModelScope.launch(Dispatchers.IO) {
             val blocks = com.slukhayka.audiobooks.data.collective.collectiveBlockSources()

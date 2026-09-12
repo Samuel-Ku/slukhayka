@@ -1200,6 +1200,29 @@ interface AudiobookDao {
     )
     suspend fun ownedWorkIdsForAuthor(authorId: String): List<String>
 
+    /**
+     * #736 / ADR-0041 — the narrators the listener actually has: only the
+     * narration of an owned Edition, counted over owned Works. The «Виконавці»
+     * index reads this instead of a provider page.
+     */
+    @Query(
+        "SELECT e.narrator AS displayName, COUNT(DISTINCT e.workId) AS workCount " +
+            "FROM editions e JOIN library_entries le ON le.workId = e.workId " +
+            "WHERE e.narrator IS NOT NULL AND e.narrator != '' " +
+            "GROUP BY e.narrator ORDER BY e.narrator COLLATE NOCASE ASC"
+    )
+    fun observeLibraryNarrators(): Flow<List<com.slukhayka.audiobooks.data.people.NarratorSummary>>
+
+    /** #736 — the listener's owned books of one narrator, for the person page. */
+    @Query(
+        "SELECT a.* FROM audiobooks a " +
+            "JOIN library_entries le ON le.id = a.id " +
+            "JOIN editions e ON e.workId = le.workId " +
+            "WHERE e.narrator = :narrator " +
+            "ORDER BY a.title COLLATE NOCASE ASC, a.id ASC"
+    )
+    suspend fun libraryBooksForNarrator(narrator: String): List<AudiobookEntity>
+
     @Query(
         "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT allWf.workId) AS workCount " +
             "FROM work_facets selected " +

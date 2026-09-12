@@ -994,7 +994,9 @@ fun CatalogNavRow(
             NavigationChip(
                 title = "Виконавці",
                 onClick = {
-                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Виконавці", "https://4read.org/readers.html"))
+                    // #736 — the narrator index is local (the Медіатека), so a
+                    // PeopleKind carries no provider URL anymore.
+                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Виконавці", url = ""))
                 }
             )
         }
@@ -1002,7 +1004,7 @@ fun CatalogNavRow(
             NavigationChip(
                 title = "Автори",
                 onClick = {
-                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Автори", "https://4read.org/avtors.html"))
+                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Автори", url = ""))
                 }
             )
         }

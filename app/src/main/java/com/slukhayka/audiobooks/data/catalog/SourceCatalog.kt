@@ -761,6 +761,60 @@ class SourceCatalog(
     }
 
     /**
+     * #527 — the COLLECTIONS candidate of ONE listener-chosen genre page:
+     * exactly one request through the adapter's [SourceAdapter.fetchGenrePage].
+     * Pagination is the next action's call. The block carries the genre URL as
+     * its provenance, so the rail names what the listener opened.
+     */
+    suspend fun collectiveGenreBlockFetch(
+        sourceId: String,
+        genrePath: String
+    ): com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome = withContext(Dispatchers.IO) {
+        val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+            ?: return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Failure(
+                com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.NOT_FOUND
+            )
+        val books = try {
+            adapter.fetchGenrePage(genrePath)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Failure(
+                com.slukhayka.audiobooks.data.collective.classifyCollectiveFailure(e)
+            )
+        }
+        if (books.isEmpty()) {
+            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty
+        }
+        val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
+        com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
+            com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
+                blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind),
+                sourceId = sourceId,
+                kind = kind,
+                name = sourceDisplayName(sourceId),
+                provenanceUrl = SourceRegistry.facts(sourceId)?.homeUrl.orEmpty() + genrePath,
+                cards = books.map { book ->
+                    com.slukhayka.audiobooks.data.collective.CollectiveBlockCard(
+                        sourceId = book.sourceId.ifBlank { sourceId },
+                        sourceUrl = book.url,
+                        title = book.title,
+                        author = book.author,
+                        coverUrl = book.coverImageUrl
+                    )
+                },
+                fetchedAt = 0L,
+                staleAfter = 0L,
+                version = 0L,
+                lastAttempt = com.slukhayka.audiobooks.data.collective.CollectiveAttempt(
+                    0L,
+                    com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.SUCCESS
+                )
+            )
+        )
+    }
+
+    /**
      * #526 — verifies ONE sitemap candidate page: a single book-page request
      * that must yield at least one chapter. False on any failure (a 404, a
      * challenge, an empty parse), so the resolver can spend its three-candidate

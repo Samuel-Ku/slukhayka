@@ -175,6 +175,25 @@ class AudiobookMp3Adapter(
         return books
     }
 
+    /**
+     * #527 — ONE genre page for ONE listener action: exactly one request to
+     * the page the listener opened (`/uk-genre-<id>-<slug>`), its tiles in
+     * page order. A blank or foreign path is an honest empty with NO request;
+     * page 2 is the next action's call, never an implicit walk.
+     */
+    override suspend fun fetchGenrePage(genrePath: String, limit: Int): List<SourceBook> {
+        val path = genrePath.trim()
+        if (!GENRE_PATH.matches(path)) return emptyList()
+        val html = fetcher.getText(
+            "https://audiobook-mp3.com$path",
+            emptyMap(),
+            SourceRequestClass.LISTENER_ACTION,
+            0L
+        )
+        if (html.isEmpty()) return emptyList()
+        return parseTiles(html, limit)
+    }
+
     /** Parses one listing page's cover tiles + text anchors into [SourceBook] rows. */
     private fun parseTiles(html: String, limit: Int): List<SourceBook> {
         // Each entry's cover rides in its own tile: <a class="image-abook"
@@ -331,6 +350,9 @@ class AudiobookMp3Adapter(
         val SITE_URL_TAIL = Regex("""\s*(?:audiobook-mp3\.com/uk|audiobook-mp3\.com)\s*$""", RegexOption.IGNORE_CASE)
         // Genre (category) pages of the full catalogue — `/uk-genre-<id>-<slug>`.
         val GENRE_LINK = Regex("""href="(/uk-genre-\d+-[^"]+)"""", RegexOption.IGNORE_CASE)
+
+        /** #527 — the ONLY genre paths a listener action may open. */
+        private val GENRE_PATH = Regex("""^/uk-genre-\d+-[^/?#]+$""")
         // The «Автор:» panel row (<span>Автор:</span> <a …>) and the older
         // plain «Автор: <a …>» form both resolve to the same link.
         val AUTHOR_LINK = Regex("""Автор:(?:\s*</span>)?\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)

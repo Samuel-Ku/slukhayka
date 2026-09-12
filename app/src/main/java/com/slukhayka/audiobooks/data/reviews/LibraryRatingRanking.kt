@@ -14,8 +14,17 @@ data class LibraryRatingEvidence(
     val book: AudiobookEntity,
     val workKey: String,
     val sourceRatings: List<Double?>,
-    val listenerRatings: List<Int>
+    val listenerRatings: List<Int>,
+    /**
+     * #739 — the shared listener reviews as an already validated aggregate
+     * (sum over count), filled from the local projection. Null when the Work
+     * has no cached aggregate; the raw [listenerRatings] pool still applies.
+     */
+    val listenerRatingAggregate: ListenerRatingAggregate? = null
 )
+
+/** #739 — the listener pool without per-listener rows: sum over count. */
+data class ListenerRatingAggregate(val sum: Int, val count: Int)
 
 /** One ranked row of the library rating: only Works with real votes appear. */
 data class LibraryRating(
@@ -35,8 +44,20 @@ object LibraryRatingRanking {
 
     fun rank(evidence: List<LibraryRatingEvidence>): List<LibraryRating> =
         evidence.mapNotNull { item ->
-            val combined = CombinedAverage.average(item.sourceRatings, item.listenerRatings)
-                ?: return@mapNotNull null
+            val validRaw = item.listenerRatings
+                .filter { it in CombinedAverage.MIN_LISTENER_RATING..CombinedAverage.MAX_LISTENER_RATING }
+            val aggregate = item.listenerRatingAggregate
+            val combined = if (aggregate == null) {
+                CombinedAverage.average(item.sourceRatings, item.listenerRatings)
+            } else {
+                // #739 — the cached pool and any locally known ratings are the
+                // same listener pool; their sums and counts add up.
+                CombinedAverage.averageWithListenerAggregate(
+                    sourceRatings = item.sourceRatings,
+                    listenerSum = aggregate.sum + validRaw.sum(),
+                    listenerCount = aggregate.count + validRaw.size
+                )
+            } ?: return@mapNotNull null
             LibraryRating(
                 book = item.book,
                 workKey = item.workKey,
@@ -64,7 +85,8 @@ object LibraryRatingRanking {
 fun libraryRatingEvidence(
     books: List<AudiobookEntity>,
     ratingAssertions: List<PopularityAssertionEntity>,
-    listenerRatingsByWork: Map<String, List<Int>> = emptyMap()
+    listenerRatingsByWork: Map<String, List<Int>> = emptyMap(),
+    listenerAggregatesByWork: Map<String, ListenerRatingAggregate> = emptyMap()
 ): List<LibraryRatingEvidence> {
     val ratingsByWork = ratingAssertions
         .groupBy { it.mergeKey }
@@ -76,7 +98,8 @@ fun libraryRatingEvidence(
                 book = members.first(),
                 workKey = key,
                 sourceRatings = ratingsByWork[key].orEmpty(),
-                listenerRatings = listenerRatingsByWork[key].orEmpty()
+                listenerRatings = listenerRatingsByWork[key].orEmpty(),
+                listenerRatingAggregate = listenerAggregatesByWork[key]
             )
         }
 }

@@ -2161,12 +2161,25 @@ class SourceCatalog(
      */
     suspend fun libraryRatingRanking(): List<com.slukhayka.audiobooks.data.reviews.LibraryRating> =
         withContext(Dispatchers.IO) {
+            // #739 — the shared listener reviews enter as the local aggregate
+            // projection (no contributor identity), so the render needs no
+            // network; absent or malformed rows contribute nothing.
+            val listenerAggregates = dao.popularityAssertions(
+                com.slukhayka.audiobooks.data.db.PopularityAssertionEntity.KIND_LISTENER_RATING
+            ).mapNotNull { row ->
+                com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy
+                    .listenerRatingValue(row.rawValue)
+                    ?.let { (sum, count) ->
+                        row.mergeKey to com.slukhayka.audiobooks.data.reviews.ListenerRatingAggregate(sum, count)
+                    }
+            }.toMap()
             com.slukhayka.audiobooks.data.reviews.LibraryRatingRanking.rank(
                 com.slukhayka.audiobooks.data.reviews.libraryRatingEvidence(
                     books = dao.getAllAudiobooksOnce().map { it.toAudiobookEntity() },
                     ratingAssertions = dao.popularityAssertions(
                         com.slukhayka.audiobooks.data.db.PopularityAssertionEntity.KIND_RATING
-                    )
+                    ),
+                    listenerAggregatesByWork = listenerAggregates
                 )
             )
         }

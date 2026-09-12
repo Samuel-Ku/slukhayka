@@ -1843,6 +1843,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openTop100() {
         _selectedTop100.value = true
+        loadLibraryRating()
+        // #739 — a bounded, TTL'd refresh of the shared-review aggregate; the
+        // screen already shows the last known projection and re-reads only
+        // when the pass actually changed something.
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = runCatching { App.instance.libraryRatingRefresh.refreshIfDue() }.getOrDefault(0)
+            if (updated > 0 && _selectedTop100.value) loadLibraryRating()
+        }
+    }
+
+    private fun loadLibraryRating() {
         _isLibraryRatingLoading.value = true
         _libraryRatingLoadFailed.value = false
         viewModelScope.launch(Dispatchers.IO) {

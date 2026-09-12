@@ -759,14 +759,17 @@ class App : Application() {
 
     /**
      * spec-18 T2 (#113): the throttled background duration-enrichment pass.
-     * The page fetch rides the 4read source adapter — the same seam every
-     * other door uses.
+     * #740: the page fetch resolves each book's OWN source adapter — never a
+     * fixed source; a source with no adapter degrades honestly.
      */
     val durationEnrichment: DurationEnrichment by lazy {
-        val fourRead = sourceAdapters.first { it.sourceId == "4read" }
         // Spec-30 T4 (#219): a page-derived duration writes back to the
         // shared base so the next listener reads it instead of re-fetching.
-        DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage, sharedStore = sharedMetaStore)
+        DurationEnrichment(
+            database.audiobookDao(),
+            adapterFor = { sourceId -> sourceAdapters.firstOrNull { it.sourceId == sourceId } },
+            sharedStore = sharedMetaStore
+        )
     }
 
     /**

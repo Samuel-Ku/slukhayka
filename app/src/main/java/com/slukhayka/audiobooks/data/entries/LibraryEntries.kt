@@ -13,7 +13,6 @@ import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import kotlinx.coroutines.flow.map
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
-import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceRegistry
@@ -44,11 +43,6 @@ class LibraryEntries(
     // agree). Null in tests / without Firebase; best-effort and silent.
     private val workRelationshipsSync: WorkRelationshipsSync? = null
 ) {
-
-    // The 4read transport/parser behind the book-detail refresh (cover +
-    // metadata back-fill). Same adapter lookup the other modules use.
-    private val fourReadAdapter: SourceAdapter =
-        sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
 
     // Spec-45 (#405) R1 (#508): the shared facet-projection seam — the SAME
     // writer the import door and the catalogue use — behind the Edition
@@ -303,15 +297,15 @@ class LibraryEntries(
         if (book.sourceUrl.isNotBlank()) {
             // Spec-24 T9 (#170): the page-open heal dispatches to the book's
             // OWN source adapter — it was 4read-hard-coded, so sound-books
-            // (and every non-4read) row never back-filled its cover. The one
-            // pure sourceIdForUrl dispatch; 4read stays the fallback for
-            // unknown urls.
+            // (and every non-4read) row never back-filled its cover.
+            // #740: a source with no adapter on this device degrades honestly
+            // — the row keeps its local values and no request is made.
             val sourceId = sourceIdForUrl(book.sourceUrl)
             // A scam source is never healed: the heal would re-create the
             // 52-second artifact's chapters/tracks after the purge.
             if (SourceRegistry.isScam(sourceId)) return@withContext
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
-                ?: fourReadAdapter
+                ?: return@withContext
             val detail = adapter.fetchBookPage(book.sourceUrl)
             // Cover applies only when the claim is non-blank — never clears a
             // stored cover with an absent one.

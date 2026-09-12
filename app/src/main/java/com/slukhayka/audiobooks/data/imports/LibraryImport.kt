@@ -2142,6 +2142,10 @@ class LibraryImport(
      * ids/indices, Listening State, bookmarks and Metadata Overrides stay
      * untouched (ADR-0007), and an unknown new file never zeroes the known
      * book duration.
+     *
+     * #615 — the append never moves or renames a stored chapter, even when a
+     * new filename would naturally sort earlier; a finished Edition reopens
+     * (completion clears) while the listener's position is preserved.
      */
     private suspend fun appendLocalChapters(
         bookId: String,
@@ -2202,6 +2206,13 @@ class LibraryImport(
             }
         )
         dao.updateBookStats(bookId, totalChapters, knownDuration)
+        // #615 — an appended chapter reopens a finished Edition: the manual
+        // «Прослухано» mark clears, but the listener's position stays exactly
+        // where it was (no rewind, no restart). Existing chapters' durations
+        // and the book's known total duration are untouched above.
+        dao.getPlaybackProgressSyncByEdition(editionId)?.takeIf { it.isCompleted }?.let { progress ->
+            dao.savePlaybackProgress(progress.copy(isCompleted = false))
+        }
     }
 
     /** Refreshes a local source's re-scan fingerprint from its stored tracks. */

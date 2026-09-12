@@ -80,6 +80,10 @@ object OutcomeMessages {
             totals.newChapters > 0 || totals.newBooks > 0 -> {
                 append(": +${totals.newChapters} глав")
                 if (totals.newBooks > 0) append(" (${totals.newBooks} нових книг)")
+                // #615 — a re-scan never reorders a stored book: new chapters
+                // go after the existing ones even if their filenames sort
+                // earlier, and the listener is told exactly that.
+                if (totals.newChapters > 0 && totals.newBooks == 0) append(" — додано в кінець")
             }
             totals.structuralChangeRejected ->
                 append(": структурну зміну відхилено — підтвердьте новий перелік розділів")

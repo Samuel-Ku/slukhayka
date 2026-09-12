@@ -74,17 +74,22 @@ class SourceCooldownPolicyTest {
     }
 
     @Test
-    fun `a success clears the cooldown immediately`() {
+    fun `a success clears the cooldown immediately and keeps the history`() {
         val (store, file) = store()
         try {
             val now = 1_000_000L
             store.recordFailure("sluhayua", now)
             assertFalse(store.isEligible("sluhayua", now))
 
-            store.recordSuccess("sluhayua")
+            store.recordSuccess("sluhayua", now + 5_000L)
 
-            assertNull(store.record("sluhayua"))
-            assertTrue(store.isEligible("sluhayua", now))
+            val record = store.record("sluhayua")!!
+            assertTrue("eligible again", store.isEligible("sluhayua", now))
+            assertEquals("the cooldown is cleared", 0, record.consecutiveFailures)
+            assertEquals(0L, record.cooldownUntil)
+            // #530 AC4 — the Source keeps its own availability history.
+            assertEquals(now + 5_000L, record.lastSuccessAt)
+            assertEquals("the failure stamp survives as history", now, record.lastFailedAt)
         } finally {
             file.delete()
         }

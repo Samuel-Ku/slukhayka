@@ -104,7 +104,13 @@ class OfflineDownloads(
      * null (or no record) keeps it OFF. Sources without the fact are unaffected.
      * LAST: keeps every pre-existing positional call site valid.
      */
-    private val downloadPermissions: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore? = null
+    private val downloadPermissions: com.slukhayka.audiobooks.data.source.SourceDownloadPermissionStore? = null,
+    /**
+     * #530 — the Source availability history (bounded cooldown + last
+     * success). Null keeps every pre-existing call site valid and records
+     * nothing.
+     */
+    private val sourceCooldown: com.slukhayka.audiobooks.data.editions.SourceCooldownStore? = null
 ) {
 
     /** Null when neither an override nor a Context is available. */
@@ -958,6 +964,11 @@ class OfflineDownloads(
             // A stale generation writes nothing — a restarted queue owns the
             // terminal state. (Deliberately silent: this path runs in
             // cancellation flows exercised by pure-JVM tests.)
+            // #530 AC4 — the Source's own availability history: a run that
+            // landed at least one chapter is a real success for that source.
+            if (success > 0) {
+                runCatching { sourceCooldown?.recordSuccess(sourceId, nowMillis()) }
+            }
             return OfflineDownloadResult(
                 downloadedChapters = success,
                 totalChapters = total,

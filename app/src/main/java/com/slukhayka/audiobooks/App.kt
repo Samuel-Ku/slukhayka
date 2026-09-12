@@ -917,6 +917,8 @@ class App : Application() {
             sourceCatalog,
             // #527 — the persisted LIVE rules verdicts of the download gate.
             downloadPermissions = sourceDownloadPermissions,
+            // #530 — a completed chapter records the Source's own success.
+            sourceCooldown = sourceCooldownStore,
             // ADR-0037 (spec-49 T1): a refused-only book refuses the download
             // up front, before any pacing, fetch or file write.
             sourceAudioRefusal = sourceAudioRefusal.refusedSources,

@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 /**
  * Spec-51 (#690) — one own collection: its composition in INSERTION order with
@@ -47,6 +48,9 @@ fun CollectionDetailContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            // A real pane contract: a screen reader announces the collection
+            // as a pane named after it, not as a loose pile of nodes.
+            .accessibilityPane(collection.title)
             .testTag("collection_detail")
     ) {
         Text(

@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionLimits
 
 /**
@@ -62,6 +63,7 @@ fun AddToCollectionSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 8.dp)
+                .accessibilityPane("Додати до добірки")
                 .testTag("add_to_collection_sheet")
         ) {
             Text(

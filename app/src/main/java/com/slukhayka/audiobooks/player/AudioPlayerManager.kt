@@ -2000,6 +2000,20 @@ class AudioPlayerManager(
         val chapter = currentChapter ?: return
         if (durationMs <= 0L) return
         val seconds = durationMs / 1000L
+        // #528 — a stream that reports a drastically SHORTER duration must not
+        // poison the chapter. A 52-second interstitial read as a 28-minute
+        // chapter overwrote 16 chapters with 52 s, and the player then stopped
+        // at that mark for every listener. The real duration never collapses
+        // like that, so a collapse is evidence the stream was not the book:
+        // keep the known-good value instead.
+        val known = chapter.durationSeconds
+        if (!ChapterDurationPolicy.shouldAccept(known, seconds)) {
+            Log.w(
+                "AudioPlayer",
+                "refusing to shrink chapter duration: known=${known}s measured=${seconds}s"
+            )
+            return
+        }
         scope.launch(ioDispatcher) {
             listeningState.updateChapterDuration(chapter.id, seconds)
             val chapters = chapterFetcher(book.id)

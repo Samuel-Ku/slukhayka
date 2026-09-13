@@ -4742,6 +4742,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _publishedListenerCollections.asStateFlow()
 
     /**
+     * Reads the signed-in listener's own published collections. The uid comes
+     * from the identity module and is hashed immediately — it never travels.
+     */
+    fun refreshMyPublishedCollections() {
+        if (!publicCollectionsAvailable) {
+            _publishedListenerCollections.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            // `current()` is suspend — the uid is read and hashed INSIDE the
+            // coroutine, so the raw identifier never leaves this block.
+            val uid = runCatching { App.instance.listenerIdentity.current()?.uid }.getOrNull()
+            val authorId = com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+            _publishedListenerCollections.value =
+                if (authorId.isEmpty()) emptyList()
+                else App.instance.publicCollectionsGate.publishedBy(authorId)
+        }
+    }
+
+    /**
      * @param uid the signed-in listener's raw uid; it is hashed here and never
      * travels — the public author id is `sha256(uid)`.
      */

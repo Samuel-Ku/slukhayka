@@ -2120,6 +2120,25 @@ class SourceCatalog(
      * ні в `CatalogSection`, ні в `CatalogBook` немає, але `url` є, і він
      * однозначний. Секція, що спорожніла після відсіву, не публікується.
      */
+    /**
+     * #812 — картка власного потоку джерела у форму каталожної картки.
+     *
+     * Секції «Огляду» більше не приходять зі сторонньої сторінки: вони
+     * складаються з потоків, які застосунок уже завантажив по джерелах.
+     * `id` беремо з адреси — вона в межах джерела унікальна.
+     */
+    private fun SourceBook.toCatalogBook(): CatalogBook = CatalogBook(
+        id = url,
+        title = title,
+        author = author,
+        url = url,
+        coverImageUrl = coverImageUrl,
+        seriesTitle = seriesTitle,
+        seriesIndex = seriesIndex,
+        totalDurationSeconds = totalDurationSeconds,
+        narrator = narrator
+    )
+
     private fun withoutScamHosts(sections: List<CatalogSection>): List<CatalogSection> =
         sections.mapNotNull { section ->
             val kept = section.books.filterNot { book ->
@@ -2154,10 +2173,18 @@ class SourceCatalog(
                 // Секції домашньої стрічки більше не будуються зі сторінки
                 // шахрайського джерела. Вони приходять зі знімка (уже
                 // відфільтрованого за хостом) і з колективних блоків; якщо
-                // нічого немає — порожній результат чесніший за картки 4read.
-                // Порожній список, а не ранній вихід: решта тіла лишається
-                // чинною і просто нічого не публікує й не зберігає.
-                val sections = emptyList<CatalogSection>()
+                // Секції складаємо з ВЛАСНИХ потоків застосунку — тих, що
+                // вже завантажені по джерелах. Жодного запиту на сторонній
+                // сайт: джерело секції — саме джерело книжки.
+                val sections = _sourceFeeds.value.mapNotNull { feed ->
+                    val books = feed.books.map { it.toCatalogBook() }
+                    if (books.isEmpty()) null
+                    else CatalogSection(
+                        title = feed.sourceName,
+                        books = books,
+                        id = CatalogSectionId.POPULAR
+                    )
+                }
                 _catalogSections.value = sections
                 // #467: remember what the live homepage served so the next
                 // read within the catalog TTL never touches the network.

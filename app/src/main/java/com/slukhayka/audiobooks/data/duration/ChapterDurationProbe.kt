@@ -136,7 +136,18 @@ class ChapterDurationProbe(
         // launch stays failure-isolated: an unexpected throw kills only its
         // own probe, never the sibling chapters or the sweep.
         val pairsToProbe = playableChapters(book.id).filter { pair ->
-            pair.chapter.durationSeconds <= 0L && // already known
+            // #812 — не лише «невідома», а й «підозріло коротка».
+            //
+            // Раніше критерій був `durationSeconds <= 0L`, тобто хибна, але
+            // ненульова тривалість вважалася «вже відомою» — і 52-секундна
+            // врізка, яку колись виміряли як тривалість розділу, лишалася
+            // назавжди. Проба нижче пише виміряне БЕЗУМОВНО, тож справді
+            // короткий розділ просто отримає своє справжнє значення.
+            (
+                pair.chapter.durationSeconds <= 0L ||
+                    pair.chapter.durationSeconds <
+                    com.slukhayka.audiobooks.data.metadata.DurationSanity.MIN_SHARED_SECONDS
+                ) &&
                 pair.track != null && // no stream for this chapter
                 pair.track.url.isNotBlank() // local copy / no probe target
         }

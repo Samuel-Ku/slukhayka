@@ -31,6 +31,31 @@ class NewPipeMetadataSpikeTest {
     }
 
     @Test
+    fun `channel tab pages and reports how far paging goes`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.channel") ?: return
+        NewPipe.init(NewPipeYouTubeExtractor.SharedClientDownloader)
+        // 0.26.5: the channel's ITEM LIST lives in ChannelTabExtractor (the
+        // ChannelExtractor only carries channel info) — verified via javap.
+        val handler = ServiceList.YouTube.channelTabLHFactory.fromUrl(url)
+        val extractor = ServiceList.YouTube.getChannelTabExtractor(handler)
+        extractor.fetchPage()
+        var page = extractor.initialPage
+        var items = page.items.size
+        var pages = 1
+        val started = System.currentTimeMillis()
+        // The AC asks for the KNOWN limit: page until it stops, bounded so a
+        // runaway channel cannot hang the spike.
+        while (page.hasNextPage() && pages < 20) {
+            page = extractor.getPage(page.nextPage)
+            items += page.items.size
+            pages++
+        }
+        val elapsed = System.currentTimeMillis() - started
+        println("SPIKE channel pages=$pages items=$items hasNext=${page.hasNextPage()} elapsedMs=$elapsed")
+    }
+
+    @Test
     fun `playlist exposes ordered entries with durations`() {
         assumeTrue(gate())
         val url = System.getProperty("spike.playlist") ?: return

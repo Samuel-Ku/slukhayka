@@ -94,8 +94,10 @@ const VALID_COLLECTION = {
   title: "Магія",
   description: "про зорі",
   bookIds: ["soundbooks-1", "soundbooks-2"],
+  reasons: ["бо раз", "бо два"],
   publishedAt: 1700000000000
 };
+const COLLECTION_BAD_REASONS = { ...VALID_COLLECTION, reasons: "не список" };
 const COLLECTION_WITH_QUERY = { ...VALID_COLLECTION, query: "магія" };
 const OVERLONG_COLLECTION = { ...VALID_COLLECTION, title: "т".repeat(81) };
 const RAW_UID_COLLECTION = { ...VALID_COLLECTION, authorId: "test-uid-1" };
@@ -345,6 +347,7 @@ const MATRIX = [
   ["M5", "curator_collections/qa_m5", "create", "uid-alice", RAW_UID_COLLECTION, "DENY", "authorId мусить бути sha256 (64), не сирий uid"],
   ["M6", "curator_collections/qa_m6", "create", null, VALID_COLLECTION, "DENY", "нема auth"],
   ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
+  ["M8", "curator_collections/qa_m8", "create", "uid-alice", COLLECTION_BAD_REASONS, "DENY", "reasons не список"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -364,7 +367,7 @@ const EVIDENCE = {
   // #691 — curator_collections: read and the App Check gate are as-is;
   // the shape/limit/auth rows are proven with the gate open.
   M1: "as-is", M7: "as-is",
-  M2: "open", M3: "open", M4: "open", M5: "open", M6: "open",
+  M2: "open", M3: "open", M4: "open", M5: "open", M6: "open", M8: "open",
   K6: "as-is", K7: "open", K8: "open",
   L1: "as-is", L2: "open", L3: "open", L4: "open", L5: "open",
   L6: "as-is", L7: "open",

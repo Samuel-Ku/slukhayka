@@ -593,7 +593,12 @@ kover {
 // JVM, so System.getProperty() in the test saw nothing and the gated test
 // silently skipped).
 tasks.withType<Test>().configureEach {
-    listOf("newpipe.spike", "spike.video", "spike.playlist", "spike.channel").forEach { key ->
+    listOf(
+        "newpipe.spike", "spike.video", "spike.playlist", "spike.channel",
+        // The scheduled YouTube contract canary (YouTubeContractCanaryTest)
+        // rides the same forwarding so its gate and probe URL reach the JVM.
+        "youtube.canary", "youtube.canary.video",
+    ).forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
 }

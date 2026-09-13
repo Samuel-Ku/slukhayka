@@ -57,6 +57,8 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 abstract class AudiobookDatabase : RoomDatabase() {
     abstract fun audiobookDao(): AudiobookDao
 
+    abstract fun listenerCollectionsDao(): ListenerCollectionsDao
+
     companion object {
         @Volatile
         private var INSTANCE: AudiobookDatabase? = null

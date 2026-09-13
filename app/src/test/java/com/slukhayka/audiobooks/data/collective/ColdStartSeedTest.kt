@@ -36,12 +36,14 @@ class ColdStartSeedTest {
     }
 
     @Test
-    fun `an empty seed finishes without hanging the start`() = runBlocking {
+    fun `an empty seed is a failure, not a finished start`() = runBlocking {
         val flag = InMemoryColdStartSeedFlag()
         val seed = ColdStartSeed(CatalogSeedImporter { true }, emptyList(), flag)
 
         assertFalse(seed.runOnce())
-        assertTrue("the start is not left spinning", flag.isDone())
+        // The bundled asset is never legitimately empty, so emptiness means the
+        // read failed — marking it done would disable the cold start forever.
+        assertFalse("a failed seed must retry on the next launch", flag.isDone())
     }
 
     @Test

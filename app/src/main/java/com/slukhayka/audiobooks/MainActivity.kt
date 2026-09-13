@@ -37,6 +37,8 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
@@ -171,6 +173,11 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         handleDownloadIntent(intent)
         super.onCreate(savedInstanceState)
+        // #532 — the cold-start seed MUST run at APP startup, not from a
+        // screen's composition: a clean install opens on Слухати, so a
+        // HomeScreen-only trigger left the bundled seed unimported (measured
+        // on-device: no ColdStartSeed log, empty library offline).
+        lifecycleScope.launch { App.instance.coldStartSeed.runOnce() }
         enableEdgeToEdge()
         
         // Globally disable hardware bitmaps in Coil to prevent E/ashmem Pinning is deprecated errors

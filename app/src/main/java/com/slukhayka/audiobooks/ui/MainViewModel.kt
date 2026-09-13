@@ -4619,4 +4619,198 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    // Spec-51 (#689) — a listener's OWN collections. Local-first: every call
+    // goes to the Room-backed store and the flow is refreshed from disk, so
+    // the sheet always shows what is really saved.
+    private val _listenerCollections =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.ListenerCollection>>(emptyList())
+    val listenerCollections:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.ListenerCollection>> =
+        _listenerCollections.asStateFlow()
+
+    fun refreshListenerCollections() {
+        viewModelScope.launch {
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    /** @param onCreated receives the new id, or null when the title is unusable. */
+    fun createListenerCollection(
+        title: String?,
+        description: String?,
+        onCreated: (String?) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val id = App.instance.listenerCollections.create(title, description)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+            onCreated(id)
+        }
+    }
+
+    fun addBookToCollection(collectionId: String, bookId: String, reason: String? = null) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.add(collectionId, bookId, reason)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    fun removeBookFromCollection(collectionId: String, bookId: String) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.remove(collectionId, bookId)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    fun renameListenerCollection(collectionId: String, title: String?) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.rename(collectionId, title)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    fun updateListenerCollectionDescription(collectionId: String, description: String?) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.updateDescription(collectionId, description)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    fun deleteListenerCollection(collectionId: String) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.delete(collectionId)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    // Spec-51 (#691) — publishing is ONLINE-ONLY and always consented: nothing
+    // reaches the network without an explicit confirmation of the preview.
+    private val _publicationPreview =
+        MutableStateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?>(null)
+    val publicationPreview:
+        StateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?> =
+        _publicationPreview.asStateFlow()
+
+    /** Public surfaces render only when a shared store exists at all. */
+    val publicCollectionsAvailable: Boolean get() = App.instance.publicCollectionsGate.available
+
+    /**
+     * @return the preview to confirm, or null when this collection can never be
+     * published (which the UI states honestly instead of showing an empty gate).
+     */
+    /** The collection the pending preview belongs to — matched by ID, never by title. */
+    private var pendingPublishCollectionId: String? = null
+
+    fun requestPublish(collectionId: String, pseudonym: String): Boolean {
+        val collection = _listenerCollections.value.firstOrNull { it.id == collectionId } ?: return false
+        val preview = com.slukhayka.audiobooks.data.collections.PublicationPreviewFactory
+            .of(collection, pseudonym) ?: return false
+        pendingPublishCollectionId = collectionId
+        _publicationPreview.value = preview
+        return true
+    }
+
+    fun dismissPublish() {
+        pendingPublishCollectionId = null
+        _publicationPreview.value = null
+    }
+
+    /** Only the explicit confirmation lands here. */
+    fun confirmPublish(authorId: String, pseudonym: String) {
+        if (_publicationPreview.value == null) return
+        // By ID: two collections may share a title, and publishing the wrong
+        // one would be a real leak of the listener's curation.
+        val target = _listenerCollections.value
+            .firstOrNull { it.id == pendingPublishCollectionId } ?: return
+        viewModelScope.launch {
+            App.instance.publicCollectionsGate.publish(
+                collection = target,
+                authorId = authorId,
+                pseudonym = pseudonym
+            )
+            _publicationPreview.value = null
+            pendingPublishCollectionId = null
+        }
+    }
+
+    // Spec-51 (#691) — what this curator has PUBLISHED, read back for the
+    // Library. Empty (and never an error) when no shared store is configured.
+    private val _publishedListenerCollections =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val publishedListenerCollections:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _publishedListenerCollections.asStateFlow()
+
+    /**
+     * Reads the signed-in listener's own published collections. The uid comes
+     * from the identity module and is hashed immediately — it never travels.
+     */
+    fun refreshMyPublishedCollections() {
+        if (!publicCollectionsAvailable) {
+            _publishedListenerCollections.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            // `current()` is suspend — the uid is read and hashed INSIDE the
+            // coroutine, so the raw identifier never leaves this block.
+            val uid = runCatching { App.instance.listenerIdentity.current()?.uid }.getOrNull()
+            val authorId = com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+            _publishedListenerCollections.value =
+                if (authorId.isEmpty()) emptyList()
+                else App.instance.publicCollectionsGate.publishedBy(authorId)
+        }
+    }
+
+    /**
+     * @param uid the signed-in listener's raw uid; it is hashed here and never
+     * travels — the public author id is `sha256(uid)`.
+     */
+    fun refreshPublishedCollections(uid: String?) {
+        val authorId = com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+        if (!publicCollectionsAvailable || authorId.isEmpty()) {
+            _publishedListenerCollections.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            _publishedListenerCollections.value =
+                App.instance.publicCollectionsGate.publishedBy(authorId)
+        }
+    }
+
+    /**
+     * Spec-51 (#695) — «Зберегти собі» on someone else's published collection.
+     * The reasons travel with the fork (they are in the document), and the
+     * copy is purely LOCAL: no network is needed to save it.
+     */
+    fun saveForkOfPublished(documentId: String) {
+        val published = _publishedListenerCollections.value
+            .firstOrNull { it.documentId == documentId } ?: return
+        // The published shape carries no local reasons, so rebuild the
+        // composition with them positionally — that is what a fork copies.
+        val original = com.slukhayka.audiobooks.data.collections.ListenerCollection(
+            id = published.collectionId,
+            title = published.title,
+            description = published.description,
+            createdAt = published.publishedAt,
+            items = published.bookIds.mapIndexed { index, bookId ->
+                com.slukhayka.audiobooks.data.collections.ListenerCollectionItem(
+                    bookId = bookId,
+                    reason = published.reasons.getOrElse(index) { "" },
+                    addedAt = published.publishedAt
+                )
+            }
+        )
+        viewModelScope.launch {
+            val outcome = com.slukhayka.audiobooks.data.collections.ForkPolicy.fork(
+                original = original,
+                pseudonym = published.pseudonym,
+                documentId = published.documentId,
+                now = System.currentTimeMillis()
+            )
+            if (outcome is com.slukhayka.audiobooks.data.collections.ForkOutcome.Forked) {
+                App.instance.listenerCollections.saveFork(outcome.collection, outcome.attribution)
+                _listenerCollections.value = App.instance.listenerCollections.all()
+            }
+        }
+    }
 }

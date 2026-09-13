@@ -153,7 +153,9 @@ object NewPipeYouTubeExtractor {
      * mirrors [HttpFetcher]'s identity (browser UA + Accept headers, relay
      * rewrite) so YouTube rides the same wire rules as every other source.
      */
-    private object SharedClientDownloader : Downloader() {
+    // #708 — internal so the metadata spike (same module) reuses this exact
+    // transport instead of duplicating the app's HTTP policy.
+    internal object SharedClientDownloader : Downloader() {
         override fun execute(request: Request): Response {
             val target = TransportPrivacy.rewriteThroughRelay(request.url())
             val builder = okhttp3.Request.Builder().url(target)

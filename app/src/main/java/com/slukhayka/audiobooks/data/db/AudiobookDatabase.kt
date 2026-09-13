@@ -15,6 +15,8 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 @Database(
     entities = [
         AudiobookEntity::class,
+        ListenerCollectionEntity::class,
+        ListenerCollectionItemEntity::class,
         SourceEntity::class,
         ChapterEntity::class,
         SourceTrackEntity::class,
@@ -49,11 +51,13 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class
     ],
-    version = 30,
+    version = 32,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
     abstract fun audiobookDao(): AudiobookDao
+
+    abstract fun listenerCollectionsDao(): ListenerCollectionsDao
 
     companion object {
         @Volatile
@@ -73,7 +77,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32
                     )
                     .build()
                 INSTANCE = instance
@@ -1268,6 +1272,42 @@ abstract class AudiobookDatabase : RoomDatabase() {
          }
 
          /** v29 -> v30 (#482): the per-book embedding cache. */
+         internal val MIGRATION_31_32 = object : Migration(31, 32) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 // #695 — the fork's frozen attribution. Nullable columns, so
+                 // every existing (non-fork) collection stays valid as-is.
+                 db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `sourceDocumentId` TEXT")
+                 db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `sourceTitle` TEXT")
+                 db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `sourcePseudonym` TEXT")
+                 db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `snapshotAt` INTEGER")
+             }
+         }
+
+         internal val MIGRATION_30_31 = object : Migration(30, 31) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "CREATE TABLE IF NOT EXISTS `listener_collections` (" +
+                         "`id` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                         "`description` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, " +
+                         "PRIMARY KEY(`id`))"
+                 )
+                 db.execSQL(
+                     "CREATE TABLE IF NOT EXISTS `listener_collection_items` (" +
+                         "`collectionId` TEXT NOT NULL, `bookId` TEXT NOT NULL, " +
+                         "`reason` TEXT NOT NULL, `addedAt` INTEGER NOT NULL, " +
+                         "PRIMARY KEY(`collectionId`, `bookId`))"
+                 )
+                 db.execSQL(
+                     "CREATE INDEX IF NOT EXISTS `index_listener_collection_items_collectionId` " +
+                         "ON `listener_collection_items` (`collectionId`)"
+                 )
+                 db.execSQL(
+                     "CREATE INDEX IF NOT EXISTS `index_listener_collection_items_bookId` " +
+                         "ON `listener_collection_items` (`bookId`)"
+                 )
+             }
+         }
+
          internal val MIGRATION_29_30 = object : Migration(29, 30) {
              override fun migrate(db: SupportSQLiteDatabase) {
                  db.execSQL(

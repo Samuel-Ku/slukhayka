@@ -182,6 +182,30 @@ class App : Application() {
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
 
+    /**
+     * Spec-51 (#689) — a listener's own collections, local-first: the store is
+     * backed by the same Room database, never by a network round trip.
+     */
+    /**
+     * Spec-51 (#691) — the ONE place that decides whether public collections
+     * exist. The store is created from Firebase: when Firebase is NOT
+     * configured the factory returns null, so public surfaces are honestly
+     * ABSENT (nothing to render, publishing refuses with "no-shared-store")
+     * while the local collections above keep working fully offline.
+     */
+    val publicCollectionsGate: com.slukhayka.audiobooks.data.collections.PublicCollectionsGate by lazy {
+        com.slukhayka.audiobooks.data.collections.PublicCollectionsGate(
+            com.slukhayka.audiobooks.data.collections.FirestoreListenerCollectionsSharedStore
+                .create(this)
+        )
+    }
+
+    val listenerCollections: com.slukhayka.audiobooks.data.collections.ListenerCollectionsStore by lazy {
+        com.slukhayka.audiobooks.data.collections.RoomListenerCollectionsStore(
+            database.listenerCollectionsDao()
+        )
+    }
+
     /** #399 — process-scoped local person-bookmark module. */
     val personBookmarks: PersonBookmarks by lazy {
         PersonBookmarks(audiobookDao) { mutation ->
@@ -561,7 +585,37 @@ class App : Application() {
     val coldStartSeed: com.slukhayka.audiobooks.data.collective.ColdStartSeed by lazy {
         com.slukhayka.audiobooks.data.collective.ColdStartSeed(
             importer = com.slukhayka.audiobooks.data.collective.CatalogSeedImporter { entry ->
-                sourceCatalog.applyCollectiveCard(entry) != null
+                // #532 — the seed must land in the LISTENER'S LIBRARY, not only
+                // in the catalogue Mirror: both Огляд and Медіатека are
+                // library-first (ADR-0041), so a Mirror-only row renders
+                // nowhere (measured on-device: 23/23 imported, 0 visible).
+                // upsertCatalogBook writes the library row from the card's own
+                // public facts, with no network.
+                val book = com.slukhayka.audiobooks.data.catalog.CatalogBook(
+                    id = "seed-${entry.sourceId}-" +
+                        Integer.toHexString(entry.sourceUrl.hashCode()),
+                    title = entry.title,
+                    author = entry.author,
+                    url = entry.sourceUrl,
+                    coverImageUrl = entry.coverUrl,
+                    seriesTitle = entry.seriesTitle,
+                    seriesIndex = entry.seriesIndex,
+                    // ADR-0014 honest numbers: the card's claimed duration is
+                    // NOT the real one (measured on-device: card said 28:53
+                    // while the stream ran ~1 min). Writing the claim marks the
+                    // row as "duration known", and DurationEnrichment then
+                    // SKIPS it (it only fills books without a known duration) —
+                    // so the lie would be permanent. 0 = unknown, and the
+                    // enrichment fills the measured value.
+                    totalDurationSeconds = 0L,
+                    mergeKey = com.slukhayka.audiobooks.data.merge.MergeKey
+                        .keyFor(entry.title, entry.author),
+                    narrator = entry.narrator
+                )
+                val landed = runCatching { libraryImport.upsertCatalogBook(book) }.getOrNull() != null
+                // The Mirror claim rides along for discovery surfaces.
+                sourceCatalog.applyCollectiveCard(entry)
+                landed
             },
             seed = runCatching {
                 assets.open("catalog_seed.json").bufferedReader().use { reader ->

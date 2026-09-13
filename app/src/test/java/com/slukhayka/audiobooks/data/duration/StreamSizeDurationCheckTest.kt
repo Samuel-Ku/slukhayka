@@ -36,6 +36,14 @@ class StreamSizeDurationCheckTest {
     }
 
     @Test
+    fun `the two shortest tracks of the observed book are caught too`() {
+        // Measured: ≈5.77 MB and ≈4.52 MB → ≈360 s and ≈282 s implied.
+        // At the old 10× threshold both slipped through; at 4× both are caught.
+        assertTrue(StreamSizeDurationCheck.impliesImpossibleShort(52L, 5_768_253L))
+        assertTrue(StreamSizeDurationCheck.impliesImpossibleShort(52L, 4_518_555L))
+    }
+
+    @Test
     fun `a short chapter with a small file is honest`() {
         // ~30 s at 128 kbps ≈ 480 KB — a legitimate short track.
         assertFalse(StreamSizeDurationCheck.impliesImpossibleShort(30L, 480_000L))

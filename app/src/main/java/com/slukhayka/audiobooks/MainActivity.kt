@@ -248,6 +248,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     )
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
     val playerState by viewModel.playerState.collectAsState()
+    val miniPlayerDismissed by viewModel.miniPlayerDismissed.collectAsState()
     val narrationSwitchPrompt by viewModel.narrationSwitchPrompt.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
@@ -501,29 +502,32 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 ),
             bottomBar = {
                 Column {
-                    // Floating Persistent Mini Player
-                    MiniPlayerBar(
-                        playerState = playerState,
-                        viewedBookId = selectedBookId,
-                        onPlayPauseClick = {
-                            val current = viewModel.playerManager.playerState.value
-                            current.currentBook?.let { book ->
-                                viewModel.togglePlaybackFromPlayer(
-                                    book.id,
-                                    current.currentChapterIndex,
-                                    current.currentPositionMs
-                                )
-                            }
-                        },
-                        onSkipNextClick = { viewModel.playerManager.nextChapter() },
-                        onRewindClick = { viewModel.playerManager.skipBackward() },
-                        onBarClick = { viewModel.setShowFullPlayer(true) },
-                        // ADR-0024 (#362): ready when this device can cast and
-                        // the current chapter carries a stream Source.
-                        castReady = runCatching {
-                            App.instance.castController.isCastAvailable()
-                        }.getOrDefault(false) && playerState.currentStreamUrl.isNotEmpty()
-                    )
+                    // Floating Persistent Mini Player. Closed by the X on the
+                    // bar or a leftward swipe; it returns when audio does.
+                    if (!miniPlayerDismissed) {
+                        MiniPlayerBar(
+                            playerState = playerState,
+                            viewedBookId = selectedBookId,
+                            onPlayPauseClick = {
+                                val current = viewModel.playerManager.playerState.value
+                                current.currentBook?.let { book ->
+                                    viewModel.togglePlaybackFromPlayer(
+                                        book.id,
+                                        current.currentChapterIndex,
+                                        current.currentPositionMs
+                                    )
+                                }
+                            },
+                            onSkipNextClick = { viewModel.playerManager.nextChapter() },
+                            onCloseClick = { viewModel.dismissMiniPlayer() },
+                            onBarClick = { viewModel.setShowFullPlayer(true) },
+                            // ADR-0024 (#362): ready when this device can cast and
+                            // the current chapter carries a stream Source.
+                            castReady = runCatching {
+                                App.instance.castController.isCastAvailable()
+                            }.getOrDefault(false) && playerState.currentStreamUrl.isNotEmpty()
+                        )
+                    }
 
                     // Four primary destinations, including the settings home (#547).
                     AppBottomBar(

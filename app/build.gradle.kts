@@ -613,3 +613,21 @@ chaquopy {
         buildPython("python3.14")
     }
 }
+
+// #779 — Chaquopy 17.0.0 cannot live inside a configuration cache entry: the
+// plugin starts an external Python process at configuration time and its
+// `extract*PythonBuildPackages` task holds non-serializable Gradle internals.
+// With the cache ON the build does not merely warn, it FAILS while storing the
+// entry — verified 2026-09-13 — so `org.gradle.configuration-cache.problems=warn`
+// does not help (that flag downgrades reported problems, not a store failure).
+//
+// `notCompatibleWithConfigurationCache` is Gradle's sanctioned escape hatch:
+// instead of failing, Gradle disables the cache for the builds that touch these
+// tasks and says so. Only Chaquopy's own tasks are marked, so the rest of the
+// project keeps the cache everywhere it holds today.
+tasks.matching { it.javaClass.name.startsWith("com.chaquo.python") }
+    .configureEach {
+        notCompatibleWithConfigurationCache(
+            "Chaquopy 17 starts an external Python process and is not configuration-cache serializable"
+        )
+    }

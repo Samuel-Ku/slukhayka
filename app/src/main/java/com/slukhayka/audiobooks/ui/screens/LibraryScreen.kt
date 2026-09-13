@@ -447,6 +447,7 @@ fun LibraryScreen(
                 // store is configured (the gate), so an unconfigured build
                 // shows no public surface at all.
                 val publishedCollections by viewModel.publishedListenerCollections.collectAsState()
+                var openPublishedDocumentId by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(viewModel.publicCollectionsAvailable) {
                     if (viewModel.publicCollectionsAvailable) {
                         viewModel.refreshMyPublishedCollections()
@@ -461,10 +462,28 @@ fun LibraryScreen(
                             pseudonym = published.pseudonym
                         )
                     },
-                    // Opening a published collection (own or someone else's) is
-                    // T4 (#692); visibility is what this ticket's AC asks for.
-                    onOpen = {}
+                    onOpen = { openPublishedDocumentId = it }
                 )
+                publishedCollections
+                    .firstOrNull { it.documentId == openPublishedDocumentId }
+                    ?.let { open ->
+                        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+                        androidx.compose.material3.ModalBottomSheet(
+                            onDismissRequest = { openPublishedDocumentId = null }
+                        ) {
+                            com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
+                                collection = open,
+                                // A fork copies a LOCAL original; when the reader
+                                // has not got it here, the action is disabled
+                                // rather than silently failing.
+                                originalAvailableLocally = open.bookIds.isNotEmpty(),
+                                onSaveForYou = {
+                                    viewModel.saveForkOfPublished(open.documentId)
+                                    openPublishedDocumentId = null
+                                }
+                            )
+                        }
+                    }
                 listenerCollections.firstOrNull { it.id == openCollectionId }?.let { open ->
                     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
                     androidx.compose.material3.ModalBottomSheet(

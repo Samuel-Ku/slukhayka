@@ -4776,4 +4776,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 App.instance.publicCollectionsGate.publishedBy(authorId)
         }
     }
+
+    /**
+     * Spec-51 (#695) — «Зберегти собі» on someone else's published collection.
+     * The reasons travel with the fork (they are in the document), and the
+     * copy is purely LOCAL: no network is needed to save it.
+     */
+    fun saveForkOfPublished(documentId: String) {
+        val published = _publishedListenerCollections.value
+            .firstOrNull { it.documentId == documentId } ?: return
+        // The published shape carries no local reasons, so rebuild the
+        // composition with them positionally — that is what a fork copies.
+        val original = com.slukhayka.audiobooks.data.collections.ListenerCollection(
+            id = published.collectionId,
+            title = published.title,
+            description = published.description,
+            createdAt = published.publishedAt,
+            items = published.bookIds.mapIndexed { index, bookId ->
+                com.slukhayka.audiobooks.data.collections.ListenerCollectionItem(
+                    bookId = bookId,
+                    reason = published.reasons.getOrElse(index) { "" },
+                    addedAt = published.publishedAt
+                )
+            }
+        )
+        viewModelScope.launch {
+            val outcome = com.slukhayka.audiobooks.data.collections.ForkPolicy.fork(
+                original = original,
+                pseudonym = published.pseudonym,
+                documentId = published.documentId,
+                now = System.currentTimeMillis()
+            )
+            if (outcome is com.slukhayka.audiobooks.data.collections.ForkOutcome.Forked) {
+                App.instance.listenerCollections.saveFork(outcome.collection, outcome.attribution)
+                _listenerCollections.value = App.instance.listenerCollections.all()
+            }
+        }
+    }
 }

@@ -2184,7 +2184,10 @@ class SourceCatalog(
                 // Секції складаємо з ВЛАСНИХ потоків застосунку — тих, що
                 // вже завантажені по джерелах. Жодного запиту на сторонній
                 // сайт: джерело секції — саме джерело книжки.
-                val sections = _sourceFeeds.value.mapNotNull { feed ->
+                // #812 — фiльтр надгробкiв i «publish only what landed»
+                // живе в `upsertAndFilterSections`; без нього книжка, яку
+                // слухач прибрав, повертається в «Огляд».
+                val sections = upsertAndFilterSections(_sourceFeeds.value.mapNotNull { feed ->
                     val adapter = sourceAdapters.firstOrNull { it.sourceId == feed.sourceId }
                         ?: return@mapNotNull null
                     val books = feed.books.map { it.toCatalogBook(adapter) }
@@ -2194,7 +2197,7 @@ class SourceCatalog(
                         books = books,
                         id = CatalogSectionId.POPULAR
                     )
-                }
+                })
                 _catalogSections.value = sections
                 // #467: remember what the live homepage served so the next
                 // read within the catalog TTL never touches the network.

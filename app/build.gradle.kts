@@ -16,6 +16,7 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.register
 
 plugins {
+  id("com.chaquo.python") version "17.0.0"
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
@@ -77,6 +78,8 @@ android {
   defaultConfig {
     applicationId = "com.slukhayka.audiobooks"
     minSdk = 24
+    // #779 — Chaquopy ships native CPython per ABI, so an explicit list is required.
+    ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
@@ -601,4 +604,12 @@ tasks.withType<Test>().configureEach {
 // #772 — test stdout must be visible: silent measurements are worse than none.
 tasks.withType<Test>().configureEach {
     testLogging { showStandardStreams = true }
+}
+
+// #779 — the in-process Python engine. Version must match buildPython.
+chaquopy {
+    defaultConfig {
+        version = "3.14"
+        buildPython("python3.14")
+    }
 }

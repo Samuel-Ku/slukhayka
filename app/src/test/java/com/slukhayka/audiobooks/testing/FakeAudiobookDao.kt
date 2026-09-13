@@ -355,6 +355,14 @@ class FakeAudiobookDao(
     override fun getAllChapters(): Flow<List<ChapterEntity>> =
         chaptersState.map { chapters -> chapters.sortedWith(compareBy({ it.bookId }, { it.chapterIndex })) }
 
+    // #528 — the one-shot snapshot the duration repair reads.
+    override suspend fun getAllChaptersOnce(): List<ChapterEntity> =
+        chaptersState.value.sortedWith(compareBy({ it.bookId }, { it.chapterIndex }))
+
+    // #528 — tracks live under the composite id `$type-$editionId`.
+    override suspend fun countDistinctTracksForEdition(editionId: String): Int =
+        tracksState.value.filter { it.sourceId.endsWith(editionId) }.map { it.url }.distinct().size
+
     // Spec-24 T8 (#169): the chapter-duration probe's candidate pool — every
     // book with at least one unknown-duration chapter (0 is the placeholder).
     override suspend fun getBookIdsWithUnknownChapterDurations(): List<String> =

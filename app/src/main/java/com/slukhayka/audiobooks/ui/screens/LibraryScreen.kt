@@ -90,6 +90,8 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
+import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
+import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
 
@@ -416,6 +418,39 @@ fun LibraryScreen(
 
                 // Spec-28 #193: the five one-tap statuses as a segmented row.
                 LibraryStatusRow(selected = filter, onSelect = { filter = it })
+
+                // Spec-51 (#690) — the listener's own collections, right in the
+                // Library. Local-first, and honestly empty when there are none.
+                val listenerCollections by viewModel.listenerCollections.collectAsState()
+                var openCollectionId by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(Unit) { viewModel.refreshListenerCollections() }
+                MyCollectionsBlock(
+                    rows = listenerCollections.map { collection ->
+                        com.slukhayka.audiobooks.ui.screens.collections.MyCollectionRow(
+                            id = collection.id,
+                            title = collection.title,
+                            bookCount = collection.items.size
+                        )
+                    },
+                    onOpen = { openCollectionId = it }
+                )
+                listenerCollections.firstOrNull { it.id == openCollectionId }?.let { open ->
+                    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+                    androidx.compose.material3.ModalBottomSheet(
+                        onDismissRequest = { openCollectionId = null }
+                    ) {
+                        com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent(
+                            collection = open,
+                            onRemoveBook = { bookId ->
+                                viewModel.removeBookFromCollection(open.id, bookId)
+                            },
+                            onDelete = {
+                                viewModel.deleteListenerCollection(open.id)
+                                openCollectionId = null
+                            }
+                        )
+                    }
+                }
 
                 // Spec-28 #193: the rare filters (Обрані / Локальні / Онлайн),
                 // sort and view toggle collapse into the filter sheet. The

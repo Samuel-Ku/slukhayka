@@ -325,6 +325,7 @@ class TombstoneCatalogGuardTest {
         catalog.refreshSourceFeeds()
         val sections = catalog.fetchCatalogSections()
 
+            " sections=" + sections.map { it.title })
         assertEquals(1, sections.size)
         assertEquals(1, sections.single().books.size)
         assertEquals("Перша книга", sections.single().books.single().title)
@@ -344,6 +345,12 @@ class TombstoneCatalogGuardTest {
         override suspend fun fetchBookPage(url: String): SourceBookDetail = detail
 
         override suspend fun fetchNew(limit: Int): List<SourceBook> = feedBooks
+
+        // #812 — id мусить бути детермінованим: його бере і надгробок у
+        // тесті, і `adapterBookId` в імпорті. Типове значення інтерфейсу
+        // цього не гарантує, тож задаємо явно.
+        override fun bookId(url: String): String =
+            "$sourceId-" + url.substringAfterLast('/').removeSuffix(".html").substringBefore('?')
     }
 
     @Test

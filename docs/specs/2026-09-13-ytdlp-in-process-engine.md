@@ -83,6 +83,28 @@ FAILURE: Configuration cache state could not be cached
 4. `install("yt-dlp==<версія>")` + версія в каталозі.
 5. Визначитися з configuration cache (див. пастку 1) — рішення власника.
 
+## Робоча конфігурація спайку (verbatim)
+
+Єдине місце, де цей блок існував, — гілка `spike/chaquopy-step1`; у гілці #779
+він **неповний** (без `pip`). Тримаю тут, щоб гілку можна було відпустити, не
+втративши перевірену на пристрої конфігурацію:
+
+```kotlin
+chaquopy {
+    defaultConfig {
+        version = "3.14"
+        buildPython("python3.14")
+        pip {
+            install("yt-dlp")
+        }
+    }
+}
+```
+
+Спайк ставив `yt-dlp` **без піна**; версію закріплює #779 (критерій 2), і саме
+тому її треба тримати в `gradle/libs.versions.toml`. Розв'язаний тоді артефакт:
+`yt_dlp-2026.8.19-py3-none-any.whl` (3.2 МБ, чистий Python).
+
 ## Acceptance
 
 | критерій #779 | як доводимо |

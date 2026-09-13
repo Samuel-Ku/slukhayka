@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens.collections
 
+import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,6 +81,23 @@ fun MyCollectionsBlock(
                         .testTag("my_collection_row_${row.id}"),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // The cover is the first REAL cover of the composition, or
+                    // honestly nothing — never a placeholder pretending to be one.
+                    row.coverUrl?.let { url ->
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .padding(start = 16.dp)
+                                .size(48.dp)
+                                .clip(MaterialTheme.shapes.small)
+                        ) {
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         Text(text = row.title, style = MaterialTheme.typography.bodyLarge)
                         Text(

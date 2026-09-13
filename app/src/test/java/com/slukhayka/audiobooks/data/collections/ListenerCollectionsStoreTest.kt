@@ -101,4 +101,26 @@ class ListenerCollectionsStoreTest {
         assertTrue(store.all().isEmpty())
         assertFalse(store.delete(id))
     }
+
+    @Test
+    fun `a fork is stored with its frozen attribution, a normal collection has none`() = runBlocking {
+        val store = store(1L, 2L, 3L)
+        val original = ListenerCollection(
+            id = "orig",
+            title = "Магія",
+            description = "про зорі",
+            createdAt = 1L,
+            items = listOf(ListenerCollectionItem("a", "бо атмосферно", 1L))
+        )
+        val (fork, attribution) = ForkPolicy.forkOf(original, "Слухач", "doc-1", now = 100L)
+
+        assertTrue(store.saveFork(fork, attribution))
+        val saved = store.all().single { it.id == fork.id }
+        assertEquals("на основі «Магія» від Слухач", saved.attribution?.text)
+        assertEquals(listOf("a"), saved.items.map { it.bookId })
+        assertFalse("storing the same fork twice is a no-op", store.saveFork(fork, attribution))
+
+        val plainId = store.create("Звичайна", null)!!
+        assertNull(store.all().single { it.id == plainId }.attribution)
+    }
 }

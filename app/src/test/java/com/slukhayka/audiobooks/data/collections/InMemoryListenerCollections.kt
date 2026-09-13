@@ -57,5 +57,14 @@ class InMemoryListenerCollections(private val clock: () -> Long) : ListenerColle
     override suspend fun delete(collectionId: String): Boolean =
         collections.remove(collectionId) != null
 
+    override suspend fun saveFork(
+        forked: ListenerCollection,
+        attribution: ForkAttribution
+    ): Boolean {
+        if (collections.containsKey(forked.id)) return false
+        collections[forked.id] = forked.copy(attribution = attribution)
+        return true
+    }
+
     override suspend fun all(): List<ListenerCollection> = collections.values.toList()
 }

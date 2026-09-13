@@ -217,4 +217,17 @@ class NewPipeMetadataSpikeTest {
         }
         check(extractor.streamCount > 0) { "a playlist must report its entry count" }
     }
+
+    @Test
+    fun `compare user agents`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        val bare = okhttp3.OkHttpClient()
+        fun finalUrl(agent: String): String {
+            val req = okhttp3.Request.Builder().url(url).header("User-Agent", agent).build()
+            return bare.newCall(req).execute().use { it.request.url.toString() }
+        }
+        println("SPIKE ua-our=${finalUrl(com.slukhayka.audiobooks.data.privacy.BrowserIdentity.currentUserAgent())}")
+        println("SPIKE ua-desktop=" + finalUrl("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"))
+    }
 }

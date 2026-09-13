@@ -597,3 +597,8 @@ tasks.withType<Test>().configureEach {
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
 }
+
+// #772 — test stdout must be visible: silent measurements are worse than none.
+tasks.withType<Test>().configureEach {
+    testLogging { showStandardStreams = true }
+}

@@ -81,13 +81,24 @@ class SmartRetryPolicyTest {
         val doors = SmartRetryPolicy.browserDoorSourceIds(
             listOf("4read", "soundbooks", "sluhayua", "audiobookmp3", "lihtar", "sluhay", "sluhayknigi", "local")
         )
-        assertEquals(listOf("4read", "sluhay", "sluhayknigi"), doors)
+        // 4read is a SCAM source: the door mechanism stays for the Cloudflare
+        // services, but never for it (listener decision 2026-09-13, ADR-0037).
+        assertEquals(listOf("sluhay", "sluhayknigi"), doors)
     }
 
     @Test
     fun `doors are distinct and drop blank ids`() {
-        val doors = SmartRetryPolicy.browserDoorSourceIds(listOf("4read", "4read", "", "sluhay"))
-        assertEquals(listOf("4read", "sluhay"), doors)
+        val doors = SmartRetryPolicy.browserDoorSourceIds(listOf("sluhay", "sluhay", "", "sluhayknigi"))
+        assertEquals(listOf("sluhay", "sluhayknigi"), doors)
+    }
+
+    @Test
+    fun `a scam source never gets a browser door even among others`() {
+        assertTrue(
+            "4read's browser session serves a 52-second scam ad, not the book",
+            SmartRetryPolicy.browserDoorSourceIds(listOf("soundbooks", "4read", "lihtar", "sluhay"))
+                .none { it == "4read" }
+        )
     }
 
     @Test

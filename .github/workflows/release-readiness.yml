@@ -1,0 +1,55 @@
+# Release readiness — run the pre-release gate on a release lane and on demand.
+#
+# Pushing a release/** branch runs it automatically (RELEASE-BRANCH.md: the
+# lane candidate should be provably ready before a tag is pushed); a manual
+# dispatch runs it on any ref. scripts/pre-release.sh is the single source of
+# truth, so the same gate runs locally and here.
+
+name: Release readiness
+
+on:
+  push:
+    branches: ["release/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    name: Pre-release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: wrapper
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run the pre-release gate
+        run: ./scripts/pre-release.sh

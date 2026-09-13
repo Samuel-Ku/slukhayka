@@ -16,7 +16,16 @@ object ChapterDurationPolicy {
     /** A measurement this much shorter than the known value is not the book. */
     const val SHRINK_DENOMINATOR = 2L
 
-    /** @return true when [measuredSeconds] may replace [knownSeconds]. */
+    /**
+     * @return true when [measuredSeconds] may replace [knownSeconds].
+     *
+     * KNOWN GAP (#528, measured on device 2026-09-13): a chapter whose known
+     * duration is 0 — exactly the state the repair pass creates — accepts ANY
+     * measurement, including a 52-second interstitial. So the repair makes a
+     * chapter unprotected, and the next short stream re-poisons it. The pass is
+     * also one-shot, so it cannot help twice. Closing this needs either a
+     * "awaiting measurement" marker the guard can see, or a repeatable pass.
+     */
     fun shouldAccept(knownSeconds: Long, measuredSeconds: Long): Boolean {
         if (measuredSeconds <= 0L) return false
         if (knownSeconds <= 0L) return true      // nothing known yet — take it

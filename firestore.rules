@@ -549,12 +549,14 @@ service cloud.firestore {
     // through the well-formed shape above, and a client never deletes one.
     // #691 — a published listener collection. The shape mirrors the app's
     // PublishedCollectionCodec exactly: the same fields, the same limits, so a
-    // document that would not decode is also not writable. authorId is
+    // document that would not decode is also not writable. `reasons` is
+    // positionally parallel to `bookIds` (#695) — it is here so a fork of
+    // someone else's collection keeps its reasons. authorId is
     // sha256(uid) — the raw uid is never a field here.
     function isWellFormedCuratorCollection(d) {
       return d.keys().hasOnly([
           'authorId', 'collectionId', 'pseudonym', 'title', 'description',
-          'bookIds', 'publishedAt'
+          'bookIds', 'reasons', 'publishedAt'
         ])
         && d.authorId is string && d.authorId.size() == 64
         && d.collectionId is string && d.collectionId.size() > 0 && d.collectionId.size() <= 128
@@ -562,6 +564,7 @@ service cloud.firestore {
         && d.title is string && d.title.size() > 0 && d.title.size() <= 80
         && d.description is string && d.description.size() <= 600
         && d.bookIds is list && d.bookIds.size() <= 500
+        && d.reasons is list && d.reasons.size() <= 500
         && d.publishedAt is number;
     }
 

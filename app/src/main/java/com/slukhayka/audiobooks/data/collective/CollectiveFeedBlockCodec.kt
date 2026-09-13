@@ -42,6 +42,12 @@ object CollectiveFeedBlockCodec {
         val map = MiniJson.parse(json) as? Map<*, *> ?: return null
         val blockKey = map["blockKey"] as? String ?: return null
         val sourceId = map["sourceId"] as? String ?: return null
+        // #812 — шахрайське джерело не має блоку стрічки. Гвардія тут, на
+        // вході: колективний блок пише в ТУ САМУ колонку `feed_snapshots`,
+        // що й жива стрічка, тож блок 4read зі спільної бази щоразу
+        // відновлював знімок і матеріалізував 48 порожніх книжок. Саме тому
+        // вичищення в міграції не трималося.
+        if (com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(sourceId)) return null
         val kind = (map["kind"] as? String)?.let { name ->
             CollectiveBlockKind.entries.firstOrNull { it.name == name }
         } ?: return null

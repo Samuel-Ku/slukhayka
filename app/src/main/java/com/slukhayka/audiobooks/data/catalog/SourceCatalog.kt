@@ -1208,16 +1208,31 @@ class SourceCatalog(
         // fallback actually ran; a mirror work (e.g. LibriVox) has no chapters
         // yet for its own reasons — the mirror is not an import.
         var attemptedFourReadFallback = false
-        if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org") &&
-            SourceAccessPolicy.modeFor(sourceIdForUrl(sourceUrl)) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
+        // #814 — матеріалізація з ВЛАСНОГО джерела книги, а не лише з 4read.
+        //
+        // Ця гілка — той самий «метод 4read», про який просив користувач:
+        // коли в книжки немає розділів, взяти сторінку джерела й зберегти
+        // розділи. Раніше умова була прив'язана до `sourceUrl.contains(
+        // "4read.org")` і до `fourReadAdapter`, тож після вилучення 4read
+        // книжки БЕЗ розділів не мали жодного шляху матеріалізації: вони
+        // грали з каталогу, але тривалість ніде не зберігалась — звідси
+        // неправильний час у плеєрі («Прохожалий»: файл 840 с, у базі 0).
+        //
+        // Запобіжники збережено: BROWSER-джерело не фетчимо, а відмовлене
+        // джерело (ADR-0037) не фетчимо й тут — для 4read гілка лишається
+        // мертвою, як і була.
+        val bookSourceId = sourceIdForUrl(sourceUrl)
+        val bookAdapter = sourceAdapters.firstOrNull { it.sourceId == bookSourceId }
+        if (chapters.isEmpty() && sourceUrl.isNotBlank() && bookAdapter != null &&
+            SourceAccessPolicy.modeFor(bookSourceId) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
             // ADR-0037: a refused source's page is never fetched for audio
             // materialization either — the refusal covers the fallback too.
-            "4read" !in refusedAudioSources()
+            bookSourceId !in refusedAudioSources()
         ) {
             attemptedFourReadFallback = true
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
-            val detail = fourReadAdapter.fetchBookPage(sourceUrl)
+            val detail = bookAdapter.fetchBookPage(sourceUrl)
             if (detail.chapters.isNotEmpty()) {
                 // ADR-0004 + ADR-0007: materialization (one id format, one
                 // title fallback, duration conventions; Edition chapters +

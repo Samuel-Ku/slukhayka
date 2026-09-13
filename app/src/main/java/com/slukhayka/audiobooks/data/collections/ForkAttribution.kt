@@ -26,7 +26,42 @@ data class ForkAttribution(
     fun linkAvailable(originalVisible: Boolean): Boolean = originalVisible
 }
 
+/** Spec-51 (#695) — the honest outcome of «Зберегти собі». */
+sealed interface ForkOutcome {
+    data class Forked(
+        val collection: ListenerCollection,
+        val attribution: ForkAttribution
+    ) : ForkOutcome
+
+    /**
+     * Nothing was saved. A fork is a LOCAL copy, so when the original is not on
+     * this device there is nothing to copy — an honest refusal, never a silent
+     * fetch that might complete later.
+     */
+    data class Refused(val reason: String) : ForkOutcome
+}
+
 object ForkPolicy {
+
+    /**
+     * Forks an original that is ALREADY available locally.
+     *
+     * @param original the visible collection as this device knows it, or null
+     * when it is not here (offline, never opened) — which refuses honestly.
+     */
+    fun fork(
+        original: ListenerCollection?,
+        pseudonym: String,
+        documentId: String,
+        now: Long
+    ): ForkOutcome {
+        if (original == null) return ForkOutcome.Refused(ORIGINAL_NOT_LOCAL)
+        val (collection, attribution) = forkOf(original, pseudonym, documentId, now)
+        return ForkOutcome.Forked(collection, attribution)
+    }
+
+    const val ORIGINAL_NOT_LOCAL = "original-not-local"
+
 
     /**
      * A fork is a LOCAL COPY of the composition (books and their reasons), not

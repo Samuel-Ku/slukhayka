@@ -52,4 +52,20 @@ class ForkAttributionTest {
         assertEquals(100L, fork.createdAt)
         assertEquals(2, fork.items.size)
     }
+
+    @Test
+    fun `forking an original that is not here refuses honestly`() {
+        val outcome = ForkPolicy.fork(null, "Слухач", "doc-1", now = 100L)
+        assertTrue(outcome is ForkOutcome.Refused)
+        assertEquals(ForkPolicy.ORIGINAL_NOT_LOCAL, (outcome as ForkOutcome.Refused).reason)
+    }
+
+    @Test
+    fun `forking a local original yields the copy and its attribution`() {
+        val outcome = ForkPolicy.fork(original(), "Слухач", "doc-1", now = 100L)
+        assertTrue(outcome is ForkOutcome.Forked)
+        val forked = outcome as ForkOutcome.Forked
+        assertEquals(listOf("a", "b"), forked.collection.items.map { it.bookId })
+        assertEquals("на основі «Магія» від Слухач", forked.attribution.text)
+    }
 }

@@ -547,11 +547,43 @@ service cloud.firestore {
     // #522 — the collective catalogue cards: an anonymous PUBLIC fact, so
     // reads are public like the other shared-fact collections; writes go only
     // through the well-formed shape above, and a client never deletes one.
+    // #691 — a published listener collection. The shape mirrors the app's
+    // PublishedCollectionCodec exactly: the same fields, the same limits, so a
+    // document that would not decode is also not writable. authorId is
+    // sha256(uid) — the raw uid is never a field here.
+    function isWellFormedCuratorCollection(d) {
+      return d.keys().hasOnly([
+          'authorId', 'collectionId', 'pseudonym', 'title', 'description',
+          'bookIds', 'publishedAt'
+        ])
+        && d.authorId is string && d.authorId.size() == 64
+        && d.collectionId is string && d.collectionId.size() > 0 && d.collectionId.size() <= 128
+        && d.pseudonym is string && d.pseudonym.size() > 0 && d.pseudonym.size() <= 40
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 80
+        && d.description is string && d.description.size() <= 600
+        && d.bookIds is list && d.bookIds.size() <= 500
+        && d.publishedAt is number;
+    }
+
     match /catalog_cards/{document} {
       allow read: if true;
       allow create, update: if isAppCheckValid() && request.auth != null
         && isWellFormedCatalogCard(request.resource.data);
       allow delete: if false;
+    }
+
+    // #691 — published listener collections: an anonymous PUBLIC fact (read is
+    // open, like the catalogue), written only in the well-formed shape above
+    // and never deleted by a client. Ownership is CLIENT TRUST by decision:
+    // authorId is a hash of the caller's uid and cannot be verified by rules
+    // alone, so a curator deletes their own profile through the app; the rules
+    // guarantee shape, App Check and an authenticated author, not authorship.
+    match /curator_collections/{document} {
+      allow read: if true;
+      allow create, update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCuratorCollection(request.resource.data);
+      allow delete: if isAppCheckValid() && request.auth != null
+        && isWellFormedCuratorCollection(resource.data);
     }
   }
 }

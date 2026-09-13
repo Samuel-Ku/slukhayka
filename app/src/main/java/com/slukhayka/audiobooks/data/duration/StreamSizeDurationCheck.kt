@@ -14,8 +14,16 @@ package com.slukhayka.audiobooks.data.duration
  */
 object StreamSizeDurationCheck {
 
-    /** A stored duration this many times shorter than the size implies is a lie. */
-    const val IMPLAUSIBLE_RATIO_DENOMINATOR = 10L
+    /**
+     * A stored duration this many times shorter than the size implies is a lie.
+     *
+     * Measured on the observed book: with 10 the check missed the two SHORTEST
+     * tracks (≈6 min and ≈4.7 min implied), because 52 s is only ~7× and ~5×
+     * below them. At 4 every chapter of that book is caught, while the honest
+     * controls still hold — a real 1701 s against its own size, and a genuine
+     * 30-second chapter whose small file implies 30 s.
+     */
+    const val IMPLAUSIBLE_RATIO_DENOMINATOR = 4L
 
     /**
      * @param durationSeconds the duration stored for the chapter.

@@ -87,6 +87,60 @@ class NewPipeMetadataSpikeTest {
     }
 
     @Test
+    fun `bare okhttp forced to http1`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        val bare = okhttp3.OkHttpClient()
+        NewPipe.init(object : Downloader() {
+            override fun execute(request: Request): Response {
+                val builder = okhttp3.Request.Builder().url(request.url())
+                request.dataToSend()?.let { body -> builder.post(okhttp3.RequestBody.create(null, body)) } ?: builder.get()
+                request.headers().forEach { (name, values) ->
+                    values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
+                }
+                if (request.headers()["User-Agent"].isNullOrEmpty()) {
+                    builder.header("User-Agent", com.slukhayka.audiobooks.data.privacy.BrowserIdentity.currentUserAgent())
+                }
+                return bare.newCall(builder.build()).execute().use { response ->
+                    // OkHttp ALREADY gunzipped the body; forwarding the original
+                    // Content-Encoding/Content-Length makes NewPipe handle it twice.
+                    val headers = response.headers.toMultimap()
+                        .filterKeys { !it.equals("Content-Encoding", true) && !it.equals("Content-Length", true) }
+                    Response(response.code, response.message, headers,
+                        response.body?.string().orEmpty(), response.request.url.toString())
+                }
+            }
+        })
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE http11-okhttp name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
+    fun `bare okhttp without our stack`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        val bare = okhttp3.OkHttpClient()
+        NewPipe.init(object : Downloader() {
+            override fun execute(request: Request): Response {
+                val builder = okhttp3.Request.Builder().url(request.url())
+                request.dataToSend()?.let { body -> builder.post(okhttp3.RequestBody.create(null, body)) } ?: builder.get()
+                request.headers().forEach { (name, values) ->
+                    values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
+                }
+                if (request.headers()["User-Agent"].isNullOrEmpty()) {
+                    builder.header("User-Agent", com.slukhayka.audiobooks.data.privacy.BrowserIdentity.currentUserAgent())
+                }
+                return bare.newCall(builder.build()).execute().use { response ->
+                    Response(response.code, response.message, response.headers.toMultimap(),
+                        response.body?.string().orEmpty(), response.request.url.toString())
+                }
+            }
+        })
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE bare-okhttp name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
     fun `plain transport resolves the same video`() {
         assumeTrue(gate())
         val url = System.getProperty("spike.video") ?: return

@@ -5,6 +5,8 @@ package com.slukhayka.audiobooks.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import com.slukhayka.audiobooks.data.duration.ChapterDurationConsensus
+import com.slukhayka.audiobooks.data.duration.StreamSizeDurationCheck
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import android.os.Build
@@ -353,7 +355,19 @@ class AudioPlayerManager(
      * forced through HTTP.
      */
     private fun buildProductionPlayer(playerContext: Context): Player {
-        val dataSourceFactory = DefaultDataSource.Factory(playerContext, httpDataSourceFactory)
+        // #528 — a body that cannot be the chapter is tried once more and then
+        // refused; see [BodyObserver].
+        val expectation: (androidx.media3.datasource.DataSpec, Long) -> Pair<Long, Long>? =
+            { dataSpec, length ->
+                suspiciousBody(dataSpec, length)?.also { (stored, implied) ->
+                    Log.w(
+                        "AudioPlayer",
+                        "substituted body ${dataSpec.uri}: stored=${stored}s implied=${implied}s"
+                    )
+                }
+            }
+        val guardedHttpFactory = BodyObserverFactory(httpDataSourceFactory, expectation)
+        val dataSourceFactory = DefaultDataSource.Factory(playerContext, guardedHttpFactory)
         val audioAttr = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
             .setUsage(C.USAGE_MEDIA)
@@ -384,6 +398,92 @@ class AudioPlayerManager(
             .setSeekBackIncrementMs(SEEK_BACK_INCREMENT_MS)
             .setSeekForwardIncrementMs(SEEK_FORWARD_INCREMENT_MS)
             .build()
+    }
+
+    /**
+     * #528 — the guard on the stream body, and the whole of its force.
+     *
+     * It exists because the CDN intermittently answers a chapter request with
+     * a ~52-second interstitial under HTTP 200. The substitution is
+     * intermittent, which is the lever: one more knock on the same URL
+     * usually returns the real file. So this tries twice and then REFUSES —
+     * but only ever on a duration the book's own chapters corroborate, so the
+     * poisoned single row that the same substitution leaves behind can never
+     * make us refuse an honest file.
+     *
+     * Media3 dropped `DataSource.getContentLength()`, so the body's size is
+     * only visible at `open()` — hence a forwarding wrapper rather than a
+     * check in the transfer listener. It changes nothing else: the delegate's
+     * return value is forwarded untouched.
+     */
+    internal class BodyObserverFactory(
+        private val delegate: androidx.media3.datasource.DataSource.Factory,
+        private val expectation: (androidx.media3.datasource.DataSpec, Long) -> Pair<Long, Long>?
+    ) : androidx.media3.datasource.DataSource.Factory {
+        override fun createDataSource(): androidx.media3.datasource.DataSource =
+            BodyObserver(delegate.createDataSource(), expectation)
+    }
+
+    internal class BodyObserver(
+        private val delegate: androidx.media3.datasource.DataSource,
+        private val expectation: (androidx.media3.datasource.DataSpec, Long) -> Pair<Long, Long>?
+    ) : androidx.media3.datasource.DataSource {
+
+        override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long =
+            StreamBodyGuard.accept(
+                uri = dataSpec.uri.toString(),
+                open = { delegate.open(dataSpec) },
+                close = { delegate.close() },
+                expectation = { length -> expectation(dataSpec, length) }
+            )
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            delegate.read(buffer, offset, length)
+
+        override fun addTransferListener(
+            transferListener: androidx.media3.datasource.TransferListener
+        ) = delegate.addTransferListener(transferListener)
+
+        override fun getUri(): android.net.Uri? = delegate.uri
+
+        override fun close() = delegate.close()
+
+        override fun getResponseHeaders(): Map<String, List<String>> = delegate.responseHeaders
+    }
+
+    /**
+     * #528 — is the body that just opened physically too small to be the
+     * chapter we asked for?
+     *
+     * @return the duration we know for the chapter and the duration the body
+     * implies, or null when this response is not evidence of anything.
+     */
+    internal fun suspiciousBody(
+        dataSpec: androidx.media3.datasource.DataSpec,
+        contentLength: Long
+    ): Pair<Long, Long>? {
+        if (contentLength <= 0L) return null
+        // Only the request that OPENS the chapter. A seek inside it asks for a
+        // byte range and gets back a remainder, which is legitimately small —
+        // comparing that against the whole chapter would cry wolf on every
+        // skip.
+        if (dataSpec.position != 0L) return null
+        val state = _playerState.value
+        if (state.currentStreamUrl.isBlank() ||
+            dataSpec.uri.toString() != state.currentStreamUrl
+        ) {
+            return null
+        }
+        val stored = state.chapters.getOrNull(state.currentChapterIndex)?.durationSeconds ?: return null
+        // #528 — the stored duration is only evidence when the book's own
+        // chapters corroborate it. A lone poisoned row corroborated by
+        // nothing must never justify refusing a body.
+        val siblings = state.chapters
+            .filterIndexed { index, _ -> index != state.currentChapterIndex }
+            .map { it.durationSeconds }
+        val trusted = ChapterDurationConsensus.trustedSeconds(stored, siblings) ?: return null
+        if (!StreamSizeDurationCheck.impliesImpossibleSmallBody(trusted, contentLength)) return null
+        return trusted to StreamSizeDurationCheck.impliedSeconds(contentLength)
     }
 
     /**
@@ -628,12 +728,16 @@ class AudioPlayerManager(
             prepareTimeoutJob?.cancel()
             Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentTrack?.url}")
             val responseCode = StreamHealPolicy.responseCodeOf(error)
+            // #528 — a refused substituted body heals on the same budget as a
+            // moved file: the page's fresh URL is the remedy, and the same
+            // intermittent CDN usually answers the next request honestly.
+            val substituted = StreamHealPolicy.isSubstituted(error)
             // Spec-32 T4 (#234): a 404/403 on a network stream heals — the
             // source page is re-fetched once and the chapter re-prepares
             // with the fresh URL (no heal loops: the budget is one retry per
             // user-initiated chapter prepare). Everything else keeps the
             // honest immediate failure.
-            if (StreamHealPolicy.shouldHeal(responseCode, healAttemptsForChapter) &&
+            if (StreamHealPolicy.shouldHeal(responseCode, healAttemptsForChapter, substituted) &&
                 streamUrlHealer != null &&
                 isNetworkStream(currentTrack)
             ) {

@@ -1,0 +1,68 @@
+# YouTube contract — the early-warning canary for the YouTube engine.
+#
+# YouTube periodically changes its anti-bot checks; when it does, anonymous
+# NewPipe extraction starts failing and every pasted YouTube link breaks. This
+# probe runs the pinned NewPipeExtractor (whatever the version catalog ships)
+# against a live public video, so the breakage is noticed daily rather than at
+# release time. It never runs in ordinary PR CI — YouTubeContractCanaryTest is
+# gated behind -Dyoutube.canary.
+#
+# A red run means: bump the engine (Renovate opens that PR) before tagging.
+
+name: YouTube contract
+
+on:
+  schedule:
+    - cron: "31 6 * * *"
+  workflow_dispatch:
+    inputs:
+      video:
+        description: "Watch URL to probe (defaults to the built-in one)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: youtube-contract
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Metadata + anonymous audio
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: wrapper
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Probe the pinned engine against live YouTube
+        env:
+          CANARY_VIDEO: ${{ github.event.inputs.video }}
+        run: |
+          args=(:app:testDebugUnitTest --tests "*YouTubeContractCanaryTest" -Dyoutube.canary=1 --no-daemon)
+          if [ -n "$CANARY_VIDEO" ]; then
+            args+=("-Dyoutube.canary.video=$CANARY_VIDEO")
+          fi
+          ./gradlew "${args[@]}"

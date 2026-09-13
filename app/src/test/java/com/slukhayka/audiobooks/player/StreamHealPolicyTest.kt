@@ -63,4 +63,40 @@ class StreamHealPolicyTest {
         assertFalse("a server error is never a spent heal budget", StreamHealPolicy.budgetExhausted(500, healAttempts = 5))
         assertFalse(StreamHealPolicy.budgetExhausted(null, healAttempts = 5))
     }
+
+    // ---------------------------------------------------------------------
+    // #528 — a refused substituted body heals like a moved file, on the SAME
+    // budget, but is never reported as a dead book.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a refused substituted body heals on the shared budget`() {
+        assertTrue(StreamHealPolicy.shouldHeal(null, healAttempts = 0, substituted = true))
+        assertTrue(StreamHealPolicy.shouldHeal(200, healAttempts = 0, substituted = true))
+        assertFalse(
+            StreamHealPolicy.shouldHeal(
+                null,
+                healAttempts = StreamHealPolicy.MAX_HEAL_ATTEMPTS,
+                substituted = true
+            )
+        )
+    }
+
+    @Test
+    fun `a substitution is recognised through the cause chain`() {
+        val refused = SubstitutedStreamException(1_701L, 52L, "https://example.org/ch1.mp3")
+        assertTrue(StreamHealPolicy.isSubstituted(refused))
+        assertTrue(StreamHealPolicy.isSubstituted(java.io.IOException("wrapped", refused)))
+        assertFalse(StreamHealPolicy.isSubstituted(java.io.IOException("boom")))
+        assertFalse(StreamHealPolicy.isSubstituted(null))
+    }
+
+    @Test
+    fun `a substituted stream is never called an unavailable book`() {
+        // The source answered — it answered wrong. «Книга недоступна» would be
+        // a claim we cannot support, so it keeps the generic honest failure.
+        assertFalse(
+            StreamHealPolicy.budgetExhausted(200, healAttempts = StreamHealPolicy.MAX_HEAL_ATTEMPTS)
+        )
+    }
 }

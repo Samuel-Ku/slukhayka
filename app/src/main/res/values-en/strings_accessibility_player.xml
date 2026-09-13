@@ -1,5 +1,6 @@
 <resources>
     <string name="a11y_player_close">Collapse the player</string>
+    <string name="a11y_mini_player_close">Close the player</string>
     <string name="a11y_player_actions">Actions for the audiobook %1$s</string>
     <string name="a11y_player_context">%1$s. Author: %2$s. %3$s Current chapter: %4$s</string>
     <string name="a11y_player_edition">Narration: %1$s.</string>

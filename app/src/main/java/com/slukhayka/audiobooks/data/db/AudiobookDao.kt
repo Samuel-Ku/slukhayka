@@ -191,6 +191,22 @@ interface AudiobookDao {
     fun getAllChapters(): Flow<List<ChapterEntity>>
 
     /**
+     * #528 — the one-shot snapshot the duration repair reads. A pass needs a
+     * moment, not a stream, so this sits beside the Flow exactly as
+     * [getTracksForSourceSync] sits beside [getTracksForSource].
+     */
+    @Query("SELECT * FROM chapters")
+    suspend fun getAllChaptersOnce(): List<ChapterEntity>
+
+    /**
+     * #528 — how many DISTINCT files an Edition's tracks point at. The repair
+     * compares that with the chapter durations: one shared duration over many
+     * different files is the trace a short interstitial leaves.
+     */
+    @Query("SELECT COUNT(DISTINCT url) FROM source_tracks WHERE sourceId LIKE '%' || :editionId")
+    suspend fun countDistinctTracksForEdition(editionId: String): Int
+
+    /**
      * Spec-24 T8 (#169) — the candidate pool of the chapter-duration probe:
      * every book with at least one unknown-duration chapter (0 is the
      * unknown placeholder written at import). The pass filters the stream

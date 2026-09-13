@@ -186,6 +186,18 @@ class App : Application() {
      * Spec-51 (#689) — a listener's own collections, local-first: the store is
      * backed by the same Room database, never by a network round trip.
      */
+    /**
+     * Spec-51 (#691) — the ONE place that decides whether public collections
+     * exist. No Firestore-backed shared store is configured yet, so the gate is
+     * constructed with null: public surfaces are honestly ABSENT (nothing to
+     * render, publishing refuses with "no-shared-store") while the local
+     * collections above keep working fully offline. Wiring a real store here is
+     * the only change needed to turn publishing on.
+     */
+    val publicCollectionsGate: com.slukhayka.audiobooks.data.collections.PublicCollectionsGate by lazy {
+        com.slukhayka.audiobooks.data.collections.PublicCollectionsGate(null)
+    }
+
     val listenerCollections: com.slukhayka.audiobooks.data.collections.ListenerCollectionsStore by lazy {
         com.slukhayka.audiobooks.data.collections.RoomListenerCollectionsStore(
             database.listenerCollectionsDao()

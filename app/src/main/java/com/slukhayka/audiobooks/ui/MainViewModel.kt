@@ -4682,4 +4682,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _listenerCollections.value = App.instance.listenerCollections.all()
         }
     }
+
+    // Spec-51 (#691) — publishing is ONLINE-ONLY and always consented: nothing
+    // reaches the network without an explicit confirmation of the preview.
+    private val _publicationPreview =
+        MutableStateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?>(null)
+    val publicationPreview:
+        StateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?> =
+        _publicationPreview.asStateFlow()
+
+    /** Public surfaces render only when a shared store exists at all. */
+    val publicCollectionsAvailable: Boolean get() = App.instance.publicCollectionsGate.available
+
+    /**
+     * @return the preview to confirm, or null when this collection can never be
+     * published (which the UI states honestly instead of showing an empty gate).
+     */
+    /** The collection the pending preview belongs to — matched by ID, never by title. */
+    private var pendingPublishCollectionId: String? = null
+
+    fun requestPublish(collectionId: String, pseudonym: String): Boolean {
+        val collection = _listenerCollections.value.firstOrNull { it.id == collectionId } ?: return false
+        val preview = com.slukhayka.audiobooks.data.collections.PublicationPreviewFactory
+            .of(collection, pseudonym) ?: return false
+        pendingPublishCollectionId = collectionId
+        _publicationPreview.value = preview
+        return true
+    }
+
+    fun dismissPublish() {
+        pendingPublishCollectionId = null
+        _publicationPreview.value = null
+    }
+
+    /** Only the explicit confirmation lands here. */
+    fun confirmPublish(authorId: String, pseudonym: String) {
+        if (_publicationPreview.value == null) return
+        // By ID: two collections may share a title, and publishing the wrong
+        // one would be a real leak of the listener's curation.
+        val target = _listenerCollections.value
+            .firstOrNull { it.id == pendingPublishCollectionId } ?: return
+        viewModelScope.launch {
+            App.instance.publicCollectionsGate.publish(
+                collection = target,
+                authorId = authorId,
+                pseudonym = pseudonym
+            )
+            _publicationPreview.value = null
+            pendingPublishCollectionId = null
+        }
+    }
 }

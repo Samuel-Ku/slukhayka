@@ -359,6 +359,12 @@ class AudioPlayerManager(
         // refused; see [BodyObserver].
         val expectation: (androidx.media3.datasource.DataSpec, Long) -> Pair<Long, Long>? =
             { dataSpec, length ->
+                // #814 — прилад, а не лік: довжина КОЖНОГО відкритого тіла.
+                //
+                // Досі в лозі було видно лише «HTTP 200», і тому двадцять
+                // раундів ми гадали: curl віддає 51 МБ, а плеєр показує 52
+                // секунди — і ніхто не бачив, ЩО САМЕ отримав застосунок.
+                Log.d("AudioPlayer", "body len=${length}B ${dataSpec.uri}")
                 suspiciousBody(dataSpec, length)?.also { (stored, implied) ->
                     Log.w(
                         "AudioPlayer",

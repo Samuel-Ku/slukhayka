@@ -2,9 +2,15 @@
 # Acceptance helper for #527 / #528 / #529 / #533.
 #
 # The app keeps a token bucket per source host (ADR-0039) and persists it in
-# `source_gate_budget`. The delta in `tokens` between two snapshots is the
-# number of requests the app actually made — an exact count, with no
+# `source_gate_budget`, so request counts can be read off the device with no
 # instrumentation build.
+#
+# Careful: the persisted value is a snapshot from the moment of the LAST
+# request, and refill is lazy (credited inside the admission path). The token
+# delta alone is therefore a LOWER bound — a request that consumed a
+# just-credited token leaves the count unchanged. `lastRefillAtMs` records the
+# refill steps credited in the window, which turns the bound into the exact
+# count.
 #
 # Usage:
 #   scripts/source-budget-snapshot.sh before
@@ -18,6 +24,7 @@ set -euo pipefail
 PKG="${PKG:-com.slukhayka.audiobooks.debug}"
 DIR="${DIR:-/tmp/source-budget}"
 PREFS="shared_prefs/source_gate_budget.xml"
+REFILL_INTERVAL_MS="${REFILL_INTERVAL_MS:-10000}"
 
 mkdir -p "$DIR"
 
@@ -34,40 +41,48 @@ snapshot() {
 }
 
 delta() {
-  python3 - "$DIR/before.xml" "$DIR/after.xml" <<'PY'
+  python3 - "$DIR/before.xml" "$DIR/after.xml" "$REFILL_INTERVAL_MS" <<'PY'
 import re, sys
 
 def parse(path):
+    """host -> (tokens, lastRefillAtMs) as persisted by the gate."""
     try:
         text = open(path, encoding="utf-8").read()
     except OSError:
         return {}
-    # <string name="host">tokens|lastRefillAtMs</string>
-    return {
-        m.group(1): m.group(2)
-        for m in re.finditer(r'<string name="([^"]+)">([^<]*)</string>', text)
-    }
+    out = {}
+    for m in re.finditer(r'<string name="([^"]+)">([^<]*)</string>', text):
+        raw = m.group(2)
+        if "|" not in raw:
+            continue
+        tokens, refill = raw.split("|", 1)
+        try:
+            out[m.group(1)] = (int(tokens), int(refill))
+        except ValueError:
+            continue
+    return out
 
 before, after = parse(sys.argv[1]), parse(sys.argv[2])
+interval = int(sys.argv[3])
 if not before and not after:
     print("no snapshots yet — run `before` and `after` first")
     raise SystemExit(0)
 
-print(f"{'host':38} {'before':>10} {'after':>10} {'requests':>9}")
+print(f"{'host':38} {'tokens':>13} {'refills':>8} {'requests':>9}")
 total = 0
 for host in sorted(set(before) | set(after)):
-    def tokens(value):
-        return int(value.split("|")[0]) if value and "|" in value else None
-    b, a = tokens(before.get(host)), tokens(after.get(host))
-    if b is None or a is None:
+    if host not in before or host not in after:
         continue
-    spent = b - a
+    b_tokens, b_refill = before[host]
+    a_tokens, a_refill = after[host]
+    steps = max(0, (a_refill - b_refill) // interval)
+    spent = max(0, b_tokens + steps - a_tokens)
     if spent:
         total += spent
-    print(f"{host:38} {b:>10} {a:>10} {spent:>9}")
+    print(f"{host:38} {b_tokens:>6} -> {a_tokens:<4} {steps:>8} {spent:>9}")
 print(f"\nразом запитів: {total}")
-print("якщо refill стався під час виміру, частина витрат могла бути компенсована —")
-print("перевірте другу половину значення (lastRefillAtMs) у снапшотах.")
+print("(tokens — знімок на момент останнього запиту; refills — кроки, нараховані")
+print(" під час вікна; requests = tokens_до + refills − tokens_після)")
 PY
 }
 

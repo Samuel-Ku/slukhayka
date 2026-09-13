@@ -51,7 +51,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class
     ],
-    version = 40,
+    version = 43,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -77,7 +77,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43
                     )
                     .build()
                 INSTANCE = instance
@@ -1312,6 +1312,57 @@ abstract class AudiobookDatabase : RoomDatabase() {
                  // І те, що вже чистилось раніше — щоб прохід був один.
                  db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
                  db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+             }
+         }
+
+         /**
+          * #812 — v40 -> v41: `source_tracks` — таблиця, яку я пропустив.
+          *
+          * Обхід УСІХ треків показав адресу 4read, що досі лежала в базі:
+          * `https://reasd.org/4769/…`. Вісім попередніх чисток її не чіпали,
+          * бо жодна не згадувала `source_tracks`. Мета — щоб того аудіо не
+          * було НІДЕ, тож адреса мусить зникнути, навіть якщо зараз вона
+          * віддає 403.
+          */
+         /**
+          * #812 — v41 -> v42: начитка `audiobooks` — те, що лишилось.
+          *
+          * Обхід показав: `source_tracks` очищено, але 19 рядків `audiobooks`
+          * досі несуть `"4read Voice Narrator"`. Я чистив це значення лише в
+          * `editions` і `edition_facets`, а таблицю книжок — ні. За ADR-0004
+          * це плейсхолдер «начитка невідома», тож очищаємо поле, а не
+          * видаляємо книжку.
+          */
+         /**
+          * #812 — v42 -> v43: жанр `"4read Каталог"` — останній видимий слід.
+          *
+          * Обхід по колонках показав: напис сидів не в начитці, а в жанрі —
+          * 19 книжок мали `genre = "4read Каталог"`, і це видно в бібліотеці.
+          * Прибираємо значення, а не книжки: жанр — це мітка, а не сутність.
+          */
+         internal val MIGRATION_42_43 = object : Migration(42, 43) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("UPDATE `audiobooks` SET `genre` = '' WHERE `genre` LIKE '%4read%' OR `genre` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `audiobooks` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
+             }
+         }
+
+         internal val MIGRATION_41_42 = object : Migration(41, 42) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("UPDATE `audiobooks` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `editions` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `edition_facets` SET `narratorId` = NULL WHERE `narratorId` LIKE '%4read%' OR `narratorId` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `source_tracks` WHERE `url` LIKE '%4read%' OR `url` LIKE '%reasd%'")
+             }
+         }
+
+         internal val MIGRATION_40_41 = object : Migration(40, 41) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `source_tracks` WHERE `url` LIKE '%4read%' OR `url` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `sources` WHERE `url` LIKE '%4read%' OR `url` LIKE '%reasd%'")
+                 // Про всяк випадок — те, що вже чистилось, щоб прохід був один.
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
                  db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
              }
          }

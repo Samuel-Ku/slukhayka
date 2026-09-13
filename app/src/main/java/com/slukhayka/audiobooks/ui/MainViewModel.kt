@@ -4732,4 +4732,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             pendingPublishCollectionId = null
         }
     }
+
+    // Spec-51 (#691) — what this curator has PUBLISHED, read back for the
+    // Library. Empty (and never an error) when no shared store is configured.
+    private val _publishedListenerCollections =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val publishedListenerCollections:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _publishedListenerCollections.asStateFlow()
+
+    /**
+     * @param uid the signed-in listener's raw uid; it is hashed here and never
+     * travels — the public author id is `sha256(uid)`.
+     */
+    fun refreshPublishedCollections(uid: String?) {
+        val authorId = com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+        if (!publicCollectionsAvailable || authorId.isEmpty()) {
+            _publishedListenerCollections.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            _publishedListenerCollections.value =
+                App.instance.publicCollectionsGate.publishedBy(authorId)
+        }
+    }
 }

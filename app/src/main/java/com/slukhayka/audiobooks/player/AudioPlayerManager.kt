@@ -5,6 +5,7 @@ package com.slukhayka.audiobooks.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import com.slukhayka.audiobooks.data.duration.StreamSizeDurationCheck
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import android.os.Build
@@ -353,7 +354,18 @@ class AudioPlayerManager(
      * forced through HTTP.
      */
     private fun buildProductionPlayer(playerContext: Context): Player {
-        val dataSourceFactory = DefaultDataSource.Factory(playerContext, httpDataSourceFactory)
+        // #528 — the body that arrives is measured BEFORE anything acts on it.
+        // Media3 dropped `DataSource.getContentLength()`, so the length is only
+        // visible at `open()`; this wrapper records it and changes nothing.
+        val observedHttpFactory = BodyObserverFactory(httpDataSourceFactory) { dataSpec, length ->
+            suspiciousBody(dataSpec, length)?.let { (stored, implied) ->
+                Log.w(
+                    "AudioPlayer",
+                    "suspicious body ${dataSpec.uri}: stored=${stored}s implied=${implied}s"
+                )
+            }
+        }
+        val dataSourceFactory = DefaultDataSource.Factory(playerContext, observedHttpFactory)
         val audioAttr = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
             .setUsage(C.USAGE_MEDIA)
@@ -384,6 +396,79 @@ class AudioPlayerManager(
             .setSeekBackIncrementMs(SEEK_BACK_INCREMENT_MS)
             .setSeekForwardIncrementMs(SEEK_FORWARD_INCREMENT_MS)
             .build()
+    }
+
+    /**
+     * #528 — reports the size of every body an HTTP stream request resolved
+     * to, and changes no behaviour at all: it forwards the delegate's return
+     * value untouched, so playback sees exactly what it would have seen.
+     *
+     * Refusing a substituted body is deliberately NOT done here. The only
+     * expectation available is the chapter's own stored duration, and the
+     * substitution is precisely what poisons it — a guard built on that would
+     * refuse an honest file. Measuring first is what makes the eventual
+     * enforcement defensible.
+     */
+    private class BodyObserverFactory(
+        private val delegate: androidx.media3.datasource.DataSource.Factory,
+        private val onOpened: (androidx.media3.datasource.DataSpec, Long) -> Unit
+    ) : androidx.media3.datasource.DataSource.Factory {
+        override fun createDataSource(): androidx.media3.datasource.DataSource =
+            BodyObserver(delegate.createDataSource(), onOpened)
+    }
+
+    private class BodyObserver(
+        private val delegate: androidx.media3.datasource.DataSource,
+        private val onOpened: (androidx.media3.datasource.DataSpec, Long) -> Unit
+    ) : androidx.media3.datasource.DataSource {
+
+        override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
+            val length = delegate.open(dataSpec)
+            onOpened(dataSpec, length)
+            return length
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            delegate.read(buffer, offset, length)
+
+        override fun addTransferListener(
+            transferListener: androidx.media3.datasource.TransferListener
+        ) = delegate.addTransferListener(transferListener)
+
+        override fun getUri(): android.net.Uri? = delegate.uri
+
+        override fun close() = delegate.close()
+
+        override fun getResponseHeaders(): Map<String, List<String>> = delegate.responseHeaders
+    }
+
+    /**
+     * #528 — is the body that just opened physically too small to be the
+     * chapter we asked for?
+     *
+     * @return the duration we know for the chapter and the duration the body
+     * implies, or null when this response is not evidence of anything.
+     */
+    internal fun suspiciousBody(
+        dataSpec: androidx.media3.datasource.DataSpec,
+        contentLength: Long
+    ): Pair<Long, Long>? {
+        if (contentLength <= 0L) return null
+        // Only the request that OPENS the chapter. A seek inside it asks for a
+        // byte range and gets back a remainder, which is legitimately small —
+        // comparing that against the whole chapter would cry wolf on every
+        // skip.
+        if (dataSpec.position != 0L) return null
+        val state = _playerState.value
+        if (state.currentStreamUrl.isBlank() ||
+            dataSpec.uri.toString() != state.currentStreamUrl
+        ) {
+            return null
+        }
+        val stored = state.chapters.getOrNull(state.currentChapterIndex)?.durationSeconds ?: return null
+        if (stored <= 0L) return null
+        if (!StreamSizeDurationCheck.impliesImpossibleSmallBody(stored, contentLength)) return null
+        return stored to StreamSizeDurationCheck.impliedSeconds(contentLength)
     }
 
     /**

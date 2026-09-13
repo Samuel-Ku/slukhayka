@@ -82,7 +82,7 @@ class PlayableChaptersRefusalTest {
                     narrator = "",
                     description = "",
                     coverDrawableRes = 0,
-                    sourceUrl = if (withRemoteSource) "https://4read.org/book/$bookId" else "",
+                    sourceUrl = if (withRemoteSource) "https://lihtar.in.ua/book/$bookId" else "",
                     genre = ""
                 )
             )
@@ -114,11 +114,11 @@ class PlayableChaptersRefusalTest {
         )
         if (withRemoteSource) {
             sources += SourceEntity(
-                id = "4read-$bookId",
+                id = "lihtar-$bookId",
                 bookId = bookId,
                 editionId = editionId,
-                type = "4read",
-                url = "https://4read.org/book/$bookId"
+                type = "lihtar",
+                url = "https://lihtar.in.ua/book/$bookId"
             )
         }
         dao.insertSources(sources)
@@ -137,10 +137,10 @@ class PlayableChaptersRefusalTest {
         if (withRemoteSource) {
             (0 until chapterCount).forEach { index ->
                 tracks += SourceTrackEntity(
-                    id = "4read-$bookId-tr$index",
-                    sourceId = "4read-$bookId",
+                    id = "lihtar-$bookId-tr$index",
+                    sourceId = "lihtar-$bookId",
                     trackIndex = index,
-                    url = "https://4read.org/audio/$bookId/$index.mp3"
+                    url = "https://lihtar.in.ua/audio/$bookId/$index.mp3"
                 )
             }
         }
@@ -150,7 +150,7 @@ class PlayableChaptersRefusalTest {
     @Test
     fun `a refused source never pairs but its metadata stays`() = runBlocking {
         seedBook("refused", chapterCount = 2, withRemoteSource = true)
-        refusal.value = setOf("4read")
+        refusal.value = setOf("lihtar")
 
         val playable = catalog.getPlayableChapters("refused")
 
@@ -160,7 +160,7 @@ class PlayableChaptersRefusalTest {
         }
         // The dormant Source row stays in the database — undo wakes it with
         // no re-import.
-        assertEquals(1, dao.getSourcesForBookSync("refused").count { it.type == "4read" })
+        assertEquals(1, dao.getSourcesForBookSync("refused").count { it.type == "lihtar" })
         // Metadata reads are untouched by the refusal.
         assertEquals(2, catalog.getChaptersList("refused").size)
     }
@@ -168,7 +168,7 @@ class PlayableChaptersRefusalTest {
     @Test
     fun `downloaded local files keep playing when the source is refused`() = runBlocking {
         seedBook("withfiles", chapterCount = 3, localReadyIndices = setOf(0, 2), withRemoteSource = true)
-        refusal.value = setOf("4read")
+        refusal.value = setOf("lihtar")
 
         val playable = catalog.getPlayableChapters("withfiles")
 
@@ -186,7 +186,7 @@ class PlayableChaptersRefusalTest {
     @Test
     fun `undoing the refusal restores the pairing`() = runBlocking {
         seedBook("restored", chapterCount = 2, withRemoteSource = true)
-        refusal.value = setOf("4read")
+        refusal.value = setOf("lihtar")
         assertTrue(catalog.getPlayableChapters("restored").all { it.track == null })
 
         refusal.value = emptySet()
@@ -194,8 +194,8 @@ class PlayableChaptersRefusalTest {
         val playable = catalog.getPlayableChapters("restored")
         assertEquals(2, playable.size)
         playable.forEachIndexed { index, pair ->
-            assertEquals("4read", pair.sourceId)
-            assertEquals("https://4read.org/audio/restored/$index.mp3", pair.track?.url)
+            assertEquals("lihtar", pair.sourceId)
+            assertEquals("https://lihtar.in.ua/audio/restored/$index.mp3", pair.track?.url)
         }
     }
 
@@ -206,14 +206,14 @@ class PlayableChaptersRefusalTest {
         val playable = catalog.getPlayableChapters("plain")
 
         assertEquals(2, playable.size)
-        assertEquals("4read", playable[0].sourceId)
+        assertEquals("lihtar", playable[0].sourceId)
         assertNotNull(playable[0].track)
     }
 
     @Test
     fun `a refused book with local files only still plays them all`() = runBlocking {
         seedBook("alllocal", chapterCount = 2, localReadyIndices = setOf(0, 1), withRemoteSource = true)
-        refusal.value = setOf("4read")
+        refusal.value = setOf("lihtar")
 
         val playable = catalog.getPlayableChapters("alllocal")
 

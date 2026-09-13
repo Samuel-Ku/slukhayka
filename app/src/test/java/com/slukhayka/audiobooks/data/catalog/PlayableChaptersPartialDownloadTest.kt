@@ -90,7 +90,7 @@ class PlayableChaptersPartialDownloadTest {
                     narrator = "",
                     description = "",
                     coverDrawableRes = 0,
-                    sourceUrl = if (withRemoteSource) "https://4read.org/book/$bookId" else "",
+                    sourceUrl = if (withRemoteSource) "https://lihtar.in.ua/book/$bookId" else "",
                     genre = ""
                 )
             )
@@ -122,11 +122,11 @@ class PlayableChaptersPartialDownloadTest {
         )
         if (withRemoteSource) {
             sources += SourceEntity(
-                id = "4read-$bookId",
+                id = "lihtar-$bookId",
                 bookId = bookId,
                 editionId = editionId,
-                type = "4read",
-                url = "https://4read.org/book/$bookId"
+                type = "lihtar",
+                url = "https://lihtar.in.ua/book/$bookId"
             )
         }
         dao.insertSources(sources)
@@ -152,10 +152,10 @@ class PlayableChaptersPartialDownloadTest {
         if (withRemoteSource) {
             (0 until chapterCount).forEach { index ->
                 tracks += SourceTrackEntity(
-                    id = "4read-$bookId-tr$index",
-                    sourceId = "4read-$bookId",
+                    id = "lihtar-$bookId-tr$index",
+                    sourceId = "lihtar-$bookId",
                     trackIndex = index,
-                    url = "https://4read.org/audio/$bookId/$index.mp3"
+                    url = "https://lihtar.in.ua/audio/$bookId/$index.mp3"
                 )
             }
         }
@@ -191,9 +191,9 @@ class PlayableChaptersPartialDownloadTest {
         playable.drop(2).forEachIndexed { offset, pair ->
             val index = offset + 2
             assertNotNull("розділ $index стрімить з того самого джерела", pair.track)
-            assertEquals("4read", pair.sourceId)
+            assertEquals("lihtar", pair.sourceId)
             assertEquals(
-                "https://4read.org/audio/partial/$index.mp3",
+                "https://lihtar.in.ua/audio/partial/$index.mp3",
                 pair.track?.url
             )
         }
@@ -212,9 +212,9 @@ class PlayableChaptersPartialDownloadTest {
         assertEquals(5, playable.size)
         playable.forEachIndexed { index, pair ->
             assertNotNull("розділ $index грає з remote", pair.track)
-            assertEquals("4read", pair.sourceId)
+            assertEquals("lihtar", pair.sourceId)
             assertEquals(
-                "https://4read.org/audio/remote-only/$index.mp3",
+                "https://lihtar.in.ua/audio/remote-only/$index.mp3",
                 pair.track?.url
             )
         }
@@ -231,7 +231,7 @@ class PlayableChaptersPartialDownloadTest {
         assertEquals(3, playable.size)
         playable.forEach { pair ->
             assertNotNull(pair.track)
-            assertEquals("4read", pair.sourceId)
+            assertEquals("lihtar", pair.sourceId)
         }
     }
 

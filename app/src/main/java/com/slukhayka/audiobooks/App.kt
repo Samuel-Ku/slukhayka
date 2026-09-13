@@ -628,6 +628,18 @@ class App : Application() {
         )
     }
 
+    /**
+     * #528 — the one-shot pass that repairs chapter durations a short
+     * interstitial already poisoned. Its own flag, so it runs for installs the
+     * seed has already visited. Database-only: no probing on the start path.
+     */
+    val chapterDurationRepair: com.slukhayka.audiobooks.data.duration.ChapterDurationRepair by lazy {
+        com.slukhayka.audiobooks.data.duration.ChapterDurationRepair(
+            dao = database.audiobookDao(),
+            prefs = getSharedPreferences("chapter_duration_repair", MODE_PRIVATE)
+        )
+    }
+
     /** #530 — the bounded cooldown records of failed Sources. */
     val sourceCooldownStore: com.slukhayka.audiobooks.data.editions.SourceCooldownStore by lazy {
         com.slukhayka.audiobooks.data.editions.SourceCooldownStore(

@@ -238,6 +238,7 @@ fun HomeScreen(
         // #532 — seed the cold start FIRST, so a clean install's first «Огляд»
         // already shows local content (no Firestore, no Source request).
         App.instance.coldStartSeed.runOnce()
+        App.instance.chapterDurationRepair.runOnce()
         launch { sourceCatalog.syncSharedFacets() }
         launch { sourceCatalog.syncSharedSubmissions() }
         launch { sourceCatalog.syncSharedTombstones() }

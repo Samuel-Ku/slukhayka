@@ -178,6 +178,8 @@ class MainActivity : FragmentActivity() {
         // HomeScreen-only trigger left the bundled seed unimported (measured
         // on-device: no ColdStartSeed log, empty library offline).
         lifecycleScope.launch { App.instance.coldStartSeed.runOnce() }
+        // #528 — repair chapter durations the interstitial poisoned.
+        lifecycleScope.launch { App.instance.chapterDurationRepair.runOnce() }
         enableEdgeToEdge()
         
         // Globally disable hardware bitmaps in Coil to prevent E/ashmem Pinning is deprecated errors

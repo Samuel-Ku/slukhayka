@@ -80,10 +80,13 @@ class TombstoneCatalogGuardTest {
         db.close()
     }
 
-    private fun catalog(pages: Map<String, String> = emptyMap()) = SourceCatalog(
+    private fun catalog(
+        pages: Map<String, String> = emptyMap(),
+        adapters: List<SourceAdapter> = emptyList()
+    ) = SourceCatalog(
         dao,
-        emptyList(),
-        LibraryImport(dao, context, emptyList()),
+        adapters,
+        LibraryImport(dao, context, adapters),
         fourReadFetcher = FakeFetcher(pages)
     )
 
@@ -293,19 +296,36 @@ class TombstoneCatalogGuardTest {
 
     @Test
     fun `homepage sections keep only the books that landed`() = runBlocking {
-        val homepage = """
-            <html><body>
-                ${poster("https://4read.org/1-persha.html", "Перша книга", "Автор")}
-                ${poster("https://4read.org/2-druga.html", "Друга книга", "Автор")}
-            </body></html>
-        """.trimIndent()
-        val catalog = catalog(mapOf("https://4read.org/" to homepage))
-        dao.insertTombstone(TombstoneEntity(bookId = "4read-2-druga"))
+        // #812 — секції складаються з ПОТОКІВ джерел, а не зі сторонньої
+        // сторінки. Поведінка та сама: публікується лише те, що приземлилось.
+        val adapter = FakeAdapter(
+            "lihtar",
+            SourceBookDetail(title = "", author = "", url = "", chapters = emptyList()),
+            feedBooks = listOf(
+                SourceBook(
+                    title = "Перша книга",
+                    author = "Автор",
+                    url = "https://lihtar.in.ua/1-persha.html",
+                    sourceId = "lihtar"
+                ),
+                SourceBook(
+                    title = "Друга книга",
+                    author = "Автор",
+                    url = "https://lihtar.in.ua/2-druga.html",
+                    sourceId = "lihtar"
+                )
+            )
+        )
+        val catalog = catalog(adapters = listOf(adapter))
+        // id формує адаптер (ADR-0007) — надгробок ставимо на його ключ.
+        dao.insertTombstone(
+            TombstoneEntity(bookId = adapter.bookId("https://lihtar.in.ua/2-druga.html"))
+        )
 
+        catalog.refreshSourceFeeds()
         val sections = catalog.fetchCatalogSections()
 
         assertEquals(1, sections.size)
-        assertEquals("Новинки", sections.single().title)
         assertEquals(1, sections.single().books.size)
         assertEquals("Перша книга", sections.single().books.single().title)
     }
@@ -314,13 +334,16 @@ class TombstoneCatalogGuardTest {
 
     private class FakeAdapter(
         override val sourceId: String,
-        private val detail: SourceBookDetail
+        private val detail: SourceBookDetail,
+        // #812 — рейка й секції будуються з ПОТОКІВ джерел, тож адаптер
+        // мусить мати що віддати в `fetchNew`.
+        private val feedBooks: List<SourceBook> = emptyList()
     ) : SourceAdapter {
         override suspend fun search(query: String): List<SourceBook> = emptyList()
 
         override suspend fun fetchBookPage(url: String): SourceBookDetail = detail
 
-        override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+        override suspend fun fetchNew(limit: Int): List<SourceBook> = feedBooks
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.source
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -113,5 +114,68 @@ class YtDlpStreamExtractorTest {
             "https://rr.googlevideo.com/videoplayback?id=140",
             resolver.resolve("https://www.youtube.com/watch?v=ozaZXk5Qcwc")
         )
+    }
+
+    // ---------------------------------------------------------------------
+    // #779 — the engine contract the in-process CPython engine must satisfy.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `both requests are resolve-only and name no program`() {
+        // The program name is the process engine's business. An in-process
+        // engine imports the module, so a program name would be meaningless
+        // there — and if it leaked into the options it would be passed to
+        // yt-dlp as an argument.
+        assertEquals(
+            listOf("-J", "--no-download", "--no-playlist", "--no-warnings", "https://youtu.be/x"),
+            YtDlpArguments.resolveJson("https://youtu.be/x")
+        )
+        assertEquals(
+            listOf("-J", "--flat-playlist", "--no-download", "--no-warnings", "https://youtu.be/x"),
+            YtDlpArguments.flatPlaylistJson("https://youtu.be/x")
+        )
+    }
+
+    @Test
+    fun `the extractor routes through the configured engine`() = runBlocking {
+        val seen = mutableListOf<List<String>>()
+        val previous = YtDlpStreamExtractor.engine
+        try {
+            YtDlpStreamExtractor.engine = object : YtDlpEngine {
+                override suspend fun run(arguments: List<String>): String? {
+                    seen += arguments
+                    return capturedJson
+                }
+            }
+
+            val specs = YtDlpStreamExtractor.extract("https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+            assertEquals(
+                YtDlpArguments.resolveJson("https://www.youtube.com/watch?v=ozaZXk5Qcwc"),
+                seen.single()
+            )
+            assertTrue(specs.isNotEmpty())
+
+            val flat = YtDlpStreamExtractor.fetchMetadataJson("https://youtu.be/x")
+            assertEquals(YtDlpArguments.flatPlaylistJson("https://youtu.be/x"), seen.last())
+            assertEquals(capturedJson, flat)
+        } finally {
+            YtDlpStreamExtractor.engine = previous
+        }
+    }
+
+    @Test
+    fun `a failing engine yields the honest empty answer, never a throw`() = runBlocking {
+        val previous = YtDlpStreamExtractor.engine
+        try {
+            YtDlpStreamExtractor.engine = object : YtDlpEngine {
+                override suspend fun run(arguments: List<String>): String? = null
+            }
+            assertTrue(
+                YtDlpStreamExtractor.extract("https://www.youtube.com/watch?v=ozaZXk5Qcwc").isEmpty()
+            )
+            assertNull(YtDlpStreamExtractor.fetchMetadataJson("https://youtu.be/x"))
+        } finally {
+            YtDlpStreamExtractor.engine = previous
+        }
     }
 }

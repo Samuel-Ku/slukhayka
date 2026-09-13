@@ -271,7 +271,15 @@ object YtDlpStreamExtractor : YtDlpJsonSource {
         }
     }
 
-    /** Extracts via the real `yt-dlp` binary (resolve-only JSON). */
+    /**
+     * #779 — the engine behind both launchers. Mutable so a test can prove
+     * the routing without a binary on `PATH`; production wiring never assigns
+     * it, so the shipped engine is the default.
+     */
+    @Volatile
+    internal var engine: YtDlpEngine = ProcessYtDlpEngine
+
+    /** Extracts via the configured yt-dlp engine (resolve-only JSON). */
     suspend fun extract(watchUrl: String): List<AudioStreamSpec> =
         extract(watchUrl, ::runYtDlpJson)
 
@@ -305,34 +313,13 @@ object YtDlpStreamExtractor : YtDlpJsonSource {
     }
 
     /**
-     * Runs `yt-dlp -J --no-download --no-playlist <url>` and returns stdout,
-     * or null on any failure (missing binary, network, non-zero exit). The
-     * signed stream URLs in the JSON expire (~6h) — callers re-resolve per
-     * use, never cache (the same rule as NewPipe).
+     * Runs the resolve-only request through the configured engine and returns
+     * its JSON, or null on any failure. The signed stream URLs in the JSON
+     * expire (~6h) — callers re-resolve per use, never cache.
      */
-    private suspend fun runYtDlpJson(watchUrl: String): String? = try {
-        val process = ProcessBuilder(
-            "yt-dlp", "-J", "--no-download", "--no-playlist", "--no-warnings", watchUrl
-        ).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        if (process.waitFor() != 0) null else output
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e
-    } catch (t: Throwable) {
-        Log.w("YtDlpExtractor", "yt-dlp failed for $watchUrl", t)
-        null
-    }
+    private suspend fun runYtDlpJson(watchUrl: String): String? =
+        engine.run(YtDlpArguments.resolveJson(watchUrl))
 
-    private suspend fun runFlatPlaylistJson(url: String): String? = try {
-        val process = ProcessBuilder(
-            "yt-dlp", "-J", "--flat-playlist", "--no-download", "--no-warnings", url
-        ).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        if (process.waitFor() != 0) null else output
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e
-    } catch (t: Throwable) {
-        Log.w("YtDlpExtractor", "yt-dlp metadata failed for $url", t)
-        null
-    }
+    private suspend fun runFlatPlaylistJson(url: String): String? =
+        engine.run(YtDlpArguments.flatPlaylistJson(url))
 }

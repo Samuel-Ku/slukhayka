@@ -16,6 +16,7 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.register
 
 plugins {
+  alias(libs.plugins.chaquopy)
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
@@ -77,6 +78,8 @@ android {
   defaultConfig {
     applicationId = "com.slukhayka.audiobooks"
     minSdk = 24
+    // #779 — Chaquopy ships native CPython per ABI, so an explicit list is required.
+    ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
@@ -607,3 +610,29 @@ tasks.withType<Test>().configureEach {
 tasks.withType<Test>().configureEach {
     testLogging { showStandardStreams = true }
 }
+
+// #779 — the in-process Python engine. Version must match buildPython.
+chaquopy {
+    defaultConfig {
+        version = "3.14"
+        buildPython("python3.14")
+    }
+}
+
+// #779 — Chaquopy 17.0.0 cannot live inside a configuration cache entry: the
+// plugin starts an external Python process at configuration time and its
+// `extract*PythonBuildPackages` task holds non-serializable Gradle internals.
+// With the cache ON the build does not merely warn, it FAILS while storing the
+// entry — verified 2026-09-13 — so `org.gradle.configuration-cache.problems=warn`
+// does not help (that flag downgrades reported problems, not a store failure).
+//
+// `notCompatibleWithConfigurationCache` is Gradle's sanctioned escape hatch:
+// instead of failing, Gradle disables the cache for the builds that touch these
+// tasks and says so. Only Chaquopy's own tasks are marked, so the rest of the
+// project keeps the cache everywhere it holds today.
+tasks.matching { it.javaClass.name.startsWith("com.chaquo.python") }
+    .configureEach {
+        notCompatibleWithConfigurationCache(
+            "Chaquopy 17 starts an external Python process and is not configuration-cache serializable"
+        )
+    }

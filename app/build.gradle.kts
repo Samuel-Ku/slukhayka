@@ -587,3 +587,13 @@ kover {
     }
   }
 }
+
+// #708 — the live metadata spike is manual only: forward its -D properties
+// into the TEST JVM (Gradle CLI -D goes to the Gradle JVM, not the forked test
+// JVM, so System.getProperty() in the test saw nothing and the gated test
+// silently skipped).
+tasks.withType<Test>().configureEach {
+    listOf("newpipe.spike", "spike.video", "spike.playlist", "spike.channel").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+}

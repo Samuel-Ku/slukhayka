@@ -441,6 +441,30 @@ fun LibraryScreen(
                     },
                     onOpen = { openCollectionId = it }
                 )
+
+                // Spec-51 (#691) — the listener's OWN published collections,
+                // read back from the shared store. Rendered ONLY when a shared
+                // store is configured (the gate), so an unconfigured build
+                // shows no public surface at all.
+                val publishedCollections by viewModel.publishedListenerCollections.collectAsState()
+                LaunchedEffect(viewModel.publicCollectionsAvailable) {
+                    if (viewModel.publicCollectionsAvailable) {
+                        viewModel.refreshMyPublishedCollections()
+                    }
+                }
+                com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionsBlock(
+                    rows = publishedCollections.map { published ->
+                        com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionRow(
+                            documentId = published.documentId,
+                            title = published.title,
+                            bookCount = published.bookIds.size,
+                            pseudonym = published.pseudonym
+                        )
+                    },
+                    // Opening a published collection (own or someone else's) is
+                    // T4 (#692); visibility is what this ticket's AC asks for.
+                    onOpen = {}
+                )
                 listenerCollections.firstOrNull { it.id == openCollectionId }?.let { open ->
                     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
                     androidx.compose.material3.ModalBottomSheet(

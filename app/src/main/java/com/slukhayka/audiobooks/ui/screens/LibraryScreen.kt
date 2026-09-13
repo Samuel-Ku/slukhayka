@@ -473,10 +473,15 @@ fun LibraryScreen(
                         ) {
                             com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
                                 collection = open,
-                                // A fork copies a LOCAL original; when the reader
-                                // has not got it here, the action is disabled
-                                // rather than silently failing.
-                                originalAvailableLocally = open.bookIds.isNotEmpty(),
+                                // "Already downloaded" means the reader HAS at
+                                // least one of these books locally: a fork
+                                // copies the composition, and offline it is
+                                // only useful (and honest) when the books are
+                                // really here. Otherwise the action is
+                                // disabled rather than silently failing.
+                                originalAvailableLocally = open.bookIds.any { bookId ->
+                                    libraryBooks.any { it.book.id == bookId }
+                                },
                                 onSaveForYou = {
                                     viewModel.saveForkOfPublished(open.documentId)
                                     openPublishedDocumentId = null

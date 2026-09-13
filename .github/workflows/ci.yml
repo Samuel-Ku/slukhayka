@@ -323,14 +323,15 @@ jobs:
         env:
           FAIL_ON_NO_GO: "true"
 
-  # Push/manual only since 2026-09: the journey is report-only and failed
-  # 6/6 recent runs, so pull requests paid ~8 minutes of runner time for a
-  # constant red mark. Push lanes and workflow_dispatch still produce the
-  # report.
+  # Back on PRs (2026-09): the journey failed 6/6 and was made push-only to
+  # stop a constant red mark on pull requests. The cause is fixed — the 40dp
+  # author/narrator touch targets (an -8dp row overlap clipping them) and the
+  # first-run sheet's unlabeled scrim — and the journey passes, verified in CI
+  # via the accessibility-api35-results artifact. Keeping it off PRs is what
+  # let a green PR merge into a red main (#769); it runs everywhere now.
   accessibility-api35:
     name: Accessibility journey (API 35)
     needs: [release-lineage, timing-start]
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     # A signed candidate must pass the real listener accessibility journey.

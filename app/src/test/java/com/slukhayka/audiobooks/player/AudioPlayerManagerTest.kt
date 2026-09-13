@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.player
 
 import android.content.Context
+import androidx.core.net.toUri
 import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
@@ -31,6 +32,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -125,6 +127,36 @@ class AudioPlayerManagerTest {
         assertFalse("autoPlay was false", state.isPlaying)
         assertEquals(0, engine.playCount)
     }
+
+    @Test
+    fun `suspiciousBody speaks only for the opening request of the current chapter`() =
+        playerTest { manager, _ ->
+            // #528 — instrumentation only: it reports the CDN substitution and
+            // does not refuse anything, because the expectation it compares
+            // against is the very duration the substitution poisons.
+            manager.loadAndPlayBook(
+                book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false
+            )
+            val state = manager.playerState.value
+            val uri = state.currentStreamUrl.toUri()
+            val stored = state.chapters[state.currentChapterIndex].durationSeconds
+            val honestBytes = stored * 16_000L
+            val adBytes = honestBytes / 32L
+
+            // The CDN hands back the ad for the chapter we already know.
+            assertNotNull(manager.suspiciousBody(dataSpecAt(uri, 0L), adBytes))
+            // The honest body is never suspicious.
+            assertNull(manager.suspiciousBody(dataSpecAt(uri, 0L), honestBytes))
+            // A seek gets a remainder, not the whole file — never cry wolf.
+            assertNull(manager.suspiciousBody(dataSpecAt(uri, 60_000L), adBytes))
+            // Another stream is not this chapter.
+            assertNull(
+                manager.suspiciousBody(dataSpecAt("https://example.org/other.mp3".toUri(), 0L), adBytes)
+            )
+        }
+
+    private fun dataSpecAt(uri: android.net.Uri, position: Long) =
+        DataSpec.Builder().setUri(uri).setPosition(position).build()
 
     @Test
     fun `playbackStarted waits for the factual engine callback and identifies the media`() =

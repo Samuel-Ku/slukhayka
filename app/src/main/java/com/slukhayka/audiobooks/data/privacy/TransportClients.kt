@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.privacy
 
+import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.net.URI
@@ -96,6 +97,19 @@ object PlaybackRedirects {
     /** Redirect hops stay bounded — a loop fails honestly, never hangs. */
     private const val MAX_REDIRECT_HOPS = 5
 
+    /**
+     * A hop to another origin must not inherit this source's identity: the
+     * Referer (and the credentials that could ride along) belong to the
+     * ORIGIN, not to the redirect chain. Pure, so the rule is provable
+     * without a network.
+     */
+    fun crossesOrigin(from: HttpUrl, to: HttpUrl): Boolean =
+        to.host != from.host || to.port != from.port
+
+    /** The headers dropped on a cross-origin hop — and only then. */
+    fun headersToDrop(crossesOrigin: Boolean): List<String> =
+        if (crossesOrigin) listOf("Referer", "Authorization", "Cookie") else emptyList()
+
     fun follow(requestUrl: String, location: String): Boolean {
         val base = runCatching { URI(requestUrl) }.getOrNull() ?: return false
         val resolved = runCatching { base.resolve(location.trim()) }.getOrNull() ?: return false
@@ -126,11 +140,7 @@ object PlaybackRedirects {
                 val target = request.url.resolve(location)
                     ?: throw IOException("Не вдалося визначити адресу перенаправлення")
                 request = request.newBuilder().url(target).apply {
-                    if (target.host != request.url.host || target.port != request.url.port) {
-                        removeHeader("Referer")
-                        removeHeader("Authorization")
-                        removeHeader("Cookie")
-                    }
+                    headersToDrop(crossesOrigin(request.url, target)).forEach { removeHeader(it) }
                 }.build()
             }
         }

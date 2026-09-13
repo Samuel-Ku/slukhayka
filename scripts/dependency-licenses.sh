@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # #784 — dependency license inventory, read from the Gradle module cache.
 #
-# The POM of every resolved artifact carries its declared license(s), so the
-# report needs neither network nor a plugin. Useful BEFORE the NewPipeExtractor
-# removal lands: it shows exactly what copyleft is still in the graph.
+# The POM of every cached artifact carries its declared license(s), so the
+# report needs neither network nor a plugin.
+#
+# SCOPE — read this before quoting the numbers. The cache is WIDER than the
+# app: it also holds build tooling, Gradle plugins and CI artifacts that never
+# ship. Measured example: this report lists `net.java.dev.jna`, yet
+#   ./gradlew :app:dependencyInsight --configuration debugRuntimeClasspath \
+#       --dependency net.java.dev.jna:jna
+# answers «No dependencies matching given input» — JNA is build-only, not in the
+# app. For AC1 (#784) the authoritative source is the RESOLVED configuration;
+# this script is the broad sweep that tells you where to look.
 set -euo pipefail
 
 CACHE="${GRADLE_USER_HOME:-$HOME/.gradle}/caches/modules-2/files-2.1"
@@ -68,7 +76,13 @@ for license_name in sorted(by_license, key=lambda k: (-len(by_license[k]), k)):
     if flag:
         copyleft.extend(modules)
 
-print("\n--- GPL-family artifacts (must be gone before release) ---")
+print()
+print("УВАГА: це огляд КЕША, а не складу застосунку — тут є build-tooling, плагіни")
+print("й CI-артефакти, які не постачаються. Для AC1 (#784) звіряйтеся з розвʼязаною")
+print("конфігурацією: ./gradlew :app:dependencyInsight --configuration \\")
+print("  debugRuntimeClasspath --dependency <group:artifact>")
+print()
+print("--- GPL-family artifacts (must be gone before release) ---")
 if copyleft:
     for module in sorted(set(copyleft)):
         print("  " + module)

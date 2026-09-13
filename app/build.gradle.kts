@@ -290,7 +290,7 @@ dependencies {
   // the watch URL resolves to a progressive audio stream at play/download
   // time. Distribution is JitPack; rhino (deobfuscation) needs keep rules
   // under minification (see proguard-rules.pro).
-  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
+  implementation(libs.newpipe.extractor)
   implementation(libs.firebase.firestore)
 
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —

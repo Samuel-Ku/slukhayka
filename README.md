@@ -1,6 +1,6 @@
 # 🎧 Слухайка — аудіокниги українською
 
-![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)
+![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-orange.svg)
 ![Android](https://img.shields.io/badge/Platform-Android%207%2B-green.svg)
 ![Latest release](https://img.shields.io/github/v/release/Samuel-Ku/slukhayka?label=Latest%20release)
 ![Free forever](https://img.shields.io/badge/Free-forever-brightgreen.svg)
@@ -113,5 +113,10 @@ Android не дозволить оновити вже встановлену rel
 
 ## Ліцензія
 
-[GPL-3.0-or-later](LICENSE). Програму можна вільно використовувати,
-змінювати та поширювати за умовами ліцензії.
+[Business Source License 1.1](LICENSE) — source-available, не OSI-відкрита.
+Код можна читати, змінювати й використовувати в некомерційних цілях.
+Будь-яке комерційне використання потребує окремої комерційної ліцензії від
+автора. 13 вересня 2030 року ця версія переходить на GPL-3.0-or-later.
+
+Що ще треба зробити, щоб це діяло (GPL-компонент і згода співавтора) —
+у [docs/licensing.md](docs/licensing.md).

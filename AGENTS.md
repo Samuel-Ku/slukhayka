@@ -37,4 +37,5 @@ Do NOT run the entire test suite (`./gradlew testDebugUnitTest` or `./scripts/te
 - Run targeted tests for the changed classes/packages (e.g. `./gradlew testDebugUnitTest --tests "com.slukhayka.audiobooks.data.source.*"`).
 - Or use `scripts/test-changed.sh` to execute only the relevant test partitions.
 - Run the full test suite only when explicitly requested or for pre-release verification.
+- Before a release tag, run `scripts/pre-release.sh` — the same gate CI runs on `release/**` (dependency-PR report + live YouTube contract canary). See `docs/runbooks/component-updates.md`.
 

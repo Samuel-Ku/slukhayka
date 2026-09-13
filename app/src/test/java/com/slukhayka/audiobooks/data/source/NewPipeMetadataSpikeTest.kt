@@ -141,6 +141,22 @@ class NewPipeMetadataSpikeTest {
     }
 
     @Test
+    fun `dump what okhttp actually receives`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        val bare = okhttp3.OkHttpClient()
+        val request = okhttp3.Request.Builder().url(url)
+            .header("User-Agent", com.slukhayka.audiobooks.data.privacy.BrowserIdentity.currentUserAgent())
+            .build()
+        bare.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            println("SPIKE okhttp code=${response.code} url=${response.request.url}")
+            println("SPIKE okhttp ytInitialData=${body.contains("ytInitialData")} consent=${body.contains("consent", true)}")
+            println("SPIKE okhttp head=${body.take(200).replace('\n', ' ')}")
+        }
+    }
+
+    @Test
     fun `plain transport resolves the same video`() {
         assumeTrue(gate())
         val url = System.getProperty("spike.video") ?: return

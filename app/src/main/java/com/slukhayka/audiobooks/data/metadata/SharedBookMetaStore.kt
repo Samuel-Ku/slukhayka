@@ -533,6 +533,26 @@ object DurationSanity {
 
     fun isPlausible(durationSeconds: Long): Boolean =
         DurationBuckets.hasKnownDuration(durationSeconds) && durationSeconds <= MAX_PLAUSIBLE_SECONDS
+
+    /**
+     * #528 — may a SHARED duration replace the one we already hold?
+     *
+     * [isPlausible] only bounds the value from above, so a shared 52-second
+     * «duration» for a 28-minute book passes it and overwrites the truth. That
+     * is how an interstitial measured by one listener can reach everyone.
+     * A real duration never collapses like that, so a large drop is evidence
+     * the shared value is not a duration of this book.
+     *
+     * Pure, so the acceptance rule is provable without Firestore.
+     */
+    fun mayReplace(local: Long, shared: Long): Boolean {
+        if (!isPlausible(shared)) return false
+        if (local <= 0L) return true
+        return shared >= local / SHRINK_DENOMINATOR
+    }
+
+    /** A shared value this many times shorter than ours is not this book. */
+    const val SHRINK_DENOMINATOR = 2L
 }
 
 /**

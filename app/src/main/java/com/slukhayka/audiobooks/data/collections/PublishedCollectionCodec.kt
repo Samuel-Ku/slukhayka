@@ -13,6 +13,12 @@ data class PublishedCollection(
     val title: String,
     val description: String,
     val bookIds: List<String>,
+    /**
+     * Spec-51 (#695) — each book's reason, positionally parallel to [bookIds].
+     * Without it a fork of someone else's collection would lose the reasons the
+     * AC requires, so the wire shape must carry them.
+     */
+    val reasons: List<String> = emptyList(),
     val publishedAt: Long
 ) {
     /** The public document id: the author and the collection, still hashed. */
@@ -36,6 +42,8 @@ object PublishedCollectionCodec {
         "title" to ListenerCollectionLimits.cleanTitle(collection.title),
         "description" to ListenerCollectionLimits.cleanDescription(collection.description),
         "bookIds" to collection.bookIds.take(MAX_BOOKS),
+        "reasons" to collection.reasons.take(MAX_BOOKS)
+            .map { ListenerCollectionLimits.cleanReason(it) },
         "publishedAt" to collection.publishedAt
     )
 
@@ -62,6 +70,16 @@ object PublishedCollectionCodec {
             title = ListenerCollectionLimits.cleanTitle(title),
             description = ListenerCollectionLimits.cleanDescription(document["description"] as? String),
             bookIds = books.take(MAX_BOOKS),
+            // Parallel and positionally aligned: a short list is padded, a long
+            // one truncated — a reason can never attach to the wrong book.
+            reasons = (document["reasons"] as? List<*>)
+                ?.filterIsInstance<String>()
+                ?.map { ListenerCollectionLimits.cleanReason(it) }
+                ?.take(MAX_BOOKS)
+                .orEmpty()
+                .let { cleaned ->
+                    List(books.take(MAX_BOOKS).size) { index -> cleaned.getOrElse(index) { "" } }
+                },
             publishedAt = (document["publishedAt"] as? Number)?.toLong() ?: 0L
         )
     }

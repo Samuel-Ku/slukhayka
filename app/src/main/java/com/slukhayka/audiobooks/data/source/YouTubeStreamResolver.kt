@@ -199,7 +199,17 @@ object NewPipeYouTubeExtractor {
  * list — the pure resolver turns it into the honest null (ADR-0019, no
  * fabricated audio).
  */
-object YtDlpStreamExtractor {
+/**
+ * #778 — the ONE seam both consumers read yt-dlp metadata JSON through:
+ * the stream resolver and the submission planner. Named here so the engine
+ * swap behind it is a single implementation.
+ */
+internal interface YtDlpJsonSource {
+    suspend fun fetchMetadataJson(url: String): String?
+    fun stripNullFields(json: String): String
+}
+
+object YtDlpStreamExtractor : YtDlpJsonSource {
 
     /**
      * Drops `"key": null` pairs BEFORE [MiniJson.parse] — the shared pure
@@ -212,7 +222,7 @@ object YtDlpStreamExtractor {
      * comma and a lone last pair; a `: null` inside a quoted STRING value is
      * never matched (the value there is quoted, not bare `null`).
      */
-    internal fun stripNullFields(json: String): String {
+    override fun stripNullFields(json: String): String {
         val nullField = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
         val trailingComma = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null\\s*,")
         val leadingComma = Regex(",\\s*\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
@@ -273,7 +283,8 @@ object YtDlpStreamExtractor {
      * input: title + entries are the observed identity and chapter list
      * (ADR-0035 / #604). Resolve-only: no bytes are downloaded.
      */
-    suspend fun fetchMetadataJson(url: String): String? = fetchMetadataJson(url, ::runFlatPlaylistJson)
+    override suspend fun fetchMetadataJson(url: String): String? =
+        fetchMetadataJson(url, ::runFlatPlaylistJson)
 
     /** The seam-tested path: an injected launcher supplies the metadata JSON. */
     suspend fun fetchMetadataJson(url: String, launcher: suspend (String) -> String?): String? =

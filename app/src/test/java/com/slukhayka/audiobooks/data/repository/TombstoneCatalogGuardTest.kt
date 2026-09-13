@@ -325,7 +325,6 @@ class TombstoneCatalogGuardTest {
         catalog.refreshSourceFeeds()
         val sections = catalog.fetchCatalogSections()
 
-            " sections=" + sections.map { it.title })
         assertEquals(1, sections.size)
         assertEquals(1, sections.single().books.size)
         assertEquals("Перша книга", sections.single().books.single().title)

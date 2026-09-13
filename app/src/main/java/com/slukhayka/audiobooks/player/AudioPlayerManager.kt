@@ -2007,7 +2007,7 @@ class AudioPlayerManager(
         // like that, so a collapse is evidence the stream was not the book:
         // keep the known-good value instead.
         val known = chapter.durationSeconds
-        if (known > 0L && seconds < known / 2L) {
+        if (!ChapterDurationPolicy.shouldAccept(known, seconds)) {
             Log.w(
                 "AudioPlayer",
                 "refusing to shrink chapter duration: known=${known}s measured=${seconds}s"

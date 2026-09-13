@@ -24,6 +24,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -278,7 +280,7 @@ class ListenAccessibilityTest {
     @Test
     fun miniPlayerHasASeparateSummaryAndContextualControls() {
         val chapters = TestDataFactory.dataChapters(listOf(book))
-        var rewinds = 0
+        var closes = 0
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
                 MiniPlayerBar(
@@ -291,7 +293,7 @@ class ListenAccessibilityTest {
                     ),
                     onPlayPauseClick = {},
                     onSkipNextClick = {},
-                    onRewindClick = { rewinds++ },
+                    onCloseClick = { closes++ },
                     onBarClick = {}
                 )
             }
@@ -310,13 +312,38 @@ class ListenAccessibilityTest {
             .assertHeightIsAtLeast(48.dp)
         compose.onNodeWithContentDescription("Наступний розділ: ${book.title}")
             .assertHeightIsAtLeast(48.dp)
-        compose.onNodeWithTag("mini_player_rewind")
+        compose.onNodeWithTag("mini_player_close")
             .assertHeightIsAtLeast(48.dp)
-            .assertContentDescriptionEquals("Назад на 15 секунд. ${book.title}, ${chapters[1].title}")
+            .assertContentDescriptionEquals("Закрити програвач")
             .performClick()
-        assertEquals(1, rewinds)
+        // The button drives the same slide-out the gesture does, so the host
+        // hears about the close when the exit animation lands.
+        compose.waitForIdle()
+        assertEquals(1, closes)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
+    }
+
+    @Test
+    fun miniPlayerSwipedLeftClosesThePlayer() {
+        var closes = 0
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                MiniPlayerBar(
+                    playerState = PlayerState(currentBook = book, isPlaying = true),
+                    onPlayPauseClick = {},
+                    onSkipNextClick = {},
+                    onCloseClick = { closes++ },
+                    onBarClick = {}
+                )
+            }
+        }
+
+        // The gesture and the X are the same door: a leftward swipe has to
+        // reach onCloseClick exactly as the button does.
+        compose.onNodeWithTag("mini_player_bar").performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        assertEquals(1, closes)
     }
 
     @Test
@@ -327,7 +354,7 @@ class ListenAccessibilityTest {
                 MiniPlayerBar(
                     playerState = PlayerState(currentBook = book),
                     viewedBookId = "another-book",
-                    onPlayPauseClick = { toggles++ }, onSkipNextClick = {}, onRewindClick = {}, onBarClick = {}
+                    onPlayPauseClick = { toggles++ }, onSkipNextClick = {}, onCloseClick = {}, onBarClick = {}
                 )
             }
         }

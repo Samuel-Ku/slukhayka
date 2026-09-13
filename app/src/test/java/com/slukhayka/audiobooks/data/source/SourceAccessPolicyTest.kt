@@ -14,7 +14,10 @@ class SourceAccessPolicyTest {
                 SourceAccessCandidate("local", url = "/data/book.mp3")
             )
         )
-        assertEquals(listOf("local", "soundbooks", "legacy", "4read"), ordered.map { it.sourceId })
+        // #812: шахрайське джерело лишається у ВХОДІ навмисно — так тест
+        // доводить, що воно не переживає сортування. Кандидатом на
+        // відтворення воно бути не може.
+        assertEquals(listOf("local", "soundbooks", "legacy"), ordered.map { it.sourceId })
     }
 
     @Test
@@ -46,7 +49,9 @@ class SourceAccessPolicyTest {
             )
         )
         assertEquals(
-            listOf("soundbooks", "sluhayua", "audiobookmp3", "lihtar", "legacy", "4read", "sluhay"),
+            // #812: «4read» лишається у вході вище, але у виході його немає —
+            // саме це й перевіряємо.
+            listOf("soundbooks", "sluhayua", "audiobookmp3", "lihtar", "legacy", "sluhay"),
             ordered.map { it.sourceId }
         )
     }

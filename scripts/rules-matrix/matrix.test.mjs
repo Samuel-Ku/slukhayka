@@ -85,6 +85,22 @@ const VALID_CARD = {
 const CARD_WITH_QUERY = { ...VALID_CARD, query: "шевченко" };
 const OVERLONG_CARD = { ...VALID_CARD, title: "т".repeat(301) };
 
+// #691 — one published listener collection. authorId is sha256(uid): a 64-char
+// hex string, never the raw uid.
+const VALID_COLLECTION = {
+  authorId: "a".repeat(64),
+  collectionId: "c1",
+  pseudonym: "Слухач",
+  title: "Магія",
+  description: "про зорі",
+  bookIds: ["soundbooks-1", "soundbooks-2"],
+  publishedAt: 1700000000000
+};
+const COLLECTION_WITH_QUERY = { ...VALID_COLLECTION, query: "магія" };
+const OVERLONG_COLLECTION = { ...VALID_COLLECTION, title: "т".repeat(81) };
+const RAW_UID_COLLECTION = { ...VALID_COLLECTION, authorId: "test-uid-1" };
+
+
 // #527 — one shared collective block: identity, provenance and ordered cards.
 const VALID_BLOCK = {
   blockKey: "audiobookmp3|NEW_ARRIVALS",
@@ -321,6 +337,14 @@ const MATRIX = [
   ["L5", "catalog_blocks/qa_l5", "create", null, VALID_BLOCK, "DENY", "нема auth"],
   ["L6", "catalog_blocks/qa_l6", "create", "uid-alice", VALID_BLOCK, "DENY", "нема AppCheck-токена"],
   ["L7", "catalog_blocks/qa_l2", "delete", "uid-alice", null, "DENY", "client delete заборонений"],
+  // #691 — published listener collections.
+  ["M1", "curator_collections/qa_m1", "get", null, null, "ALLOW", "опублікована добірка — публічний факт, читання відкрите"],
+  ["M2", "curator_collections/qa_m2", "create", "uid-alice", VALID_COLLECTION, "ALLOW", "валідна форма (+AppCheck у проді)"],
+  ["M3", "curator_collections/qa_m3", "create", "uid-alice", COLLECTION_WITH_QUERY, "DENY", "зайве поле query (hasOnly)"],
+  ["M4", "curator_collections/qa_m4", "create", "uid-alice", OVERLONG_COLLECTION, "DENY", "назва поза межею 80"],
+  ["M5", "curator_collections/qa_m5", "create", "uid-alice", RAW_UID_COLLECTION, "DENY", "authorId мусить бути sha256 (64), не сирий uid"],
+  ["M6", "curator_collections/qa_m6", "create", null, VALID_COLLECTION, "DENY", "нема auth"],
+  ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -337,6 +361,10 @@ const EVIDENCE = {
   F16: "open", F17: "open", F18: "open", F19: "open",
   F20: "open", F21: "open", F22: "open", F23: "open",
   K1: "as-is", K2: "open", K3: "open", K4: "open", K5: "open",
+  // #691 — curator_collections: read and the App Check gate are as-is;
+  // the shape/limit/auth rows are proven with the gate open.
+  M1: "as-is", M7: "as-is",
+  M2: "open", M3: "open", M4: "open", M5: "open", M6: "open",
   K6: "as-is", K7: "open", K8: "open",
   L1: "as-is", L2: "open", L3: "open", L4: "open", L5: "open",
   L6: "as-is", L7: "open",

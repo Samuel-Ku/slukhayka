@@ -230,12 +230,21 @@ class MainActivityAccessibilityTest {
         // a listener does, then audit the real screen.
         runCatching {
             val done = composeTestRule.onAllNodesWithText("Готово").fetchSemanticsNodes()
-            if (done.isNotEmpty()) composeTestRule.onAllNodesWithText("Готово")[0].performClick()
+            if (done.isNotEmpty()) {
+                composeTestRule.onAllNodesWithText("Готово")[0].performClick()
+                // CI proved the sheet (its unlabeled «Dismiss» scrim) can still
+                // be on screen at the first check — wait until it is GONE.
+                composeTestRule.waitUntil(NAV_TIMEOUT_MS) {
+                    runCatching {
+                        composeTestRule.onAllNodesWithTag("first_language_choice")
+                            .fetchSemanticsNodes().isEmpty()
+                    }.getOrDefault(false)
+                }
+            }
         }
         composeTestRule.waitForIdle()
 
         composeTestRule.enableAccessibilityChecks()
-        try {   // #766 — CI-tree capture: catch ACTION failures too
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
@@ -519,16 +528,6 @@ class MainActivityAccessibilityTest {
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
-        } catch (actionFailure: Throwable) {
-            val roots = composeTestRule.onAllNodes(
-                androidx.compose.ui.test.isRoot(),
-                useUnmergedTree = true
-            )
-            val count = roots.fetchSemanticsNodes().size
-            throw AssertionError(
-                (0 until count).joinToString("\n=====ROOT=====\n") { roots[it].printToString() }
-            )
-        }
     }
 
     private fun currentViewModel(): MainViewModel =

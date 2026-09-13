@@ -2127,8 +2127,10 @@ class SourceCatalog(
      * складаються з потоків, які застосунок уже завантажив по джерелах.
      * `id` беремо з адреси — вона в межах джерела унікальна.
      */
-    private fun SourceBook.toCatalogBook(): CatalogBook = CatalogBook(
-        id = url,
+    private fun SourceBook.toCatalogBook(adapter: SourceAdapter): CatalogBook = CatalogBook(
+        // ADR-0007: один формат id на весь застосунок — його формує адаптер
+        // джерела. Інакше надгробки й імпорт не збігалися б за ключем.
+        id = adapter.bookId(url),
         title = title,
         author = author,
         url = url,
@@ -2177,7 +2179,9 @@ class SourceCatalog(
                 // вже завантажені по джерелах. Жодного запиту на сторонній
                 // сайт: джерело секції — саме джерело книжки.
                 val sections = _sourceFeeds.value.mapNotNull { feed ->
-                    val books = feed.books.map { it.toCatalogBook() }
+                    val adapter = sourceAdapters.firstOrNull { it.sourceId == feed.sourceId }
+                        ?: return@mapNotNull null
+                    val books = feed.books.map { it.toCatalogBook(adapter) }
                     if (books.isEmpty()) null
                     else CatalogSection(
                         title = feed.sourceName,

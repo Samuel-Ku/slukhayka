@@ -23,8 +23,25 @@ class DurationSanityTest {
 
     @Test
     fun `a shared value fills an unknown local duration`() {
-        assertTrue(DurationSanity.mayReplace(local = 0L, shared = 52L))
+        assertTrue(DurationSanity.mayReplace(local = 0L, shared = 1_701L))
         assertTrue(DurationSanity.mayReplace(local = 0L, shared = 3_188L))
+    }
+
+    @Test
+    fun `an interstitial is refused even into an unknown local duration`() {
+        // 52 s cleared the old `> 0` and could become a book's only duration,
+        // so the shared seam refuses it outright rather than only on collapse.
+        assertFalse(DurationSanity.mayReplace(local = 0L, shared = 52L))
+        assertFalse(DurationSanity.mayReplace(local = 0L, shared = DurationSanity.MIN_SHARED_SECONDS - 1))
+        assertTrue(DurationSanity.mayReplace(local = 0L, shared = DurationSanity.MIN_SHARED_SECONDS))
+    }
+
+    @Test
+    fun `a short local duration stays local truth`() {
+        // The floor gates the shared seam only: a genuinely short local
+        // recording is still plausible to us and is never published.
+        assertTrue(DurationSanity.isPlausible(200L))
+        assertFalse(DurationSanity.isShareable(200L))
     }
 
     @Test

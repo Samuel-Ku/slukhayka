@@ -470,8 +470,11 @@ object BookProfileCodec {
             rating = (map["rating"] as? Number)?.toDouble(),
             coverImageUrl = (map["coverImageUrl"] as? String)?.take(BookProfileLimits.MAX_URL_LEN),
             chapters = chapters,
+            // #528 — a duration read from the shared base is gated by the same
+            // shareable bound as a written one, so the 52-second interstitial
+            // that reached the base before the ban cannot re-enter here.
             totalDurationSeconds = (map["totalDurationSeconds"] as? Number)?.toLong()
-                ?.takeIf { DurationSanity.isPlausible(it) }
+                ?.takeIf { DurationSanity.isShareable(it) }
         )
     }
 
@@ -531,8 +534,28 @@ object DurationSanity {
     /** The plausible ceiling: 100 hours — generous, bounded. */
     const val MAX_PLAUSIBLE_SECONDS = 100L * 60 * 60
 
+    /**
+     * #528 — the floor for a duration that may leave this device.
+     *
+     * Not a taste judgement, a measurement: the 4read CDN intermittently
+     * answers a chapter request with a ~52-second interstitial under HTTP 200,
+     * the right URL and the right Referer (observed on hardware via device
+     * logs against `arch.sound-books.net`; the same URL re-probed returns
+     * ~22 MB), and the old lower bound `> 0` let that value become a whole
+     * book's canonical duration for every listener. Five minutes sits far
+     * above that ad and below any audiobook rendition.
+     *
+     * It gates the SHARED seam only: a local value is still governed by
+     * [isPlausible], so a genuinely short local recording stays local truth.
+     */
+    const val MIN_SHARED_SECONDS = 5L * 60
+
     fun isPlausible(durationSeconds: Long): Boolean =
         DurationBuckets.hasKnownDuration(durationSeconds) && durationSeconds <= MAX_PLAUSIBLE_SECONDS
+
+    /** May this value be published to, or accepted from, the shared base? */
+    fun isShareable(durationSeconds: Long): Boolean =
+        isPlausible(durationSeconds) && durationSeconds >= MIN_SHARED_SECONDS
 
     /**
      * #528 — may a SHARED duration replace the one we already hold?
@@ -546,7 +569,7 @@ object DurationSanity {
      * Pure, so the acceptance rule is provable without Firestore.
      */
     fun mayReplace(local: Long, shared: Long): Boolean {
-        if (!isPlausible(shared)) return false
+        if (!isShareable(shared)) return false
         if (local <= 0L) return true
         return shared >= local / SHRINK_DENOMINATOR
     }
@@ -564,23 +587,38 @@ object DurationSanity {
  * source:         String  (provenance — e.g. "derived")
  * method:         String  (how it was observed)
  * derivedAt:      Long    (provenance — when the duration was derived)
+ * schemaVersion:  Long    (#528 — the shape this document was written under)
  * ```
  *
- * [fromMap] is defensive: any missing/mistyped required field or an
- * implausible duration yields null (a corrupt document is a miss, never a
- * crash).
+ * [fromMap] is defensive: any missing/mistyped required field, an unshareable
+ * duration or an unknown schema yields null (a corrupt document is a miss,
+ * never a crash).
  */
 object SharedDurationCodec {
+
+    /**
+     * #528 — the ban, expressed as a shape rather than as a blacklist.
+     *
+     * A build that predates this field cannot write it, and both the Firestore
+     * rules and [fromMap] require it, so a stale install is refused by the
+     * server and never becomes anybody's canonical duration. A version-1
+     * document — the field-less shape that carried the interstitial — decodes
+     * as a miss, the honest reading: we no longer know how that number was
+     * produced.
+     */
+    const val SCHEMA_VERSION = 2L
 
     fun toMap(durationSeconds: Long, provenance: DurationProvenance): Map<String, Any> = mapOf(
         "durationSeconds" to durationSeconds,
         "source" to provenance.source,
         "method" to provenance.method,
-        "derivedAt" to provenance.derivedAt
+        "derivedAt" to provenance.derivedAt,
+        "schemaVersion" to SCHEMA_VERSION
     )
 
     fun fromMap(map: Map<String, Any>): Long? {
+        if ((map["schemaVersion"] as? Number)?.toLong() != SCHEMA_VERSION) return null
         val duration = map["durationSeconds"] as? Long ?: return null
-        return duration.takeIf { DurationSanity.isPlausible(it) }
+        return duration.takeIf { DurationSanity.isShareable(it) }
     }
 }

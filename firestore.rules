@@ -51,9 +51,16 @@ service cloud.firestore {
     // duration bounds mirror DurationSanity and provenance is both required
     // and bounded. hasOnly keeps personal or unrecognised fields out of this
     // public collection.
+    //
+    // #528 — the floor is a measurement, not a preference. The 4read CDN
+    // intermittently answers a chapter request with a ~52-second interstitial
+    // under HTTP 200 with the right URL and Referer, and `value > 0` let that
+    // ad become a whole book's canonical duration for every listener (the
+    // reported «у мене все зіпсувалось»). Five minutes is far above the ad and
+    // below any audiobook rendition; it matches DurationSanity.MIN_SHARED_SECONDS.
     function isPlausibleDurationSeconds(value) {
       return value is int
-        && value > 0
+        && value >= 300
         && value != 14400
         && value <= 360000;
     }
@@ -74,8 +81,15 @@ service cloud.firestore {
         && timeField >= 0;
     }
 
+    // #528 — the ban by source, in the only place a stale install cannot argue
+    // with: the server. A build that predates `schemaVersion` cannot write it,
+    // so its create is denied and it can no longer publish the interstitial it
+    // measured. Reads stay open, so nothing is hidden — the ban only stops new
+    // writes. Version 1 is the field-less shape that carried the ad; keep this
+    // number in step with SharedDurationCodec.SCHEMA_VERSION.
     function isWellFormedDuration(d) {
-      return d.keys().hasOnly(['durationSeconds', 'source', 'method', 'derivedAt'])
+      return d.keys().hasOnly(['durationSeconds', 'source', 'method', 'derivedAt', 'schemaVersion'])
+        && d.schemaVersion == 2
         && isPlausibleDurationSeconds(d.durationSeconds)
         && isBoundedDurationProvenance(d, d.derivedAt);
     }

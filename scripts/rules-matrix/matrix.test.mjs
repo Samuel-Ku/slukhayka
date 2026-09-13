@@ -56,9 +56,20 @@ const VALID_DURATION = {
   source: "4read",
   method: "source_metadata",
   derivedAt: 1700000000000,
+  schemaVersion: 2,
 };
 const INVALID_DURATION = { ...VALID_DURATION, durationSeconds: 0 };
 const PERSONALLY_TAGGED_DURATION = { ...VALID_DURATION, uid: "uid-alice" };
+// #528 — the two shapes that let the 4read interstitial become a whole book's
+// canonical duration: a stale build that predates `schemaVersion`, and the ad
+// length itself, which used to clear `value > 0`.
+const OLD_SCHEMA_DURATION = {
+  durationSeconds: 7_200,
+  source: "4read",
+  method: "source_metadata",
+  derivedAt: 1700000000000,
+};
+const INTERSTITIAL_DURATION = { ...VALID_DURATION, durationSeconds: 52 };
 const VALID_DURATION_CONFLICT = {
   editionId: "edition-qa",
   candidateSeconds: 8_000,
@@ -291,6 +302,8 @@ const MATRIX = [
   ["T5", "book_durations/qa_t5", "update", null, VALID_DURATION, "DENY", "canonical update заборонений"],
   ["T6", "book_durations/qa_t6", "delete", null, null, "DENY", "canonical delete заборонений"],
   ["T7", "book_durations/qa_t7", "create", null, VALID_DURATION, "DENY", "нема AppCheck-токена"],
+  ["T8", "book_durations/qa_t8", "create", null, OLD_SCHEMA_DURATION, "DENY", "старий клієнт без schemaVersion — бан по джерелу"],
+  ["T9", "book_durations/qa_t9", "create", null, INTERSTITIAL_DURATION, "DENY", "52-секундна врізка не стає тривалістю книжки"],
   ["C1", "book_duration_conflicts/qa_c1", "get", null, null, "ALLOW", "conflict read публічне"],
   ["C2", `book_duration_conflicts/${durationConflictId(VALID_DURATION_CONFLICT)}`, "create", null, VALID_DURATION_CONFLICT, "ALLOW", "bounded conflict create з канонічним id"],
   ["C3", `book_duration_conflicts/${durationConflictId(INVALID_DURATION_CONFLICT)}`, "create", null, INVALID_DURATION_CONFLICT, "DENY", "завелика provenance"],
@@ -357,6 +370,9 @@ const EVIDENCE = {
   R8: "open", R9: "open", R10: "open", D2: "open", D3: "open",
   T1: "as-is", T2: "open", T3: "open", T4: "open", T5: "open",
   T6: "open", T7: "as-is", C1: "as-is", C2: "open", C3: "open",
+  // #528 — the ban is only meaningful with the App Check gate OPEN, otherwise
+  // the row would pass for the wrong reason (no token, not a refused shape).
+  T8: "open", T9: "open",
   C4: "open", C5: "open", C6: "as-is", C7: "open", C8: "open",
   F1: "as-is", F2: "open", F3: "open", F4: "open", F5: "open",
   F6: "open", F7: "as-is", F8: "open", F9: "open", F10: "open",

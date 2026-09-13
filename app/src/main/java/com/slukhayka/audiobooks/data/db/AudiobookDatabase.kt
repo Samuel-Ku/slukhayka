@@ -51,7 +51,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class
     ],
-    version = 33,
+    version = 35,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -77,7 +77,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35
                     )
                     .build()
                 INSTANCE = instance
@@ -1280,6 +1280,50 @@ abstract class AudiobookDatabase : RoomDatabase() {
                  db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `sourceTitle` TEXT")
                  db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `sourcePseudonym` TEXT")
                  db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `snapshotAt` INTEGER")
+             }
+         }
+
+         /**
+          * #812 — v34 -> v35: той самий відбір, уже з гвардією на читанні.
+          *
+          * На пристроях, які встигли отримати v34 ДО гвардії
+          * `FeedSnapshotStore.freshBooks`, знімок встиг повернутися. Цей
+          * прохід чистить іще раз — і саме на ньому видно, чи гвардія тримає:
+          * якщо після нього рядки не повертаються, причина закрита.
+          */
+         internal val MIGRATION_34_35 = object : Migration(34, 35) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+             }
+         }
+
+         /**
+          * #812 — v33 -> v34: прибрати ПРИЧИНУ, а не лише наслідок.
+          *
+          * У базі лишався знімок стрічки 4read (`feed_snapshots`,
+          * sourceId='4read', feedKey='homepage-sections', ~25 КБ cardsJson),
+          * зроблений ДО відмови джерела. v32->v33 вичистила книжки, але не
+          * його — і застосунок гідратував каталог із нього заново, повертаючи
+          * ті самі 48 порожніх рядків. Перевірено на телефоні: після v33
+          * схема стала 33, а книжки лишилися; офлайн той самий DELETE
+          * прибрав 48 і 47 рядків до нуля, тобто SQL був правильний.
+          */
+         internal val MIGRATION_33_34 = object : Migration(33, 34) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' " +
+                         "OR `sourceId` LIKE '%reasd%'"
+                 )
+                 db.execSQL(
+                     "DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' " +
+                         "OR `sourceUrl` LIKE '%reasd.org%'"
+                 )
+                 db.execSQL(
+                     "DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' " +
+                         "OR `sourceUrl` LIKE '%reasd.org%'"
+                 )
              }
          }
 

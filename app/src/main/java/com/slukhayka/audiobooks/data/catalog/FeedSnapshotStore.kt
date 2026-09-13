@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.catalog
 
 import com.slukhayka.audiobooks.data.db.AudiobookDao
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.db.FeedSnapshotEntity
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceIds
@@ -41,6 +42,12 @@ class FeedSnapshotStore(
         feedKey: String,
         forceRefresh: Boolean = false
     ): List<SourceBook>? = withContext(Dispatchers.IO) {
+        // #812 — у шахрайського джерела немає стрічки, яку можна віддати.
+        // Порожній список, а не null: null означає «промах кешу, йди в
+        // мережу» — і застосунок знову тягнув стрічку 4read, писав новий
+        // знімок і матеріалізував ті самі 48 порожніх книжок. Саме тому
+        // вичищення в міграції не трималося: причина відтворювалася щоразу.
+        if (SourceRegistry.isScam(sourceId)) return@withContext emptyList()
         val rows = dao.getFeedSnapshots(sourceId, feedKey)
         val fetchedAt = rows.minOfOrNull { it.fetchedAt }
         if (FeedSnapshotPolicy.needsNetwork(feedKey, fetchedAt, nowMillis(), forceRefresh)) {

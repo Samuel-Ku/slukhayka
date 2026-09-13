@@ -83,7 +83,7 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 11
+    versionCode = 14
     versionName = "1.4.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

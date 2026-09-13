@@ -271,27 +271,47 @@ class TombstoneCatalogGuardTest {
 
     @Test
     fun `homepage sections publish only landed books - fully skipped section is not published`() = runBlocking {
-        val homepage = """
-            <html><body>
-                ${poster("https://4read.org/1-persha.html", "Перша книга", "Автор")}
-                ${poster("https://4read.org/2-druga.html", "Друга книга", "Автор")}
-                ${seriesPoster("https://4read.org/3-serijna.html", "Серійна книга", "Автор", seriesUrl, "Максим Темний")}
-            </body></html>
-        """.trimIndent()
-        val catalog = catalog(mapOf("https://4read.org/" to homepage))
-        // Tombstone ALL book posters (the series poster is also a book poster)
-        // — the «Новинки» section is emptied and must not be published.
-        dao.insertTombstone(TombstoneEntity(bookId = "4read-1-persha"))
-        dao.insertTombstone(TombstoneEntity(bookId = "4read-2-druga"))
-        dao.insertTombstone(TombstoneEntity(bookId = "4read-3-serijna"))
+        // #812 — секції складаються з ПОТОКІВ джерел. Намір тесту той самий:
+        // якщо всі книжки джерела відсіяно надгробками, його секція НЕ
+        // публікується (порожня полиця не з'являється).
+        //
+        // Раніше тут була ще перевірка секції «Цикли», яку будував парсер
+        // домашньої сторінки. Тієї сторінки більше немає, а в потоках немає
+        // адреси серії (`SourceBook.seriesTitle` є, `seriesUrl` — немає),
+        // тож «Цикли» з потоків не відновлюються. Це вилучення, а не втрата
+        // перевірки: намір тесту збережено повністю.
+        val adapter = FakeAdapter(
+            "lihtar",
+            SourceBookDetail(title = "", author = "", url = "", chapters = emptyList()),
+            feedBooks = listOf(
+                SourceBook(
+                    title = "Перша книга",
+                    author = "Автор",
+                    url = "https://lihtar.in.ua/1-persha.html",
+                    sourceId = "lihtar"
+                ),
+                SourceBook(
+                    title = "Друга книга",
+                    author = "Автор",
+                    url = "https://lihtar.in.ua/2-druga.html",
+                    sourceId = "lihtar"
+                )
+            )
+        )
+        val catalog = catalog(adapters = listOf(adapter))
+        // Надгробки на ВСІ книжки джерела.
+        dao.insertTombstone(
+            TombstoneEntity(bookId = adapter.bookId("https://lihtar.in.ua/1-persha.html"))
+        )
+        dao.insertTombstone(
+            TombstoneEntity(bookId = adapter.bookId("https://lihtar.in.ua/2-druga.html"))
+        )
 
+        catalog.refreshSourceFeeds()
         val sections = catalog.fetchCatalogSections()
 
-        // Only the «Цикли» (series) section survives; «Новинки» was skipped.
-        assertEquals(1, sections.size)
-        assertEquals("Цикли", sections.single().title)
-        assertTrue(sections.single().books.isEmpty())
-        assertEquals(1, sections.single().series.size)
+        // Секція, що спорожніла, не публікується взагалі.
+        assertTrue(sections.isEmpty())
     }
 
     @Test

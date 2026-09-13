@@ -1693,6 +1693,11 @@ class SourceCatalog(
             author = card.author,
             narrator = card.narrator,
             sourceUrl = card.sourceUrl,
+            // #529 — the source's OWN download policy, never a silent default:
+            // with `streamOnly = false` a stream-only source (lihtar) was
+            // persisted as downloadable, and the UI offered a download the
+            // source forbids.
+            streamOnly = streamOnlyFor(card.sourceId),
             coverImageUrl = card.coverUrl,
             durationSeconds = card.durationSeconds,
             seriesTitle = card.seriesTitle,

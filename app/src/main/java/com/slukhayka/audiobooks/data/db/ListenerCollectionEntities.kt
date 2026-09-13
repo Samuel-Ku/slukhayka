@@ -13,7 +13,13 @@ data class ListenerCollectionEntity(
     val id: String,
     val title: String,
     val description: String,
-    val createdAt: Long
+    val createdAt: Long,
+    // Spec-51 (#695) — the FORK's frozen attribution. Nullable: an ordinary own
+    // collection has none, and only a fork ever fills these in.
+    val sourceDocumentId: String? = null,
+    val sourceTitle: String? = null,
+    val sourcePseudonym: String? = null,
+    val snapshotAt: Long? = null
 )
 
 /**

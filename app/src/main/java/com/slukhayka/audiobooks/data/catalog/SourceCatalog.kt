@@ -2096,6 +2096,26 @@ class SourceCatalog(
      * are assembled from what actually landed; sections emptied by skips are
      * not published (matching today's behaviour).
      */
+    /**
+     * #812 — картки, чия адреса веде на скам-хости, не мають потрапляти в
+     * домашню стрічку.
+     *
+     * Секції домашньої стрічки досі будуються з `https://4read.org/` — тому
+     * саме звідти в застосунок потрапляли ті самі 48 порожніх книжок. `sourceId`
+     * ні в `CatalogSection`, ні в `CatalogBook` немає, але `url` є, і він
+     * однозначний. Секція, що спорожніла після відсіву, не публікується.
+     */
+    private fun withoutScamHosts(sections: List<CatalogSection>): List<CatalogSection> =
+        sections.mapNotNull { section ->
+            val kept = section.books.filterNot { book ->
+                book.url.contains("4read.org", ignoreCase = true) ||
+                    book.url.contains("reasd.org", ignoreCase = true) ||
+                    book.seriesUrl?.contains("4read.org", ignoreCase = true) == true ||
+                    book.seriesUrl?.contains("reasd.org", ignoreCase = true) == true
+            }
+            if (kept.isEmpty()) null else section.copy(books = kept)
+        }
+
     suspend fun fetchCatalogSections(forceRefresh: Boolean = false): List<CatalogSection> =
         withContext(Dispatchers.IO) {
             _isCatalogLoading.value = true
@@ -2107,7 +2127,7 @@ class SourceCatalog(
                     feedSnapshotStore?.freshHomepage()?.let { snapshot ->
                         if (snapshot.sections.isNotEmpty()) {
                             _catalogGenres.value = snapshot.genres
-                            val sections = upsertAndFilterSections(snapshot.sections)
+                            val sections = upsertAndFilterSections(withoutScamHosts(snapshot.sections))
                             _catalogSections.value = sections
                             publishNewArrivals(sections, _sourceFeeds.value)
                             return@withContext sections
@@ -2117,7 +2137,7 @@ class SourceCatalog(
                 val html = fourReadFetcher.getText("https://4read.org/")
                 if (html.isBlank()) return@withContext emptyList()
                 _catalogGenres.value = CatalogParser.parseGenreNav(html)
-                val sections = upsertAndFilterSections(CatalogParser.parseHomepage(html))
+                val sections = upsertAndFilterSections(withoutScamHosts(CatalogParser.parseHomepage(html)))
                 _catalogSections.value = sections
                 // #467: remember what the live homepage served so the next
                 // read within the catalog TTL never touches the network.

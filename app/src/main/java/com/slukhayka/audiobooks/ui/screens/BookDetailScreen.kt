@@ -144,6 +144,9 @@ fun BookDetailScreen(
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
+    // Spec-51 (#689) — the listener's own collections, read from the local store.
+    var showAddToCollection by remember { mutableStateOf(false) }
+    val listenerCollections by viewModel.listenerCollections.collectAsState()
     var showDeleteSheet by remember { mutableStateOf(false) }
     // #382 (spec-27): видалення переїхало в ⋮ меню шапки — тригер сам по собі
     // не запускає видалення, лише відкриває список рідкісних дій.
@@ -475,7 +478,7 @@ fun BookDetailScreen(
 
     Scaffold(
         modifier = Modifier.accessibilityModalBackground(
-            modalVisible = showAddBookmarkDialog || showDeleteSheet || showDeleteDialog ||
+            modalVisible = showAddToCollection || showAddBookmarkDialog || showDeleteSheet || showDeleteDialog ||
                 showReviewForm || bookmarkToDelete != null || reviewToDelete != null ||
                 showNarrationRatingDeleteConfirm
         ),
@@ -818,6 +821,16 @@ fun BookDetailScreen(
                         onDownload = onDownloadClick,
                         onAddBookmark = { showAddBookmarkDialog = true }
                     )
+                    // Spec-51 (#689) — «Додати до добірки» without leaving the page.
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            viewModel.refreshListenerCollections()
+                            showAddToCollection = true
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("add_to_collection_open")
+                    ) { Text("Додати до добірки") }
                     // #392 — size display below download button
                     if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
                         val sizeText = when {
@@ -1319,6 +1332,24 @@ fun BookDetailScreen(
                         }
                 }            }
         }
+    }
+
+    if (showAddToCollection) {
+        com.slukhayka.audiobooks.ui.screens.collections.AddToCollectionSheet(
+            collections = listenerCollections,
+            bookId = currentBook.id,
+            onDismiss = { showAddToCollection = false },
+            onToggle = { collectionId, add, reason ->
+                if (add) {
+                    viewModel.addBookToCollection(collectionId, currentBook.id, reason)
+                } else {
+                    viewModel.removeBookFromCollection(collectionId, currentBook.id)
+                }
+            },
+            onCreate = { title, description ->
+                viewModel.createListenerCollection(title, description)
+            }
+        )
     }
 
     if (showAddBookmarkDialog) {

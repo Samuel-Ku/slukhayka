@@ -4661,4 +4661,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _listenerCollections.value = App.instance.listenerCollections.all()
         }
     }
+
+    fun renameListenerCollection(collectionId: String, title: String?) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.rename(collectionId, title)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    fun updateListenerCollectionDescription(collectionId: String, description: String?) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.updateDescription(collectionId, description)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    fun deleteListenerCollection(collectionId: String) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.delete(collectionId)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
 }

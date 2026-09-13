@@ -16,7 +16,7 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.register
 
 plugins {
-  id("com.chaquo.python") version "17.0.0"
+  alias(libs.plugins.chaquopy)
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)

@@ -1,4 +1,6 @@
 [versions]
+# #779 — the in-process Python engine (Renovate tracks this block).
+chaquopy = "17.0.0"
 work = "2.11.2"
 agp = "9.1.1"
 coreKtx = "1.18.0"
@@ -142,6 +144,7 @@ newpipe-extractor = { group = "com.github.teamnewpipe", name = "NewPipeExtractor
 
 
 [plugins]
+chaquopy = { id = "com.chaquo.python", version.ref = "chaquopy" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }

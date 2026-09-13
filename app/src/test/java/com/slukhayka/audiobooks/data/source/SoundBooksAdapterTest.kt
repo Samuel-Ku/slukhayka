@@ -843,4 +843,15 @@ class SoundBooksAdapterTest {
         )
         assertEquals(0, fetcher.requestedUrls.size)
     }
+
+    @Test
+    fun `site search is refused so discovery never touches the disallowed route`() = runBlocking {
+        // robots.txt disallows the DLE `do=search` route, so the adapter must not
+        // discover through it: `search` is a hard no-op, and an EMPTY fetcher map
+        // means any fetch attempt would fail loudly instead of succeeding.
+        val adapter = SoundBooksAdapter(FakeFetcher(emptyMap()))
+
+        assertTrue(adapter.search("шевченко").isEmpty())
+        assertTrue(adapter.search("").isEmpty())
+    }
 }

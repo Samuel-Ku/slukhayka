@@ -8,6 +8,8 @@ import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import java.net.HttpURLConnection
 import java.net.URL
+import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import com.slukhayka.audiobooks.data.privacy.TransportClients
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.StreamInfo
 
@@ -42,6 +44,46 @@ class NewPipeMetadataSpikeTest {
                 .mapValues { entry -> entry.value ?: emptyList() }
             return Response(conn.responseCode, conn.responseMessage, headers, body ?: "", request.url())
         }
+    }
+
+    /** One of our two behaviours at a time — one variant per RUN (NewPipe.init is global). */
+    private class VariantDownloader(
+        private val relay: Boolean,
+        private val spoofUserAgent: Boolean
+    ) : Downloader() {
+        override fun execute(request: Request): Response {
+            val target = if (relay) TransportPrivacy.rewriteThroughRelay(request.url()) else request.url()
+            val builder = okhttp3.Request.Builder().url(target)
+            request.dataToSend()?.let { body -> builder.post(okhttp3.RequestBody.create(null, body)) } ?: builder.get()
+            request.headers().forEach { (name, values) ->
+                values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
+            }
+            if (spoofUserAgent && request.headers()["User-Agent"].isNullOrEmpty()) {
+                builder.header("User-Agent", com.slukhayka.audiobooks.data.privacy.BrowserIdentity.currentUserAgent())
+            }
+            return TransportClients.okHttp.newCall(builder.build()).execute().use { response ->
+                Response(response.code, response.message, response.headers.toMultimap(),
+                    response.body?.string().orEmpty(), response.request.url.toString())
+            }
+        }
+    }
+
+    @Test
+    fun `relay without header spoofing`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(VariantDownloader(relay = true, spoofUserAgent = false))
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE relay-only name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
+    fun `header spoofing without relay`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(VariantDownloader(relay = false, spoofUserAgent = true))
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE headers-only name=${info.name} durationSec=${info.duration}")
     }
 
     @Test

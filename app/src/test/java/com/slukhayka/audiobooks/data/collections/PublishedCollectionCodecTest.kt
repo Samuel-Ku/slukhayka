@@ -14,6 +14,10 @@ class PublishedCollectionCodecTest {
         title = "Магія",
         description = "про зорі",
         bookIds = listOf("book-a", "book-b"),
+        // Canonical form: reasons are ALWAYS aligned to the books. An unaligned
+        // document is normalised on decode (see the alignment tests), so the
+        // round trip is identity only against this aligned shape.
+        reasons = listOf("бо раз", "бо два"),
         publishedAt = 1_700_000_000_000L
     )
 
@@ -21,6 +25,19 @@ class PublishedCollectionCodecTest {
     fun `a published collection survives a round trip`() {
         val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(sample()))
         assertEquals(sample(), decoded)
+    }
+
+    @Test
+    fun `an unaligned document is normalised, not round-tripped as-is`() {
+        // Documents written before reasons existed carry none: decode pads them
+        // to the canonical aligned shape. The round trip is therefore identity
+        // ONLY against canonical input — worth pinning, because treating the
+        // padded form as a difference would be a silent bug later.
+        val decoded = PublishedCollectionCodec.decode(
+            PublishedCollectionCodec.encode(sample().copy(reasons = emptyList()))
+        )!!
+        assertEquals(listOf("", ""), decoded.reasons)
+        assertEquals(2, decoded.bookIds.size)
     }
 
     @Test

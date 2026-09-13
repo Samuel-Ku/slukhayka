@@ -4,6 +4,7 @@ import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import java.io.File
 
 /**
@@ -78,6 +79,12 @@ object SmartRetryPolicy {
     fun browserDoorSourceIds(sourceIds: Collection<String>): List<String> =
         sourceIds
             .filter { it.isNotBlank() && SourceAccessPolicy.modeFor(it) == SourceAccessMode.BROWSER }
+            // The browser door exists for services behind Cloudflare — NOT for
+            // a scam source. 4read's browser session serves a 52-second scam
+            // ad instead of the book, so no door may ever be opened for it:
+            // its audio is refused entirely (ADR-0037), and the door
+            // mechanism stays for the other Cloudflare services.
+            .filter { it !in SourceRegistry.scamIds() }
             .distinct()
 
     /**

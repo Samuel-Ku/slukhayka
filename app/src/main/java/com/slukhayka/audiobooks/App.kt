@@ -188,14 +188,16 @@ class App : Application() {
      */
     /**
      * Spec-51 (#691) — the ONE place that decides whether public collections
-     * exist. No Firestore-backed shared store is configured yet, so the gate is
-     * constructed with null: public surfaces are honestly ABSENT (nothing to
-     * render, publishing refuses with "no-shared-store") while the local
-     * collections above keep working fully offline. Wiring a real store here is
-     * the only change needed to turn publishing on.
+     * exist. The store is created from Firebase: when Firebase is NOT
+     * configured the factory returns null, so public surfaces are honestly
+     * ABSENT (nothing to render, publishing refuses with "no-shared-store")
+     * while the local collections above keep working fully offline.
      */
     val publicCollectionsGate: com.slukhayka.audiobooks.data.collections.PublicCollectionsGate by lazy {
-        com.slukhayka.audiobooks.data.collections.PublicCollectionsGate(null)
+        com.slukhayka.audiobooks.data.collections.PublicCollectionsGate(
+            com.slukhayka.audiobooks.data.collections.FirestoreListenerCollectionsSharedStore
+                .create(this)
+        )
     }
 
     val listenerCollections: com.slukhayka.audiobooks.data.collections.ListenerCollectionsStore by lazy {

@@ -117,7 +117,16 @@ class FeedSnapshotStore(
         }
 
     companion object {
-        /** The 4read homepage snapshot anchors to the 4read source id. */
-        const val HOMEPAGE_SOURCE_ID: String = SourceIds.FOUR_READ
+        /**
+         * #812 — нейтральний якір домашньої стрічки.
+         *
+         * Тут було `SourceIds.FOUR_READ`: легасі-значення часів, коли
+         * домашньою сторінкою була сторінка 4read. Через нього агрегований
+         * знімок УСІЄЇ домашньої стрічки зберігався під `sourceId = "4read"`,
+         * і виглядав як знімок джерела 4read. Наслідки були цілком реальні:
+         * будь-яке вичищення «рядків 4read» знищувало домашню стрічку
+         * застосунку, а сам знімок ще й містив картки 4read усередині.
+         */
+        const val HOMEPAGE_SOURCE_ID: String = "homepage"
     }
 }

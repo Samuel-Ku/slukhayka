@@ -110,7 +110,10 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         provenance: DurationProvenance
     ) {
         if (!DurationContractLimits.isPlausibleEditionId(editionId)) return
-        if (!DurationSanity.isPlausible(durationSeconds)) return
+        // #528 — publishable, not merely plausible: an interstitial length is
+        // refused here as well as by the Firestore rules, so we never even
+        // attempt the write the server would deny.
+        if (!DurationSanity.isShareable(durationSeconds)) return
         if (!DurationContractLimits.isPlausibleProvenance(provenance)) return
 
         // One transaction protects the first-write-wins decision against two

@@ -26,8 +26,39 @@ class SharedDurationCodecTest {
         assertEquals(DurationProvenance.SOURCE_DERIVED, map["source"])
         assertEquals(DurationProvenance.METHOD_SOURCE_METADATA, map["method"])
         assertEquals(1_234_567L, map["derivedAt"])
+        assertEquals(SharedDurationCodec.SCHEMA_VERSION, map["schemaVersion"])
 
         assertEquals(7_200L, SharedDurationCodec.fromMap(map))
+    }
+
+    @Test
+    fun `a document from a stale build decodes to null`() {
+        // #528 — the ban by source: a build that predates `schemaVersion`
+        // cannot write the field, and the Firestore rules refuse its create.
+        // Reading such a document back is an honest miss, not a silent 52.
+        val current = SharedDurationCodec.toMap(7_200L, provenance)
+        assertNull(SharedDurationCodec.fromMap(current - "schemaVersion"))
+        assertNull(
+            SharedDurationCodec.fromMap(current + ("schemaVersion" to SharedDurationCodec.SCHEMA_VERSION + 1))
+        )
+        assertNull(SharedDurationCodec.fromMap(current + ("schemaVersion" to "два")))
+    }
+
+    @Test
+    fun `the interstitial length decodes to null`() {
+        // The measured 4read pre-roll: plausible-looking, and the value that
+        // reached every listener through the old `> 0` lower bound.
+        assertNull(
+            SharedDurationCodec.fromMap(
+                SharedDurationCodec.toMap(52L, provenance)
+            )
+        )
+        assertEquals(
+            DurationSanity.MIN_SHARED_SECONDS,
+            SharedDurationCodec.fromMap(
+                SharedDurationCodec.toMap(DurationSanity.MIN_SHARED_SECONDS, provenance)
+            )
+        )
     }
 
     @Test
@@ -45,24 +76,20 @@ class SharedDurationCodecTest {
     @Test
     fun `an implausible duration decodes to null`() {
         // Zero / negative — never real.
-        assertNull(SharedDurationCodec.fromMap(mapOf("durationSeconds" to 0L)))
-        assertNull(SharedDurationCodec.fromMap(mapOf("durationSeconds" to -5L)))
+        assertNull(SharedDurationCodec.fromMap(doc(0L)))
+        assertNull(SharedDurationCodec.fromMap(doc(-5L)))
         // The fabricated 4:00:00 legacy sentinel — treated as unknown everywhere.
-        assertNull(
-            SharedDurationCodec.fromMap(
-                mapOf("durationSeconds" to DurationBuckets.FABRICATED_LEGACY_SECONDS)
-            )
-        )
+        assertNull(SharedDurationCodec.fromMap(doc(DurationBuckets.FABRICATED_LEGACY_SECONDS)))
         // Above the plausible ceiling — a wild/corrupt value is a miss.
-        assertNull(
-            SharedDurationCodec.fromMap(
-                mapOf("durationSeconds" to DurationSanity.MAX_PLAUSIBLE_SECONDS + 1)
-            )
-        )
-        // The ceiling itself is still plausible.
+        assertNull(SharedDurationCodec.fromMap(doc(DurationSanity.MAX_PLAUSIBLE_SECONDS + 1)))
+        // The ceiling itself is still shareable.
         assertEquals(
             DurationSanity.MAX_PLAUSIBLE_SECONDS,
-            SharedDurationCodec.fromMap(mapOf("durationSeconds" to DurationSanity.MAX_PLAUSIBLE_SECONDS))
+            SharedDurationCodec.fromMap(doc(DurationSanity.MAX_PLAUSIBLE_SECONDS))
         )
     }
+
+    /** A well-formed document at [durationSeconds] — a re-encode, not a guess. */
+    private fun doc(durationSeconds: Long): Map<String, Any> =
+        SharedDurationCodec.toMap(durationSeconds, provenance)
 }

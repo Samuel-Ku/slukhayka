@@ -22,9 +22,18 @@ class ChapterDurationRepair(
     private val doneKey: String = KEY_DONE
 ) {
 
-    /** @return how many chapters were reset, or 0 when already done. */
+    /**
+     * @return how many chapters were reset; 0 when the data looks honest.
+     *
+     * REPEATABLE on purpose (#528). The pass used to run once per install, but
+     * measurement showed why that is wrong: resetting a chapter hands it to
+     * [com.slukhayka.audiobooks.player.ChapterDurationPolicy] in the one state
+     * that policy accepts unconditionally, so a short interstitial re-poisons it
+     * — and a one-shot flag would never repair it again. The rule itself is
+     * idempotent (after a reset the durations are no longer a constant), so
+     * running on every start breaks that cycle at the cost of one query.
+     */
     suspend fun runOnce(): Int {
-        if (prefs.getBoolean(doneKey, false)) return 0
         val chapters = dao.getAllChaptersOnce()
         if (chapters.isEmpty()) return 0
 
@@ -39,12 +48,20 @@ class ChapterDurationRepair(
             }
         }
 
-        prefs.edit().putBoolean(doneKey, true).apply()
         return reset
     }
 
     companion object {
-        /** Own flag: the seed's «once per install» must not gate the repair. */
+        /**
+         * Own flag: the seed's «once per install» must not gate the repair.
+         *
+         * KNOWN GAP (#528, measured on device): resetting a chapter to 0 hands it
+         * to [com.slukhayka.audiobooks.player.ChapterDurationPolicy] in the one
+         * state that policy accepts unconditionally — so a short interstitial can
+         * re-poison it, and this one-shot flag means the repair will not run
+         * again. The pass should become repeatable (its own condition is already
+         * idempotent) once the guard can tell a reset chapter from an unknown one.
+         */
         const val KEY_DONE = "chapter_duration_repair_v1_done"
     }
 }

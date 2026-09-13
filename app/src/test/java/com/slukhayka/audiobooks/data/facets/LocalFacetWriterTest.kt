@@ -118,6 +118,90 @@ class LocalFacetWriterTest {
     }
 
     @Test
+    fun `a shared ad-length duration never collapses the duration we already hold`() = runBlocking {
+        // The live case: «Про горобця» — 1701 s measured locally, 52 s published
+        // by a peer that had measured the CDN interstitial instead.
+        writer.apply(listOf(editionDelta("edition-ad", durationSeconds = 1_701L)))
+        writer.apply(listOf(editionDelta("edition-ad", durationSeconds = 52L)))
+
+        db.openHelper.writableDatabase.query(
+            "SELECT durationSeconds, durationBucketId FROM edition_facets WHERE editionId='edition-ad'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1_701L, cursor.getLong(0))
+            assertEquals(FacetDurationBucket.UNDER_FIVE_HOURS.wireName, cursor.getString(1))
+        }
+    }
+
+    @Test
+    fun `a shared bucket never collapses the bucket we already hold`() = runBlocking {
+        // The canonical documents carry the bucket INSTEAD of the seconds, so
+        // the seconds rule above cannot see them — the bucket needs its own
+        // gate or a 52-second observation still shows as «До 5 год».
+        writer.apply(
+            listOf(
+                editionDelta(
+                    "edition-bucket",
+                    durationBucketId = FacetDurationBucket.TWENTY_HOURS_OR_MORE.wireName
+                )
+            )
+        )
+        writer.apply(
+            listOf(
+                editionDelta(
+                    "edition-bucket",
+                    durationBucketId = FacetDurationBucket.UNDER_FIVE_HOURS.wireName
+                )
+            )
+        )
+
+        db.openHelper.writableDatabase.query(
+            "SELECT durationBucketId FROM edition_facets WHERE editionId='edition-bucket'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(FacetDurationBucket.TWENTY_HOURS_OR_MORE.wireName, cursor.getString(0))
+        }
+    }
+
+    @Test
+    fun `a shared duration still fills a gap and may widen what we hold`() = runBlocking {
+        writer.apply(listOf(editionDelta("edition-grow", durationSeconds = 1_701L)))
+        writer.apply(
+            listOf(
+                editionDelta(
+                    "edition-grow",
+                    durationBucketId = FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName
+                )
+            )
+        )
+
+        db.openHelper.writableDatabase.query(
+            "SELECT durationSeconds, durationBucketId FROM edition_facets WHERE editionId='edition-grow'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1_701L, cursor.getLong(0))
+            assertEquals(FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName, cursor.getString(1))
+        }
+    }
+
+    private fun editionDelta(
+        editionId: String,
+        durationSeconds: Long? = null,
+        durationBucketId: String? = null
+    ) = LocalFacetDelta(
+        work = WorkFacetDelta("work-$editionId"),
+        editions = listOf(
+            EditionFacetDelta(
+                editionId = editionId,
+                workId = "work-$editionId",
+                durationSeconds = durationSeconds,
+                durationBucketId = durationBucketId,
+                updatedAt = 10
+            )
+        )
+    )
+
+    @Test
     fun `oversized batch is rejected before any row is committed`() = runBlocking {
         val oversized = (0..LocalFacetWriter.MAX_DELTAS_PER_BATCH).map { index ->
             LocalFacetDelta(WorkFacetDelta(workId = "work-$index"))

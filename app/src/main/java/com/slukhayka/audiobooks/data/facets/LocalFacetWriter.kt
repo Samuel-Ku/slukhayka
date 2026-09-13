@@ -265,13 +265,35 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                     edition.availabilityTtlSeconds == null ||
                         edition.availabilityTtlSeconds in 1L..EditionAvailabilityPolicy.MAX_TTL_SECONDS
                 )
-                val plausibleDuration = edition.durationSeconds?.takeIf(DurationSanity::isPlausible)
-                val durationBucketId = if (edition.durationSeconds != null) {
-                    plausibleDuration?.let(EditionDurationPolicy::bucketFor)?.wireName
-                } else {
-                    // Canonical shared facet documents carry a validated
-                    // precomputed bucket plus durationRef, not the seconds.
-                    edition.durationBucketId
+                // #528 — a SHARED duration may fill a gap, never collapse a
+                // value we already hold. `isPlausible` bounds a value only from
+                // above, so the 52-second interstitial one listener measured
+                // for a 28-minute book passes it and — through
+                // `mergeEditionFacet`'s COALESCE — would replace the truth for
+                // everyone. A refusal writes NOTHING (null), so the COALESCE
+                // keeps both the seconds and the bucket already stored.
+                val stored = dao.getEditionFacet(edition.editionId)
+                val plausibleDuration = edition.durationSeconds
+                    ?.takeIf {
+                        DurationSanity.mayReplace(
+                            local = stored?.durationSeconds ?: 0L,
+                            shared = it
+                        )
+                    }
+                val durationBucketId = when {
+                    edition.durationSeconds != null ->
+                        plausibleDuration?.let(EditionDurationPolicy::bucketFor)?.wireName
+                    else -> edition.durationBucketId
+                        // Canonical shared facet documents carry a validated
+                        // precomputed bucket plus durationRef, not the seconds.
+                        ?.let(FacetDurationBucket::fromWireName)
+                        ?.takeIf {
+                            EditionDurationPolicy.mayReplaceBucket(
+                                local = stored?.durationBucketId?.let(FacetDurationBucket::fromWireName),
+                                shared = it
+                            )
+                        }
+                        ?.wireName
                 }
                 EditionFacetEntity(
                     editionId = edition.editionId,

@@ -309,6 +309,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerState: StateFlow<PlayerState> = playerManager.playerState
     private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
 
+    // Closing the mini player hides the bar WITHOUT forgetting the book: the
+    // listening position stays, playback merely pauses. Audio starting again
+    // from any surface (bar, full player, notification, widget) brings the bar
+    // back — see the playerState collector in `init`. Declared this early on
+    // purpose: the collectors below run inside `init`, and viewModelScope is
+    // Dispatchers.Main.immediate, so its first emission is delivered while the
+    // constructor is still assigning fields.
+    private val _miniPlayerDismissed = MutableStateFlow(false)
+    val miniPlayerDismissed: StateFlow<Boolean> = _miniPlayerDismissed.asStateFlow()
+
     // #520 — the confirmation state machine is a pure module; the ViewModel
     // only feeds it the currently playing book and exposes its prompt.
     private val narrationSwitchGate = NarrationSwitchGate()
@@ -609,6 +619,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         failed.currentPositionMs
                     )
                 }
+            }
+        }
+        // A closed mini player comes back only when audio does — whatever
+        // surface started it (the bar itself, the full player, the
+        // notification, the widget). Deriving this from isPlaying instead of
+        // resetting the flag in every play doorway keeps the one fact in one
+        // place.
+        viewModelScope.launch {
+            playerState.collect { state ->
+                if (state.isPlaying) _miniPlayerDismissed.value = false
             }
         }
         // Spec-40 integration — lane-a's identity module feeds lane-b's
@@ -3934,6 +3954,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setShowFullPlayer(show: Boolean) {
         _showFullPlayer.value = show
+    }
+
+    /**
+     * Closes the mini player: the bar leaves the screen and playback pauses, so
+     * a hidden bar can never keep playing with no visible way back to it.
+     * Closing an already paused player only hides the bar. Nothing is
+     * forgotten — the book, its chapter and its position stay where they were,
+     * and [PlayerState.isPlaying] going true again (from the full player, the
+     * notification or the widget) brings the bar back.
+     */
+    fun dismissMiniPlayer() {
+        _miniPlayerDismissed.value = true
+        if (playerState.value.isPlaying) playerManager.pause()
     }
 
     fun playAudiobook(

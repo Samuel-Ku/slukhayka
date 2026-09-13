@@ -1,0 +1,50 @@
+# Vendor sync — keep copied upstream files pinned and fresh.
+#
+# A vendored file (the BotGuard po_token asset from NewPipe, once ported) has
+# no dependency version to bump. scripts/vendor-sync.py compares each
+# vendor/*.lock pin against upstream and rewrites the file + lock when
+# upstream moved; this workflow turns that into a reviewable PR.
+#
+# With no vendor/*.lock the script is a no-op, so this can ship before the
+# first component is ported.
+
+name: Vendor sync
+
+on:
+  schedule:
+    - cron: "47 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: vendor-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Refresh vendored components
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Sync vendored components
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/vendor-sync.py
+
+      - name: Open a PR when something drifted
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(vendor): оновити вендорені компоненти"
+          title: "chore(vendor): оновити вендорені компоненти"
+          body: |
+            Автоматичний vendor-sync: upstream-джерело вендореного файлу
+            змінилося. Переглянь диф і дочекайся CI.
+          branch: vendor-sync
+          delete-branch: true

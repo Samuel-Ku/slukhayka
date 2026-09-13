@@ -4619,4 +4619,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    // Spec-51 (#689) — a listener's OWN collections. Local-first: every call
+    // goes to the Room-backed store and the flow is refreshed from disk, so
+    // the sheet always shows what is really saved.
+    private val _listenerCollections =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.ListenerCollection>>(emptyList())
+    val listenerCollections:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.ListenerCollection>> =
+        _listenerCollections.asStateFlow()
+
+    fun refreshListenerCollections() {
+        viewModelScope.launch {
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    /** @param onCreated receives the new id, or null when the title is unusable. */
+    fun createListenerCollection(
+        title: String?,
+        description: String?,
+        onCreated: (String?) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val id = App.instance.listenerCollections.create(title, description)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+            onCreated(id)
+        }
+    }
+
+    fun addBookToCollection(collectionId: String, bookId: String, reason: String? = null) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.add(collectionId, bookId, reason)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
+
+    fun removeBookFromCollection(collectionId: String, bookId: String) {
+        viewModelScope.launch {
+            App.instance.listenerCollections.remove(collectionId, bookId)
+            _listenerCollections.value = App.instance.listenerCollections.all()
+        }
+    }
 }

@@ -57,4 +57,26 @@ class PublishedCollectionCodecTest {
         assertEquals(PublishedCollectionCodec.MAX_PSEUDONYM_LEN, (encoded["pseudonym"] as String).length)
         assertEquals(PublishedCollectionCodec.MAX_BOOKS, (encoded["bookIds"] as List<*>).size)
     }
+
+    @Test
+    fun `reasons travel with the books, positionally aligned`() {
+        val encoded = PublishedCollectionCodec.encode(
+            sample().copy(bookIds = listOf("a", "b", "c"), reasons = listOf("бо раз", "бо два"))
+        )
+        val decoded = PublishedCollectionCodec.decode(encoded)!!
+
+        // Three books, two reasons: the third is an honest empty, never a
+        // reason attached to the wrong book.
+        assertEquals(listOf("бо раз", "бо два", ""), decoded.reasons)
+        assertEquals(3, decoded.bookIds.size)
+    }
+
+    @Test
+    fun `a reason never borrows another book's slot`() {
+        val encoded = PublishedCollectionCodec.encode(
+            sample().copy(bookIds = listOf("a"), reasons = listOf("перше", "друге", "третє"))
+        )
+        val decoded = PublishedCollectionCodec.decode(encoded)!!
+        assertEquals(listOf("перше"), decoded.reasons)
+    }
 }

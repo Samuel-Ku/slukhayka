@@ -5,6 +5,7 @@ package com.slukhayka.audiobooks.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import com.slukhayka.audiobooks.data.duration.ChapterDurationConsensus
 import com.slukhayka.audiobooks.data.duration.StreamSizeDurationCheck
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
@@ -354,18 +355,19 @@ class AudioPlayerManager(
      * forced through HTTP.
      */
     private fun buildProductionPlayer(playerContext: Context): Player {
-        // #528 — the body that arrives is measured BEFORE anything acts on it.
-        // Media3 dropped `DataSource.getContentLength()`, so the length is only
-        // visible at `open()`; this wrapper records it and changes nothing.
-        val observedHttpFactory = BodyObserverFactory(httpDataSourceFactory) { dataSpec, length ->
-            suspiciousBody(dataSpec, length)?.let { (stored, implied) ->
-                Log.w(
-                    "AudioPlayer",
-                    "suspicious body ${dataSpec.uri}: stored=${stored}s implied=${implied}s"
-                )
+        // #528 — a body that cannot be the chapter is tried once more and then
+        // refused; see [BodyObserver].
+        val expectation: (androidx.media3.datasource.DataSpec, Long) -> Pair<Long, Long>? =
+            { dataSpec, length ->
+                suspiciousBody(dataSpec, length)?.also { (stored, implied) ->
+                    Log.w(
+                        "AudioPlayer",
+                        "substituted body ${dataSpec.uri}: stored=${stored}s implied=${implied}s"
+                    )
+                }
             }
-        }
-        val dataSourceFactory = DefaultDataSource.Factory(playerContext, observedHttpFactory)
+        val guardedHttpFactory = BodyObserverFactory(httpDataSourceFactory, expectation)
+        val dataSourceFactory = DefaultDataSource.Factory(playerContext, guardedHttpFactory)
         val audioAttr = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
             .setUsage(C.USAGE_MEDIA)
@@ -399,34 +401,41 @@ class AudioPlayerManager(
     }
 
     /**
-     * #528 — reports the size of every body an HTTP stream request resolved
-     * to, and changes no behaviour at all: it forwards the delegate's return
-     * value untouched, so playback sees exactly what it would have seen.
+     * #528 — the guard on the stream body, and the whole of its force.
      *
-     * Refusing a substituted body is deliberately NOT done here. The only
-     * expectation available is the chapter's own stored duration, and the
-     * substitution is precisely what poisons it — a guard built on that would
-     * refuse an honest file. Measuring first is what makes the eventual
-     * enforcement defensible.
+     * It exists because the CDN intermittently answers a chapter request with
+     * a ~52-second interstitial under HTTP 200. The substitution is
+     * intermittent, which is the lever: one more knock on the same URL
+     * usually returns the real file. So this tries twice and then REFUSES —
+     * but only ever on a duration the book's own chapters corroborate, so the
+     * poisoned single row that the same substitution leaves behind can never
+     * make us refuse an honest file.
+     *
+     * Media3 dropped `DataSource.getContentLength()`, so the body's size is
+     * only visible at `open()` — hence a forwarding wrapper rather than a
+     * check in the transfer listener. It changes nothing else: the delegate's
+     * return value is forwarded untouched.
      */
-    private class BodyObserverFactory(
+    internal class BodyObserverFactory(
         private val delegate: androidx.media3.datasource.DataSource.Factory,
-        private val onOpened: (androidx.media3.datasource.DataSpec, Long) -> Unit
+        private val expectation: (androidx.media3.datasource.DataSpec, Long) -> Pair<Long, Long>?
     ) : androidx.media3.datasource.DataSource.Factory {
         override fun createDataSource(): androidx.media3.datasource.DataSource =
-            BodyObserver(delegate.createDataSource(), onOpened)
+            BodyObserver(delegate.createDataSource(), expectation)
     }
 
-    private class BodyObserver(
+    internal class BodyObserver(
         private val delegate: androidx.media3.datasource.DataSource,
-        private val onOpened: (androidx.media3.datasource.DataSpec, Long) -> Unit
+        private val expectation: (androidx.media3.datasource.DataSpec, Long) -> Pair<Long, Long>?
     ) : androidx.media3.datasource.DataSource {
 
-        override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long {
-            val length = delegate.open(dataSpec)
-            onOpened(dataSpec, length)
-            return length
-        }
+        override fun open(dataSpec: androidx.media3.datasource.DataSpec): Long =
+            StreamBodyGuard.accept(
+                uri = dataSpec.uri.toString(),
+                open = { delegate.open(dataSpec) },
+                close = { delegate.close() },
+                expectation = { length -> expectation(dataSpec, length) }
+            )
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
             delegate.read(buffer, offset, length)
@@ -466,9 +475,15 @@ class AudioPlayerManager(
             return null
         }
         val stored = state.chapters.getOrNull(state.currentChapterIndex)?.durationSeconds ?: return null
-        if (stored <= 0L) return null
-        if (!StreamSizeDurationCheck.impliesImpossibleSmallBody(stored, contentLength)) return null
-        return stored to StreamSizeDurationCheck.impliedSeconds(contentLength)
+        // #528 — the stored duration is only evidence when the book's own
+        // chapters corroborate it. A lone poisoned row corroborated by
+        // nothing must never justify refusing a body.
+        val siblings = state.chapters
+            .filterIndexed { index, _ -> index != state.currentChapterIndex }
+            .map { it.durationSeconds }
+        val trusted = ChapterDurationConsensus.trustedSeconds(stored, siblings) ?: return null
+        if (!StreamSizeDurationCheck.impliesImpossibleSmallBody(trusted, contentLength)) return null
+        return trusted to StreamSizeDurationCheck.impliedSeconds(contentLength)
     }
 
     /**
@@ -713,12 +728,16 @@ class AudioPlayerManager(
             prepareTimeoutJob?.cancel()
             Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentTrack?.url}")
             val responseCode = StreamHealPolicy.responseCodeOf(error)
+            // #528 — a refused substituted body heals on the same budget as a
+            // moved file: the page's fresh URL is the remedy, and the same
+            // intermittent CDN usually answers the next request honestly.
+            val substituted = StreamHealPolicy.isSubstituted(error)
             // Spec-32 T4 (#234): a 404/403 on a network stream heals — the
             // source page is re-fetched once and the chapter re-prepares
             // with the fresh URL (no heal loops: the budget is one retry per
             // user-initiated chapter prepare). Everything else keeps the
             // honest immediate failure.
-            if (StreamHealPolicy.shouldHeal(responseCode, healAttemptsForChapter) &&
+            if (StreamHealPolicy.shouldHeal(responseCode, healAttemptsForChapter, substituted) &&
                 streamUrlHealer != null &&
                 isNetworkStream(currentTrack)
             ) {

@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -126,5 +127,26 @@ class CollectiveCardApplyRoomTest {
             reopened.close()
             context.deleteDatabase(name)
         }
+    }
+
+    @Test
+    fun `a card persists the source OWN download policy`() = runBlocking {
+        // lihtar is stream-only in the registry (its T1 verdict is GATED), so a
+        // card written through this path must carry the POLICY — not the silent
+        // `streamOnly = false` default of writeWorkEdition. This is the test
+        // class that would have caught the seed defect (#529).
+        val written = catalog.applyCollectiveCard(
+            card(sourceId = "lihtar", sourceUrl = "https://lihtar.in.ua/biblioteka/x")
+        )
+        assertNotNull(written)
+        val claim = dao.observeWorkSourcesForWork(written!!.work.id).first()
+            .first { it.sourceId == "lihtar" }
+
+        assertTrue("lihtar must stay stream-only", claim.streamOnly)
+        assertEquals(
+            "the persisted row must agree with the policy",
+            streamOnlyFor("lihtar"),
+            claim.streamOnly
+        )
     }
 }

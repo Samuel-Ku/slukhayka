@@ -44,7 +44,16 @@ class ChapterDurationRepair(
     }
 
     companion object {
-        /** Own flag: the seed's «once per install» must not gate the repair. */
+        /**
+         * Own flag: the seed's «once per install» must not gate the repair.
+         *
+         * KNOWN GAP (#528, measured on device): resetting a chapter to 0 hands it
+         * to [com.slukhayka.audiobooks.player.ChapterDurationPolicy] in the one
+         * state that policy accepts unconditionally — so a short interstitial can
+         * re-poison it, and this one-shot flag means the repair will not run
+         * again. The pass should become repeatable (its own condition is already
+         * idempotent) once the guard can tell a reset chapter from an unknown one.
+         */
         const val KEY_DONE = "chapter_duration_repair_v1_done"
     }
 }

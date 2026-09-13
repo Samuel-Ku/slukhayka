@@ -429,7 +429,14 @@ fun LibraryScreen(
                         com.slukhayka.audiobooks.ui.screens.collections.MyCollectionRow(
                             id = collection.id,
                             title = collection.title,
-                            bookCount = collection.items.size
+                            bookCount = collection.items.size,
+                            // The cover of the FIRST real item, or null — the
+                            // block then draws nothing rather than a fake.
+                            coverUrl = collection.coverBookId
+                                ?.let { coverId ->
+                                    libraryBooks.firstOrNull { it.book.id == coverId }
+                                        ?.book?.coverImageUrl
+                                }
                         )
                     },
                     onOpen = { openCollectionId = it }

@@ -29,9 +29,11 @@ object ChapterDurationRepairPlan {
         if (chapters.isEmpty()) return emptyList()
         val durations = chapters.values.toList()
 
-        if (ConstantChapterDurationDetector.looksLikeAConstant(durations, distinctTracks)) {
-            // The whole book carries one written-in value — reset every chapter.
-            return chapters.keys.toList()
+        val dominant = ConstantChapterDurationDetector.dominantDuration(durations)
+        if (dominant != null && distinctTracks >= ConstantChapterDurationDetector.MIN_REPEATS) {
+            // Reset only the chapters carrying the repeated value: a correctly
+            // measured sibling (e.g. 3188 s beside fourteen 52 s) stays.
+            return chapters.filterValues { it == dominant }.keys.toList()
         }
 
         return chapters.filter { (id, duration) ->

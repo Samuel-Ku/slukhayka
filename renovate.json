@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "timezone": "Europe/Kyiv",
+  "schedule": ["before 6am on monday"],
+  "rangeStrategy": "pin",
+  "rebaseWhen": "conflicted",
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "description": "Android platform packages in one grouped PR so the diff stays reviewable.",
+      "matchPackagePrefixes": [
+        "androidx.",
+        "com.google.android.",
+        "com.google.firebase"
+      ],
+      "groupName": "android platform"
+    },
+    {
+      "description": "NewPipeExtractor ships on JitPack and is versioned by upstream Git tags (v0.26.x); the custom manager below owns it, so the built-in Maven lookup must not open a second PR.",
+      "matchDatasources": ["maven"],
+      "matchPackageNames": ["com.github.teamnewpipe:NewPipeExtractor"],
+      "enabled": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The YouTube engine. It is the component that breaks first when YouTube changes its anti-bot checks, so its update should arrive as an ordinary reviewable PR rather than as a hotfix.",
+      "fileMatch": ["^gradle/libs\\.versions\\.toml$"],
+      "matchStrings": ["newpipe\\s*=\\s*\"(?<currentValue>v[0-9.]+)\""],
+      "depNameTemplate": "TeamNewPipe/NewPipeExtractor",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver-coerced"
+    }
+  ]
+}

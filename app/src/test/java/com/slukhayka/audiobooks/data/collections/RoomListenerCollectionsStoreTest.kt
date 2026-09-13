@@ -86,4 +86,25 @@ class RoomListenerCollectionsStoreTest {
         assertFalse(store.remove(id, "book-a"))
         assertFalse(store.add("missing", "book-a", null))
     }
+
+    @Test
+    fun `renaming and deleting work on disk, and delete takes the items with it`() = runBlocking {
+        val id = store.create("Стара", null)!!
+        store.add(id, "book-a", null)
+
+        assertTrue(store.rename(id, "Нова"))
+        assertEquals("Нова", store.all().single { it.id == id }.title)
+        assertFalse(store.rename(id, "https://spam.example"))
+
+        assertTrue(store.delete(id))
+        assertTrue(store.all().isEmpty())
+        assertFalse(store.delete(id))
+    }
+
+    @Test
+    fun `description edits are hygienic on disk`() = runBlocking {
+        val id = store.create("Магія", "старий")!!
+        assertTrue(store.updateDescription(id, " новий\n\nопис "))
+        assertEquals("новий опис", store.all().single { it.id == id }.description)
+    }
 }

@@ -43,5 +43,13 @@ interface ListenerCollectionsStore {
 
     suspend fun remove(collectionId: String, bookId: String): Boolean
 
+    /** Renaming to an unusable title changes nothing and reports false. */
+    suspend fun rename(collectionId: String, title: String?): Boolean
+
+    suspend fun updateDescription(collectionId: String, description: String?): Boolean
+
+    /** @return true when a collection was really deleted (with its items). */
+    suspend fun delete(collectionId: String): Boolean
+
     suspend fun all(): List<ListenerCollection>
 }

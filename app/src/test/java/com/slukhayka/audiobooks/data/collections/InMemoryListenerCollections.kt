@@ -39,5 +39,23 @@ class InMemoryListenerCollections(private val clock: () -> Long) : ListenerColle
         return true
     }
 
+    override suspend fun rename(collectionId: String, title: String?): Boolean {
+        val existing = collections[collectionId] ?: return false
+        val cleanTitle = ListenerCollectionLimits.cleanTitle(title)
+        if (!ListenerCollectionLimits.isWritableTitle(cleanTitle)) return false
+        collections[collectionId] = existing.copy(title = cleanTitle)
+        return true
+    }
+
+    override suspend fun updateDescription(collectionId: String, description: String?): Boolean {
+        val existing = collections[collectionId] ?: return false
+        collections[collectionId] =
+            existing.copy(description = ListenerCollectionLimits.cleanDescription(description))
+        return true
+    }
+
+    override suspend fun delete(collectionId: String): Boolean =
+        collections.remove(collectionId) != null
+
     override suspend fun all(): List<ListenerCollection> = collections.values.toList()
 }

@@ -71,4 +71,34 @@ class ListenerCollectionsStoreTest {
         val id = store.create("Порожня", null)!!
         assertNull(store.all().single { it.id == id }.coverBookId)
     }
+
+    @Test
+    fun `renaming applies hygiene and an unusable title changes nothing`() = runBlocking {
+        val store = store(1L)
+        val id = store.create("Стара", null)!!
+
+        assertTrue(store.rename(id, "  Нова https://spam.example "))
+        assertEquals("Нова", store.all().single().title)
+        assertFalse("a link-only title is not a title", store.rename(id, "https://spam.example"))
+        assertEquals("Нова", store.all().single().title)
+    }
+
+    @Test
+    fun `description is editable with hygiene`() = runBlocking {
+        val store = store(1L)
+        val id = store.create("Магія", "старий")!!
+        assertTrue(store.updateDescription(id, " новий\n\nопис "))
+        assertEquals("новий опис", store.all().single().description)
+    }
+
+    @Test
+    fun `deleting removes the collection and unknown ids report false`() = runBlocking {
+        val store = store(1L, 2L)
+        val id = store.create("Магія", null)!!
+        store.add(id, "book-a", null)
+
+        assertTrue(store.delete(id))
+        assertTrue(store.all().isEmpty())
+        assertFalse(store.delete(id))
+    }
 }

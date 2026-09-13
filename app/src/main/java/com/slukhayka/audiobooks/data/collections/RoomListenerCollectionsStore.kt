@@ -46,6 +46,24 @@ class RoomListenerCollectionsStore(
     override suspend fun remove(collectionId: String, bookId: String): Boolean =
         dao.deleteItem(collectionId, bookId) > 0
 
+    override suspend fun rename(collectionId: String, title: String?): Boolean {
+        val cleanTitle = ListenerCollectionLimits.cleanTitle(title)
+        if (!ListenerCollectionLimits.isWritableTitle(cleanTitle)) return false
+        return dao.updateTitle(collectionId, cleanTitle) > 0
+    }
+
+    override suspend fun updateDescription(collectionId: String, description: String?): Boolean =
+        dao.updateDescription(
+            collectionId,
+            ListenerCollectionLimits.cleanDescription(description)
+        ) > 0
+
+    override suspend fun delete(collectionId: String): Boolean {
+        // Items first: a collection must never leave orphans behind.
+        dao.deleteItemsOf(collectionId)
+        return dao.deleteCollection(collectionId) > 0
+    }
+
     override suspend fun all(): List<ListenerCollection> {
         val items = dao.items().groupBy { it.collectionId }
         return dao.collections().map { collection ->

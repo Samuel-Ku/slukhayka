@@ -290,7 +290,7 @@ dependencies {
   // the watch URL resolves to a progressive audio stream at play/download
   // time. Distribution is JitPack; rhino (deobfuscation) needs keep rules
   // under minification (see proguard-rules.pro).
-  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
+  implementation(libs.newpipe.extractor)
   implementation(libs.firebase.firestore)
 
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
@@ -586,4 +586,19 @@ kover {
       }
     }
   }
+}
+
+// #708 — the live metadata spike is manual only: forward its -D properties
+// into the TEST JVM (Gradle CLI -D goes to the Gradle JVM, not the forked test
+// JVM, so System.getProperty() in the test saw nothing and the gated test
+// silently skipped).
+tasks.withType<Test>().configureEach {
+    listOf("newpipe.spike", "spike.video", "spike.playlist", "spike.channel").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+}
+
+// #772 — test stdout must be visible: silent measurements are worse than none.
+tasks.withType<Test>().configureEach {
+    testLogging { showStandardStreams = true }
 }

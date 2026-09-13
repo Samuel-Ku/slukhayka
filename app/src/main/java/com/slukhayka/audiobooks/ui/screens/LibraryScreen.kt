@@ -90,6 +90,8 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
+import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
+import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
 
@@ -416,6 +418,94 @@ fun LibraryScreen(
 
                 // Spec-28 #193: the five one-tap statuses as a segmented row.
                 LibraryStatusRow(selected = filter, onSelect = { filter = it })
+
+                // Spec-51 (#690) — the listener's own collections, right in the
+                // Library. Local-first, and honestly empty when there are none.
+                val listenerCollections by viewModel.listenerCollections.collectAsState()
+                var openCollectionId by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(Unit) { viewModel.refreshListenerCollections() }
+                MyCollectionsBlock(
+                    rows = listenerCollections.map { collection ->
+                        com.slukhayka.audiobooks.ui.screens.collections.MyCollectionRow(
+                            id = collection.id,
+                            title = collection.title,
+                            bookCount = collection.items.size,
+                            // The cover of the FIRST real item, or null — the
+                            // block then draws nothing rather than a fake.
+                            coverUrl = collection.coverBookId
+                                ?.let { coverId ->
+                                    libraryBooks.firstOrNull { it.book.id == coverId }
+                                        ?.book?.coverImageUrl
+                                }
+                        )
+                    },
+                    onOpen = { openCollectionId = it }
+                )
+
+                // Spec-51 (#691) — the listener's OWN published collections,
+                // read back from the shared store. Rendered ONLY when a shared
+                // store is configured (the gate), so an unconfigured build
+                // shows no public surface at all.
+                val publishedCollections by viewModel.publishedListenerCollections.collectAsState()
+                var openPublishedDocumentId by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(viewModel.publicCollectionsAvailable) {
+                    if (viewModel.publicCollectionsAvailable) {
+                        viewModel.refreshMyPublishedCollections()
+                    }
+                }
+                com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionsBlock(
+                    rows = publishedCollections.map { published ->
+                        com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionRow(
+                            documentId = published.documentId,
+                            title = published.title,
+                            bookCount = published.bookIds.size,
+                            pseudonym = published.pseudonym
+                        )
+                    },
+                    onOpen = { openPublishedDocumentId = it }
+                )
+                publishedCollections
+                    .firstOrNull { it.documentId == openPublishedDocumentId }
+                    ?.let { open ->
+                        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+                        androidx.compose.material3.ModalBottomSheet(
+                            onDismissRequest = { openPublishedDocumentId = null }
+                        ) {
+                            com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
+                                collection = open,
+                                // "Already downloaded" means the reader HAS at
+                                // least one of these books locally: a fork
+                                // copies the composition, and offline it is
+                                // only useful (and honest) when the books are
+                                // really here. Otherwise the action is
+                                // disabled rather than silently failing.
+                                originalAvailableLocally = open.bookIds.any { bookId ->
+                                    libraryBooks.any { it.book.id == bookId }
+                                },
+                                onSaveForYou = {
+                                    viewModel.saveForkOfPublished(open.documentId)
+                                    openPublishedDocumentId = null
+                                }
+                            )
+                        }
+                    }
+                listenerCollections.firstOrNull { it.id == openCollectionId }?.let { open ->
+                    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+                    androidx.compose.material3.ModalBottomSheet(
+                        onDismissRequest = { openCollectionId = null }
+                    ) {
+                        com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent(
+                            collection = open,
+                            onRemoveBook = { bookId ->
+                                viewModel.removeBookFromCollection(open.id, bookId)
+                            },
+                            onDelete = {
+                                viewModel.deleteListenerCollection(open.id)
+                                openCollectionId = null
+                            }
+                        )
+                    }
+                }
 
                 // Spec-28 #193: the rare filters (Обрані / Локальні / Онлайн),
                 // sort and view toggle collapse into the filter sheet. The

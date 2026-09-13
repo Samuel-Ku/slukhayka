@@ -182,6 +182,16 @@ class App : Application() {
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
 
+    /**
+     * Spec-51 (#689) — a listener's own collections, local-first: the store is
+     * backed by the same Room database, never by a network round trip.
+     */
+    val listenerCollections: com.slukhayka.audiobooks.data.collections.ListenerCollectionsStore by lazy {
+        com.slukhayka.audiobooks.data.collections.RoomListenerCollectionsStore(
+            database.listenerCollectionsDao()
+        )
+    }
+
     /** #399 — process-scoped local person-bookmark module. */
     val personBookmarks: PersonBookmarks by lazy {
         PersonBookmarks(audiobookDao) { mutation ->

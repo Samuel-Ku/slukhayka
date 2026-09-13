@@ -189,22 +189,19 @@ class GlobalSearchMergeTest {
      */
     @Test
     fun `search hit with real author merges with the same work on another source`() = kotlinx.coroutines.runBlocking {
-        val fourRead = FourReadAdapter(FakeFetcher(emptyMap(), fallback = """
-            <html><body>
-            <div class="poster has-overlay grid-item d-flex fd-column">
-                <div class="poster__desc order-last">
-                    <a href="https://lihtar.in.ua/5359-taras-shevchenko-kobzar.html" class="poster__link"><div class="poster__title line-clamp">Кобзар</div></a>
-                    <div class="poster__subtitle ws-nowrap">Українська література / Роман</div>
-                    <div class="poster__subtitle ws-nowrap">Тарас Шевченко</div>
-                </div>
-            </div>
-            </body></html>
-        """))
-        val fourReadBook = fourRead.search("Кобзар").single()
+        // #812 — раніше влучання розбирав HTML адаптером забороненого
+        // джерела. Правило «автор із ДРУГОГО підзаголовка, не з жанрів»
+        // належить саме йому й лишається в ньому; а цей тест перевіряє
+        // ЗЛИТТЯ пошукового влучання з тим самим твором з іншого джерела —
+        // тож влучання будуємо прямо, без залежності від того адаптера.
+        val hit = book(
+            "Кобзар", "Тарас Шевченко", "lihtar",
+            "https://lihtar.in.ua/5359-taras-shevchenko-kobzar.html"
+        )
 
         val merged = mergeGlobalSearchResults(
             listOf(
-                fourReadBook,
+                hit,
                 book("Кобзар", "Тарас Шевченко", "soundbooks", "https://sound-books.net/kobzar.html")
             )
         )

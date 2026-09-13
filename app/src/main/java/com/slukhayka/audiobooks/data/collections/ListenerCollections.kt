@@ -18,7 +18,9 @@ data class ListenerCollection(
     val title: String,
     val description: String,
     val createdAt: Long,
-    val items: List<ListenerCollectionItem> = emptyList()
+    val items: List<ListenerCollectionItem> = emptyList(),
+    /** Present only on a FORK: the frozen attribution (spec-51 #695). */
+    val attribution: ForkAttribution? = null
 ) {
     /** The first real item — the cover source the AC asks for. */
     val coverBookId: String? get() = items.firstOrNull()?.bookId
@@ -50,6 +52,18 @@ interface ListenerCollectionsStore {
 
     /** @return true when a collection was really deleted (with its items). */
     suspend fun delete(collectionId: String): Boolean
+
+    /**
+     * Stores a fork: a new own collection whose composition is a copy of the
+     * original's, carrying the frozen [ForkAttribution]. The local store only —
+     * a fork never needs the network.
+     *
+     * @return true when the fork was stored.
+     */
+    suspend fun saveFork(
+        forked: ListenerCollection,
+        attribution: ForkAttribution
+    ): Boolean
 
     suspend fun all(): List<ListenerCollection>
 }

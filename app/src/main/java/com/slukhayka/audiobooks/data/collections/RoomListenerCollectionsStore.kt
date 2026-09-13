@@ -64,6 +64,36 @@ class RoomListenerCollectionsStore(
         return dao.deleteCollection(collectionId) > 0
     }
 
+    override suspend fun saveFork(
+        forked: ListenerCollection,
+        attribution: ForkAttribution
+    ): Boolean {
+        if (dao.collections().any { it.id == forked.id }) return false
+        dao.insertCollection(
+            ListenerCollectionEntity(
+                id = forked.id,
+                title = ListenerCollectionLimits.cleanTitle(forked.title),
+                description = ListenerCollectionLimits.cleanDescription(forked.description),
+                createdAt = forked.createdAt,
+                sourceDocumentId = attribution.sourceDocumentId,
+                sourceTitle = attribution.sourceTitle,
+                sourcePseudonym = attribution.sourcePseudonym,
+                snapshotAt = attribution.snapshotAt
+            )
+        )
+        forked.items.forEach { item ->
+            dao.insertItem(
+                ListenerCollectionItemEntity(
+                    collectionId = forked.id,
+                    bookId = item.bookId,
+                    reason = ListenerCollectionLimits.cleanReason(item.reason),
+                    addedAt = item.addedAt
+                )
+            )
+        }
+        return true
+    }
+
     override suspend fun all(): List<ListenerCollection> {
         val items = dao.items().groupBy { it.collectionId }
         return dao.collections().map { collection ->
@@ -74,6 +104,22 @@ class RoomListenerCollectionsStore(
                 createdAt = collection.createdAt,
                 items = items[collection.id].orEmpty().map {
                     ListenerCollectionItem(it.bookId, it.reason, it.addedAt)
+                },
+                // All four or none: a half-filled snapshot is not an attribution.
+                attribution = if (
+                    collection.sourceDocumentId != null &&
+                    collection.sourceTitle != null &&
+                    collection.sourcePseudonym != null &&
+                    collection.snapshotAt != null
+                ) {
+                    ForkAttribution(
+                        sourceTitle = collection.sourceTitle,
+                        sourcePseudonym = collection.sourcePseudonym,
+                        sourceDocumentId = collection.sourceDocumentId,
+                        snapshotAt = collection.snapshotAt
+                    )
+                } else {
+                    null
                 }
             )
         }

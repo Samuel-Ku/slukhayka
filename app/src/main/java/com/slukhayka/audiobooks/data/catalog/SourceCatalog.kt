@@ -2134,10 +2134,15 @@ class SourceCatalog(
                         }
                     }
                 }
-                val html = fourReadFetcher.getText("https://4read.org/")
-                if (html.isBlank()) return@withContext emptyList()
-                _catalogGenres.value = CatalogParser.parseGenreNav(html)
-                val sections = upsertAndFilterSections(withoutScamHosts(CatalogParser.parseHomepage(html)))
+                // #812 — жодних запитів на 4read.org.
+                //
+                // Секції домашньої стрічки більше не будуються зі сторінки
+                // шахрайського джерела. Вони приходять зі знімка (уже
+                // відфільтрованого за хостом) і з колективних блоків; якщо
+                // нічого немає — порожній результат чесніший за картки 4read.
+                // Порожній список, а не ранній вихід: решта тіла лишається
+                // чинною і просто нічого не публікує й не зберігає.
+                val sections = emptyList<CatalogSection>()
                 _catalogSections.value = sections
                 // #467: remember what the live homepage served so the next
                 // read within the catalog TTL never touches the network.

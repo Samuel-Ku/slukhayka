@@ -37,6 +37,24 @@ object EditionDurationPolicy {
         }
     }
 
+    /**
+     * #528 — may a SHARED bucket replace the one we already hold?
+     *
+     * The buckets are ordered coarsenings of the same truth, so a peer may
+     * widen our knowledge (an unknown bucket, or a larger one) but a collapse
+     * to a smaller bucket is the 52-second interstitial surfacing as «До 5 год»
+     * on a 28-minute book. Refused, exactly like the seconds it came from —
+     * this is the only gate on the canonical documents, which carry the
+     * precomputed bucket instead of the seconds.
+     */
+    fun mayReplaceBucket(local: FacetDurationBucket?, shared: FacetDurationBucket?): Boolean {
+        if (shared == null) return false
+        if (local == null) return true
+        // Ranked by the lower bound each bucket MEANS, not by declaration
+        // order, so reordering the enum cannot quietly weaken the rule.
+        return secondsRangeFor(shared).first >= secondsRangeFor(local).first
+    }
+
     fun labelFor(bucket: FacetDurationBucket): String = when (bucket) {
         FacetDurationBucket.UNDER_FIVE_HOURS -> "До 5 год"
         FacetDurationBucket.FIVE_TO_TEN_HOURS -> "5–10 год"

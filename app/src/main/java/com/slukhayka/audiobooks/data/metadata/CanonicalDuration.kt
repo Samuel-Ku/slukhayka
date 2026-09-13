@@ -39,7 +39,11 @@ object DurationObservationPolicy {
         canonicalDurationSeconds: Long?,
         candidateSeconds: Long
     ): DurationWriteDecision {
-        if (!DurationSanity.isPlausible(candidateSeconds)) return DurationWriteDecision.NoOp
+        // #528 — the canonical document is first-write-wins, so an interstitial
+        // length accepted here would become the shared truth for everyone and
+        // nothing could correct it (updates are denied). The candidate must be
+        // shareable, which excludes both the 52-second ad and stale shapes.
+        if (!DurationSanity.isShareable(candidateSeconds)) return DurationWriteDecision.NoOp
         val equivalentDifference = canonicalDurationSeconds?.let { canonical ->
             val tolerance = maxOf(
                 EQUIVALENT_ABSOLUTE_SECONDS,
@@ -87,7 +91,10 @@ object DurationConflictCodec {
         )
         return conflict.takeIf {
             DurationContractLimits.isPlausibleEditionId(it.editionId) &&
-                DurationSanity.isPlausible(it.candidateSeconds) &&
+                // #528 — the same shareable bound the rules enforce on create,
+                // so a document written before the ban cannot reintroduce an
+                // interstitial through the conflict collection.
+                DurationSanity.isShareable(it.candidateSeconds) &&
                 DurationContractLimits.isPlausibleProvenance(it.provenance)
         }
     }

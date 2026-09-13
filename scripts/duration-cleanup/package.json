@@ -1,0 +1,14 @@
+{
+  "name": "slukhayka-duration-cleanup",
+  "private": true,
+  "type": "module",
+  "description": "#528 — інвентар і прибирання спільної бази тривалостей",
+  "scripts": {
+    "inventory": "node inventory.mjs",
+    "dry-run": "node purge.mjs",
+    "purge": "node purge.mjs --apply"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

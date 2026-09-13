@@ -92,6 +92,7 @@ import kotlinx.coroutines.withContext
  * one explicit sync call ([fetchCatalogSections] / [refreshUnifiedCatalog] /
  * [refreshSourceFeeds]) when the app wants sync.
  */
+
 class SourceCatalog(
     private val dao: AudiobookDao,
     private val sourceAdapters: List<SourceAdapter>,
@@ -2138,7 +2139,12 @@ class SourceCatalog(
         seriesTitle = seriesTitle,
         seriesIndex = seriesIndex,
         totalDurationSeconds = totalDurationSeconds,
-        narrator = narrator
+        narrator = narrator,
+        // Канонічний ключ твору — той самий, що формує імпорт
+        // (`MergeKey.keyFor`). Без нього картка не має Work, і перевірка
+        // надгробка при вставці не спрацьовує: прибрана книжка повертається
+        // в «Огляд».
+        mergeKey = MergeKey.keyFor(title, author)
     )
 
     private fun withoutScamHosts(sections: List<CatalogSection>): List<CatalogSection> =

@@ -228,6 +228,17 @@ class MainActivityAccessibilityTest {
         // covers «Слухати» with a framework scrim (clickable «Dismiss», no
         // label). Auditing through a dialog is meaningless: answer it the way
         // a listener does, then audit the real screen.
+        // The sheet may not have composed yet when we look — previously that
+        // made this block a silent no-op and the sheet then covered the first
+        // check (flaky: passed via workflow_dispatch, failed on the PR run,
+        // same code). Wait for the sheet to APPEAR first.
+        runCatching {
+            composeTestRule.waitUntil(NAV_TIMEOUT_MS) {
+                runCatching {
+                    composeTestRule.onAllNodesWithText("Готово").fetchSemanticsNodes().isNotEmpty()
+                }.getOrDefault(false)
+            }
+        }
         runCatching {
             val done = composeTestRule.onAllNodesWithText("Готово").fetchSemanticsNodes()
             if (done.isNotEmpty()) {

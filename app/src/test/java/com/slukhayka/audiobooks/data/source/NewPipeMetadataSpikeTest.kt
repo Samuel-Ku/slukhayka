@@ -3,6 +3,11 @@ package com.slukhayka.audiobooks.data.source
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.downloader.Downloader
+import org.schabi.newpipe.extractor.downloader.Request
+import org.schabi.newpipe.extractor.downloader.Response
+import java.net.HttpURLConnection
+import java.net.URL
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.StreamInfo
 
@@ -19,6 +24,34 @@ import org.schabi.newpipe.extractor.stream.StreamInfo
 class NewPipeMetadataSpikeTest {
 
     private fun gate(): Boolean = System.getProperty("newpipe.spike") != null
+
+    /** A plain transport: no privacy relay, no header substitution. */
+    private object PlainDownloader : Downloader() {
+        override fun execute(request: Request): Response {
+            val conn = URL(request.url()).openConnection() as HttpURLConnection
+            conn.requestMethod = request.httpMethod()
+            request.headers().forEach { (k, v) -> conn.setRequestProperty(k, v.joinToString(", ")) }
+            request.dataToSend()?.let { data ->
+                conn.doOutput = true
+                conn.outputStream.use { it.write(data) }
+            }
+            val stream = if (conn.responseCode < 400) conn.inputStream else conn.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }
+            val headers = conn.headerFields
+                .filterKeys { it != null }
+                .mapValues { entry -> entry.value ?: emptyList() }
+            return Response(conn.responseCode, conn.responseMessage, headers, body ?: "", request.url())
+        }
+    }
+
+    @Test
+    fun `plain transport resolves the same video`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(PlainDownloader)
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE plain-transport name=${info.name} durationSec=${info.duration}")
+    }
 
     @Test
     fun `single video exposes a real duration`() {

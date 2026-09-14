@@ -32,7 +32,7 @@
       "accessMode": "DIRECT",
       "order": 1,
       "streamOnly": false,
-      "referer": { "value": "https://sound-books.net/", "scopeHosts": ["arch.sound-books.net"] },
+      "referer": { "value": "https://sound-books.net/", "scopeHosts": ["arch.sound-books.net", "reasd.org"] },
       "transportHosts": ["sound-books.net", "arch.sound-books.net"]
     },
     {

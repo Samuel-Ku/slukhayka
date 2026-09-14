@@ -435,10 +435,10 @@ interface AudiobookDao {
     // the pure normalizeTitle rule in Kotlin, and rewrites only the rows that
     // change — idempotent by construction (a second run matches nothing).
 
-    @Query("SELECT id, title FROM audiobooks")
+    @Query("SELECT id, title, author FROM audiobooks")
     suspend fun getAllBookTitleRows(): List<TitleRow>
 
-    @Query("SELECT id, title FROM works")
+    @Query("SELECT id, title, author FROM works")
     suspend fun getAllWorkTitleRows(): List<TitleRow>
 
     @Query("UPDATE audiobooks SET title = :title WHERE id = :id")

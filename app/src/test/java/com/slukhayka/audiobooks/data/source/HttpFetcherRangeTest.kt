@@ -79,9 +79,12 @@ class HttpFetcherRangeTest {
     }
 
     @Test
-    fun `every audio stream entry point refuses both hosts without a request`() {
-        for (host in listOf("reasd.org", "4read.org")) {
-            val denied = "https://$host/extensionless-stream"
+    fun `every audio stream entry point refuses notices and 4read without a request`() {
+        for (denied in listOf(
+            "https://reasd.org/notice/4read-notice.mp3",
+            "https://s1.reasd.org/notice/another-announcement.mp3",
+            "https://4read.org/extensionless-stream"
+        )) {
             assertNull(fetcher.getStream(denied))
             assertNull(fetcher.getSizedStream(denied))
             assertNull(fetcher.getSizedStreamResult(denied).sizedStream)

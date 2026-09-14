@@ -56,9 +56,9 @@ class PlaybackFallbackResolverTest {
         val local = kotlin.io.path.createTempFile("refused-audio", ".mp3").toFile()
         try {
             local.writeBytes(byteArrayOf(1, 2, 3))
-            for (host in listOf("reasd.org", "cdn.4read.org")) {
-                val denied = chapters("self", "soundbooks", 1, host).map {
-                    it.copy(track = it.track!!.copy(localFilePath = local.absolutePath))
+            for (url in listOf("https://reasd.org/notice/4read-notice.mp3", "https://cdn.4read.org/book.mp3")) {
+                val denied = chapters("self", "soundbooks", 1, "example.org").map {
+                    it.copy(track = it.track!!.copy(url = url, localFilePath = local.absolutePath))
                 }
                 val resolver = PlaybackFallbackResolver(
                     allBooks = { emptyList() }, chaptersFor = { emptyList() },

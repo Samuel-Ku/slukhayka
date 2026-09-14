@@ -1047,10 +1047,10 @@ class FakeAudiobookDao(
     // Spec-24 T1: the stored-title scrub reads through the same projection
     // the real DAO serves.
     override suspend fun getAllBookTitleRows(): List<TitleRow> =
-        booksState.value.map { TitleRow(it.id, it.title) }
+        booksState.value.map { TitleRow(it.id, it.title, it.author) }
 
     override suspend fun getAllWorkTitleRows(): List<TitleRow> =
-        worksState.value.map { TitleRow(it.id, it.title) }
+        worksState.value.map { TitleRow(it.id, it.title, it.author) }
 
     override suspend fun updateBookTitle(id: String, title: String) {
         booksState.update { current -> current.map { if (it.id == id) it.copy(title = title) else it } }

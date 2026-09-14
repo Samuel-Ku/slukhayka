@@ -88,6 +88,7 @@ object MetadataAssertions {
         "слухай аудіокнигу онлайн",
         "аудіокнига слухати онлайн",
         "слухати онлайн безкоштовно",
+        "слухати онлайн українською",
         "аудіокнига українською",
         // Spec-27 (#184) BUG-002: the «АудіоКниги Українською» site brand
         // appended to titles («Трохи ненависті - АудіоКниги Українською»)
@@ -142,12 +143,18 @@ object MetadataAssertions {
      * after the cut the ORIGINAL title is kept — the scrub never produces a
      * blank title. Idempotent: a second application matches nothing.
      */
-    fun normalizeTitle(claimed: String?): String {
+    fun normalizeTitle(claimed: String?, author: String? = null): String {
         val original = claimed?.trim().orEmpty()
         var title = original
         // Emoji anywhere, then a leading «Аудіокнига» prefix, then the curated
         // trailing phrases. Each pass is idempotent and never blanks.
         title = EMOJI.replace(title, "").trim()
+        // Soundbooks' current og:title wraps the real title in both a bare
+        // prefix and a listening slogan. Gate on BOTH so a genuine title
+        // beginning with «Аудіокнига» is never shortened just for that word.
+        val soundbooksWrapper = title.startsWith("Аудіокнига ", ignoreCase = true) &&
+            title.endsWith("слухати онлайн українською", ignoreCase = true)
+        if (soundbooksWrapper) title = title.removeRange(0, "Аудіокнига ".length).trim()
         title = LEADING_AUDIOBOOK_PREFIX.replace(title, "").trim()
         title = TRAILING_BARE_AUDIOBOOK.replace(title, "").trim()
         var changed = true
@@ -166,6 +173,15 @@ object MetadataAssertions {
                     changed = true
                     break
                 }
+            }
+        }
+        if (soundbooksWrapper) {
+            val knownAuthor = author?.trim().orEmpty()
+            if (knownAuthor.isNotEmpty()) {
+                title = Regex(
+                    """\s+[-–—]\s+(?:автор\s+)?""" + Regex.escape(knownAuthor) + "$",
+                    RegexOption.IGNORE_CASE
+                ).replace(title, "").trim()
             }
         }
         return title.ifBlank { original }

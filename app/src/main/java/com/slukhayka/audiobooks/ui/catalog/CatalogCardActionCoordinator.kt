@@ -100,6 +100,7 @@ interface CatalogCardActionGateway<Book> {
         savedBook: Book?
     ): List<SourceSelectionCoordinator.SourceCandidate> = sourceCandidates(target)
     suspend fun import(target: CatalogCardTarget, source: SourceEntity): Book?
+    fun preparationBudgetMs(source: SourceEntity): Long? = null
     suspend fun open(book: Book): Boolean
     suspend fun prepare(book: Book, source: SourceEntity?): Boolean = true
     suspend fun play(book: Book, source: SourceEntity?): Boolean
@@ -290,6 +291,10 @@ class CatalogCardActionCoordinator<Book>(
                         val sawImportedBook = AtomicBoolean(false)
                         val raceResult = BoundedEditionPlaybackRace(budgetMs).racePrepared(
                             selectedEditionId = raceEdition,
+                            preparationBudgetMs = { raceCandidate ->
+                                gateway.preparationBudgetMs(byId.getValue(raceCandidate.sourceId).source)
+                                    ?: budgetMs
+                            },
                             candidates = eligible.map { candidate ->
                                 EditionSourceCandidate(
                                     sourceId = candidate.source.id,

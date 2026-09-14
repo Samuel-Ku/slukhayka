@@ -4,6 +4,8 @@ import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -14,6 +16,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CatalogAvailabilityPolicyTest {
+
+    @Test
+    fun `longer resolution budget never extends Player startup budget`() = runTest {
+        val result = BoundedEditionPlaybackRace().racePrepared(
+            selectedEditionId = "edition-1",
+            candidates = listOf(EditionSourceCandidate("lihtar", "edition-1")),
+            preparationBudgetMs = { 180_000L },
+            prepare = { delay(30_000); SourceAttemptVerdict.READY },
+            play = { awaitCancellation() }
+        )
+        assertEquals(SourceAttemptVerdict.TIMEOUT, result.verdict)
+        assertEquals(38_000L, testScheduler.currentTime)
+    }
+
+    @Test
+    fun `adapter resolution still has a finite cancellable budget`() = runTest {
+        var cancelled = false
+        val result = BoundedEditionPlaybackRace().racePrepared(
+            selectedEditionId = "edition-1",
+            candidates = listOf(EditionSourceCandidate("lihtar", "edition-1")),
+            preparationBudgetMs = { 180_000L },
+            prepare = { try { awaitCancellation() } finally { cancelled = true } },
+            play = { error("An unresolved Source must never reach Player") }
+        )
+        assertEquals(SourceAttemptVerdict.TIMEOUT, result.verdict)
+        assertTrue(cancelled)
+        assertEquals(180_000L, testScheduler.currentTime)
+    }
 
     @Test
     fun `local verdict TTLs are exact at the expiry boundary`() {

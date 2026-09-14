@@ -662,6 +662,24 @@ class SourceCatalog(
             if (local != null) card.copy(coverImageUrl = local) else card
         }
 
+    /**
+     * #814 — обкладинка картки блоку «Огляду».
+     *
+     * Сторінки джерел віддають у статичному HTML лише ~10 плиток з
+     * обкладинками з ~40 книжок — решту сайт підвантажує скриптом. Тому в
+     * розібраних даних обкладинки просто немає. Беремо збережену локально
+     * (той самий прийом, що й у [withLocalCovers]) за канонічним ключем твору.
+     */
+    private suspend fun collectiveCoverFor(book: SourceBook): String? {
+        book.coverImageUrl?.takeIf { it.isNotBlank() }?.let { return it }
+        val key = MergeKey.keyFor(book.title, book.author).takeIf { it.isNotBlank() }
+            ?: return null
+        return runCatching {
+            dao.findByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
+                ?: dao.findWorkByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
     private fun CatalogBook.toSourceBook(): SourceBook = SourceBook(
         title = title,
         author = author,
@@ -758,7 +776,7 @@ class SourceCatalog(
                         sourceUrl = book.url,
                         title = book.title,
                         author = book.author,
-                        coverUrl = book.coverImageUrl
+                        coverUrl = collectiveCoverFor(book)
                     )
                 },
                 fetchedAt = 0L,
@@ -824,7 +842,7 @@ class SourceCatalog(
                             sourceUrl = book.url,
                             title = book.title,
                             author = book.author,
-                            coverUrl = book.coverImageUrl
+                            coverUrl = collectiveCoverFor(book)
                         )
                     },
                     fetchedAt = 0L,

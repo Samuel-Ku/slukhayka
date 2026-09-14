@@ -96,6 +96,32 @@ class SubmissionSheetTest {
     }
 
     @Test
+    fun `an already-owned link offers opening the book`() {
+        var opened: String? = null
+        compose.setContent {
+            AudiobookTheme {
+                SubmissionSheetContent(
+                    state = SubmissionUiState.AlreadyInLibrary("book-7"),
+                    remainingToday = 7,
+                    onSubmit = {},
+                    onOpenBook = { opened = it },
+                    includePaneSemantics = false
+                )
+            }
+        }
+
+        compose.onNodeWithText("Уже в медіатеці.").assertExists()
+        compose.onNodeWithTag("submission_open_book").performClick()
+        assertEquals("book-7", opened)
+    }
+
+    @Test
+    fun `a shared-base duplicate says so plainly`() {
+        show(SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.ALREADY_PUBLISHED))
+        compose.onNodeWithText("Уже в спільній базі.").assertExists()
+    }
+
+    @Test
     fun `an unsupported link explains what is accepted`() {
         show(SubmissionUiState.Unsupported)
         compose.onNodeWithText(

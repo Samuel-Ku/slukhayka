@@ -42,8 +42,11 @@ class ListenerSubmissionFlowTest {
         var importCalls = 0
         var tgCalls = 0
 
+        /** Spec-53 T6 — exactly which url reached the engine. */
+        val fetchedUrls = mutableListOf<String>()
+
         val flow = ListenerSubmissionFlow(
-            fetchMetadata = { fetchCalls++; metadataJson },
+            fetchMetadata = { url -> fetchCalls++; fetchedUrls += url; metadataJson },
             importYouTube = { _, _, _ -> importCalls++; importOutcome },
             fetchTgIdentity = { tgCalls++; tgIdentity },
             importWatchingTelegram = importWatching,
@@ -204,6 +207,44 @@ class ListenerSubmissionFlowTest {
         start as ListenerSubmissionFlow.Start.Imported
         assertFalse(start.publishable)
         assertTrue(harness.store.submissionPuts.isEmpty())
+    }
+
+    @Test
+    fun `every youtube shape reaches the engine as one canonical url`() = runTest {
+        val harness = Harness()
+
+        harness.flow.submit("https://youtu.be/abc123XYZ89?si=tracking")
+        harness.flow.submit("https://music.youtube.com/watch?v=abc123XYZ89&t=42")
+
+        assertEquals(
+            listOf("https://www.youtube.com/watch?v=abc123XYZ89"),
+            harness.fetchedUrls.distinct()
+        )
+        assertEquals(2, harness.fetchedUrls.size)
+    }
+
+    @Test
+    fun `a link already in my library is a friendly state, not a refusal`() = runTest {
+        val harness = Harness(
+            importOutcome = ListenerSubmissionFlow.ImportOutcome(
+                result = ListenerSubmissionFlow.ImportResult.ALREADY_ADDED,
+                bookId = "book-1",
+                sourceId = "source-1"
+            )
+        )
+
+        val start = harness.flow.submit(youtube)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        assertTrue((start as ListenerSubmissionFlow.Start.Imported).alreadyInLibrary)
+    }
+
+    @Test
+    fun `a fresh import is never marked as already in the library`() = runTest {
+        val start = Harness().flow.submit(youtube)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        assertFalse((start as ListenerSubmissionFlow.Start.Imported).alreadyInLibrary)
     }
 
     @Test

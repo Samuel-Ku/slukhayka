@@ -445,6 +445,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (book == null) {
                         _submissionState.value =
                             SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED)
+                    } else if (start.alreadyInLibrary) {
+                        // Spec-53 T6 — my library already has this copy: a
+                        // friendly state with «Відкрити книгу», not a refusal.
+                        _submissionState.value = SubmissionUiState.AlreadyInLibrary(start.bookId)
                     } else {
                         lastImportedBookId.value = start.bookId
                         // Spec-53 T3 — no autoplay: the sheet offers one

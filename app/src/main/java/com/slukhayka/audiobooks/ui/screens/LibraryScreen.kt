@@ -771,6 +771,12 @@ fun LibraryScreen(
                 state = submissionState,
                 remainingToday = submissionRemaining,
                 onListen = { viewModel.listenToLastImported() },
+                // Spec-53 T6 — the friendly dupe leads to the owned copy.
+                onOpenBook = { bookId ->
+                    showSubmissionSheet = false
+                    viewModel.dismissSubmission()
+                    onBookClick(bookId)
+                },
                 prefillUrl = sharedSubmissionUrl,
                 clipboardCandidate = submissionClipboardCandidate,
                 onSubmit = viewModel::submitLink,

@@ -44,6 +44,12 @@ sealed interface SubmissionUiState {
     data object Idle : SubmissionUiState
     data object Working : SubmissionUiState
     data class Imported(val publishable: Boolean) : SubmissionUiState
+
+    /**
+     * Spec-53 T6 — the link's copy is already in MY library: a friendly state
+     * with one clear action, never a generic refusal.
+     */
+    data class AlreadyInLibrary(val bookId: String) : SubmissionUiState
     data object Published : SubmissionUiState
     data object MetadataPublished : SubmissionUiState
     data class Refused(val reason: ListenerSubmissionFlow.Reason) : SubmissionUiState
@@ -66,7 +72,9 @@ fun SubmissionSheet(
     /** Spec-53 T4 — a link arriving from a system share. */
     prefillUrl: String? = null,
     /** Spec-53 T4 — a supported link already in the clipboard (chip). */
-    clipboardCandidate: String? = null
+    clipboardCandidate: String? = null,
+    /** Spec-53 T6 — opens the already-owned book from the sheet. */
+    onOpenBook: ((String) -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -81,6 +89,7 @@ fun SubmissionSheet(
             onListen = onListen,
             prefillUrl = prefillUrl,
             clipboardCandidate = clipboardCandidate,
+            onOpenBook = onOpenBook,
             includePaneSemantics = false
         )
     }
@@ -96,6 +105,7 @@ fun SubmissionSheetContent(
     onListen: (() -> Unit)? = null,
     prefillUrl: String? = null,
     clipboardCandidate: String? = null,
+    onOpenBook: ((String) -> Unit)? = null,
     includePaneSemantics: Boolean = true
 ) {
     var url by rememberSaveable(prefillUrl) { mutableStateOf(prefillUrl.orEmpty()) }
@@ -186,6 +196,18 @@ fun SubmissionSheetContent(
                 Text(stringResource(R.string.submission_listen_now))
             }
         }
+        // Spec-53 T6 — the already-owned copy is one tap away, not a refusal.
+        if (state is SubmissionUiState.AlreadyInLibrary && onOpenBook != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = { onOpenBook(state.bookId) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("submission_open_book")
+            ) {
+                Text(stringResource(R.string.submission_open_book))
+            }
+        }
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = { onSubmit(url.trim()) },
@@ -209,6 +231,8 @@ private fun submissionStatusText(state: SubmissionUiState): String? = when (stat
         stringResource(R.string.submission_status_imported_local)
     }
     SubmissionUiState.Published -> stringResource(R.string.submission_status_published)
+    is SubmissionUiState.AlreadyInLibrary ->
+        stringResource(R.string.submission_status_already_in_library)
     SubmissionUiState.MetadataPublished -> stringResource(R.string.submission_status_metadata_published)
     is SubmissionUiState.Refused -> stringResource(submissionRefusalRes(state.reason))
     SubmissionUiState.Unsupported -> stringResource(R.string.submission_status_unsupported)

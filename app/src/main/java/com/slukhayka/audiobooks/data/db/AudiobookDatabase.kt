@@ -51,7 +51,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class
     ],
-    version = 43,
+    version = 44,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -77,7 +77,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44
                     )
                     .build()
                 INSTANCE = instance
@@ -1341,6 +1341,33 @@ abstract class AudiobookDatabase : RoomDatabase() {
           * 19 книжок мали `genre = "4read Каталог"`, і це видно в бібліотеці.
           * Прибираємо значення, а не книжки: жанр — це мітка, а не сутність.
           */
+         /**
+          * UI: назви розділів, збережені в URL-кодуванні.
+          *
+          * Джерело віддає імена файлів як `%D0%94%D1%96%D0%BD...`, і раніше
+          * вони лягали в базу без декодування — у міні-плеєрі й списку
+          * розділів було видно «%D0%9D…». Парсер виправлено; цей прохід
+          * лікує те, що вже збережено.
+          */
+         internal val MIGRATION_43_44 = object : Migration(43, 44) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 val updates = mutableListOf<Pair<String, String>>()
+                 db.query("SELECT id, title FROM chapters WHERE title LIKE '%D0%' OR title LIKE '%D1%'").use { cur ->
+                     while (cur.moveToNext()) {
+                         val id = cur.getString(0) ?: continue
+                         val title = cur.getString(1) ?: continue
+                         val decoded = runCatching {
+                             java.net.URLDecoder.decode(title, "UTF-8")
+                         }.getOrDefault(title)
+                         if (decoded != title) updates += id to decoded
+                     }
+                 }
+                 updates.forEach { (id, title) ->
+                     db.execSQL("UPDATE `chapters` SET `title` = ? WHERE `id` = ?", arrayOf(title, id))
+                 }
+             }
+         }
+
          internal val MIGRATION_42_43 = object : Migration(42, 43) {
              override fun migrate(db: SupportSQLiteDatabase) {
                  db.execSQL("UPDATE `audiobooks` SET `genre` = '' WHERE `genre` LIKE '%4read%' OR `genre` LIKE '%reasd%'")

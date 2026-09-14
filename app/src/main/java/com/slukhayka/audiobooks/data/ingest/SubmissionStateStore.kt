@@ -27,6 +27,9 @@ interface SubmissionStateStore {
     suspend fun save(row: SubmissionState)
     suspend fun bySourceId(sourceId: String): SubmissionState?
 
+    /** Spec-53 T7 — the newest row of one library book, or null. */
+    suspend fun byBookId(bookId: String): SubmissionState?
+
     /** Rows awaiting their playback verdict (spec-53 T3). */
     suspend fun awaiting(): List<SubmissionState>
 
@@ -43,6 +46,8 @@ class InMemorySubmissionStateStore : SubmissionStateStore {
         rows[row.sourceId] = row
     }
     override suspend fun bySourceId(sourceId: String): SubmissionState? = rows[sourceId]
+    override suspend fun byBookId(bookId: String): SubmissionState? =
+        rows.values.filter { it.bookId == bookId }.maxByOrNull { it.updatedAt }
     override suspend fun awaiting(): List<SubmissionState> =
         rows.values.filter { it.state == SubmissionState.State.AWAITING_PLAY }
 
@@ -65,6 +70,8 @@ class RoomSubmissionStateStore(private val dao: AudiobookDao) : SubmissionStateS
     }
     override suspend fun bySourceId(sourceId: String): SubmissionState? =
         dao.submissionStateBySourceId(sourceId)?.toModel()
+    override suspend fun byBookId(bookId: String): SubmissionState? =
+        dao.submissionStateByBookId(bookId)?.toModel()
     override suspend fun awaiting(): List<SubmissionState> =
         dao.awaitingSubmissionStates().map { it.toModel() }
 

@@ -6,6 +6,7 @@ import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -245,6 +246,59 @@ class ListenerSubmissionFlowTest {
 
         assertTrue(start is ListenerSubmissionFlow.Start.Imported)
         assertFalse((start as ListenerSubmissionFlow.Start.Imported).alreadyInLibrary)
+    }
+
+    @Test
+    fun `a published submission can be corrected in the shared base`() = runTest {
+        val harness = Harness()
+        harness.flow.submit(youtube)
+        assertEquals(ListenerSubmissionFlow.Verdict.Published, harness.flow.onPlaybackStarted("source-1"))
+        val before = harness.store.submissionPuts.size
+
+        val verdict = harness.flow.updatePublishedMetadata(
+            bookId = "book-1",
+            title = "Виправлена назва",
+            author = "Справжній автор",
+            narrator = null
+        )
+
+        assertEquals(ListenerSubmissionFlow.Verdict.Published, verdict)
+        assertEquals(before + 1, harness.store.submissionPuts.size)
+        // The document identity never moves: the correction lands under the
+        // SAME normalized url the publication used.
+        assertEquals(youtube, harness.store.submissionPuts.last().sourceUrl)
+        val stored = harness.store.getSubmission(youtube)
+        assertEquals("Виправлена назва", stored?.title)
+        assertEquals("Справжній автор", stored?.author)
+    }
+
+    @Test
+    fun `an unpublished book has nothing to update in the shared base`() = runTest {
+        val harness = Harness()
+        harness.flow.submit(youtube)
+
+        assertNull(harness.flow.publishedSubmission("book-1"))
+        assertEquals(
+            ListenerSubmissionFlow.Verdict.NoPending,
+            harness.flow.updatePublishedMetadata("book-1", "Назва", null, null)
+        )
+        assertTrue(harness.store.submissionPuts.isEmpty())
+    }
+
+    @Test
+    fun `a shared-base failure keeps the publication published`() = runTest {
+        val harness = Harness()
+        harness.flow.submit(youtube)
+        harness.flow.onPlaybackStarted("source-1")
+        harness.store.throwOnPublishSubmission = true
+
+        val verdict = harness.flow.updatePublishedMetadata("book-1", "Нова назва", null, null)
+
+        assertEquals(
+            ListenerSubmissionFlow.Verdict.Refused(ListenerSubmissionFlow.Reason.SHARED_BASE_UNAVAILABLE),
+            verdict
+        )
+        assertNotNull("the row stays published", harness.flow.publishedSubmission("book-1"))
     }
 
     @Test

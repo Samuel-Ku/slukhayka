@@ -88,6 +88,7 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.PlaybackReplacementMapping
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
+import com.slukhayka.audiobooks.data.ingest.MetadataCorrectionPolicy
 import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
@@ -423,6 +424,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val book = libraryEntries.getBookSync(bookId) ?: return@launch
             withContext(Dispatchers.Main) { playAudiobook(book) }
+        }
+    }
+
+    /**
+     * Spec-53 T7 — the listener's explicit correction of a badly parsed book.
+     * Display claims only: the Work mergeKey and the Edition id are untouched,
+     * so identity survives and no second Work appears.
+     */
+    fun correctBookMetadata(bookId: String, title: String, author: String, narrator: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@runCatching
+                when (
+                    val outcome = MetadataCorrectionPolicy.apply(
+                        currentTitle = book.title,
+                        currentAuthor = book.author,
+                        currentNarrator = book.narrator,
+                        edit = MetadataCorrectionPolicy.Edit(
+                            title = title,
+                            author = author,
+                            narrator = narrator
+                        )
+                    )
+                ) {
+                    is MetadataCorrectionPolicy.Outcome.Corrected ->
+                        App.instance.audiobookDao.correctBookMetadata(
+                            bookId = bookId,
+                            title = outcome.correction.title,
+                            author = outcome.correction.author,
+                            narrator = outcome.correction.narrator
+                        )
+                    is MetadataCorrectionPolicy.Outcome.Refused -> Unit
+                }
+            }
+        }
+    }
+
+    /**
+     * Spec-53 T7 — the same correction, pushed to the shared base. A no-op
+     * unless the book really has a published submission (the flow re-checks).
+     */
+    fun updatePublishedMetadata(bookId: String, title: String, author: String, narrator: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                listenerSubmissionFlow.updatePublishedMetadata(bookId, title, author, narrator)
+            }
         }
     }
 
@@ -3485,6 +3532,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     key != null && watched.containsKey(key)
                 }
             }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * Spec-53 T7 — whether the open book has a PUBLISHED submission, i.e.
+     * whether «Оновити в спільній базі» may exist at all.
+     */
+    val bookPublishedSubmission: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(false)
+            else flowOf(listenerSubmissionFlow.publishedSubmission(bookId) != null)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 

@@ -127,6 +127,13 @@
     <string name="speed_default_for_all">Стандарт для всіх</string>
     <string name="book_detail_mark_listened">Позначити прослуханим</string>
     <string name="book_detail_unmark_listened">Зняти позначку</string>
+    <!-- Spec-53 T7 — correcting a badly parsed book. -->
+    <string name="book_detail_correct_metadata">Виправити метадані</string>
+    <string name="book_detail_update_published">Оновити в спільній базі</string>
+    <string name="book_detail_metadata_title">Назва</string>
+    <string name="book_detail_metadata_author">Автор</string>
+    <string name="book_detail_metadata_narrator">Начитка</string>
+    <string name="book_detail_metadata_save">Зберегти</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
     <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
     <string name="author_all_found">Усі знайдені автори</string>

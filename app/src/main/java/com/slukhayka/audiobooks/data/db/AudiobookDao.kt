@@ -252,6 +252,15 @@ interface AudiobookDao {
         rating: Float?
     )
 
+    /**
+     * Spec-53 T7 — the listener's explicit correction of a badly parsed book.
+     * Unconditional (a cleared author must really clear), display-only: the
+     * Work mergeKey and the Edition id are other tables and stay untouched, so
+     * identity survives the fix.
+     */
+    @Query("UPDATE audiobooks SET title = :title, author = :author, narrator = :narrator WHERE id = :bookId")
+    suspend fun correctBookMetadata(bookId: String, title: String, author: String, narrator: String)
+
     // --- Source tracks (ADR-0007): the physical playback data of a Source ---
 
     @Query("SELECT * FROM source_tracks WHERE sourceId = :sourceId ORDER BY trackIndex ASC")
@@ -1460,6 +1469,10 @@ interface AudiobookDao {
 
     @Query("SELECT * FROM submission_states WHERE sourceId = :sourceId LIMIT 1")
     suspend fun submissionStateBySourceId(sourceId: String): SubmissionStateEntity?
+
+    /** Spec-53 T7 — the newest submission row of one library book. */
+    @Query("SELECT * FROM submission_states WHERE bookId = :bookId ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun submissionStateByBookId(bookId: String): SubmissionStateEntity?
 
     @Query("SELECT * FROM submission_states WHERE state = 'AWAITING_PLAY' ORDER BY createdAt")
     suspend fun awaitingSubmissionStates(): List<SubmissionStateEntity>

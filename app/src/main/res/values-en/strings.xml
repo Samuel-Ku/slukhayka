@@ -122,6 +122,13 @@
     <string name="speed_default_for_all">Default for all</string>
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
+    <!-- Spec-53 T7 — correcting a badly parsed book. -->
+    <string name="book_detail_correct_metadata">Correct metadata</string>
+    <string name="book_detail_update_published">Update in the shared base</string>
+    <string name="book_detail_metadata_title">Title</string>
+    <string name="book_detail_metadata_author">Author</string>
+    <string name="book_detail_metadata_narrator">Narrator</string>
+    <string name="book_detail_metadata_save">Save</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
     <string name="book_detail_listened_state_off">Not marked as listened</string>
     <string name="author_all_found">All found authors</string>

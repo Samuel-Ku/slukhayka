@@ -354,6 +354,60 @@ class ListenerSubmissionFlow(
     suspend fun watchingBookIds(): Set<String> =
         runCatching { store.watching().map { it.bookId }.toSet() }.getOrDefault(emptySet())
 
+    /**
+     * Spec-53 T7 — the published submission of one book, when it exists. This
+     * is the gate for «Оновити в спільній базі»: null means the action must
+     * not exist at all. A [SubmissionState.State.PUBLISHED] row could only be
+     * written after a real playback verdict, so the quality bar holds even
+     * after a restart wipes the in-memory verification record.
+     */
+    suspend fun publishedSubmission(bookId: String): SubmissionState? =
+        runCatching {
+            store.byBookId(bookId)?.takeIf { it.state == SubmissionState.State.PUBLISHED }
+        }.getOrNull()
+
+    /**
+     * Spec-53 T7 — pushes the corrected display claims of my published
+     * submission back to the shared base. Identity is the stored row's URL
+     * (→ document id), never recomputed from the edit, so a fixed title can
+     * never fork a second document. A failed update leaves the row PUBLISHED:
+     * the publication still stands, only the correction did not land.
+     */
+    suspend fun updatePublishedMetadata(
+        bookId: String,
+        title: String,
+        author: String?,
+        narrator: String?
+    ): Verdict {
+        val row = publishedSubmission(bookId) ?: return Verdict.NoPending
+        val pub = publisher ?: return Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
+        val submitter = runCatching { submitterId.invoke() }.getOrNull()
+            ?: return Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
+        return try {
+            when (
+                pub.updatePublishedMetadata(
+                    url = row.url,
+                    metadataJson = row.metadataJson,
+                    channelId = row.channelId,
+                    sourceId = row.sourceId,
+                    submitterId = submitter,
+                    title = title,
+                    author = author,
+                    narrator = narrator,
+                    verifiedAt = row.updatedAt
+                )
+            ) {
+                SubmissionPublisher.Result.PUBLISHED -> Verdict.Published
+                SubmissionPublisher.Result.METADATA_FAILED -> Verdict.Refused(Reason.METADATA_FAILED)
+                else -> Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
+        }
+    }
+
 }
 
 // Spec-53 T4 — the supported submission hosts, shared by the flow's

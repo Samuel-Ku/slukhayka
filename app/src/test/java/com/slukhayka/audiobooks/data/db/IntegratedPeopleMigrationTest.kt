@@ -90,7 +90,14 @@ class IntegratedPeopleMigrationTest {
                 AudiobookDatabase.MIGRATION_32_33, AudiobookDatabase.MIGRATION_33_34,
                 AudiobookDatabase.MIGRATION_34_35, AudiobookDatabase.MIGRATION_35_36,
                 AudiobookDatabase.MIGRATION_36_37, AudiobookDatabase.MIGRATION_37_38,
-                AudiobookDatabase.MIGRATION_38_39
+                AudiobookDatabase.MIGRATION_38_39,
+                // #812 — ланцюг мусить доходити до ПОТОЧНОЇ версії. Кожна
+                // нова міграція вимагає дописати себе сюди, інакше Room не
+                // знаходить шляху 25→N і тест падає.
+                AudiobookDatabase.MIGRATION_39_40,
+                AudiobookDatabase.MIGRATION_40_41,
+                AudiobookDatabase.MIGRATION_41_42,
+                AudiobookDatabase.MIGRATION_42_43
             )
             .allowMainThreadQueries().build()
         try {

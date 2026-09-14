@@ -18,6 +18,10 @@ object TransportClients {
     private class Clients(val route: NetworkRoute) {
         private val active = ConcurrentHashMap.newKeySet<Call>()
         val http = OkHttpClient.Builder()
+            // Reject stored notice URLs before DNS and inspect every automatic
+            // redirect before its target is requested (also covers downloads).
+            .addInterceptor(AudioNoticePolicy.interceptor())
+            .addNetworkInterceptor(AudioNoticePolicy.interceptor())
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(18, TimeUnit.SECONDS)
             .proxy(when (route) {

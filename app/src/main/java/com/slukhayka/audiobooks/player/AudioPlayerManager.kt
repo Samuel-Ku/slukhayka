@@ -23,6 +23,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.slukhayka.audiobooks.data.privacy.TransportClients
+import com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
@@ -740,6 +741,18 @@ class AudioPlayerManager(
             prepareTimeoutJob?.cancel()
             Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentTrack?.url}")
             val responseCode = StreamHealPolicy.responseCodeOf(error)
+            // A known notice is a proven substitution, even for a single
+            // chapter with no trustworthy duration. Never retry that source.
+            if (AudioNoticePolicy.causedByNotice(error)) {
+                if (PlaybackFallbackPolicy.shouldAttempt(responseCode, fallbackAttemptsForChapter, blockedNotice = true) &&
+                    chapterFallback != null && isNetworkStream(currentTrack)
+                ) {
+                    attemptPlaybackFallback(responseCode, AudioNoticePolicy.ERROR_CODE)
+                } else {
+                    reportPrimaryFailure(responseCode, AudioNoticePolicy.ERROR_CODE)
+                }
+                return
+            }
             // #528 — a refused substituted body heals on the same budget as a
             // moved file: the page's fresh URL is the remedy, and the same
             // intermittent CDN usually answers the next request honestly.
@@ -780,6 +793,14 @@ class AudioPlayerManager(
      * primary-stream message.
      */
     private fun reportPrimaryFailure(responseCode: Int?, errorCodeName: String) {
+        if (errorCodeName == AudioNoticePolicy.ERROR_CODE) {
+            reportPlaybackFailure(
+                errorCodeName = errorCodeName,
+                detail = context.getString(R.string.a11y_player_error_audio_notice),
+                kind = PlaybackErrorKind.UNAVAILABLE
+            )
+            return
+        }
         // Spec-32 T4 (#234): a 404/403 that already spent the heal budget
         // is the honest «book unavailable» state — the file moved, was
         // retried once with a fresh URL, and is still dead. Any other
@@ -975,9 +996,15 @@ class AudioPlayerManager(
         )
         scope.launch {
             if (requestId != prepareRequestId) return@launch
-            val candidate = runCatching {
-                fallback.invoke(book, chapterCount, chapterIndex, failedSourceId)
-            }.getOrNull()
+            val candidate = try {
+                withTimeoutOrNull(15_000L) {
+                    fallback.invoke(book, chapterCount, chapterIndex, failedSourceId)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
             if (requestId != prepareRequestId) return@launch
             if (candidate == null) {
                 reportPrimaryFailure(responseCode, errorCodeName)

@@ -12,7 +12,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 class TransportClientsTest {
-    private class Origin : AutoCloseable {
+    private class Origin(val response: String = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok") : AutoCloseable {
         val server = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
         val requests = AtomicInteger()
         val sockets = ConcurrentHashMap.newKeySet<Socket>()
@@ -31,7 +31,7 @@ class TransportClientsTest {
                                     while (reader.readLine() != null) {
                                         while (!reader.readLine().isNullOrEmpty()) { }
                                         requests.incrementAndGet()
-                                        it.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".toByteArray())
+                                        it.getOutputStream().write(response.toByteArray())
                                         it.getOutputStream().flush()
                                     }
                                 } catch (_: IOException) { }
@@ -46,6 +46,42 @@ class TransportClientsTest {
             sockets.forEach { it.close() }
             workers.shutdownNow()
         }
+    }
+
+    @Test
+    fun `both playback and downloads reject notice redirects before following them`() {
+        try {
+            TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+            for (status in listOf(301, 302, 303, 307, 308)) {
+                Origin("HTTP/1.1 $status Redirect\r\nLocation: https://reasd.org/notice/4read-notice.mp3?x=1\r\nContent-Length: 0\r\n\r\n").use { origin ->
+                    for (factory in listOf(TransportClients.calls, TransportClients.playbackCalls)) {
+                        try {
+                            factory.newCall(Request.Builder().url(origin.url).build()).execute().use {
+                                fail("The 52-second notice must never reach the player or downloader")
+                            }
+                        } catch (error: IOException) {
+                            assertTrue("Expected the notice verdict, got $error", AudioNoticePolicy.causedByNotice(error))
+                        }
+                    }
+                    assertEquals(2, origin.requests.get())
+                }
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    @Test
+    fun `a stored notice URL is blocked before DNS or network`() {
+        try {
+            TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+            for (factory in listOf(TransportClients.calls, TransportClients.playbackCalls)) {
+                try {
+                    factory.newCall(Request.Builder().url("https://reasd.org/notice/4read-notice.mp3").build())
+                        .execute().use { fail("Stored notice must be blocked too") }
+                } catch (error: IOException) {
+                    assertTrue(AudioNoticePolicy.causedByNotice(error))
+                }
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
     }
 
     @Test

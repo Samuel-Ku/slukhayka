@@ -224,7 +224,7 @@ class SourceFeedsRepositoryTest {
     """.trimIndent()
 
     @Test
-    fun `the new-arrivals rail merges 4read with other sources and deduplicates by Work`() = runBlocking {
+    fun `the new-arrivals rail merges sources and deduplicates by Work`() = runBlocking {
         val soundbooks = FakeAdapter(
             "soundbooks",
             listOf(
@@ -244,23 +244,42 @@ class SourceFeedsRepositoryTest {
                 )
             )
         )
-        val repository = repo(
-            soundbooks,
-            fetcher = FakeFetcher(responses = mapOf("https://4read.org/" to homepage))
+        // #812 — рейка «Новинки» більше не бере нічого зі сторонньої
+        // сторінки: вона зливає ПОТОКИ джерел. Тож друге джерело даємо
+        // адаптером, а не фейковою домашньою сторінкою.
+        val lihtar = FakeAdapter(
+            "lihtar",
+            listOf(
+                SourceBook(
+                    title = "Вкради мене... Зараз!",
+                    author = "Сергій Оріанець",
+                    url = "https://lihtar.in.ua/vkrady",
+                    sourceId = "lihtar"
+                ),
+                SourceBook(
+                    title = "Неостанній бій",
+                    author = "Костянтин Шелест",
+                    url = "https://lihtar.in.ua/neostannij-bij",
+                    sourceId = "lihtar"
+                )
+            )
         )
+        val repository = repo(soundbooks, lihtar)
 
-        repository.fetchCatalogSections()
+        // Спершу потоки, потім секції: рейку «Новинки» публікує саме
+        // `fetchCatalogSections` (у ньому живе `publishNewArrivals`).
         repository.refreshSourceFeeds()
+        repository.fetchCatalogSections()
 
         val rail = repository.newArrivals.value
-        // Вкради мене... Зараз! (merged) + Неостанній бій (4read) + Темна матерія (soundbooks).
+        // Вкради мене... Зараз! (merged) + Неостанній бій (lihtar) + Темна матерія (soundbooks).
         assertEquals(3, rail.size)
         val merged = rail.first { it.title == "Вкради мене... Зараз!" }
         assertEquals("Сергій Оріанець", merged.author)
         // One badge per source, sorted by sourceId.
-        assertEquals(listOf("soundbooks", "4read"), merged.sources.map { it.sourceId })
+        assertEquals(listOf("soundbooks", "lihtar"), merged.sources.map { it.sourceId })
         assertEquals(1, rail.first { it.title == "Неостанній бій" }.sources.size)
-        assertEquals("4read", rail.first { it.title == "Неостанній бій" }.sources.single().sourceId)
+        assertEquals("lihtar", rail.first { it.title == "Неостанній бій" }.sources.single().sourceId)
         assertEquals("soundbooks", rail.first { it.title == "Темна матерія" }.sources.single().sourceId)
     }
 

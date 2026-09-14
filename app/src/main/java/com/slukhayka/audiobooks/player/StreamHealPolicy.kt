@@ -29,6 +29,15 @@ object StreamHealPolicy {
     const val HTTP_NOT_FOUND = 404
 
     /**
+     * #812 — HTTP Gone: підпис у збереженому URL протермінувався.
+     *
+     * Саме це джерело й повертає сьогодні: сторінка книги віддає 200 і свіжий
+     * M3U, а збережена в застосунку підписана адреса — 410. Без 410 у списку
+     * застосунок не перечитував сторінку й чесно здавався, хоч лік існує.
+     */
+    const val HTTP_GONE = 410
+
+    /**
      * The HTTP status of the stream failure, or null when the error chain
      * carries none (timeouts, network failures, decoder errors). Walks the
      * whole cause chain so a wrapped ExoPlayer failure still yields its code.
@@ -72,7 +81,8 @@ object StreamHealPolicy {
      * it keeps the generic honest failure.
      */
     fun budgetExhausted(responseCode: Int?, healAttempts: Int): Boolean =
-        (responseCode == HTTP_FORBIDDEN || responseCode == HTTP_NOT_FOUND) &&
+        (responseCode == HTTP_FORBIDDEN || responseCode == HTTP_NOT_FOUND ||
+            responseCode == HTTP_GONE) &&
             healAttempts >= MAX_HEAL_ATTEMPTS
 
     /** Does this failure's cause chain carry a refused substituted body? */

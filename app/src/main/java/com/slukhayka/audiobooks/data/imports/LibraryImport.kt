@@ -1355,15 +1355,19 @@ class LibraryImport(
             // suffixes at the catalog write path — the stored row is clean
             // by construction.
             title = MetadataAssertions.normalizeTitle(book.title),
-            author = book.author.ifBlank { "4read.org" },
-            narrator = "4read Voice Narrator",
+            // #812 - zhodnoho napysu 4read u zapysi. Porozhnii avtor lyshaietsia
+            // porozhnim: vyhadane imia hirshe za vidsutnie.
+            author = book.author,
+            // ADR-0004: nachytka nevidoma - porozhno, a ne nazvoiu dzherela.
+            narrator = "",
             // #264: the constant catalog phrase passes the rule like every
             // other stored description — the invariant is uniform, the call
             // is a no-op on honest text.
-            description = MetadataAssertions.normalizeDescription("Аудіокнига з каталогу 4read.org"),
+            description = MetadataAssertions.normalizeDescription("Аудіокнига з каталогу"),
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
             coverImageUrl = MetadataAssertions.coverDelta(book.coverImageUrl),
-            genre = "4read Каталог",
+            // #812 - zhanr bilsh ne mistyt nazvy dzherela.
+            genre = "",
             sourceUrl = book.url,
             isDownloaded = false,
             // The catalogue homepage doesn't know the chapter count or total

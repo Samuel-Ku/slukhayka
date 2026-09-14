@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.catalog
 
 import com.slukhayka.audiobooks.data.db.AudiobookDao
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.db.FeedSnapshotEntity
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceIds
@@ -41,6 +42,12 @@ class FeedSnapshotStore(
         feedKey: String,
         forceRefresh: Boolean = false
     ): List<SourceBook>? = withContext(Dispatchers.IO) {
+        // #812 — у шахрайського джерела немає стрічки, яку можна віддати.
+        // Порожній список, а не null: null означає «промах кешу, йди в
+        // мережу» — і застосунок знову тягнув стрічку 4read, писав новий
+        // знімок і матеріалізував ті самі 48 порожніх книжок. Саме тому
+        // вичищення в міграції не трималося: причина відтворювалася щоразу.
+        if (SourceRegistry.isScam(sourceId)) return@withContext emptyList()
         val rows = dao.getFeedSnapshots(sourceId, feedKey)
         val fetchedAt = rows.minOfOrNull { it.fetchedAt }
         if (FeedSnapshotPolicy.needsNetwork(feedKey, fetchedAt, nowMillis(), forceRefresh)) {
@@ -110,7 +117,16 @@ class FeedSnapshotStore(
         }
 
     companion object {
-        /** The 4read homepage snapshot anchors to the 4read source id. */
-        const val HOMEPAGE_SOURCE_ID: String = SourceIds.FOUR_READ
+        /**
+         * #812 — нейтральний якір домашньої стрічки.
+         *
+         * Тут було `SourceIds.FOUR_READ`: легасі-значення часів, коли
+         * домашньою сторінкою була сторінка 4read. Через нього агрегований
+         * знімок УСІЄЇ домашньої стрічки зберігався під `sourceId = "4read"`,
+         * і виглядав як знімок джерела 4read. Наслідки були цілком реальні:
+         * будь-яке вичищення «рядків 4read» знищувало домашню стрічку
+         * застосунку, а сам знімок ще й містив картки 4read усередині.
+         */
+        const val HOMEPAGE_SOURCE_ID: String = "homepage"
     }
 }

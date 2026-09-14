@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -178,7 +179,13 @@ fun PeopleContent(
                         )
                     }
                 }
-                items(people, key = { it.path }) { person ->
+                // Ключ не має бути порожнім і не має повторюватись: два
+                // записи з порожнім `path` валять список
+                // («Key "" was already used»). Індекс гарантує унікальність.
+                itemsIndexed(
+                    people,
+                    key = { index, person -> person.path.ifBlank { "person-$index" } }
+                ) { _, person ->
                     // v1.4 C3 (ADR-0033): the canonical flat row — avatar in
                     // the leading slot, count in the trailing slot, divider
                     // instead of a card border.

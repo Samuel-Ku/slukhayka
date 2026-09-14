@@ -312,6 +312,10 @@ class FakeAudiobookDao(
         }
     }
 
+    // `SELECT coverImageUrl FROM audiobooks WHERE sourceUrl = :sourceUrl LIMIT 1`
+    override suspend fun coverForSourceUrl(sourceUrl: String): String? =
+        booksState.value.firstOrNull { it.sourceUrl == sourceUrl }?.coverImageUrl
+
     override suspend fun resetEntryDownloadProgress(bookId: String) {
         libraryEntriesState.update { current ->
             current.map { if (it.id == bookId) it.copy(downloadProgress = 0f) else it }

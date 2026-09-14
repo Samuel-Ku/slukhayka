@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,7 +100,11 @@ fun ListenScreen(
         modifier = Modifier
             .fillMaxSize()
             .testTag("listen_screen"),
-        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
+        // Міні-плеєр на цьому екрані сховано (є hero-картка «Продовжити
+        // слухати»), тож резервувати під нього 120 dp нема сенсу. Нижній
+        // проміжок дає сама кнопка «Керувати полицями» — рівно такий, як над
+        // нею, тож список не додає нічого.
+        contentPadding = PaddingValues(bottom = 0.dp)
     ) {
         // Fresh install: placeholder hero + clear next actions.
         if (allBooks.isEmpty()) {
@@ -143,11 +148,6 @@ fun ListenScreen(
                             onBookClick = { onBookClick(hero.book.id) }
                         )
                     }
-                    // v1.4 E1: the ONE shelf-management door, right after the
-                    // hero (the spec's «шапка таба або після hero»).
-                    item(key = "block-manage") {
-                        ListenShelvesManageEntry(onClick = { manageShelvesOpen = true })
-                    }
                 }
                 // The seven remaining blocks — one horizontal shelf of
                 // compact posters each (spec-28 #191). v1.4 E1: the header IS
@@ -182,13 +182,12 @@ fun ListenScreen(
             }
         }
 
-        // No hero on screen (hidden via the sheet, or no resume book) — the
-        // management door moves to the top so it can never be unreachable
-        // (it replaces the old all-hidden restore row).
-        if (dedupedBlocks.none { it.id == ListenComposer.BlockId.HERO }) {
-            item(key = "block-manage") {
-                ListenShelvesManageEntry(onClick = { manageShelvesOpen = true })
-            }
+        // v1.4 E1 / UI: the ONE shelf-management door — always the LAST
+        // element of the tab, after every shelf. Раніше воно стояло одразу
+        // під hero, через що внизу лишалася порожня чорна смуга, а сама
+        // кнопка сприймалась як частина картки «Продовжити слухати».
+        item(key = "block-manage") {
+            ListenShelvesManageEntry(onClick = { manageShelvesOpen = true })
         }
 
         // spec-28 (#192): discovery left the tab — the cross-source
@@ -225,7 +224,9 @@ fun ListenShelvesManageEntry(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            // Рівні проміжки зверху і знизу: кнопка сама дає обидва, тож
+            // відступ над нею (до полиці) дорівнює відступу під нею (до панелі).
+            .padding(horizontal = 16.dp, vertical = 16.dp)
             .testTag("listen_manage_shelves")
     ) {
         Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -466,7 +467,9 @@ fun ListenBlockShelf(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.testTag("listen_block_shelf")
     ) {
-        items(books, key = { it.book.id }) { entry ->
+        // Ключ не має бути порожнім: дві книжки з порожнім id валять список
+        // («Key "" was already used»). Індекс гарантує унікальність.
+        itemsIndexed(books, key = { index, entry -> entry.book.id.ifBlank { "shelf-$index" } }) { _, entry ->
             PosterCard(
                 book = entry.book,
                 onClick = { onBookClick(entry.book.id) },

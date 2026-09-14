@@ -1920,6 +1920,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _fallbackCandidates.value = emptyList()
     }
 
+    /**
+     * #814 — заповнює порожні обкладинки карток блоків «Огляду».
+     *
+     * Сторінки джерел віддають у статичному HTML лише ~10 плиток з
+     * обкладинками з ~40 книжок — решту сайт підвантажує скриптом. Тому в
+     * збереженому знімку блоку обкладинки немає, і картка виглядає порожньою.
+     * Беремо збережену локально: спершу за адресою книги, потім за ключем
+     * твору (коли книжка вже має Work).
+     */
+    private suspend fun fillBlockCovers(
+        blocks: List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
+    ): List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock> {
+        val dao = App.instance.audiobookDao
+        return blocks.map { block ->
+            block.copy(
+                cards = block.cards.map { card ->
+                    if (!card.coverUrl.isNullOrBlank()) return@map card
+                    val byUrl = runCatching {
+                        dao.coverForSourceUrl(card.sourceUrl)?.takeIf { it.isNotBlank() }
+                    }.getOrNull()
+                    if (byUrl != null) return@map card.copy(coverUrl = byUrl)
+                    val key = com.slukhayka.audiobooks.data.merge.MergeKey
+                        .keyFor(card.title, card.author)
+                        .takeIf { it.isNotBlank() } ?: return@map card
+                    val local = runCatching {
+                        dao.findByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
+                            ?: dao.findWorkByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
+                    }.getOrNull()
+                    if (local != null) card.copy(coverUrl = local) else card
+                }
+            )
+        }
+    }
+
     fun refreshCollectiveBlocks() {
         viewModelScope.launch(Dispatchers.IO) {
             val blocks = com.slukhayka.audiobooks.data.collective.collectiveBlockSources()
@@ -1930,7 +1964,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }.getOrNull()
                 }
-            if (blocks.isNotEmpty()) _collectiveBlocks.value = blocks
+            // #814 — сторінки джерел віддають у статичному HTML лише ~10
+            // плиток з обкладинками з ~40 книжок, решту сайт підвантажує
+            // скриптом. Тому в збереженому знімку блоку обкладинки просто
+            // немає, і картка виглядає порожньою. Заповнюємо з локальної
+            // бази за канонічним ключем твору — тим самим прийомом, що вже
+            // діє для рейки «Новинки» (`withLocalCovers`).
+            val withCovers = fillBlockCovers(blocks)
+            if (withCovers.isNotEmpty()) _collectiveBlocks.value = withCovers
         }
     }
 
@@ -1970,8 +2011,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 fetched.outcome
             }
             if (block != null) {
+                val filled = fillBlockCovers(listOf(block)).firstOrNull() ?: block
                 _collectiveBlocks.value =
-                    _collectiveBlocks.value.filterNot { it.blockKey == key } + block
+                    _collectiveBlocks.value.filterNot { it.blockKey == key } + filled
             }
         }
     }

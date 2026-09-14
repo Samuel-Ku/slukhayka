@@ -41,10 +41,9 @@ fun CollectiveBlockRail(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.testTag("collective_block_${block.blockKey}")) {
-        AppSectionHeader(
-            title = block.name,
-            subtitle = stringResource(R.string.collective_block_provenance, block.provenanceUrl)
-        )
+        // UI: підзаголовок «Джерело: <url>» прибрано — назва джерела вже
+        // стоїть у заголовку, а повний URL лише дублював її й займав рядок.
+        AppSectionHeader(title = block.name)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -68,21 +67,26 @@ fun CollectiveBlockRail(
                 }
             }
         }
-        // The block's own honesty line: when the source last answered and
-        // whether the latest attempt succeeded are never hidden.
-        Text(
-            text = stringResource(
-                R.string.collective_block_attempt,
-                stringResource(attemptLabelRes(block))
-            ),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("collective_block_attempt_${block.blockKey}")
-        )
+        // UI: «Остання спроба: оновлено» прибрано — це шум на кожному блоці.
+        // Лишаємо рядок тільки тоді, коли джерело НЕ відповіло й показано
+        // старий знімок: це вже попередження, а не повторення очевидного.
+        if (block.lastAttempt.status !=
+            com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.SUCCESS
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.collective_block_attempt,
+                    stringResource(attemptLabelRes(block))
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("collective_block_attempt_${block.blockKey}")
+            )
+        }
     }
 }
 

@@ -1049,6 +1049,16 @@ interface AudiobookDao {
     @Query("SELECT bookId FROM tombstones")
     suspend fun getTombstoneBookIds(): List<String>
 
+    /**
+     * #814 — збережена обкладинка за адресою книги.
+     *
+     * Картки блоку «Огляду» мають адресу книги, але не мають Work, тож пошук
+     * за ключем твору ([findByMergeKey]) для них порожній. А обкладинка в
+     * базі вже є — її зберіг імпорт.
+     */
+    @Query("SELECT coverImageUrl FROM audiobooks WHERE sourceUrl = :sourceUrl LIMIT 1")
+    suspend fun coverForSourceUrl(sourceUrl: String): String?
+
     /** Whether one book is tombstoned (ADR-0005 — the guard lives here). */
     @Query("SELECT EXISTS(SELECT 1 FROM tombstones WHERE bookId = :bookId)")
     suspend fun isBookTombstoned(bookId: String): Boolean

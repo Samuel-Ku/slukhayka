@@ -401,8 +401,7 @@ class FakeAudiobookDao(
         narrator: String?,
         genre: String?,
         rating: Float?
-    ) {
-        booksState.update { current ->
+    ) {        booksState.update { current ->
             current.map { book ->
                 if (book.id == bookId) {
                     book.copy(
@@ -411,6 +410,24 @@ class FakeAudiobookDao(
                         genre = genre ?: book.genre,
                         rating = rating ?: book.rating
                     )
+                } else {
+                    book
+                }
+            }
+        }
+    }
+
+    // Spec-53 T7 — the listener's explicit correction (display-only).
+    override suspend fun correctBookMetadata(
+        bookId: String,
+        title: String,
+        author: String,
+        narrator: String
+    ) {
+        booksState.update { current ->
+            current.map { book ->
+                if (book.id == bookId) {
+                    book.copy(title = title, author = author, narrator = narrator)
                 } else {
                     book
                 }
@@ -1480,6 +1497,11 @@ class FakeAudiobookDao(
     override suspend fun submissionStateBySourceId(
         sourceId: String
     ): com.slukhayka.audiobooks.data.db.SubmissionStateEntity? = submissionStates[sourceId]
+
+    override suspend fun submissionStateByBookId(
+        bookId: String
+    ): com.slukhayka.audiobooks.data.db.SubmissionStateEntity? =
+        submissionStates.values.filter { it.bookId == bookId }.maxByOrNull { it.updatedAt }
 
     override suspend fun awaitingSubmissionStates(): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
         submissionStates.values.filter { it.state == "AWAITING_PLAY" }

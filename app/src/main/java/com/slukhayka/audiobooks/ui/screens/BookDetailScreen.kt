@@ -197,6 +197,9 @@ fun BookDetailScreen(
     val audioUnavailable by viewModel.bookAudioUnavailable.collectAsState()
     val bookWatched by viewModel.bookWatched.collectAsState()
     val narrationClaimDone by viewModel.narrationClaimDone.collectAsState()
+    // Spec-53 T7 — the correction dialog and the shared-base gate.
+    val bookPublishedSubmission by viewModel.bookPublishedSubmission.collectAsState()
+    var showMetadataDialog by remember(currentBook.id) { mutableStateOf(false) }
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
     val isDownloadPaused = currentBook.downloadState == DownloadState.PAUSED
@@ -659,6 +662,34 @@ fun BookDetailScreen(
                                     viewModel.setCompleted(currentBook.id, !isListenedThis)
                                 }
                             )
+                            // Spec-53 T7 — a bad parse is fixable, locally…
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.book_detail_correct_metadata)) },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                modifier = Modifier.testTag("book_detail_correct_metadata"),
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showMetadataDialog = true
+                                }
+                            )
+                            // …and only a published submission can be corrected
+                            // in the shared base; otherwise the action is absent.
+                            if (bookPublishedSubmission) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_detail_update_published)) },
+                                    leadingIcon = { Icon(Icons.Default.CloudUpload, contentDescription = null) },
+                                    modifier = Modifier.testTag("book_detail_update_published"),
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.updatePublishedMetadata(
+                                            currentBook.id,
+                                            currentBook.title,
+                                            currentBook.author,
+                                            currentBook.narrator
+                                        )
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
                                 leadingIcon = {
@@ -1444,6 +1475,20 @@ fun BookDetailScreen(
         )
     }
 
+    // Spec-53 T7 — the metadata correction form.
+    if (showMetadataDialog) {
+        MetadataCorrectionDialog(
+            initialTitle = currentBook.title,
+            initialAuthor = currentBook.author,
+            initialNarrator = currentBook.narrator,
+            onDismiss = { showMetadataDialog = false },
+            onSave = { title, author, narrator ->
+                showMetadataDialog = false
+                viewModel.correctBookMetadata(currentBook.id, title, author, narrator)
+            }
+        )
+    }
+
     // Three-level deletion (wayfinder #28): removing from the library must
     // never silently destroy the user's audio files. This owner also keeps
     // focus on the exact launcher across sheet -> confirmation transitions.
@@ -1518,4 +1563,75 @@ data class PersonBookmarkControl(
     val onToggle: () -> Unit = {},
     val onToggleNotify: (Boolean) -> Unit = {}
 )
+
+/**
+ * Spec-53 T7 — the correction form for the three claims a parse gets wrong.
+ * One honest rule: the title cannot be saved blank (the card would lose its
+ * name), while a cleared author or narrator really clears the claim.
+ */
+@Composable
+private fun MetadataCorrectionDialog(
+    initialTitle: String,
+    initialAuthor: String,
+    initialNarrator: String,
+    onDismiss: () -> Unit,
+    onSave: (title: String, author: String, narrator: String) -> Unit
+) {
+    var title by remember { mutableStateOf(initialTitle) }
+    var author by remember { mutableStateOf(initialAuthor) }
+    var narrator by remember { mutableStateOf(initialNarrator) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.book_detail_correct_metadata)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(stringResource(R.string.book_detail_metadata_title)) },
+                    singleLine = true,
+                    isError = title.isBlank(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("metadata_edit_title")
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = author,
+                    onValueChange = { author = it },
+                    label = { Text(stringResource(R.string.book_detail_metadata_author)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("metadata_edit_author")
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = narrator,
+                    onValueChange = { narrator = it },
+                    label = { Text(stringResource(R.string.book_detail_metadata_narrator)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("metadata_edit_narrator")
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(title, author, narrator) },
+                enabled = title.isNotBlank(),
+                modifier = Modifier.testTag("metadata_edit_save")
+            ) {
+                Text(stringResource(R.string.book_detail_metadata_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.book_detail_cancel))
+            }
+        },
+        modifier = Modifier.testTag("metadata_correction_dialog")
+    )
+}
 

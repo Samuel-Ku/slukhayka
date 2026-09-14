@@ -86,7 +86,11 @@ class FakeSharedBookMetaStore(
     /** Every publication attempt in call order — the gate tests assert on this. */
     val submissionPuts = mutableListOf<SubmissionPublication>()
 
+    /** Simulates an unreachable shared base on the publication write. */
+    var throwOnPublishSubmission: Boolean = false
+
     override suspend fun publishSubmission(publication: SubmissionPublication) {
+        if (throwOnPublishSubmission) throw IllegalStateException("shared base down")
         if (SubmissionPublicationCodec.toMap(publication) == null) return
         submissionPuts += publication
         submissions[SubmissionPublicationCodec.documentId(publication.sourceUrl)] = publication

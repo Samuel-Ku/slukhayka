@@ -112,6 +112,47 @@ class SubmissionPublisher(
     }
 
     /**
+     * Spec-53 T7 — corrects the metadata of a publication that is ALREADY in
+     * the shared base. The verdict gate is the CALLER's: [ListenerSubmissionFlow]
+     * only reaches this door for a stored row in [SubmissionState.State.PUBLISHED],
+     * a state that could only be written after a real playback verdict — so the
+     * quality bar survives process restarts, when the in-memory verification
+     * record is honestly gone. The URL dedup is deliberately not consulted:
+     * this is the same document being fixed, not a new submission.
+     */
+    suspend fun updatePublishedMetadata(
+        url: String,
+        metadataJson: String,
+        channelId: String,
+        sourceId: String,
+        submitterId: String,
+        title: String,
+        author: String?,
+        narrator: String?,
+        verifiedAt: Long
+    ): Result {
+        if (title.isBlank()) return Result.METADATA_FAILED
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return Result.METADATA_FAILED
+        val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
+
+        sharedStore.publishSubmission(
+            SubmissionPublication(
+                sourceUrl = url.trim(),
+                accessMode = SubmissionAccessMode.YOUTUBE,
+                title = title.trim(),
+                author = author?.trim()?.takeIf { it.isNotBlank() },
+                narrator = narrator?.trim()?.takeIf { it.isNotBlank() },
+                durationSeconds = metadata.durationSeconds,
+                chapters = plan.chapters.map { SubmissionChapter(it.title, it.watchUrl) },
+                verifiedAt = verifiedAt,
+                submittedAt = clock(),
+                submitterId = submitterId
+            )
+        )
+        return Result.PUBLISHED
+    }
+
+    /**
      * The TG door (ADR-0035 п. 13 / #606) — publishes a RED-prototype TG
      * post as METADATA-ONLY. The identity claims are the adapter's
      * captured-page parse (TitleNormalizer output — the author is never

@@ -97,7 +97,13 @@ class ListenerSubmissionFlow(
             val bookId: String,
             val sourceId: String,
             val publishable: Boolean,
-            val remainingToday: Int
+            val remainingToday: Int,
+            /**
+             * Spec-53 T6 — this link's copy was ALREADY in my library. The
+             * sheet says so and offers «Відкрити книгу» instead of pretending
+             * a fresh import happened.
+             */
+            val alreadyInLibrary: Boolean = false
         ) : Start
 
         /**
@@ -144,8 +150,9 @@ class ListenerSubmissionFlow(
      * public preview exposes no audio — the RED prototype verdict).
      */
     suspend fun submit(rawUrl: String): Start {
-        val url = rawUrl.trim()
-        if (url.isEmpty()) return Start.Unsupported
+        // Spec-53 T6 — one canonical form per link, so dedup and identity are
+        // real: every live YouTube shape and every TG query string lands here.
+        val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return Start.Unsupported
         val remaining = remainingToday()
         if (remaining <= 0) return Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
         return when (classify(url)) {
@@ -205,7 +212,8 @@ class ListenerSubmissionFlow(
                     bookId = bookId,
                     sourceId = sourceId,
                     publishable = publishable,
-                    remainingToday = remaining
+                    remainingToday = remaining,
+                    alreadyInLibrary = outcome.result == ImportResult.ALREADY_ADDED
                 )
             }
         }

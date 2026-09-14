@@ -288,7 +288,9 @@
     <string name="submission_status_refused_metadata">Не вдалося розібрати посилання — метаданих немає.</string>
     <string name="submission_status_refused_no_tracks">У посиланні немає жодного розділу для прослуховування.</string>
     <string name="submission_status_refused_import">Не вдалося додати книгу з цього посилання.</string>
-    <string name="submission_status_refused_duplicate">Це посилання вже опубліковано.</string>
+    <string name="submission_status_refused_duplicate">Уже в спільній базі.</string>
+    <string name="submission_status_already_in_library">Уже в медіатеці.</string>
+    <string name="submission_open_book">Відкрити книгу</string>
     <string name="submission_status_refused_not_verified">Публікація потребує реального програвання.</string>
     <string name="submission_status_refused_unavailable">Спільна база недоступна.</string>
     <string name="submission_listen_now">Слухати зараз</string>

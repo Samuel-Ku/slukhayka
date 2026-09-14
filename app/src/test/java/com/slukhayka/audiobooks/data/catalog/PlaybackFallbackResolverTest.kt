@@ -52,6 +52,24 @@ class PlaybackFallbackResolverTest {
     }
 
     @Test
+    fun `a refused audio host cannot hide behind an allowed source or its local copy`() = runTest {
+        val local = kotlin.io.path.createTempFile("refused-audio", ".mp3").toFile()
+        try {
+            local.writeBytes(byteArrayOf(1, 2, 3))
+            for (host in listOf("reasd.org", "cdn.4read.org")) {
+                val denied = chapters("self", "soundbooks", 1, host).map {
+                    it.copy(track = it.track!!.copy(localFilePath = local.absolutePath))
+                }
+                val resolver = PlaybackFallbackResolver(
+                    allBooks = { emptyList() }, chaptersFor = { emptyList() },
+                    sameEditionChapters = { listOf(denied) },
+                )
+                assertNull(resolver.resolve(book(), 1, 0, "audiobookmp3"))
+            }
+        } finally { local.delete() }
+    }
+
+    @Test
     fun `a catalog card cannot disguise its refused physical source`() = runTest {
         val f = Fixture(
             books = listOf(row("sb", "sound-books.net")),

@@ -45,6 +45,7 @@ object TransportClients {
             .dns(TransportDns)
             .build()
         val playback = http.newBuilder()
+            .addInterceptor(AudioNoticePolicy.interceptor(audioOnly = true))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .followSslRedirects(false)
@@ -82,6 +83,7 @@ object TransportClients {
 
     /** Long-lived Coil and Media3 factories select the current route for every new call. */
     val calls = Call.Factory { request -> okHttp.newCall(request) }
+    val audioCalls = Call.Factory { request -> okHttp.newCall(AudioNoticePolicy.audioRequest(request)) }
     val playbackCalls = Call.Factory { request -> playbackHttp.newCall(request) }
 }
 

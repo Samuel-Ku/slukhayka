@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.catalog
 
 import android.util.Log
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import androidx.paging.PagingSource
 import com.slukhayka.audiobooks.data.authors.AuthorIndex
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
@@ -194,7 +195,8 @@ class SourceCatalog(
 
     private suspend fun audioTracks(source: SourceEntity): List<SourceTrackEntity> =
         dao.getTracksForSourceSync(source.id).filterNot {
-            com.slukhayka.audiobooks.data.source.LihtarAudio.isNavigationAudio(it.url)
+            com.slukhayka.audiobooks.data.source.LihtarAudio.isNavigationAudio(it.url) ||
+                it.url.toHttpUrlOrNull()?.let(com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy::isBlockedAudio) == true
         }
 
     private val facetDeltaSync: FacetDeltaSync? =

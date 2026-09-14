@@ -1,11 +1,14 @@
 package com.slukhayka.audiobooks.data.source
 
 import android.util.Log
+import com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy
+import com.slukhayka.audiobooks.data.privacy.BlockedAudioNoticeException
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.ensureActive
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
@@ -315,7 +318,7 @@ open class HttpFetcher(
         url: String,
         extraHeaders: Map<String, String> = emptyMap()
     ): SizedStreamResult {
-        val response = executeRequest(url, extraHeaders) ?: return SizedStreamResult(0, null)
+        val response = executeAudioRequest(url, extraHeaders) ?: return SizedStreamResult(0, null)
         return try {
             if (response.code == HTTP_OK) {
                 val length = response.header("Content-Length")
@@ -342,7 +345,7 @@ open class HttpFetcher(
      * throws. Open so fixture fakes can serve in-memory bytes.
      */
     open fun getStream(url: String, extraHeaders: Map<String, String> = emptyMap()): InputStream? {
-        val response = executeRequest(url, extraHeaders) ?: return null
+        val response = executeAudioRequest(url, extraHeaders) ?: return null
         return try {
             if (response.code == HTTP_OK) ownedStream(response)
             else {
@@ -386,7 +389,7 @@ open class HttpFetcher(
      * any failure; caller owns reading and closing.
      */
     open fun getRangeStream(url: String, extraHeaders: Map<String, String> = emptyMap()): RangeResponse? {
-        val response = executeRequest(url, extraHeaders) ?: return null
+        val response = executeAudioRequest(url, extraHeaders) ?: return null
         return try {
             if (response.code == HTTP_OK || response.code == HTTP_PARTIAL) {
                 RangeResponse(
@@ -411,8 +414,19 @@ open class HttpFetcher(
      * Protected and open so the T2 seam test serves canned responses without
      * network; production never overrides it.
      */
-    protected open fun executeRequest(url: String, extraHeaders: Map<String, String>): Response? = try {
-        TransportClients.okHttp.newCall(buildRequest(url, extraHeaders)).execute()
+    protected open fun executeRequest(url: String, extraHeaders: Map<String, String>): Response? =
+        attemptRequest(url, extraHeaders, audio = false)
+
+    protected open fun executeAudioRequest(url: String, extraHeaders: Map<String, String>): Response? =
+        attemptRequest(url, extraHeaders, audio = true)
+
+    private fun attemptRequest(url: String, extraHeaders: Map<String, String>, audio: Boolean): Response? = try {
+        // Check the original locator before a privacy relay rewrites its host.
+        if (audio && url.toHttpUrlOrNull()?.let(AudioNoticePolicy::isBlockedAudio) == true) {
+            throw BlockedAudioNoticeException()
+        }
+        val calls = if (audio) TransportClients.audioCalls else TransportClients.calls
+        calls.newCall(buildRequest(url, extraHeaders)).execute()
     } catch (e: Exception) {
         val viaPrivacyRoute = TransportPrivacy.currentJavaProxy() != null ||
             TransportPrivacy.isRelayActive()

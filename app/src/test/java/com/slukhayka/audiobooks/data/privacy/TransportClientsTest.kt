@@ -85,6 +85,52 @@ class TransportClientsTest {
     }
 
     @Test
+    fun `audio refusal covers both domains while their metadata and covers stay accessible`() {
+        Origin().use { origin ->
+            try {
+                TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+                val metadata = TransportClients.okHttp.newBuilder()
+                    .dns(object : okhttp3.Dns {
+                        override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.1"))
+                    }).build()
+                for (host in listOf("reasd.org", "4read.org", "cdn.reasd.org")) {
+                    val base = origin.url.replace("127.0.0.1", host)
+                    metadata.newCall(Request.Builder().url("$base/cover.jpg").build()).execute().use {
+                        assertEquals(200, it.code)
+                    }
+                    val before = origin.requests.get()
+                    for (factory in listOf(TransportClients.audioCalls, TransportClients.playbackCalls)) {
+                        try {
+                            factory.newCall(Request.Builder().url("$base/extensionless-stream").build())
+                                .execute().use { fail("Refused audio must not reach DNS or origin") }
+                        } catch (error: IOException) {
+                            assertTrue(AudioNoticePolicy.causedByNotice(error))
+                        }
+                    }
+                    assertEquals(before, origin.requests.get())
+                }
+            } finally { TransportPrivacy.install(PrivacyPrefs()) }
+        }
+    }
+
+    @Test
+    fun `audio redirects to refused hosts are blocked even without an mp3 extension`() {
+        try {
+            TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+            Origin("HTTP/1.1 302 Redirect\r\nLocation: https://reasd.org/stream?id=1\r\nContent-Length: 0\r\n\r\n").use { origin ->
+                for (factory in listOf(TransportClients.audioCalls, TransportClients.playbackCalls)) {
+                    try {
+                        factory.newCall(Request.Builder().url(origin.url).build()).execute().use { fail("Forbidden hop") }
+                    } catch (error: IOException) {
+                        assertTrue(AudioNoticePolicy.causedByNotice(error))
+                    }
+                }
+                assertEquals(2, origin.requests.get())
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    @Test
     fun `warm direct connections cannot bypass a newly selected proxy or Tor`() {
         Origin().use { origin ->
             try {

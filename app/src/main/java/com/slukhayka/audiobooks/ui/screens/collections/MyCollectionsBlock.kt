@@ -42,6 +42,10 @@ fun MyCollectionsBlock(
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // UI: порожній блок не показуємо взагалі. Раніше тут висіло
+    // «Мої добірки» + «Ще немає добірок» і займало два рядки на екрані,
+    // нічого не пропонуючи.
+    if (rows.isEmpty()) return
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -57,18 +61,6 @@ fun MyCollectionsBlock(
                 .semantics { heading() }
         )
         Spacer(Modifier.height(8.dp))
-
-        if (rows.isEmpty()) {
-            Text(
-                text = "Ще немає добірок",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .testTag("my_collections_empty")
-            )
-            return@Column
-        }
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             rows.forEach { row ->

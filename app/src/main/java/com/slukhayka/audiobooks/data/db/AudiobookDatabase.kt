@@ -51,7 +51,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class
     ],
-    version = 32,
+    version = 43,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -77,7 +77,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43
                     )
                     .build()
                 INSTANCE = instance
@@ -1280,6 +1280,208 @@ abstract class AudiobookDatabase : RoomDatabase() {
                  db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `sourceTitle` TEXT")
                  db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `sourcePseudonym` TEXT")
                  db.execSQL("ALTER TABLE `listener_collections` ADD COLUMN `snapshotAt` INTEGER")
+             }
+         }
+
+         /**
+          * #812 — v39 -> v40: решта слідів 4read, які я пропустив.
+          *
+          * Суцільний пошук по ВСІХ таблицях показав сліди в семи, а не в
+          * двох: `library_entries` (50), `works` (48), `editions` і
+          * `edition_facets` (5+5), `author_aliases` (73).
+          *
+          * Тут важливо розрізняти: рядки, що НАЛЕЖАТЬ 4read, видаляємо;
+          * а плейсхолдер `"4read Voice Narrator"` (ADR-0004) означає лише
+          * «начитка невідома» — тож у справжніх видань Lihtar чи SoundBooks
+          * очищаємо поле начитки, а не саме видання. Видалення знищило б
+          * робочі книжки інших джерел.
+          */
+         internal val MIGRATION_39_40 = object : Migration(39, 40) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 // Записи бібліотеки, що належали 4read.
+                 db.execSQL("DELETE FROM `library_entries` WHERE `id` LIKE '4read-%'")
+                 // Ідентичність 4read у полях роботи — очищаємо, не видаляємо:
+                 // Work спільний, і його може тримати видання іншого джерела.
+                 db.execSQL("UPDATE `works` SET `seriesUrl` = NULL WHERE `seriesUrl` LIKE '%4read%' OR `seriesUrl` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `works` SET `coverImageUrl` = NULL WHERE `coverImageUrl` LIKE '%4read%' OR `coverImageUrl` LIKE '%reasd%'")
+                 // Плейсхолдер начитки — це «невідомо», а не назва.
+                 db.execSQL("UPDATE `editions` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `edition_facets` SET `narratorId` = NULL WHERE `narratorId` LIKE '%4read%' OR `narratorId` LIKE '%reasd%'")
+                 // Псевдоніми, що прийшли від 4read.
+                 db.execSQL("DELETE FROM `author_aliases` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+                 // І те, що вже чистилось раніше — щоб прохід був один.
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+             }
+         }
+
+         /**
+          * #812 — v40 -> v41: `source_tracks` — таблиця, яку я пропустив.
+          *
+          * Обхід УСІХ треків показав адресу 4read, що досі лежала в базі:
+          * `https://reasd.org/4769/…`. Вісім попередніх чисток її не чіпали,
+          * бо жодна не згадувала `source_tracks`. Мета — щоб того аудіо не
+          * було НІДЕ, тож адреса мусить зникнути, навіть якщо зараз вона
+          * віддає 403.
+          */
+         /**
+          * #812 — v41 -> v42: начитка `audiobooks` — те, що лишилось.
+          *
+          * Обхід показав: `source_tracks` очищено, але 19 рядків `audiobooks`
+          * досі несуть `"4read Voice Narrator"`. Я чистив це значення лише в
+          * `editions` і `edition_facets`, а таблицю книжок — ні. За ADR-0004
+          * це плейсхолдер «начитка невідома», тож очищаємо поле, а не
+          * видаляємо книжку.
+          */
+         /**
+          * #812 — v42 -> v43: жанр `"4read Каталог"` — останній видимий слід.
+          *
+          * Обхід по колонках показав: напис сидів не в начитці, а в жанрі —
+          * 19 книжок мали `genre = "4read Каталог"`, і це видно в бібліотеці.
+          * Прибираємо значення, а не книжки: жанр — це мітка, а не сутність.
+          */
+         internal val MIGRATION_42_43 = object : Migration(42, 43) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("UPDATE `audiobooks` SET `genre` = '' WHERE `genre` LIKE '%4read%' OR `genre` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `audiobooks` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
+             }
+         }
+
+         internal val MIGRATION_41_42 = object : Migration(41, 42) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("UPDATE `audiobooks` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `editions` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `edition_facets` SET `narratorId` = NULL WHERE `narratorId` LIKE '%4read%' OR `narratorId` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `source_tracks` WHERE `url` LIKE '%4read%' OR `url` LIKE '%reasd%'")
+             }
+         }
+
+         internal val MIGRATION_40_41 = object : Migration(40, 41) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `source_tracks` WHERE `url` LIKE '%4read%' OR `url` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `sources` WHERE `url` LIKE '%4read%' OR `url` LIKE '%reasd%'")
+                 // Про всяк випадок — те, що вже чистилось, щоб прохід був один.
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+             }
+         }
+
+         /** #812 — v38 -> v39: чистка вже з фільтром карток за хостом. */
+         internal val MIGRATION_38_39 = object : Migration(38, 39) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+             }
+         }
+
+         /**
+          * #812 — v37 -> v38: домашня стрічка більше не живе під id «4read».
+          *
+          * Старий рядок — кеш під легасі-якорем; він буде завантажений заново
+          * під нейтральним `"homepage"`. Прибираємо лише його: справжні рядки
+          * джерела 4read (якщо лишились) чистить той самий прохід.
+          */
+         internal val MIGRATION_37_38 = object : Migration(37, 38) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` = '4read' AND `feedKey` = 'homepage-sections'")
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+             }
+         }
+
+         /** #812 — v36 -> v37: ще одна чистка (діагностичний прохід під авіарежимом). */
+         internal val MIGRATION_36_37 = object : Migration(36, 37) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+             }
+         }
+
+         /**
+          * #812 — v35 -> v36: чистка вже з гвардією на колективних блоках.
+          *
+          * Причина відтворення знайдена: колективний блок стрічки зі спільної
+          * бази писався в `feed_snapshots` без перевірки джерела. Гвардію
+          * поставлено в `CollectiveFeedBlockCodec.fromMap`; цей прохід
+          * прибирає те, що встигло накопичитись.
+          */
+         internal val MIGRATION_35_36 = object : Migration(35, 36) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+             }
+         }
+
+         /**
+          * #812 — v34 -> v35: той самий відбір, уже з гвардією на читанні.
+          *
+          * На пристроях, які встигли отримати v34 ДО гвардії
+          * `FeedSnapshotStore.freshBooks`, знімок встиг повернутися. Цей
+          * прохід чистить іще раз — і саме на ньому видно, чи гвардія тримає:
+          * якщо після нього рядки не повертаються, причина закрита.
+          */
+         internal val MIGRATION_34_35 = object : Migration(34, 35) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' OR `sourceId` LIKE '%reasd%'")
+                 db.execSQL("DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+                 db.execSQL("DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' OR `sourceUrl` LIKE '%reasd.org%'")
+             }
+         }
+
+         /**
+          * #812 — v33 -> v34: прибрати ПРИЧИНУ, а не лише наслідок.
+          *
+          * У базі лишався знімок стрічки 4read (`feed_snapshots`,
+          * sourceId='4read', feedKey='homepage-sections', ~25 КБ cardsJson),
+          * зроблений ДО відмови джерела. v32->v33 вичистила книжки, але не
+          * його — і застосунок гідратував каталог із нього заново, повертаючи
+          * ті самі 48 порожніх рядків. Перевірено на телефоні: після v33
+          * схема стала 33, а книжки лишилися; офлайн той самий DELETE
+          * прибрав 48 і 47 рядків до нуля, тобто SQL був правильний.
+          */
+         internal val MIGRATION_33_34 = object : Migration(33, 34) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "DELETE FROM `feed_snapshots` WHERE `sourceId` LIKE '%4read%' " +
+                         "OR `sourceId` LIKE '%reasd%'"
+                 )
+                 db.execSQL(
+                     "DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' " +
+                         "OR `sourceUrl` LIKE '%reasd.org%'"
+                 )
+                 db.execSQL(
+                     "DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' " +
+                         "OR `sourceUrl` LIKE '%reasd.org%'"
+                 )
+             }
+         }
+
+         /**
+          * #812 — v32 -> v33: прибрати спадок 4read з даних.
+          *
+          * #741 зняв 4read з UI, але ніщо не прибрало те, що попередні версії
+          * вже імпортували: 48 порожніх рядків `audiobooks` (без розділів і
+          * треків) і 47 проєкцій `work_sources` з `4read.org` лишалися в
+          * кожній бібліотеці, старшій за відмову, і саме вони сортуються
+          * ПЕРШИМИ — це й бачив слухач.
+          *
+          * Прибираємо лише рядки ідентичності. `works` не чіпаємо: Work
+          * спільний для джерел, і його може тримати видання іншого джерела.
+          */
+         internal val MIGRATION_32_33 = object : Migration(32, 33) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "DELETE FROM `audiobooks` WHERE `sourceUrl` LIKE '%4read.org%' " +
+                         "OR `sourceUrl` LIKE '%reasd.org%'"
+                 )
+                 db.execSQL(
+                     "DELETE FROM `work_sources` WHERE `sourceUrl` LIKE '%4read.org%' " +
+                         "OR `sourceUrl` LIKE '%reasd.org%'"
+                 )
              }
          }
 

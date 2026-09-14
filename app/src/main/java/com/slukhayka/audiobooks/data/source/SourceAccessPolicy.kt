@@ -49,7 +49,17 @@ object SourceAccessPolicy {
      * [directOrder] sub-order, then visible name, then id and URL.
      */
     fun order(candidates: Iterable<SourceAccessCandidate>): List<SourceAccessCandidate> =
-        candidates.sortedWith(
+        candidates
+            // #814 — шахрайське джерело ніколи не є запасним.
+            //
+            // Тут проходять УСІ списки кандидатів (фолбек відтворення,
+            // заміщення джерела, глобальний пошук). Досі жоден із тих
+            // будівників не фільтрував скам, а `SourceRegistry` досі тримає
+            // запис `4read` (потрібен як запобіжник — див. ALWAYS_REFUSED).
+            // Через це застосунок міг запропонувати 4read як запасне
+            // джерело — і слухач чув його рекламу замість книжки.
+            .filterNot { SourceRegistry.isScam(it.sourceId) }
+            .sortedWith(
             compareBy<SourceAccessCandidate> { priority(it) }
                 .thenComparator { left, right ->
                     val leftRank = directSubOrder(left)

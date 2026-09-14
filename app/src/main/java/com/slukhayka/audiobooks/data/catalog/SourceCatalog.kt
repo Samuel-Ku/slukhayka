@@ -92,6 +92,7 @@ import kotlinx.coroutines.withContext
  * one explicit sync call ([fetchCatalogSections] / [refreshUnifiedCatalog] /
  * [refreshSourceFeeds]) when the app wants sync.
  */
+
 class SourceCatalog(
     private val dao: AudiobookDao,
     private val sourceAdapters: List<SourceAdapter>,
@@ -1208,16 +1209,31 @@ class SourceCatalog(
         // fallback actually ran; a mirror work (e.g. LibriVox) has no chapters
         // yet for its own reasons — the mirror is not an import.
         var attemptedFourReadFallback = false
-        if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org") &&
-            SourceAccessPolicy.modeFor(sourceIdForUrl(sourceUrl)) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
+        // #814 — матеріалізація з ВЛАСНОГО джерела книги, а не лише з 4read.
+        //
+        // Ця гілка — той самий «метод 4read», про який просив користувач:
+        // коли в книжки немає розділів, взяти сторінку джерела й зберегти
+        // розділи. Раніше умова була прив'язана до `sourceUrl.contains(
+        // "4read.org")` і до `fourReadAdapter`, тож після вилучення 4read
+        // книжки БЕЗ розділів не мали жодного шляху матеріалізації: вони
+        // грали з каталогу, але тривалість ніде не зберігалась — звідси
+        // неправильний час у плеєрі («Прохожалий»: файл 840 с, у базі 0).
+        //
+        // Запобіжники збережено: BROWSER-джерело не фетчимо, а відмовлене
+        // джерело (ADR-0037) не фетчимо й тут — для 4read гілка лишається
+        // мертвою, як і була.
+        val bookSourceId = sourceIdForUrl(sourceUrl)
+        val bookAdapter = sourceAdapters.firstOrNull { it.sourceId == bookSourceId }
+        if (chapters.isEmpty() && sourceUrl.isNotBlank() && bookAdapter != null &&
+            SourceAccessPolicy.modeFor(bookSourceId) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
             // ADR-0037: a refused source's page is never fetched for audio
             // materialization either — the refusal covers the fallback too.
-            "4read" !in refusedAudioSources()
+            bookSourceId !in refusedAudioSources()
         ) {
             attemptedFourReadFallback = true
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
-            val detail = fourReadAdapter.fetchBookPage(sourceUrl)
+            val detail = bookAdapter.fetchBookPage(sourceUrl)
             if (detail.chapters.isNotEmpty()) {
                 // ADR-0004 + ADR-0007: materialization (one id format, one
                 // title fallback, duration conventions; Edition chapters +
@@ -2096,6 +2112,52 @@ class SourceCatalog(
      * are assembled from what actually landed; sections emptied by skips are
      * not published (matching today's behaviour).
      */
+    /**
+     * #812 — картки, чия адреса веде на скам-хости, не мають потрапляти в
+     * домашню стрічку.
+     *
+     * Секції домашньої стрічки досі будуються з `https://4read.org/` — тому
+     * саме звідти в застосунок потрапляли ті самі 48 порожніх книжок. `sourceId`
+     * ні в `CatalogSection`, ні в `CatalogBook` немає, але `url` є, і він
+     * однозначний. Секція, що спорожніла після відсіву, не публікується.
+     */
+    /**
+     * #812 — картка власного потоку джерела у форму каталожної картки.
+     *
+     * Секції «Огляду» більше не приходять зі сторонньої сторінки: вони
+     * складаються з потоків, які застосунок уже завантажив по джерелах.
+     * `id` беремо з адреси — вона в межах джерела унікальна.
+     */
+    private fun SourceBook.toCatalogBook(adapter: SourceAdapter): CatalogBook = CatalogBook(
+        // ADR-0007: один формат id на весь застосунок — його формує адаптер
+        // джерела. Інакше надгробки й імпорт не збігалися б за ключем.
+        id = adapter.bookId(url),
+        title = title,
+        author = author,
+        url = url,
+        coverImageUrl = coverImageUrl,
+        seriesTitle = seriesTitle,
+        seriesIndex = seriesIndex,
+        totalDurationSeconds = totalDurationSeconds,
+        narrator = narrator,
+        // Канонічний ключ твору — той самий, що формує імпорт
+        // (`MergeKey.keyFor`). Без нього картка не має Work, і перевірка
+        // надгробка при вставці не спрацьовує: прибрана книжка повертається
+        // в «Огляд».
+        mergeKey = MergeKey.keyFor(title, author)
+    )
+
+    private fun withoutScamHosts(sections: List<CatalogSection>): List<CatalogSection> =
+        sections.mapNotNull { section ->
+            val kept = section.books.filterNot { book ->
+                book.url.contains("4read.org", ignoreCase = true) ||
+                    book.url.contains("reasd.org", ignoreCase = true) ||
+                    book.seriesUrl?.contains("4read.org", ignoreCase = true) == true ||
+                    book.seriesUrl?.contains("reasd.org", ignoreCase = true) == true
+            }
+            if (kept.isEmpty()) null else section.copy(books = kept)
+        }
+
     suspend fun fetchCatalogSections(forceRefresh: Boolean = false): List<CatalogSection> =
         withContext(Dispatchers.IO) {
             _isCatalogLoading.value = true
@@ -2107,17 +2169,35 @@ class SourceCatalog(
                     feedSnapshotStore?.freshHomepage()?.let { snapshot ->
                         if (snapshot.sections.isNotEmpty()) {
                             _catalogGenres.value = snapshot.genres
-                            val sections = upsertAndFilterSections(snapshot.sections)
+                            val sections = upsertAndFilterSections(withoutScamHosts(snapshot.sections))
                             _catalogSections.value = sections
                             publishNewArrivals(sections, _sourceFeeds.value)
                             return@withContext sections
                         }
                     }
                 }
-                val html = fourReadFetcher.getText("https://4read.org/")
-                if (html.isBlank()) return@withContext emptyList()
-                _catalogGenres.value = CatalogParser.parseGenreNav(html)
-                val sections = upsertAndFilterSections(CatalogParser.parseHomepage(html))
+                // #812 — жодних запитів на 4read.org.
+                //
+                // Секції домашньої стрічки більше не будуються зі сторінки
+                // шахрайського джерела. Вони приходять зі знімка (уже
+                // відфільтрованого за хостом) і з колективних блоків; якщо
+                // Секції складаємо з ВЛАСНИХ потоків застосунку — тих, що
+                // вже завантажені по джерелах. Жодного запиту на сторонній
+                // сайт: джерело секції — саме джерело книжки.
+                // #812 — фiльтр надгробкiв i «publish only what landed»
+                // живе в `upsertAndFilterSections`; без нього книжка, яку
+                // слухач прибрав, повертається в «Огляд».
+                val sections = upsertAndFilterSections(_sourceFeeds.value.mapNotNull { feed ->
+                    val adapter = sourceAdapters.firstOrNull { it.sourceId == feed.sourceId }
+                        ?: return@mapNotNull null
+                    val books = feed.books.map { it.toCatalogBook(adapter) }
+                    if (books.isEmpty()) null
+                    else CatalogSection(
+                        title = feed.sourceName,
+                        books = books,
+                        id = CatalogSectionId.POPULAR
+                    )
+                })
                 _catalogSections.value = sections
                 // #467: remember what the live homepage served so the next
                 // read within the catalog TTL never touches the network.

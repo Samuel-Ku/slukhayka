@@ -27,6 +27,16 @@ class ListenerSubmissionFlow(
     private val importYouTube: suspend (url: String, metadataJson: String, channelId: String) -> ImportOutcome,
     /** The parsed Telegram preview identity (chapters are honestly empty — RED verdict). */
     private val fetchTgIdentity: suspend (url: String) -> TgIdentity?,
+    /**
+     * Spec-53 T5 — materialises the TG post as a sourceless library card
+     * («Шукаємо джерело»). Null keeps the pre-T5 metadata-only path.
+     */
+    private val importWatchingTelegram: (suspend (url: String, identity: TgIdentity) -> WatchingImport)? = null,
+    /**
+     * Spec-53 T5 — arms the Source Watch for that card's Work, so a direct
+     * source found later arrives through the existing spec-49 machinery.
+     */
+    private val watchSource: (suspend (mergeKey: String, workId: String) -> Unit)? = null,
     private val publisher: SubmissionPublisher?,
     private val verification: SubmissionVerification?,
     /** The honest remaining daily budget for the device today. */
@@ -58,6 +68,17 @@ class ListenerSubmissionFlow(
         val description: String? = null
     )
 
+    /**
+     * Spec-53 T5 — the library card created for a TG post: the stored book and
+     * the Work key the watch is armed with. Both null when the card could not
+     * be materialised (the publication still stands — metadata-only).
+     */
+    data class WatchingImport(
+        val bookId: String? = null,
+        val mergeKey: String? = null,
+        val workId: String? = null
+    )
+
     /** Why a submission was refused — mapped to honest copy by the UI. */
     enum class Reason {
         DAILY_LIMIT_REACHED,
@@ -79,8 +100,16 @@ class ListenerSubmissionFlow(
             val remainingToday: Int
         ) : Start
 
-        /** A TG post was published metadata-only (no audio exists in the preview). */
-        data object MetadataPublished : Start
+        /**
+         * A TG post was published metadata-only (no audio exists in the
+         * preview) AND got its own library card. Spec-53 T5: [bookId] is that
+         * card, [mergeKey] the Work it waits for — the Source Watch entry
+         * alarms the listener when a direct source appears.
+         */
+        data class MetadataPublished(
+            val bookId: String? = null,
+            val mergeKey: String? = null
+        ) : Start
 
         data class Refused(val reason: Reason, val remainingToday: Int) : Start
 
@@ -207,12 +236,56 @@ class ListenerSubmissionFlow(
                 submitterId = submitter
             )
         ) {
-            SubmissionPublisher.Result.PUBLISHED -> Start.MetadataPublished
+            SubmissionPublisher.Result.PUBLISHED -> {
+                // Spec-53 T5 — the shared base already has the metadata; now
+                // the post gets a card of its OWN, so the listener's path does
+                // not end in empty space. The card waits for a direct source.
+                val watching = createWatchingCard(url, identity)
+                Start.MetadataPublished(
+                    bookId = watching?.bookId,
+                    mergeKey = watching?.mergeKey
+                )
+            }
             SubmissionPublisher.Result.ALREADY_PUBLISHED -> Start.Refused(Reason.ALREADY_PUBLISHED, remaining)
             SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
             SubmissionPublisher.Result.METADATA_FAILED -> Start.Refused(Reason.METADATA_FAILED, remaining)
             SubmissionPublisher.Result.NOT_VERIFIED -> Start.Refused(Reason.SHARED_BASE_UNAVAILABLE, remaining)
         }
+    }
+
+    /**
+     * Spec-53 T5 — the local card and the watch that follows it. Both are
+     * local, silent effects: a failure here never un-publishes the metadata
+     * and never refuses the submission — the honest degradation is a card
+     * without a watch, and the caller still reports «Поділилися».
+     */
+    private suspend fun createWatchingCard(url: String, identity: TgIdentity): WatchingImport? {
+        val imported = runCatching { importWatchingTelegram?.invoke(url, identity) }
+            .getOrNull() ?: return null
+        val mergeKey = imported.mergeKey?.takeIf { it.isNotBlank() }
+        val workId = imported.workId?.takeIf { it.isNotBlank() } ?: mergeKey
+        if (mergeKey != null && workId != null) {
+            runCatching { watchSource?.invoke(mergeKey, workId) }
+        }
+        val bookId = imported.bookId?.takeIf { it.isNotBlank() }
+        if (bookId != null) {
+            val now = System.currentTimeMillis()
+            runCatching {
+                store.save(
+                    SubmissionState(
+                        sourceId = "tg-$bookId",
+                        url = url,
+                        bookId = bookId,
+                        metadataJson = "",
+                        channelId = "",
+                        state = SubmissionState.State.WATCHING,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            }
+        }
+        return imported
     }
 
     /**
@@ -268,6 +341,10 @@ class ListenerSubmissionFlow(
     /** Spec-53 T3 — the book ids still awaiting their playback verdict. */
     suspend fun awaitingBookIds(): Set<String> =
         store.awaiting().map { it.bookId }.toSet()
+
+    /** Spec-53 T5 — the book ids whose card waits for a direct source. */
+    suspend fun watchingBookIds(): Set<String> =
+        runCatching { store.watching().map { it.bookId }.toSet() }.getOrDefault(emptySet())
 
 }
 

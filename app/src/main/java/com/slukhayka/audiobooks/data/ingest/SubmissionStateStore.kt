@@ -20,13 +20,19 @@ data class SubmissionState(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED }
+    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED, WATCHING }
 }
 
 interface SubmissionStateStore {
     suspend fun save(row: SubmissionState)
     suspend fun bySourceId(sourceId: String): SubmissionState?
+
+    /** Rows awaiting their playback verdict (spec-53 T3). */
     suspend fun awaiting(): List<SubmissionState>
+
+    /** Rows whose library card waits for a direct source (spec-53 T5). */
+    suspend fun watching(): List<SubmissionState>
+
     suspend fun updateState(sourceId: String, state: SubmissionState.State, reason: String?, updatedAt: Long)
 }
 
@@ -39,6 +45,9 @@ class InMemorySubmissionStateStore : SubmissionStateStore {
     override suspend fun bySourceId(sourceId: String): SubmissionState? = rows[sourceId]
     override suspend fun awaiting(): List<SubmissionState> =
         rows.values.filter { it.state == SubmissionState.State.AWAITING_PLAY }
+
+    override suspend fun watching(): List<SubmissionState> =
+        rows.values.filter { it.state == SubmissionState.State.WATCHING }
     override suspend fun updateState(
         sourceId: String,
         state: SubmissionState.State,
@@ -58,6 +67,9 @@ class RoomSubmissionStateStore(private val dao: AudiobookDao) : SubmissionStateS
         dao.submissionStateBySourceId(sourceId)?.toModel()
     override suspend fun awaiting(): List<SubmissionState> =
         dao.awaitingSubmissionStates().map { it.toModel() }
+
+    override suspend fun watching(): List<SubmissionState> =
+        dao.submissionStatesByState(SubmissionState.State.WATCHING.name).map { it.toModel() }
     override suspend fun updateState(
         sourceId: String,
         state: SubmissionState.State,

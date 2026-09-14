@@ -29,7 +29,9 @@ class ListenerSubmissionFlowTest {
         remaining: Int = 10,
         submitter: String? = "uid-1",
         withSharedBase: Boolean = true,
-        stateStore: SubmissionStateStore = InMemorySubmissionStateStore()
+        stateStore: SubmissionStateStore = InMemorySubmissionStateStore(),
+        importWatching: (suspend (String, ListenerSubmissionFlow.TgIdentity) -> ListenerSubmissionFlow.WatchingImport)? = null,
+        watchSource: (suspend (String, String) -> Unit)? = null
     ) {
         val store = FakeSharedBookMetaStore()
         val verification = SubmissionVerification { 1_000L }
@@ -44,6 +46,8 @@ class ListenerSubmissionFlowTest {
             fetchMetadata = { fetchCalls++; metadataJson },
             importYouTube = { _, _, _ -> importCalls++; importOutcome },
             fetchTgIdentity = { tgCalls++; tgIdentity },
+            importWatchingTelegram = importWatching,
+            watchSource = watchSource,
             publisher = if (withSharedBase) publisher else null,
             verification = if (withSharedBase) verification else null,
             remainingToday = { remaining },
@@ -208,7 +212,7 @@ class ListenerSubmissionFlowTest {
 
         val start = harness.flow.submit(tgPost)
 
-        assertEquals(ListenerSubmissionFlow.Start.MetadataPublished, start)
+        assertEquals(ListenerSubmissionFlow.Start.MetadataPublished(), start)
         val publication = harness.store.submissionPuts.single()
         assertEquals(SubmissionAccessMode.TG_PREVIEW, publication.accessMode)
         assertEquals("Острів Дума", publication.title)
@@ -229,6 +233,56 @@ class ListenerSubmissionFlowTest {
             ListenerSubmissionFlow.Start.Refused(ListenerSubmissionFlow.Reason.SHARED_BASE_UNAVAILABLE, 10),
             Harness(tgIdentity = tgIdentity, withSharedBase = false).flow.submit(tgPost)
         )
+    }
+
+    @Test
+    fun `a telegram post becomes my own card and arms the source watch`() = runTest {
+        val cards = mutableListOf<String>()
+        val watched = mutableListOf<Pair<String, String>>()
+        val harness = Harness(
+            tgIdentity = tgIdentity,
+            importWatching = { _, identity ->
+                cards += identity.title
+                ListenerSubmissionFlow.WatchingImport(
+                    bookId = "tg-book-1",
+                    mergeKey = "mk-1",
+                    workId = "work-1"
+                )
+            },
+            watchSource = { mergeKey, workId -> watched += mergeKey to workId }
+        )
+
+        val start = harness.flow.submit(tgPost)
+
+        assertEquals(ListenerSubmissionFlow.Start.MetadataPublished("tg-book-1", "mk-1"), start)
+        assertEquals(listOf("Острів Дума"), cards)
+        assertEquals(listOf("mk-1" to "work-1"), watched)
+        assertTrue(harness.flow.watchingBookIds().contains("tg-book-1"))
+        assertTrue("the card is not awaiting a verdict", harness.flow.awaitingBookIds().isEmpty())
+    }
+
+    @Test
+    fun `a telegram without the card seam keeps the metadata-only path`() = runTest {
+        val harness = Harness(tgIdentity = tgIdentity)
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.MetadataPublished(),
+            harness.flow.submit(tgPost)
+        )
+        assertTrue(harness.flow.watchingBookIds().isEmpty())
+    }
+
+    @Test
+    fun `a failing telegram card never unpublishes the metadata`() = runTest {
+        val harness = Harness(
+            tgIdentity = tgIdentity,
+            importWatching = { _, _ -> throw IllegalStateException("no card") }
+        )
+
+        val start = harness.flow.submit(tgPost)
+
+        assertEquals(ListenerSubmissionFlow.Start.MetadataPublished(), start)
+        assertEquals("the metadata-only publication stands", 1, harness.store.submissionPuts.size)
     }
 
     @Test

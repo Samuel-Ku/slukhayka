@@ -1146,6 +1146,21 @@ class SourceCatalog(
         val sourceUrl: String? = null
     )
 
+    /** Local alternatives already bound to this Edition; no probing or re-import. */
+    suspend fun storedEditionSources(bookId: String): List<List<PlayableChapter>> {
+        val edition = dao.getEditionForWork(bookId) ?: return emptyList()
+        val chapters = dao.getChaptersListForEdition(edition.id)
+        if (chapters.isEmpty()) return emptyList()
+        return dao.getSourcesForEditionSync(edition.id)
+            .filter { it.type !in refusedAudioSources() }
+            .map { source ->
+                val tracks = dao.getTracksForSourceSync(source.id).associateBy { it.trackIndex }
+                chapters.map { chapter ->
+                    PlayableChapter(chapter, tracks[chapter.chapterIndex], source.type, source.url)
+                }
+            }
+    }
+
     /** #455 — persist only the Edition-level terminal verdict from a card action. */
     suspend fun recordBookAvailability(
         book: AudiobookEntity,

@@ -14,6 +14,17 @@ package com.slukhayka.audiobooks.data.privacy
 object BrowserIdentity {
 
     /**
+     * Ordinary browser audio fetch metadata. On a cold CDN cache Soundbooks
+     * redirects requests without Sec-Fetch-Mode to a notice, even when the
+     * signed URL and User-Agent are valid. This applies only to audio; page
+     * and cover requests keep their own identity. Never alter Range or URLs.
+     */
+    fun audioRequest(request: okhttp3.Request): okhttp3.Request = request.newBuilder().apply {
+        if (request.header("Sec-Fetch-Mode") == null) header("Sec-Fetch-Mode", "no-cors")
+        if (request.header("Sec-Fetch-Dest") == null) header("Sec-Fetch-Dest", "audio")
+    }.build()
+
+    /**
      * 4read serves a hard block page to Android WebViews that advertise the
      * embedded-browser markers (`Version/4.0` and `; wv`). Chrome on the same
      * device is accepted. Keep the real engine/device/browser version while

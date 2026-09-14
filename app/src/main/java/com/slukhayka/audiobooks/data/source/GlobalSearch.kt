@@ -157,7 +157,7 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
         .map { books ->
             val first = books.first()
             GlobalSearchResult(
-                title = MetadataAssertions.normalizeTitle(first.title),
+                title = MetadataAssertions.normalizeTitle(first.title, first.author),
                 author = first.author,
                 narrator = first.narrator,
                 mergeKey = MergeKey.keyFor(first.title, first.author),

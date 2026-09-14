@@ -33,7 +33,9 @@ class CollectiveFeedRefresh(
     suspend fun read(blockKey: String): CollectiveFeedBlock? {
         val now = clock()
         val active = store.active(blockKey)
-        if (active != null && !active.isStale(now)) return active
+        if (active != null && !active.isStale(now) && !CollectiveBlockPolicy.requiresSourceRefresh(active)) {
+            return active
+        }
 
         // Stale (or never fetched): only the lease owner may hit the source.
         if (!lease.acquire(blockKey, now, leaseTtlMs)) return active

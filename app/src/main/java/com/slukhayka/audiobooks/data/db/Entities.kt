@@ -660,7 +660,8 @@ data class WorkFeedRow(
  */
 data class TitleRow(
     val id: String,
-    val title: String
+    val title: String,
+    val author: String = ""
 )
 
 /**

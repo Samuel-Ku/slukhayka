@@ -33,6 +33,9 @@ class SourceGateCompositionTest {
     ) {
         var calls = 0
 
+        override fun executeAudioRequest(url: String, extraHeaders: Map<String, String>): Response? =
+            executeRequest(url, extraHeaders)
+
         public override fun executeRequest(url: String, extraHeaders: Map<String, String>): Response? {
             calls++
             return Response.Builder()

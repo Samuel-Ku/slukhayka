@@ -147,8 +147,8 @@ class SourceRequestGate(
         canWait: Boolean = true,
         fetch: suspend () -> T?
     ): GateOutcome<T> {
-        cached(url, allowFailure = cacheTtlMillis > 0L)?.let { entry ->
-            return entry.toOutcome()
+        if (cacheTtlMillis > 0L) {
+            cached(url)?.let { entry -> return entry.toOutcome() }
         }
 
         val leader = CompletableDeferred<GateOutcome<Any?>>()
@@ -237,14 +237,13 @@ class SourceRequestGate(
         return (needed - 1).toLong() * params.refillIntervalMs + untilNext
     }
 
-    private fun cached(url: String, allowFailure: Boolean): CacheEntry? {
+    private fun cached(url: String): CacheEntry? {
         val entry = cache[url] ?: return null
         val age = clock() - entry.storedAtMs
         if (age < 0L || age >= entry.ttlMs) {
             cache.remove(url, entry)
             return null
         }
-        if (entry.value == null && !allowFailure) return null
         return entry
     }
 

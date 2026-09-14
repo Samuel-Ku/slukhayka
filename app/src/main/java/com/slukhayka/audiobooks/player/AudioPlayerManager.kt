@@ -23,6 +23,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.slukhayka.audiobooks.data.privacy.TransportClients
+import com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
@@ -740,6 +742,28 @@ class AudioPlayerManager(
             prepareTimeoutJob?.cancel()
             Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentTrack?.url}")
             val responseCode = StreamHealPolicy.responseCodeOf(error)
+            // Refuse the redirect, not the original allowed source: Soundbooks
+            // also redirects EXPIRED signed URLs to this notice. Re-resolve its
+            // page once before trying another narration-compatible source.
+            if (AudioNoticePolicy.causedByNotice(error)) {
+                val originalUrl = currentTrack?.url?.toHttpUrlOrNull()
+                if (originalUrl != null && !AudioNoticePolicy.isBlockedAudio(originalUrl) &&
+                    healAttemptsForChapter < StreamHealPolicy.MAX_HEAL_ATTEMPTS &&
+                    fallbackAttemptsForChapter == 0 && streamUrlHealer != null &&
+                    isNetworkStream(currentTrack)
+                ) {
+                    attemptSelfHeal(blockedNotice = true)
+                    return
+                }
+                if (PlaybackFallbackPolicy.shouldAttempt(responseCode, fallbackAttemptsForChapter, blockedNotice = true) &&
+                    chapterFallback != null && isNetworkStream(currentTrack)
+                ) {
+                    attemptPlaybackFallback(responseCode, AudioNoticePolicy.ERROR_CODE)
+                } else {
+                    reportPrimaryFailure(responseCode, AudioNoticePolicy.ERROR_CODE)
+                }
+                return
+            }
             // #528 — a refused substituted body heals on the same budget as a
             // moved file: the page's fresh URL is the remedy, and the same
             // intermittent CDN usually answers the next request honestly.
@@ -780,6 +804,14 @@ class AudioPlayerManager(
      * primary-stream message.
      */
     private fun reportPrimaryFailure(responseCode: Int?, errorCodeName: String) {
+        if (errorCodeName == AudioNoticePolicy.ERROR_CODE) {
+            reportPlaybackFailure(
+                errorCodeName = errorCodeName,
+                detail = context.getString(R.string.a11y_player_error_audio_notice),
+                kind = PlaybackErrorKind.UNAVAILABLE
+            )
+            return
+        }
         // Spec-32 T4 (#234): a 404/403 that already spent the heal budget
         // is the honest «book unavailable» state — the file moved, was
         // retried once with a fresh URL, and is still dead. Any other
@@ -878,14 +910,27 @@ class AudioPlayerManager(
      * player thread (the re-fetch is a suspend network call). A heal that
      * yields nothing surfaces the honest unavailable state.
      */
-    private fun attemptSelfHeal() {
+    private fun attemptSelfHeal(blockedNotice: Boolean = false) {
         val requestId = prepareRequestId
         val state = _playerState.value
         val failedUrl = currentTrack?.url
         val bookId = state.currentBook?.id
         val chapterIndex = state.currentChapterIndex
+        fun failed() {
+            if (blockedNotice) {
+                if (chapterFallback != null &&
+                    PlaybackFallbackPolicy.shouldAttempt(null, fallbackAttemptsForChapter, blockedNotice = true)
+                ) {
+                    attemptPlaybackFallback(null, AudioNoticePolicy.ERROR_CODE)
+                } else {
+                    reportPrimaryFailure(null, AudioNoticePolicy.ERROR_CODE)
+                }
+            } else {
+                reportHealFailed()
+            }
+        }
         if (failedUrl == null || bookId == null || streamUrlHealer == null) {
-            reportHealFailed()
+            failed()
             return
         }
         healAttemptsForChapter++
@@ -913,12 +958,19 @@ class AudioPlayerManager(
             }
             // Fail-open: a dead page contributes nothing — the honest
             // failure stays, exactly one retry was spent.
-            val freshUrl = runCatching {
-                streamUrlHealer.invoke(bookId, chapterIndex, failedUrl)
-            }.getOrNull()
+            val freshUrl = try {
+                withTimeoutOrNull(45_000L) {
+                    streamUrlHealer.invoke(bookId, chapterIndex, failedUrl)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
             if (requestId != prepareRequestId) return@launch
-            if (freshUrl == null || freshUrl == failedUrl) {
-                reportHealFailed()
+            val freshHttpUrl = freshUrl?.toHttpUrlOrNull()
+            if (freshHttpUrl == null || freshUrl == failedUrl || AudioNoticePolicy.isBlockedAudio(freshHttpUrl)) {
+                failed()
                 return@launch
             }
             // ADR-0007: swap the physical track's URL (the pairing the next
@@ -975,9 +1027,15 @@ class AudioPlayerManager(
         )
         scope.launch {
             if (requestId != prepareRequestId) return@launch
-            val candidate = runCatching {
-                fallback.invoke(book, chapterCount, chapterIndex, failedSourceId)
-            }.getOrNull()
+            val candidate = try {
+                withTimeoutOrNull(15_000L) {
+                    fallback.invoke(book, chapterCount, chapterIndex, failedSourceId)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
             if (requestId != prepareRequestId) return@launch
             if (candidate == null) {
                 reportPrimaryFailure(responseCode, errorCodeName)

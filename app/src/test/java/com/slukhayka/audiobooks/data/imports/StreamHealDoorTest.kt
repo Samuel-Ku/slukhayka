@@ -123,6 +123,19 @@ class StreamHealDoorTest {
     // --- T4 (#234): the heal door ----------------------------------------
 
     @Test
+    fun `refresh never persists refused audio returned by an allowed source`() = runBlocking {
+        val old = "https://arch.sound-books.net/kobzar/old.mp3"
+        val adapter = FakeAdapter(detailOf(listOf(old)))
+        val door = imports(null, listOf(adapter))
+        val book = door.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        for (blocked in listOf("https://reasd.org/notice/4read-notice.mp3", "https://4read.org/audio/book.mp3")) {
+            adapter.detail = detailOf(listOf(blocked))
+            assertNull(door.refreshStreamUrl(book.id, 0, old))
+            assertEquals(old, tracksOf(book.id).single().url)
+        }
+    }
+
+    @Test
     fun `a moved stream heals - fresh URL lands in the track row and the profile refreshes`() = runBlocking {
         val store = FakeProfileStore()
         val adapter = FakeAdapter(detailOf(listOf("https://arch.sound-books.net/kobzar/old-1.mp3", "https://arch.sound-books.net/kobzar/old-2.mp3")))

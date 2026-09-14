@@ -97,6 +97,17 @@ class DownloadPolicyTest {
     }
 
     @Test
+    fun `SoundBooks recordings on reasd use the SoundBooks referer without another sites cookies`() {
+        for (host in listOf("reasd.org", "s1.reasd.org")) {
+            assertEquals(
+                mapOf("Referer" to "https://sound-books.net/"),
+                headersFor("soundbooks", "https://$host/4769/01.mp3", "cf_clearance=private")
+            )
+        }
+        assertTrue(headersFor("soundbooks", "https://reasd.org.example.com/book.mp3").isEmpty())
+    }
+
+    @Test
     fun `SoundBooks referer never leaks to an external archive track`() {
         val track = "https://archive.org/download/example/chapter-01.mp3"
         assertTrue(headersFor("soundbooks", track).isEmpty())

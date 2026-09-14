@@ -15,6 +15,32 @@ import org.junit.Test
  */
 class AudiobookMp3AdapterTest {
 
+    @Test
+    fun `recent comments are not coverless feed cards and cannot win deduplication`() = runBlocking {
+        val comments = """<aside><div id="last_comment">
+            <a href="/uk-audio-6217-brajan-lamli-mij-divnij-pjatnicja">"Мій дивний П'ятниця"</a>
+            <a href="/uk-audio-5523-kressida-kouell-jak-priborkati-drakona">"Як приборкати дракона"</a>
+            <a href="/uk-audio-3642-roling-dzhoan-garri-potter-i-taiemna-kimnata">"Гаррі Поттер і таємна кімната"</a>
+            <a href="/uk-audio-6192-robert-govard-solomon-kejn">"Соломон Кейн"</a>
+        </div></aside>"""
+        val fetcher = FakeFetcher(mapOf("https://audiobook-mp3.com/uk" to comments + richHomepage))
+        val books = AudiobookMp3Adapter(fetcher).fetchNew(40)
+        assertEquals(listOf("Соломон Кейн"), books.map { it.title })
+        assertEquals("Роберт Говард", books.single().author)
+        assertTrue(books.single().coverImageUrl!!.endsWith("robert-govard-solomon-kejn.webp"))
+        assertEquals(1, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `a title without an author separator never becomes its own author`() = runBlocking {
+        val html = """<article class="abook-item"><h2 class="abook-title">
+            <a href="/uk-audio-6217-brajan-lamli-mij-divnij-pjatnicja">Мій дивний П'ятниця</a>
+        </h2></article>"""
+        val book = AudiobookMp3Adapter(FakeFetcher(mapOf("https://audiobook-mp3.com/uk" to html))).fetchNew(1).single()
+        assertEquals("", book.author)
+        assertEquals("Мій дивний П'ятниця", book.title)
+    }
+
     // Live page shape (spec-35 #237): og:description is a TEMPLATE («Слухати
     // аудіокниги онлайн — <Назва>, безкоштовно…»), og:image is broken (double
     // prefix — the cover is only the visible abook_image), the real blurb
@@ -66,10 +92,14 @@ class AudiobookMp3AdapterTest {
         <a class="image-abook" href="/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv" title="Слухати аудіокнигу Клуб боягузів онлайн">
             <img class="b-showshort__cover_image" title="слухати аудіокнигу Клуб боягузів" src="https://cdn.audiobook-mp3.com/audiobooks/uk/6/1/6/3/andrij-kokotjuha-klub-bojaguziv.webp" alt="Аудіокнига Клуб боягузів">
         </a>
-        </article>
         <a href="/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv">Андрій Кокотюха - Клуб боягузів</a>
+        </article>
+        <article class="abook-item">
         <a href="/uk-audio-1246-dzhek-london-zhaga-do-zhittja">Джек Лондон - Жага до життя</a>
+        </article>
+        <article class="abook-item">
         <a href="/uk-audio-6175-filis-doroti-dzheims-dim-tvoiei-mrii">Філіс Дороті Джеймс - Дім твоєї мрії</a>
+        </article>
         </body></html>
     """.trimIndent()
 
@@ -282,8 +312,10 @@ class AudiobookMp3AdapterTest {
 
     private val emDashFeed = """
         <html><body>
+        <article class="abook-item">
         <a class="image-abook" href="/uk-audio-794-valerjan-pidmogilnij-misto"><img class="b-showshort__cover_image" src="https://cdn.audiobook-mp3.com/audiobooks/uk/7/9/4/valerjan-pidmogilnij-misto.jpg"></a>
         <a href="/uk-audio-794-valerjan-pidmogilnij-misto">"Валер’ян Підмогильний — Місто"</a>
+        </article>
         </body></html>
     """.trimIndent()
 
@@ -366,9 +398,11 @@ class AudiobookMp3AdapterTest {
         <a class="image-abook" href="/uk-audio-7001-taras-shevchenko-kobzar" title="Слухати аудіокнигу Кобзар онлайн">
             <img class="b-showshort__cover_image" src="https://cdn.audiobook-mp3.com/audiobooks/uk/7/0/0/1/kobzar.webp" alt="Аудіокнига Кобзар">
         </a>
-        </article>
         <a href="/uk-audio-7001-taras-shevchenko-kobzar">Тарас Шевченко - Кобзар</a>
+        </article>
+        <article class="abook-item">
         <a href="/uk-audio-7002-lesja-ukrajinka-lisova-pisnja">Леся Українка - Лісова пісня</a>
+        </article>
         </body></html>
     """.trimIndent()
 
@@ -408,8 +442,8 @@ class AudiobookMp3AdapterTest {
         <a class="image-abook" href="/uk-audio-${id}00-knyha-$id" title="Слухати аудіокнигу Книга $id онлайн">
             <img class="b-showshort__cover_image" src="https://cdn.audiobook-mp3.com/audiobooks/uk/$id.webp" alt="Аудіокнига Книга $id">
         </a>
-        </article>
         <a href="/uk-audio-${id}00-knyha-$id">Автор $id - Книга $id</a>
+        </article>
         </body></html>
     """.trimIndent()
 

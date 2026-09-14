@@ -69,6 +69,18 @@ class StoredMetadataScrubRoomTest {
     )
 
     @Test
+    fun `current Soundbooks SEO wrapper is removed from existing rows without changing identity`() = runBlocking {
+        val seo = "Аудіокнига Темна матерія - Блейк Крауч слухати онлайн українською"
+        dao.insertAudiobooks(listOf(book("kept-id", seo).copy(author = "Блейк Крауч")))
+        dao.upsertWork(WorkEntity(id = "kept-id", mergeKey = "kept-merge-key", title = seo, author = "Блейк Крауч"))
+        val scrub = StoredMetadataScrub(dao)
+        assertEquals(2, scrub.scrubOnce())
+        assertEquals("Темна матерія", dao.getAllBookTitleRows().single().title)
+        assertEquals("Темна матерія", dao.getAllWorkTitleRows().single().title)
+        assertEquals(0, scrub.scrubOnce())
+    }
+
+    @Test
     fun `startup scrub rewrites stored SEO titles on both tables and leaves clean rows`() = runBlocking {
         dao.insertAudiobooks(
             listOf(

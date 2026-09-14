@@ -130,7 +130,7 @@ fun BookDetailIdentityHeader(
     authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
     narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
-    val heroHeight = LocalConfiguration.current.screenHeightDp.dp * 0.62f
+    val heroHeight = LocalConfiguration.current.screenHeightDp.dp * 0.72f
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -160,7 +160,7 @@ fun BookDetailIdentityHeader(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(400.dp)
+                .height(360.dp)
                 .background(
                     Brush.verticalGradient(
                         0.0f to Color.Transparent,

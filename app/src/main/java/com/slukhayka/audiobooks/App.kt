@@ -43,6 +43,7 @@ import com.slukhayka.audiobooks.data.facets.FirstLanguageChoiceEngine
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
@@ -461,6 +462,29 @@ class App : Application() {
             },
             publisher = submissionPublisher,
             verification = submissionVerification,
+            // Spec-53 T5 — the TG post also becomes MY card, watched for a
+            // direct source; the metadata-only publication stands either way.
+            importWatchingTelegram = { url, identity ->
+                val imported = libraryImport.importWatchingTelegram(
+                    url = url,
+                    title = identity.title,
+                    author = identity.author,
+                    narrator = identity.narrator,
+                    coverUrl = identity.coverUrl,
+                    description = identity.description
+                )
+                val mergeKey = MergeKey.keyFor(identity.title.trim(), identity.author.orEmpty())
+                val workId = mergeKey
+                    .takeIf { it.isNotBlank() }
+                    ?.let { audiobookDao.findWorkByMergeKey(it)?.id ?: it }
+                    .orEmpty()
+                com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.WatchingImport(
+                    bookId = imported.bookId,
+                    mergeKey = mergeKey,
+                    workId = workId
+                )
+            },
+            watchSource = { mergeKey, workId -> sourceWatchStore.watch(mergeKey, workId) },
             // Spec-53 T3 — restart-safe submission states (multi-slot).
             store = com.slukhayka.audiobooks.data.ingest.RoomSubmissionStateStore(audiobookDao),
             remainingToday = {

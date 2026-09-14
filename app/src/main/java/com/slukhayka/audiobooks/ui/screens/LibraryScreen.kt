@@ -185,6 +185,7 @@ fun LibraryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
+    val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
     LaunchedEffect(Unit) { viewModel.refreshAwaitingSubmissions() }
     LaunchedEffect(Unit) {
         viewModel.submissionPublished.collect {
@@ -608,6 +609,7 @@ fun LibraryScreen(
                                     book = entry,
                                     grid = gridMode,
                                     awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
+                                    watchingSource = entry.book.id in watchingSubmissionBookIds,
                                     onListenNow = { onPlayClick(entry.book) },
                                     onClick = { onBookClick(entry.book.id) },
                                     modifier = if (entry.book.id == restoreFocusBookId) {
@@ -879,6 +881,8 @@ fun LibraryBookCard(
     downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
     /** Spec-53 T3 — the submission awaits its real playback verdict. */
     awaitingPlayback: Boolean = false,
+    /** Spec-53 T5 — a TG card waits for a direct source (the preview has no audio). */
+    watchingSource: Boolean = false,
     /** Spec-53 T3 — badge tap: open the book and start playing it. */
     onListenNow: (() -> Unit)? = null
 ) {
@@ -946,6 +950,7 @@ fun LibraryBookCard(
                 onRecheck,
                 downloadCount,
                 awaitingPlayback = awaitingPlayback,
+                watchingSource = watchingSource,
                 onListenNow = onListenNow
             )
         }
@@ -959,6 +964,7 @@ private fun LibraryBookRowContent(
     onRecheck: (() -> Unit)? = null,
     downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
     awaitingPlayback: Boolean = false,
+    watchingSource: Boolean = false,
     onListenNow: (() -> Unit)? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
@@ -986,6 +992,17 @@ private fun LibraryBookRowContent(
                     modifier = Modifier
                         .clickable(onClick = onListenNow)
                         .testTag("submission_awaiting_badge_${book.book.id}")
+                )
+            }
+            if (watchingSource) {
+                // Spec-53 T5 — an honest badge on the TG card: no audio yet,
+                // a direct source is being watched for (spec-49 reports it).
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(R.string.submission_watching_source),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
                 )
             }
             if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {

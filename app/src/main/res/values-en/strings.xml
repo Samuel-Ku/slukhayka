@@ -272,6 +272,8 @@
     <string name="submission_status_refused_unavailable">The shared base is unavailable.</string>
     <string name="submission_listen_now">Listen now</string>
     <string name="submission_awaiting_badge">Awaiting</string>
+    <!-- Spec-53 T5: the TG card's honest state — the preview has no audio. -->
+    <string name="submission_watching_source">Looking for a source</string>
     <string name="submission_published_toast">Shared the book with the community</string>
     <string name="submission_paste_from_clipboard">Paste from clipboard</string>
     <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist or a Telegram post.</string>

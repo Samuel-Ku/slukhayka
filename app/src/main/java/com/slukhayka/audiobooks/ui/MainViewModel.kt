@@ -375,6 +375,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // library badge and the sheet read this.
     private val _awaitingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
     val awaitingSubmissionBookIds: StateFlow<Set<String>> = _awaitingSubmissionBookIds.asStateFlow()
+
+    /** Spec-53 T5 — books whose card waits for a direct source. */
+    private val _watchingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
+    val watchingSubmissionBookIds: StateFlow<Set<String>> = _watchingSubmissionBookIds.asStateFlow()
     // One-shot quiet notice after a submission really published (snackbar).
     private val _submissionPublished = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val submissionPublished: SharedFlow<Unit> = _submissionPublished.asSharedFlow()
@@ -400,11 +404,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _submissionState.value = SubmissionUiState.Idle
     }
 
-    /** Spec-53 T3 — refresh the awaiting badges from the persistent store. */
+    /** Spec-53 T3/T5 — refresh the awaiting and watching badges from the store. */
     fun refreshAwaitingSubmissions() {
         viewModelScope.launch(Dispatchers.IO) {
             _awaitingSubmissionBookIds.value =
                 runCatching { listenerSubmissionFlow.awaitingBookIds() }.getOrDefault(emptySet())
+            _watchingSubmissionBookIds.value =
+                runCatching { listenerSubmissionFlow.watchingBookIds() }.getOrDefault(emptySet())
         }
     }
 
@@ -447,7 +453,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _submissionState.value = SubmissionUiState.Imported(start.publishable)
                     }
                 }
-                ListenerSubmissionFlow.Start.MetadataPublished ->
+                is ListenerSubmissionFlow.Start.MetadataPublished ->
                     _submissionState.value = SubmissionUiState.MetadataPublished
                 is ListenerSubmissionFlow.Start.Refused ->
                     _submissionState.value = SubmissionUiState.Refused(start.reason)

@@ -1278,6 +1278,90 @@ class LibraryImport(
     }
 
     /**
+     * Spec-53 T5 — the Telegram post's OWN card: a sourceless Work + Edition +
+     * library entry («Шукаємо джерело»). The public preview carries no audio,
+     * so no Source row and no tracks are invented; the availability layer
+     * renders the honest waiting state and the Source Watch reports a direct
+     * source when one appears (spec-49). The same post re-submitted returns the
+     * existing card instead of a twin.
+     */
+    suspend fun importWatchingTelegram(
+        url: String,
+        title: String,
+        author: String?,
+        narrator: String?,
+        coverUrl: String?,
+        description: String?
+    ): SubmittedImport = withContext(Dispatchers.IO) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
+        val mergeKey = MergeKey.keyFor(cleanTitle, author.orEmpty())
+        if (mergeKey.isBlank()) return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
+
+        // A known Work already has a card; a second one would be a twin.
+        dao.findByMergeKey(mergeKey)?.let { existing ->
+            return@withContext SubmittedImport(SubmittedImportResult.ALREADY_ADDED, existing.id, null)
+        }
+
+        val renditionNarrator = narrator?.takeIf { it.isNotBlank() } ?: SUBMISSION_NARRATOR
+        val bookId = "tg-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
+        val editionId = EditionId.forBook(mergeKey, bookId, renditionNarrator)
+        val workId = dao.findWorkByMergeKey(mergeKey)?.id ?: mergeKey.also {
+            dao.upsertWork(
+                WorkEntity(
+                    id = mergeKey,
+                    mergeKey = mergeKey,
+                    title = MetadataAssertions.normalizeTitle(cleanTitle),
+                    author = author?.trim().orEmpty(),
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        }
+
+        dao.insertEdition(
+            EditionEntity(
+                id = editionId,
+                workId = workId,
+                narrator = renditionNarrator,
+                totalChapters = 0,
+                totalDurationSeconds = 0L,
+                addedAt = System.currentTimeMillis()
+            )
+        )
+        dao.insertAudiobooks(
+            listOf(
+                AudiobookEntity(
+                    id = bookId,
+                    title = cleanTitle,
+                    author = author?.trim().orEmpty(),
+                    narrator = renditionNarrator,
+                    description = description?.takeIf { it.isNotBlank() }
+                        ?: "Надіслано посиланням: $url",
+                    coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+                    coverImageUrl = coverUrl,
+                    genre = LOCAL_GENRE,
+                    // The preview has no audio: the card is honestly sourceless.
+                    sourceUrl = "",
+                    isDownloaded = false,
+                    totalDurationSeconds = 0L,
+                    totalChapters = 0,
+                    rating = 0f
+                )
+            )
+        )
+        dao.upsertLibraryEntry(
+            id = bookId,
+            workId = workId,
+            isFavorite = false,
+            createdAt = System.currentTimeMillis(),
+            downloadProgress = 0f
+        )
+        // An explicit submission is a user action: a Work tombstone is cleared.
+        dao.deleteTombstone(workId)
+        SubmittedImport(SubmittedImportResult.IMPORTED, bookId, null)
+    }
+
+    /**
      * Spec-14 T1 — catalogue upsert on import (and on catalogue sync). Inserts
      * or updates a catalogue book row; a known row is enriched with real
      * duration/series data this source carries, never clobbered with 0.

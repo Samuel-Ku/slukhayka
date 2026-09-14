@@ -1484,6 +1484,11 @@ class FakeAudiobookDao(
     override suspend fun awaitingSubmissionStates(): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
         submissionStates.values.filter { it.state == "AWAITING_PLAY" }
 
+    override suspend fun submissionStatesByState(
+        state: String
+    ): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
+        submissionStates.values.filter { it.state == state }
+
     override suspend fun updateSubmissionState(
         sourceId: String, state: String, reason: String?, updatedAt: Long
     ) {

@@ -1464,6 +1464,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM submission_states WHERE state = 'AWAITING_PLAY' ORDER BY createdAt")
     suspend fun awaitingSubmissionStates(): List<SubmissionStateEntity>
 
+    /** Every row in one state — the watching cards (spec-53 T5) read it. */
+    @Query("SELECT * FROM submission_states WHERE state = :state ORDER BY createdAt")
+    suspend fun submissionStatesByState(state: String): List<SubmissionStateEntity>
+
     @Query(
         "UPDATE submission_states SET state = :state, reason = :reason, updatedAt = :updatedAt WHERE sourceId = :sourceId"
     )

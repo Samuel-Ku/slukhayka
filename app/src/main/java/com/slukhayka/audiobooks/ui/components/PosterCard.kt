@@ -258,22 +258,28 @@ fun PosterCard(
                 text = title,
                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
+                // UI: minLines = 2 — назва завжди займає два рядки. Без цього
+                // картка з короткою назвою нижча за сусідню, ряд виходить
+                // «рваним», а відстані між поличками — різними.
+                minLines = 2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-            if (!author.isNullOrBlank()) {
-                Text(
-                    text = author,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
+            // UI: рядок автора резервується ЗАВЖДИ (порожній, якщо автора
+            // немає). Інакше картка без автора нижча за сусідню, ряд виходить
+            // рваним, і відстані між поличками виглядають різними.
+            Text(
+                text = author.orEmpty(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                minLines = 1,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
             if (duration != null) {
                 Text(
                     text = duration,

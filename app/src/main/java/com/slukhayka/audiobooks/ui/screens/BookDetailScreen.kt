@@ -556,17 +556,9 @@ fun BookDetailScreen(
             // height too low.
             TopAppBar(
                 windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        detailPresentation.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        // The pane announcement plus the heading in the body
-                        // already identify the Work. Keep the pinned toolbar
-                        // title visual without making TalkBack read it twice.
-                        modifier = Modifier.clearAndSetSemantics { }
-                    )
-                },
+                // ПРОТОТИП: назва переїхала в hero — у тулбарі лишаються самі
+                // дії, а сам тулбар прозорий поверх арту.
+                title = {},
                 navigationIcon = {
                     IconButton(
                         onClick = onBackClick,
@@ -676,7 +668,7 @@ fun BookDetailScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -690,20 +682,16 @@ fun BookDetailScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                // ПРОТОТИП: верхній паддінг знято — hero-обкладинка заходить
+                // під прозорий тулбар і починається від самого верху.
+                .padding(bottom = padding.calculateBottomPadding())
                 .accessibilityPane(paneTitle)
                 .testTag("book_detail_screen"),
             contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
         ) {
             // Book Header Section
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    BookDetailIdentityHeader(
+                BookDetailIdentityHeader(
                         book = currentBook,
                         presentation = detailPresentation,
                         universeName = bookUniverse?.universeName,
@@ -799,9 +787,17 @@ fun BookDetailScreen(
                             }
                         )
                     )
+            }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
+            // Решта сторінки лишається у власному відступі — hero вище
+            // навмисно full-bleed.
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     BookDetailPrimaryActions(
                         workTitle = currentBook.title,
                         playLabel = bookPlayLabel(playState) { MainViewModel.formatTime(it) },

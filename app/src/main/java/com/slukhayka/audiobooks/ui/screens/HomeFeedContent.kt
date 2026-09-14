@@ -369,7 +369,7 @@ fun LazyListScope.homeFeedContent(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(section.books, key = { it.id }) { book ->
+                    items(section.books, key = { it.id.ifBlank { it.url } }) { book ->
                         // v1.4 C2 (ADR-0033): the canonical PosterCard with the
                         // per-surface action host.
                         PosterCard(

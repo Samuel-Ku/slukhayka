@@ -2176,7 +2176,9 @@ class SourceCatalog(
     private fun SourceBook.toCatalogBook(adapter: SourceAdapter): CatalogBook = CatalogBook(
         // ADR-0007: один формат id на весь застосунок — його формує адаптер
         // джерела. Інакше надгробки й імпорт не збігалися б за ключем.
-        id = adapter.bookId(url),
+        // Порожній id неприпустимий: він стає ключем у Lazy-списку, і два
+        // такі елементи валять екран («Key "" was already used»).
+        id = adapter.bookId(url).takeIf { it.isNotBlank() } ?: url,
         title = title,
         author = author,
         url = url,

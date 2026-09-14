@@ -56,6 +56,9 @@ class SourceRequestGateTransportTest {
         var body: String? = "<html>page</html>"
         var status = 200
 
+        override fun executeAudioRequest(url: String, extraHeaders: Map<String, String>): Response? =
+            executeRequest(url, extraHeaders)
+
         public override fun executeRequest(url: String, extraHeaders: Map<String, String>): Response? {
             calls++
             val payload = body ?: return null

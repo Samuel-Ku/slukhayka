@@ -127,9 +127,10 @@ class PlaybackFallbackResolver(
         val sourceId = pair.sourceId ?: return null
         if (!allowed(sourceId, failedSourceId)) return null
         val track = pair.track ?: return null
+        if (track.url.toHttpUrlOrNull()?.let(AudioNoticePolicy::isBlockedAudio) == true) return null
         if (track.trackIndex != chapterIndex) return null
         val local = track.localFilePath?.takeIf { SmartRetryPolicy.localFileReady(it) }
-        val remote = track.url.toHttpUrlOrNull()?.takeUnless(AudioNoticePolicy::isBlocked)?.toString()
+        val remote = track.url.toHttpUrlOrNull()?.toString()
         val locator = local ?: remote ?: return null
         if (sourceId == "local" && local == null) return null
         return FallbackChapter(locator, sourceId, local)

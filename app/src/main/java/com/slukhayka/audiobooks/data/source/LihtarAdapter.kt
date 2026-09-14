@@ -144,34 +144,20 @@ class LihtarAdapter(
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         // The /biblioteka landing page only lists the category groups, not the
-        // books — the feed has to enumerate each category page and collect its
-        // book links. Category pages carry only transliterated slugs; the real
-        // Cyrillic title and the author live on the book page (og:title and
-        // og:description), so every feed entry is enriched from it — otherwise
-        // a Ukrainian query would never match the slug and no merge key forms.
+        // books. Category cards already carry image, Ukrainian title and
+        // author. Reading each book separately exhausted the source budget
+        // and replaced those visible fields with coverless URL slugs.
         val html = fetcher.getText("https://lihtar.in.ua/biblioteka", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
-        val categories = CATEGORY_LINK.findAll(html).map { it.groupValues[1] }.toList()
+        val categories = CATEGORY_LINK.findAll(html).map { it.groupValues[1] }.distinct().toList()
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
         for (category in categories) {
             if (books.size >= limit) break
             val categoryHtml = fetcher.getText(category, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
-            for (m in BOOK_LINK.findAll(categoryHtml)) {
-                val url = m.groupValues[1]
-                if (!seen.add(url)) continue
-                // Best-effort: a failed fetch keeps the transliterated slug.
-                val meta = pageMeta(url)
-                books += SourceBook(
-                    title = meta.title.ifBlank { slugTitle(url) },
-                    author = meta.author,
-                    url = url,
-                    sourceId = sourceId,
-                    coverImageUrl = meta.cover.ifBlank { null },
-                    // Spec-35 T3: the card carries the page's duration when
-                    // the page provides one (no live page does today).
-                    totalDurationSeconds = meta.durationSeconds ?: 0L
-                )
+            for (book in categoryCards(categoryHtml)) {
+                if (!seen.add(book.url)) continue
+                books += book
                 if (books.size >= limit) break
             }
         }
@@ -182,10 +168,8 @@ class LihtarAdapter(
      * #529 — ONE listener-opened category page: exactly one request to
      * `/biblioteka/<category>`. Measured 2026-09-12: a lihtar category is ONE
      * page (no pagination links), so there is never a cursor and the next page
-     * does not exist — the listener action is the only trigger. Cards carry
-     * what the category page honestly shows (the transliterated slug); the real
-     * Cyrillic title/author resolve on the book page when the card is opened,
-     * so one action never follows every book link in the category.
+     * does not exist. Cards carry the image/title/author already present on
+     * that page; one action never follows every book link in the category.
      */
     override suspend fun fetchGenrePage(genrePath: String, cursor: String?, limit: Int): GenrePage {
         val path = genrePath.trim()
@@ -198,49 +182,25 @@ class LihtarAdapter(
             0L
         )
         if (html.isEmpty()) return GenrePage(emptyList())
-        val books = BOOK_LINK.findAll(html)
-            .map { it.groupValues[1] }
-            .distinct()
-            .take(limit)
-            .map { url ->
-                SourceBook(
-                    title = slugTitle(url),
-                    author = "",
-                    url = url,
-                    sourceId = sourceId
-                )
-            }
-            .toList()
-        return GenrePage(books)
+        return GenrePage(categoryCards(html).take(limit))
     }
 
-    /** Real title, author, cover and duration of a book page, best-effort. */
-    private data class PageMeta(
-        val title: String,
-        val author: String,
-        val cover: String,
-        val durationSeconds: Long?
-    )
-
-    /**
-     * Fetches a book page and extracts its real title, author, cover (og:image)
-     * and duration (when present), best-effort — a failed fetch keeps the slug
-     * and empty values.
-     */
-    private suspend fun pageMeta(url: String): PageMeta {
-        return try {
-            val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
-            if (html.isEmpty()) return PageMeta("", "", "", null)
-            PageMeta(
-                decodeEntities(ogMeta(html, "og:title") ?: h1(html) ?: ""),
-                authorFrom(html),
-                ogMeta(html, "og:image") ?: "",
-                durationFrom(html)
-            )
-        } catch (e: Exception) {
-            PageMeta("", "", "", null)
-        }
-    }
+    private fun categoryCards(html: String): List<SourceBook> = BOOK_CARD.findAll(html).map { match ->
+        val url = decodeEntities(match.groupValues[1])
+        val body = match.groupValues[2]
+        val image = IMAGE_TAG.find(body)?.value?.let(::attributes).orEmpty()
+        fun text(tag: String): String = Regex("""<$tag\b[^>]*>(.*?)</$tag>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(body)?.groupValues?.get(1)?.let { decodeEntities(stripTags(it)).trim() }.orEmpty()
+        SourceBook(
+            title = text("h4").ifBlank { image["alt"]?.let(::decodeEntities).orEmpty() }
+                .ifBlank { decodeEntities(stripTags(body)).trim() }.ifBlank { slugTitle(url) },
+            author = text("p"),
+            url = url,
+            sourceId = sourceId,
+            coverImageUrl = image["src"]?.let { url.toHttpUrlOrNull()?.resolve(decodeEntities(it))?.toString() },
+            totalDurationSeconds = durationFrom(body) ?: 0L
+        )
+    }.distinctBy { it.url }.toList()
 
     /**
      * The real author. Primary source: the `<h4>` subtitle right after the
@@ -294,7 +254,8 @@ class LihtarAdapter(
         val ATTRIBUTE = Regex("""([\w-]+)\s*=\s*(["'])(.*?)\2""", RegexOption.DOT_MATCHES_ALL)
         val LOCATION_ASSIGNMENT = Regex("""(?:window\.)?location\.href\s*=\s*(["'])(.*?)\1""")
         val CATEGORY_LINK = Regex("""href="(https://lihtar\.in\.ua/biblioteka/[a-z0-9-]+)"""", RegexOption.IGNORE_CASE)
-        val BOOK_LINK = Regex("""href="(https://lihtar\.in\.ua/biblioteka/[a-z0-9-]+/[a-z0-9-]+)"""", RegexOption.IGNORE_CASE)
+        val BOOK_CARD = Regex("""<a\b[^>]*href=["'](https://lihtar\.in\.ua/biblioteka/[a-z0-9-]+/[a-z0-9-]+)["'][^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val IMAGE_TAG = Regex("""<img\b[^>]*>""", RegexOption.IGNORE_CASE)
 
         /** #529 — the only category path shapes a listener action may open. */
         private val CATEGORY_PATH = Regex("""^/biblioteka/[a-z0-9-]+$""")

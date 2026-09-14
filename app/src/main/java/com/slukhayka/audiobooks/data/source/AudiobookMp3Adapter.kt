@@ -198,14 +198,17 @@ class AudiobookMp3Adapter(
 
     /** Parses one listing page's cover tiles + text anchors into [SourceBook] rows. */
     private fun parseTiles(html: String, limit: Int): List<SourceBook> {
+        // Sidebar comments also link to books, but carry neither a cover nor
+        // reliable author metadata. Only actual listing articles are cards.
+        val listing = CARD_BLOCK.findAll(html).joinToString("\n") { it.value }
         // Each entry's cover rides in its own tile: <a class="image-abook"
         // href="/uk-audio-…"><img class="b-showshort__cover_image"
         // src="https://cdn.audiobook-mp3.com/audiobooks/uk/…"></a>.
         val covers = mutableMapOf<String, String>()
-        COVER_TILE.findAll(html).forEach { m -> covers[m.groupValues[1]] = m.groupValues[2] }
-        val extras = cardExtras(html)
+        COVER_TILE.findAll(listing).forEach { m -> covers[m.groupValues[1]] = m.groupValues[2] }
+        val extras = cardExtras(listing)
         val seen = mutableSetOf<String>()
-        return BOOK_LINK.findAll(html)
+        return BOOK_LINK.findAll(listing)
             .mapNotNull { m ->
                 val path = m.groupValues[1]
                 val url = "https://audiobook-mp3.com$path"
@@ -215,9 +218,7 @@ class AudiobookMp3Adapter(
                 if (m.groupValues[2].trim().length < 3) return@mapNotNull null
                 if (!seen.add(url)) return@mapNotNull null
                 // The /uk feed renders each entry as «Автор — Назва» (em-dash)
-                // or «Автор - Назва» (hyphen) in real Cyrillic; comment-links
-                // («"Валер’ян Підмогильний — Місто"») also carry surrounding
-                // quotes — stripped so the real title and author survive.
+                // or «Автор - Назва» (hyphen) in real Cyrillic.
                 val anchor = m.groupValues[2].trim().trim('"').trim()
                 val (author, title) = splitAuthorTitle(anchor)
                 val extra = extras[path] ?: CardExtras()
@@ -301,6 +302,7 @@ class AudiobookMp3Adapter(
      */
     private fun splitAuthorTitle(anchor: String): Pair<String, String> {
         val parts = anchor.split(Regex("""\s+[—–-]\s+"""), limit = 2)
+        if (parts.size == 1) return "" to anchor.trim()
         val author = parts.getOrNull(0)?.trim().orEmpty()
         val title = parts.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() } ?: anchor.trim()
         return author to title
@@ -360,7 +362,7 @@ class AudiobookMp3Adapter(
         val AUTHOR_LINK = Regex("""Автор:(?:\s*</span>)?\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
         val NARRATOR_LINK = Regex("""Виконавець:</span>\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
-        val CARD_BLOCK = Regex("""<article class="abook-item">(.*?)</article>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val CARD_BLOCK = Regex("""<article\b[^>]*\bclass=["'][^"']*\babook-item\b[^"']*["'][^>]*>(.*?)</article>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val CARD_URL = Regex("""href="(/uk-audio-\d+-[^"]+)"[^>]*>\s*<img""", RegexOption.IGNORE_CASE)
         val CARD_NARRATOR = Regex("""fa-microphone[^>]*>.*?<a[^>]*>([^<]+)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val CARD_GENRE_BLOCK = Regex("""abook-genre">(.*?)</div>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))

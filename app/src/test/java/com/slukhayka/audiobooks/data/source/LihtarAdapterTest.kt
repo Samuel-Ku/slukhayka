@@ -14,6 +14,46 @@ import org.junit.Test
  */
 class LihtarAdapterTest {
 
+    private val visibleCategory = """
+        <div class="owlblock bookitem w100"><a href="https://lihtar.in.ua/biblioteka/khudozhnja-literatura/ja-kamin-1">
+            <img src="https://lihtar.in.ua/images/biblioteka/74/w_ja-kamin-95.jpg" alt="Я - Камінь">
+            <div class="desc"><h4>Я - Камінь</h4><p>Наталія Дев&#039;ятко</p></div>
+        </a></div>
+        <div class="owlblock bookitem w100"><a href="https://lihtar.in.ua/biblioteka/khudozhnja-literatura/naymychka">
+            <img src="https://lihtar.in.ua/images/biblioteka/69/w_naymychka-90.jpg" alt="Наймичка">
+            <div class="desc"><h4>Наймичка</h4><p>Тарас Шевченко</p></div>
+        </a></div>
+        <div class="owlblock bookitem w100"><a href="https://lihtar.in.ua/biblioteka/khudozhnja-literatura/sto-tysjach-komedija-v-chotyrokh-dijakh">
+            <img src="https://lihtar.in.ua/images/biblioteka/63/w_sto-tysjach-komedija-v-chotyrokh-dijakh-84.jpg" alt="Сто тисяч. Комедія в чотирьох діях">
+            <div class="desc"><h4>Сто тисяч. Комедія в чотирьох діях</h4><p>Іван Карпенко-Карий</p></div>
+        </a></div>
+    """.trimIndent()
+
+    @Test
+    fun `category preserves visible covers and Ukrainian metadata without book requests`() = runBlocking {
+        val path = "/biblioteka/khudozhnja-literatura"
+        val fetcher = FakeFetcher(mapOf("https://lihtar.in.ua$path" to visibleCategory))
+        val books = LihtarAdapter(fetcher).fetchGenrePage(path).books
+        assertEquals(listOf("Я - Камінь", "Наймичка", "Сто тисяч. Комедія в чотирьох діях"), books.map { it.title })
+        assertEquals(listOf("Наталія Дев'ятко", "Тарас Шевченко", "Іван Карпенко-Карий"), books.map { it.author })
+        assertTrue(books.all { !it.coverImageUrl.isNullOrBlank() })
+        assertEquals(listOf("https://lihtar.in.ua$path"), fetcher.requestedUrls)
+    }
+
+    @Test
+    fun `new feed does not lose covers when per book metadata cannot be fetched`() = runBlocking {
+        val category = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura"
+        val fetcher = FakeFetcher(mapOf(
+            "https://lihtar.in.ua/biblioteka" to """<a href="$category">Художня література</a>""",
+            category to visibleCategory
+        ))
+        val books = LihtarAdapter(fetcher).fetchNew(30)
+        assertEquals(3, books.size)
+        assertTrue(books.all { !it.coverImageUrl.isNullOrBlank() })
+        assertEquals("Я - Камінь", books.first().title)
+        assertEquals(listOf("https://lihtar.in.ua/biblioteka", category), fetcher.requestedUrls)
+    }
+
     private val bookPage = """
         <html><head>
         <meta property="og:title" content="Боягуз">
@@ -43,8 +83,14 @@ class LihtarAdapterTest {
 
     private val childCategoryPage = """
         <html><body>
-        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz">Боягуз</a>
-        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo">Андрійко та шахове королівство</a>
+        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz">
+            <img src="https://lihtar.in.ua/images/biblioteka/66/w_bojahuz-87.jpg" alt="Боягуз">
+            <div class="desc"><h4>Боягуз</h4><p>Микола Стеценко</p></div>
+        </a>
+        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo">
+            <img src="https://lihtar.in.ua/images/biblioteka/86/w_andriyko-ta-shakhove-korolivstvo.jpg" alt="Андрійко та шахове королівство">
+            <div class="desc"><h4>Андрійко та шахове королівство</h4><p>Наталія Дев&#039;ятко</p></div>
+        </a>
         <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/zahublena-stinka">Загублена стінка</a>
         </body></html>
     """.trimIndent()
@@ -284,7 +330,7 @@ class LihtarAdapterTest {
     }
 
     @Test
-    fun `new feed enriches every entry from its book page - real title and author`() = runBlocking {
+    fun `new feed preserves category metadata even when a book page has a different cover`() = runBlocking {
         val adapter = LihtarAdapter(
             FakeFetcher(
                 mapOf(
@@ -292,28 +338,24 @@ class LihtarAdapterTest {
                     "https://lihtar.in.ua/biblioteka/dytjacha-literatura" to childCategoryPage,
                     "https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz" to bookPage,
                     "https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo" to andriykoPage
-                    // zahublena-stinka intentionally has no page fixture: the
-                    // entry must fall back to the transliterated slug.
+                    // Missing optional category fields stay absent.
                 )
             )
         )
 
         val books = adapter.fetchNew(limit = 10)
 
-        // The real Cyrillic title and the author come from each book page, so
-        // Ukrainian queries match and the Work-level merge key can form.
+        // Visible category metadata needs no per-book request.
         assertEquals(3, books.size)
         assertEquals("Боягуз", books[0].title)
         assertEquals("Микола Стеценко", books[0].author)
         assertEquals("lihtar", books[0].sourceId)
-        // The book page's og:image becomes the feed card cover.
-        assertEquals("https://lihtar.in.ua/images/biblioteka/85/w_bojahuz-101.jpg", books[0].coverImageUrl)
+        assertEquals("https://lihtar.in.ua/images/biblioteka/66/w_bojahuz-87.jpg", books[0].coverImageUrl)
         // Entities in the author decode before the merge key normalizes it.
         assertEquals("Андрійко та шахове королівство", books[1].title)
         assertEquals("Наталія Дев'ятко", books[1].author)
         assertEquals("https://lihtar.in.ua/images/biblioteka/86/w_andriyko-ta-shakhove-korolivstvo.jpg", books[1].coverImageUrl)
-        // A failed page fetch keeps the transliterated slug, best-effort.
-        assertEquals("zahublena stinka", books[2].title.lowercase())
+        assertEquals("Загублена стінка", books[2].title)
         assertEquals("", books[2].author)
         assertEquals(null, books[2].coverImageUrl)
     }
@@ -329,13 +371,11 @@ class LihtarAdapterTest {
 
         val page = adapter.fetchGenrePage("/biblioteka/dytjacha-literatura")
 
-        // ONE request: the category page itself. Enriching every card from its
-        // book page would be a crawl, so the card keeps the honest slug until
-        // the listener opens it.
+        // ONE request, including the title and cover already visible there.
         assertEquals("one page, one request", 1, fetcher.requestedUrls.size)
         assertEquals("https://lihtar.in.ua/biblioteka/dytjacha-literatura", fetcher.requestedUrls.single())
         assertEquals(3, page.books.size)
-        assertEquals("Bojahuz", page.books[0].title)
+        assertEquals("Боягуз", page.books[0].title)
         assertEquals("lihtar", page.books[0].sourceId)
         assertNull("a lihtar category is ONE page — no cursor exists", page.nextCursor)
     }

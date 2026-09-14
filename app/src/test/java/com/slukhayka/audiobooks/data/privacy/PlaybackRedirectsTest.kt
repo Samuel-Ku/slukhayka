@@ -16,11 +16,12 @@ import org.junit.Test
 class PlaybackRedirectsTest {
 
     @Test
-    fun `notice matching does not ban legitimate books on the shared CDN`() {
+    fun `generic requests block only the known notice while audio has a separate host policy`() {
         for (url in listOf(
             "https://reasd.org/notice/4read-notice.mp3",
             "http://s1.reasd.org/notice/4read-notice.mp3?expires=123",
             "https://REASD.ORG/notice/%34read-notice.mp3",
+            "https://reasd.org./notice/4read-notice.mp3",
         )) assertTrue(url, AudioNoticePolicy.isBlocked(url.toHttpUrl()))
         for (url in listOf(
             "https://reasd.org/4769/01.mp3",
@@ -28,6 +29,17 @@ class PlaybackRedirectsTest {
             "https://reasd.org.example.com/notice/4read-notice.mp3",
             "https://example.com/notice/4read-notice.mp3",
         )) assertFalse(url, AudioNoticePolicy.isBlocked(url.toHttpUrl()))
+    }
+
+    @Test
+    fun `audio host refusal is exact and never expands to other providers`() {
+        for (host in listOf("reasd.org", "cdn.reasd.org", "4read.org", "www.4read.org", "reasd.org.", "CDN.4READ.ORG.")) {
+            assertTrue(AudioNoticePolicy.isBlockedAudio("https://$host/stream".toHttpUrl()))
+            assertFalse(AudioNoticePolicy.isBlocked("https://$host/cover.jpg".toHttpUrl()))
+        }
+        for (host in listOf("arch.sound-books.net", "web.lihtar.in.ua", "sluhay.com", "reasd.org.example.com")) {
+            assertFalse(AudioNoticePolicy.isBlockedAudio("https://$host/book.mp3".toHttpUrl()))
+        }
     }
 
     @Test

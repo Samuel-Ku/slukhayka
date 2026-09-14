@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ensureActive
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
@@ -173,6 +174,25 @@ open class HttpFetcher(
     ): GateOutcome<String> {
         val gate = effectiveGate(url, extraHeaders) ?: return rawTextOutcome(url, extraHeaders)
         return gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
+    }
+
+    /**
+     * A listener-requested multi-page playlist can exceed one token bucket.
+     * Wait only for budget deferrals, never retry a failed HTTP request. The
+     * caller must bound the complete operation; cancellation interrupts waits.
+     * The short cache lets an interrupted resolution reuse completed pages.
+     * Pacing stays here at the shared transport, not inside source adapters.
+     */
+    open suspend fun awaitListenerText(url: String): String {
+        while (true) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            when (val result = fetchText(url, SourceRequestClass.LISTENER_ACTION, 5 * 60_000L)) {
+                is GateOutcome.Fresh -> return result.value
+                is GateOutcome.Fetched -> return result.value
+                is GateOutcome.Deferred -> kotlinx.coroutines.delay(result.retryAfterMs.coerceAtLeast(1L))
+                GateOutcome.Unavailable -> return ""
+            }
+        }
     }
 
     /**

@@ -188,6 +188,15 @@ class SourceCatalog(
     /** ADR-0037 — the source ids whose AUDIO the listener has refused. */
     private fun refusedAudioSources(): Set<String> = sourceAudioRefusal.value
 
+    private val lihtarRepair = com.slukhayka.audiobooks.data.imports.LihtarStoredAudioRepair(
+        dao, sourceAdapters.firstOrNull { it.sourceId == "lihtar" }, { "lihtar" in refusedAudioSources() }
+    )
+
+    private suspend fun audioTracks(source: SourceEntity): List<SourceTrackEntity> =
+        dao.getTracksForSourceSync(source.id).filterNot {
+            com.slukhayka.audiobooks.data.source.LihtarAudio.isNavigationAudio(it.url)
+        }
+
     private val facetDeltaSync: FacetDeltaSync? =
         if (sharedFacetStore != null && facetSyncCursorStore != null) {
             FacetDeltaSync(sharedFacetStore, facetWriter, facetSyncCursorStore, facetSyncNowMillis)
@@ -1154,7 +1163,7 @@ class SourceCatalog(
         return dao.getSourcesForEditionSync(edition.id)
             .filter { it.type !in refusedAudioSources() }
             .map { source ->
-                val tracks = dao.getTracksForSourceSync(source.id).associateBy { it.trackIndex }
+                val tracks = audioTracks(source).associateBy { it.trackIndex }
                 chapters.map { chapter ->
                     PlayableChapter(chapter, tracks[chapter.chapterIndex], source.type, source.url)
                 }
@@ -1209,6 +1218,7 @@ class SourceCatalog(
         preferredSourceUrl: String? = null,
         applyLocalLock: Boolean = true
     ): List<PlayableChapter> {
+        lihtarRepair.repair(bookId)
         var chapters = dao.getChaptersListForBook(bookId)
         val book = dao.getAudiobookById(bookId)
         val sourceUrl = book?.sourceUrl ?: ""
@@ -1385,7 +1395,7 @@ class SourceCatalog(
             (editionId == null || source.editionId == null || source.editionId == editionId) &&
                 source.type !in refusedAudioSources()
         }
-        val tracksBySource = sources.associateWith { dao.getTracksForSourceSync(it.id) }
+        val tracksBySource = sources.associateWith { audioTracks(it) }
         val orderedSources = SourceAccessPolicy.order(
             sources.map { source ->
                 val tracks = tracksBySource[source].orEmpty()

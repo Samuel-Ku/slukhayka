@@ -20,6 +20,37 @@ import org.junit.Test
  */
 class SourceRequestGateTransportTest {
 
+    @Test
+    fun `multi page listener resolution waits for budget and reuses completed pages`() = runTest {
+        val gate = SourceRequestGate(
+            clock = { testScheduler.currentTime },
+            params = SourceGateParams(bucketCapacity = 2, jitterMinMs = 0, jitterMaxMs = 0)
+        )
+        val transport = FakeTransport(gate)
+        repeat(7) { index ->
+            assertEquals("<html>page</html>", transport.awaitListenerText("https://web.lihtar.in.ua/library/book/$index"))
+        }
+        assertEquals(7, transport.calls)
+        assertEquals(50_000L, testScheduler.currentTime)
+        transport.awaitListenerText("https://web.lihtar.in.ua/library/book/0")
+        assertEquals(7, transport.calls)
+    }
+
+    @Test
+    fun `listener resolution never retries failed HTTP and budget waits are cancellable`() = runTest {
+        val gate = SourceRequestGate(
+            clock = { testScheduler.currentTime },
+            params = SourceGateParams(bucketCapacity = 1, jitterMinMs = 0, jitterMaxMs = 0)
+        )
+        val transport = FakeTransport(gate).apply { status = 503 }
+        assertEquals("", transport.awaitListenerText("https://web.lihtar.in.ua/library/book/0"))
+        val waiting = kotlinx.coroutines.withTimeoutOrNull(1_000L) {
+            transport.awaitListenerText("https://web.lihtar.in.ua/library/book/1")
+        }
+        org.junit.Assert.assertNull(waiting)
+        assertEquals(1, transport.calls)
+    }
+
     private class FakeTransport(sourceGate: SourceRequestGate?) : HttpFetcher(sourceGate = sourceGate) {
         var calls = 0
         var body: String? = "<html>page</html>"

@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -131,17 +132,33 @@ fun BookDetailIdentityHeader(
     narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
     val heroHeight = LocalConfiguration.current.screenHeightDp.dp * 0.72f
-    Box(
+    // Висота обкладинки в hero: малюємо її на всю ширину в природній
+    // пропорції й притискаємо до ГОРИ, тож ріжеться лише низ — верх
+    // обкладинки (назва, арт) лишається цілим.
+    var coverAspect by remember(book.coverImageUrl) { mutableStateOf<Float?>(null) }
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .height(heroHeight)
+            .clipToBounds()
             .testTag("book_detail_cover")
     ) {
+        val naturalHeight = coverAspect?.let { maxWidth / it } ?: heroHeight
         BookCoverImage(
             book = book,
             semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(maxOf(naturalHeight, heroHeight)),
+            contentScale = ContentScale.Crop,
+            onImageLoaded = { drawable ->
+                val width = drawable.intrinsicWidth
+                val height = drawable.intrinsicHeight
+                if (width > 0 && height > 0) {
+                    coverAspect = width.toFloat() / height.toFloat()
+                }
+            }
         )
         // Верхній скрим: іконки прозорого тулбара мають читатися на арті.
         Box(

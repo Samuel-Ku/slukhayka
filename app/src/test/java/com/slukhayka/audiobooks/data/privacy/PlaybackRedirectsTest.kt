@@ -22,7 +22,13 @@ class PlaybackRedirectsTest {
             "http://s1.reasd.org/notice/4read-notice.mp3?expires=123",
             "https://REASD.ORG/notice/%34read-notice.mp3",
             "https://reasd.org./notice/4read-notice.mp3",
-        )) assertTrue(url, AudioNoticePolicy.isBlocked(url.toHttpUrl()))
+            "https://reasd.org/notice/another-announcement.mp3",
+            "https://s1.reasd.org//notice/%34read-notice.mp3?token=x",
+            "https://reasd.org/audio/4read-notice.mp3",
+        )) {
+            assertTrue(url, AudioNoticePolicy.isBlocked(url.toHttpUrl()))
+            assertTrue(url, AudioNoticePolicy.isBlockedAudio(url.toHttpUrl()))
+        }
         for (url in listOf(
             "https://reasd.org/4769/01.mp3",
             "https://arch.sound-books.net/3563/book.mp3",
@@ -32,12 +38,12 @@ class PlaybackRedirectsTest {
     }
 
     @Test
-    fun `audio host refusal is exact and never expands to other providers`() {
-        for (host in listOf("reasd.org", "cdn.reasd.org", "4read.org", "www.4read.org", "reasd.org.", "CDN.4READ.ORG.")) {
+    fun `reasd recordings are allowed while 4read audio refusal stays exact`() {
+        for (host in listOf("4read.org", "www.4read.org", "CDN.4READ.ORG.")) {
             assertTrue(AudioNoticePolicy.isBlockedAudio("https://$host/stream".toHttpUrl()))
             assertFalse(AudioNoticePolicy.isBlocked("https://$host/cover.jpg".toHttpUrl()))
         }
-        for (host in listOf("arch.sound-books.net", "web.lihtar.in.ua", "sluhay.com", "reasd.org.example.com")) {
+        for (host in listOf("reasd.org", "cdn.reasd.org", "reasd.org.", "arch.sound-books.net", "web.lihtar.in.ua", "sluhay.com", "reasd.org.example.com")) {
             assertFalse(AudioNoticePolicy.isBlockedAudio("https://$host/book.mp3".toHttpUrl()))
         }
     }

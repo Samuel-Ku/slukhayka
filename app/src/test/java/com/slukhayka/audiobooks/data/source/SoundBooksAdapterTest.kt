@@ -17,6 +17,17 @@ import kotlin.random.Random
  */
 class SoundBooksAdapterTest {
 
+    @Test
+    fun `the real Book name wins over the current Soundbooks SEO title`() = runBlocking {
+        val url = "https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html"
+        val html = """<meta property="og:title" content="Аудіокнига Темна матерія - Блейк Крауч 🎶слухати онлайн українською">
+            <script type="application/ld+json">{"@type":"WebSite","name":"Назва сайту"}</script>
+            <script type="application/ld+json">{"@type":"WebPage","mainEntity":{"@type":"Book","name":"Темна матерія","author":"Блейк Крауч"}}</script>
+        """
+        val detail = SoundBooksAdapter(FakeFetcher(mapOf(url to html))).fetchBookPage(url)
+        assertEquals("Темна матерія", detail.title)
+    }
+
     private val bookPage = """
         <html><head>
         <meta property="og:title" content="Темна матерія">
@@ -30,6 +41,19 @@ class SoundBooksAdapterTest {
         </script>
         </body></html>
     """.trimIndent()
+
+    @Test
+    fun `malformed JSON-LD falls back to the scrubbed title without losing chapters`() = runBlocking {
+        val url = "https://sound-books.net/book.html"
+        val html = bookPage.replace("content=\"Темна матерія\"", "content=\"Аудіокнига Темна матерія - Блейк Крауч 🎶слухати онлайн українською\"") +
+            """<script type='application/ld+json'>{broken}</script>"""
+        val detail = SoundBooksAdapter(FakeFetcher(mapOf(
+            url to html,
+            "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+        ))).fetchBookPage(url)
+        assertEquals("Темна матерія", detail.title)
+        assertEquals(2, detail.chapters.size)
+    }
 
     private val m3u = """
         https://arch.sound-books.net/4111/Темна матерія-01.mp3

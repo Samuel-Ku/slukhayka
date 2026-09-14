@@ -42,6 +42,7 @@ class LihtarAdapter(
 ) : SourceAdapter {
 
     override val sourceId: String = "lihtar"
+    override val resolutionBudgetMs: Long = RESOLVE_TIMEOUT_MS
 
     /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
     override val contentLanguage = "uk"

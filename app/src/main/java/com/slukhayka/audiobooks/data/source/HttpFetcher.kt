@@ -186,10 +186,10 @@ open class HttpFetcher(
      * The short cache lets an interrupted resolution reuse completed pages.
      * Pacing stays here at the shared transport, not inside source adapters.
      */
-    open suspend fun awaitListenerText(url: String): String {
+    open suspend fun awaitListenerText(url: String, cacheTtlMillis: Long = 5 * 60_000L): String {
         while (true) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            when (val result = fetchText(url, SourceRequestClass.LISTENER_ACTION, 5 * 60_000L)) {
+            when (val result = fetchText(url, SourceRequestClass.LISTENER_ACTION, cacheTtlMillis)) {
                 is GateOutcome.Fresh -> return result.value
                 is GateOutcome.Fetched -> return result.value
                 is GateOutcome.Deferred -> kotlinx.coroutines.delay(result.retryAfterMs.coerceAtLeast(1L))
@@ -366,7 +366,9 @@ open class HttpFetcher(
      * and timeouts live on the shared client.
      */
     private fun buildRequest(url: String, extraHeaders: Map<String, String>): Request {
-        val target = TransportPrivacy.rewriteThroughRelay(url)
+        val parsed = url.toHttpUrlOrNull()
+        val secureUrl = parsed?.let { com.slukhayka.audiobooks.data.privacy.KnownSourceHttps.upgrade(it).toString() } ?: url
+        val target = TransportPrivacy.rewriteThroughRelay(secureUrl)
         return Request.Builder()
             .url(target)
             .get()

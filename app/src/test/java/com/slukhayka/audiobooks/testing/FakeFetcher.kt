@@ -79,7 +79,7 @@ open class FakeFetcher(
      */
     val requestedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
 
-    override suspend fun awaitListenerText(url: String): String = getText(url)
+    override suspend fun awaitListenerText(url: String, cacheTtlMillis: Long): String = getText(url)
 
     override fun getText(url: String): String {
         requestedUrls += url

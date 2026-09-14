@@ -21,6 +21,21 @@ import org.junit.Test
 class SourceRequestGateTransportTest {
 
     @Test
+    fun `signed playlist refresh waits for budget but bypasses the cached response`() = runTest {
+        val gate = SourceRequestGate(
+            clock = { testScheduler.currentTime },
+            params = SourceGateParams(bucketCapacity = 1, jitterMinMs = 0, jitterMaxMs = 0)
+        )
+        val transport = FakeTransport(gate)
+        val url = "https://sound-books.net/uploads/playlist.m3u"
+        transport.awaitListenerText(url)
+        transport.body = "fresh signed audio"
+        assertEquals("fresh signed audio", transport.awaitListenerText(url, cacheTtlMillis = 0L))
+        assertEquals(2, transport.calls)
+        assertTrue(testScheduler.currentTime > 0)
+    }
+
+    @Test
     fun `multi page listener resolution waits for budget and reuses completed pages`() = runTest {
         val gate = SourceRequestGate(
             clock = { testScheduler.currentTime },

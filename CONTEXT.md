@@ -144,8 +144,9 @@ positive verdict is fresh for 6 hours and a negative verdict for 15 minutes;
 both are stale at the exact expiry boundary. A shared clean Source×Edition
 profile is fresh for 24 hours. Checking is limited to the active card or a
 bounded viewport window. An action prepares at most two Sources of the same
-Edition concurrently for 8 seconds each, then gives ready candidates their
-own 8-second turn in Android's singleton Player; only an actual Player
+Edition concurrently within each adapter's resolution budget (8 seconds by
+default; Soundbooks 45 seconds, Lihtar 180 seconds including polite waits),
+then gives ready candidates their own 8-second turn in Android's singleton Player; only an actual Player
 `playing` event creates a positive verdict. A late cancelled probe cannot alter the result or reorder
 the current list.
 _Avoid_: HTML/challenge as proof, catalogue-wide crawl, Work availability,
@@ -238,10 +239,12 @@ _Avoid_: серверний LLM-прохід, вигаданий автор, в�
 вбудовано й назавжди: жодна дія не може його дозволити, жоден запис у базу не
 проходить, а наявні фальшиві Sources/глави/Edition чистить стартовий пас —
 картка Твору лишається чесним «аудіо недоступне».
-На транспортній межі аудіо з `reasd.org`, `4read.org` та їхніх піддоменів
-також відмовлене, незалежно від `sourceId` картки. Це правило лише для
-аудіозапитів і їхніх редиректів: HTML, метадані й обкладинки не блокуються;
-Soundbooks, Lihtar та інші джерела не відмовляються цілком (ADR-0037).
+На транспортній межі аудіо з `4read.org` та його піддоменів також відмовлене,
+незалежно від `sourceId` картки. За останнім рішенням слухача книжкове аудіо
+з `reasd.org` дозволене, але його каталог `/notice/` і файл
+`4read-notice.mp3` заблоковані до запиту, включно з редиректами.
+HTML, метадані й обкладинки не блокуються; Soundbooks, Lihtar та інші
+джерела не відмовляються цілком (ADR-0037).
 _Avoid_: Tombstone за Твором, відмова на клас, синхронізація, браузерний вихід всупереч відмові, скам-джерело як вибір слухача
 
 **Replacement Mapping**:

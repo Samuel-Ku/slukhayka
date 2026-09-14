@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import com.slukhayka.audiobooks.data.privacy.PacingPolicy
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.squareup.moshi.Moshi
 import kotlinx.coroutines.delay
 
 /**
@@ -41,6 +43,9 @@ class SoundBooksAdapter(
     /** Injectable pause so tests pin the rhythm without sleeping (spec-38). */
     private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
 ) : SourceAdapter {
+    // Page + playlist may each wait for a token; Player's eight seconds are
+    // for starting resolved media, not for acquiring these signed URLs.
+    override val resolutionBudgetMs: Long = 45_000L
 
     /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
     override val contentLanguage = "uk"
@@ -54,16 +59,17 @@ class SoundBooksAdapter(
         // honestly — the same empty detail as an unreachable page — instead of
         // posing as a playless book forever.
         if (isPromoUrl(url)) return SourceBookDetail("", "", url = url, chapters = emptyList())
-        val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
+        val html = fetcher.awaitListenerText(url, cacheTtlMillis = 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
-        val title = ogMeta(html, "og:title") ?: slugTitle(url)
         // Real author/narrator live in the «Автор: X. Читає: Y.» line (and the
         // page's JSON-LD "author": "…"); og:description is a blurb, not a name.
         val author = AUTHOR_MARK.find(html)?.groupValues?.get(1)?.trim()
             ?: JSONLD_AUTHOR.find(html)?.groupValues?.get(1)?.trim()
             ?: ""
         val narrator = NARRATOR_MARK.find(html)?.groupValues?.get(1)?.trim() ?: ""
+        val title = bookNameFromJsonLd(html)
+            ?: MetadataAssertions.normalizeTitle(ogMeta(html, "og:title") ?: slugTitle(url), author)
 
         // Spec-15 T5: og:description is a real blurb here (unlike the author
         // line, which lives in «Автор: X. Читає: Y.») — carry it for the
@@ -99,7 +105,7 @@ class SoundBooksAdapter(
             rating = rating
         )
 
-        val playlist = fetcher.getText(m3uUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
+        val playlist = fetcher.awaitListenerText(m3uUrl, cacheTtlMillis = 0L)
         val chapters = playlist.split("\n")
             .map { it.trim() }
             .filter { it.startsWith("http") }
@@ -357,6 +363,27 @@ class SoundBooksAdapter(
         return raw.toDoubleOrNull()
     }
 
+    /** WebSite/WebPage names are SEO copy; only the Book's own name is a title. */
+    private fun bookNameFromJsonLd(html: String): String? {
+        fun findBook(value: Any?, depth: Int = 0): String? {
+            if (depth > 12) return null
+            return when (value) {
+                is Map<*, *> -> {
+                    val types = value["@type"].let { if (it is List<*>) it else listOf(it) }
+                    val name = (value["name"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                    if ("Book" in types && name != null) name
+                    else value.values.firstNotNullOfOrNull { findBook(it, depth + 1) }
+                }
+                is List<*> -> value.firstNotNullOfOrNull { findBook(it, depth + 1) }
+                else -> null
+            }
+        }
+        return JSONLD_SCRIPT.findAll(html).firstNotNullOfOrNull { script ->
+            val value = runCatching { JSON_VALUE.fromJson(script.groupValues[1]) }.getOrNull()
+            findBook(value)
+        }
+    }
+
     private fun slugTitle(url: String): String {
         // Book URLs are <category>/<id>-<slug>.html; the title is the slug.
         val slug = url.substringAfterLast('/').substringBeforeLast('.')
@@ -384,6 +411,11 @@ class SoundBooksAdapter(
          * requests so the wider walk keeps the human rhythm (spec-38).
          */
         const val CATEGORY_PAGE_LIMIT: Int = 20
+        val JSON_VALUE = Moshi.Builder().build().adapter(Any::class.java)
+        val JSONLD_SCRIPT = Regex(
+            """<script\b[^>]*\btype\s*=\s*["']application/ld\+json["'][^>]*>(.*?)</script>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
         val PLAYLIST_URL = Regex("""file\s*:\s*"(https?://[^"]+\.m3u)"""", RegexOption.IGNORE_CASE)
         // Real tiles carry attributes before href (`<a class="short-title" href=…>`),
         // so the anchor tag is matched loosely.

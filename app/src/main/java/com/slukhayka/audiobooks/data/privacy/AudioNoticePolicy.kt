@@ -11,7 +11,7 @@ object AudioNoticePolicy {
 
     private object AudioRequest
 
-    /** Audio refusal does not suppress either host's HTML, metadata or covers. */
+    /** Audio refusal does not suppress the source's HTML, metadata or covers. */
     fun audioRequest(request: Request): Request =
         request.newBuilder().tag(AudioRequest::class.java, AudioRequest).build()
 
@@ -19,13 +19,17 @@ object AudioNoticePolicy {
         host.trimEnd('.').let { it == domain || it.endsWith(".$domain") }
 
     fun isBlockedAudio(url: HttpUrl): Boolean =
-        url.belongsTo("reasd.org") || url.belongsTo("4read.org")
+        url.belongsTo("4read.org") || isBlocked(url)
 
-    fun isBlocked(url: HttpUrl): Boolean =
-        url.belongsTo("reasd.org") &&
-            url.pathSegments.joinToString("/").trimEnd('/').equals(
-                "notice/4read-notice.mp3", ignoreCase = true
-            )
+    /** Reasd book recordings are allowed; its announcement directory never is. */
+    fun isBlocked(url: HttpUrl): Boolean {
+        if (!url.belongsTo("reasd.org")) return false
+        // HttpUrl decodes escapes. Normalize repeated/encoded separators so
+        // they cannot disguise the announcement path on a redirect hop.
+        val segments = url.pathSegments.flatMap { it.split('/') }.filter { it.isNotEmpty() }
+        return segments.firstOrNull().equals("notice", ignoreCase = true) ||
+            segments.lastOrNull().equals("4read-notice.mp3", ignoreCase = true)
+    }
 
     fun causedByNotice(error: Throwable?): Boolean =
         generateSequence(error) { it.cause }.any { it is BlockedAudioNoticeException }

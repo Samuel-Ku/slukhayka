@@ -115,6 +115,13 @@ interface SourceAdapter {
     val sourceId: String
 
     /**
+     * Optional budget for resolving a book, including polite gate waits and
+     * multi-page playlists. Null uses the caller's ordinary short budget.
+     * This is not the budget for starting already-resolved audio in Player.
+     */
+    val resolutionBudgetMs: Long? get() = null
+
+    /**
      * Spec-45 (#405) — the BCP-47 content language of the source's catalogue
      * ("uk" for the six Ukrainian sources; "en" for the future LibriVox
      * adapter). One owner per source: individual [SourceBook]/[SourceBookDetail]

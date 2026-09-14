@@ -31,7 +31,8 @@ data class EditionPlaybackRaceResult(
 )
 
 /**
- * Runs the at-most-two, 8-second Source race for one selected Edition.
+ * Runs the at-most-two Source race for one selected Edition. Preparation
+ * may use the adapter's resolution budget; Player start stays bounded separately.
  * Candidates from another Edition are rejected before a coroutine starts.
  * Input order is the already-frozen #429 capability order.
  */
@@ -46,6 +47,7 @@ class BoundedEditionPlaybackRace(
     suspend fun racePrepared(
         selectedEditionId: String,
         candidates: List<EditionSourceCandidate>,
+        preparationBudgetMs: (EditionSourceCandidate) -> Long = { perSourceBudgetMs },
         prepare: suspend (EditionSourceCandidate) -> SourceAttemptVerdict,
         play: suspend (EditionSourceCandidate) -> SourceAttemptVerdict
     ): EditionPlaybackRaceResult = coroutineScope {
@@ -60,7 +62,7 @@ class BoundedEditionPlaybackRace(
         val preparationJobs = eligible.map { source ->
             launch {
                 val verdict = try {
-                    withTimeoutOrNull(perSourceBudgetMs) { prepare(source) }
+                    withTimeoutOrNull(preparationBudgetMs(source)) { prepare(source) }
                         ?: SourceAttemptVerdict.TIMEOUT
                 } catch (cancelled: CancellationException) {
                     throw cancelled

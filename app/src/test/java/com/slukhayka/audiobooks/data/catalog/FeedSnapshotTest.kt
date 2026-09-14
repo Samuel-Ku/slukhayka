@@ -251,8 +251,8 @@ class FeedSnapshotTest {
 
     @Test
     fun `tombstoned book is dropped when the homepage is served from the snapshot`() = runBlocking {
-        val alive = CatalogBook(id = "4read-alive", title = "Жива книга", author = "Автор", url = "https://4read.org/alive/", coverImageUrl = null)
-        val dead = CatalogBook(id = "4read-dead", title = "Видалена книга", author = "Автор", url = "https://4read.org/dead/", coverImageUrl = null)
+        val alive = CatalogBook(id = "soundbooks-alive", title = "Жива книга", author = "Автор", url = "https://sound-books.net/alive/", coverImageUrl = null)
+        val dead = CatalogBook(id = "soundbooks-dead", title = "Видалена книга", author = "Автор", url = "https://sound-books.net/dead/", coverImageUrl = null)
         val sections = listOf(
             CatalogSection(
                 title = "Новинки",
@@ -260,7 +260,7 @@ class FeedSnapshotTest {
                 id = CatalogSectionId.NEW_ARRIVALS
             )
         )
-        store.saveHomepage(sections, listOf(CatalogGenre("Фентезі", "https://4read.org/fentezi/")))
+        store.saveHomepage(sections, listOf(CatalogGenre("Фентезі", "https://sound-books.net/fentezi/")))
         // The listener removed one of the books — the durable tombstone must
         // keep blocking it, even when the feed is served from the snapshot.
         db.audiobookDao().insertTombstone(TombstoneEntity(bookId = dead.id, deletedAt = now))

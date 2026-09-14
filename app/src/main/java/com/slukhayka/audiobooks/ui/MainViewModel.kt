@@ -3307,6 +3307,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // slow source page reads as «ще довантажується», not as emptiness.
             _bookDetailsRefreshing.value = true
             try {
+                // #814 — матеріалізація ПРИ ВІДКРИТТІ, а не лише при
+                // відтворенні.
+                //
+                // `getPlayableChapters` — єдине місце, яке наповнює книжку
+                // розділами, коли їх немає (у ньому ж і вибір адаптера за
+                // ВЛАСНИМ джерелом книги). Досі його кликали лише з
+                // `smartRetryPlayback` і `resolveAndReplay`, тобто зі шляху
+                // відтворення. Через це сід-картка з нулем розділів не мала
+                // жодного способу їх дістати: щоб матеріалізувати, треба
+                // натиснути «грати», а натискати нема на що — замкнене коло.
+                // Натискання на картку виглядало як «не реагує».
+                runCatching { sourceCatalog.getPlayableChapters(bookId) }
+                    .onFailure { android.util.Log.w("MainViewModel", "materialize on open failed for $bookId", it) }
                 libraryEntries.refreshBookCoverAndDetails(bookId)
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "refreshBookCoverAndDetails failed for $bookId", e)

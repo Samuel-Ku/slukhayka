@@ -7,6 +7,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import fi.iki.elonen.NanoHTTPD
 import java.net.HttpURLConnection
 import java.net.URL
@@ -20,6 +23,8 @@ import java.net.URL
  * to null — never a throw. This is the transport-level half of receiver seek;
  * the proxy's own Range semantics are JVM-tested in [com.slukhayka.audiobooks.player.PlaybackProxyTest].
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class HttpFetcherRangeTest {
 
     private lateinit var server: UpstreamStub
@@ -71,6 +76,20 @@ class HttpFetcherRangeTest {
         server.statusToServe = 404
 
         assertNull(fetcher.getRangeStream(url()))
+    }
+
+    @Test
+    fun `every audio stream entry point refuses notices and 4read without a request`() {
+        for (denied in listOf(
+            "https://reasd.org/notice/4read-notice.mp3",
+            "https://s1.reasd.org/notice/another-announcement.mp3",
+            "https://4read.org/extensionless-stream"
+        )) {
+            assertNull(fetcher.getStream(denied))
+            assertNull(fetcher.getSizedStream(denied))
+            assertNull(fetcher.getSizedStreamResult(denied).sizedStream)
+            assertNull(fetcher.getRangeStream(denied))
+        }
     }
 
     @Test

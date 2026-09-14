@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.catalog
 
 import android.util.Log
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import androidx.paging.PagingSource
 import com.slukhayka.audiobooks.data.authors.AuthorIndex
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
@@ -187,6 +188,16 @@ class SourceCatalog(
 
     /** ADR-0037 — the source ids whose AUDIO the listener has refused. */
     private fun refusedAudioSources(): Set<String> = sourceAudioRefusal.value
+
+    private val lihtarRepair = com.slukhayka.audiobooks.data.imports.LihtarStoredAudioRepair(
+        dao, sourceAdapters.firstOrNull { it.sourceId == "lihtar" }, { "lihtar" in refusedAudioSources() }
+    )
+
+    private suspend fun audioTracks(source: SourceEntity): List<SourceTrackEntity> =
+        dao.getTracksForSourceSync(source.id).filterNot {
+            com.slukhayka.audiobooks.data.source.LihtarAudio.isNavigationAudio(it.url) ||
+                it.url.toHttpUrlOrNull()?.let(com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy::isBlockedAudio) == true
+        }
 
     private val facetDeltaSync: FacetDeltaSync? =
         if (sharedFacetStore != null && facetSyncCursorStore != null) {
@@ -1146,6 +1157,21 @@ class SourceCatalog(
         val sourceUrl: String? = null
     )
 
+    /** Local alternatives already bound to this Edition; no probing or re-import. */
+    suspend fun storedEditionSources(bookId: String): List<List<PlayableChapter>> {
+        val edition = dao.getEditionForWork(bookId) ?: return emptyList()
+        val chapters = dao.getChaptersListForEdition(edition.id)
+        if (chapters.isEmpty()) return emptyList()
+        return dao.getSourcesForEditionSync(edition.id)
+            .filter { it.type !in refusedAudioSources() }
+            .map { source ->
+                val tracks = audioTracks(source).associateBy { it.trackIndex }
+                chapters.map { chapter ->
+                    PlayableChapter(chapter, tracks[chapter.chapterIndex], source.type, source.url)
+                }
+            }
+    }
+
     /** #455 — persist only the Edition-level terminal verdict from a card action. */
     suspend fun recordBookAvailability(
         book: AudiobookEntity,
@@ -1194,6 +1220,7 @@ class SourceCatalog(
         preferredSourceUrl: String? = null,
         applyLocalLock: Boolean = true
     ): List<PlayableChapter> {
+        lihtarRepair.repair(bookId)
         var chapters = dao.getChaptersListForBook(bookId)
         val book = dao.getAudiobookById(bookId)
         val sourceUrl = book?.sourceUrl ?: ""
@@ -1370,7 +1397,7 @@ class SourceCatalog(
             (editionId == null || source.editionId == null || source.editionId == editionId) &&
                 source.type !in refusedAudioSources()
         }
-        val tracksBySource = sources.associateWith { dao.getTracksForSourceSync(it.id) }
+        val tracksBySource = sources.associateWith { audioTracks(it) }
         val orderedSources = SourceAccessPolicy.order(
             sources.map { source ->
                 val tracks = tracksBySource[source].orEmpty()
@@ -1599,7 +1626,7 @@ class SourceCatalog(
                 // Spec-24 T1: the Work row stores the scrubbed title — the
                 // merge key keeps the RAW claim so stored identities never
                 // churn under the SEO-suffix scrub.
-                title = MetadataAssertions.normalizeTitle(title),
+                title = MetadataAssertions.normalizeTitle(title, author),
                 author = author.trim(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,
@@ -1611,7 +1638,7 @@ class SourceCatalog(
             WorkEntity(
                 id = id,
                 mergeKey = "",
-                title = MetadataAssertions.normalizeTitle(title),
+                title = MetadataAssertions.normalizeTitle(title, author),
                 author = author.trim(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,

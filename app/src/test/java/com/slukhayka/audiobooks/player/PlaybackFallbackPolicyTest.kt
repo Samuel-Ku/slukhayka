@@ -13,6 +13,12 @@ import org.junit.Test
 class PlaybackFallbackPolicyTest {
 
     @Test
+    fun `a blocked notice attempts one fallback without an HTTP error code`() {
+        assertTrue(PlaybackFallbackPolicy.shouldAttempt(null, 0, blockedNotice = true))
+        assertFalse(PlaybackFallbackPolicy.shouldAttempt(null, 1, blockedNotice = true))
+    }
+
+    @Test
     fun `a 403 stream failure attempts once`() {
         assertTrue(PlaybackFallbackPolicy.shouldAttempt(403, fallbackAttempts = 0))
     }

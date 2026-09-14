@@ -595,6 +595,16 @@ class AudioPlayerManagerTest {
     }
 
     @Test
+    fun `Soundbooks book on reasd keeps its own source referer`() = playerTest { manager, _ ->
+        val soundbooks = book.copy(sourceUrl = "https://sound-books.net/zarubizhna-literatura/2841-doktor-son.html")
+        val tracks = playable.mapIndexed { index, pair ->
+            pair.copy(sourceId = "soundbooks", track = pair.track!!.copy(url = "https://reasd.org/4769/$index.mp3"))
+        }
+        manager.loadAndPlayBook(soundbooks, chapters, tracks, autoPlay = false)
+        assertEquals(mapOf("Referer" to "https://sound-books.net/"), manager.lastAppliedStreamHeaders)
+    }
+
+    @Test
     fun `audiobookmp3 book applies its own referer on the same cdn family`() = playerTest { manager, _ ->
         val mp3Book = book.copy(
             sourceUrl = "https://audiobook-mp3.com/uk/1/2/3.html"
@@ -1362,6 +1372,157 @@ class AudioPlayerManagerTest {
         seen?.add(Triple(chapterCount, failedSourceId, url))
         url?.let { PlaybackFallbackResolver.FallbackChapter(url = it, sourceId = sourceId) }
     }
+
+    private fun noticeError() = PlaybackException(
+        "Source error",
+        java.io.IOException(com.slukhayka.audiobooks.data.privacy.BlockedAudioNoticeException()),
+        PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+    )
+
+    @Test
+    fun `a Soundbooks notice from an expired URL refreshes its page before changing source`() {
+        var heals = 0
+        playerTest(
+            healer = HealerSeam { _, _, _ -> heals++; HEALED_URL },
+            fallback = FallbackSeam { _, _, _, _ -> error("Fresh source URL is available") }
+        ) { manager, factory ->
+            val soundbooks = book.copy(sourceUrl = "https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html")
+            val tracks = playable.take(1).map { it.copy(sourceId = "soundbooks", track = it.track!!.copy(url = "https://arch.sound-books.net/4111/book-01.mp3?expires=1&md5=old")) }
+            manager.loadAndPlayBook(soundbooks, chapters.take(1), tracks, initialPositionSeconds = 20)
+            val position = manager.playerState.value.currentPositionMs
+            factory.current.simulateError(noticeError())
+            runCurrent()
+            assertEquals(1, heals)
+            assertEquals(HEALED_URL, factory.current.lastMediaItemUri)
+            assertEquals(position, manager.playerState.value.currentPositionMs)
+            assertEquals(soundbooks.id, manager.playerState.value.currentBook?.id)
+        }
+    }
+
+    @Test
+    fun `an unavailable refresh after a notice continues to a permitted fallback`() {
+        var heals = 0
+        playerTest(
+            healer = HealerSeam { _, _, _ -> heals++; null },
+            fallback = fallbackSeam(sourceId = "sluhayua")
+        ) { manager, factory ->
+            val soundbooks = book.copy(sourceUrl = "https://sound-books.net/book.html")
+            val tracks = playable.take(1).map { it.copy(sourceId = "soundbooks", track = it.track!!.copy(url = "https://arch.sound-books.net/book.mp3")) }
+            manager.loadAndPlayBook(soundbooks, chapters.take(1), tracks)
+            factory.current.simulateError(noticeError())
+            runCurrent()
+            assertEquals(1, heals)
+            assertEquals(FALLBACK_URL, factory.current.lastMediaItemUri)
+        }
+    }
+
+    @Test
+    fun `a stalled notice refresh times out before the permitted fallback`() =
+        playerTest(
+            healer = HealerSeam { _, _, _ -> delay(60_000); HEALED_URL },
+            fallback = fallbackSeam(sourceId = "sluhayua")
+        ) { manager, factory ->
+            val tracks = playable.take(1).map { it.copy(sourceId = "soundbooks", track = it.track!!.copy(url = "https://arch.sound-books.net/book.mp3")) }
+            manager.loadAndPlayBook(book.copy(sourceUrl = "https://sound-books.net/book.html"), chapters.take(1), tracks)
+            factory.current.simulateError(noticeError())
+            runCurrent()
+            assertTrue(manager.playerState.value.isBuffering)
+            advanceTimeBy(45_001)
+            runCurrent()
+            assertEquals(FALLBACK_URL, factory.current.lastMediaItemUri)
+            advanceTimeBy(20_000)
+            runCurrent()
+            assertEquals("timed-out refresh cannot replace the fallback", FALLBACK_URL, factory.current.lastMediaItemUri)
+        }
+
+    @Test
+    fun `notice in a single chapter goes straight to another source preserving position`() =
+        playerTest(
+            healer = HealerSeam { _, _, _ -> throw AssertionError("Do not retry the notice source") },
+            fallback = fallbackSeam(sourceId = "sluhayua"),
+        ) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters.take(1), playable.take(1), initialPositionSeconds = 20)
+            val engine = factory.current
+            val position = manager.playerState.value.currentPositionMs
+            engine.simulateError(noticeError())
+            runCurrent()
+            assertEquals(2, engine.prepareCount)
+            assertEquals(FALLBACK_URL, engine.lastMediaItemUri)
+            assertEquals(book.id, manager.playerState.value.currentBook?.id)
+            assertEquals(position, manager.playerState.value.currentPositionMs)
+            assertEquals(0, manager.playbackMetrics.failures())
+
+            engine.simulateError(noticeError())
+            runCurrent()
+            assertEquals("a second notice must not loop", 2, engine.prepareCount)
+            assertEquals(PlaybackErrorKind.UNAVAILABLE, manager.playerState.value.errorKind)
+            assertFalse(manager.playerState.value.isPlaying)
+            assertFalse(manager.playerState.value.isBuffering)
+        }
+
+    @Test
+    fun `notice without a replacement reports blocked content instead of playing it`() =
+        playerTest(fallback = fallbackSeam(url = null)) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable)
+            factory.current.simulateError(noticeError())
+            runCurrent()
+            assertEquals(1, factory.current.prepareCount)
+            assertEquals(PlaybackErrorKind.UNAVAILABLE, manager.playerState.value.errorKind)
+            assertTrue(manager.playerState.value.lastErrorMsg.contains("Аудіо заблоковано"))
+            assertFalse(manager.playerState.value.isPlaying)
+            assertFalse(manager.playerState.value.isBuffering)
+        }
+
+    @Test
+    fun `a late notice recovery cannot restart a dismissed player`() =
+        playerTest(fallback = FallbackSeam { _, _, _, _ ->
+            delay(1000)
+            PlaybackFallbackResolver.FallbackChapter(FALLBACK_URL, "sluhayua")
+        }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable)
+            val engine = factory.current
+            engine.simulateError(noticeError())
+            runCurrent()
+            manager.stopAndClear()
+            advanceTimeBy(1001)
+            runCurrent()
+            assertNull(manager.playerState.value.currentBook)
+            assertEquals(1, engine.prepareCount)
+        }
+
+    @Test
+    fun `notice recovery has a bounded wait`() =
+        playerTest(fallback = FallbackSeam { _, _, _, _ ->
+            delay(60_000)
+            PlaybackFallbackResolver.FallbackChapter(FALLBACK_URL, "sluhayua")
+        }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable)
+            factory.current.simulateError(noticeError())
+            runCurrent()
+            assertTrue(manager.playerState.value.isBuffering)
+            advanceTimeBy(15_001)
+            runCurrent()
+            assertEquals(PlaybackErrorKind.UNAVAILABLE, manager.playerState.value.errorKind)
+            assertFalse(manager.playerState.value.isBuffering)
+            assertEquals(1, factory.current.prepareCount)
+        }
+
+    @Test
+    fun `pause during notice recovery remains paused when replacement is ready`() =
+        playerTest(fallback = FallbackSeam { _, _, _, _ ->
+            delay(1000)
+            PlaybackFallbackResolver.FallbackChapter(FALLBACK_URL, "sluhayua")
+        }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable)
+            factory.current.simulateError(noticeError())
+            runCurrent()
+            manager.pause()
+            advanceTimeBy(1001)
+            runCurrent()
+            factory.current.simulateReady(90_000L)
+            assertEquals(FALLBACK_URL, manager.playerState.value.currentStreamUrl)
+            assertFalse(manager.playerState.value.isPlaying)
+        }
 
     @Test
     fun `a 403 swaps the same chapter from the verified direct sibling`() =

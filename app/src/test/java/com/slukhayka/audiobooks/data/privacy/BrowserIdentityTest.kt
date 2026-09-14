@@ -15,6 +15,21 @@ import org.junit.Test
 class BrowserIdentityTest {
 
     @Test
+    fun `audio identity preserves signed URL ranges and explicit fetch metadata`() {
+        val request = okhttp3.Request.Builder()
+            .url("https://arch.sound-books.net/a%20book.mp3?expires=123&md5=signature")
+            .header("Range", "bytes=17-31")
+            .header("Sec-Fetch-Mode", "cors")
+            .header("Sec-Fetch-Dest", "empty")
+            .build()
+        val identified = BrowserIdentity.audioRequest(request)
+        assertEquals(request.url, identified.url)
+        assertEquals("bytes=17-31", identified.header("Range"))
+        assertEquals("cors", identified.header("Sec-Fetch-Mode"))
+        assertEquals("empty", identified.header("Sec-Fetch-Dest"))
+    }
+
+    @Test
     fun `before any report the static fallback answers`() {
         BrowserIdentity.resetForTest()
         assertEquals(BrowserIdentity.FALLBACK_USER_AGENT, BrowserIdentity.currentUserAgent())

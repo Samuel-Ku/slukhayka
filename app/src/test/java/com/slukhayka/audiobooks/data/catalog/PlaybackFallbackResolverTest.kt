@@ -19,6 +19,80 @@ import org.junit.Test
  */
 class PlaybackFallbackResolverTest {
 
+    @Test
+    fun `another source of the same Edition works without a known narrator or a second card`() = runTest {
+        val resolver = PlaybackFallbackResolver(
+            allBooks = { error("No library-wide lookup for an existing Edition source") },
+            chaptersFor = { error("No network resolution") },
+            sameEditionChapters = { listOf(chapters("self", "sluhayua", 1, "sluhay.com.ua")) },
+        )
+        val match = resolver.resolve(book(narrator = ""), 1, 0, "soundbooks")
+        assertEquals("sluhayua", match?.sourceId)
+        assertEquals("https://sluhay.com.ua/audio/0.mp3", match?.url)
+    }
+
+    @Test
+    fun `same Edition candidates cannot return the failed source a refusal or the notice`() = runTest {
+        val notice = chapters("self", "audiobookmp3", 1, "example.com").map {
+            it.copy(track = it.track!!.copy(url = "https://reasd.org/notice/4read-notice.mp3"))
+        }
+        val resolver = PlaybackFallbackResolver(
+            allBooks = { emptyList() }, chaptersFor = { emptyList() },
+            refusedSourceIds = { setOf("sluhayua") },
+            sameEditionChapters = {
+                listOf(
+                    chapters("self", "soundbooks", 1, "sound-books.net"),
+                    chapters("self", "sluhayua", 1, "sluhay.com.ua"),
+                    chapters("self", "4read", 1, "reasd.org"),
+                    notice,
+                )
+            },
+        )
+        assertNull(resolver.resolve(book(), 1, 0, "soundbooks"))
+    }
+
+    @Test
+    fun `a refused audio host cannot hide behind an allowed source or its local copy`() = runTest {
+        val local = kotlin.io.path.createTempFile("refused-audio", ".mp3").toFile()
+        try {
+            local.writeBytes(byteArrayOf(1, 2, 3))
+            for (url in listOf("https://reasd.org/notice/4read-notice.mp3", "https://cdn.4read.org/book.mp3")) {
+                val denied = chapters("self", "soundbooks", 1, "example.org").map {
+                    it.copy(track = it.track!!.copy(url = url, localFilePath = local.absolutePath))
+                }
+                val resolver = PlaybackFallbackResolver(
+                    allBooks = { emptyList() }, chaptersFor = { emptyList() },
+                    sameEditionChapters = { listOf(denied) },
+                )
+                assertNull(resolver.resolve(book(), 1, 0, "audiobookmp3"))
+            }
+        } finally { local.delete() }
+    }
+
+    @Test
+    fun `a catalog card cannot disguise its refused physical source`() = runTest {
+        val f = Fixture(
+            books = listOf(row("sb", "sound-books.net")),
+            playable = mapOf("sb" to chapters("sb", "sluhayua", 3, "sluhay.com.ua")),
+            refused = setOf("sluhayua"),
+        )
+        assertNull(f.resolver().resolve(book(), 3, 0, "4read"))
+    }
+
+    @Test
+    fun `a refusal made during resolution is respected`() = runTest {
+        var refused = emptySet<String>()
+        val resolver = PlaybackFallbackResolver(
+            allBooks = { listOf(row("sb", "sound-books.net")) },
+            chaptersFor = {
+                refused = setOf("soundbooks")
+                chapters("sb", "soundbooks", 3, "sound-books.net")
+            },
+            refusedSourceIds = { refused },
+        )
+        assertNull(resolver.resolve(book(), 3, 0, "4read"))
+    }
+
     private fun row(
         id: String,
         sourceHost: String,

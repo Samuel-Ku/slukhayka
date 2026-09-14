@@ -435,10 +435,10 @@ interface AudiobookDao {
     // the pure normalizeTitle rule in Kotlin, and rewrites only the rows that
     // change — idempotent by construction (a second run matches nothing).
 
-    @Query("SELECT id, title FROM audiobooks")
+    @Query("SELECT id, title, author FROM audiobooks")
     suspend fun getAllBookTitleRows(): List<TitleRow>
 
-    @Query("SELECT id, title FROM works")
+    @Query("SELECT id, title, author FROM works")
     suspend fun getAllWorkTitleRows(): List<TitleRow>
 
     @Query("UPDATE audiobooks SET title = :title WHERE id = :id")
@@ -793,6 +793,60 @@ interface AudiobookDao {
         updateBookStats(bookId, chapters.size, totalDurationSeconds)
         replaceEdition(edition.copy(totalChapters = chapters.size, totalDurationSeconds = totalDurationSeconds))
         updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
+    }
+
+    /**
+     * Replace a single mis-imported navigation cue, retaining listener state.
+     * Compare the full old topology inside the transaction: an import/download
+     * racing the network fetch must never be overwritten by automatic repair.
+     */
+    @Transaction
+    suspend fun repairNavigationOnlyChapter(
+        source: SourceEntity,
+        edition: EditionEntity,
+        oldChapter: ChapterEntity,
+        oldTrack: SourceTrackEntity,
+        chapters: List<ChapterEntity>,
+        tracks: List<SourceTrackEntity>,
+        totalDurationSeconds: Long
+    ): Boolean {
+        val bookId = source.bookId
+        if (getAudiobookById(bookId) == null || getEditionForWork(bookId) != edition ||
+            getSourcesForBookSync(bookId) != listOf(source) ||
+            getChaptersListForBook(bookId) != listOf(oldChapter) ||
+            getTracksForSourceSync(source.id) != listOf(oldTrack)
+        ) return false
+        require(chapters.isNotEmpty() && chapters.size == tracks.size)
+        require(chapters.first().id == oldChapter.id && tracks.first().id == oldTrack.id)
+        require(chapters.map { it.chapterIndex } == chapters.indices.toList())
+        require(tracks.map { it.trackIndex } == tracks.indices.toList())
+        require(chapters.all { it.bookId == bookId && it.editionId == edition.id })
+        require(tracks.all { it.sourceId == source.id })
+        insertChapters(chapters)
+        insertTracks(tracks)
+        updateBookStats(bookId, chapters.size, totalDurationSeconds)
+        replaceEdition(edition.copy(totalChapters = chapters.size, totalDurationSeconds = totalDurationSeconds))
+        getEditionFacet(edition.id)?.let { facet ->
+            // COALESCE-based normal enrichment cannot clear the click's false
+            // duration/availability. Replace just this derived projection in
+            // the same transaction, retaining its bibliographic fields.
+            deleteEditionFacet(edition.id)
+            mergeEditionFacet(
+                editionId = facet.editionId, workId = facet.workId,
+                narratorId = facet.narratorId, language = facet.language,
+                durationSeconds = totalDurationSeconds.takeIf { it > 0 },
+                durationBucketId = null, chapterCount = chapters.size,
+                isAbridged = facet.isAbridged, availabilityAvailable = null,
+                availabilityObservedAtMillis = null, availabilityTtlSeconds = null,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        // Time spent hearing the click is not progress through the recording.
+        getPlaybackProgressSyncByEdition(edition.id)?.let { progress ->
+            savePlaybackProgress(progress.copy(currentChapterIndex = 0, currentPositionSeconds = 0L, isCompleted = false))
+        }
+        updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
+        return true
     }
 
     @Query("DELETE FROM audiobooks WHERE id = :bookId")

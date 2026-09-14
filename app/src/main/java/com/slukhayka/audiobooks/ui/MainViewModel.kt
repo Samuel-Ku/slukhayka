@@ -452,6 +452,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
 
+            override fun preparationBudgetMs(source: SourceEntity): Long? =
+                libraryImport.resolutionBudgetMs(source.type)
+
             override suspend fun open(book: AudiobookEntity): Boolean {
                 probeDurationsAfterImport(book.id)
                 selectBook(book.id)

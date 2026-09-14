@@ -25,6 +25,13 @@ class StreamHealPolicyTest {
     }
 
     @Test
+    fun `a 410 expired signature heals exactly once`() {
+        assertTrue(StreamHealPolicy.shouldHeal(410, healAttempts = 0))
+        assertFalse(StreamHealPolicy.shouldHeal(410, healAttempts = 1))
+        assertTrue(StreamHealPolicy.budgetExhausted(410, healAttempts = 1))
+    }
+
+    @Test
     fun `a moved file (301) never heals`() {
         assertFalse(StreamHealPolicy.shouldHeal(301, healAttempts = 0))
         assertFalse(StreamHealPolicy.shouldHeal(302, healAttempts = 0))

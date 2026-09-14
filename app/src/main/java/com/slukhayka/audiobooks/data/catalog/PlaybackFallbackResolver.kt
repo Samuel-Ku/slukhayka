@@ -7,6 +7,10 @@ import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.player.SmartRetryPolicy
+import com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy
+import com.slukhayka.audiobooks.data.source.SourceRegistry
+import kotlinx.coroutines.CancellationException
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * #504 — the same-narration direct fallback for a dead chapter. When the
@@ -34,6 +38,7 @@ class PlaybackFallbackResolver(
     private val chaptersFor: suspend (String) -> List<SourceCatalog.PlayableChapter>,
     private val refusedSourceIds: () -> Set<String> = { emptySet() },
     private val maxResolutions: Int = 3,
+    private val sameEditionChapters: suspend (String) -> List<List<SourceCatalog.PlayableChapter>> = { emptyList() },
 ) {
 
     /** A verified same-narration, same-slicing chapter locator. */
@@ -55,7 +60,21 @@ class PlaybackFallbackResolver(
         failedSourceId: String?,
     ): FallbackChapter? {
         val mergeKey = book.mergeKey
-        if (mergeKey.isBlank() || chapterCount <= 0 || chapterIndex < 0 || chapterIndex >= chapterCount) return null
+        if (chapterCount <= 0 || chapterIndex < 0 || chapterIndex >= chapterCount) return null
+        // Edition linkage is stronger evidence than a narrator string. This
+        // also works for single-file books and unknown narrators, without a
+        // second card or any network request.
+        val stored = sameEditionChapters(book.id).mapNotNull { playable ->
+            verifiedChapter(playable, chapterCount, chapterIndex, failedSourceId)
+        }
+        val orderedStored = SourceAccessPolicy.order(stored.map {
+            SourceAccessCandidate(it.sourceId, url = it.url, localAvailable = it.localFilePath != null)
+        })
+        for (entry in orderedStored) {
+            val candidate = stored.first { it.sourceId == entry.sourceId && it.url == entry.url }
+            if (allowed(candidate.sourceId, failedSourceId)) return candidate
+        }
+        if (mergeKey.isBlank()) return null
         val refused = refusedSourceIds()
         val candidates = allBooks()
             .filter { it.id != book.id && it.mergeKey == mergeKey }
@@ -76,14 +95,44 @@ class PlaybackFallbackResolver(
             if (row.totalChapters > 0 && row.totalChapters != chapterCount) continue
             if (resolutions >= maxResolutions) break
             resolutions++
-            val playable = runCatching { chaptersFor(row.id) }.getOrNull() ?: continue
-            if (playable.size != chapterCount) continue
-            val track = playable.getOrNull(chapterIndex)?.track ?: continue
-            val local = track.localFilePath?.takeIf { SmartRetryPolicy.localFileReady(it) }
-            val remote = track.url?.takeIf { it.startsWith("http", ignoreCase = true) }
-            val locator = local ?: remote ?: continue
-            return FallbackChapter(url = locator, sourceId = sourceId, localFilePath = local)
+            if (!allowed(sourceId, failedSourceId)) continue
+            val playable = try {
+                chaptersFor(row.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                continue
+            }
+            // The catalog may select a different physical source than the
+            // card URL. Re-check its actual identity and current refusals.
+            val candidate = verifiedChapter(playable, chapterCount, chapterIndex, failedSourceId) ?: continue
+            return candidate
         }
         return null
+    }
+
+    private fun allowed(sourceId: String, failedSourceId: String?): Boolean =
+        sourceId.isNotBlank() && sourceId != failedSourceId &&
+            sourceId !in refusedSourceIds() && !SourceRegistry.isScam(sourceId) &&
+            (sourceId == "local" || SourceAccessPolicy.modeFor(sourceId) == SourceAccessMode.DIRECT)
+
+    private fun verifiedChapter(
+        playable: List<SourceCatalog.PlayableChapter>,
+        chapterCount: Int,
+        chapterIndex: Int,
+        failedSourceId: String?,
+    ): FallbackChapter? {
+        if (playable.size != chapterCount || playable.map { it.chapter.chapterIndex } != (0 until chapterCount).toList()) return null
+        val pair = playable[chapterIndex]
+        val sourceId = pair.sourceId ?: return null
+        if (!allowed(sourceId, failedSourceId)) return null
+        val track = pair.track ?: return null
+        if (track.url.toHttpUrlOrNull()?.let(AudioNoticePolicy::isBlockedAudio) == true) return null
+        if (track.trackIndex != chapterIndex) return null
+        val local = track.localFilePath?.takeIf { SmartRetryPolicy.localFileReady(it) }
+        val remote = track.url.toHttpUrlOrNull()?.toString()
+        val locator = local ?: remote ?: return null
+        if (sourceId == "local" && local == null) return null
+        return FallbackChapter(locator, sourceId, local)
     }
 }

@@ -23,14 +23,14 @@ class StoredMetadataScrub(private val dao: AudiobookDao) {
     suspend fun scrubOnce(): Int {
         var changed = 0
         for (row in dao.getAllBookTitleRows()) {
-            val scrubbed = MetadataAssertions.normalizeTitle(row.title)
+            val scrubbed = MetadataAssertions.normalizeTitle(row.title, row.author)
             if (scrubbed != row.title) {
                 dao.updateBookTitle(row.id, scrubbed)
                 changed++
             }
         }
         for (row in dao.getAllWorkTitleRows()) {
-            val scrubbed = MetadataAssertions.normalizeTitle(row.title)
+            val scrubbed = MetadataAssertions.normalizeTitle(row.title, row.author)
             if (scrubbed != row.title) {
                 dao.updateWorkTitle(row.id, scrubbed)
                 changed++

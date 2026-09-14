@@ -66,7 +66,8 @@ object StreamHealPolicy {
         healAttempts: Int,
         substituted: Boolean = false
     ): Boolean =
-        (substituted || responseCode == HTTP_FORBIDDEN || responseCode == HTTP_NOT_FOUND) &&
+        (substituted || responseCode == HTTP_FORBIDDEN || responseCode == HTTP_NOT_FOUND ||
+            responseCode == HTTP_GONE) &&
             healAttempts < MAX_HEAL_ATTEMPTS
 
     /**

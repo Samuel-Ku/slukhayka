@@ -94,10 +94,22 @@ fun SourceCookieProvider.cookieHeadersFor(url: String): Map<String, String> {
  */
 fun SourceCookieProvider.coverHeadersFor(url: String): Map<String, String> {
     val host = runCatching { java.net.URI(url.trim()).host?.lowercase()?.removePrefix("www.") }
-        .getOrNull()
-    if (host != "4read.org") return emptyMap()
+        .getOrNull() ?: return emptyMap()
+    val sourceId = sourceIdForUrl(url)
+    // Referer потрібен майже всім: sluhay.com віддає 403 без нього
+    // (перевірено: без Referer — 403, з `https://sluhay.com/` — 200 image/webp).
+    val referer = SourceRegistry.refererHeaderFor(sourceId, url)
+    // Браузерне джерело ховається за Cloudflare, тож обкладинки мусять ходити
+    // ТІЄЮ САМОЮ веб-сесією, що й сторінки: користувач проходить перевірку в
+    // браузері застосунку, кукі `cf_clearance` зберігається, і далі ми
+    // отримуємо дані у фоні. Без кукі Cloudflare віддає 403, і картка
+    // виглядає порожньою. Кукі читаємо лише для хоста цього джерела.
+    val browserBacked = SourceRegistry.facts(sourceId)
+        ?.let { com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER == it.accessMode }
+        ?: false
+    if (!browserBacked) return referer
     return buildMap {
-        put("Referer", "https://4read.org/")
+        putAll(referer)
         put("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
         put("Sec-Fetch-Dest", "image")
         put("Sec-Fetch-Mode", "no-cors")

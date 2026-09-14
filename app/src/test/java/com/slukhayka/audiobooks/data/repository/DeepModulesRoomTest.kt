@@ -1481,6 +1481,109 @@ class DeepModulesRoomTest {
     // ---------------------------------------------------------------------
 
     @Test
+    fun `lihtar repairs a stored click into the full chapter list on playback lookup`() = runBlocking {
+        val detail = com.slukhayka.audiobooks.data.source.SourceBookDetail(
+            title = "І знову про любов", author = "Олена і Тимур Литовченки",
+            url = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/i-znovu-pro-lubov",
+            chapters = listOf(com.slukhayka.audiobooks.data.source.SourceChapter("І знову про любов", "https://web.lihtar.in.ua/audio/name/click.mp3"))
+        )
+        val imports = LibraryImport(dao, context, emptyList())
+        val book = imports.importBookFromSource("lihtar", detail)
+        val edition = dao.getEditionForWork(book.id)!!
+        val oldChapter = dao.getChaptersListForBook(book.id).single()
+        dao.savePlaybackProgress(PlaybackProgressEntity(edition.id, book.id, 0, 1, isCompleted = true, preferredSpeed = 1.5f))
+        dao.insertBookmark(BookmarkEntity(bookId = book.id, editionId = edition.id, chapterIndex = 0, chapterTitle = "Нотатка", timestampSeconds = 0, note = "Зберегти"))
+        dao.setFavorite(book.id, true)
+        var calls = 0
+        val fresh = detail.copy(chapters = (1..7).map {
+            com.slukhayka.audiobooks.data.source.SourceChapter("Розділ $it", "https://web.lihtar.in.ua/audio/library/1238/track-$it.mp3")
+        })
+        val adapter = object : com.slukhayka.audiobooks.data.source.SourceAdapter {
+            override val sourceId = "lihtar"
+            override suspend fun search(query: String) = emptyList<com.slukhayka.audiobooks.data.source.SourceBook>()
+            override suspend fun fetchNew(limit: Int) = emptyList<com.slukhayka.audiobooks.data.source.SourceBook>()
+            override suspend fun fetchBookPage(url: String) = fresh.also { calls++ }
+        }
+        val catalog = SourceCatalog(dao, listOf(adapter), imports)
+        val playable = catalog.getPlayableChapters(book.id)
+        assertEquals(7, playable.size)
+        assertEquals(fresh.chapters.map { it.streamUrl }, playable.map { it.track?.url })
+        assertEquals(oldChapter.id, playable.first().chapter.id)
+        assertEquals(edition.id, dao.getEditionForWork(book.id)!!.id)
+        assertEquals(7, dao.getAudiobookById(book.id)!!.totalChapters)
+        assertEquals(7, dao.getEditionFacet(edition.id)!!.chapterCount)
+        assertNull(dao.getEditionFacet(edition.id)!!.durationSeconds)
+        assertTrue(dao.getAudiobookById(book.id)!!.isFavorite)
+        assertEquals("Зберегти", dao.getBookmarksForBook(book.id).first().single().note)
+        val progress = dao.getPlaybackProgressSync(book.id)!!
+        assertFalse(progress.isCompleted)
+        assertEquals(0L, progress.currentPositionSeconds)
+        assertEquals(1.5f, progress.preferredSpeed)
+        catalog.getPlayableChapters(book.id)
+        assertEquals("successful repair is not fetched again", 1, calls)
+    }
+
+    @Test
+    fun `lihtar failed repair leaves metadata intact and never returns the stored click`() = runBlocking {
+        val detail = com.slukhayka.audiobooks.data.source.SourceBookDetail(
+            title = "І знову про любов", author = "Олена і Тимур Литовченки",
+            url = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/i-znovu-pro-lubov",
+            chapters = listOf(com.slukhayka.audiobooks.data.source.SourceChapter("І знову про любов", "https://web.lihtar.in.ua/audio/name/click.mp3"))
+        )
+        val imports = LibraryImport(dao, context, emptyList())
+        val book = imports.importBookFromSource("lihtar", detail)
+        var calls = 0
+        val adapter = object : com.slukhayka.audiobooks.data.source.SourceAdapter {
+            override val sourceId = "lihtar"
+            override suspend fun search(query: String) = emptyList<com.slukhayka.audiobooks.data.source.SourceBook>()
+            override suspend fun fetchNew(limit: Int) = emptyList<com.slukhayka.audiobooks.data.source.SourceBook>()
+            override suspend fun fetchBookPage(url: String) = detail.copy(chapters = emptyList()).also { calls++ }
+        }
+        val refusal = kotlinx.coroutines.flow.MutableStateFlow(setOf("lihtar"))
+        val catalog = SourceCatalog(dao, listOf(adapter), imports, sourceAudioRefusal = refusal)
+        assertTrue(catalog.getPlayableChapters(book.id).all { it.track == null })
+        assertEquals(0, calls)
+        refusal.value = emptySet()
+        repeat(2) { assertTrue(catalog.getPlayableChapters(book.id).all { it.track == null }) }
+        assertEquals("failed repair has a cooldown", 1, calls)
+        assertEquals(detail.title, dao.getAudiobookById(book.id)!!.title)
+        assertEquals(1, dao.getChaptersListForBook(book.id).size)
+    }
+
+    @Test
+    fun `lihtar repair does not overwrite a source added during resolution`() = runBlocking {
+        val detail = com.slukhayka.audiobooks.data.source.SourceBookDetail(
+            title = "І знову про любов", author = "Олена і Тимур Литовченки",
+            url = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/i-znovu-pro-lubov",
+            chapters = listOf(com.slukhayka.audiobooks.data.source.SourceChapter("І знову про любов", "https://web.lihtar.in.ua/audio/name/click.mp3"))
+        )
+        val imports = LibraryImport(dao, context, emptyList())
+        val book = imports.importBookFromSource("lihtar", detail)
+        val original = dao.getSourcesForBookSync(book.id).single()
+        val other = original.copy(id = "another-source", type = "soundbooks", url = "https://sound-books.net/book.html")
+        val goodTrack = com.slukhayka.audiobooks.data.db.SourceTrackEntity("another-track", other.id, 0, "https://sound-books.net/book.mp3")
+        val adapter = object : com.slukhayka.audiobooks.data.source.SourceAdapter {
+            override val sourceId = "lihtar"
+            override suspend fun search(query: String) = emptyList<com.slukhayka.audiobooks.data.source.SourceBook>()
+            override suspend fun fetchNew(limit: Int) = emptyList<com.slukhayka.audiobooks.data.source.SourceBook>()
+            override suspend fun fetchBookPage(url: String): com.slukhayka.audiobooks.data.source.SourceBookDetail {
+                dao.insertSources(listOf(other))
+                dao.insertTracks(listOf(goodTrack))
+                return detail.copy(chapters = (1..7).map {
+                    com.slukhayka.audiobooks.data.source.SourceChapter("Розділ $it", "https://web.lihtar.in.ua/audio/library/1/$it.mp3")
+                })
+            }
+        }
+        val catalog = SourceCatalog(dao, listOf(adapter), imports)
+        assertEquals(goodTrack, catalog.getPlayableChapters(book.id).single().track)
+        assertEquals(1, dao.getChaptersListForBook(book.id).size)
+        assertEquals(listOf(goodTrack), dao.getTracksForSourceSync(other.id))
+        assertTrue(catalog.storedEditionSources(book.id).flatten().none {
+            it.track?.url?.contains("/audio/name/") == true
+        })
+    }
+
+    @Test
     fun `download is refused for a stream-only book without touching the network`() = runBlocking {
         val mods = modules()
         val book = TestDataFactory.dataBooks()[0].copy(

@@ -442,8 +442,20 @@ class OfflineDownloadsReliabilityTest {
         val paused = async { downloadsA.downloadAudiobookOffline(bookA) }
         val healthy = async { downloadsB.downloadAudiobookOffline(bookB) }
 
+        val raced = healthy.await()
         assertEquals("the unsafe book writes nothing", 0, paused.await().downloadedChapters)
-        assertEquals("the other book still downloads fully", 2, healthy.await().downloadedChapters)
+        // Availability, not a bucket: both of this book's chapters share ONE
+        // stream URL in this fixture, so the loop may legitimately serve the
+        // second one from the URL-dedup (reused) or the hash-dedup (shared)
+        // instead of the network — which bucket wins is a race with the first
+        // chapter's write, and the honest property is that the book ends up
+        // fully available either way.
+        assertEquals(
+            "the other book is fully fetched - fresh, URL-deduped or shared",
+            2,
+            raced.downloadedChapters + raced.reusedChapters + raced.sharedChapters
+        )
+        assertEquals("nothing failed for the healthy book", 0, raced.failedChapters)
         assertEquals(DownloadState.PAUSED, dao.getAudiobookById(bookA)?.downloadState)
 
         val audioDir = File(context.filesDir, OfflineDownloads.OFFLINE_AUDIO_DIR)

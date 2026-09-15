@@ -1061,6 +1061,13 @@ class FakeAudiobookDao(
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
+    /** ADR-0041 — the discovery pool: only Works with at least one claim. */
+    override fun observeDiscoverableWorks(): Flow<List<WorkEntity>> =
+        combine(worksState, workSourcesState) { works, claims ->
+            val claimedWorkIds = claims.mapTo(mutableSetOf()) { it.workId }
+            works.filter { it.id in claimedWorkIds }
+        }
+
     // Spec-24 T1: the stored-title scrub reads through the same projection
     // the real DAO serves.
     override suspend fun getAllBookTitleRows(): List<TitleRow> =

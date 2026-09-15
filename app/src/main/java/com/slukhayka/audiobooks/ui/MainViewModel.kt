@@ -2977,7 +2977,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Single-flight guard: a running embedding pass is never re-launched. */
     private val _embeddingPassInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val recommendationWorks = sourceCatalog.allWorks
+    // ADR-0041: recommendations are a discovery surface of the Mirror, so the
+    // pool is the CLAIMED Works only — a Work whose every Source was removed
+    // can never be opened and must not be offered (the ghost behind the
+    // 2026-09-15 «Рекомендовано для вас» report).
+    private val recommendationWorks = sourceCatalog.discoverableWorks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
 

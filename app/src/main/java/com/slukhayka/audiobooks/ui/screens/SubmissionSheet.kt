@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
@@ -16,15 +18,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -34,6 +40,9 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.SubmissionState
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.CatalogCoverImage
+import com.slukhayka.audiobooks.ui.components.MetadataCorrectionDialog
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
@@ -84,7 +93,12 @@ fun SubmissionSheet(
     /** Spec-53 T8 — the visible offline queue and its two actions. */
     deferredLinks: List<SubmissionState> = emptyList(),
     onRetryDeferred: ((String) -> Unit)? = null,
-    onRemoveDeferred: ((String) -> Unit)? = null
+    onRemoveDeferred: ((String) -> Unit)? = null,
+    /** Spec-53 T9 — the optional pre-add preview and its add-with-edits door. */
+    preview: ListenerSubmissionFlow.SubmissionPreview? = null,
+    onPreview: ((String) -> Unit)? = null,
+    onClearPreview: (() -> Unit)? = null,
+    onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -103,6 +117,10 @@ fun SubmissionSheet(
             deferredLinks = deferredLinks,
             onRetryDeferred = onRetryDeferred,
             onRemoveDeferred = onRemoveDeferred,
+            preview = preview,
+            onPreview = onPreview,
+            onClearPreview = onClearPreview,
+            onSubmitWithEdits = onSubmitWithEdits,
             includePaneSemantics = false
         )
     }
@@ -122,9 +140,18 @@ fun SubmissionSheetContent(
     deferredLinks: List<SubmissionState> = emptyList(),
     onRetryDeferred: ((String) -> Unit)? = null,
     onRemoveDeferred: ((String) -> Unit)? = null,
+    preview: ListenerSubmissionFlow.SubmissionPreview? = null,
+    onPreview: ((String) -> Unit)? = null,
+    onClearPreview: (() -> Unit)? = null,
+    onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null,
     includePaneSemantics: Boolean = true
 ) {
     var url by rememberSaveable(prefillUrl) { mutableStateOf(prefillUrl.orEmpty()) }
+    // Spec-53 T9 — the preview's local corrections; cleared with the card.
+    var previewEdits by remember(preview?.url) {
+        mutableStateOf<ListenerSubmissionFlow.PreviewEdits?>(null)
+    }
+    var showPreviewEdit by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -164,7 +191,11 @@ fun SubmissionSheetContent(
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedTextField(
             value = url,
-            onValueChange = { url = it },
+            onValueChange = {
+                url = it
+                // Spec-53 T9 — a changed link invalidates the loaded card.
+                if (preview != null) onClearPreview?.invoke()
+            },
             label = { Text(stringResource(R.string.submission_url_label)) },
             singleLine = true,
             modifier = Modifier
@@ -268,15 +299,159 @@ fun SubmissionSheetContent(
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        Button(
-            onClick = { onSubmit(url.trim()) },
-            enabled = url.isNotBlank() && state !is SubmissionUiState.Working,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("submission_submit")
+        // Spec-53 T9 — the habitual path stays one tap («Додати одразу»);
+        // the preview is the optional second door, never a tollbooth.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(stringResource(R.string.submission_submit_action))
+            if (onPreview != null) {
+                OutlinedButton(
+                    onClick = { onPreview(url.trim()) },
+                    enabled = url.isNotBlank() && state !is SubmissionUiState.Working,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("submission_preview")
+                ) {
+                    Text(stringResource(R.string.submission_preview_action))
+                }
+            }
+            Button(
+                onClick = { onSubmit(url.trim()) },
+                enabled = url.isNotBlank() && state !is SubmissionUiState.Working,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("submission_submit")
+            ) {
+                Text(stringResource(R.string.submission_submit_action))
+            }
         }
+        // Spec-53 T9 — the pre-add card: engine data only, editable, honest.
+        if (preview != null) {
+            val shownTitle = previewEdits?.title ?: preview.title
+            val shownAuthor = previewEdits?.author ?: preview.author
+            val shownNarrator = previewEdits?.narrator ?: preview.narrator
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("submission_preview_card"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CatalogCoverImage(
+                    coverImageUrl = preview.coverUrl,
+                    title = shownTitle,
+                    semantics = BookCoverSemantics.Decorative,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = previewTypeText(preview),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.testTag("submission_preview_type")
+                    )
+                    Text(
+                        text = shownTitle,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("submission_preview_title")
+                    )
+                    if (!shownAuthor.isNullOrBlank()) {
+                        Text(
+                            text = shownAuthor,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    preview.durationSeconds?.let { total ->
+                        Text(
+                            text = formatPreviewDuration(total),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("submission_preview_duration")
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(
+                    onClick = { showPreviewEdit = true },
+                    modifier = Modifier.testTag("submission_preview_edit")
+                ) {
+                    Text(stringResource(R.string.submission_preview_edit))
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                if (onSubmitWithEdits != null) {
+                    Button(
+                        onClick = {
+                            onSubmitWithEdits(
+                                preview.url,
+                                previewEdits ?: ListenerSubmissionFlow.PreviewEdits()
+                            )
+                        },
+                        modifier = Modifier.testTag("submission_preview_add")
+                    ) {
+                        Text(stringResource(R.string.submission_preview_add))
+                    }
+                }
+            }
+        }
+        if (showPreviewEdit && preview != null) {
+            // Spec-53 T9 — the SAME form as the post-import fix (T7).
+            MetadataCorrectionDialog(
+                initialTitle = previewEdits?.title ?: preview.title,
+                initialAuthor = previewEdits?.author ?: preview.author.orEmpty(),
+                initialNarrator = previewEdits?.narrator ?: preview.narrator.orEmpty(),
+                onDismiss = { showPreviewEdit = false },
+                onSave = { title, author, narrator ->
+                    previewEdits = ListenerSubmissionFlow.PreviewEdits(
+                        title = title,
+                        author = author,
+                        narrator = narrator
+                    )
+                    showPreviewEdit = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun previewTypeText(preview: ListenerSubmissionFlow.SubmissionPreview): String =
+    when (preview.kind) {
+        ListenerSubmissionFlow.PreviewKind.YOUTUBE_VIDEO ->
+            stringResource(R.string.submission_preview_single_video)
+        ListenerSubmissionFlow.PreviewKind.YOUTUBE_PLAYLIST ->
+            stringResource(R.string.submission_preview_playlist_prefix) + " · " +
+                pluralStringResource(
+                    R.plurals.submission_preview_chapters,
+                    preview.chapterCount,
+                    preview.chapterCount
+                )
+        ListenerSubmissionFlow.PreviewKind.TELEGRAM_POST ->
+            stringResource(R.string.submission_preview_telegram)
+    }
+
+/** H:MM:SS, or M:SS below an hour — the engine's observed total, nothing more. */
+private fun formatPreviewDuration(totalSeconds: Long): String {
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        "$hours:%02d:%02d".format(minutes, seconds)
+    } else {
+        "$minutes:%02d".format(seconds)
     }
 }
 

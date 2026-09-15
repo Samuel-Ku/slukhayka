@@ -772,12 +772,20 @@ fun LibraryScreen(
             val submissionState by viewModel.submissionState.collectAsState()
             val submissionRemaining by viewModel.submissionRemaining.collectAsState()
             val deferredLinks by viewModel.deferredSubmissions.collectAsState()
+            val submissionPreview by viewModel.submissionPreview.collectAsState()
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
                 deferredLinks = deferredLinks,
                 onRetryDeferred = { viewModel.retryDeferredSubmission(it) },
                 onRemoveDeferred = { viewModel.removeDeferredSubmission(it) },
+                preview = submissionPreview,
+                onPreview = { viewModel.loadSubmissionPreview(it) },
+                onClearPreview = { viewModel.clearSubmissionPreview() },
+                onSubmitWithEdits = { url, edits ->
+                    viewModel.clearSubmissionPreview()
+                    viewModel.submitLink(url, edits)
+                },
                 onListen = { viewModel.listenToLastImported() },
                 // Spec-53 T6 — the friendly dupe leads to the owned copy.
                 onOpenBook = { bookId ->

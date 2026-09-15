@@ -47,9 +47,12 @@ class ListenerSubmissionFlowTest {
         /** Spec-53 T6 — exactly which url reached the engine. */
         val fetchedUrls = mutableListOf<String>()
 
+        /** Spec-53 T9 — the preview corrections each submit carried in. */
+        val capturedEdits = mutableListOf<ListenerSubmissionFlow.PreviewEdits?>()
+
         val flow = ListenerSubmissionFlow(
             fetchMetadata = { url -> fetchCalls++; fetchedUrls += url; metadataJson },
-            importYouTube = { _, _, _ -> importCalls++; importOutcome },
+            importYouTube = { _, _, _, edits -> importCalls++; capturedEdits += edits; importOutcome },
             fetchTgIdentity = { tgCalls++; tgIdentity },
             importWatchingTelegram = importWatching,
             watchSource = watchSource,
@@ -342,7 +345,7 @@ class ListenerSubmissionFlowTest {
         val online = java.util.concurrent.atomic.AtomicBoolean(false)
         val flow = ListenerSubmissionFlow(
             fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
-            importYouTube = { _, _, _ ->
+            importYouTube = { _, _, _, _ ->
                 ListenerSubmissionFlow.ImportOutcome(
                     ListenerSubmissionFlow.ImportResult.IMPORTED,
                     bookId = "book-1",
@@ -527,7 +530,7 @@ class ListenerSubmissionFlowTest {
         )
         val flow = ListenerSubmissionFlow(
             fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
-            importYouTube = { _, _, _ -> outcomes[index++] },
+            importYouTube = { _, _, _, _ -> outcomes[index++] },
             fetchTgIdentity = { null },
             publisher = publisher,
             verification = verification,
@@ -559,7 +562,7 @@ class ListenerSubmissionFlowTest {
         val publisher = SubmissionPublisher(harnessStore, policy) { 1_000L }
         fun flow() = ListenerSubmissionFlow(
             fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
-            importYouTube = { _, _, _ ->
+            importYouTube = { _, _, _, _ ->
                 ListenerSubmissionFlow.ImportOutcome(
                     ListenerSubmissionFlow.ImportResult.IMPORTED, bookId = "book-1", sourceId = "source-1"
                 )
@@ -576,5 +579,91 @@ class ListenerSubmissionFlowTest {
         // The process restarted: a fresh flow over the same store.
         assertEquals(ListenerSubmissionFlow.Verdict.Published, flow().onPlaybackStarted("source-1"))
         assertEquals(1, harnessStore.submissionPuts.size)
+    }
+
+    private val previewPlaylistJson = """
+        {
+          "id": "PLprev",
+          "title": "Проста книга",
+          "thumbnail": "https://i.ytimg.com/vi/x/hqdefault.jpg",
+          "entries": [
+            {"id": "aaa111BBB22", "url": "https://www.youtube.com/watch?v=aaa111BBB22", "title": "Розділ 1", "duration": 600},
+            {"id": "bbb222CCC33", "url": "https://www.youtube.com/watch?v=bbb222CCC33", "title": "Розділ 2", "duration": 900}
+          ]
+        }
+    """.trimIndent()
+
+    private val previewVideoJson = """{"id":"vid1","title":"Одне відео","duration":3725}"""
+
+    @Test
+    fun `preview shows real engine data and nothing invented`() = runTest {
+        val harness = Harness(metadataJson = previewPlaylistJson)
+
+        val preview = harness.flow.previewSubmission("https://www.youtube.com/playlist?list=PLprev")!!
+
+        assertEquals("https://www.youtube.com/playlist?list=PLprev", preview.url)
+        assertEquals(ListenerSubmissionFlow.PreviewKind.YOUTUBE_PLAYLIST, preview.kind)
+        assertEquals(2, preview.chapterCount)
+        assertEquals(1500L, preview.durationSeconds)
+        assertEquals("https://i.ytimg.com/vi/x/hqdefault.jpg", preview.coverUrl)
+        assertEquals("Проста книга", preview.title)
+        assertEquals("zero side effects: no import, no budget, no store", 0, harness.importCalls)
+        assertTrue(harness.store.submissionPuts.isEmpty())
+    }
+
+    @Test
+    fun `single video preview carries its own duration`() = runTest {
+        val harness = Harness(metadataJson = previewVideoJson)
+
+        val preview = harness.flow.previewSubmission("https://youtu.be/abc123XYZ89")!!
+
+        assertEquals(ListenerSubmissionFlow.PreviewKind.YOUTUBE_VIDEO, preview.kind)
+        assertEquals(1, preview.chapterCount)
+        assertEquals(3725L, preview.durationSeconds)
+        assertNull(preview.coverUrl)
+    }
+
+    @Test
+    fun `telegram preview is honest about having no audio`() = runTest {
+        val harness = Harness(tgIdentity = tgIdentity)
+
+        val preview = harness.flow.previewSubmission(tgPost)!!
+
+        assertEquals(ListenerSubmissionFlow.PreviewKind.TELEGRAM_POST, preview.kind)
+        assertEquals("Острів Дума", preview.title)
+        assertEquals("Стівен Кінг", preview.author)
+        assertEquals("https://cdn4.telesco.pe/file/cover.jpg", preview.coverUrl)
+        assertNull(preview.durationSeconds)
+        assertEquals(0, preview.chapterCount)
+    }
+
+    @Test
+    fun `preview is null when there is nothing honest to show`() = runTest {
+        assertNull(Harness().flow.previewSubmission("https://example.com/not-supported"))
+        assertNull(Harness(online = false).flow.previewSubmission(youtube))
+        assertNull(Harness(metadataJson = null).flow.previewSubmission(youtube))
+    }
+
+    @Test
+    fun `preview edits ride the submit into the import door`() = runTest {
+        val harness = Harness()
+        val edits = ListenerSubmissionFlow.PreviewEdits(
+            title = "Виправлена",
+            author = "Автор",
+            narrator = "Начитка"
+        )
+
+        harness.flow.submit(youtube, edits)
+
+        assertEquals(listOf(edits), harness.capturedEdits)
+    }
+
+    @Test
+    fun `one-tap submit carries no edits`() = runTest {
+        val harness = Harness()
+
+        harness.flow.submit(youtube)
+
+        assertEquals(listOf(null), harness.capturedEdits)
     }
 }

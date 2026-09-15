@@ -124,4 +124,14 @@ class YouTubeSubmissionPlannerTest {
         assertEquals("Гаррі Поттер 1", plan.title)
         assertNull(plan.author)
     }
+
+    @Test
+    fun `thumbnail survives parsing, absence stays absent`() {
+        val withCover = YouTubeSubmissionPlanner.parseMetadata(
+            """{"id":"x","title":"Книга","thumbnail":"https://i.ytimg.com/vi/x/hqdefault.jpg"}"""
+        )!!
+
+        assertEquals("https://i.ytimg.com/vi/x/hqdefault.jpg", withCover.coverUrl)
+        assertNull(YouTubeSubmissionPlanner.parseMetadata(singleVideoJson)!!.coverUrl)
+    }
 }

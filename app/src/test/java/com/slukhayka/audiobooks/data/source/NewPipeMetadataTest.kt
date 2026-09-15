@@ -59,6 +59,21 @@ class NewPipeMetadataTest {
     }
 
     @Test
+    fun `cover round-trips through the json, absence stays absent`() {
+        val withCover = NewPipeMetadata.metadataJsonOf(
+            NewPipeMetadata.Metadata(title = "Книга", coverUrl = "https://i.ytimg.com/vi/x/hqdefault.jpg")
+        )
+        assertEquals(
+            "https://i.ytimg.com/vi/x/hqdefault.jpg",
+            YouTubeSubmissionPlanner.parseMetadata(withCover)!!.coverUrl
+        )
+        val withoutCover = NewPipeMetadata.metadataJsonOf(
+            NewPipeMetadata.Metadata(title = "Книга")
+        )
+        assertNull(YouTubeSubmissionPlanner.parseMetadata(withoutCover)!!.coverUrl)
+    }
+
+    @Test
     fun `fetchMetadataJson uses the injected provider`() = runBlocking {
         val json = NewPipeMetadata.fetchMetadataJson("https://www.youtube.com/watch?v=abc") { url ->
             assertEquals("https://www.youtube.com/watch?v=abc", url)

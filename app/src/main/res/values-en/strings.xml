@@ -264,7 +264,18 @@
     <string name="submission_sheet_subtitle">A YouTube video or playlist, or a Telegram post. The book lands in your library right away and in the shared catalog after it really plays.</string>
     <string name="submission_url_label">Link</string>
     <string name="submission_remaining">Submissions left today: %1$d</string>
-    <string name="submission_submit_action">Submit</string>
+    <string name="submission_submit_action">Add now</string>
+    <!-- Spec-53 T9 — the optional pre-add preview. -->
+    <string name="submission_preview_action">Preview</string>
+    <string name="submission_preview_add">Add</string>
+    <string name="submission_preview_edit">Edit</string>
+    <string name="submission_preview_single_video">single video</string>
+    <string name="submission_preview_playlist_prefix">playlist</string>
+    <string name="submission_preview_telegram">Telegram post</string>
+    <plurals name="submission_preview_chapters">
+        <item quantity="one">%1$d chapter</item>
+        <item quantity="other">%1$d chapters</item>
+    </plurals>
     <string name="submission_status_working">Processing the link…</string>
     <string name="submission_status_imported">Book added. Listen to it — once it really plays, it joins the shared catalog.</string>
     <string name="submission_status_imported_local">Book added locally. The shared base is unavailable — nothing will be published.</string>

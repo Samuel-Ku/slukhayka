@@ -105,6 +105,34 @@ class LibraryImportSubmissionTest {
     }
 
     @Test
+    fun `preview corrections land in the import - identity built corrected`() = runBlocking {
+        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube",
+            titleOverride = "Виправлена назва",
+            authorOverride = "Справжній автор"
+        )
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        val book = dao.getAudiobookById(result.bookId!!)!!
+        assertEquals("Виправлена назва", book.title)
+        assertEquals("Справжній автор", book.author)
+        assertNotNull(
+            "the Work identity is built from the corrected claims",
+            dao.findWorkByMergeKey(MergeKey.keyFor("Виправлена назва", "Справжній автор"))
+        )
+    }
+
+    @Test
+    fun `blank title override keeps the engine title`() = runBlocking {
+        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", titleOverride = "   "
+        )
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        assertEquals("Гаррі Поттер 1", dao.getAllBookTitleRows().single().title)
+    }
+
+    @Test
     fun `the exact same submitted url is a no-op`() = runBlocking {
         libraryImport.importSubmittedYouTube(playlistUrl, playlistJson, "@youtube")
 

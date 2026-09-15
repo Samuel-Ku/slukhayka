@@ -404,6 +404,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissSubmission() {
         _submissionState.value = SubmissionUiState.Idle
+        clearSubmissionPreview()
     }
 
     /** Spec-53 T3/T5 — refresh the awaiting and watching badges from the store. */
@@ -481,11 +482,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitLink(rawUrl: String) {
+    /**
+     * Spec-53 T9 — submits with the preview's corrections already applied.
+     * Null edits keep the one-tap path exactly as it was.
+     */
+    fun submitLink(rawUrl: String, edits: ListenerSubmissionFlow.PreviewEdits? = null) {
         if (_submissionState.value == SubmissionUiState.Working) return
         _submissionState.value = SubmissionUiState.Working
         viewModelScope.launch(Dispatchers.IO) {
-            val start = runCatching { listenerSubmissionFlow.submit(rawUrl) }.getOrNull()
+            val start = runCatching { listenerSubmissionFlow.submit(rawUrl, edits) }.getOrNull()
                 ?: ListenerSubmissionFlow.Start.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED, 0)
             applySubmissionStart(start)
             refreshAwaitingSubmissions()
@@ -493,6 +498,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _submissionRemaining.value =
                 runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
         }
+    }
+
+    /**
+     * Spec-53 T9 — the pre-add preview, engine data only. Null clears the
+     * card; a failed read leaves the previous card untouched, never a fake.
+     */
+    private val _submissionPreview =
+        MutableStateFlow<ListenerSubmissionFlow.SubmissionPreview?>(null)
+    val submissionPreview: StateFlow<ListenerSubmissionFlow.SubmissionPreview?> =
+        _submissionPreview.asStateFlow()
+
+    fun loadSubmissionPreview(rawUrl: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val preview = runCatching { listenerSubmissionFlow.previewSubmission(rawUrl) }.getOrNull()
+            if (preview != null) _submissionPreview.value = preview
+        }
+    }
+
+    fun clearSubmissionPreview() {
+        _submissionPreview.value = null
     }
 
     /** Spec-53 T8 — the visible offline queue of pasted links. */

@@ -1,0 +1,74 @@
+name: Record snapshot goldens
+
+# T3/#848 — goldens must be recorded WHERE they are verified.
+#
+# Robolectric's native renderer is not byte-identical across environments: the
+# committed set already drifts from a fresh local run by 0.02–3% on surfaces
+# nobody touched (player sheets, review form, book-detail pills). Enabling
+# verification against a baseline recorded on someone's laptop would therefore
+# fail on every PR.
+#
+# So: record on the same runner CI verifies with, download the artifact, commit
+# it, and only then set the ROBORAZZI_VERIFY repository variable to `true`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Which snapshot tests to re-record"
+        required: true
+        default: "compose-roborazzi"
+        type: choice
+        options:
+          - compose-roborazzi
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: wrapper
+
+      - name: Record goldens
+        run: |
+          ./gradlew :app:testComposeRoborazzi \
+            -Proborazzi.test.record=true \
+            --no-daemon --stacktrace
+          git -C . status --porcelain app/src/test/snapshots/ | tee /tmp/snapshot-diff.txt
+
+      - name: Summary
+        run: |
+          {
+            echo "### Recorded snapshot goldens"
+            echo
+            echo '```'
+            cat /tmp/snapshot-diff.txt
+            echo '```'
+            echo
+            echo "Download the artifact, commit \`app/src/test/snapshots/\`, then set"
+            echo "the repository variable \`ROBORAZZI_VERIFY=true\` to make CI compare."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload goldens
+        uses: actions/upload-artifact@v7
+        with:
+          name: snapshot-goldens
+          path: app/src/test/snapshots/
+          if-no-files-found: error
+          retention-days: 14

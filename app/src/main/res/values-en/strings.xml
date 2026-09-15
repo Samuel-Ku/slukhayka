@@ -286,6 +286,11 @@
     <string name="submission_published_toast">Shared the book with the community</string>
     <string name="submission_paste_from_clipboard">Paste from clipboard</string>
     <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist or a Telegram post.</string>
+    <!-- Spec-53 T8 — the offline queue. -->
+    <string name="submission_status_deferred">No network — the link is deferred. It will run when the connection returns.</string>
+    <string name="submission_deferred_title">Deferred links</string>
+    <string name="submission_deferred_retry">Try now</string>
+    <string name="submission_deferred_remove">Remove</string>
     <string name="import_option_link">Submit a link</string>
     <string name="import_option_link_subtitle">YouTube video, playlist or TG post</string>
     <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>

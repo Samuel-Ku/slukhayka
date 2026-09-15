@@ -45,6 +45,12 @@ class ListenerSubmissionFlow(
     private val submitterId: suspend () -> String?,
     /** Spec-53 T3 — the restart-safe state carrier (multi-slot). */
     private val store: SubmissionStateStore = InMemorySubmissionStateStore(),
+    /**
+     * Spec-53 T8 — the honest connectivity read. Offline is NOT a failure:
+     * the paste is deferred instead of burning the daily budget or claiming
+     * the link was unreadable.
+     */
+    private val isOnline: suspend () -> Boolean = { true },
 ) {
 
     /** The shape of the paste. */
@@ -119,6 +125,13 @@ class ListenerSubmissionFlow(
 
         data class Refused(val reason: Reason, val remainingToday: Int) : Start
 
+        /**
+         * Spec-53 T8 — the link was pasted without a network. It is stored in
+         * the visible queue and will be processed on the next open or when the
+         * network returns; nothing was attempted silently.
+         */
+        data class Deferred(val url: String) : Start
+
         data object Unsupported : Start
     }
 
@@ -153,6 +166,8 @@ class ListenerSubmissionFlow(
         // Spec-53 T6 — one canonical form per link, so dedup and identity are
         // real: every live YouTube shape and every TG query string lands here.
         val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return Start.Unsupported
+        // Spec-53 T8 — a paste without a network waits, visibly.
+        if (!runCatching { isOnline() }.getOrDefault(true)) return defer(url)
         val remaining = remainingToday()
         if (remaining <= 0) return Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
         return when (classify(url)) {
@@ -160,6 +175,53 @@ class ListenerSubmissionFlow(
             Kind.YOUTUBE -> submitYouTube(url, remaining)
             Kind.TELEGRAM -> submitTelegram(url, remaining)
         }
+    }
+
+    /** Spec-53 T8 — stores a deferred link once, keyed by its canonical URL. */
+    private suspend fun defer(url: String): Start {
+        val now = System.currentTimeMillis()
+        runCatching {
+            store.save(
+                SubmissionState(
+                    sourceId = DeferredSubmissionQueue.keyFor(url),
+                    url = url,
+                    bookId = "",
+                    metadataJson = "",
+                    channelId = "",
+                    state = SubmissionState.State.DEFERRED,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+        }
+        return Start.Deferred(url)
+    }
+
+    /** Spec-53 T8 — the visible queue, oldest first. */
+    suspend fun deferredSubmissions(): List<SubmissionState> =
+        runCatching { store.deferred() }.getOrDefault(emptyList())
+
+    /** Spec-53 T8 — drops one queued link: the listener's explicit "не треба". */
+    suspend fun removeDeferred(sourceId: String) {
+        runCatching { store.remove(sourceId) }
+    }
+
+    /**
+     * Spec-53 T8 — processes the queue ONCE and only with a network. Each
+     * link leaves the queue BEFORE its single attempt, so a processed link can
+     * never run twice; an attempt that lands offline again is honestly
+     * re-queued by [defer] instead of retried in a loop.
+     */
+    suspend fun processDeferred(): List<Start> {
+        if (!runCatching { isOnline() }.getOrDefault(true)) return emptyList()
+        val results = mutableListOf<Start>()
+        for (row in deferredSubmissions()) {
+            store.remove(row.sourceId)
+            val outcome = submit(row.url)
+            if (outcome is Start.Deferred) continue
+            results += outcome
+        }
+        return results
     }
 
     private suspend fun submitYouTube(url: String, remaining: Int): Start {

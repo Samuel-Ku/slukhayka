@@ -29,11 +29,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
+import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 
 /**
  * Spec-601 T3/T5 — the «Надіслати посилання» surface state. One paste can
@@ -52,6 +55,9 @@ sealed interface SubmissionUiState {
     data class AlreadyInLibrary(val bookId: String) : SubmissionUiState
     data object Published : SubmissionUiState
     data object MetadataPublished : SubmissionUiState
+
+    /** Spec-53 T8 — the paste had no network and waits in the visible queue. */
+    data object Deferred : SubmissionUiState
     data class Refused(val reason: ListenerSubmissionFlow.Reason) : SubmissionUiState
     data object Unsupported : SubmissionUiState
 }
@@ -74,7 +80,11 @@ fun SubmissionSheet(
     /** Spec-53 T4 — a supported link already in the clipboard (chip). */
     clipboardCandidate: String? = null,
     /** Spec-53 T6 — opens the already-owned book from the sheet. */
-    onOpenBook: ((String) -> Unit)? = null
+    onOpenBook: ((String) -> Unit)? = null,
+    /** Spec-53 T8 — the visible offline queue and its two actions. */
+    deferredLinks: List<SubmissionState> = emptyList(),
+    onRetryDeferred: ((String) -> Unit)? = null,
+    onRemoveDeferred: ((String) -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -90,6 +100,9 @@ fun SubmissionSheet(
             prefillUrl = prefillUrl,
             clipboardCandidate = clipboardCandidate,
             onOpenBook = onOpenBook,
+            deferredLinks = deferredLinks,
+            onRetryDeferred = onRetryDeferred,
+            onRemoveDeferred = onRemoveDeferred,
             includePaneSemantics = false
         )
     }
@@ -106,6 +119,9 @@ fun SubmissionSheetContent(
     prefillUrl: String? = null,
     clipboardCandidate: String? = null,
     onOpenBook: ((String) -> Unit)? = null,
+    deferredLinks: List<SubmissionState> = emptyList(),
+    onRetryDeferred: ((String) -> Unit)? = null,
+    onRemoveDeferred: ((String) -> Unit)? = null,
     includePaneSemantics: Boolean = true
 ) {
     var url by rememberSaveable(prefillUrl) { mutableStateOf(prefillUrl.orEmpty()) }
@@ -208,6 +224,49 @@ fun SubmissionSheetContent(
                 Text(stringResource(R.string.submission_open_book))
             }
         }
+        // Spec-53 T8 — the queue is visible, and every item is actionable.
+        if (deferredLinks.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = stringResource(R.string.submission_deferred_title),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.testTag("submission_deferred_title")
+            )
+            deferredLinks.forEach { link ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("submission_deferred_${link.sourceId}"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = link.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (onRetryDeferred != null) {
+                        TextButton(
+                            onClick = { onRetryDeferred(link.sourceId) },
+                            modifier = Modifier.testTag("submission_deferred_retry_${link.sourceId}")
+                        ) {
+                            Text(stringResource(R.string.submission_deferred_retry))
+                        }
+                    }
+                    if (onRemoveDeferred != null) {
+                        TextButton(
+                            onClick = { onRemoveDeferred(link.sourceId) },
+                            modifier = Modifier.testTag("submission_deferred_remove_${link.sourceId}")
+                        ) {
+                            Text(stringResource(R.string.submission_deferred_remove))
+                        }
+                    }
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = { onSubmit(url.trim()) },
@@ -234,6 +293,7 @@ private fun submissionStatusText(state: SubmissionUiState): String? = when (stat
     is SubmissionUiState.AlreadyInLibrary ->
         stringResource(R.string.submission_status_already_in_library)
     SubmissionUiState.MetadataPublished -> stringResource(R.string.submission_status_metadata_published)
+    SubmissionUiState.Deferred -> stringResource(R.string.submission_status_deferred)
     is SubmissionUiState.Refused -> stringResource(submissionRefusalRes(state.reason))
     SubmissionUiState.Unsupported -> stringResource(R.string.submission_status_unsupported)
 }

@@ -89,6 +89,7 @@ import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.PlaybackReplacementMapping
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.MetadataCorrectionPolicy
+import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
@@ -486,34 +487,90 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val start = runCatching { listenerSubmissionFlow.submit(rawUrl) }.getOrNull()
                 ?: ListenerSubmissionFlow.Start.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED, 0)
-            when (start) {
-                is ListenerSubmissionFlow.Start.Imported -> {
-                    val book = libraryEntries.getBookSync(start.bookId)
-                    if (book == null) {
-                        _submissionState.value =
-                            SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED)
-                    } else if (start.alreadyInLibrary) {
-                        // Spec-53 T6 — my library already has this copy: a
-                        // friendly state with «Відкрити книгу», not a refusal.
-                        _submissionState.value = SubmissionUiState.AlreadyInLibrary(start.bookId)
-                    } else {
-                        lastImportedBookId.value = start.bookId
-                        // Spec-53 T3 — no autoplay: the sheet offers one
-                        // explicit «Слухати зараз» action; the awaiting badge
-                        // keeps the promise visible until then.
-                        _submissionState.value = SubmissionUiState.Imported(start.publishable)
-                    }
-                }
-                is ListenerSubmissionFlow.Start.MetadataPublished ->
-                    _submissionState.value = SubmissionUiState.MetadataPublished
-                is ListenerSubmissionFlow.Start.Refused ->
-                    _submissionState.value = SubmissionUiState.Refused(start.reason)
-                ListenerSubmissionFlow.Start.Unsupported ->
-                    _submissionState.value = SubmissionUiState.Unsupported
-            }
+            applySubmissionStart(start)
             refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
             _submissionRemaining.value =
                 runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    /** Spec-53 T8 — the visible offline queue of pasted links. */
+    private val _deferredSubmissions = MutableStateFlow<List<SubmissionState>>(emptyList())
+    val deferredSubmissions: StateFlow<List<SubmissionState>> = _deferredSubmissions.asStateFlow()
+
+    fun refreshDeferredSubmissions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _deferredSubmissions.value =
+                runCatching { listenerSubmissionFlow.deferredSubmissions() }.getOrDefault(emptyList())
+        }
+    }
+
+    /** Spec-53 T8 — «прибрати»: the listener drops one queued link for good. */
+    fun removeDeferredSubmission(sourceId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { listenerSubmissionFlow.removeDeferred(sourceId) }
+            refreshDeferredSubmissions()
+        }
+    }
+
+    /** Spec-53 T8 — «спробувати зараз»: one explicit attempt, never a loop. */
+    fun retryDeferredSubmission(sourceId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val row = runCatching { listenerSubmissionFlow.deferredSubmissions() }
+                .getOrDefault(emptyList())
+                .firstOrNull { it.sourceId == sourceId } ?: return@launch
+            runCatching { listenerSubmissionFlow.removeDeferred(sourceId) }
+            val start = runCatching { listenerSubmissionFlow.submit(row.url) }.getOrNull()
+            start?.let { applySubmissionStart(it) }
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+        }
+    }
+
+    /**
+     * Spec-53 T8 — the queue runs on the next open (or when the network
+     * returns). One pass, no hidden retries; offline again simply re-queues.
+     */
+    fun processDeferredSubmissions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val outcomes = runCatching { listenerSubmissionFlow.processDeferred() }
+                .getOrDefault(emptyList())
+            outcomes.lastOrNull()?.let { applySubmissionStart(it) }
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    private suspend fun applySubmissionStart(start: ListenerSubmissionFlow.Start) {
+        when (start) {
+            is ListenerSubmissionFlow.Start.Imported -> {
+                val book = libraryEntries.getBookSync(start.bookId)
+                if (book == null) {
+                    _submissionState.value =
+                        SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED)
+                } else if (start.alreadyInLibrary) {
+                    // Spec-53 T6 — my library already has this copy: a
+                    // friendly state with «Відкрити книгу», not a refusal.
+                    _submissionState.value = SubmissionUiState.AlreadyInLibrary(start.bookId)
+                } else {
+                    lastImportedBookId.value = start.bookId
+                    // Spec-53 T3 — no autoplay: the sheet offers one
+                    // explicit «Слухати зараз» action; the awaiting badge
+                    // keeps the promise visible until then.
+                    _submissionState.value = SubmissionUiState.Imported(start.publishable)
+                }
+            }
+            is ListenerSubmissionFlow.Start.MetadataPublished ->
+                _submissionState.value = SubmissionUiState.MetadataPublished
+            is ListenerSubmissionFlow.Start.Refused ->
+                _submissionState.value = SubmissionUiState.Refused(start.reason)
+            is ListenerSubmissionFlow.Start.Deferred ->
+                _submissionState.value = SubmissionUiState.Deferred
+            ListenerSubmissionFlow.Start.Unsupported ->
+                _submissionState.value = SubmissionUiState.Unsupported
         }
     }
 

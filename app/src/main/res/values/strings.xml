@@ -307,6 +307,11 @@
     <string name="submission_published_toast">Поділилися книгою зі спільнотою</string>
     <string name="submission_paste_from_clipboard">Вставити з буфера</string>
     <string name="submission_status_unsupported">Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram.</string>
+    <!-- Spec-53 T8 — the offline queue. -->
+    <string name="submission_status_deferred">Немає мережі — посилання відкладено. Оброблю, коли зʼявиться звʼязок.</string>
+    <string name="submission_deferred_title">Відкладені посилання</string>
+    <string name="submission_deferred_retry">Спробувати зараз</string>
+    <string name="submission_deferred_remove">Прибрати</string>
     <string name="import_option_link">Надіслати посилання</string>
     <string name="import_option_link_subtitle">YouTube-відео, плейлист або TG-пост</string>
     <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>

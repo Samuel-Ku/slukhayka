@@ -32,7 +32,8 @@ class ListenerSubmissionFlowTest {
         withSharedBase: Boolean = true,
         stateStore: SubmissionStateStore = InMemorySubmissionStateStore(),
         importWatching: (suspend (String, ListenerSubmissionFlow.TgIdentity) -> ListenerSubmissionFlow.WatchingImport)? = null,
-        watchSource: (suspend (String, String) -> Unit)? = null
+        watchSource: (suspend (String, String) -> Unit)? = null,
+        online: Boolean = true
     ) {
         val store = FakeSharedBookMetaStore()
         val verification = SubmissionVerification { 1_000L }
@@ -56,7 +57,8 @@ class ListenerSubmissionFlowTest {
             verification = if (withSharedBase) verification else null,
             remainingToday = { remaining },
             submitterId = { submitter },
-            store = stateStore
+            store = stateStore,
+            isOnline = { online }
         )
     }
 
@@ -299,6 +301,76 @@ class ListenerSubmissionFlowTest {
             verdict
         )
         assertNotNull("the row stays published", harness.flow.publishedSubmission("book-1"))
+    }
+
+    @Test
+    fun `an offline paste is deferred instead of failing`() = runTest {
+        val harness = Harness(online = false)
+
+        val start = harness.flow.submit(youtube)
+
+        assertEquals(ListenerSubmissionFlow.Start.Deferred(youtube), start)
+        assertEquals(1, harness.flow.deferredSubmissions().size)
+        assertEquals("nothing was fetched", 0, harness.fetchCalls)
+        assertEquals("nothing was imported", 0, harness.importCalls)
+        assertTrue(harness.flow.awaitingBookIds().isEmpty())
+    }
+
+    @Test
+    fun `the same link pasted offline twice is one queue entry`() = runTest {
+        val harness = Harness(online = false)
+
+        harness.flow.submit("https://youtu.be/abc123XYZ89?si=one")
+        harness.flow.submit("https://www.youtube.com/watch?v=abc123XYZ89&t=30")
+
+        assertEquals(1, harness.flow.deferredSubmissions().size)
+    }
+
+    @Test
+    fun `an explicit remove drops the queued link`() = runTest {
+        val harness = Harness(online = false)
+        harness.flow.submit(youtube)
+        val queued = harness.flow.deferredSubmissions().single()
+
+        harness.flow.removeDeferred(queued.sourceId)
+
+        assertTrue(harness.flow.deferredSubmissions().isEmpty())
+    }
+
+    @Test
+    fun `the queue processes once when the network returns`() = runTest {
+        val online = java.util.concurrent.atomic.AtomicBoolean(false)
+        val flow = ListenerSubmissionFlow(
+            fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
+            importYouTube = { _, _, _ ->
+                ListenerSubmissionFlow.ImportOutcome(
+                    ListenerSubmissionFlow.ImportResult.IMPORTED,
+                    bookId = "book-1",
+                    sourceId = "source-1"
+                )
+            },
+            fetchTgIdentity = { null },
+            publisher = null,
+            verification = null,
+            remainingToday = { 10 },
+            submitterId = { "uid-1" },
+            store = InMemorySubmissionStateStore(),
+            isOnline = { online.get() }
+        )
+        flow.submit(youtube)
+        assertEquals(1, flow.deferredSubmissions().size)
+
+        // Still offline: a pass processes nothing and retries nothing.
+        assertTrue(flow.processDeferred().isEmpty())
+        assertEquals(1, flow.deferredSubmissions().size)
+
+        online.set(true)
+        val outcomes = flow.processDeferred()
+
+        assertTrue(outcomes.single() is ListenerSubmissionFlow.Start.Imported)
+        assertTrue("the processed link left the queue", flow.deferredSubmissions().isEmpty())
+        // A second pass has nothing to do — a processed link never runs twice.
+        assertTrue(flow.processDeferred().isEmpty())
     }
 
     @Test

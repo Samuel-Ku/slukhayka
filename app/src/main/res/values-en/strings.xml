@@ -327,6 +327,9 @@
     <string name="submission_deferred_title">Deferred links</string>
     <string name="submission_deferred_retry">Try now</string>
     <string name="submission_deferred_remove">Remove</string>
+    <!-- Spec-53 T12 — publication deferred to tomorrow (daily limit). -->
+    <string name="submission_status_deferred_publication">The daily limit is spent — it will publish tomorrow, with no second playback.</string>
+    <string name="submission_deferred_publication_badge">Publishes tomorrow</string>
     <string name="import_option_link">Submit a link</string>
     <string name="import_option_link_subtitle">YouTube video, playlist or TG post</string>
     <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>

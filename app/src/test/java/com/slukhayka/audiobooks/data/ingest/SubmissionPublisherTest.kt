@@ -232,4 +232,60 @@ class SubmissionPublisherTest {
         assertEquals("only the direct put landed", 1, store.submissionPuts.size)
         assertEquals(0L, store.getSubmissionCount("device-1", "0"))
     }
+
+    // --- Spec-53 T12: the deferred publication ------------------------------
+
+    private suspend fun spendTheDay(deviceId: String) {
+        repeat(SubmissionPolicy.DAILY_SUBMISSION_LIMIT.toInt()) {
+            store.incrementSubmissionCount(deviceId, SubmissionPolicy.dayKeyOf(now))
+        }
+    }
+
+    @Test
+    fun `a spent day defers the publication and writes nothing`() = runBlocking {
+        spendTheDay("device-1")
+
+        val result = publisher.publishDeferred(
+            playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-1", verifiedAt = 5_000L
+        )
+
+        assertEquals(SubmissionPublisher.Result.DAILY_LIMIT_REACHED, result)
+        assertTrue("the limit is respected, never bypassed", store.submissionPuts.isEmpty())
+    }
+
+    @Test
+    fun `the next day publishes the stored verdict without a second playback`() = runBlocking {
+        spendTheDay("device-1")
+
+        // Tomorrow: a fresh budget, and the verdict stamp from yesterday.
+        now += 86_400_000L
+        val result = publisher.publishDeferred(
+            playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-1", verifiedAt = 5_000L
+        )
+
+        assertEquals(SubmissionPublisher.Result.PUBLISHED, result)
+        val publication = store.submissionPuts.single()
+        assertEquals("Стівен Кінг", publication.author)
+        assertEquals("Острів Дума", publication.title)
+        assertEquals("the original verdict moment is kept honestly", 5_000L, publication.verifiedAt)
+        assertEquals(
+            "the new day spends its own slot",
+            1L,
+            store.getSubmissionCount("device-1", SubmissionPolicy.dayKeyOf(now))
+        )
+    }
+
+    @Test
+    fun `a deferred publication honours a document another device already published`() = runBlocking {
+        verification.record(sourceId, actualPlaybackStarted = true)
+        publisher.publish(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-2")
+
+        now += 86_400_000L
+        val result = publisher.publishDeferred(
+            playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-1", verifiedAt = 5_000L
+        )
+
+        assertEquals(SubmissionPublisher.Result.ALREADY_PUBLISHED, result)
+        assertEquals("no duplicate document", 1, store.submissionPuts.size)
+    }
 }

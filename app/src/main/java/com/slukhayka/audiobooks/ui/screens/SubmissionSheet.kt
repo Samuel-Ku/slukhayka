@@ -68,6 +68,12 @@ sealed interface SubmissionUiState {
 
     /** Spec-53 T8 — the paste had no network and waits in the visible queue. */
     data object Deferred : SubmissionUiState
+
+    /**
+     * Spec-53 T12 — the copy really played, but the day's budget was gone:
+     * the publication waits for tomorrow and needs no second playback.
+     */
+    data object DeferredPublication : SubmissionUiState
     data class Refused(val reason: ListenerSubmissionFlow.Reason) : SubmissionUiState
     data object Unsupported : SubmissionUiState
 }
@@ -527,6 +533,8 @@ private fun submissionStatusText(state: SubmissionUiState): String? = when (stat
         stringResource(R.string.submission_status_already_in_library)
     SubmissionUiState.MetadataPublished -> stringResource(R.string.submission_status_metadata_published)
     SubmissionUiState.Deferred -> stringResource(R.string.submission_status_deferred)
+    SubmissionUiState.DeferredPublication ->
+        stringResource(R.string.submission_status_deferred_publication)
     is SubmissionUiState.Refused -> stringResource(submissionRefusalRes(state.reason))
     SubmissionUiState.Unsupported -> stringResource(R.string.submission_status_unsupported)
 }

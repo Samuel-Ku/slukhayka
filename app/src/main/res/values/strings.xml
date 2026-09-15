@@ -350,6 +350,9 @@
     <string name="submission_deferred_title">Відкладені посилання</string>
     <string name="submission_deferred_retry">Спробувати зараз</string>
     <string name="submission_deferred_remove">Прибрати</string>
+    <!-- Spec-53 T12 — publication deferred to tomorrow (daily limit). -->
+    <string name="submission_status_deferred_publication">Денний ліміт вичерпано — опублікуємо завтра, без повторного програвання.</string>
+    <string name="submission_deferred_publication_badge">Опублікуємо завтра</string>
     <string name="import_option_link">Надіслати посилання</string>
     <string name="import_option_link_subtitle">YouTube-відео, плейлист або TG-пост</string>
     <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>

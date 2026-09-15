@@ -186,10 +186,14 @@ fun LibraryScreen(
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
     val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
+    val deferredPublicationBookIds by viewModel.deferredPublicationBookIds.collectAsState()
     LaunchedEffect(Unit) {
         viewModel.refreshAwaitingSubmissions()
         // Spec-53 T8 — the deferred queue runs on open: one pass, no retries.
         viewModel.processDeferredSubmissions()
+        // Spec-53 T12 — and so does the next-day publication pass; it really
+        // publishes only once the day (and its budget) has rolled over.
+        viewModel.processDeferredPublications()
     }
     LaunchedEffect(Unit) {
         viewModel.submissionPublished.collect {
@@ -614,6 +618,7 @@ fun LibraryScreen(
                                     grid = gridMode,
                                     awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
                                     watchingSource = entry.book.id in watchingSubmissionBookIds,
+                                    deferredPublication = entry.book.id in deferredPublicationBookIds,
                                     onListenNow = { onPlayClick(entry.book) },
                                     onClick = { onBookClick(entry.book.id) },
                                     modifier = if (entry.book.id == restoreFocusBookId) {
@@ -937,6 +942,8 @@ fun LibraryBookCard(
     awaitingPlayback: Boolean = false,
     /** Spec-53 T5 — a TG card waits for a direct source (the preview has no audio). */
     watchingSource: Boolean = false,
+    /** Spec-53 T12 — the real verdict landed, the day's budget had not. */
+    deferredPublication: Boolean = false,
     /** Spec-53 T3 — badge tap: open the book and start playing it. */
     onListenNow: (() -> Unit)? = null
 ) {
@@ -1005,6 +1012,7 @@ fun LibraryBookCard(
                 downloadCount,
                 awaitingPlayback = awaitingPlayback,
                 watchingSource = watchingSource,
+                deferredPublication = deferredPublication,
                 onListenNow = onListenNow
             )
         }
@@ -1019,6 +1027,7 @@ private fun LibraryBookRowContent(
     downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
     awaitingPlayback: Boolean = false,
     watchingSource: Boolean = false,
+    deferredPublication: Boolean = false,
     onListenNow: (() -> Unit)? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
@@ -1057,6 +1066,18 @@ private fun LibraryBookRowContent(
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
+                )
+            }
+            if (deferredPublication) {
+                // Spec-53 T12 — the copy really played; the day's budget was
+                // gone, so the publication is promised for tomorrow instead
+                // of being refused. No second playback will be needed.
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(R.string.submission_deferred_publication_badge),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
                 )
             }
             if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {

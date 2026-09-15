@@ -804,4 +804,119 @@ class ListenerSubmissionFlowTest {
 
         assertEquals(listOf(null), harness.capturedSelections)
     }
+
+    // --- Spec-53 T12: publication deferred to tomorrow ----------------------
+
+    /**
+     * The flow over a clock the test can move: the same wiring the production
+     * composition uses (one policy, one publisher, one carrier), so a day
+     * boundary is a real boundary, not a stubbed verdict.
+     */
+    private class ClockHarness {
+        var now = 10_000L
+        val store = FakeSharedBookMetaStore()
+        val verification = SubmissionVerification { now }
+        val policy = SubmissionPolicy(store, verification) { now }
+        val publisher = SubmissionPublisher(store, policy) { now }
+        val stateStore = InMemorySubmissionStateStore()
+
+        val flow = ListenerSubmissionFlow(
+            fetchMetadata = { """{"id":"v1","title":"Гаррі Поттер 1 — АудіоКниги Українською"}""" },
+            importYouTube = { _, _, _, _, _ ->
+                ListenerSubmissionFlow.ImportOutcome(
+                    ListenerSubmissionFlow.ImportResult.IMPORTED,
+                    bookId = "book-1",
+                    sourceId = "source-1"
+                )
+            },
+            fetchTgIdentity = { null },
+            publisher = publisher,
+            verification = verification,
+            remainingToday = { 10 },
+            submitterId = { "uid-1" },
+            store = stateStore
+        )
+
+        suspend fun spendTheDay() {
+            repeat(SubmissionPolicy.DAILY_SUBMISSION_LIMIT.toInt()) {
+                store.incrementSubmissionCount("uid-1", SubmissionPolicy.dayKeyOf(now))
+            }
+        }
+    }
+
+    @Test
+    fun `a verdict on a spent day defers the publication instead of refusing it`() = runTest {
+        val harness = ClockHarness()
+        harness.spendTheDay()
+        harness.flow.submit(youtube)
+
+        val verdict = harness.flow.onPlaybackStarted("source-1")
+
+        assertEquals(ListenerSubmissionFlow.Verdict.DeferredPublication, verdict)
+        assertEquals(setOf("book-1"), harness.flow.deferredPublicationBookIds())
+        assertTrue("nothing left the device", harness.store.submissionPuts.isEmpty())
+    }
+
+    @Test
+    fun `a still-spent day keeps the promise waiting and writes nothing`() = runTest {
+        val harness = ClockHarness()
+        harness.spendTheDay()
+        harness.flow.submit(youtube)
+        harness.flow.onPlaybackStarted("source-1")
+
+        val verdicts = harness.flow.publishDeferredPublications()
+
+        assertEquals(listOf(ListenerSubmissionFlow.Verdict.DeferredPublication), verdicts)
+        assertEquals(setOf("book-1"), harness.flow.deferredPublicationBookIds())
+        assertTrue(harness.store.submissionPuts.isEmpty())
+    }
+
+    @Test
+    fun `the next day publishes the stored verdict with no second playback`() = runTest {
+        val harness = ClockHarness()
+        harness.spendTheDay()
+        harness.flow.submit(youtube)
+        assertEquals(
+            ListenerSubmissionFlow.Verdict.DeferredPublication,
+            harness.flow.onPlaybackStarted("source-1")
+        )
+
+        // The day rolls over; NOTHING plays again.
+        harness.now += 86_400_000L
+        val verdicts = harness.flow.publishDeferredPublications()
+
+        assertEquals(listOf(ListenerSubmissionFlow.Verdict.Published), verdicts)
+        val publication = harness.store.submissionPuts.single()
+        assertEquals(youtube, publication.sourceUrl)
+        assertEquals("Гаррі Поттер 1", publication.title)
+        assertTrue("the promise is settled", harness.flow.deferredPublicationBookIds().isEmpty())
+        assertTrue(harness.flow.awaitingBookIds().isEmpty())
+    }
+
+    @Test
+    fun `a document another device published settles the promise without a duplicate`() = runTest {
+        val harness = ClockHarness()
+        harness.spendTheDay()
+        harness.flow.submit(youtube)
+        harness.flow.onPlaybackStarted("source-1")
+
+        // Another device got there first while this one waited.
+        harness.store.publishSubmission(
+            com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
+                sourceUrl = youtube,
+                accessMode = com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode.YOUTUBE,
+                title = "Гаррі Поттер 1",
+                chapters = emptyList(),
+                verifiedAt = harness.now,
+                submittedAt = harness.now,
+                submitterId = "uid-other"
+            )
+        )
+        harness.now += 86_400_000L
+        val verdicts = harness.flow.publishDeferredPublications()
+
+        assertEquals(listOf(ListenerSubmissionFlow.Verdict.Published), verdicts)
+        assertEquals("no duplicate document", 1, harness.store.submissionPuts.size)
+        assertTrue(harness.flow.deferredPublicationBookIds().isEmpty())
+    }
 }

@@ -42,7 +42,8 @@ import org.robolectric.annotation.GraphicsMode
  * `MainViewModel` instance; we exercise the building blocks instead:
  *
  * - [LibraryBookCard] in list and grid modes — the unified book card that
- *   now powers the whole Медіатека (progress, remaining time, source badge).
+ *   now powers the whole Медіатека (progress, remaining time, source badge,
+ *   and — v1.5 — the one-tap play action with the offline badge beside it).
  * - [ListeningStatsCard] — the Статистика tab body.
  *
  * Every fixture comes from `TestDataFactory`; the card input is a
@@ -82,7 +83,14 @@ class LibraryComponentsSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 LibrarySurface {
-                    LibraryBookCard(book = libraryBooks[0], grid = false, onClick = {})
+                    // onListenNow is what the Library always passes — the golden
+                    // documents the shipped card (play action + offline badge).
+                    LibraryBookCard(
+                        book = libraryBooks[0],
+                        grid = false,
+                        onClick = {},
+                        onListenNow = {}
+                    )
                 }
             }
         }
@@ -110,7 +118,12 @@ class LibraryComponentsSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 LibrarySurface {
-                    LibraryBookCard(book = sluhayBook, grid = false, onClick = {})
+                    LibraryBookCard(
+                        book = sluhayBook,
+                        grid = false,
+                        onClick = {},
+                        onListenNow = {}
+                    )
                 }
             }
         }

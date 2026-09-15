@@ -4,11 +4,14 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -93,6 +96,18 @@ fun BookRow(
     onClickLabel: String? = null,
     onLongClick: (() -> Unit)? = null,
     footnote: (@Composable ColumnScope.() -> Unit)? = null,
+    /**
+     * v1.5 review — overlays the cover's top-end corner (the offline badge).
+     * Opt-in: only the Медіатека row draws it, every other caller is unchanged.
+     */
+    coverBadge: (@Composable BoxScope.() -> Unit)? = null,
+    /**
+     * v1.5 review — renders [footnote] inside the text column instead of under
+     * the row. The Медіатека needs it so the 64 dp cover (and the trailing
+     * action) centre against the WHOLE block, «Залишилось …» included; a
+     * footnote under the row left the cover sitting visibly too high.
+     */
+    footnoteInColumn: Boolean = false,
     testTag: String? = null
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -125,26 +140,32 @@ fun BookRow(
         ) {
             leading?.invoke(this)
             if (book != null) {
-                BookCoverImage(
-                    book = book,
-                    semantics = BookCoverSemantics.Decorative,
-                    modifier = Modifier
-                        .size(RowCoverSize)
-                        .clip(RoundedCornerShape(AppDimens.RadiusCover)),
-                    contentScale = ContentScale.Crop
-                )
+                Box(modifier = Modifier.size(RowCoverSize)) {
+                    BookCoverImage(
+                        book = book,
+                        semantics = BookCoverSemantics.Decorative,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(AppDimens.RadiusCover)),
+                        contentScale = ContentScale.Crop
+                    )
+                    coverBadge?.invoke(this)
+                }
                 Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
             } else if (!coverUrl.isNullOrBlank()) {
                 // Catalogue rows (search, work feed) carry a cover URL, not a
                 // library entity — the same 64 dp slot, artwork or placeholder.
-                CatalogCoverImage(
-                    coverImageUrl = coverUrl,
-                    title = title,
-                    semantics = BookCoverSemantics.Decorative,
-                    modifier = Modifier
-                        .size(RowCoverSize)
-                        .clip(RoundedCornerShape(AppDimens.RadiusCover))
-                )
+                Box(modifier = Modifier.size(RowCoverSize)) {
+                    CatalogCoverImage(
+                        coverImageUrl = coverUrl,
+                        title = title,
+                        semantics = BookCoverSemantics.Decorative,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(AppDimens.RadiusCover))
+                    )
+                    coverBadge?.invoke(this)
+                }
                 Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -156,12 +177,16 @@ fun BookRow(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // The title yields before the badges do: without this the
+                    // badges got whatever width was left over and a long title
+                    // squeezed «Очікує» into a one-letter-wide column (#843).
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
                     )
                     badges?.invoke(this)
                 }
@@ -202,10 +227,11 @@ fun BookRow(
                         trackColor = MaterialTheme.colorScheme.outlineVariant
                     )
                 }
+                if (footnoteInColumn) footnote?.invoke(this)
             }
             trailing?.invoke(this)
         }
-        footnote?.invoke(this)
+        if (!footnoteInColumn) footnote?.invoke(this)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     }
 }

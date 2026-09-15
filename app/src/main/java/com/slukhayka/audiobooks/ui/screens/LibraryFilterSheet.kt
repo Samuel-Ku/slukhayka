@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.FlowRow
@@ -40,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -84,24 +86,34 @@ private val FilterChipAccentColors
  * scrollable so a narrow screen never wraps them onto a second line (design
  * guide §6.3). A plain `Row` + `horizontalScroll` (not a `LazyRow`) so every
  * chip is always composed — taps and snapshots see all five statuses.
+ *
+ * UI (v1.5 review): the FlowRow detour is gone. Wrapping «Завантажені» onto a
+ * second line and «Фільтр» onto a third was exactly the stacked chrome the
+ * design guide forbids; the partially visible edge chip is the scroll
+ * affordance, not a broken chip.
+ *
+ * [trailing] carries the «Фільтр» launcher on the same line, and [scrollState]
+ * lets the screen scroll it into view whenever a rare filter is active — a
+ * non-default filter must never be selected off-screen.
  */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun LibraryStatusRow(
     selected: LibraryFilter,
-    onSelect: (LibraryFilter) -> Unit
+    onSelect: (LibraryFilter) -> Unit,
+    scrollState: ScrollState = rememberScrollState(),
+    trailing: (@Composable () -> Unit)? = null
 ) {
-    // UI: FlowRow замість Row + horizontalScroll. Усі чипси так само
-    // складаються (тапи й знімки бачать усі п'ять станів), але тепер вони
-    // ПЕРЕНОСЯТЬСЯ на другий рядок, а не обрізаються краєм екрана —
-    // «Завантажені» більше не виглядає зламаною.
-    FlowRow(
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalMinimumInteractiveComponentSize provides AppDimens.MinTouchTarget
+    ) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(scrollState)
             .padding(horizontal = 16.dp)
             .testTag("library_status_row"),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalAlignment = Alignment.CenterVertically
     ) {
         STATUS_FILTERS.forEach { f ->
             val isSelected = selected == f
@@ -117,10 +129,15 @@ fun LibraryStatusRow(
                     selectedBorderColor = MaterialTheme.colorScheme.primary
                 ),
                 modifier = Modifier
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = 36.dp)
                     .testTag("library_status_${f.name.lowercase()}")
             )
         }
+        if (trailing != null) {
+            Spacer(modifier = Modifier.width(4.dp))
+            trailing()
+        }
+    }
     }
 }
 

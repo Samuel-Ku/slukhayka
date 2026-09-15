@@ -16,9 +16,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -38,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -84,11 +89,14 @@ import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
+import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
+import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
@@ -230,6 +238,24 @@ fun LibraryScreen(
         if (query.isNotBlank()) query = ""
     }
     var gridMode by remember { mutableStateOf(false) }
+    // UI (v1.5 review): the ⋮ section menu replaced the four sub-tabs.
+    var sectionMenuOpen by remember { mutableStateOf(false) }
+    // The pinned status row scrolls itself to a rare filter the listener just
+    // picked, so an active «Локальні» is never selected off-screen.
+    val statusRowScrollState = rememberScrollState()
+    BackHandler(enabled = activeTab != 0) { activeTab = 0 }
+    val sectionTitle = when (activeTab) {
+        1 -> "Закладки"
+        2 -> stringResource(R.string.lib_statistics)
+        else -> "Люди"
+    }
+    val librarySubtitle = librarySizeLabel(libraryBooks)
+    // Browsing the whole library vs narrowing it down: the sections (and the
+    // «Продовжити» card) only make sense while nothing is filtering.
+    val browsing = filter == LibraryFilter.ALL && query.isBlank()
+    val continueBook = remember(libraryBooks) {
+        libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
+    }
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
     // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
@@ -276,13 +302,33 @@ fun LibraryScreen(
         filterAndSortLibrary(libraryBooks, filter, sort, query)
     }
 
+    // The grid as data (v1.5 review): the structure carries the resume card,
+    // the section headers and the shelf, so a lazy-grid index must be mapped
+    // back to a book through these entries — never through `visibleBooks`
+    // (the two stopped aligning the moment the hero and the headers appeared).
+    val denseTrailing = if (browsing) "" else libraryRemainingTotal(visibleBooks)
+    val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing) {
+        libraryGridEntries(
+            browsing = browsing,
+            gridMode = gridMode,
+            visible = visibleBooks,
+            continueBook = continueBook,
+            denseTitle = if (query.isNotBlank()) "Пошук" else filter.label,
+            denseTrailing = denseTrailing
+        )
+    }
+
     // Spec-56 T3 (#730) — tell the view model which Works are visible so their
     // availability checks jump the queue; the daily backlog waits.
-    LaunchedEffect(activeTab, visibleBooks) {
+    LaunchedEffect(activeTab, gridEntries) {
         if (activeTab != 0) return@LaunchedEffect
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.map { it.index } }
             .collectLatest { indices ->
-                val keys = indices.mapNotNull { visibleBooks.getOrNull(it)?.book?.mergeKey }
+                val keys = indices
+                    .mapNotNull { index ->
+                        (gridEntries.getOrNull(index) as? LibraryGridEntry.BookEntry)
+                            ?.book?.book?.mergeKey
+                    }
                     .filter { it.isNotBlank() }
                 viewModel.onAvailabilityVisible(keys)
             }
@@ -290,14 +336,16 @@ fun LibraryScreen(
 
     LaunchedEffect(
         restoreFocusBookId,
-        visibleBooks,
+        gridEntries,
         libraryBooks,
         activeTab,
         modalVisible
     ) {
         val bookId = restoreFocusBookId ?: return@LaunchedEffect
         if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        val visibleIndex = visibleBooks.indexOfFirst { it.book.id == bookId }
+        val visibleIndex = gridEntries.indexOfFirst {
+            it is LibraryGridEntry.BookEntry && it.book.book.id == bookId
+        }
         when {
             visibleIndex >= 0 -> {
                 libraryGridState.scrollToItem(visibleIndex)
@@ -325,95 +373,55 @@ fun LibraryScreen(
                 .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
         ) {
             // Top Header — the canonical tab header (v1.4 C5, ADR-0033):
-            // title + subtitle through AppTabHeader, the 🔍 collapsible search
-            // (the same gesture as Огляд) and «+ Додати» as header actions.
-            // Import stays one action — a sheet with the two source options
-            // (files / folder) per spec-28 #194.
+            // title + honest subtitle, the 🔍 collapsible search, «+ Додати»
+            // and the ⋮ section menu.
+            //
+            // UI (v1.5 review): the four sub-tabs are gone. «Закладки /
+            // Статистика / Люди» are not peers of «Книги» — a tab row stacked
+            // above the status chips meant two competing filter systems and
+            // ~150 dp of chrome before the first book. They live in the ⋮ menu
+            // now (one tap, just as discoverable) and the screen became a
+            // single scroll of books.
             com.slukhayka.audiobooks.ui.components.AppTabHeader(
-                title = "Медіатека",
-                // Spec-15 T6: one library for local files and every
-                // online source, not just 4read.
-                // UI: підзаголовок «Всі книги — в одному місці» прибрано —
-                // це маркетинговий рядок, який нічого не повідомляє.
+                title = if (activeTab == 0) "Медіатека" else sectionTitle,
+                subtitle = if (activeTab == 0) librarySubtitle else null,
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 actions = {
-                    IconButton(
-                        onClick = {
-                            searchRequested = !searchExpanded
-                            if (!searchRequested && query.isNotBlank()) query = ""
-                        },
-                        modifier = Modifier
-                            .size(AppDimens.TouchTarget)
-                            .testTag("library_search_toggle")
-                    ) {
-                        Icon(
-                            imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
-                            contentDescription = stringResource(
-                                if (searchExpanded) {
-                                    com.slukhayka.audiobooks.R.string.a11y_close_search
-                                } else {
-                                    com.slukhayka.audiobooks.R.string.a11y_open_search
-                                }
+                    if (activeTab != 0) {
+                        // A section is open: one explicit way back to the books
+                        // (system back does the same).
+                        IconButton(
+                            onClick = { activeTab = 0 },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("library_section_back")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(
+                                    com.slukhayka.audiobooks.R.string.a11y_library_back_to_books
+                                )
                             )
-                        )
-                    }
-                    Button(
-                        onClick = { showImportSheet = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .focusRequester(importFocusRequester)
-                            .testTag("library_add_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Додати",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onPrimary
+                        }
+                    } else {
+                        LibraryHeaderActions(
+                            bookmarksCount = allBookmarks.size,
+                            peopleCount = bookmarkedPeople.size,
+                            searchExpanded = searchExpanded,
+                            menuOpen = sectionMenuOpen,
+                            onToggleSearch = {
+                                searchRequested = !searchExpanded
+                                if (!searchRequested && query.isNotBlank()) query = ""
+                            },
+                            onMenuOpenChange = { sectionMenuOpen = it },
+                            onOpenSection = { activeTab = it },
+                            onAdd = { showImportSheet = true },
+                            importFocusRequester = importFocusRequester
                         )
                     }
                 }
             )
-
-            // Sub-tabs: the unified book list, bookmarks, listening stats.
-            ScrollableTabRow(
-                selectedTabIndex = activeTab,
-                containerColor = MaterialTheme.colorScheme.background,
-                contentColor = MaterialTheme.colorScheme.primary,
-                edgePadding = 16.dp,
-                divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
-            ) {
-                Tab(
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    text = { Text(stringResource(R.string.lib_books_count, libraryBooks.size), fontWeight = FontWeight.Bold) }
-                )
-                Tab(
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    text = { Text(stringResource(R.string.lib_bookmarks_count, allBookmarks.size), fontWeight = FontWeight.Bold) }
-                )
-                Tab(
-                    selected = activeTab == 2,
-                    onClick = { activeTab = 2 },
-                    text = { Text(stringResource(R.string.lib_statistics), fontWeight = FontWeight.Bold) }
-                )
-                // #401: bookmarked people tab.
-                Tab(
-                    selected = activeTab == 3,
-                    onClick = { activeTab = 3 },
-                    text = { Text("Люди (${bookmarkedPeople.size})", fontWeight = FontWeight.Bold) }
-                )
-            }
 
             if (activeTab == 0) {
                 // Library chrome (wayfinder #39): the collapsible search (v1.4
@@ -450,8 +458,58 @@ fun LibraryScreen(
                     )
                 }
 
-                // Spec-28 #193: the five one-tap statuses as a segmented row.
-                LibraryStatusRow(selected = filter, onSelect = { filter = it })
+                // Spec-28 #193 + design guide §6.3: the five one-tap statuses
+                // on ONE horizontally scrolled line — never wrapped onto a
+                // second row. The rare-filter launcher (Обрані / Локальні /
+                // Онлайн) rides the same line and keeps its accent + its own
+                // name while active, so a non-default filter stays visible.
+                val isSheetFilterActive = filter in SHEET_FILTERS
+                LaunchedEffect(filter) {
+                    // The rare-filter launcher lives at the far end of the row:
+                    // scroll it into view while it is the active filter, and
+                    // back to the statuses when a one-tap status takes over.
+                    withFrameNanos { }
+                    statusRowScrollState.animateScrollTo(
+                        if (isSheetFilterActive) statusRowScrollState.maxValue else 0
+                    )
+                }
+                LibraryStatusRow(
+                    selected = filter,
+                    onSelect = { filter = it },
+                    scrollState = statusRowScrollState,
+                    trailing = {
+                        FilterChip(
+                            selected = isSheetFilterActive,
+                            onClick = { showFilterSheet = true },
+                            label = {
+                                Text(if (isSheetFilterActive) filter.label else "Фільтр")
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                labelColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSheetFilterActive,
+                                borderColor = MaterialTheme.colorScheme.outlineVariant,
+                                selectedBorderColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 36.dp)
+                                .focusRequester(filterFocusRequester)
+                                .testTag("library_filter_button")
+                        )
+                    }
+                )
 
                 // Spec-51 (#690) — the listener's own collections, right in the
                 // Library. Local-first, and honestly empty when there are none.
@@ -541,44 +599,6 @@ fun LibraryScreen(
                     }
                 }
 
-                // Spec-28 #193: the rare filters (Обрані / Локальні / Онлайн),
-                // sort and view toggle collapse into the filter sheet. The
-                // launcher chip turns accent and names the active rare filter,
-                // so a non-default filter stays visible at a glance.
-                val isSheetFilterActive = filter in SHEET_FILTERS
-                FilterChip(
-                    selected = isSheetFilterActive,
-                    onClick = { showFilterSheet = true },
-                    label = { Text(if (isSheetFilterActive) filter.label else "Фільтр") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = null,
-                            modifier = Modifier.size(FilterChipDefaults.IconSize)
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        labelColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = isSheetFilterActive,
-                        borderColor = MaterialTheme.colorScheme.outlineVariant,
-                        selectedBorderColor = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier
-                        // #560: the chip row sits flush on the launcher without
-                        // this gap — the canonical spacer keeps the vertical rhythm.
-                        .padding(top = AppDimens.SpaceXs)
-                        .padding(horizontal = 16.dp)
-                        .heightIn(min = 48.dp)
-                        .focusRequester(filterFocusRequester)
-                        .testTag("library_filter_button")
-                )
-
                 // Spec-28 #194: the storage line and «Видалити завантажені
                 // файли» moved to the «Завантаження та пам'ять» destination
                 // (⋮ overflow) — nothing destructive sits on the main screen.
@@ -613,25 +633,21 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(visibleBooks, key = { it.book.id }) { entry ->
-                                LibraryBookCard(
-                                    book = entry,
-                                    grid = gridMode,
-                                    awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
-                                    watchingSource = entry.book.id in watchingSubmissionBookIds,
-                                    deferredPublication = entry.book.id in deferredPublicationBookIds,
-                                    onListenNow = { onPlayClick(entry.book) },
-                                    onClick = { onBookClick(entry.book.id) },
-                                    modifier = if (entry.book.id == restoreFocusBookId) {
-                                        Modifier.focusRequester(bookReturnFocusRequester)
-                                    } else {
-                                        Modifier
-                                    },
-                                    availability = libraryAvailability[entry.book.mergeKey],
-                                    onRecheck = { viewModel.recheckAvailability(entry.book.id) },
-                                    downloadCount = bookDownloadCounts[entry.book.id]
-                                )
-                            }
+                            libraryGridContent(
+                                entries = gridEntries,
+                                browsing = browsing,
+                                gridMode = gridMode,
+                                availability = libraryAvailability,
+                                downloadCounts = bookDownloadCounts,
+                                restoreFocusBookId = restoreFocusBookId,
+                                bookReturnFocusRequester = bookReturnFocusRequester,
+                                awaitingSubmissionBookIds = awaitingSubmissionBookIds,
+                                watchingSubmissionBookIds = watchingSubmissionBookIds,
+                                deferredPublicationBookIds = deferredPublicationBookIds,
+                                onBookClick = onBookClick,
+                                onPlayClick = onPlayClick,
+                                onRecheck = { viewModel.recheckAvailability(it) }
+                            )
                         }
                     }
                 }
@@ -925,6 +941,722 @@ private fun formatCheckedAt(observedAtMs: Long): String =
     }
 
 /**
+ * The Медіатека top-bar actions (v1.5 review): the 🔍 collapsible search, the
+ * ⋮ section menu that replaced the four sub-tabs, and the single «+ Додати»
+ * import action in the top-end corner. Extracted so the screen and the
+ * snapshot goldens render the very same corner instead of two lookalikes.
+ */
+@Composable
+internal fun LibraryHeaderActions(
+    bookmarksCount: Int,
+    peopleCount: Int,
+    searchExpanded: Boolean,
+    menuOpen: Boolean,
+    onToggleSearch: () -> Unit,
+    onMenuOpenChange: (Boolean) -> Unit,
+    onOpenSection: (Int) -> Unit,
+    onAdd: () -> Unit,
+    importFocusRequester: FocusRequester
+) {
+    // ADR-0044: dense chrome keeps the 24 dp floor, so Material's blanket
+    // 48 dp inflation is switched off here — otherwise every 40 dp control
+    // silently grew straight back to 48.
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalMinimumInteractiveComponentSize provides AppDimens.MinTouchTarget
+    ) {
+        LibraryHeaderActionsInner(
+            bookmarksCount = bookmarksCount,
+            peopleCount = peopleCount,
+            searchExpanded = searchExpanded,
+            menuOpen = menuOpen,
+            onToggleSearch = onToggleSearch,
+            onMenuOpenChange = onMenuOpenChange,
+            onOpenSection = onOpenSection,
+            onAdd = onAdd,
+            importFocusRequester = importFocusRequester
+        )
+    }
+}
+
+@Composable
+internal fun LibraryHeaderActionsInner(
+    bookmarksCount: Int,
+    peopleCount: Int,
+    searchExpanded: Boolean,
+    menuOpen: Boolean,
+    onToggleSearch: () -> Unit,
+    onMenuOpenChange: (Boolean) -> Unit,
+    onOpenSection: (Int) -> Unit,
+    onAdd: () -> Unit,
+    importFocusRequester: FocusRequester
+) {
+    IconButton(
+        onClick = onToggleSearch,
+        modifier = Modifier
+            .size(40.dp)
+            .testTag("library_search_toggle")
+    ) {
+        Icon(
+            imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
+            contentDescription = stringResource(
+                if (searchExpanded) {
+                    R.string.a11y_close_search
+                } else {
+                    R.string.a11y_open_search
+                }
+            )
+        )
+    }
+    Box {
+        IconButton(
+            onClick = { onMenuOpenChange(true) },
+            modifier = Modifier
+                .size(40.dp)
+                .testTag("library_sections_menu")
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.a11y_library_more_actions)
+            )
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { onMenuOpenChange(false) }
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.lib_bookmarks_count, bookmarksCount)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenSection(1)
+                },
+                modifier = Modifier.testTag("library_section_bookmarks")
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.lib_statistics)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenSection(2)
+                },
+                modifier = Modifier.testTag("library_section_stats")
+            )
+            DropdownMenuItem(
+                text = { Text("Люди ($peopleCount)") },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenSection(3)
+                },
+                modifier = Modifier.testTag("library_section_people")
+            )
+        }
+    }
+    // UI (v1.5 review): the import action is the compact «+» icon in the
+    // top-end corner — three equal 48 dp targets, no labelled pill stealing
+    // the width the title needs.
+    IconButton(
+        onClick = onAdd,
+        modifier = Modifier
+            .size(40.dp)
+            .focusRequester(importFocusRequester)
+            .testTag("library_add_button")
+    ) {
+        Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = stringResource(R.string.a11y_library_add),
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+/**
+ * UI (v1.5 review) — «Продовжити»: the one book the listener is inside right
+ * now, as the first thing on the screen, with the resume action as a single
+ * wide CTA. It scrolls away with the list; it is content, not chrome.
+ */
+@Composable
+internal fun LibraryContinueCard(
+    book: LibraryBook,
+    onOpen: () -> Unit,
+    onPlay: () -> Unit
+) {
+    val units = stringRemainingTimeUnits()
+    val remaining = if (book.totalDurationSeconds > 0L) {
+        formatRemainingTime(book.remainingSeconds, units)
+    } else {
+        null
+    }
+    val chapter = libraryChapterLabel(book)
+    Card(
+        onClick = onOpen,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) { }
+            .testTag("library_continue_card"),
+        shape = RoundedCornerShape(AppDimens.RadiusHero),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+        Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
+            Text(
+                text = "ПРОДОВЖИТИ",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                ),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+            Row {
+                BookCoverImage(
+                    book = book.book,
+                    semantics = BookCoverSemantics.Decorative,
+                    modifier = Modifier
+                        .size(width = 84.dp, height = 112.dp)
+                        .clip(RoundedCornerShape(AppDimens.RadiusCover)),
+                    contentScale = ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.width(AppDimens.SpaceLg))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = book.book.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = book.book.displayAuthor,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val subtitle = chapter ?: book.seriesLabel
+                    if (!subtitle.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+                    LinearProgressIndicator(
+                        progress = { book.percent },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant
+                    )
+                    Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                    // The remaining time lives in the CTA right below — repeating
+                    // it here made the two labels fight for one line on a phone
+                    // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
+                    Text(
+                        text = "Прослухано ${(book.percent * 100f).roundToInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
+            Button(
+                onClick = onPlay,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .testTag("library_continue_play"),
+                shape = RoundedCornerShape(AppDimens.RadiusPanel)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+                Text(
+                    text = if (remaining != null) "Слухати далі · $remaining" else "Слухати далі",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The stateless renderer of the Медіатека grid (v1.5 review).
+ *
+ * The screen and the snapshot test both go through this one function, so the
+ * golden image can never document a layout the app does not ship. Every slot
+ * keeps its own key and span: only books take a single grid cell.
+ */
+internal fun LazyGridScope.libraryGridContent(
+    entries: List<LibraryGridEntry>,
+    browsing: Boolean,
+    gridMode: Boolean,
+    availability: Map<String, AvailabilityView>,
+    downloadCounts: Map<String, com.slukhayka.audiobooks.data.db.BookDownloadCount>,
+    restoreFocusBookId: String?,
+    bookReturnFocusRequester: FocusRequester,
+    awaitingSubmissionBookIds: Set<String>,
+    watchingSubmissionBookIds: Set<String>,
+    deferredPublicationBookIds: Set<String>,
+    onBookClick: (String) -> Unit,
+    onPlayClick: (AudiobookEntity) -> Unit,
+    onRecheck: (String) -> Unit
+) {
+    val card: @Composable (LibraryBook, Boolean) -> Unit = { entry, asTile ->
+        LibraryBookCard(
+            book = entry,
+            grid = asTile,
+            awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
+            watchingSource = entry.book.id in watchingSubmissionBookIds,
+            deferredPublication = entry.book.id in deferredPublicationBookIds,
+            onListenNow = { onPlayClick(entry.book) },
+            onClick = { onBookClick(entry.book.id) },
+            modifier = if (entry.book.id == restoreFocusBookId) {
+                Modifier.focusRequester(bookReturnFocusRequester)
+            } else {
+                Modifier
+            },
+            availability = availability[entry.book.mergeKey],
+            onRecheck = { onRecheck(entry.book.id) },
+            downloadCount = downloadCounts[entry.book.id]
+        )
+    }
+
+    items(
+        items = entries,
+        key = { it.key },
+        span = { entry ->
+            if (entry is LibraryGridEntry.BookEntry) GridItemSpan(1) else GridItemSpan(maxLineSpan)
+        }
+    ) { gridEntry ->
+        when (gridEntry) {
+            is LibraryGridEntry.Continue -> LibraryContinueCard(
+                book = gridEntry.book,
+                onOpen = { onBookClick(gridEntry.book.book.id) },
+                onPlay = { onPlayClick(gridEntry.book.book) }
+            )
+
+            is LibraryGridEntry.Section -> LibrarySectionHeader(
+                title = gridEntry.title,
+                count = gridEntry.count,
+                trailingText = gridEntry.trailing
+            )
+
+            is LibraryGridEntry.Shelf -> LibraryShelf(gridEntry.books) { card(it, true) }
+
+            is LibraryGridEntry.BookEntry -> {
+                // Narrowed down (a filter or a search): dense rows.
+                // Browsing the whole library: the rich card.
+                if (!browsing && !gridMode) {
+                    LibraryDenseRow(
+                        book = gridEntry.book,
+                        availability = availability[gridEntry.book.book.mergeKey],
+                        onRecheck = { onRecheck(gridEntry.book.book.id) },
+                        downloadCount = downloadCounts[gridEntry.book.book.id],
+                        onOpen = { onBookClick(gridEntry.book.book.id) }
+                    )
+                } else {
+                    card(gridEntry.book, gridMode)
+                }
+            }
+        }
+    }
+}
+
+/** «58 книг · 143 год 20 хв» — the honest size of the whole library. */
+@Composable
+private fun librarySizeLabel(books: List<LibraryBook>): String {
+    val count = books.size
+    val noun = ukPlural(count, one = "книга", few = "книги", many = "книг")
+    val total = books.sumOf { it.totalDurationSeconds }
+    return if (total > 0L) {
+        "$count $noun · ${formatRemainingTime(total, stringRemainingTimeUnits())}"
+    } else {
+        "$count $noun"
+    }
+}
+
+/** «Розділ 5 із 14» — a real projection of playback state, or null. */
+private fun libraryChapterLabel(book: LibraryBook): String? {
+    val index = book.progress?.currentChapterIndex ?: return null
+    val total = book.book.totalChapters
+    return if (total > 0) "Розділ ${index + 1} із $total" else null
+}
+
+/** «разом 23 год 55 хв» — the honest listening time left in a filtered set. */
+@Composable
+private fun libraryRemainingTotal(books: List<LibraryBook>): String {
+    val seconds = books.sumOf { it.remainingSeconds }
+    if (seconds <= 0L) return ""
+    return "разом ${formatRemainingTime(seconds, stringRemainingTimeUnits())}"
+}
+
+/**
+ * A section header inside the book grid: uppercase label + pluralised count
+ * (design guide §6.3's section style), with no page padding of its own — the
+ * grid already carries it.
+ */
+@Composable
+internal fun LibrarySectionHeader(
+    title: String,
+    count: Int,
+    trailingText: String = ""
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = AppDimens.SpaceSm, bottom = AppDimens.SpaceXs),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title.uppercase(),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.semantics { heading() }
+            )
+            Text(
+                text = "$count ${ukPlural(count, one = "книга", few = "книги", many = "книг")}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (trailingText.isNotBlank()) {
+            Text(
+                text = trailingText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** A full-width, horizontally scrolling shelf of cover tiles. */
+@Composable
+internal fun LibraryShelf(
+    books: List<LibraryBook>,
+    tile: @Composable (LibraryBook) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd),
+        contentPadding = PaddingValues(end = AppDimens.PageSides)
+    ) {
+        items(books, key = { it.book.id }) { book ->
+            Box(modifier = Modifier.width(124.dp)) { tile(book) }
+        }
+    }
+}
+
+/**
+ * The dense row of a narrowed-down library (no cover, a timeline rail, the
+ * honest time left on the right). Same a11y contract as [LibraryBookCard]:
+ * one node for the row body, one real play node next to the offline badge.
+ */
+@Composable
+internal fun LibraryDenseRow(
+    book: LibraryBook,
+    availability: AvailabilityView?,
+    onRecheck: () -> Unit,
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?,
+    onOpen: () -> Unit
+) {
+    val units = stringRemainingTimeUnits()
+    val remaining = if (book.totalDurationSeconds > 0L) {
+        formatRemainingTime(book.remainingSeconds, units)
+    } else {
+        null
+    }
+    val state = libraryEntryStateDescription(book, availability)
+    val openLabel = stringResource(R.string.a11y_library_open_book, book.book.title)
+    val description = if (book.book.displayAuthor.isBlank()) {
+        book.book.title
+    } else {
+        stringResource(
+            R.string.a11y_library_entry_description,
+            book.book.title,
+            book.book.displayAuthor
+        )
+    }
+    val progressLabel = when {
+        book.isCompleted -> "готово"
+        book.isNew -> "новий"
+        else -> "${(book.percent * 100f).roundToInt()}%"
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // The timeline thread: one continuous hairline per row, a fill dot on
+        // the in-progress book. Stacked rows read as a single queue.
+        Box(
+            modifier = Modifier
+                .width(20.dp)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            )
+            Box(
+                modifier = Modifier
+                    .size(if (book.isListening) 10.dp else 7.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (book.isListening) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        }
+                    )
+            )
+        }
+        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = AppDimens.SpaceMd)
+                .focusProperties { canFocus = true }
+                .clickable(onClick = onOpen)
+                .testTag("library_dense_item_${book.book.id}")
+                .clearAndSetSemantics {
+                    contentDescription = description
+                    stateDescription = state
+                    role = Role.Button
+                    onClick(label = openLabel) {
+                        onOpen()
+                        true
+                    }
+                }
+        ) {
+            Text(
+                text = book.book.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = if (book.isCompleted) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            val subtitle = listOfNotNull(
+                book.book.displayAuthor.takeIf { it.isNotBlank() },
+                libraryChapterLabel(book) ?: book.seriesLabel
+            ).joinToString(" · ")
+            if (subtitle.isNotBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            // ADR-0042 §1 — a problem Work states it here too, and a tap asks
+            // for a fresh bounded re-check (spec-56 T2).
+            availabilityLabel(availability)?.let { label ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck() }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+        Column(horizontalAlignment = Alignment.End) {
+            if (remaining != null) {
+                Text(
+                    text = remaining,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = if (book.isListening) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+            Text(
+                text = progressLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        LibraryInlineOfflineBadge(book, downloadCount)
+    }
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+        modifier = Modifier.padding(start = 32.dp)
+    )
+}
+
+/** Which offline marker a book carries (#397), or none. */
+private enum class OfflineState { NONE, PARTIAL, FULL }
+
+private fun offlineStateOf(
+    book: LibraryBook,
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?
+): OfflineState = when {
+    downloadCount != null &&
+        downloadCount.downloaded > 0 &&
+        downloadCount.downloaded < downloadCount.total -> OfflineState.PARTIAL
+
+    book.book.isDownloaded -> OfflineState.FULL
+    else -> OfflineState.NONE
+}
+
+/**
+ * v1.5 review — the offline marker laid over the cover's top-end corner: a
+ * cloud-with-check once the whole book is on disk, a compact «7/12» while only
+ * some Source Tracks are. A solid scrim pill (never translucent, never bare
+ * artwork) keeps it readable on any cover; the card's own state description is
+ * what TalkBack announces, so the badge stays decorative.
+ */
+@Composable
+private fun LibraryCoverOfflineBadge(
+    book: LibraryBook,
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?,
+    modifier: Modifier = Modifier
+) {
+    val state = offlineStateOf(book, downloadCount)
+    if (state == OfflineState.NONE) return
+    when (state) {
+        OfflineState.FULL -> Box(
+            modifier = modifier
+                .size(20.dp)
+                .testTag("library_offline_badge_${book.book.id}"),
+            contentAlignment = Alignment.Center
+        ) {
+            // UI (v1.5 review): the cloud sits straight on the artwork — a disc
+            // with a border read as a second, redundant circle. Legibility now
+            // comes from a soft radial darkening that has no visible edge.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)
+                        ),
+                        shape = CircleShape
+                    )
+            )
+            Icon(
+                imageVector = Icons.Default.CloudDone,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+
+        OfflineState.PARTIAL -> Surface(
+            shape = RoundedCornerShape(AppDimens.RadiusXs),
+            // Text needs a solid backing, but no ring around it either.
+            color = AppBadgeScrim,
+            modifier = modifier.testTag("library_offline_badge_${book.book.id}")
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.offline_partial_badge_compact,
+                    downloadCount?.downloaded ?: 0,
+                    downloadCount?.total ?: 0
+                ),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+            )
+        }
+
+        OfflineState.NONE -> Unit
+    }
+}
+
+/**
+ * The same marker where there is no cover to lay it on — the dense row keeps
+ * it as a quiet icon beside the time left.
+ */
+@Composable
+private fun LibraryInlineOfflineBadge(
+    book: LibraryBook,
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?
+) {
+    when (offlineStateOf(book, downloadCount)) {
+        OfflineState.NONE -> Unit
+        OfflineState.PARTIAL -> Text(
+            text = stringResource(
+                R.string.offline_partial_badge,
+                downloadCount?.downloaded ?: 0,
+                downloadCount?.total ?: 0
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.testTag("library_partial_badge_${book.book.id}")
+        )
+        OfflineState.FULL -> Icon(
+            imageVector = Icons.Default.CloudDone,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier
+                .size(15.dp)
+                .testTag("library_inline_offline_badge_${book.book.id}")
+        )
+    }
+}
+
+/**
+ * The honest a11y state of a library entry: progress + offline/online + source
+ * + the availability verdict of a problem Work (ADR-0042 §1).
+ */
+@Composable
+private fun libraryEntryStateDescription(
+    book: LibraryBook,
+    availability: AvailabilityView?
+): String {
+    val progressState = if (book.totalDurationSeconds > 0L) {
+        stringResource(
+            R.string.a11y_library_progress,
+            (book.percent * 100f).roundToInt(),
+            formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
+        )
+    } else {
+        stringResource(R.string.a11y_library_progress_unknown)
+    }
+    val sourceAvailability = when {
+        book.isLocal -> stringResource(R.string.a11y_library_local)
+        book.book.isDownloaded -> stringResource(R.string.a11y_library_offline)
+        else -> stringResource(R.string.a11y_library_online)
+    }
+    val sourceState = book.sourceName
+        .takeIf { it.isNotBlank() }
+        ?.let { stringResource(R.string.a11y_library_source, it) }
+    return listOfNotNull(
+        progressState,
+        sourceAvailability,
+        sourceState,
+        availabilityLabel(availability)
+    ).joinToString(". ")
+}
+
+/**
  * The unified book card (wayfinder #39): cover, title, author, series+volume,
  * progress, remaining time, download status and a small source badge. The
  * [grid] flag switches between the compact row (list view) and the cover-first
@@ -958,64 +1690,77 @@ fun LibraryBookCard(
             author
         )
     }
-    val progressState = if (book.totalDurationSeconds > 0L) {
-        stringResource(
-            com.slukhayka.audiobooks.R.string.a11y_library_progress,
-            (book.percent * 100f).roundToInt(),
-            formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
-        )
-    } else {
-        stringResource(com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown)
-    }
-    val sourceAvailability = when {
-        book.isLocal -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_local)
-        book.book.isDownloaded -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_offline)
-        else -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_online)
-    }
-    // #741 — a removed source has no name, so the label is honestly absent.
-    val sourceState = book.sourceName
-        .takeIf { it.isNotBlank() }
-        ?.let { stringResource(com.slukhayka.audiobooks.R.string.a11y_library_source, it) }
-    val availabilityState = availabilityLabel(availability)
-    val state = listOfNotNull(progressState, sourceAvailability, sourceState, availabilityState)
-        .joinToString(". ")
+    val state = libraryEntryStateDescription(book, availability)
     val openLabel = stringResource(
         com.slukhayka.audiobooks.R.string.a11y_library_open_book,
         book.book.title
     )
     val performOpen = onClick
+    // UI (v1.5 review): the card BODY is one contextual action (unchanged
+    // a11y contract), and the two actions a listener uses most — play now and
+    // see the offline state — are real sibling nodes next to it, inside the
+    // same surface. A card that swallowed its own play button would leave that
+    // shortcut unreachable for TalkBack.
     Card(
-        modifier = modifier
+        modifier = (if (grid) modifier else Modifier)
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            // Route-return focus must also work on touch-only devices.
-            .focusProperties { canFocus = true }
-            .clickable(onClick = performOpen)
-            .testTag("library_book_item_${book.book.id}")
-            .clearAndSetSemantics {
-                contentDescription = description
-                stateDescription = state
-                role = Role.Button
-                onClick(label = openLabel) {
-                    performOpen()
-                    true
-                }
-            },
+            .clip(MaterialTheme.shapes.medium),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         if (grid) {
-            LibraryBookGridContent(book, availability, onRecheck, downloadCount)
+            Box(
+                modifier = Modifier
+                    .focusProperties { canFocus = true }
+                    .clickable(onClick = performOpen)
+                    .testTag("library_book_item_${book.book.id}")
+                    .clearAndSetSemantics {
+                        contentDescription = description
+                        stateDescription = state
+                        role = Role.Button
+                        onClick(label = openLabel) {
+                            performOpen()
+                            true
+                        }
+                    }
+            ) {
+                LibraryBookGridContent(book, availability, onRecheck, downloadCount)
+            }
         } else {
-            LibraryBookRowContent(
-                book,
-                availability,
-                onRecheck,
-                downloadCount,
-                awaitingPlayback = awaitingPlayback,
-                watchingSource = watchingSource,
-                deferredPublication = deferredPublication,
-                onListenNow = onListenNow
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = modifier
+                        .weight(1f)
+                        // Route-return focus must also work on touch-only devices.
+                        .focusProperties { canFocus = true }
+                        .clickable(onClick = performOpen)
+                        .testTag("library_book_item_${book.book.id}")
+                        .clearAndSetSemantics {
+                            contentDescription = description
+                            stateDescription = state
+                            role = Role.Button
+                            onClick(label = openLabel) {
+                                performOpen()
+                                true
+                            }
+                        }
+                ) {
+                    LibraryBookRowContent(
+                        book,
+                        availability,
+                        onRecheck,
+                        downloadCount = downloadCount,
+                        awaitingPlayback = awaitingPlayback,
+                        watchingSource = watchingSource,
+                        deferredPublication = deferredPublication,
+                        onListenNow = onListenNow
+                    )
+                }
+                // UI (v1.5 review, on-device): a play disc on every row put the
+                // screen's accent on eight identical circles and stole it from
+                // the «Продовжити» CTA. The row opens the book; the hero CTA
+                // resumes; a new book starts on its own page.
+                Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+            }
         }
     }
 }
@@ -1025,6 +1770,7 @@ private fun LibraryBookRowContent(
     book: LibraryBook,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
     onRecheck: (() -> Unit)? = null,
+    // #397 — the offline marker is laid over the cover's top-end corner.
     downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
     awaitingPlayback: Boolean = false,
     watchingSource: Boolean = false,
@@ -1043,6 +1789,16 @@ private fun LibraryBookRowContent(
         // the stats slot (label line under the author).
         stats = book.seriesLabel,
         progress = book.percent,
+        coverBadge = {
+            LibraryCoverOfflineBadge(
+                book = book,
+                downloadCount = downloadCount,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(3.dp)
+            )
+        },
+        footnoteInColumn = true,
         badges = {
             // C4: the canonical provenance chip — the local SourceBadge was
             // a pixel-duplicate of MetadataChip(source=…).
@@ -1081,27 +1837,9 @@ private fun LibraryBookRowContent(
                     modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
                 )
             }
-            if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
-                // #397 — honest partial offline: N of M Source Tracks on disk.
-                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                Text(
-                    text = stringResource(
-                        R.string.offline_partial_badge,
-                        downloadCount.downloaded,
-                        downloadCount.total
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-            } else if (book.book.isDownloaded) {
-                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                Icon(
-                    imageVector = Icons.Default.CloudDone,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
+            // #397 — the offline state (cloud / «7 із 12») is not a title
+            // badge any more: it rides next to the play action, where it can
+            // never be pushed off-screen by a long title.
         },
         footnote = {
             availabilityLabel(availability)?.let { label ->
@@ -1113,29 +1851,22 @@ private fun LibraryBookRowContent(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
-                        .padding(
-                            start = AppDimens.PageSides + 64.dp + AppDimens.SpaceMd,
-                            bottom = AppDimens.SpaceXs
-                        )
+                        .padding(bottom = AppDimens.SpaceXs)
                         .clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
                 )
             }
-            if (book.totalDurationSeconds > 0L) {
-                // Aligned under the text column (canonical footnote rhythm:
-                // the honest remaining line, right under the progress hairline).
-                Text(
-                    text = stringResource(
-                        R.string.library_remaining,
-                        formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(
-                        start = AppDimens.PageSides + 64.dp + AppDimens.SpaceMd,
-                        bottom = AppDimens.SpaceXs
-                    )
-                )
-            }
+            // Always rendered, so every row is the same height: an unknown
+            // duration shows the honest «—» instead of a missing line.
+            Text(
+                text = stringResource(
+                    R.string.library_remaining,
+                    formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                modifier = Modifier.padding(bottom = AppDimens.SpaceXs)
+            )
         }
     )
 }
@@ -1148,40 +1879,51 @@ private fun LibraryBookGridContent(
     downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
 ) {
     Column {
-        BookCoverImage(
-            book = book.book,
-            semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(3f / 4f),
-            contentScale = ContentScale.Crop
-        )
+        Box {
+            BookCoverImage(
+                book = book.book,
+                semantics = BookCoverSemantics.Decorative,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(3f / 4f),
+                contentScale = ContentScale.Crop
+            )
+            LibraryCoverOfflineBadge(
+                book = book,
+                downloadCount = downloadCount,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(3.dp)
+            )
+        }
+        // UI (v1.5 review, on-device): every tile reserves the SAME slots, so a
+        // shelf or a grid row has one height instead of a ragged staircase.
+        // A tile shorter than its neighbour looked like a bug, not like a book
+        // with less metadata. What varies now is only the text inside a slot.
         Column(modifier = Modifier.padding(10.dp)) {
             Text(
                 text = book.book.title,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
+                minLines = 2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            if (book.book.displayAuthor.isNotBlank()) {
-                Text(
-                    text = book.book.displayAuthor,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            book.seriesLabel?.let { series ->
-                Text(
-                    text = series,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Text(
+                // An empty string still occupies its line — that is the point.
+                text = book.book.displayAuthor,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = book.seriesLabel.orEmpty(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Spacer(modifier = Modifier.height(6.dp))
             LinearProgressIndicator(
                 progress = { book.percent },
@@ -1194,48 +1936,31 @@ private fun LibraryBookGridContent(
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+            // One reserved line: the verdict of a problem Work, or the source.
+            // The remaining time lives in the list rows — on a 124 dp tile it
+            // only ellipsised into noise.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 availabilityLabel(availability)?.let { label ->
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
-                    )
-                }
-                if (book.totalDurationSeconds > 0L) {
-                    Text(
-                        text = formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits()),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
                     )
                 }
                 // C4: the canonical provenance chip (the local SourceBadge
                 // was a pixel-duplicate of MetadataChip(source=…)).
                 if (book.sourceName.isNotBlank()) MetadataChip(source = book.sourceName)
-                if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
-                    // #397 — honest partial offline: N of M Source Tracks on disk.
-                    Text(
-                        text = stringResource(
-                            R.string.offline_partial_badge,
-                            downloadCount.downloaded,
-                            downloadCount.total
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                } else if (book.book.isDownloaded) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
+                // #397 — the offline marker rides the artwork (LibraryCoverOfflineBadge).
             }
         }
     }

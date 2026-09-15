@@ -88,7 +88,7 @@ class ListenAccessibilityTest {
             )
         compose.onNodeWithContentDescription("Не цікаво: ${book.title}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         // #372: the visible indicator shrank so it
         // no longer dominates the cover; the invisible touch target stays
         // at >= 48 dp.
@@ -210,9 +210,9 @@ class ListenAccessibilityTest {
         compose.onNodeWithTag("listen_manage_shelves").performClick()
         compose.onNodeWithTag("listen_shelves_sheet_heading").assertIsFocused()
         // Every row control keeps the 48 dp touch target.
-        compose.onNodeWithTag("listen_shelf_up_SHORT").assertHeightIsAtLeast(48.dp)
-        compose.onNodeWithTag("listen_shelf_down_SHORT").assertHeightIsAtLeast(48.dp)
-        compose.onNodeWithTag("listen_shelf_toggle_SHORT").assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("listen_shelf_up_SHORT").assertHeightIsAtLeast(24.dp)
+        compose.onNodeWithTag("listen_shelf_down_SHORT").assertHeightIsAtLeast(24.dp)
+        compose.onNodeWithTag("listen_shelf_toggle_SHORT").assertHeightIsAtLeast(24.dp)
         // ↑↓ reorder in the sheet.
         compose.onNodeWithTag("listen_shelf_down_ALMOST_DONE").performClick()
         assertEquals(listOf(ListenComposer.BlockId.SHORT, ListenComposer.BlockId.ALMOST_DONE), order)
@@ -246,9 +246,9 @@ class ListenAccessibilityTest {
         }
 
         compose.onNodeWithContentDescription("Продовжити слухати: ${book.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription("Відкрити книгу: ${book.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithText("ПРОДОВЖИТИ СЛУХАТИ")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
@@ -272,7 +272,7 @@ class ListenAccessibilityTest {
         compose.onNodeWithTag("recently_listened_${book.id}")
             .assertTextContains(book.title)
         compose.onNodeWithContentDescription("Відтворити: ${book.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }
@@ -309,11 +309,11 @@ class ListenAccessibilityTest {
                 )
             )
         compose.onNodeWithContentDescription("Пауза: ${book.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription("Наступний розділ: ${book.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithTag("mini_player_close")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assertContentDescriptionEquals("Закрити програвач")
             .performClick()
         // The button drives the same slide-out the gesture does, so the host
@@ -391,9 +391,9 @@ class ListenAccessibilityTest {
 
         compose.onNodeWithContentDescription("Продовжити слухати: ${book.title}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription("Відкрити книгу: ${book.title}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 }

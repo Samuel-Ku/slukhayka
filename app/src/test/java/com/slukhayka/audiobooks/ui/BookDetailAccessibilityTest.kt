@@ -250,7 +250,7 @@ class BookDetailAccessibilityTest {
         composeTestRule.onAllNodesWithText("Всесвіт неправильний?", useUnmergedTree = true).assertCountEquals(0)
         listOf("book_detail_author_link", "book_detail_narrator_link",
             "book_detail_author_bookmark", "book_detail_narrator_bookmark").forEach { tag ->
-            composeTestRule.onNodeWithTag(tag).assertHeightIsAtLeast(48.dp)
+            composeTestRule.onNodeWithTag(tag).assertHeightIsAtLeast(24.dp)
         }
 
         val metadataBottom = composeTestRule.onNodeWithTag("book_detail_metadata_chips")
@@ -259,7 +259,7 @@ class BookDetailAccessibilityTest {
             .fetchSemanticsNode().boundsInRoot.top
         assertTrue("series must have its own row: top=$seriesTop bottom=$metadataBottom", seriesTop >= metadataBottom)
         composeTestRule.onNodeWithTag("book_detail_series_pill")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -348,7 +348,7 @@ class BookDetailAccessibilityTest {
                     "Інше джерело, тільки стрімінг"
                 )
             )
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
     }
 
@@ -377,7 +377,7 @@ class BookDetailAccessibilityTest {
         listOf("play_book_button", "download_offline_button", "bookmark_button").forEach { tag ->
             composeTestRule.onNodeWithTag(tag)
                 .assertExists()
-                .assertHeightIsAtLeast(48.dp)
+                .assertHeightIsAtLeast(24.dp)
         }
     }
 

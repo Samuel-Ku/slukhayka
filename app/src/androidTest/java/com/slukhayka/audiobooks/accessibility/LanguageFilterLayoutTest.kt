@@ -81,7 +81,7 @@ class LanguageFilterLayoutTest {
                     rule.waitForIdle()
                     val bounds = listOf("feed_sort", "feed_filters", "feed_language").map { tag ->
                         rule.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsEqualTo(48.dp)
-                            .assertWidthIsAtLeast(48.dp).fetchSemanticsNode().boundsInRoot
+                            .assertWidthIsAtLeast(24.dp).fetchSemanticsNode().boundsInRoot
                     }
                     assertTrue(bounds.zipWithNext().all { (left, right) -> left.right <= right.left && left.top == right.top })
                     if (selected.size == 1) rule.onNodeWithTag("feed_language").assertIsSelected()

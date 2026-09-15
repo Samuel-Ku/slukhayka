@@ -50,7 +50,7 @@ class CollectiveBlockRailTest {
     )
 
     @Test
-    fun `the rail shows provenance, both cards and the honest attempt line`() {
+    fun `the rail names the source in its title, shows both cards and the honest attempt line`() {
         var opened: CollectiveBlockCard? = null
         compose.setContent {
             AudiobookTheme {
@@ -59,8 +59,9 @@ class CollectiveBlockRailTest {
         }
 
         compose.onNodeWithTag("collective_block_$key").assertExists()
+        // UI: підзаголовок «Джерело: <url>» прибрано — назва джерела вже
+        // стоїть у заголовку блока, тож дублювати її не треба.
         compose.onNodeWithText("Новинки Sound-Books", ignoreCase = true).assertExists()
-        compose.onNodeWithText("Джерело: https://sound-books.net").assertExists()
         compose.onNodeWithTag("collective_card_soundbooks_${"https://sound-books.net/kobzar".hashCode()}")
             .assertExists()
         compose.onNodeWithTag("collective_card_soundbooks_${"https://sound-books.net/misto".hashCode()}")

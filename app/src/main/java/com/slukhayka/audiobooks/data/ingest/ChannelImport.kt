@@ -163,3 +163,17 @@ data class ChannelCardState(
     val doneTotal: Int = 0,
     val doneStopped: Boolean = false
 )
+
+/**
+ * Spec-53 T11 — the state of one "separate books" run from a playlist
+ * preview. Same shape as the channel card's run so both surfaces can render
+ * the same progress/stop/summary vocabulary.
+ */
+data class PreviewRunState(
+    val running: Boolean = false,
+    val progress: ChannelImportSession.Progress? = null,
+    /** Null until the run settles: how many picked positions imported. */
+    val added: Int? = null,
+    val total: Int = 0,
+    val stopped: Boolean = false
+)

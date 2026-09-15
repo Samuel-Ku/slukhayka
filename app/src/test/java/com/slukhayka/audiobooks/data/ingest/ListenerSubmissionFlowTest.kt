@@ -50,9 +50,17 @@ class ListenerSubmissionFlowTest {
         /** Spec-53 T9 — the preview corrections each submit carried in. */
         val capturedEdits = mutableListOf<ListenerSubmissionFlow.PreviewEdits?>()
 
+        /** Spec-53 T11 — the playlist selection each submit carried in. */
+        val capturedSelections = mutableListOf<Set<String>?>()
+
         val flow = ListenerSubmissionFlow(
             fetchMetadata = { url -> fetchCalls++; fetchedUrls += url; metadataJson },
-            importYouTube = { _, _, _, edits -> importCalls++; capturedEdits += edits; importOutcome },
+            importYouTube = { _, _, _, edits, selectedWatchUrls ->
+                importCalls++
+                capturedEdits += edits
+                capturedSelections += selectedWatchUrls
+                importOutcome
+            },
             fetchTgIdentity = { tgCalls++; tgIdentity },
             importWatchingTelegram = importWatching,
             watchSource = watchSource,
@@ -345,7 +353,7 @@ class ListenerSubmissionFlowTest {
         val online = java.util.concurrent.atomic.AtomicBoolean(false)
         val flow = ListenerSubmissionFlow(
             fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
-            importYouTube = { _, _, _, _ ->
+            importYouTube = { _, _, _, _, _ ->
                 ListenerSubmissionFlow.ImportOutcome(
                     ListenerSubmissionFlow.ImportResult.IMPORTED,
                     bookId = "book-1",
@@ -530,7 +538,7 @@ class ListenerSubmissionFlowTest {
         )
         val flow = ListenerSubmissionFlow(
             fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
-            importYouTube = { _, _, _, _ -> outcomes[index++] },
+            importYouTube = { _, _, _, _, _ -> outcomes[index++] },
             fetchTgIdentity = { null },
             publisher = publisher,
             verification = verification,
@@ -562,7 +570,7 @@ class ListenerSubmissionFlowTest {
         val publisher = SubmissionPublisher(harnessStore, policy) { 1_000L }
         fun flow() = ListenerSubmissionFlow(
             fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
-            importYouTube = { _, _, _, _ ->
+            importYouTube = { _, _, _, _, _ ->
                 ListenerSubmissionFlow.ImportOutcome(
                     ListenerSubmissionFlow.ImportResult.IMPORTED, bookId = "book-1", sourceId = "source-1"
                 )
@@ -729,5 +737,71 @@ class ListenerSubmissionFlowTest {
 
         assertTrue("the channel row stays queued", outcomes.isEmpty())
         assertEquals(1, online.flow.deferredSubmissions().size)
+    }
+
+    @Test
+    fun `a playlist preview carries its ordered pickable positions`() = runTest {
+        val harness = Harness(metadataJson = previewPlaylistJson)
+
+        val preview = harness.flow.previewSubmission("https://www.youtube.com/playlist?list=PLprev")!!
+
+        assertEquals(
+            listOf(
+                ListenerSubmissionFlow.PreviewEntry(
+                    watchUrl = "https://www.youtube.com/watch?v=aaa111BBB22",
+                    title = "Розділ 1",
+                    durationSeconds = 600L
+                ),
+                ListenerSubmissionFlow.PreviewEntry(
+                    watchUrl = "https://www.youtube.com/watch?v=bbb222CCC33",
+                    title = "Розділ 2",
+                    durationSeconds = 900L
+                )
+            ),
+            preview.entries
+        )
+    }
+
+    @Test
+    fun `a single video preview has nothing to pick`() = runTest {
+        val harness = Harness(metadataJson = previewVideoJson)
+
+        assertTrue(harness.flow.previewSubmission("https://youtu.be/abc123XYZ89")!!.entries.isEmpty())
+    }
+
+    @Test
+    fun `the picked positions ride the submit into the import door`() = runTest {
+        val harness = Harness()
+        val picked = setOf("https://www.youtube.com/watch?v=aaa111BBB22")
+
+        harness.flow.submit(youtube, selectedWatchUrls = picked)
+
+        assertEquals(listOf(picked), harness.capturedSelections)
+    }
+
+    @Test
+    fun `an empty selection is refused instead of importing the whole playlist`() = runTest {
+        val harness = Harness()
+
+        val start = harness.flow.submit(youtube, selectedWatchUrls = emptySet())
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.Refused(
+                ListenerSubmissionFlow.Reason.NO_PLAYABLE_TRACKS,
+                10
+            ),
+            start
+        )
+        assertEquals("nothing reached the import door", 0, harness.importCalls)
+        assertEquals("no metadata fetch was needed either", 0, harness.fetchCalls)
+    }
+
+    @Test
+    fun `a one-tap submit carries no selection`() = runTest {
+        val harness = Harness()
+
+        harness.flow.submit(youtube)
+
+        assertEquals(listOf(null), harness.capturedSelections)
     }
 }

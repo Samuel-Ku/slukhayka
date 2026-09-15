@@ -96,6 +96,7 @@ import com.slukhayka.audiobooks.data.ingest.ChannelSelectionPolicy
 import com.slukhayka.audiobooks.data.ingest.ChannelTab
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.MetadataCorrectionPolicy
+import com.slukhayka.audiobooks.data.ingest.PreviewRunState
 import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 import com.slukhayka.audiobooks.data.privacy.PacingPolicy
@@ -496,11 +497,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Spec-53 T9 — submits with the preview's corrections already applied.
      * Null edits keep the one-tap path exactly as it was.
      */
-    fun submitLink(rawUrl: String, edits: ListenerSubmissionFlow.PreviewEdits? = null) {
+    fun submitLink(
+        rawUrl: String,
+        edits: ListenerSubmissionFlow.PreviewEdits? = null,
+        selectedWatchUrls: Set<String>? = null
+    ) {
         if (_submissionState.value == SubmissionUiState.Working) return
         _submissionState.value = SubmissionUiState.Working
         viewModelScope.launch(Dispatchers.IO) {
-            val start = runCatching { listenerSubmissionFlow.submit(rawUrl, edits) }.getOrNull()
+            val start = runCatching {
+                listenerSubmissionFlow.submit(rawUrl, edits, selectedWatchUrls)
+            }.getOrNull()
                 ?: ListenerSubmissionFlow.Start.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED, 0)
             applySubmissionStart(start)
             refreshAwaitingSubmissions()
@@ -508,6 +515,106 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _submissionRemaining.value =
                 runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
         }
+    }
+
+    /**
+     * Spec-53 T11 — the playlist preview's selection: every position is
+     * picked by default ("додати всі"), and the two build modes decide
+     * whether the picked positions become ONE book (chapters) or separate
+     * books. Both modes send the SAME canonical watch URLs the entries show,
+     * so a tick can never import a different video than the one displayed.
+     */
+    private val _previewSelection = MutableStateFlow<Set<String>>(emptySet())
+    val previewSelection: StateFlow<Set<String>> = _previewSelection.asStateFlow()
+    private val _previewSeparateBooks = MutableStateFlow(false)
+    val previewSeparateBooks: StateFlow<Boolean> = _previewSeparateBooks.asStateFlow()
+    private val _previewRun = MutableStateFlow(PreviewRunState())
+    val previewRun: StateFlow<PreviewRunState> = _previewRun.asStateFlow()
+    private var previewSessionJob: Job? = null
+
+    fun togglePreviewEntry(watchUrl: String) {
+        if (_previewRun.value.running) return
+        val current = _previewSelection.value
+        _previewSelection.value =
+            if (watchUrl in current) current - watchUrl else current + watchUrl
+    }
+
+    fun selectAllPreviewEntries() {
+        if (_previewRun.value.running) return
+        _previewSelection.value = _submissionPreview.value?.entries?.map { it.watchUrl }?.toSet().orEmpty()
+    }
+
+    fun setPreviewSeparateBooks(separate: Boolean) {
+        if (_previewRun.value.running) return
+        _previewSeparateBooks.value = separate
+    }
+
+    /**
+     * Spec-53 T11 — adds the picked positions. One-book mode narrows the
+     * playlist import to the selection (unpicked positions create nothing);
+     * separate-books mode walks each picked position through the ORDINARY
+     * single-video door, one at a time, in the human rhythm, with visible
+     * progress and an honest stop.
+     */
+    fun addPreviewSelection(edits: ListenerSubmissionFlow.PreviewEdits) {
+        val preview = _submissionPreview.value ?: return
+        val selected = _previewSelection.value
+        if (selected.isEmpty() || _previewRun.value.running) return
+
+        if (!_previewSeparateBooks.value) {
+            clearSubmissionPreview()
+            submitLink(preview.url, edits, selected)
+            return
+        }
+        val picked = preview.entries.filter { it.watchUrl in selected }
+        if (picked.isEmpty()) return
+
+        previewSessionJob?.cancel()
+        val items = picked.map { entry ->
+            ChannelListItem(
+                id = entry.watchUrl,
+                kind = ChannelItemKind.VIDEO,
+                title = entry.title,
+                url = entry.watchUrl,
+                durationSeconds = entry.durationSeconds
+            )
+        }
+        val session = ChannelImportSession(
+            submit = { url -> listenerSubmissionFlow.submit(url) },
+            pacing = PacingPolicy()
+        )
+        _previewRun.value = PreviewRunState(
+            running = true,
+            progress = ChannelImportSession.Progress(0, items.size, "")
+        )
+        previewSessionJob = viewModelScope.launch(Dispatchers.IO) {
+            val progressJob = launch {
+                session.progress.collect { p -> _previewRun.value = _previewRun.value.copy(progress = p) }
+            }
+            var added = 0
+            val stopped = try {
+                added = session.run(items).count { it is ListenerSubmissionFlow.Start.Imported }
+                false
+            } catch (_: CancellationException) {
+                true
+            } finally {
+                progressJob.cancel()
+            }
+            _previewRun.value = PreviewRunState(
+                running = false,
+                added = added,
+                total = items.size,
+                stopped = stopped
+            )
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    fun stopPreviewRun() {
+        previewSessionJob?.cancel()
     }
 
     /**
@@ -522,12 +629,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadSubmissionPreview(rawUrl: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val preview = runCatching { listenerSubmissionFlow.previewSubmission(rawUrl) }.getOrNull()
-            if (preview != null) _submissionPreview.value = preview
+            if (preview != null) {
+                _submissionPreview.value = preview
+                // Spec-53 T11 — a fresh card starts with EVERY position picked
+                // ("додати всі") and the default mode: one book of chapters.
+                _previewSelection.value = preview.entries.map { it.watchUrl }.toSet()
+                _previewSeparateBooks.value = false
+                _previewRun.value = PreviewRunState()
+            }
         }
     }
 
     fun clearSubmissionPreview() {
+        previewSessionJob?.cancel()
+        previewSessionJob = null
         _submissionPreview.value = null
+        _previewSelection.value = emptySet()
+        _previewRun.value = PreviewRunState()
     }
 
     /** Spec-53 T10 — pure check the sheet uses to offer the channel card's door. */

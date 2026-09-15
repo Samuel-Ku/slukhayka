@@ -774,6 +774,9 @@ fun LibraryScreen(
             val deferredLinks by viewModel.deferredSubmissions.collectAsState()
             val submissionPreview by viewModel.submissionPreview.collectAsState()
             val channelCard by viewModel.channelCard.collectAsState()
+            val previewSelection by viewModel.previewSelection.collectAsState()
+            val previewSeparateBooks by viewModel.previewSeparateBooks.collectAsState()
+            val previewRun by viewModel.previewRun.collectAsState()
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
@@ -801,6 +804,19 @@ fun LibraryScreen(
                     onToggleIncludeSkipped = { viewModel.toggleChannelIncludeSkipped() },
                     onStartImport = { viewModel.startChannelImport() },
                     onStopImport = { viewModel.stopChannelImport() }
+                ),
+                // Spec-53 T11 — the playlist preview's selection.
+                playlistSelection = PlaylistSelectionState(
+                    selected = previewSelection,
+                    separateBooks = previewSeparateBooks,
+                    run = previewRun
+                ),
+                playlistCallbacks = PlaylistSelectionCallbacks(
+                    onToggleEntry = { viewModel.togglePreviewEntry(it) },
+                    onSelectAll = { viewModel.selectAllPreviewEntries() },
+                    onSetSeparateBooks = { viewModel.setPreviewSeparateBooks(it) },
+                    onAdd = { edits -> viewModel.addPreviewSelection(edits) },
+                    onStop = { viewModel.stopPreviewRun() }
                 ),
                 onListen = { viewModel.listenToLastImported() },
                 // Spec-53 T6 — the friendly dupe leads to the owned copy.

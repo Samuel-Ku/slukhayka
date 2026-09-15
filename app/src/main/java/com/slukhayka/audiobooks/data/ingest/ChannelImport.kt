@@ -136,3 +136,30 @@ class ChannelImportSession(
         const val CHANNEL_DOMAIN = "youtube.com"
     }
 }
+
+/**
+ * Spec-53 T10 — the whole state of one open channel card. Framework-free on
+ * purpose: the ViewModel holds it, the composable renders it, and JVM tests
+ * could drive it without Compose. The checked rows resolve through
+ * [ChannelSelectionPolicy] at render/start time, so the state never stores a
+ * second copy of the selection.
+ */
+data class ChannelCardState(
+    val url: String = "",
+    val title: String = "",
+    val tab: ChannelTab = ChannelTab.VIDEOS,
+    val items: List<ChannelListItem> = emptyList(),
+    val hasMore: Boolean = false,
+    val loading: Boolean = false,
+    val loadFailed: Boolean = false,
+    val checkedIds: Set<String> = emptySet(),
+    val includeSkipped: Boolean = false,
+    val playlistMembers: Map<String, Set<String>> = emptyMap(),
+    val membersLoading: Set<String> = emptySet(),
+    val progress: ChannelImportSession.Progress? = null,
+    val running: Boolean = false,
+    /** Null until a run finishes: how many of the resolved items imported. */
+    val doneAdded: Int? = null,
+    val doneTotal: Int = 0,
+    val doneStopped: Boolean = false
+)

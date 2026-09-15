@@ -87,10 +87,19 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.PlaybackReplacementMapping
+import com.slukhayka.audiobooks.data.ingest.ChannelCardState
+import com.slukhayka.audiobooks.data.ingest.ChannelImportSession
+import com.slukhayka.audiobooks.data.ingest.ChannelItemKind
+import com.slukhayka.audiobooks.data.ingest.ChannelListFetcher
+import com.slukhayka.audiobooks.data.ingest.ChannelListItem
+import com.slukhayka.audiobooks.data.ingest.ChannelSelectionPolicy
+import com.slukhayka.audiobooks.data.ingest.ChannelTab
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.MetadataCorrectionPolicy
 import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
+import com.slukhayka.audiobooks.data.source.NewPipeChannelListFetcher
 import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
@@ -405,6 +414,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissSubmission() {
         _submissionState.value = SubmissionUiState.Idle
         clearSubmissionPreview()
+        closeChannelCard()
     }
 
     /** Spec-53 T3/T5 — refresh the awaiting and watching badges from the store. */
@@ -520,6 +530,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _submissionPreview.value = null
     }
 
+    /** Spec-53 T10 — pure check the sheet uses to offer the channel card's door. */
+    fun isChannelLink(url: String): Boolean = listenerSubmissionFlow.isChannelLink(url)
+
     /** Spec-53 T8 — the visible offline queue of pasted links. */
     private val _deferredSubmissions = MutableStateFlow<List<SubmissionState>>(emptyList())
     val deferredSubmissions: StateFlow<List<SubmissionState>> = _deferredSubmissions.asStateFlow()
@@ -594,9 +607,208 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _submissionState.value = SubmissionUiState.Refused(start.reason)
             is ListenerSubmissionFlow.Start.Deferred ->
                 _submissionState.value = SubmissionUiState.Deferred
+            is ListenerSubmissionFlow.Start.ChannelLink ->
+                // Spec-53 T10 — a channel is picked, never auto-imported: the
+                // card opens and the sheet stays interactive (Idle, not
+                // Working) because the card carries its own loading states.
+                openChannelCard(start.url)
             ListenerSubmissionFlow.Start.Unsupported ->
                 _submissionState.value = SubmissionUiState.Unsupported
         }
+    }
+
+    // Spec-53 T10 — the whole-channel selection card: tabs, checkboxes,
+    // «останні N», membership dedup, a paced run with progress and stop.
+    // The fetcher is stateful per open card (tab + cursor), so each open
+    // gets a fresh instance; the run's session likewise lives per run.
+    private val _channelCard = MutableStateFlow<ChannelCardState?>(null)
+    val channelCard: StateFlow<ChannelCardState?> = _channelCard.asStateFlow()
+    private var channelFetcher: ChannelListFetcher? = null
+    private var channelSessionJob: Job? = null
+    private var channelProgressJob: Job? = null
+
+    fun openChannelCard(url: String) {
+        closeChannelRun()
+        val fetcher = NewPipeChannelListFetcher()
+        channelFetcher = fetcher
+        _submissionState.value = SubmissionUiState.Idle
+        _channelCard.value = ChannelCardState(url = url, loading = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            val page = runCatching { fetcher.openVideos(url) }.getOrNull()
+            val now = _channelCard.value
+            if (now == null || now.url != url) return@launch
+            _channelCard.value = if (page == null) {
+                now.copy(loading = false, loadFailed = true)
+            } else {
+                now.copy(
+                    loading = false,
+                    loadFailed = false,
+                    title = page.channelTitle,
+                    tab = ChannelTab.VIDEOS,
+                    items = page.items,
+                    hasMore = page.hasMore
+                )
+            }
+        }
+    }
+
+    fun closeChannelCard() {
+        closeChannelRun()
+        channelFetcher = null
+        _channelCard.value = null
+    }
+
+    fun switchChannelTab(tab: ChannelTab) {
+        val cur = _channelCard.value ?: return
+        if (tab == cur.tab || cur.loading || cur.running) return
+        val fetcher = channelFetcher ?: return
+        _channelCard.value = cur.copy(tab = tab, loading = true, loadFailed = false, items = emptyList(), hasMore = false)
+        viewModelScope.launch(Dispatchers.IO) {
+            val page = runCatching {
+                if (tab == ChannelTab.VIDEOS) fetcher.openVideos(cur.url) else fetcher.openPlaylists(cur.url)
+            }.getOrNull()
+            val now = _channelCard.value
+            if (now == null || now.url != cur.url || now.tab != tab) return@launch
+            _channelCard.value = if (page == null) {
+                now.copy(loading = false, loadFailed = true)
+            } else {
+                now.copy(
+                    loading = false,
+                    title = page.channelTitle.ifBlank { now.title },
+                    items = page.items,
+                    hasMore = page.hasMore
+                )
+            }
+        }
+    }
+
+    fun loadMoreChannelItems() {
+        val cur = _channelCard.value ?: return
+        if (cur.loading || !cur.hasMore || cur.running) return
+        val fetcher = channelFetcher ?: return
+        _channelCard.value = cur.copy(loading = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            val page = runCatching { fetcher.more() }.getOrNull()
+            val now = _channelCard.value
+            if (now == null || now.url != cur.url || now.tab != cur.tab) return@launch
+            _channelCard.value = if (page == null) {
+                // An unreadable next page is an honest end, not a failure:
+                // what is listed stays listed.
+                now.copy(loading = false, hasMore = false)
+            } else {
+                now.copy(
+                    loading = false,
+                    items = now.items + page.items.filter { item -> now.items.none { it.id == item.id } },
+                    hasMore = page.hasMore
+                )
+            }
+        }
+    }
+
+    fun toggleChannelItem(id: String) {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        val item = cur.items.find { it.id == id } ?: return
+        val checked = if (id in cur.checkedIds) cur.checkedIds - id else cur.checkedIds + id
+        _channelCard.value = cur.copy(checkedIds = checked, doneAdded = null, doneStopped = false)
+        if (id !in cur.checkedIds && item.kind == ChannelItemKind.PLAYLIST) {
+            ensurePlaylistMembers(item)
+        }
+    }
+
+    fun selectChannelLastN(n: Int) {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        val ids = ChannelSelectionPolicy.lastN(cur.items, n).map { it.id }.toSet()
+        _channelCard.value = cur.copy(checkedIds = ids, doneAdded = null, doneStopped = false)
+        cur.items.filter { it.id in ids && it.kind == ChannelItemKind.PLAYLIST }.forEach(::ensurePlaylistMembers)
+    }
+
+    fun toggleChannelIncludeSkipped() {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        _channelCard.value = cur.copy(includeSkipped = !cur.includeSkipped, doneAdded = null, doneStopped = false)
+    }
+
+    /**
+     * Membership of one playlist, read once and cached: the same watch URLs
+     * the import door would materialise, so the «пропущено N» dedup is real.
+     * A failed read caches as unknown (absent from the map) — the video then
+     * stays selectable instead of vanishing on an engine hiccup.
+     */
+    private fun ensurePlaylistMembers(item: ChannelListItem) {
+        val cur = _channelCard.value ?: return
+        if (item.id in cur.playlistMembers || item.id in cur.membersLoading) return
+        _channelCard.value = cur.copy(membersLoading = cur.membersLoading + item.id)
+        viewModelScope.launch(Dispatchers.IO) {
+            val members = runCatching { listenerSubmissionFlow.playlistMemberUrls(item.url) }.getOrNull()
+            val now = _channelCard.value ?: return@launch
+            _channelCard.value = now.copy(
+                playlistMembers = if (members == null) now.playlistMembers else now.playlistMembers + (item.id to members),
+                membersLoading = now.membersLoading - item.id
+            )
+        }
+    }
+
+    fun startChannelImport() {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        val checked = cur.items.filter { it.id in cur.checkedIds }
+        val resolved = ChannelSelectionPolicy.resolve(checked, cur.playlistMembers, cur.includeSkipped)
+        if (resolved.toAdd.isEmpty()) return
+        closeChannelRun()
+        val acc = mutableListOf<ListenerSubmissionFlow.Start>()
+        val session = ChannelImportSession(
+            submit = { url -> listenerSubmissionFlow.submit(url).also { acc += it } },
+            pacing = PacingPolicy()
+        )
+        _channelCard.value = cur.copy(
+            running = true,
+            doneAdded = null,
+            doneStopped = false,
+            progress = ChannelImportSession.Progress(0, resolved.toAdd.size, "")
+        )
+        channelSessionJob = viewModelScope.launch(Dispatchers.IO) {
+            channelProgressJob = launch {
+                session.progress.collect { p ->
+                    _channelCard.value = _channelCard.value?.copy(progress = p)
+                }
+            }
+            val stopped = try {
+                session.run(resolved.toAdd)
+                false
+            } catch (_: CancellationException) {
+                // Deliberate stop (stopChannelImport): partial results in
+                // acc already went through the ordinary per-item path.
+                true
+            } finally {
+                channelProgressJob?.cancel()
+            }
+            val added = acc.count { it is ListenerSubmissionFlow.Start.Imported }
+            val total = resolved.toAdd.size
+            _channelCard.value = _channelCard.value?.copy(
+                running = false,
+                progress = null,
+                doneAdded = added,
+                doneTotal = total,
+                doneStopped = stopped
+            )
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    fun stopChannelImport() {
+        channelSessionJob?.cancel()
+    }
+
+    private fun closeChannelRun() {
+        channelSessionJob?.cancel()
+        channelSessionJob = null
+        channelProgressJob?.cancel()
+        channelProgressJob = null
     }
 
 

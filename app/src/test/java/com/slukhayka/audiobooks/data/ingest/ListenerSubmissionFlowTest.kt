@@ -666,4 +666,68 @@ class ListenerSubmissionFlowTest {
 
         assertEquals(listOf(null), harness.capturedEdits)
     }
+
+    @Test
+    fun `channel links are named honestly`() {
+        val flow = Harness().flow
+
+        assertTrue(flow.isChannelLink("https://www.youtube.com/@SomeChannel"))
+        assertTrue(flow.isChannelLink("https://www.youtube.com/channel/UCabc123/videos"))
+        assertTrue(flow.isChannelLink("https://www.youtube.com/c/SomeName?si=tracking"))
+        assertTrue(flow.isChannelLink("https://www.youtube.com/user/SomeName"))
+        assertFalse(flow.isChannelLink("https://www.youtube.com/watch?v=abc123XYZ89"))
+        assertFalse(flow.isChannelLink("https://www.youtube.com/playlist?list=PLprev"))
+        assertFalse(flow.isChannelLink("https://youtu.be/abc123XYZ89"))
+        assertFalse(flow.isChannelLink("https://t.me/bookchannel/42"))
+        assertFalse(flow.isChannelLink("not a link"))
+    }
+
+    @Test
+    fun `a channel link opens the card instead of importing`() = runTest {
+        val harness = Harness()
+
+        val start = harness.flow.submit("https://www.youtube.com/@SomeChannel")
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.ChannelLink("https://www.youtube.com/@SomeChannel"),
+            start
+        )
+        assertEquals("opening the card spends no budget and no fetch", 0, harness.fetchCalls)
+        assertEquals(0, harness.importCalls)
+    }
+
+    @Test
+    fun `playlist members are the import door's own watch urls`() = runTest {
+        val harness = Harness(metadataJson = previewPlaylistJson)
+
+        val members = harness.flow.playlistMemberUrls("https://www.youtube.com/playlist?list=PLprev")
+
+        assertEquals(
+            setOf(
+                "https://www.youtube.com/watch?v=aaa111BBB22",
+                "https://www.youtube.com/watch?v=bbb222CCC33"
+            ),
+            members
+        )
+        assertEquals("a read never imports", 0, harness.importCalls)
+    }
+
+    @Test
+    fun `playlist members are null when the engine saw nothing`() = runTest {
+        assertNull(Harness(metadataJson = null).flow.playlistMemberUrls(youtube))
+        assertNull(Harness(online = false).flow.playlistMemberUrls(youtube))
+    }
+
+    @Test
+    fun `a queued channel link waits for a human instead of a headless pass`() = runTest {
+        val store = InMemorySubmissionStateStore()
+        Harness(online = false, stateStore = store).flow
+            .submit("https://www.youtube.com/@SomeChannel")
+
+        val online = Harness(online = true, stateStore = store)
+        val outcomes = online.flow.processDeferred()
+
+        assertTrue("the channel row stays queued", outcomes.isEmpty())
+        assertEquals(1, online.flow.deferredSubmissions().size)
+    }
 }

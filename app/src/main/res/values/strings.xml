@@ -289,6 +289,26 @@
     <!-- Spec-53 T9 — the optional pre-add preview. -->
     <string name="submission_preview_action">Переглянути</string>
     <string name="submission_preview_add">Додати</string>
+    <!-- Spec-53 T10 — the whole-channel selection card. -->
+    <string name="submission_channel_open">Переглянути канал</string>
+    <string name="submission_channel_title_default">Канал</string>
+    <string name="submission_channel_close">Закрити</string>
+    <string name="submission_channel_videos">Відео</string>
+    <string name="submission_channel_playlists">Плейлисти</string>
+    <string name="submission_channel_loading">Читаю канал…</string>
+    <string name="submission_channel_failed">Не вдалося прочитати канал.</string>
+    <string name="submission_channel_retry">Спробувати ще</string>
+    <string name="submission_channel_empty">На цій вкладці порожньо.</string>
+    <string name="submission_channel_last_n">Останні:</string>
+    <string name="submission_channel_skipped">Пропущено %1$d відео</string>
+    <string name="submission_channel_add_skipped">Додати</string>
+    <string name="submission_channel_more">Ще</string>
+    <string name="submission_channel_playlist">плейлист</string>
+    <string name="submission_channel_stop">Спинити</string>
+    <string name="submission_channel_progress">%1$d/%2$d · %3$s</string>
+    <string name="submission_channel_done">Додано %1$d з %2$d</string>
+    <string name="submission_channel_stopped">Зупинено · додано %1$d з %2$d</string>
+    <string name="submission_channel_add_selected">Додати вибрані (%1$d)</string>
     <string name="submission_preview_edit">Редагувати</string>
     <string name="submission_preview_single_video">одне відео</string>
     <string name="submission_preview_playlist_prefix">плейлист</string>

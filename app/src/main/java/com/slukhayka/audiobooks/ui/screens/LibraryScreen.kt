@@ -773,6 +773,7 @@ fun LibraryScreen(
             val submissionRemaining by viewModel.submissionRemaining.collectAsState()
             val deferredLinks by viewModel.deferredSubmissions.collectAsState()
             val submissionPreview by viewModel.submissionPreview.collectAsState()
+            val channelCard by viewModel.channelCard.collectAsState()
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
@@ -786,6 +787,21 @@ fun LibraryScreen(
                     viewModel.clearSubmissionPreview()
                     viewModel.submitLink(url, edits)
                 },
+                // Spec-53 T10 — the whole-channel selection card.
+                channelCard = channelCard,
+                isChannelLink = viewModel::isChannelLink,
+                onOpenChannel = { viewModel.openChannelCard(it) },
+                channelCallbacks = ChannelCardCallbacks(
+                    onClose = { viewModel.closeChannelCard() },
+                    onRetryLoad = { viewModel.openChannelCard(channelCard?.url.orEmpty()) },
+                    onTabSelect = { viewModel.switchChannelTab(it) },
+                    onLoadMore = { viewModel.loadMoreChannelItems() },
+                    onToggleItem = { viewModel.toggleChannelItem(it) },
+                    onSelectLastN = { viewModel.selectChannelLastN(it) },
+                    onToggleIncludeSkipped = { viewModel.toggleChannelIncludeSkipped() },
+                    onStartImport = { viewModel.startChannelImport() },
+                    onStopImport = { viewModel.stopChannelImport() }
+                ),
                 onListen = { viewModel.listenToLastImported() },
                 // Spec-53 T6 — the friendly dupe leads to the owned copy.
                 onOpenBook = { bookId ->

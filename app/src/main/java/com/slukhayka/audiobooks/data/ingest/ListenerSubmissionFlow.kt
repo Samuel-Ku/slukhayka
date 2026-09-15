@@ -171,6 +171,14 @@ class ListenerSubmissionFlow(
          */
         data class Deferred(val url: String) : Start
 
+        /**
+         * Spec-53 T10 — the pasted link is a whole channel, not one book. No
+         * blind import happens: the caller opens the selection card for this
+         * [url] instead. Deferred rows holding a channel link are skipped by
+         * [processDeferred] for the same reason — the card needs a human.
+         */
+        data class ChannelLink(val url: String) : Start
+
         data object Unsupported : Start
     }
 
@@ -197,9 +205,21 @@ class ListenerSubmissionFlow(
         runCatching { remainingToday.invoke() }.getOrDefault(0)
 
     /**
+     * Whether the pasted link is a whole YouTube channel (`/channel/`,
+     * `/@handle`, `/c/`, `/user/`) rather than one video or playlist. Pure:
+     * the same canonical form the import door uses, so the check and the
+     * identity can never drift apart.
+     */
+    fun isChannelLink(rawUrl: String): Boolean {
+        val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return false
+        return CHANNEL_URL.matches(url)
+    }
+
+    /**
      * Starts one submission: a YouTube link imports locally and waits for the
      * playback verdict; a TG link publishes metadata-only immediately (the
-     * public preview exposes no audio — the RED prototype verdict).
+     * public preview exposes no audio — the RED prototype verdict); a channel
+     * link opens the selection card instead of importing blindly.
      */
     suspend fun submit(rawUrl: String, edits: PreviewEdits? = null): Start {
         // Spec-53 T6 — one canonical form per link, so dedup and identity are
@@ -207,6 +227,9 @@ class ListenerSubmissionFlow(
         val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return Start.Unsupported
         // Spec-53 T8 — a paste without a network waits, visibly.
         if (!runCatching { isOnline() }.getOrDefault(true)) return defer(url)
+        // Spec-53 T10 — a channel is picked, never auto-imported. Before the
+        // budget check: opening the card must not spend a submission.
+        if (CHANNEL_URL.matches(url)) return Start.ChannelLink(url)
         val remaining = remainingToday()
         if (remaining <= 0) return Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
         return when (classify(url)) {
@@ -214,6 +237,28 @@ class ListenerSubmissionFlow(
             Kind.YOUTUBE -> submitYouTube(url, remaining, edits)
             Kind.TELEGRAM -> submitTelegram(url, remaining)
         }
+    }
+
+    /**
+     * Spec-53 T10 — the canonical watch URLs of one playlist's entries, for
+     * the channel card's membership dedup. Read-only: no import, no budget,
+     * no store writes. Null when the engine saw nothing usable — the card
+     * then treats the playlist as having no known members, never as empty.
+     */
+    suspend fun playlistMemberUrls(playlistUrl: String): Set<String>? {
+        val url = SubmissionUrlCanonicalizer.canonical(playlistUrl) ?: return null
+        if (!runCatching { isOnline() }.getOrDefault(true)) return null
+        val metadataJson = try {
+            fetchMetadata(url)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return null
+        val plan = YouTubeSubmissionPlanner.plan(url, metadata, "")
+        if (plan.chapters.isEmpty()) return null
+        return plan.chapters.map { it.watchUrl }.toSet()
     }
 
     /**
@@ -321,6 +366,9 @@ class ListenerSubmissionFlow(
         if (!runCatching { isOnline() }.getOrDefault(true)) return emptyList()
         val results = mutableListOf<Start>()
         for (row in deferredSubmissions()) {
+            // Spec-53 T10 — a queued channel link stays queued: the selection
+            // card needs a human, so a headless pass must not consume it.
+            if (CHANNEL_URL.matches(row.url)) continue
             store.remove(row.sourceId)
             val outcome = submit(row.url)
             if (outcome is Start.Deferred) continue
@@ -581,6 +629,13 @@ class ListenerSubmissionFlow(
 // classification and the share/clipboard intake.
 private val YOUTUBE_URL = Regex("""https?://(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)/""")
 private val TELEGRAM_URL = Regex("""https?://t\.me/""")
+
+/**
+ * Spec-53 T10 — the canonical channel shapes the canonicalizer emits
+ * (`/channel/`, `/@handle`, `/c/`, `/user/`). Full-match on purpose: a watch
+ * or playlist URL must never read as a channel.
+ */
+private val CHANNEL_URL = Regex("""https://www\.youtube\.com/(?:channel/|c/|user/|@).+""")
 
 /**
  * Spec-53 T4 — the first supported link inside a shared text (a system

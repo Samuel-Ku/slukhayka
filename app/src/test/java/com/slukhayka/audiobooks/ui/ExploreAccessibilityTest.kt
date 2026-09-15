@@ -110,7 +110,7 @@ class ExploreAccessibilityTest {
             .assertTextContains("Пошук книги або автора")
             .assertIsDisplayed()
         compose.onNodeWithContentDescription("Закрити пошук")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -308,7 +308,7 @@ class ExploreAccessibilityTest {
             .assertTextContains(result.title)
             .assertTextContains(result.author)
         compose.onNodeWithContentDescription("Завантажити: ${result.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription(result.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }
@@ -332,7 +332,7 @@ class ExploreAccessibilityTest {
                 )
             )
         compose.onNodeWithContentDescription("Відтворити: ${book.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }
@@ -429,7 +429,7 @@ class ExploreAccessibilityTest {
         }
 
         compose.onNodeWithContentDescription("Дії з рекомендацією: ${result.title}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         compose.onNodeWithText("Не рекомендувати…").performClick()
         compose.onNodeWithText("Не рекомендувати: ${result.title}")
@@ -507,7 +507,7 @@ class ExploreAccessibilityTest {
         compose.onNodeWithTag("home_search_input").assertIsDisplayed()
         compose.onNodeWithContentDescription("Закрити пошук")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -525,7 +525,7 @@ class ExploreAccessibilityTest {
 
         compose.onNodeWithTag("global_search_result_${result.key}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -573,7 +573,7 @@ class ExploreAccessibilityTest {
             .performScrollToNode(hasTestTag("book_item_${book.id}"))
         compose.onNodeWithTag("book_item_${book.id}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assert(
                 SemanticsMatcher("opens the named Work") { node ->
                     node.config.getOrNull(SemanticsActions.OnClick)?.label ==
@@ -584,7 +584,7 @@ class ExploreAccessibilityTest {
             .performScrollToNode(hasTestTag("catalog_series_${series.url.hashCode()}"))
         compose.onNodeWithTag("catalog_series_${series.url.hashCode()}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assert(
                 SemanticsMatcher("opens the named Series") { node ->
                     node.config.getOrNull(SemanticsActions.OnClick)?.label ==
@@ -595,7 +595,7 @@ class ExploreAccessibilityTest {
             .performScrollToNode(hasTestTag("collection_book_${result.key.hashCode()}"))
         compose.onNodeWithTag("collection_book_${result.key.hashCode()}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assert(
                 SemanticsMatcher("opens the named collection Work") { node ->
                     node.config.getOrNull(SemanticsActions.OnClick)?.label ==

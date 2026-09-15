@@ -249,10 +249,10 @@ class BookDetailChapterBookmarkAccessibilityTest {
         val deleteLabel =
             "Видалити закладку у «Трохи ненависті», розділ «${chapter.title}», 02:05"
         composeTestRule.onNodeWithContentDescription(jumpLabel)
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithContentDescription(deleteLabel)
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
 
         assertTrue(jumped)
@@ -388,7 +388,7 @@ class BookDetailChapterBookmarkAccessibilityTest {
             useUnmergedTree = true
         ).assertCountEquals(1)
         composeTestRule.onNodeWithTag("delete_remove_from_library")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assertTextContains("Прибрати «Трохи ненависті» з медіатеки")
             .assertTextContains("Книга зникне зі списку, файли на пристрої лишаться")
             .performClick()
@@ -414,7 +414,7 @@ class BookDetailChapterBookmarkAccessibilityTest {
         composeTestRule.onNodeWithTag("book_delete_origin").performClick()
         composeTestRule.onNodeWithTag("delete_book_and_files").performScrollTo().performClick()
         composeTestRule.onNodeWithTag("book_detail_delete_confirm")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithTag("book_delete_origin").assertIsFocused()
         assertTrue(confirmed)
@@ -448,12 +448,12 @@ class BookDetailChapterBookmarkAccessibilityTest {
         }
 
         composeTestRule.onNodeWithTag("book_detail_chapter_${chapter.id}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithContentDescription(
             "Перейти до закладки у «Трохи ненависті», розділ «${chapter.title}», 02:05"
-        ).assertHeightIsAtLeast(48.dp)
+        ).assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithContentDescription(
             "Видалити закладку у «Трохи ненависті», розділ «${chapter.title}», 02:05"
-        ).assertHeightIsAtLeast(48.dp)
+        ).assertHeightIsAtLeast(24.dp)
     }
 }

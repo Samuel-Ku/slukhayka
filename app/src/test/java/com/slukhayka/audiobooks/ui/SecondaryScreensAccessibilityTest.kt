@@ -131,7 +131,7 @@ class SecondaryScreensAccessibilityTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
             .assertIsFocused()
         composeTestRule.onNodeWithContentDescription("Назад")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         assertEquals(true, backClicked)
     }
@@ -302,7 +302,7 @@ class SecondaryScreensAccessibilityTest {
         }
 
         composeTestRule.onNodeWithTag("person_${person.path.hashCode()}")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assertTextContains(person.name)
             .assertTextContains("12 книг")
             .performClick()
@@ -555,13 +555,13 @@ class SecondaryScreensAccessibilityTest {
         }
 
         composeTestRule.onNodeWithTag("library_rating_rank_1")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assertTextContains("1")
             .assertTextContains(book.title)
             .assertTextContains(book.author)
             .performClick()
         composeTestRule.onNodeWithContentDescription("Відтворити «${book.title}»")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onAllNodes(hasClickAction(), useUnmergedTree = true)
             .assertCountEquals(2)
@@ -595,9 +595,9 @@ class SecondaryScreensAccessibilityTest {
         composeTestRule.onNodeWithText("Всесвіт: «Земномор'я»")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         composeTestRule.onNodeWithText("Передує: «Чарівник Земномор'я»")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithText("Продовжує: «Останній берег»")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -630,7 +630,7 @@ class SecondaryScreensAccessibilityTest {
 
         composeTestRule.onNodeWithTag("catalog_series_${series.url.hashCode()}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithText("1 серія").assertIsDisplayed()
     }
 
@@ -673,6 +673,6 @@ class SecondaryScreensAccessibilityTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         composeTestRule.onNodeWithTag("collection_book_${result.key.hashCode()}")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 }

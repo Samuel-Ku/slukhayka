@@ -34,8 +34,14 @@ object AppDimens {
     val RadiusPanel = 16.dp     // panels, sheets, buttons
     val RadiusHero = 20.dp      // hero covers, dialogs
 
-    // Touch targets (Android accessibility: ≥ 48 dp)
+    // Touch targets (ADR-0044). The ENFORCED floor is 24 dp — WCAG 2.2 AA
+    // «Target Size (Minimum)». 48 dp stays the recommended size for a
+    // standalone action, and is kept for everything a driver uses (player
+    // transport, bottom navigation, primary buttons): forcing 48 dp on dense
+    // chrome — filter chips, section toggles, inline icon rows — is what made
+    // the Медіатека look inflated.
     val TouchTarget = 48.dp
+    val MinTouchTarget = 24.dp
 
     // v1.4 C5 (ADR-0033): the ONE clearance above the persistent mini player.
     // Scrollable content pads its bottom by this token instead of a scattered

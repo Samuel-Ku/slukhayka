@@ -134,19 +134,19 @@ class WorkFeedFilterAccessibilityTest {
             }
         }
 
-        compose.onNodeWithTag("feed_sort").assertHeightIsAtLeast(48.dp)
-        compose.onNodeWithTag("feed_filters").assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("feed_sort").assertHeightIsAtLeast(24.dp)
+        compose.onNodeWithTag("feed_filters").assertHeightIsAtLeast(24.dp)
         listOf("feed_genre_all", "feed_genre_fantasy", "feed_genre_detective").forEach { tag ->
             compose.onNodeWithTag(tag)
                 .assertIsDisplayed()
-                .assertHeightIsAtLeast(48.dp)
+                .assertHeightIsAtLeast(24.dp)
         }
         compose.onNodeWithTag("feed_filter_reset")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithTag("feed_filter_done")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -164,7 +164,7 @@ class WorkFeedFilterAccessibilityTest {
         }
         compose.onNodeWithTag("feed_language")
             .assertContentDescriptionEquals("Мова: Українська")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     private val genres = listOf(

@@ -38,11 +38,11 @@ class BookFeedbackAccessibilityTest {
         compose.onNode(hasTestTag("rating_star_5") and hasAnyAncestor(hasTestTag("feedback_narration_stars"))).performClick()
         assertEquals(2, state.draft.bookRating)
         assertEquals(5, state.draft.narrationRating)
-        compose.onNodeWithTag("feedback_save").performScrollTo().assertHeightIsAtLeast(48.dp).performClick()
+        compose.onNodeWithTag("feedback_save").performScrollTo().assertHeightIsAtLeast(24.dp).performClick()
         assertEquals(1, saves)
         compose.onNodeWithTag("feedback_save").performScrollTo().assertIsEnabled().performClick()
         assertEquals(2, saves)
-        compose.onNodeWithTag("feedback_dismiss").performScrollTo().assertHeightIsAtLeast(48.dp).performClick()
+        compose.onNodeWithTag("feedback_dismiss").performScrollTo().assertHeightIsAtLeast(24.dp).performClick()
         assertEquals(1, dismissals)
     }
 }

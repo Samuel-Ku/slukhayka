@@ -27,12 +27,15 @@ class ListenerSubmissionFlow(
      * The ordinary import door: [ImportOutcome.IMPORTED] / ALREADY_ADDED carry ids.
      * Spec-53 T9 — [edits] carries the preview's corrections into the import,
      * so the added book starts corrected instead of needing a fix afterwards.
+     * Spec-53 T11 — [selectedWatchUrls] narrows a playlist to the picked
+     * positions; null means "everything the engine observed".
      */
     private val importYouTube: suspend (
         url: String,
         metadataJson: String,
         channelId: String,
-        edits: PreviewEdits?
+        edits: PreviewEdits?,
+        selectedWatchUrls: Set<String>?
     ) -> ImportOutcome,
     /** The parsed Telegram preview identity (chapters are honestly empty — RED verdict). */
     private val fetchTgIdentity: suspend (url: String) -> TgIdentity?,
@@ -109,9 +112,22 @@ class ListenerSubmissionFlow(
     enum class PreviewKind { YOUTUBE_VIDEO, YOUTUBE_PLAYLIST, TELEGRAM_POST }
 
     /**
-     * Spec-53 T9 — the honest pre-add preview: everything the engine really
-     * observed (title, author, cover, durations, chapter count), nothing
-     * invented. A null cover/duration means "the engine saw none".
+     * Spec-53 T11 — one pickable position of a playlist: the engine's own
+     * title and duration, and the canonical watch URL that doubles as the
+     * selection identity (the same string the import door materialises, so a
+     * tick can never point at a different video than the one imported).
+     */
+    data class PreviewEntry(
+        val watchUrl: String,
+        val title: String,
+        val durationSeconds: Long? = null
+    )
+
+    /**
+     * Spec-53 T9/T11 — the honest pre-add preview: everything the engine
+     * really observed (title, author, cover, durations, the ordered playlist
+     * positions), nothing invented. A null cover/duration means "the engine
+     * saw none"; [entries] is empty for a single video or a TG post.
      */
     data class SubmissionPreview(
         val url: String,
@@ -121,7 +137,8 @@ class ListenerSubmissionFlow(
         val narrator: String?,
         val coverUrl: String?,
         val durationSeconds: Long?,
-        val chapterCount: Int
+        val chapterCount: Int,
+        val entries: List<PreviewEntry> = emptyList()
     )
 
     /** Why a submission was refused — mapped to honest copy by the UI. */
@@ -221,7 +238,11 @@ class ListenerSubmissionFlow(
      * public preview exposes no audio — the RED prototype verdict); a channel
      * link opens the selection card instead of importing blindly.
      */
-    suspend fun submit(rawUrl: String, edits: PreviewEdits? = null): Start {
+    suspend fun submit(
+        rawUrl: String,
+        edits: PreviewEdits? = null,
+        selectedWatchUrls: Set<String>? = null
+    ): Start {
         // Spec-53 T6 — one canonical form per link, so dedup and identity are
         // real: every live YouTube shape and every TG query string lands here.
         val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return Start.Unsupported
@@ -232,9 +253,14 @@ class ListenerSubmissionFlow(
         if (CHANNEL_URL.matches(url)) return Start.ChannelLink(url)
         val remaining = remainingToday()
         if (remaining <= 0) return Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
+        // Spec-53 T11 — an explicit empty selection is an honest "nothing to
+        // add", never a silent full-playlist import.
+        if (selectedWatchUrls != null && selectedWatchUrls.isEmpty()) {
+            return Start.Refused(Reason.NO_PLAYABLE_TRACKS, remaining)
+        }
         return when (classify(url)) {
             Kind.UNSUPPORTED -> Start.Unsupported
-            Kind.YOUTUBE -> submitYouTube(url, remaining, edits)
+            Kind.YOUTUBE -> submitYouTube(url, remaining, edits, selectedWatchUrls)
             Kind.TELEGRAM -> submitTelegram(url, remaining)
         }
     }
@@ -302,7 +328,20 @@ class ListenerSubmissionFlow(
             narrator = plan.narrator,
             coverUrl = metadata.coverUrl,
             durationSeconds = totalSeconds,
-            chapterCount = plan.chapters.size
+            chapterCount = plan.chapters.size,
+            // Spec-53 T11 — the ordered positions a big playlist is picked
+            // from; empty for a single video (nothing to choose there).
+            entries = if (playlist) {
+                plan.chapters.map { chapter ->
+                    PreviewEntry(
+                        watchUrl = chapter.watchUrl,
+                        title = chapter.title,
+                        durationSeconds = chapter.durationSeconds.takeIf { it > 0 }
+                    )
+                }
+            } else {
+                emptyList()
+            }
         )
     }
 
@@ -377,7 +416,12 @@ class ListenerSubmissionFlow(
         return results
     }
 
-    private suspend fun submitYouTube(url: String, remaining: Int, edits: PreviewEdits?): Start {
+    private suspend fun submitYouTube(
+        url: String,
+        remaining: Int,
+        edits: PreviewEdits?,
+        selectedWatchUrls: Set<String>?
+    ): Start {
         val metadataJson = try {
             fetchMetadata(url)
         } catch (cancelled: CancellationException) {
@@ -387,7 +431,7 @@ class ListenerSubmissionFlow(
         } ?: return Start.Refused(Reason.METADATA_FAILED, remaining)
 
         val outcome = try {
-            importYouTube(url, metadataJson, "", edits)
+            importYouTube(url, metadataJson, "", edits, selectedWatchUrls)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

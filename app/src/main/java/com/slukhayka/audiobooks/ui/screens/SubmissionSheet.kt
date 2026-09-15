@@ -104,7 +104,10 @@ fun SubmissionSheet(
     channelCard: ChannelCardState? = null,
     isChannelLink: ((String) -> Boolean)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
-    channelCallbacks: ChannelCardCallbacks? = null
+    channelCallbacks: ChannelCardCallbacks? = null,
+    /** Spec-53 T11 — the playlist preview's selection and its doors. */
+    playlistSelection: PlaylistSelectionState? = null,
+    playlistCallbacks: PlaylistSelectionCallbacks? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -131,6 +134,8 @@ fun SubmissionSheet(
             isChannelLink = isChannelLink,
             onOpenChannel = onOpenChannel,
             channelCallbacks = channelCallbacks,
+            playlistSelection = playlistSelection,
+            playlistCallbacks = playlistCallbacks,
             includePaneSemantics = false
         )
     }
@@ -159,6 +164,9 @@ fun SubmissionSheetContent(
     isChannelLink: ((String) -> Boolean)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
     channelCallbacks: ChannelCardCallbacks? = null,
+    /** Spec-53 T11 — the playlist preview's selection and its doors. */
+    playlistSelection: PlaylistSelectionState? = null,
+    playlistCallbacks: PlaylistSelectionCallbacks? = null,
     includePaneSemantics: Boolean = true
 ) {
     var url by rememberSaveable(prefillUrl) { mutableStateOf(prefillUrl.orEmpty()) }
@@ -423,7 +431,9 @@ fun SubmissionSheetContent(
                     Text(stringResource(R.string.submission_preview_edit))
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                if (onSubmitWithEdits != null) {
+                // Spec-53 T11 — a playlist with pickable positions gets the
+                // selection card's own add button instead of the plain one.
+                if (onSubmitWithEdits != null && preview.entries.isEmpty()) {
                     Button(
                         onClick = {
                             onSubmitWithEdits(
@@ -436,6 +446,16 @@ fun SubmissionSheetContent(
                         Text(stringResource(R.string.submission_preview_add))
                     }
                 }
+            }
+            // Spec-53 T11 — ordered positions, "add all" by default, and the
+            // one-book / separate-books choice.
+            if (preview.entries.isNotEmpty() && playlistSelection != null && playlistCallbacks != null) {
+                PlaylistSelectionCard(
+                    entries = preview.entries,
+                    state = playlistSelection,
+                    edits = previewEdits ?: ListenerSubmissionFlow.PreviewEdits(),
+                    callbacks = playlistCallbacks
+                )
             }
         }
         if (showPreviewEdit && preview != null) {

@@ -1149,11 +1149,13 @@ class LibraryImport(
         channelId: String,
         titleOverride: String? = null,
         authorOverride: String? = null,
-        narratorOverride: String? = null
+        narratorOverride: String? = null,
+        selectedWatchUrls: Set<String>? = null
     ): SubmittedImport = withContext(Dispatchers.IO) {
         val metadata = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.parseMetadata(metadataJson)
             ?: return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
-        val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.plan(url, metadata, channelId)
+        val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner
+            .plan(url, metadata, channelId, selectedWatchUrls)
             .let { base ->
                 base.copy(
                     title = titleOverride?.trim()?.takeIf { it.isNotBlank() } ?: base.title,

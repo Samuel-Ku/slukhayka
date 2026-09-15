@@ -309,6 +309,11 @@
     <string name="submission_channel_done">Додано %1$d з %2$d</string>
     <string name="submission_channel_stopped">Зупинено · додано %1$d з %2$d</string>
     <string name="submission_channel_add_selected">Додати вибрані (%1$d)</string>
+    <!-- Spec-53 T11 — playlist position selection. -->
+    <string name="submission_playlist_one_book">Одна книга (розділи)</string>
+    <string name="submission_playlist_separate">Окремі книги</string>
+    <string name="submission_playlist_selected">Вибрано %1$d з %2$d</string>
+    <string name="submission_playlist_select_all">Вибрати всі</string>
     <string name="submission_preview_edit">Редагувати</string>
     <string name="submission_preview_single_video">одне відео</string>
     <string name="submission_preview_playlist_prefix">плейлист</string>

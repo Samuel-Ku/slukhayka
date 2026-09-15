@@ -111,13 +111,28 @@ object YouTubeSubmissionPlanner {
      * A playlist → one chapter per playable entry (observed boundaries); a
      * single video → one whole-file chapter. An entry with neither a watch
      * URL nor an id is skipped — never fabricated.
+     *
+     * Spec-53 T11 — [selectedWatchUrls] narrows a big playlist to the picked
+     * positions: non-null keeps ONLY the entries whose canonical watch URL is
+     * in the set, so an unselected position never becomes a chapter (and the
+     * write path never creates a track for it). Chapter numbering keeps the
+     * entry's ORIGINAL position — "Розділ 7" stays the seventh, not the
+     * second after filtering.
      */
-    fun plan(sourceUrl: String, metadata: Metadata, channelId: String): SubmissionPlan {
+    fun plan(
+        sourceUrl: String,
+        metadata: Metadata,
+        channelId: String,
+        selectedWatchUrls: Set<String>? = null
+    ): SubmissionPlan {
         val identity = TitleNormalizer.parse(metadata.title, channelId)
         val title = identity.title.ifBlank { metadata.title }
         val chapters = if (metadata.entries.isNotEmpty()) {
             metadata.entries.mapIndexedNotNull { index, entry ->
                 val watchUrl = watchUrlOf(entry.url, entry.id) ?: return@mapIndexedNotNull null
+                if (selectedWatchUrls != null && watchUrl !in selectedWatchUrls) {
+                    return@mapIndexedNotNull null
+                }
                 SubmittedChapter(
                     title = entry.title?.trim()?.takeIf { it.isNotBlank() } ?: "Розділ ${index + 1}",
                     watchUrl = watchUrl,

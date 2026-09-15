@@ -133,6 +133,30 @@ class LibraryImportSubmissionTest {
     }
 
     @Test
+    fun `a picked subset imports only those entries`() = runBlocking {
+        val picked = setOf("https://www.youtube.com/watch?v=biwxkjI06KA")
+
+        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", selectedWatchUrls = picked
+        )
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        val tracks = dao.getTracksForBookSync(result.bookId!!)
+        assertEquals("only the picked position becomes a track", 1, tracks.size)
+        assertEquals("https://www.youtube.com/watch?v=biwxkjI06KA", tracks.single().url)
+    }
+
+    @Test
+    fun `an empty selection imports nothing at all`() = runBlocking {
+        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", selectedWatchUrls = emptySet()
+        )
+
+        assertEquals(SubmittedImportResult.NO_PLAYABLE_TRACKS, result.result)
+        assertTrue("no book, no track", dao.getAllBookTitleRows().isEmpty())
+    }
+
+    @Test
     fun `the exact same submitted url is a no-op`() = runBlocking {
         libraryImport.importSubmittedYouTube(playlistUrl, playlistJson, "@youtube")
 

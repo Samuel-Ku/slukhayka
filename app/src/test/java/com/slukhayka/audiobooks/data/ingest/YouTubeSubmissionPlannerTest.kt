@@ -77,6 +77,65 @@ class YouTubeSubmissionPlannerTest {
         assertEquals("https://www.youtube.com/watch?v=biwxkjI06KA", plan.chapters[1].watchUrl)
     }
 
+    // --- Spec-53 T11: playlist position selection ---------------------------
+
+    @Test
+    fun `a selection keeps only the picked positions`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234",
+            metadata,
+            "@youtube",
+            selectedWatchUrls = setOf("https://www.youtube.com/watch?v=biwxkjI06KA")
+        )
+
+        assertEquals(1, plan.chapters.size)
+        assertEquals("https://www.youtube.com/watch?v=biwxkjI06KA", plan.chapters.single().watchUrl)
+    }
+
+    @Test
+    fun `a filtered chapter keeps its original playlist number`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234",
+            metadata,
+            "@youtube",
+            selectedWatchUrls = setOf("https://www.youtube.com/watch?v=DEADBEEF123")
+        )
+
+        // The third entry stays "Розділ 3", not "Розділ 1" after filtering.
+        assertEquals("Гаррі Поттер 1. Розділ 3", plan.chapters.single().title)
+    }
+
+    @Test
+    fun `an empty selection plans nothing instead of the whole playlist`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234",
+            metadata,
+            "@youtube",
+            selectedWatchUrls = emptySet()
+        )
+
+        assertTrue(plan.chapters.isEmpty())
+    }
+
+    @Test
+    fun `a null selection keeps the whole playlist`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234",
+            metadata,
+            "@youtube"
+        )
+
+        assertEquals(3, plan.chapters.size)
+    }
+
     @Test
     fun `single video plans one whole-file chapter`() {
         val metadata = YouTubeSubmissionPlanner.parseMetadata(singleVideoJson)!!

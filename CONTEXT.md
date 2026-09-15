@@ -104,6 +104,16 @@ enumeration завжди старший за пошуковий для тієї 
 (ADR-0014).
 _Avoid_: жанр лише з каталогу, guessed genre з тексту/URL, запис на рівні об'єднаної картки
 
+**Пошуковий індекс** (Search Index):
+Локально збережена проєкція Дзеркала каталогу — назва, автор, серія й
+наратор Твору, — яка відповідає на пошук слухача без жодного мережевого
+запиту; живий запит до джерел лишається лише добором за бідною локальною
+відповіддю. Пишеться тими самими дверками, що й Дзеркало: перелічення —
+повний письменник, пошуковий хіт лише латає прогалину. Як і Дзеркало,
+ніколи не є джерелом істини. Tombstone і скам до індексу не потрапляють;
+запис сесійно-залежного джерела придатний лише за живої сесії.
+_Avoid_: друга база творів, живе джерело істини, фоновий краулер повз шлюз ввічливості, неявний браузерний вхід з індексу
+
 **Chapter**:
 An ordered logical subdivision of one Edition to which positions and bookmarks can be anchored, independent of how a Source divides its files. A Chapter row carries order, title, and duration only — stream URLs, file paths, and content hashes belong to Source tracks.
 _Avoid_: Track, file

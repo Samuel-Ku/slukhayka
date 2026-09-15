@@ -972,7 +972,17 @@ class App : Application() {
             // ADR-0037 (spec-49 T1): playable pairing (and the legacy-page
             // materialization it rides) excludes every refused source —
             // metadata flows stay untouched.
-            sourceAudioRefusal = sourceAudioRefusal.refusedSources
+            sourceAudioRefusal = sourceAudioRefusal.refusedSources,
+            // #825 — the twin of the replacement resolver's sessionAlive
+            // above: a session-backed BROWSER index match is usable only
+            // while the listener's first-party session exists.
+            sessionAlive = { sourceId ->
+                val home = com.slukhayka.audiobooks.data.source.SourceRegistry
+                    .facts(sourceId)?.homeUrl.orEmpty()
+                home.isNotBlank() && com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession(
+                    com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider.cookieFor(home)
+                )
+            }
         )
     }
 

@@ -94,6 +94,8 @@ import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalClipboardManager
+import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
@@ -181,6 +183,23 @@ fun LibraryScreen(
 
     // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
     val snackbarHostState = remember { SnackbarHostState() }
+    // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
+    val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
+    val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
+    val deferredPublicationBookIds by viewModel.deferredPublicationBookIds.collectAsState()
+    LaunchedEffect(Unit) {
+        viewModel.refreshAwaitingSubmissions()
+        // Spec-53 T8 — the deferred queue runs on open: one pass, no retries.
+        viewModel.processDeferredSubmissions()
+        // Spec-53 T12 — and so does the next-day publication pass; it really
+        // publishes only once the day (and its budget) has rolled over.
+        viewModel.processDeferredPublications()
+    }
+    LaunchedEffect(Unit) {
+        viewModel.submissionPublished.collect {
+            snackbarHostState.showSnackbar(context.getString(com.slukhayka.audiobooks.R.string.submission_published_toast))
+        }
+    }
     val importMessage by viewModel.importMessage.collectAsState()
     LaunchedEffect(importMessage) {
         importMessage?.let { message ->
@@ -219,6 +238,20 @@ fun LibraryScreen(
     // Spec-601 T3/T5 — the «Надіслати посилання» sheet: paste a YouTube/TG
     // link; publication happens only after the imported copy really plays.
     var showSubmissionSheet by remember { mutableStateOf(false) }
+    // Spec-53 T4 — a shared link opens the sheet prefilled; the clipboard
+    // candidate is offered as a chip once the sheet is open.
+    val sharedSubmissionUrl by viewModel.sharedSubmissionUrl.collectAsState()
+    var submissionClipboardCandidate by remember { mutableStateOf<String?>(null) }
+    val clipboardManager = LocalClipboardManager.current
+    LaunchedEffect(sharedSubmissionUrl) {
+        if (sharedSubmissionUrl != null) showSubmissionSheet = true
+    }
+    LaunchedEffect(showSubmissionSheet) {
+        if (showSubmissionSheet) {
+            val text = runCatching { clipboardManager.getText()?.text }.getOrNull()
+            submissionClipboardCandidate = sharedSubmissionUrlOf(text)
+        }
+    }
     val filterFocusRequester = remember { FocusRequester() }
     val importFocusRequester = remember { FocusRequester() }
     val libraryHeadingFocusRequester = remember { FocusRequester() }
@@ -584,6 +617,10 @@ fun LibraryScreen(
                                 LibraryBookCard(
                                     book = entry,
                                     grid = gridMode,
+                                    awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
+                                    watchingSource = entry.book.id in watchingSubmissionBookIds,
+                                    deferredPublication = entry.book.id in deferredPublicationBookIds,
+                                    onListenNow = { onPlayClick(entry.book) },
                                     onClick = { onBookClick(entry.book.id) },
                                     modifier = if (entry.book.id == restoreFocusBookId) {
                                         Modifier.focusRequester(bookReturnFocusRequester)
@@ -740,12 +777,67 @@ fun LibraryScreen(
         if (showSubmissionSheet) {
             val submissionState by viewModel.submissionState.collectAsState()
             val submissionRemaining by viewModel.submissionRemaining.collectAsState()
+            val deferredLinks by viewModel.deferredSubmissions.collectAsState()
+            val submissionPreview by viewModel.submissionPreview.collectAsState()
+            val channelCard by viewModel.channelCard.collectAsState()
+            val previewSelection by viewModel.previewSelection.collectAsState()
+            val previewSeparateBooks by viewModel.previewSeparateBooks.collectAsState()
+            val previewRun by viewModel.previewRun.collectAsState()
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
+                deferredLinks = deferredLinks,
+                onRetryDeferred = { viewModel.retryDeferredSubmission(it) },
+                onRemoveDeferred = { viewModel.removeDeferredSubmission(it) },
+                preview = submissionPreview,
+                onPreview = { viewModel.loadSubmissionPreview(it) },
+                onClearPreview = { viewModel.clearSubmissionPreview() },
+                onSubmitWithEdits = { url, edits ->
+                    viewModel.clearSubmissionPreview()
+                    viewModel.submitLink(url, edits)
+                },
+                // Spec-53 T10 — the whole-channel selection card.
+                channelCard = channelCard,
+                isChannelLink = viewModel::isChannelLink,
+                onOpenChannel = { viewModel.openChannelCard(it) },
+                channelCallbacks = ChannelCardCallbacks(
+                    onClose = { viewModel.closeChannelCard() },
+                    onRetryLoad = { viewModel.openChannelCard(channelCard?.url.orEmpty()) },
+                    onTabSelect = { viewModel.switchChannelTab(it) },
+                    onLoadMore = { viewModel.loadMoreChannelItems() },
+                    onToggleItem = { viewModel.toggleChannelItem(it) },
+                    onSelectLastN = { viewModel.selectChannelLastN(it) },
+                    onToggleIncludeSkipped = { viewModel.toggleChannelIncludeSkipped() },
+                    onStartImport = { viewModel.startChannelImport() },
+                    onStopImport = { viewModel.stopChannelImport() }
+                ),
+                // Spec-53 T11 — the playlist preview's selection.
+                playlistSelection = PlaylistSelectionState(
+                    selected = previewSelection,
+                    separateBooks = previewSeparateBooks,
+                    run = previewRun
+                ),
+                playlistCallbacks = PlaylistSelectionCallbacks(
+                    onToggleEntry = { viewModel.togglePreviewEntry(it) },
+                    onSelectAll = { viewModel.selectAllPreviewEntries() },
+                    onSetSeparateBooks = { viewModel.setPreviewSeparateBooks(it) },
+                    onAdd = { edits -> viewModel.addPreviewSelection(edits) },
+                    onStop = { viewModel.stopPreviewRun() }
+                ),
+                onListen = { viewModel.listenToLastImported() },
+                // Spec-53 T6 — the friendly dupe leads to the owned copy.
+                onOpenBook = { bookId ->
+                    showSubmissionSheet = false
+                    viewModel.dismissSubmission()
+                    onBookClick(bookId)
+                },
+                prefillUrl = sharedSubmissionUrl,
+                clipboardCandidate = submissionClipboardCandidate,
                 onSubmit = viewModel::submitLink,
                 onDismiss = {
                     showSubmissionSheet = false
+                    submissionClipboardCandidate = null
+                    viewModel.consumeSharedSubmission()
                     viewModel.dismissSubmission()
                 }
             )
@@ -846,7 +938,15 @@ fun LibraryBookCard(
     modifier: Modifier = Modifier,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
     onRecheck: (() -> Unit)? = null,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
+    /** Spec-53 T3 — the submission awaits its real playback verdict. */
+    awaitingPlayback: Boolean = false,
+    /** Spec-53 T5 — a TG card waits for a direct source (the preview has no audio). */
+    watchingSource: Boolean = false,
+    /** Spec-53 T12 — the real verdict landed, the day's budget had not. */
+    deferredPublication: Boolean = false,
+    /** Spec-53 T3 — badge tap: open the book and start playing it. */
+    onListenNow: (() -> Unit)? = null
 ) {
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
@@ -906,7 +1006,16 @@ fun LibraryBookCard(
         if (grid) {
             LibraryBookGridContent(book, availability, onRecheck, downloadCount)
         } else {
-            LibraryBookRowContent(book, availability, onRecheck, downloadCount)
+            LibraryBookRowContent(
+                book,
+                availability,
+                onRecheck,
+                downloadCount,
+                awaitingPlayback = awaitingPlayback,
+                watchingSource = watchingSource,
+                deferredPublication = deferredPublication,
+                onListenNow = onListenNow
+            )
         }
     }
 }
@@ -916,7 +1025,11 @@ private fun LibraryBookRowContent(
     book: LibraryBook,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
     onRecheck: (() -> Unit)? = null,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
+    awaitingPlayback: Boolean = false,
+    watchingSource: Boolean = false,
+    deferredPublication: Boolean = false,
+    onListenNow: (() -> Unit)? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
     // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
@@ -934,6 +1047,40 @@ private fun LibraryBookRowContent(
             // C4: the canonical provenance chip — the local SourceBadge was
             // a pixel-duplicate of MetadataChip(source=…).
             if (book.sourceName.isNotBlank()) MetadataChip(source = book.sourceName)
+            if (awaitingPlayback && onListenNow != null) {
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(onClick = onListenNow)
+                        .testTag("submission_awaiting_badge_${book.book.id}")
+                )
+            }
+            if (watchingSource) {
+                // Spec-53 T5 — an honest badge on the TG card: no audio yet,
+                // a direct source is being watched for (spec-49 reports it).
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(R.string.submission_watching_source),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
+                )
+            }
+            if (deferredPublication) {
+                // Spec-53 T12 — the copy really played; the day's budget was
+                // gone, so the publication is promised for tomorrow instead
+                // of being refused. No second playback will be needed.
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(R.string.submission_deferred_publication_badge),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
+                )
+            }
             if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
                 // #397 — honest partial offline: N of M Source Tracks on disk.
                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))

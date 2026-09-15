@@ -185,15 +185,18 @@ fun HomeScreen(
     // (library rows + Listening State + every known Work), no network and no
     // loading states; recomputed only when an input actually changes.
     val recentProgress by libraryEntries.recentProgress.collectAsState(initial = emptyList())
-    val allWorks by sourceCatalog.allWorks.collectAsState(initial = emptyList())
+    // ADR-0041 — the Home discovery rails read the Mirror's CLAIMED Works:
+    // a Work whose every Source was removed cannot be opened, so it is never
+    // offered as a card («Ваші цикли», «Схожі цикли», «Новинки авторів»).
+    val discoverableWorks by sourceCatalog.discoverableWorks.collectAsState(initial = emptyList())
     val allLibraryEntries by sourceCatalog.allLibraryEntries.collectAsState(initial = emptyList())
     val allEditions by sourceCatalog.allEditions.collectAsState(initial = emptyList())
     val allPersonBookmarks by personBookmarks.allBookmarks().collectAsState(initial = emptyList())
     val unifiedCatalog by sourceCatalog.unifiedCatalog.collectAsState()
-    val peopleNewArrivals = remember(allPersonBookmarks, allWorks, allEditions, allLibraryEntries, unifiedCatalog) {
+    val peopleNewArrivals = remember(allPersonBookmarks, discoverableWorks, allEditions, allLibraryEntries, unifiedCatalog) {
         PersonNewArrivals.projectCatalog(
             bookmarks = allPersonBookmarks,
-            works = allWorks,
+            works = discoverableWorks,
             editions = allEditions,
             unifiedCatalog = unifiedCatalog,
             libraryEntries = allLibraryEntries
@@ -282,11 +285,11 @@ fun HomeScreen(
     // into the shelf; the T2 similar tier lifts the engine's ranked picks to
     // cycle level (best-effort — empty picks yield no tier). An empty result
     // leaves Огляд byte-for-byte as before.
-    val personalCycles = remember(allBooks, recentProgress, allWorks, recommendedBooks) {
+    val personalCycles = remember(allBooks, recentProgress, discoverableWorks, recommendedBooks) {
         com.slukhayka.audiobooks.ui.library.PersonalCycles.build(
             libraryBooks = allBooks,
             progress = recentProgress,
-            works = allWorks,
+            works = discoverableWorks,
             recommendations = recommendedBooks
         )
     }
@@ -294,10 +297,10 @@ fun HomeScreen(
     // Spec-39 T2 (#262): the pure builder lifts the engine's top picks to
     // cycles through the local Work rows (series identity); the listener's
     // own cycle titles are excluded so nothing owned is recommended back.
-    val similarCycles = remember(recommendedBooks, allWorks, personalCycles) {
+    val similarCycles = remember(recommendedBooks, discoverableWorks, personalCycles) {
         com.slukhayka.audiobooks.ui.library.SimilarCycles.build(
             picks = recommendedBooks,
-            works = allWorks,
+            works = discoverableWorks,
             ownCycleTitles = personalCycles.map { it.title }
         )
     }

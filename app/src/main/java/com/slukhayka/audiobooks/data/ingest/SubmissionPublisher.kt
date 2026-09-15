@@ -89,7 +89,8 @@ class SubmissionPublisher(
         metadataJson: String,
         channelId: String,
         sourceId: String,
-        submitterId: String
+        submitterId: String,
+        verifiedAtOverride: Long? = null
     ): Result {
         val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return Result.METADATA_FAILED
         val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
@@ -103,11 +104,90 @@ class SubmissionPublisher(
             narrator = plan.narrator,
             durationSeconds = metadata.durationSeconds,
             chapters = plan.chapters.map { SubmissionChapter(it.title, it.watchUrl) },
-            verifiedAt = policy.verifiedAt(sourceId) ?: return Result.NOT_VERIFIED,
+            verifiedAt = verifiedAtOverride
+                ?: policy.verifiedAt(sourceId)
+                ?: return Result.NOT_VERIFIED,
             submittedAt = clock(),
             submitterId = submitterId
         )
         sharedStore.publishSubmission(publication)
+        return Result.PUBLISHED
+    }
+
+    /**
+     * Spec-53 T12 — publishes a submission whose REAL playback verdict was
+     * recorded on an earlier day, when the daily budget had run out. The
+     * verdict proof rides in from the stored row ([verifiedAt] is the moment
+     * that row was written, i.e. the playing event): the in-app verification
+     * record is honestly gone after a restart, while the state row is not.
+     *
+     * The limit is RESPECTED, never bypassed: the budget is re-read here, and
+     * a still-exhausted day returns [Result.DAILY_LIMIT_REACHED] with nothing
+     * written. The URL dedup is checked too — another device may have
+     * published the same link in the meantime.
+     */
+    suspend fun publishDeferred(
+        url: String,
+        metadataJson: String,
+        channelId: String,
+        sourceId: String,
+        submitterId: String,
+        verifiedAt: Long
+    ): Result {
+        if (policy.remainingToday(submitterId) <= 0) return Result.DAILY_LIMIT_REACHED
+        if (sharedStore.getSubmission(url.trim()) != null) return Result.ALREADY_PUBLISHED
+
+        val result = assembleAndPublish(
+            url = url,
+            metadataJson = metadataJson,
+            channelId = channelId,
+            sourceId = sourceId,
+            submitterId = submitterId,
+            verifiedAtOverride = verifiedAt
+        )
+        // A publication really made on this day spends this day's slot.
+        if (result == Result.PUBLISHED) policy.consume(submitterId)
+        return result
+    }
+
+    /**
+     * Spec-53 T7 — corrects the metadata of a publication that is ALREADY in
+     * the shared base. The verdict gate is the CALLER's: [ListenerSubmissionFlow]
+     * only reaches this door for a stored row in [SubmissionState.State.PUBLISHED],
+     * a state that could only be written after a real playback verdict — so the
+     * quality bar survives process restarts, when the in-memory verification
+     * record is honestly gone. The URL dedup is deliberately not consulted:
+     * this is the same document being fixed, not a new submission.
+     */
+    suspend fun updatePublishedMetadata(
+        url: String,
+        metadataJson: String,
+        channelId: String,
+        sourceId: String,
+        submitterId: String,
+        title: String,
+        author: String?,
+        narrator: String?,
+        verifiedAt: Long
+    ): Result {
+        if (title.isBlank()) return Result.METADATA_FAILED
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return Result.METADATA_FAILED
+        val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
+
+        sharedStore.publishSubmission(
+            SubmissionPublication(
+                sourceUrl = url.trim(),
+                accessMode = SubmissionAccessMode.YOUTUBE,
+                title = title.trim(),
+                author = author?.trim()?.takeIf { it.isNotBlank() },
+                narrator = narrator?.trim()?.takeIf { it.isNotBlank() },
+                durationSeconds = metadata.durationSeconds,
+                chapters = plan.chapters.map { SubmissionChapter(it.title, it.watchUrl) },
+                verifiedAt = verifiedAt,
+                submittedAt = clock(),
+                submitterId = submitterId
+            )
+        )
         return Result.PUBLISHED
     }
 

@@ -405,8 +405,7 @@ class FakeAudiobookDao(
         narrator: String?,
         genre: String?,
         rating: Float?
-    ) {
-        booksState.update { current ->
+    ) {        booksState.update { current ->
             current.map { book ->
                 if (book.id == bookId) {
                     book.copy(
@@ -415,6 +414,24 @@ class FakeAudiobookDao(
                         genre = genre ?: book.genre,
                         rating = rating ?: book.rating
                     )
+                } else {
+                    book
+                }
+            }
+        }
+    }
+
+    // Spec-53 T7 — the listener's explicit correction (display-only).
+    override suspend fun correctBookMetadata(
+        bookId: String,
+        title: String,
+        author: String,
+        narrator: String
+    ) {
+        booksState.update { current ->
+            current.map { book ->
+                if (book.id == bookId) {
+                    book.copy(title = title, author = author, narrator = narrator)
                 } else {
                     book
                 }
@@ -1048,6 +1065,13 @@ class FakeAudiobookDao(
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
+    /** ADR-0041 — the discovery pool: only Works with at least one claim. */
+    override fun observeDiscoverableWorks(): Flow<List<WorkEntity>> =
+        combine(worksState, workSourcesState) { works, claims ->
+            val claimedWorkIds = claims.mapTo(mutableSetOf()) { it.workId }
+            works.filter { it.id in claimedWorkIds }
+        }
+
     // Spec-24 T1: the stored-title scrub reads through the same projection
     // the real DAO serves.
     override suspend fun getAllBookTitleRows(): List<TitleRow> =
@@ -1472,5 +1496,42 @@ class FakeAudiobookDao(
     override suspend fun upsertEmbeddingVectors(rows: List<EmbeddingVectorEntity>) {
         val byId = rows.associateBy { it.workId }
         embeddingVectorsState.update { current -> current.filterNot { it.workId in byId.keys } + rows }
+    }
+
+    // Spec-53 T3 (#710) — the persistent submission states, in-memory.
+    val submissionStates = LinkedHashMap<String, com.slukhayka.audiobooks.data.db.SubmissionStateEntity>()
+
+    override suspend fun upsertSubmissionState(row: com.slukhayka.audiobooks.data.db.SubmissionStateEntity) {
+        submissionStates[row.sourceId] = row
+    }
+
+    override suspend fun submissionStateBySourceId(
+        sourceId: String
+    ): com.slukhayka.audiobooks.data.db.SubmissionStateEntity? = submissionStates[sourceId]
+
+    override suspend fun submissionStateByBookId(
+        bookId: String
+    ): com.slukhayka.audiobooks.data.db.SubmissionStateEntity? =
+        submissionStates.values.filter { it.bookId == bookId }.maxByOrNull { it.updatedAt }
+
+    override suspend fun awaitingSubmissionStates(): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
+        submissionStates.values.filter { it.state == "AWAITING_PLAY" }
+
+    override suspend fun submissionStatesByState(
+        state: String
+    ): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
+        submissionStates.values.filter { it.state == state }
+
+    // Spec-53 T8 (#715) — drops one deferred row.
+    override suspend fun deleteSubmissionState(sourceId: String) {
+        submissionStates.remove(sourceId)
+    }
+
+    override suspend fun updateSubmissionState(
+        sourceId: String, state: String, reason: String?, updatedAt: Long
+    ) {
+        submissionStates[sourceId]?.let { existing ->
+            submissionStates[sourceId] = existing.copy(state = state, reason = reason, updatedAt = updatedAt)
+        }
     }
 }

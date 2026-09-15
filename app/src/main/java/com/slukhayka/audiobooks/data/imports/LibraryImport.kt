@@ -1142,15 +1142,34 @@ class LibraryImport(
      * (signed URLs are never persisted). The exact same submitted URL is a
      * no-op (dedup by URL — the edition id embeds a fresh bookId for
      * blank-identity submissions, so it cannot be the dedup key).
+     *
+     * Spec-53 T9 — [titleOverride]/[authorOverride]/[narratorOverride] carry
+     * the pre-add preview's corrections into the import: identity (mergeKey,
+     * Work) is built corrected, so the added book never needs a fix
+     * afterwards. A blank title override keeps the engine title (a card must
+     * keep its name); otherwise a non-null override replaces verbatim —
+     * clearing an invented claim included.
      */
     suspend fun importSubmittedYouTube(
         url: String,
         metadataJson: String,
-        channelId: String
+        channelId: String,
+        titleOverride: String? = null,
+        authorOverride: String? = null,
+        narratorOverride: String? = null,
+        selectedWatchUrls: Set<String>? = null
     ): SubmittedImport = withContext(Dispatchers.IO) {
         val metadata = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.parseMetadata(metadataJson)
             ?: return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
-        val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.plan(url, metadata, channelId)
+        val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner
+            .plan(url, metadata, channelId, selectedWatchUrls)
+            .let { base ->
+                base.copy(
+                    title = titleOverride?.trim()?.takeIf { it.isNotBlank() } ?: base.title,
+                    author = authorOverride?.trim() ?: base.author,
+                    narrator = narratorOverride?.trim() ?: base.narrator
+                )
+            }
         if (plan.chapters.isEmpty()) return@withContext SubmittedImport(SubmittedImportResult.NO_PLAYABLE_TRACKS)
 
         val mergeKey = MergeKey.keyFor(plan.title, plan.author.orEmpty())
@@ -1204,12 +1223,23 @@ class LibraryImport(
                 listOf(
                     AudiobookEntity(
                         id = bookId,
-                        title = plan.title,
+                        // Спец-53 T9: той самий нормалізований заголовок, що й у
+                        // `works` — інакше в медіатеці видно сирий YouTube-заголовок
+                        // із «| Audiobook …» і емодзі.
+                        title = MetadataAssertions.normalizeTitle(plan.title, plan.author),
                         author = plan.author.orEmpty(),
                         narrator = narrator,
-                        description = "Надіслано посиланням: $url",
+                        // Спец-53 T9: стандартний провенанс замість самого лише
+                        // URL — джерело й канал; без каналу лишається чесне
+                        // «звідки книга», без вигадок про зміст.
+                        description = plan.channelName?.trim()?.takeIf { it.isNotBlank() }
+                            ?.let { "Джерело: YouTube · $it. Додано з посилання." }
+                            ?: "Джерело: YouTube. Додано з посилання.",
                         coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-                        coverImageUrl = null,
+                        // Спец-53 T9: рушій уже віддав найширший thumbnail —
+                        // втрачати його було помилкою. Малюнок лишається лише
+                        // як запасний, коли рушій обкладинки не побачив.
+                        coverImageUrl = metadata?.coverUrl?.takeIf { it.isNotBlank() },
                         genre = LOCAL_GENRE,
                         sourceUrl = url,
                         isDownloaded = false,
@@ -1241,7 +1271,8 @@ class LibraryImport(
                         editionId = editionId,
                         chapterIndex = existingChapters + offset,
                         title = chapter.title,
-                        durationSeconds = 0L
+                        // Spec-53 T2 — the engine's real entry duration.
+                        durationSeconds = chapter.durationSeconds
                     )
                 }
             )
@@ -1281,6 +1312,90 @@ class LibraryImport(
         // An explicit add is a user action: a tombstone of the Work is cleared.
         dao.deleteTombstone(workId.ifBlank { editionBookId })
         SubmittedImport(SubmittedImportResult.IMPORTED, editionBookId, sourceId)
+    }
+
+    /**
+     * Spec-53 T5 — the Telegram post's OWN card: a sourceless Work + Edition +
+     * library entry («Шукаємо джерело»). The public preview carries no audio,
+     * so no Source row and no tracks are invented; the availability layer
+     * renders the honest waiting state and the Source Watch reports a direct
+     * source when one appears (spec-49). The same post re-submitted returns the
+     * existing card instead of a twin.
+     */
+    suspend fun importWatchingTelegram(
+        url: String,
+        title: String,
+        author: String?,
+        narrator: String?,
+        coverUrl: String?,
+        description: String?
+    ): SubmittedImport = withContext(Dispatchers.IO) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
+        val mergeKey = MergeKey.keyFor(cleanTitle, author.orEmpty())
+        if (mergeKey.isBlank()) return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
+
+        // A known Work already has a card; a second one would be a twin.
+        dao.findByMergeKey(mergeKey)?.let { existing ->
+            return@withContext SubmittedImport(SubmittedImportResult.ALREADY_ADDED, existing.id, null)
+        }
+
+        val renditionNarrator = narrator?.takeIf { it.isNotBlank() } ?: SUBMISSION_NARRATOR
+        val bookId = "tg-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
+        val editionId = EditionId.forBook(mergeKey, bookId, renditionNarrator)
+        val workId = dao.findWorkByMergeKey(mergeKey)?.id ?: mergeKey.also {
+            dao.upsertWork(
+                WorkEntity(
+                    id = mergeKey,
+                    mergeKey = mergeKey,
+                    title = MetadataAssertions.normalizeTitle(cleanTitle),
+                    author = author?.trim().orEmpty(),
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        }
+
+        dao.insertEdition(
+            EditionEntity(
+                id = editionId,
+                workId = workId,
+                narrator = renditionNarrator,
+                totalChapters = 0,
+                totalDurationSeconds = 0L,
+                addedAt = System.currentTimeMillis()
+            )
+        )
+        dao.insertAudiobooks(
+            listOf(
+                AudiobookEntity(
+                    id = bookId,
+                    title = cleanTitle,
+                    author = author?.trim().orEmpty(),
+                    narrator = renditionNarrator,
+                    description = description?.takeIf { it.isNotBlank() }
+                        ?: "Надіслано посиланням: $url",
+                    coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+                    coverImageUrl = coverUrl,
+                    genre = LOCAL_GENRE,
+                    // The preview has no audio: the card is honestly sourceless.
+                    sourceUrl = "",
+                    isDownloaded = false,
+                    totalDurationSeconds = 0L,
+                    totalChapters = 0,
+                    rating = 0f
+                )
+            )
+        )
+        dao.upsertLibraryEntry(
+            id = bookId,
+            workId = workId,
+            isFavorite = false,
+            createdAt = System.currentTimeMillis(),
+            downloadProgress = 0f
+        )
+        // An explicit submission is a user action: a Work tombstone is cleared.
+        dao.deleteTombstone(workId)
+        SubmittedImport(SubmittedImportResult.IMPORTED, bookId, null)
     }
 
     /**

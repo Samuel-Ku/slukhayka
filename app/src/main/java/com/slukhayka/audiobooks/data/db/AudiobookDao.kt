@@ -252,6 +252,15 @@ interface AudiobookDao {
         rating: Float?
     )
 
+    /**
+     * Spec-53 T7 — the listener's explicit correction of a badly parsed book.
+     * Unconditional (a cleared author must really clear), display-only: the
+     * Work mergeKey and the Edition id are other tables and stay untouched, so
+     * identity survives the fix.
+     */
+    @Query("UPDATE audiobooks SET title = :title, author = :author, narrator = :narrator WHERE id = :bookId")
+    suspend fun correctBookMetadata(bookId: String, title: String, author: String, narrator: String)
+
     // --- Source tracks (ADR-0007): the physical playback data of a Source ---
 
     @Query("SELECT * FROM source_tracks WHERE sourceId = :sourceId ORDER BY trackIndex ASC")
@@ -609,6 +618,23 @@ interface AudiobookDao {
     @Query("SELECT * FROM works ORDER BY addedAt DESC")
     fun observeWorks(): Flow<List<WorkEntity>>
 
+    /**
+     * ADR-0041 — the discovery pool of the Catalog Mirror: only Works that
+     * still carry at least one Source claim in `work_sources`. Removing a
+     * source (the scam purge, a shared tombstone) deletes its claims but keeps
+     * the Work as the merge anchor; a claim-less Work can never be opened or
+     * played, so no discovery surface may publish it as a card. A Work that
+     * regains a claim reappears by itself.
+     */
+    @Query(
+        """
+        SELECT * FROM works
+        WHERE EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = works.id)
+        ORDER BY addedAt DESC
+        """
+    )
+    fun observeDiscoverableWorks(): Flow<List<WorkEntity>>
+
     @Query("SELECT COUNT(*) FROM works")
     suspend fun countWorks(): Int
 
@@ -648,7 +674,11 @@ interface AudiobookDao {
                    ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
                ) ELSE NULL END AS matchingEditionId
         FROM works w
-        WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
+        -- ADR-0041: the endless feed is a discovery surface of the Catalog
+        -- Mirror — a Work whose every Source claim was removed (scam purge,
+        -- shared tombstone) can never be opened and is not publishable.
+        WHERE EXISTS (SELECT 1 FROM work_sources ws0 WHERE ws0.workId = w.id)
+          AND (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
           AND (
@@ -701,7 +731,11 @@ interface AudiobookDao {
                    ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
                ) ELSE NULL END AS matchingEditionId
         FROM works w
-        WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
+        -- ADR-0041: the endless feed is a discovery surface of the Catalog
+        -- Mirror — a Work whose every Source claim was removed (scam purge,
+        -- shared tombstone) can never be opened and is not publishable.
+        WHERE EXISTS (SELECT 1 FROM work_sources ws0 WHERE ws0.workId = w.id)
+          AND (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
           AND (
@@ -1514,4 +1548,34 @@ interface AudiobookDao {
     /** Upserts vectors (REPLACE by workId — a changed text overwrites its row). */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertEmbeddingVectors(rows: List<EmbeddingVectorEntity>)
+
+    // ------------------------------------------------------------------
+    // Spec-53 T3 (#710) — persistent listener-submission states (restart-safe).
+    // ------------------------------------------------------------------
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSubmissionState(row: SubmissionStateEntity)
+
+    @Query("SELECT * FROM submission_states WHERE sourceId = :sourceId LIMIT 1")
+    suspend fun submissionStateBySourceId(sourceId: String): SubmissionStateEntity?
+
+    /** Spec-53 T7 — the newest submission row of one library book. */
+    @Query("SELECT * FROM submission_states WHERE bookId = :bookId ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun submissionStateByBookId(bookId: String): SubmissionStateEntity?
+
+    @Query("SELECT * FROM submission_states WHERE state = 'AWAITING_PLAY' ORDER BY createdAt")
+    suspend fun awaitingSubmissionStates(): List<SubmissionStateEntity>
+
+    /** Every row in one state — the watching cards (spec-53 T5) read it. */
+    @Query("SELECT * FROM submission_states WHERE state = :state ORDER BY createdAt")
+    suspend fun submissionStatesByState(state: String): List<SubmissionStateEntity>
+
+    /** Spec-53 T8 — drops one submission row (processed or discarded). */
+    @Query("DELETE FROM submission_states WHERE sourceId = :sourceId")
+    suspend fun deleteSubmissionState(sourceId: String)
+
+    @Query(
+        "UPDATE submission_states SET state = :state, reason = :reason, updatedAt = :updatedAt WHERE sourceId = :sourceId"
+    )
+    suspend fun updateSubmissionState(sourceId: String, state: String, reason: String?, updatedAt: Long)
 }

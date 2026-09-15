@@ -57,8 +57,8 @@ class LibraryImportSubmissionTest {
           "id": "PLabcd1234",
           "title": "Гаррі Поттер 1 — АудіоКниги Українською",
           "entries": [
-            {"_type": "url", "ie_key": "Youtube", "id": "6XIPkMFZf-0", "url": "https://www.youtube.com/watch?v=6XIPkMFZf-0", "title": "Гаррі Поттер 1. Розділ 1"},
-            {"_type": "url", "ie_key": "Youtube", "id": "biwxkjI06KA", "url": "https://www.youtube.com/watch?v=biwxkjI06KA", "title": "Гаррі Поттер 1. Розділ 2"}
+            {"_type": "url", "ie_key": "Youtube", "id": "6XIPkMFZf-0", "url": "https://www.youtube.com/watch?v=6XIPkMFZf-0", "title": "Гаррі Поттер 1. Розділ 1", "duration": 4285},
+            {"_type": "url", "ie_key": "Youtube", "id": "biwxkjI06KA", "url": "https://www.youtube.com/watch?v=biwxkjI06KA", "title": "Гаррі Поттер 1. Розділ 2", "duration": 4075}
           ]
         }
     """.trimIndent()
@@ -99,6 +99,89 @@ class LibraryImportSubmissionTest {
         assertEquals(2, tracks.size)
         assertTrue("tracks carry watch URLs, never signed URLs", tracks.all { it.url.startsWith("https://www.youtube.com/watch?v=") })
         assertTrue("nothing is downloaded at submit time", tracks.all { !it.isDownloaded })
+        // Spec-53 T2 — real entry durations ride the import.
+        val chapters = dao.getChaptersListForBook(book.id)
+        assertEquals(listOf(4285L, 4075L), chapters.map { it.durationSeconds })
+    }
+
+    // Spec-53 T9 follow-up — the real shape of a YouTube audiobook upload:
+    // the author lives in the title, the engine supplies the cover and the
+    // uploader, and the promo tail must not survive into the library.
+    @Test
+    fun `submitted video keeps the engine cover, reads the author and standardizes the description`() = runBlocking {
+        val json = """
+            {"title": "Звички невдах | Стівен Адамс | Аудіокнига українською повністю | Досить мислити як лузер",
+             "thumbnail": "https://i.ytimg.com/vi/ozaZXk5Qcwc/maxresdefault.jpg?v=66294a0e",
+             "uploader": "Корисні книги",
+             "duration": 5000}
+        """.trimIndent()
+        val url = "https://www.youtube.com/watch?v=ozaZXk5Qcwc"
+
+        val result = libraryImport.importSubmittedYouTube(url, json, "")
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        val book = dao.getAudiobookById(result.bookId!!)!!
+        assertEquals("Звички невдах | Досить мислити як лузер", book.title)
+        assertEquals("Стівен Адамс", book.author)
+        assertEquals("https://i.ytimg.com/vi/ozaZXk5Qcwc/maxresdefault.jpg?v=66294a0e", book.coverImageUrl)
+        assertEquals("Джерело: YouTube · Корисні книги. Додано з посилання.", book.description)
+        assertNotNull(
+            "a real author gives the Work an identity instead of a blank one",
+            dao.findWorkByMergeKey(
+                MergeKey.keyFor("Звички невдах | Досить мислити як лузер", "Стівен Адамс")
+            )
+        )
+    }
+
+    @Test
+    fun `preview corrections land in the import - identity built corrected`() = runBlocking {        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube",
+            titleOverride = "Виправлена назва",
+            authorOverride = "Справжній автор"
+        )
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        val book = dao.getAudiobookById(result.bookId!!)!!
+        assertEquals("Виправлена назва", book.title)
+        assertEquals("Справжній автор", book.author)
+        assertNotNull(
+            "the Work identity is built from the corrected claims",
+            dao.findWorkByMergeKey(MergeKey.keyFor("Виправлена назва", "Справжній автор"))
+        )
+    }
+
+    @Test
+    fun `blank title override keeps the engine title`() = runBlocking {
+        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", titleOverride = "   "
+        )
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        assertEquals("Гаррі Поттер 1", dao.getAllBookTitleRows().single().title)
+    }
+
+    @Test
+    fun `a picked subset imports only those entries`() = runBlocking {
+        val picked = setOf("https://www.youtube.com/watch?v=biwxkjI06KA")
+
+        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", selectedWatchUrls = picked
+        )
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        val tracks = dao.getTracksForBookSync(result.bookId!!)
+        assertEquals("only the picked position becomes a track", 1, tracks.size)
+        assertEquals("https://www.youtube.com/watch?v=biwxkjI06KA", tracks.single().url)
+    }
+
+    @Test
+    fun `an empty selection imports nothing at all`() = runBlocking {
+        val result = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", selectedWatchUrls = emptySet()
+        )
+
+        assertEquals(SubmittedImportResult.NO_PLAYABLE_TRACKS, result.result)
+        assertTrue("no book, no track", dao.getAllBookTitleRows().isEmpty())
     }
 
     @Test

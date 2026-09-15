@@ -26,7 +26,7 @@ import com.slukhayka.audiobooks.data.source.YouTubeTracks
 object YouTubeSubmissionPlanner {
 
     /** One chapter of the submitted book: a display title and a watch URL. */
-    data class SubmittedChapter(val title: String, val watchUrl: String)
+    data class SubmittedChapter(val title: String, val watchUrl: String, val durationSeconds: Long = 0L)
 
     /** The import plan: identity + the observed chapter list. */
     data class SubmissionPlan(
@@ -34,11 +34,23 @@ object YouTubeSubmissionPlanner {
         val author: String?,
         val narrator: String?,
         val sourceUrl: String,
-        val chapters: List<SubmittedChapter>
+        val chapters: List<SubmittedChapter>,
+        /**
+         * Spec-53 (T9 follow-up) — the uploader/channel the engine observed.
+         * Provenance for the book's description; null when the engine saw
+         * none, and then the description says only where the book came from.
+         */
+        val channelName: String? = null
     )
 
     /** One playlist entry as yt-dlp's flat-playlist JSON carries it. */
-    data class MetadataEntry(val id: String?, val url: String?, val title: String?)
+    data class MetadataEntry(
+        val id: String?,
+        val url: String?,
+        val title: String?,
+        /** Spec-53 T2 — the REAL entry duration the engine observed, or null. */
+        val durationSeconds: Long? = null
+    )
 
     /** The parsed `-J` document: title plus entries (empty = single video). */
     data class Metadata(
@@ -51,7 +63,15 @@ object YouTubeSubmissionPlanner {
          * total — so playlists stay null). A metadata delta, not a canonical
          * fact; null when absent/implausible.
          */
-        val durationSeconds: Long? = null
+        val durationSeconds: Long? = null,
+        /**
+         * Spec-53 T9 — the observed cover for the pre-add preview (yt-dlp's
+         * `thumbnail`, NewPipe's widest thumbnail); null when the engine saw
+         * none — never a placeholder.
+         */
+        val coverUrl: String? = null,
+        /** Spec-53 (T9 follow-up) — the uploader/channel name, for provenance. */
+        val uploader: String? = null
     )
 
     /**
@@ -69,7 +89,11 @@ object YouTubeSubmissionPlanner {
             MetadataEntry(
                 id = entry["id"] as? String,
                 url = entry["url"] as? String,
-                title = entry["title"] as? String
+                title = entry["title"] as? String,
+                // Spec-53 T2 — per-entry durations from either engine (yt-dlp
+                // and NewPipe both emit seconds here); plausibility-bounded.
+                durationSeconds = (entry["duration"] as? Number)?.toLong()
+                    ?.takeIf { it > 0 && it <= MAX_PLAUSIBLE_DURATION_SECONDS }
             )
         } ?: emptyList()
         val durationSeconds = if (entries.isEmpty()) {
@@ -82,7 +106,9 @@ object YouTubeSubmissionPlanner {
             id = root["id"] as? String,
             title = title,
             entries = entries,
-            durationSeconds = durationSeconds
+            durationSeconds = durationSeconds,
+            coverUrl = (root["thumbnail"] as? String)?.trim()?.takeIf { it.isNotBlank() },
+            uploader = (root["uploader"] as? String)?.trim()?.takeIf { it.isNotBlank() }
         )
     }
 
@@ -94,16 +120,43 @@ object YouTubeSubmissionPlanner {
      * A playlist → one chapter per playable entry (observed boundaries); a
      * single video → one whole-file chapter. An entry with neither a watch
      * URL nor an id is skipped — never fabricated.
+     *
+     * Spec-53 T11 — [selectedWatchUrls] narrows a big playlist to the picked
+     * positions: non-null keeps ONLY the entries whose canonical watch URL is
+     * in the set, so an unselected position never becomes a chapter (and the
+     * write path never creates a track for it). Chapter numbering keeps the
+     * entry's ORIGINAL position — "Розділ 7" stays the seventh, not the
+     * second after filtering.
      */
-    fun plan(sourceUrl: String, metadata: Metadata, channelId: String): SubmissionPlan {
-        val identity = TitleNormalizer.parse(metadata.title, channelId)
+    fun plan(
+        sourceUrl: String,
+        metadata: Metadata,
+        channelId: String,
+        selectedWatchUrls: Set<String>? = null
+    ): SubmissionPlan {
+        // Spec-53 (T9 follow-up) — a channel-post pattern wins when it
+        // declares an author; otherwise a single-line YouTube title gets the
+        // video-shape parse, which drops the promo tail («| Audiobook …») and
+        // reads the author from «| Автор», «by Author» or «Автор — Назва».
+        // Never invented: with no provable name the raw line stays the title.
+        val caption = TitleNormalizer.parse(metadata.title, channelId)
+        val identity = if (caption.author == null && !metadata.title.contains('\n')) {
+            val video = TitleNormalizer.parseVideoTitle(metadata.title)
+            if (video.author != null || video.title != metadata.title) video else caption
+        } else {
+            caption
+        }
         val title = identity.title.ifBlank { metadata.title }
         val chapters = if (metadata.entries.isNotEmpty()) {
             metadata.entries.mapIndexedNotNull { index, entry ->
                 val watchUrl = watchUrlOf(entry.url, entry.id) ?: return@mapIndexedNotNull null
+                if (selectedWatchUrls != null && watchUrl !in selectedWatchUrls) {
+                    return@mapIndexedNotNull null
+                }
                 SubmittedChapter(
                     title = entry.title?.trim()?.takeIf { it.isNotBlank() } ?: "Розділ ${index + 1}",
-                    watchUrl = watchUrl
+                    watchUrl = watchUrl,
+                    durationSeconds = entry.durationSeconds ?: 0L
                 )
             }
         } else {
@@ -112,16 +165,18 @@ object YouTubeSubmissionPlanner {
                 author = identity.author,
                 narrator = identity.narrator,
                 sourceUrl = sourceUrl,
-                chapters = emptyList()
+                chapters = emptyList(),
+                channelName = metadata.uploader
             )
-            listOf(SubmittedChapter(title = title, watchUrl = watchUrl))
+            listOf(SubmittedChapter(title = title, watchUrl = watchUrl, durationSeconds = metadata.durationSeconds ?: 0L))
         }
         return SubmissionPlan(
             title = title,
             author = identity.author,
             narrator = identity.narrator,
             sourceUrl = sourceUrl,
-            chapters = chapters
+            chapters = chapters,
+            channelName = metadata.uploader
         )
     }
 

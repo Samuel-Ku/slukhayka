@@ -43,6 +43,7 @@ import com.slukhayka.audiobooks.data.facets.FirstLanguageChoiceEngine
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
@@ -415,10 +416,20 @@ class App : Application() {
     val listenerSubmissionFlow: com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow by lazy {
         com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow(
             fetchMetadata = { url ->
-                com.slukhayka.audiobooks.data.source.YtDlpStreamExtractor.fetchMetadataJson(url)
+                // Spec-53 T2 — the in-app NewPipe engine; the yt-dlp binary
+                // is no longer on the listener path.
+                com.slukhayka.audiobooks.data.source.NewPipeMetadata.fetchMetadataJson(url)
             },
-            importYouTube = { url, metadataJson, channelId ->
-                val imported = libraryImport.importSubmittedYouTube(url, metadataJson, channelId)
+            importYouTube = { url, metadataJson, channelId, edits, selectedWatchUrls ->
+                val imported = libraryImport.importSubmittedYouTube(
+                    url,
+                    metadataJson,
+                    channelId,
+                    titleOverride = edits?.title,
+                    authorOverride = edits?.author,
+                    narratorOverride = edits?.narrator,
+                    selectedWatchUrls = selectedWatchUrls
+                )
                 com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
                     result = when (imported.result) {
                         LibraryImport.SubmittedImportResult.IMPORTED ->
@@ -459,6 +470,33 @@ class App : Application() {
             },
             publisher = submissionPublisher,
             verification = submissionVerification,
+            // Spec-53 T5 — the TG post also becomes MY card, watched for a
+            // direct source; the metadata-only publication stands either way.
+            importWatchingTelegram = { url, identity ->
+                val imported = libraryImport.importWatchingTelegram(
+                    url = url,
+                    title = identity.title,
+                    author = identity.author,
+                    narrator = identity.narrator,
+                    coverUrl = identity.coverUrl,
+                    description = identity.description
+                )
+                val mergeKey = MergeKey.keyFor(identity.title.trim(), identity.author.orEmpty())
+                val workId = mergeKey
+                    .takeIf { it.isNotBlank() }
+                    ?.let { audiobookDao.findWorkByMergeKey(it)?.id ?: it }
+                    .orEmpty()
+                com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.WatchingImport(
+                    bookId = imported.bookId,
+                    mergeKey = mergeKey,
+                    workId = workId
+                )
+            },
+            watchSource = { mergeKey, workId -> sourceWatchStore.watch(mergeKey, workId) },
+            // Spec-53 T8 — offline is a queue, not a failure.
+            isOnline = { isNetworkAvailable() },
+            // Spec-53 T3 — restart-safe submission states (multi-slot).
+            store = com.slukhayka.audiobooks.data.ingest.RoomSubmissionStateStore(audiobookDao),
             remainingToday = {
                 val policy = submissionPolicy
                 val uid = listenerIdentity.current()?.uid
@@ -468,6 +506,18 @@ class App : Application() {
         )
     }
 
+
+    /**
+     * Spec-53 T8 — the honest connectivity read behind the deferred
+     * submission queue. A missing service (tests, stripped builds) reads as
+     * online, so the queue never blocks on a permission the app cannot see.
+     */
+    private fun isNetworkAvailable(): Boolean {
+        val manager = getSystemService(android.net.ConnectivityManager::class.java) ?: return true
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
 
     /**
      * #431 — one clean, cookie-free transport check shared by every recovered

@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.ingest
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -173,5 +174,62 @@ class TitleNormalizerTest {
         assertNull(parsed.series)
         assertNull(parsed.position)
         assertNull(parsed.positionTotal)
+    }
+
+    // --- spec-53 T9 follow-up: YouTube video titles --------------------------
+
+    @Test
+    fun `video title reads the english by-author and drops the promo tail`() {
+        val parsed = TitleNormalizer.parseVideoTitle(
+            "Marsjanin: Walka o Przetrwanie na Czerwonej Planecie by Andy Weir | Audiobook Przygodowy 🎧🚀"
+        )
+
+        assertEquals("Marsjanin: Walka o Przetrwanie na Czerwonej Planecie", parsed.title)
+        assertEquals("Andy Weir", parsed.author)
+    }
+
+    @Test
+    fun `video title finds the only name among the segments`() {
+        // Real observed title (listener submission, 2026-09-15): the promo
+        // segment is dropped, «Стівен Адамс» is the only 2–3-word name, and
+        // the subtitle stays in the title.
+        val parsed = TitleNormalizer.parseVideoTitle(
+            "Звички невдах | Стівен Адамс | Аудіокнига українською повністю | Досить мислити як лузер"
+        )
+
+        assertEquals("Звички невдах | Досить мислити як лузер", parsed.title)
+        assertEquals("Стівен Адамс", parsed.author)
+    }
+
+    @Test
+    fun `video title with two name-like segments claims no author`() {
+        val parsed = TitleNormalizer.parseVideoTitle("Назва книги | Стівен Кінг | Овен Кінг")
+
+        assertNull(parsed.author)
+    }
+
+    @Test
+    fun `video title with only promo segments keeps the raw line and claims nothing`() {
+        val parsed = TitleNormalizer.parseVideoTitle("Аудіокнига українською повністю | Audiobook")
+
+        assertNull(parsed.author)
+        assertTrue(parsed.title.isNotBlank())
+    }
+
+    @Test
+    fun `video title without a provable name is never given a false author`() {
+        // «Частина 2» is not a person — the author stays null.
+        val parsed = TitleNormalizer.parseVideoTitle("Тарас Шевченко. Кобзар | Частина 2")
+
+        assertNull(parsed.author)
+        assertTrue(parsed.title.contains("Кобзар"))
+    }
+
+    @Test
+    fun `video title reads the author before a dash`() {
+        val parsed = TitleNormalizer.parseVideoTitle("Стівен Кінг — Острів Дума")
+
+        assertEquals("Острів Дума", parsed.title)
+        assertEquals("Стівен Кінг", parsed.author)
     }
 }

@@ -122,6 +122,13 @@
     <string name="speed_default_for_all">Default for all</string>
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
+    <!-- Spec-53 T7 — correcting a badly parsed book. -->
+    <string name="book_detail_correct_metadata">Correct metadata</string>
+    <string name="book_detail_update_published">Update in the shared base</string>
+    <string name="book_detail_metadata_title">Title</string>
+    <string name="book_detail_metadata_author">Author</string>
+    <string name="book_detail_metadata_narrator">Narrator</string>
+    <string name="book_detail_metadata_save">Save</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
     <string name="book_detail_listened_state_off">Not marked as listened</string>
     <string name="author_all_found">All found authors</string>
@@ -257,7 +264,43 @@
     <string name="submission_sheet_subtitle">A YouTube video or playlist, or a Telegram post. The book lands in your library right away and in the shared catalog after it really plays.</string>
     <string name="submission_url_label">Link</string>
     <string name="submission_remaining">Submissions left today: %1$d</string>
-    <string name="submission_submit_action">Submit</string>
+    <string name="submission_submit_action">Add now</string>
+    <!-- Spec-53 T9 — the optional pre-add preview. -->
+    <string name="submission_preview_action">Preview</string>
+    <string name="submission_preview_add">Add</string>
+    <!-- Spec-53 T10 — the whole-channel selection card. -->
+    <string name="submission_channel_open">Browse channel</string>
+    <string name="submission_channel_title_default">Channel</string>
+    <string name="submission_channel_close">Close</string>
+    <string name="submission_channel_videos">Videos</string>
+    <string name="submission_channel_playlists">Playlists</string>
+    <string name="submission_channel_loading">Reading channel…</string>
+    <string name="submission_channel_failed">Couldn\'t read the channel.</string>
+    <string name="submission_channel_retry">Retry</string>
+    <string name="submission_channel_empty">This tab is empty.</string>
+    <string name="submission_channel_last_n">Latest:</string>
+    <string name="submission_channel_skipped">Skipped %1$d videos</string>
+    <string name="submission_channel_add_skipped">Add</string>
+    <string name="submission_channel_more">More</string>
+    <string name="submission_channel_playlist">playlist</string>
+    <string name="submission_channel_stop">Stop</string>
+    <string name="submission_channel_progress">%1$d/%2$d · %3$s</string>
+    <string name="submission_channel_done">Added %1$d of %2$d</string>
+    <string name="submission_channel_stopped">Stopped · added %1$d of %2$d</string>
+    <string name="submission_channel_add_selected">Add selected (%1$d)</string>
+    <!-- Spec-53 T11 — playlist position selection. -->
+    <string name="submission_playlist_one_book">One book (chapters)</string>
+    <string name="submission_playlist_separate">Separate books</string>
+    <string name="submission_playlist_selected">Selected %1$d of %2$d</string>
+    <string name="submission_playlist_select_all">Select all</string>
+    <string name="submission_preview_edit">Edit</string>
+    <string name="submission_preview_single_video">single video</string>
+    <string name="submission_preview_playlist_prefix">playlist</string>
+    <string name="submission_preview_telegram">Telegram post</string>
+    <plurals name="submission_preview_chapters">
+        <item quantity="one">%1$d chapter</item>
+        <item quantity="other">%1$d chapters</item>
+    </plurals>
     <string name="submission_status_working">Processing the link…</string>
     <string name="submission_status_imported">Book added. Listen to it — once it really plays, it joins the shared catalog.</string>
     <string name="submission_status_imported_local">Book added locally. The shared base is unavailable — nothing will be published.</string>
@@ -267,10 +310,26 @@
     <string name="submission_status_refused_metadata">Could not read the link — no usable metadata.</string>
     <string name="submission_status_refused_no_tracks">The link carries no playable chapter.</string>
     <string name="submission_status_refused_import">Could not add the book from this link.</string>
-    <string name="submission_status_refused_duplicate">This link is already published.</string>
+    <string name="submission_status_refused_duplicate">Already in the shared base.</string>
+    <string name="submission_status_already_in_library">Already in your library.</string>
+    <string name="submission_open_book">Open the book</string>
     <string name="submission_status_refused_not_verified">Publishing needs a real playback.</string>
     <string name="submission_status_refused_unavailable">The shared base is unavailable.</string>
+    <string name="submission_listen_now">Listen now</string>
+    <string name="submission_awaiting_badge">Awaiting</string>
+    <!-- Spec-53 T5: the TG card's honest state — the preview has no audio. -->
+    <string name="submission_watching_source">Looking for a source</string>
+    <string name="submission_published_toast">Shared the book with the community</string>
+    <string name="submission_paste_from_clipboard">Paste from clipboard</string>
     <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist or a Telegram post.</string>
+    <!-- Spec-53 T8 — the offline queue. -->
+    <string name="submission_status_deferred">No network — the link is deferred. It will run when the connection returns.</string>
+    <string name="submission_deferred_title">Deferred links</string>
+    <string name="submission_deferred_retry">Try now</string>
+    <string name="submission_deferred_remove">Remove</string>
+    <!-- Spec-53 T12 — publication deferred to tomorrow (daily limit). -->
+    <string name="submission_status_deferred_publication">The daily limit is spent — it will publish tomorrow, with no second playback.</string>
+    <string name="submission_deferred_publication_badge">Publishes tomorrow</string>
     <string name="import_option_link">Submit a link</string>
     <string name="import_option_link_subtitle">YouTube video, playlist or TG post</string>
     <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>

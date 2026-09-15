@@ -32,12 +32,14 @@ class MyCollectionsBlockTest {
     }
 
     @Test
-    fun `with no collections the block says so and invents nothing`() {
+    fun `with no collections the block renders nothing and invents nothing`() {
         setBlock(emptyList())
 
-        composeTestRule.onNodeWithTag("my_collections_block").assertExists()
-        composeTestRule.onNodeWithTag("my_collections_empty").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Ще немає добірок").assertIsDisplayed()
+        // UI: порожній блок більше не показується взагалі — «Мої добірки» +
+        // «Ще немає добірок» займали два рядки й нічого не пропонували.
+        composeTestRule.onNodeWithTag("my_collections_block").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("my_collections_empty").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Ще немає добірок").assertDoesNotExist()
     }
 
     @Test

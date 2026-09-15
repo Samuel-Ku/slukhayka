@@ -15,6 +15,36 @@ import org.junit.Test
 
 class CatalogCardActionCoordinatorTest {
 
+    @Test
+    fun `Lihtar chapter resolution is not cut off by the eight second player budget`() = runTest {
+        var played = false
+        val candidate = directSource().let { it.copy(source = it.source.copy(
+            type = "lihtar", url = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/i-znovu-pro-lubov"
+        )) }
+        val gateway = object : CatalogCardActionGateway<String> {
+            override fun preparationBudgetMs(source: SourceEntity): Long? =
+                com.slukhayka.audiobooks.data.source.LihtarAdapter().resolutionBudgetMs
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(candidate)
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String {
+                // The production gate needs token refills for the seven chapter
+                // pages; an otherwise healthy resolution exceeds eight seconds.
+                delay(30_000)
+                return "lihtar-love"
+            }
+            override suspend fun open(book: String) = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
+                played = true
+                return true
+            }
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+        coordinator.start(CatalogCardTarget("love", "І знову про любов"), CatalogCardAction.PLAY)
+        advanceUntilIdle()
+        assertTrue("Resolved book must reach Player", played)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+    }
+
     private val successfulProbe = SourceSelectionCoordinator.SourceProbe { _, _ ->
         SourceSelectionCoordinator.ProbeResult.Success
     }

@@ -14,6 +14,46 @@ import org.junit.Test
  */
 class LihtarAdapterTest {
 
+    private val visibleCategory = """
+        <div class="owlblock bookitem w100"><a href="https://lihtar.in.ua/biblioteka/khudozhnja-literatura/ja-kamin-1">
+            <img src="https://lihtar.in.ua/images/biblioteka/74/w_ja-kamin-95.jpg" alt="Я - Камінь">
+            <div class="desc"><h4>Я - Камінь</h4><p>Наталія Дев&#039;ятко</p></div>
+        </a></div>
+        <div class="owlblock bookitem w100"><a href="https://lihtar.in.ua/biblioteka/khudozhnja-literatura/naymychka">
+            <img src="https://lihtar.in.ua/images/biblioteka/69/w_naymychka-90.jpg" alt="Наймичка">
+            <div class="desc"><h4>Наймичка</h4><p>Тарас Шевченко</p></div>
+        </a></div>
+        <div class="owlblock bookitem w100"><a href="https://lihtar.in.ua/biblioteka/khudozhnja-literatura/sto-tysjach-komedija-v-chotyrokh-dijakh">
+            <img src="https://lihtar.in.ua/images/biblioteka/63/w_sto-tysjach-komedija-v-chotyrokh-dijakh-84.jpg" alt="Сто тисяч. Комедія в чотирьох діях">
+            <div class="desc"><h4>Сто тисяч. Комедія в чотирьох діях</h4><p>Іван Карпенко-Карий</p></div>
+        </a></div>
+    """.trimIndent()
+
+    @Test
+    fun `category preserves visible covers and Ukrainian metadata without book requests`() = runBlocking {
+        val path = "/biblioteka/khudozhnja-literatura"
+        val fetcher = FakeFetcher(mapOf("https://lihtar.in.ua$path" to visibleCategory))
+        val books = LihtarAdapter(fetcher).fetchGenrePage(path).books
+        assertEquals(listOf("Я - Камінь", "Наймичка", "Сто тисяч. Комедія в чотирьох діях"), books.map { it.title })
+        assertEquals(listOf("Наталія Дев'ятко", "Тарас Шевченко", "Іван Карпенко-Карий"), books.map { it.author })
+        assertTrue(books.all { !it.coverImageUrl.isNullOrBlank() })
+        assertEquals(listOf("https://lihtar.in.ua$path"), fetcher.requestedUrls)
+    }
+
+    @Test
+    fun `new feed does not lose covers when per book metadata cannot be fetched`() = runBlocking {
+        val category = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura"
+        val fetcher = FakeFetcher(mapOf(
+            "https://lihtar.in.ua/biblioteka" to """<a href="$category">Художня література</a>""",
+            category to visibleCategory
+        ))
+        val books = LihtarAdapter(fetcher).fetchNew(30)
+        assertEquals(3, books.size)
+        assertTrue(books.all { !it.coverImageUrl.isNullOrBlank() })
+        assertEquals("Я - Камінь", books.first().title)
+        assertEquals(listOf("https://lihtar.in.ua/biblioteka", category), fetcher.requestedUrls)
+    }
+
     private val bookPage = """
         <html><head>
         <meta property="og:title" content="Боягуз">
@@ -26,7 +66,9 @@ class LihtarAdapterTest {
 
     private val playerPage = """
         <html><body>
+        <audio src="https://web.lihtar.in.ua/audio/name/click.mp3" autoplay></audio>
         <audio id="player" class="player" src="https://web.lihtar.in.ua/audio/library/854/-dlja-ditey-slukhaty-onlayn-bojahuzdytjacha-literatura-0nmcgoa6zik-converted.mp3" autoplay onended="nextsound()"></audio>
+        <audio src="https://web.lihtar.in.ua/audio/name/end.mp3" id="theend"></audio>
         </body></html>
     """.trimIndent()
 
@@ -41,8 +83,14 @@ class LihtarAdapterTest {
 
     private val childCategoryPage = """
         <html><body>
-        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz">Боягуз</a>
-        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo">Андрійко та шахове королівство</a>
+        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz">
+            <img src="https://lihtar.in.ua/images/biblioteka/66/w_bojahuz-87.jpg" alt="Боягуз">
+            <div class="desc"><h4>Боягуз</h4><p>Микола Стеценко</p></div>
+        </a>
+        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo">
+            <img src="https://lihtar.in.ua/images/biblioteka/86/w_andriyko-ta-shakhove-korolivstvo.jpg" alt="Андрійко та шахове королівство">
+            <div class="desc"><h4>Андрійко та шахове королівство</h4><p>Наталія Дев&#039;ятко</p></div>
+        </a>
         <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/zahublena-stinka">Загублена стінка</a>
         </body></html>
     """.trimIndent()
@@ -99,6 +147,90 @@ class LihtarAdapterTest {
         <audio id="player" class="player" src="https://web.lihtar.in.ua/audio/library/79/charivni-istorii-nashoho-lisu-converted.mp3" autoplay onended="nextsound()"></audio>
         </body></html>
     """.trimIndent()
+
+    private val loveBookUrl = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/i-znovu-pro-lubov"
+    private val lovePlayerUrl = "https://web.lihtar.in.ua/library/khudozhnja-literatura/olena-i-tymur-lytovchenky-i-znovu-pro-lubov"
+    private val loveChapters = listOf(
+        "zmist" to "Зміст", "vid-avtoriv" to "Від авторів", "ponchyk" to "Пончик",
+        "strazh-kit" to "Страж кіт", "sobacha-dusha" to "Собача душа",
+        "ryzhyk-i-nichka" to "Рижик і Нічка", "akuratyst" to "Акуратист"
+    )
+
+    /** Real index shape from «І знову про любов», including the UI sound. */
+    private fun lovePages(): Map<String, String> = buildMap {
+        put(loveBookUrl, """<meta property="og:title" content="І знову про любов"><a href="$lovePlayerUrl">Слухати</a>""")
+        put(lovePlayerUrl, """<audio src="https://web.lihtar.in.ua/audio/name/click.mp3" autoplay></audio>""" +
+            loveChapters.mapIndexed { index, (slug, title) ->
+                """<div class="button v${index + 1}" data-src="https://web.lihtar.in.ua/audio/name/${index + 1}.mp3" onclick="location.href = '$lovePlayerUrl/$slug'">$title</div>"""
+            }.joinToString("\n"))
+        loveChapters.forEachIndexed { index, (slug, _) ->
+            put("$lovePlayerUrl/$slug", """
+                <audio src="https://web.lihtar.in.ua/audio/name/click.mp3" autoplay></audio>
+                <audio src="https://web.lihtar.in.ua/audio/library/${1238 + index}/track-${index + 1}.mp3" class="player" id="player"></audio>
+                <audio src="https://web.lihtar.in.ua/audio/name/end.mp3" id="theend"></audio>
+            """.trimIndent())
+        }
+    }
+
+    @Test
+    fun `I znovu pro lubov resolves all seven chapters instead of the menu click`() = runBlocking {
+        val fetcher = FakeFetcher(lovePages())
+        val detail = LihtarAdapter(fetcher).fetchBookPage(loveBookUrl)
+        assertEquals(loveChapters.map { it.second }, detail.chapters.map { it.title })
+        assertTrue(detail.chapters.all { it.streamUrl.startsWith("https://web.lihtar.in.ua/audio/library/") })
+        assertEquals(listOf(loveBookUrl, lovePlayerUrl) + loveChapters.map { "$lovePlayerUrl/${it.first}" }, fetcher.requestedUrls)
+    }
+
+    @Test
+    fun `a missing middle chapter never shifts later chapters forward`() = runBlocking {
+        val pages = lovePages().toMutableMap().also { it["$lovePlayerUrl/ponchyk"] = "" }
+        assertTrue(LihtarAdapter(FakeFetcher(pages)).fetchBookPage(loveBookUrl).chapters.isEmpty())
+    }
+
+    @Test
+    fun `a menu without book audio is never a playable book`() = runBlocking {
+        val pages = lovePages().toMutableMap().also {
+            it[lovePlayerUrl] = """<audio src="https://web.lihtar.in.ua/audio/name/click.mp3"></audio>"""
+        }
+        assertTrue(LihtarAdapter(FakeFetcher(pages)).fetchBookPage(loveBookUrl).chapters.isEmpty())
+    }
+
+    @Test
+    fun `navigation outside the book is ignored and duplicate chapter links resolve once`() = runBlocking {
+        val pages = lovePages().toMutableMap()
+        pages[lovePlayerUrl] = pages.getValue(lovePlayerUrl) + """
+            <div onclick="location.href = 'https://web.lihtar.in.ua/library/khudozhnja-literatura/'">назад</div>
+            <a href="$lovePlayerUrl/zmist">Зміст ще раз</a>
+            <a href="https://foreign.example/library/book/chapter">Чужий сайт</a>
+        """
+        val fetcher = FakeFetcher(pages)
+        assertEquals(7, LihtarAdapter(fetcher).fetchBookPage(loveBookUrl).chapters.size)
+        assertEquals(9, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `player attributes may be reordered single quoted and relative`() = runBlocking {
+        val pages = lovePages().toMutableMap()
+        pages[lovePlayerUrl] = """<audio src='/audio/library/1/book.mp3' class='player' id='player'></audio>"""
+        val chapters = LihtarAdapter(FakeFetcher(pages)).fetchBookPage(loveBookUrl).chapters
+        assertEquals("https://web.lihtar.in.ua/audio/library/1/book.mp3", chapters.single().streamUrl)
+    }
+
+    @Test
+    fun `a foreign audio host is never accepted as a Lihtar recording`() = runBlocking {
+        val pages = lovePages().toMutableMap()
+        pages[lovePlayerUrl] = """<audio id="player" src="https://foreign.example/audio/library/1/book.mp3"></audio>"""
+        assertTrue(LihtarAdapter(FakeFetcher(pages)).fetchBookPage(loveBookUrl).chapters.isEmpty())
+    }
+
+    @Test
+    fun `an oversized menu is rejected before fetching any chapter`() = runBlocking {
+        val pages = lovePages().toMutableMap()
+        pages[lovePlayerUrl] = (1..101).joinToString("\n") { """<a href="$lovePlayerUrl/chapter-$it">$it</a>""" }
+        val fetcher = FakeFetcher(pages)
+        assertTrue(LihtarAdapter(fetcher).fetchBookPage(loveBookUrl).chapters.isEmpty())
+        assertEquals(listOf(loveBookUrl, lovePlayerUrl), fetcher.requestedUrls)
+    }
 
     @Test
     fun `book page follows the listen link to the direct mp3`() = runBlocking {
@@ -198,7 +330,7 @@ class LihtarAdapterTest {
     }
 
     @Test
-    fun `new feed enriches every entry from its book page - real title and author`() = runBlocking {
+    fun `new feed preserves category metadata even when a book page has a different cover`() = runBlocking {
         val adapter = LihtarAdapter(
             FakeFetcher(
                 mapOf(
@@ -206,28 +338,24 @@ class LihtarAdapterTest {
                     "https://lihtar.in.ua/biblioteka/dytjacha-literatura" to childCategoryPage,
                     "https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz" to bookPage,
                     "https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo" to andriykoPage
-                    // zahublena-stinka intentionally has no page fixture: the
-                    // entry must fall back to the transliterated slug.
+                    // Missing optional category fields stay absent.
                 )
             )
         )
 
         val books = adapter.fetchNew(limit = 10)
 
-        // The real Cyrillic title and the author come from each book page, so
-        // Ukrainian queries match and the Work-level merge key can form.
+        // Visible category metadata needs no per-book request.
         assertEquals(3, books.size)
         assertEquals("Боягуз", books[0].title)
         assertEquals("Микола Стеценко", books[0].author)
         assertEquals("lihtar", books[0].sourceId)
-        // The book page's og:image becomes the feed card cover.
-        assertEquals("https://lihtar.in.ua/images/biblioteka/85/w_bojahuz-101.jpg", books[0].coverImageUrl)
+        assertEquals("https://lihtar.in.ua/images/biblioteka/66/w_bojahuz-87.jpg", books[0].coverImageUrl)
         // Entities in the author decode before the merge key normalizes it.
         assertEquals("Андрійко та шахове королівство", books[1].title)
         assertEquals("Наталія Дев'ятко", books[1].author)
         assertEquals("https://lihtar.in.ua/images/biblioteka/86/w_andriyko-ta-shakhove-korolivstvo.jpg", books[1].coverImageUrl)
-        // A failed page fetch keeps the transliterated slug, best-effort.
-        assertEquals("zahublena stinka", books[2].title.lowercase())
+        assertEquals("Загублена стінка", books[2].title)
         assertEquals("", books[2].author)
         assertEquals(null, books[2].coverImageUrl)
     }
@@ -243,13 +371,11 @@ class LihtarAdapterTest {
 
         val page = adapter.fetchGenrePage("/biblioteka/dytjacha-literatura")
 
-        // ONE request: the category page itself. Enriching every card from its
-        // book page would be a crawl, so the card keeps the honest slug until
-        // the listener opens it.
+        // ONE request, including the title and cover already visible there.
         assertEquals("one page, one request", 1, fetcher.requestedUrls.size)
         assertEquals("https://lihtar.in.ua/biblioteka/dytjacha-literatura", fetcher.requestedUrls.single())
         assertEquals(3, page.books.size)
-        assertEquals("Bojahuz", page.books[0].title)
+        assertEquals("Боягуз", page.books[0].title)
         assertEquals("lihtar", page.books[0].sourceId)
         assertNull("a lihtar category is ONE page — no cursor exists", page.nextCursor)
     }

@@ -43,7 +43,7 @@ class PartialOfflinePlaybackTest {
                     narrator = "Читець",
                     description = "",
                     coverDrawableRes = 0,
-                    sourceUrl = "https://4read.org/book/$bookId",
+                    sourceUrl = "https://lihtar.in.ua/book/$bookId",
                     genre = ""
                 )
             )
@@ -67,11 +67,11 @@ class PartialOfflinePlaybackTest {
         dao.insertSources(
             listOf(
                 SourceEntity(
-                    id = "4read-$bookId",
+                    id = "lihtar-$bookId",
                     bookId = bookId,
                     editionId = editionId,
-                    type = "4read",
-                    url = "https://4read.org/book/$bookId"
+                    type = "lihtar",
+                    url = "https://lihtar.in.ua/book/$bookId"
                 )
             )
         )
@@ -82,20 +82,20 @@ class PartialOfflinePlaybackTest {
                 deleteOnExit()
             }
             tracks += SourceTrackEntity(
-                id = "4read-$bookId-tr$index",
-                sourceId = "4read-$bookId",
+                id = "lihtar-$bookId-tr$index",
+                sourceId = "lihtar-$bookId",
                 trackIndex = index,
-                url = "https://4read.org/audio/$bookId/$index.mp3",
+                url = "https://lihtar.in.ua/audio/$bookId/$index.mp3",
                 localFilePath = file.absolutePath,
                 isDownloaded = true
             )
         }
         remoteIndices.forEach { index ->
             tracks += SourceTrackEntity(
-                id = "4read-$bookId-tr$index",
-                sourceId = "4read-$bookId",
+                id = "lihtar-$bookId-tr$index",
+                sourceId = "lihtar-$bookId",
                 trackIndex = index,
-                url = "https://4read.org/audio/$bookId/$index.mp3"
+                url = "https://lihtar.in.ua/audio/$bookId/$index.mp3"
             )
         }
         dao.insertTracks(tracks)
@@ -113,12 +113,12 @@ class PartialOfflinePlaybackTest {
         assertEquals(3, playable.size)
         // Ready local chapter plays from disk.
         assertNotNull(playable[0].track)
-        assertEquals("4read", playable[0].sourceId)
+        assertEquals("lihtar", playable[0].sourceId)
         assertTrue(SmartRetryPolicy.localFileReady(playable[0].track?.localFilePath))
         // No local copy → the SAME source's remote track, not null, not another source.
         assertNotNull("розділ без локальної копії стрімить з того самого джерела", playable[1].track)
-        assertEquals("4read", playable[1].sourceId)
-        assertEquals("https://4read.org/audio/partial/1.mp3", playable[1].track?.url)
+        assertEquals("lihtar", playable[1].sourceId)
+        assertEquals("https://lihtar.in.ua/audio/partial/1.mp3", playable[1].track?.url)
         // No track at all → honestly unavailable, never an empty URI.
         assertNull(playable[2].track)
     }
@@ -134,8 +134,8 @@ class PartialOfflinePlaybackTest {
         assertEquals(3, playable.size)
         playable.forEachIndexed { index, pair ->
             assertNotNull(pair.track)
-            assertEquals("4read", pair.sourceId)
-            assertEquals("https://4read.org/audio/remote/$index.mp3", pair.track?.url)
+            assertEquals("lihtar", pair.sourceId)
+            assertEquals("https://lihtar.in.ua/audio/remote/$index.mp3", pair.track?.url)
         }
     }
 }

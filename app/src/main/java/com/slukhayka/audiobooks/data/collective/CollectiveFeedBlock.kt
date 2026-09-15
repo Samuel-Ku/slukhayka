@@ -26,6 +26,24 @@ object CollectiveBlockPolicy {
         CollectiveBlockKind.RECOMMENDATIONS,
         CollectiveBlockKind.COLLECTIONS -> DEFAULT_TTL_MS
     }
+
+    /**
+     * The old parsers cached URL slugs and comment links instead of book
+     * cards. A time-fresh shared block can therefore outlive the parser fix.
+     * Match only those known broken shapes; a genuinely absent cover alone
+     * must not turn every screen open into a source request.
+     */
+    fun requiresSourceRefresh(block: CollectiveFeedBlock): Boolean =
+        block.kind == CollectiveBlockKind.NEW_ARRIVALS && block.cards.any { card ->
+            card.coverUrl.isNullOrBlank() && when (card.sourceId) {
+                "lihtar" -> card.author.isBlank() && card.title.equals(
+                    card.sourceUrl.substringBefore('?').trimEnd('/').substringAfterLast('/').replace('-', ' '),
+                    ignoreCase = true
+                )
+                "audiobookmp3" -> card.title.isNotBlank() && card.title == card.author
+                else -> false
+            }
+        }
 }
 
 /** One card of a collective block, in the source's own order. */

@@ -33,6 +33,19 @@ class MetadataAssertionsTest {
     // --- SEO title scrub (spec-24 T1) -------------------------------------
 
     @Test
+    fun `Soundbooks wrapper strips only the known author and preserves genuine titles`() {
+        val author = "Блейк Крауч"
+        val title = "Аудіокнига Темна матерія - Блейк Крауч 🎶слухати онлайн українською"
+        assertEquals("Темна матерія", MetadataAssertions.normalizeTitle(title, author))
+        assertEquals("Темна матерія", MetadataAssertions.normalizeTitle("Темна матерія", author))
+        assertEquals("Аудіокнига мого життя", MetadataAssertions.normalizeTitle("Аудіокнига мого життя", author))
+        assertEquals("Темна матерія - Інший автор", MetadataAssertions.normalizeTitle(
+            title.replace(author, "Інший автор"), author
+        ))
+        assertEquals("Темна матерія - Блейк Крауч", MetadataAssertions.normalizeTitle("Темна матерія - Блейк Крауч", author))
+    }
+
+    @Test
     fun `title scrub strips the curated SEO phrases from the end across every separator`() {
         val cases = listOf<Pair<String, String>>(
             // ` - `

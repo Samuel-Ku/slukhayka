@@ -28,12 +28,14 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -99,9 +101,12 @@ import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
- * The page's one Work/Edition identity block. The visible fallback cover
- * repeats the same title by design, so it is explicitly decorative here and
- * the heading below remains the single accessible owner of the Work name.
+ * ПРОТОТИП: hero-обкладинка (у стилі сторінки серіалу в HBO Max).
+ *
+ * Обкладинка займає верхню частину екрана на всю ширину, а назва, автор,
+ * начитка й рейтинг лягають на неї знизу — поверх градієнта, що зливає
+ * арт із фоном сторінки. Оригінальна версія була карткою 180×240 dp
+ * по центру; тут її замінено на full-bleed.
  */
 @Composable
 fun BookDetailIdentityHeader(
@@ -126,51 +131,96 @@ fun BookDetailIdentityHeader(
     authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
     narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
-    Card(
+    val heroHeight = LocalConfiguration.current.screenHeightDp.dp * 0.72f
+    // Висота обкладинки в hero: малюємо її на всю ширину в природній
+    // пропорції й притискаємо до ГОРИ, тож ріжеться лише низ — верх
+    // обкладинки (назва, арт) лишається цілим.
+    var coverAspect by remember(book.coverImageUrl) { mutableStateOf<Float?>(null) }
+    BoxWithConstraints(
         modifier = Modifier
+            .fillMaxWidth()
+            .height(heroHeight)
+            .clipToBounds()
             .testTag("book_detail_cover")
-            .width(180.dp)
-            .height(240.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusHero))
-            .border(
-                1.dp,
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                RoundedCornerShape(AppDimens.RadiusHero)
-            ),
-        elevation = CardDefaults.cardElevation(8.dp)
     ) {
+        val naturalHeight = coverAspect?.let { maxWidth / it } ?: heroHeight
         BookCoverImage(
             book = book,
             semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(maxOf(naturalHeight, heroHeight)),
+            contentScale = ContentScale.Crop,
+            onImageLoaded = { drawable ->
+                val width = drawable.intrinsicWidth
+                val height = drawable.intrinsicHeight
+                if (width > 0 && height > 0) {
+                    coverAspect = width.toFloat() / height.toFloat()
+                }
+            }
         )
+        // Верхній скрим: іконки прозорого тулбара мають читатися на арті.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(140.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)
+                    )
+                )
+        )
+        // Нижній скрим: текст плавно переходить у фон сторінки. Опущений на
+        // 40 dp нижче — так видно більше обкладинки. Нижній край градієнта
+        // все одно впирається у фон сторінки, тож обрізається непомітно.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = 40.dp)
+                .fillMaxWidth()
+                .height(360.dp)
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to Color.Transparent,
+                        0.30f to MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                        0.55f to MaterialTheme.colorScheme.background,
+                        1.0f to MaterialTheme.colorScheme.background
+                    )
+                )
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            BookDetailCanonicalSummary(
+                presentation = presentation,
+                entryFocusKey = book.id,
+                universeName = universeName,
+                narrationAverage = narrationAverage,
+                narrationVoteCount = narrationVoteCount,
+                ownNarrationRating = ownNarrationRating,
+                canRateNarration = canRateNarration,
+                onRateNarration = onRateNarration,
+                onDeleteNarrationRating = onDeleteNarrationRating,
+                narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
+                onAuthorClick = onAuthorClick,
+                onNarratorClick = onNarratorClick,
+                onSeriesClick = onSeriesClick,
+                requestInitialFocus = requestInitialFocus,
+                onInitialFocusHandled = onInitialFocusHandled,
+                returnFocusOrigin = returnFocusOrigin,
+                onChildRouteOpened = onChildRouteOpened,
+                onReturnFocusRestored = onReturnFocusRestored,
+                authorBookmark = authorBookmark,
+                narratorBookmark = narratorBookmark
+            )
+        }
     }
-
-    Spacer(modifier = Modifier.height(16.dp))
-
-    BookDetailCanonicalSummary(
-        presentation = presentation,
-        entryFocusKey = book.id,
-        universeName = universeName,
-        narrationAverage = narrationAverage,
-        narrationVoteCount = narrationVoteCount,
-        ownNarrationRating = ownNarrationRating,
-        canRateNarration = canRateNarration,
-        onRateNarration = onRateNarration,
-        onDeleteNarrationRating = onDeleteNarrationRating,
-        narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
-        onAuthorClick = onAuthorClick,
-        onNarratorClick = onNarratorClick,
-        onSeriesClick = onSeriesClick,
-        requestInitialFocus = requestInitialFocus,
-        onInitialFocusHandled = onInitialFocusHandled,
-        returnFocusOrigin = returnFocusOrigin,
-        onChildRouteOpened = onChildRouteOpened,
-        onReturnFocusRestored = onReturnFocusRestored,
-        authorBookmark = authorBookmark,
-        narratorBookmark = narratorBookmark
-    )
 }
 
 /** The production Work/Edition summary consumed by both the page and snapshots. */
@@ -222,7 +272,7 @@ fun BookDetailCanonicalSummary(
     }
     Text(
         text = presentation.title,
-        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
         color = MaterialTheme.colorScheme.onSurface,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,

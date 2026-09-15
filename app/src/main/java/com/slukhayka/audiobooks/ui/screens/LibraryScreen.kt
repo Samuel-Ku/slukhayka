@@ -333,7 +333,8 @@ fun LibraryScreen(
                 title = "Медіатека",
                 // Spec-15 T6: one library for local files and every
                 // online source, not just 4read.
-                subtitle = "Всі книги — в одному місці",
+                // UI: підзаголовок «Всі книги — в одному місці» прибрано —
+                // це маркетинговий рядок, який нічого не повідомляє.
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 actions = {

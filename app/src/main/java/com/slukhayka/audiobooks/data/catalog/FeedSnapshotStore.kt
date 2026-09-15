@@ -48,7 +48,7 @@ class FeedSnapshotStore(
         // знімок і матеріалізував ті самі 48 порожніх книжок. Саме тому
         // вичищення в міграції не трималося: причина відтворювалася щоразу.
         if (SourceRegistry.isScam(sourceId)) return@withContext emptyList()
-        val rows = dao.getFeedSnapshots(sourceId, feedKey)
+        val rows = dao.getFeedSnapshots(sourceId, booksStorageKey(sourceId, feedKey))
         val fetchedAt = rows.minOfOrNull { it.fetchedAt }
         if (FeedSnapshotPolicy.needsNetwork(feedKey, fetchedAt, nowMillis(), forceRefresh)) {
             return@withContext null
@@ -70,11 +70,12 @@ class FeedSnapshotStore(
         // A new full-feed snapshot supersedes the previous page shape: one
         // feed, one current snapshot — the old rows are cleared first so a
         // re-paged feed never reads stale pages beside fresh ones.
-        dao.clearFeedSnapshots(sourceId, feedKey)
+        val storageKey = booksStorageKey(sourceId, feedKey)
+        dao.clearFeedSnapshots(sourceId, storageKey)
         dao.upsertFeedSnapshot(
             FeedSnapshotEntity(
                 sourceId = sourceId,
-                feedKey = feedKey,
+                feedKey = storageKey,
                 pageCursor = pageCursor,
                 fetchedAt = nowMillis(),
                 cardsJson = FeedSnapshotCodec.encodeBooks(books)
@@ -117,6 +118,10 @@ class FeedSnapshotStore(
         }
 
     companion object {
+        /** Old parser output may be fresh by time but still structurally wrong. */
+        private fun booksStorageKey(sourceId: String, feedKey: String): String =
+            if (sourceId in setOf("lihtar", "audiobookmp3")) "$feedKey:cards-v2" else feedKey
+
         /**
          * #812 — нейтральний якір домашньої стрічки.
          *

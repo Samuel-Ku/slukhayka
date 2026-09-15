@@ -32,7 +32,7 @@ object PlaybackFallbackPolicy {
      * remote 403/404, and only while this chapter prepare has not spent its
      * single fallback yet.
      */
-    fun shouldAttempt(responseCode: Int?, fallbackAttempts: Int): Boolean =
-        (responseCode == StreamHealPolicy.HTTP_FORBIDDEN || responseCode == StreamHealPolicy.HTTP_NOT_FOUND) &&
+    fun shouldAttempt(responseCode: Int?, fallbackAttempts: Int, blockedNotice: Boolean = false): Boolean =
+        (blockedNotice || responseCode == StreamHealPolicy.HTTP_FORBIDDEN || responseCode == StreamHealPolicy.HTTP_NOT_FOUND) &&
             fallbackAttempts < MAX_FALLBACK_ATTEMPTS
 }

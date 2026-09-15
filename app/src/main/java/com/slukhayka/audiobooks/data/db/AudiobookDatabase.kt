@@ -1342,20 +1342,39 @@ abstract class AudiobookDatabase : RoomDatabase() {
           * 19 книжок мали `genre = "4read Каталог"`, і це видно в бібліотеці.
           * Прибираємо значення, а не книжки: жанр — це мітка, а не сутність.
           */
-         internal val MIGRATION_42_43 = object : Migration(42, 43) {
-             override fun migrate(db: SupportSQLiteDatabase) {
-                 db.execSQL("UPDATE `audiobooks` SET `genre` = '' WHERE `genre` LIKE '%4read%' OR `genre` LIKE '%reasd%'")
-                 db.execSQL("UPDATE `audiobooks` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
-             }
-         }
-
          /**
-          * Spec-53 T3 (#710) — v43 -> v44: the persistent listener-submission
-          * states. The pasted link's local copy keeps `AWAITING_PLAY` until the
-          * player's real playing event settles it, so a restart loses nothing.
+          * v43 -> v44, дві незалежні зміни в одній версії.
+          *
+          * **UI: назви розділів, збережені в URL-кодуванні.** Джерело віддає
+          * імена файлів як `%D0%94%D1%96%D0%BD...`, і раніше вони лягали в
+          * базу без декодування — у міні-плеєрі й списку розділів було видно
+          * «%D0%9D…». Парсер виправлено; цей прохід лікує те, що вже
+          * збережено.
+          *
+          * **Spec-53 T3 (#710) — стани надсилань.** Локальна копія
+          * вставленого посилання лишається `AWAITING_PLAY`, доки плеєр не
+          * засвідчить реальне програвання, тож перезапуск нічого не втрачає.
+          *
+          * Обидві гілки призначили цю саму версію, тож обидві дії живуть
+          * разом: інсталяція з 43 отримує і ремонт назв, і нову таблицю.
           */
          internal val MIGRATION_43_44 = object : Migration(43, 44) {
              override fun migrate(db: SupportSQLiteDatabase) {
+                 val updates = mutableListOf<Pair<String, String>>()
+                 db.query("SELECT id, title FROM chapters WHERE title LIKE '%D0%' OR title LIKE '%D1%'").use { cur ->
+                     while (cur.moveToNext()) {
+                         val id = cur.getString(0) ?: continue
+                         val title = cur.getString(1) ?: continue
+                         val decoded = runCatching {
+                             java.net.URLDecoder.decode(title, "UTF-8")
+                         }.getOrDefault(title)
+                         if (decoded != title) updates += id to decoded
+                     }
+                 }
+                 updates.forEach { (id, title) ->
+                     db.execSQL("UPDATE `chapters` SET `title` = ? WHERE `id` = ?", arrayOf(title, id))
+                 }
+
                  db.execSQL(
                      "CREATE TABLE IF NOT EXISTS `submission_states` (" +
                          "`sourceId` TEXT NOT NULL, " +
@@ -1369,6 +1388,13 @@ abstract class AudiobookDatabase : RoomDatabase() {
                          "`updatedAt` INTEGER NOT NULL, " +
                          "PRIMARY KEY(`sourceId`))"
                  )
+             }
+         }
+
+         internal val MIGRATION_42_43 = object : Migration(42, 43) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL("UPDATE `audiobooks` SET `genre` = '' WHERE `genre` LIKE '%4read%' OR `genre` LIKE '%reasd%'")
+                 db.execSQL("UPDATE `audiobooks` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
              }
          }
 

@@ -520,7 +520,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 Column {
                     // Floating Persistent Mini Player. Closed by the X on the
                     // bar or a leftward swipe; it returns when audio does.
-                    if (!miniPlayerDismissed) {
+                    // UI: на «Слухати» міні-плеєр не потрібен — угорі вже
+                    // стоїть hero-картка «Продовжити слухати» з тим самим
+                    // керуванням, тож панель лише дублювала її.
+                    if (!miniPlayerDismissed && selectedTab != SelectedTab.LISTEN) {
                         MiniPlayerBar(
                             playerState = playerState,
                             viewedBookId = selectedBookId,

@@ -296,6 +296,13 @@ class SluhayAdapter(
         return files.mapIndexed { index, file ->
             val name = titles.getOrNull(index)
                 ?.substringBeforeLast('.')
+                // Джерело віддає назви файлів у URL-кодуванні
+                // (`%D0%94%D1%96%D0%BD...`), і без декодування воно потрапляло
+                // в базу як є — а тоді в міні-плеєрі й списку розділів
+                // показувалось «%D0%9D...» замість назви.
+                ?.let { raw ->
+                    runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+                }
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
                 ?: "Глава ${index + 1}"

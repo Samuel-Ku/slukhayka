@@ -18,6 +18,14 @@ object TransportClients {
     private class Clients(val route: NetworkRoute) {
         private val active = ConcurrentHashMap.newKeySet<Call>()
         val http = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val request = chain.request()
+                chain.proceed(request.newBuilder().url(KnownSourceHttps.upgrade(request.url)).build())
+            }
+            // Reject stored notice URLs before DNS and inspect every automatic
+            // redirect before its target is requested (also covers downloads).
+            .addInterceptor(AudioNoticePolicy.interceptor())
+            .addNetworkInterceptor(AudioNoticePolicy.interceptor())
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(18, TimeUnit.SECONDS)
             .proxy(when (route) {
@@ -41,6 +49,8 @@ object TransportClients {
             .dns(TransportDns)
             .build()
         val playback = http.newBuilder()
+            .addInterceptor(AudioNoticePolicy.interceptor(audioOnly = true))
+            .addInterceptor { chain -> chain.proceed(BrowserIdentity.audioRequest(chain.request())) }
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .followSslRedirects(false)
@@ -78,6 +88,9 @@ object TransportClients {
 
     /** Long-lived Coil and Media3 factories select the current route for every new call. */
     val calls = Call.Factory { request -> okHttp.newCall(request) }
+    val audioCalls = Call.Factory { request ->
+        okHttp.newCall(AudioNoticePolicy.audioRequest(BrowserIdentity.audioRequest(request)))
+    }
     val playbackCalls = Call.Factory { request -> playbackHttp.newCall(request) }
 }
 

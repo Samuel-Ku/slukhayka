@@ -128,7 +128,9 @@ object SourceRegistry {
             contentLanguage = "uk",
             accessMode = SourceAccessMode.DIRECT,
             order = 1,
-            referer = RefererRule("https://sound-books.net/", setOf("arch.sound-books.net")),
+            // Soundbooks publishes both its own archive and reasd recordings
+            // (e.g. Doctor Sleep). Both require the page owner's Referer.
+            referer = RefererRule("https://sound-books.net/", setOf("arch.sound-books.net", "reasd.org")),
             transportHosts = setOf("sound-books.net", "arch.sound-books.net")
         ),
         SourceFacts(

@@ -65,6 +65,29 @@ class RoomCollectiveFeedBlockStoreTest {
     )
 
     @Test
+    fun `legacy coverless shared blocks refresh even while their time TTL is fresh`() = runBlocking {
+        for (source in listOf("lihtar", "audiobookmp3")) {
+            val oldCard = if (source == "lihtar") {
+                CollectiveBlockCard(source, "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/ja-kamin-1", "Ja kamin 1", "")
+            } else {
+                CollectiveBlockCard(source, "https://audiobook-mp3.com/uk-audio-5523-jak-priborkati-drakona", "Як приборкати дракона", "Як приборкати дракона")
+            }
+            val legacy = block(cards = listOf(oldCard)).copy(sourceId = source, blockKey = newArrivalsBlockKey(source))
+            store.activate(legacy)
+            var calls = 0
+            val fixed = oldCard.copy(title = "Справжня назва", author = "Автор", coverUrl = "https://covers.example/book.jpg")
+            val refresh = CollectiveFeedRefresh(store, InMemoryCollectiveRefreshLease(), fetch = {
+                calls++
+                CollectiveRefreshOutcome.Success(legacy.copy(cards = listOf(fixed)))
+            }, clock = { 2000L })
+            assertEquals(listOf(fixed), refresh.read(legacy.blockKey)!!.cards)
+            assertEquals(1, calls)
+            assertEquals(listOf(fixed), refresh.read(legacy.blockKey)!!.cards)
+            assertEquals("good metadata is reused", 1, calls)
+        }
+    }
+
+    @Test
     fun `an activated block is read back whole`() = runBlocking {
         assertTrue(store.activate(block()))
 

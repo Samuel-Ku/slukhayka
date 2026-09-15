@@ -98,7 +98,8 @@ class IntegratedPeopleMigrationTest {
                 AudiobookDatabase.MIGRATION_40_41,
                 AudiobookDatabase.MIGRATION_41_42,
                 AudiobookDatabase.MIGRATION_42_43,
-                AudiobookDatabase.MIGRATION_43_44
+                AudiobookDatabase.MIGRATION_43_44,
+                AudiobookDatabase.MIGRATION_44_45
             )
             .allowMainThreadQueries().build()
         try {

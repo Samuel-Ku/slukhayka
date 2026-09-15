@@ -372,6 +372,17 @@ class SourceCatalog(
     // against this base; the flow is read-only, nothing here persists.
     val allWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeWorks()
 
+    /**
+     * ADR-0041 — the discovery pool of the Mirror: every claimed Work, i.e.
+     * one that still has at least one Source row in `work_sources`. Discovery
+     * surfaces (recommendations, endless feed, the Home rails) publish only
+     * these; a Work whose claims were all removed (scam purge, shared
+     * tombstone) stays in [allWorks] as the merge anchor and library card but
+     * is never offered as an openable card again. A Work that regains a claim
+     * returns to this pool by itself.
+     */
+    val discoverableWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeDiscoverableWorks()
+
     /** The local Edition projection paired with [allWorks]. */
     val allLibraryEntries = dao.observeLibraryEntries()
 

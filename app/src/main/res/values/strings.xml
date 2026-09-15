@@ -127,6 +127,13 @@
     <string name="speed_default_for_all">Стандарт для всіх</string>
     <string name="book_detail_mark_listened">Позначити прослуханим</string>
     <string name="book_detail_unmark_listened">Зняти позначку</string>
+    <!-- Spec-53 T7 — correcting a badly parsed book. -->
+    <string name="book_detail_correct_metadata">Виправити метадані</string>
+    <string name="book_detail_update_published">Оновити в спільній базі</string>
+    <string name="book_detail_metadata_title">Назва</string>
+    <string name="book_detail_metadata_author">Автор</string>
+    <string name="book_detail_metadata_narrator">Начитка</string>
+    <string name="book_detail_metadata_save">Зберегти</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
     <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
     <string name="author_all_found">Усі знайдені автори</string>
@@ -278,7 +285,45 @@
     <string name="submission_sheet_subtitle">YouTube-відео, плейлист або пост Telegram. Книга з’явиться у медіатеці одразу, а в спільному каталозі — після реального програвання.</string>
     <string name="submission_url_label">Посилання</string>
     <string name="submission_remaining">Залишилось надсилань сьогодні: %1$d</string>
-    <string name="submission_submit_action">Надіслати</string>
+    <string name="submission_submit_action">Додати одразу</string>
+    <!-- Spec-53 T9 — the optional pre-add preview. -->
+    <string name="submission_preview_action">Переглянути</string>
+    <string name="submission_preview_add">Додати</string>
+    <!-- Spec-53 T10 — the whole-channel selection card. -->
+    <string name="submission_channel_open">Переглянути канал</string>
+    <string name="submission_channel_title_default">Канал</string>
+    <string name="submission_channel_close">Закрити</string>
+    <string name="submission_channel_videos">Відео</string>
+    <string name="submission_channel_playlists">Плейлисти</string>
+    <string name="submission_channel_loading">Читаю канал…</string>
+    <string name="submission_channel_failed">Не вдалося прочитати канал.</string>
+    <string name="submission_channel_retry">Спробувати ще</string>
+    <string name="submission_channel_empty">На цій вкладці порожньо.</string>
+    <string name="submission_channel_last_n">Останні:</string>
+    <string name="submission_channel_skipped">Пропущено %1$d відео</string>
+    <string name="submission_channel_add_skipped">Додати</string>
+    <string name="submission_channel_more">Ще</string>
+    <string name="submission_channel_playlist">плейлист</string>
+    <string name="submission_channel_stop">Спинити</string>
+    <string name="submission_channel_progress">%1$d/%2$d · %3$s</string>
+    <string name="submission_channel_done">Додано %1$d з %2$d</string>
+    <string name="submission_channel_stopped">Зупинено · додано %1$d з %2$d</string>
+    <string name="submission_channel_add_selected">Додати вибрані (%1$d)</string>
+    <!-- Spec-53 T11 — playlist position selection. -->
+    <string name="submission_playlist_one_book">Одна книга (розділи)</string>
+    <string name="submission_playlist_separate">Окремі книги</string>
+    <string name="submission_playlist_selected">Вибрано %1$d з %2$d</string>
+    <string name="submission_playlist_select_all">Вибрати всі</string>
+    <string name="submission_preview_edit">Редагувати</string>
+    <string name="submission_preview_single_video">одне відео</string>
+    <string name="submission_preview_playlist_prefix">плейлист</string>
+    <string name="submission_preview_telegram">Telegram-пост</string>
+    <plurals name="submission_preview_chapters">
+        <item quantity="one">%1$d розділ</item>
+        <item quantity="few">%1$d розділи</item>
+        <item quantity="many">%1$d розділів</item>
+        <item quantity="other">%1$d розділів</item>
+    </plurals>
     <string name="submission_status_working">Обробляємо посилання…</string>
     <string name="submission_status_imported">Книгу додано. Слухайте — після програвання вона потрапить у спільний каталог.</string>
     <string name="submission_status_imported_local">Книгу додано локально. Спільна база недоступна — публікації не буде.</string>
@@ -288,10 +333,26 @@
     <string name="submission_status_refused_metadata">Не вдалося розібрати посилання — метаданих немає.</string>
     <string name="submission_status_refused_no_tracks">У посиланні немає жодного розділу для прослуховування.</string>
     <string name="submission_status_refused_import">Не вдалося додати книгу з цього посилання.</string>
-    <string name="submission_status_refused_duplicate">Це посилання вже опубліковано.</string>
+    <string name="submission_status_refused_duplicate">Уже в спільній базі.</string>
+    <string name="submission_status_already_in_library">Уже в медіатеці.</string>
+    <string name="submission_open_book">Відкрити книгу</string>
     <string name="submission_status_refused_not_verified">Публікація потребує реального програвання.</string>
     <string name="submission_status_refused_unavailable">Спільна база недоступна.</string>
+    <string name="submission_listen_now">Слухати зараз</string>
+    <string name="submission_awaiting_badge">Очікує</string>
+    <!-- Spec-53 T5: the TG card's honest state — the preview has no audio. -->
+    <string name="submission_watching_source">Шукаємо джерело</string>
+    <string name="submission_published_toast">Поділилися книгою зі спільнотою</string>
+    <string name="submission_paste_from_clipboard">Вставити з буфера</string>
     <string name="submission_status_unsupported">Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram.</string>
+    <!-- Spec-53 T8 — the offline queue. -->
+    <string name="submission_status_deferred">Немає мережі — посилання відкладено. Оброблю, коли зʼявиться звʼязок.</string>
+    <string name="submission_deferred_title">Відкладені посилання</string>
+    <string name="submission_deferred_retry">Спробувати зараз</string>
+    <string name="submission_deferred_remove">Прибрати</string>
+    <!-- Spec-53 T12 — publication deferred to tomorrow (daily limit). -->
+    <string name="submission_status_deferred_publication">Денний ліміт вичерпано — опублікуємо завтра, без повторного програвання.</string>
+    <string name="submission_deferred_publication_badge">Опублікуємо завтра</string>
     <string name="import_option_link">Надіслати посилання</string>
     <string name="import_option_link_subtitle">YouTube-відео, плейлист або TG-пост</string>
     <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>

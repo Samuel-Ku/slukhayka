@@ -87,7 +87,20 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.PlaybackReplacementMapping
+import com.slukhayka.audiobooks.data.ingest.ChannelCardState
+import com.slukhayka.audiobooks.data.ingest.ChannelImportSession
+import com.slukhayka.audiobooks.data.ingest.ChannelItemKind
+import com.slukhayka.audiobooks.data.ingest.ChannelListFetcher
+import com.slukhayka.audiobooks.data.ingest.ChannelListItem
+import com.slukhayka.audiobooks.data.ingest.ChannelSelectionPolicy
+import com.slukhayka.audiobooks.data.ingest.ChannelTab
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
+import com.slukhayka.audiobooks.data.ingest.MetadataCorrectionPolicy
+import com.slukhayka.audiobooks.data.ingest.PreviewRunState
+import com.slukhayka.audiobooks.data.ingest.SubmissionState
+import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
+import com.slukhayka.audiobooks.data.source.NewPipeChannelListFetcher
 import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
@@ -370,9 +383,114 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val submissionState: StateFlow<SubmissionUiState> = _submissionState.asStateFlow()
     private val _submissionRemaining = MutableStateFlow<Int?>(null)
     val submissionRemaining: StateFlow<Int?> = _submissionRemaining.asStateFlow()
+    // Spec-53 T3 — the book ids still awaiting their playback verdict; the
+    // library badge and the sheet read this.
+    private val _awaitingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
+    val awaitingSubmissionBookIds: StateFlow<Set<String>> = _awaitingSubmissionBookIds.asStateFlow()
+
+    /** Spec-53 T5 — books whose card waits for a direct source. */
+    private val _watchingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
+    val watchingSubmissionBookIds: StateFlow<Set<String>> = _watchingSubmissionBookIds.asStateFlow()
+
+    /** Spec-53 T12 — books whose publication waits for tomorrow's budget. */
+    private val _deferredPublicationBookIds = MutableStateFlow<Set<String>>(emptySet())
+    val deferredPublicationBookIds: StateFlow<Set<String>> = _deferredPublicationBookIds.asStateFlow()
+    // One-shot quiet notice after a submission really published (snackbar).
+    private val _submissionPublished = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val submissionPublished: SharedFlow<Unit> = _submissionPublished.asSharedFlow()
+    private val lastImportedBookId = MutableStateFlow<String?>(null)
+    // Spec-53 T4 — a link arriving from a system share or the clipboard
+    // chip; the library screen opens the submission sheet with it, then
+    // consumes it.
+    private val _sharedSubmissionUrl = MutableStateFlow<String?>(null)
+    val sharedSubmissionUrl: StateFlow<String?> = _sharedSubmissionUrl.asStateFlow()
+
+    /** Accepts a shared text/link: stores the supported URL and opens the door. */
+    fun onSharedSubmission(text: String?) {
+        val url = sharedSubmissionUrlOf(text) ?: return
+        _sharedSubmissionUrl.value = url
+        selectTab(SelectedTab.LIBRARY)
+    }
+
+    fun consumeSharedSubmission() {
+        _sharedSubmissionUrl.value = null
+    }
 
     fun dismissSubmission() {
         _submissionState.value = SubmissionUiState.Idle
+        clearSubmissionPreview()
+        closeChannelCard()
+    }
+
+    /** Spec-53 T3/T5/T12 — refresh the awaiting, watching and waiting badges. */
+    fun refreshAwaitingSubmissions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _awaitingSubmissionBookIds.value =
+                runCatching { listenerSubmissionFlow.awaitingBookIds() }.getOrDefault(emptySet())
+            _watchingSubmissionBookIds.value =
+                runCatching { listenerSubmissionFlow.watchingBookIds() }.getOrDefault(emptySet())
+            _deferredPublicationBookIds.value =
+                runCatching { listenerSubmissionFlow.deferredPublicationBookIds() }
+                    .getOrDefault(emptySet())
+        }
+    }
+
+    /**
+     * Spec-53 T3 — the sheet's one big «Слухати зараз»: an explicit tap,
+     * never autoplay. Starts the imported copy so the verdict can fire.
+     */
+    fun listenToLastImported() {
+        val bookId = lastImportedBookId.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = libraryEntries.getBookSync(bookId) ?: return@launch
+            withContext(Dispatchers.Main) { playAudiobook(book) }
+        }
+    }
+
+    /**
+     * Spec-53 T7 — the listener's explicit correction of a badly parsed book.
+     * Display claims only: the Work mergeKey and the Edition id are untouched,
+     * so identity survives and no second Work appears.
+     */
+    fun correctBookMetadata(bookId: String, title: String, author: String, narrator: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@runCatching
+                when (
+                    val outcome = MetadataCorrectionPolicy.apply(
+                        currentTitle = book.title,
+                        currentAuthor = book.author,
+                        currentNarrator = book.narrator,
+                        edit = MetadataCorrectionPolicy.Edit(
+                            title = title,
+                            author = author,
+                            narrator = narrator
+                        )
+                    )
+                ) {
+                    is MetadataCorrectionPolicy.Outcome.Corrected ->
+                        App.instance.audiobookDao.correctBookMetadata(
+                            bookId = bookId,
+                            title = outcome.correction.title,
+                            author = outcome.correction.author,
+                            narrator = outcome.correction.narrator
+                        )
+                    is MetadataCorrectionPolicy.Outcome.Refused -> Unit
+                }
+            }
+        }
+    }
+
+    /**
+     * Spec-53 T7 — the same correction, pushed to the shared base. A no-op
+     * unless the book really has a published submission (the flow re-checks).
+     */
+    fun updatePublishedMetadata(bookId: String, title: String, author: String, narrator: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                listenerSubmissionFlow.updatePublishedMetadata(bookId, title, author, narrator)
+            }
+        }
     }
 
     fun refreshSubmissionRemaining() {
@@ -382,35 +500,460 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitLink(rawUrl: String) {
+    /**
+     * Spec-53 T9 — submits with the preview's corrections already applied.
+     * Null edits keep the one-tap path exactly as it was.
+     */
+    fun submitLink(
+        rawUrl: String,
+        edits: ListenerSubmissionFlow.PreviewEdits? = null,
+        selectedWatchUrls: Set<String>? = null
+    ) {
         if (_submissionState.value == SubmissionUiState.Working) return
         _submissionState.value = SubmissionUiState.Working
         viewModelScope.launch(Dispatchers.IO) {
-            val start = runCatching { listenerSubmissionFlow.submit(rawUrl) }.getOrNull()
+            val start = runCatching {
+                listenerSubmissionFlow.submit(rawUrl, edits, selectedWatchUrls)
+            }.getOrNull()
                 ?: ListenerSubmissionFlow.Start.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED, 0)
-            when (start) {
-                is ListenerSubmissionFlow.Start.Imported -> {
-                    val book = libraryEntries.getBookSync(start.bookId)
-                    if (book == null) {
-                        _submissionState.value =
-                            SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED)
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            _submissionState.value = SubmissionUiState.Imported(start.publishable)
-                            playAudiobook(book)
-                        }
-                    }
-                }
-                ListenerSubmissionFlow.Start.MetadataPublished ->
-                    _submissionState.value = SubmissionUiState.MetadataPublished
-                is ListenerSubmissionFlow.Start.Refused ->
-                    _submissionState.value = SubmissionUiState.Refused(start.reason)
-                ListenerSubmissionFlow.Start.Unsupported ->
-                    _submissionState.value = SubmissionUiState.Unsupported
-            }
+            applySubmissionStart(start)
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
             _submissionRemaining.value =
                 runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
         }
+    }
+
+    /**
+     * Spec-53 T11 — the playlist preview's selection: every position is
+     * picked by default ("додати всі"), and the two build modes decide
+     * whether the picked positions become ONE book (chapters) or separate
+     * books. Both modes send the SAME canonical watch URLs the entries show,
+     * so a tick can never import a different video than the one displayed.
+     */
+    private val _previewSelection = MutableStateFlow<Set<String>>(emptySet())
+    val previewSelection: StateFlow<Set<String>> = _previewSelection.asStateFlow()
+    private val _previewSeparateBooks = MutableStateFlow(false)
+    val previewSeparateBooks: StateFlow<Boolean> = _previewSeparateBooks.asStateFlow()
+    private val _previewRun = MutableStateFlow(PreviewRunState())
+    val previewRun: StateFlow<PreviewRunState> = _previewRun.asStateFlow()
+    private var previewSessionJob: Job? = null
+
+    fun togglePreviewEntry(watchUrl: String) {
+        if (_previewRun.value.running) return
+        val current = _previewSelection.value
+        _previewSelection.value =
+            if (watchUrl in current) current - watchUrl else current + watchUrl
+    }
+
+    fun selectAllPreviewEntries() {
+        if (_previewRun.value.running) return
+        _previewSelection.value = _submissionPreview.value?.entries?.map { it.watchUrl }?.toSet().orEmpty()
+    }
+
+    fun setPreviewSeparateBooks(separate: Boolean) {
+        if (_previewRun.value.running) return
+        _previewSeparateBooks.value = separate
+    }
+
+    /**
+     * Spec-53 T11 — adds the picked positions. One-book mode narrows the
+     * playlist import to the selection (unpicked positions create nothing);
+     * separate-books mode walks each picked position through the ORDINARY
+     * single-video door, one at a time, in the human rhythm, with visible
+     * progress and an honest stop.
+     */
+    fun addPreviewSelection(edits: ListenerSubmissionFlow.PreviewEdits) {
+        val preview = _submissionPreview.value ?: return
+        val selected = _previewSelection.value
+        if (selected.isEmpty() || _previewRun.value.running) return
+
+        if (!_previewSeparateBooks.value) {
+            clearSubmissionPreview()
+            submitLink(preview.url, edits, selected)
+            return
+        }
+        val picked = preview.entries.filter { it.watchUrl in selected }
+        if (picked.isEmpty()) return
+
+        previewSessionJob?.cancel()
+        val items = picked.map { entry ->
+            ChannelListItem(
+                id = entry.watchUrl,
+                kind = ChannelItemKind.VIDEO,
+                title = entry.title,
+                url = entry.watchUrl,
+                durationSeconds = entry.durationSeconds
+            )
+        }
+        val session = ChannelImportSession(
+            submit = { url -> listenerSubmissionFlow.submit(url) },
+            pacing = PacingPolicy()
+        )
+        _previewRun.value = PreviewRunState(
+            running = true,
+            progress = ChannelImportSession.Progress(0, items.size, "")
+        )
+        previewSessionJob = viewModelScope.launch(Dispatchers.IO) {
+            val progressJob = launch {
+                session.progress.collect { p -> _previewRun.value = _previewRun.value.copy(progress = p) }
+            }
+            var added = 0
+            val stopped = try {
+                added = session.run(items).count { it is ListenerSubmissionFlow.Start.Imported }
+                false
+            } catch (_: CancellationException) {
+                true
+            } finally {
+                progressJob.cancel()
+            }
+            _previewRun.value = PreviewRunState(
+                running = false,
+                added = added,
+                total = items.size,
+                stopped = stopped
+            )
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    fun stopPreviewRun() {
+        previewSessionJob?.cancel()
+    }
+
+    /**
+     * Spec-53 T9 — the pre-add preview, engine data only. Null clears the
+     * card; a failed read leaves the previous card untouched, never a fake.
+     */
+    private val _submissionPreview =
+        MutableStateFlow<ListenerSubmissionFlow.SubmissionPreview?>(null)
+    val submissionPreview: StateFlow<ListenerSubmissionFlow.SubmissionPreview?> =
+        _submissionPreview.asStateFlow()
+
+    fun loadSubmissionPreview(rawUrl: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val preview = runCatching { listenerSubmissionFlow.previewSubmission(rawUrl) }.getOrNull()
+            if (preview != null) {
+                _submissionPreview.value = preview
+                // Spec-53 T11 — a fresh card starts with EVERY position picked
+                // ("додати всі") and the default mode: one book of chapters.
+                _previewSelection.value = preview.entries.map { it.watchUrl }.toSet()
+                _previewSeparateBooks.value = false
+                _previewRun.value = PreviewRunState()
+            }
+        }
+    }
+
+    fun clearSubmissionPreview() {
+        previewSessionJob?.cancel()
+        previewSessionJob = null
+        _submissionPreview.value = null
+        _previewSelection.value = emptySet()
+        _previewRun.value = PreviewRunState()
+    }
+
+    /** Spec-53 T10 — pure check the sheet uses to offer the channel card's door. */
+    fun isChannelLink(url: String): Boolean = listenerSubmissionFlow.isChannelLink(url)
+
+    /** Spec-53 T8 — the visible offline queue of pasted links. */
+    private val _deferredSubmissions = MutableStateFlow<List<SubmissionState>>(emptyList())
+    val deferredSubmissions: StateFlow<List<SubmissionState>> = _deferredSubmissions.asStateFlow()
+
+    fun refreshDeferredSubmissions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _deferredSubmissions.value =
+                runCatching { listenerSubmissionFlow.deferredSubmissions() }.getOrDefault(emptyList())
+        }
+    }
+
+    /** Spec-53 T8 — «прибрати»: the listener drops one queued link for good. */
+    fun removeDeferredSubmission(sourceId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { listenerSubmissionFlow.removeDeferred(sourceId) }
+            refreshDeferredSubmissions()
+        }
+    }
+
+    /** Spec-53 T8 — «спробувати зараз»: one explicit attempt, never a loop. */
+    fun retryDeferredSubmission(sourceId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val row = runCatching { listenerSubmissionFlow.deferredSubmissions() }
+                .getOrDefault(emptyList())
+                .firstOrNull { it.sourceId == sourceId } ?: return@launch
+            runCatching { listenerSubmissionFlow.removeDeferred(sourceId) }
+            val start = runCatching { listenerSubmissionFlow.submit(row.url) }.getOrNull()
+            start?.let { applySubmissionStart(it) }
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+        }
+    }
+
+    /**
+     * Spec-53 T8 — the queue runs on the next open (or when the network
+     * returns). One pass, no hidden retries; offline again simply re-queues.
+     */
+    fun processDeferredSubmissions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val outcomes = runCatching { listenerSubmissionFlow.processDeferred() }
+                .getOrDefault(emptyList())
+            outcomes.lastOrNull()?.let { applySubmissionStart(it) }
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    /**
+     * Spec-53 T12 — the next-day pass over submissions whose real verdict
+     * landed on an exhausted day. No re-play, no re-import: the stored row is
+     * the proof. A land is announced by the SAME quiet toast as a fresh
+     * publication — the sheet's copy is the reminder, never a system
+     * notification (the spec keeps those out of scope).
+     */
+    fun processDeferredPublications() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val verdicts = runCatching { listenerSubmissionFlow.publishDeferredPublications() }
+                .getOrDefault(emptyList())
+            if (verdicts.any { it is ListenerSubmissionFlow.Verdict.Published }) {
+                _submissionPublished.tryEmit(Unit)
+            }
+            refreshAwaitingSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    private suspend fun applySubmissionStart(start: ListenerSubmissionFlow.Start) {
+        when (start) {
+            is ListenerSubmissionFlow.Start.Imported -> {
+                val book = libraryEntries.getBookSync(start.bookId)
+                if (book == null) {
+                    _submissionState.value =
+                        SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED)
+                } else if (start.alreadyInLibrary) {
+                    // Spec-53 T6 — my library already has this copy: a
+                    // friendly state with «Відкрити книгу», not a refusal.
+                    _submissionState.value = SubmissionUiState.AlreadyInLibrary(start.bookId)
+                } else {
+                    lastImportedBookId.value = start.bookId
+                    // Spec-53 T3 — no autoplay: the sheet offers one
+                    // explicit «Слухати зараз» action; the awaiting badge
+                    // keeps the promise visible until then.
+                    _submissionState.value = SubmissionUiState.Imported(start.publishable)
+                }
+            }
+            is ListenerSubmissionFlow.Start.MetadataPublished ->
+                _submissionState.value = SubmissionUiState.MetadataPublished
+            is ListenerSubmissionFlow.Start.Refused ->
+                _submissionState.value = SubmissionUiState.Refused(start.reason)
+            is ListenerSubmissionFlow.Start.Deferred ->
+                _submissionState.value = SubmissionUiState.Deferred
+            is ListenerSubmissionFlow.Start.ChannelLink ->
+                // Spec-53 T10 — a channel is picked, never auto-imported: the
+                // card opens and the sheet stays interactive (Idle, not
+                // Working) because the card carries its own loading states.
+                openChannelCard(start.url)
+            ListenerSubmissionFlow.Start.Unsupported ->
+                _submissionState.value = SubmissionUiState.Unsupported
+        }
+    }
+
+    // Spec-53 T10 — the whole-channel selection card: tabs, checkboxes,
+    // «останні N», membership dedup, a paced run with progress and stop.
+    // The fetcher is stateful per open card (tab + cursor), so each open
+    // gets a fresh instance; the run's session likewise lives per run.
+    private val _channelCard = MutableStateFlow<ChannelCardState?>(null)
+    val channelCard: StateFlow<ChannelCardState?> = _channelCard.asStateFlow()
+    private var channelFetcher: ChannelListFetcher? = null
+    private var channelSessionJob: Job? = null
+    private var channelProgressJob: Job? = null
+
+    fun openChannelCard(url: String) {
+        closeChannelRun()
+        val fetcher = NewPipeChannelListFetcher()
+        channelFetcher = fetcher
+        _submissionState.value = SubmissionUiState.Idle
+        _channelCard.value = ChannelCardState(url = url, loading = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            val page = runCatching { fetcher.openVideos(url) }.getOrNull()
+            val now = _channelCard.value
+            if (now == null || now.url != url) return@launch
+            _channelCard.value = if (page == null) {
+                now.copy(loading = false, loadFailed = true)
+            } else {
+                now.copy(
+                    loading = false,
+                    loadFailed = false,
+                    title = page.channelTitle,
+                    tab = ChannelTab.VIDEOS,
+                    items = page.items,
+                    hasMore = page.hasMore
+                )
+            }
+        }
+    }
+
+    fun closeChannelCard() {
+        closeChannelRun()
+        channelFetcher = null
+        _channelCard.value = null
+    }
+
+    fun switchChannelTab(tab: ChannelTab) {
+        val cur = _channelCard.value ?: return
+        if (tab == cur.tab || cur.loading || cur.running) return
+        val fetcher = channelFetcher ?: return
+        _channelCard.value = cur.copy(tab = tab, loading = true, loadFailed = false, items = emptyList(), hasMore = false)
+        viewModelScope.launch(Dispatchers.IO) {
+            val page = runCatching {
+                if (tab == ChannelTab.VIDEOS) fetcher.openVideos(cur.url) else fetcher.openPlaylists(cur.url)
+            }.getOrNull()
+            val now = _channelCard.value
+            if (now == null || now.url != cur.url || now.tab != tab) return@launch
+            _channelCard.value = if (page == null) {
+                now.copy(loading = false, loadFailed = true)
+            } else {
+                now.copy(
+                    loading = false,
+                    title = page.channelTitle.ifBlank { now.title },
+                    items = page.items,
+                    hasMore = page.hasMore
+                )
+            }
+        }
+    }
+
+    fun loadMoreChannelItems() {
+        val cur = _channelCard.value ?: return
+        if (cur.loading || !cur.hasMore || cur.running) return
+        val fetcher = channelFetcher ?: return
+        _channelCard.value = cur.copy(loading = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            val page = runCatching { fetcher.more() }.getOrNull()
+            val now = _channelCard.value
+            if (now == null || now.url != cur.url || now.tab != cur.tab) return@launch
+            _channelCard.value = if (page == null) {
+                // An unreadable next page is an honest end, not a failure:
+                // what is listed stays listed.
+                now.copy(loading = false, hasMore = false)
+            } else {
+                now.copy(
+                    loading = false,
+                    items = now.items + page.items.filter { item -> now.items.none { it.id == item.id } },
+                    hasMore = page.hasMore
+                )
+            }
+        }
+    }
+
+    fun toggleChannelItem(id: String) {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        val item = cur.items.find { it.id == id } ?: return
+        val checked = if (id in cur.checkedIds) cur.checkedIds - id else cur.checkedIds + id
+        _channelCard.value = cur.copy(checkedIds = checked, doneAdded = null, doneStopped = false)
+        if (id !in cur.checkedIds && item.kind == ChannelItemKind.PLAYLIST) {
+            ensurePlaylistMembers(item)
+        }
+    }
+
+    fun selectChannelLastN(n: Int) {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        val ids = ChannelSelectionPolicy.lastN(cur.items, n).map { it.id }.toSet()
+        _channelCard.value = cur.copy(checkedIds = ids, doneAdded = null, doneStopped = false)
+        cur.items.filter { it.id in ids && it.kind == ChannelItemKind.PLAYLIST }.forEach(::ensurePlaylistMembers)
+    }
+
+    fun toggleChannelIncludeSkipped() {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        _channelCard.value = cur.copy(includeSkipped = !cur.includeSkipped, doneAdded = null, doneStopped = false)
+    }
+
+    /**
+     * Membership of one playlist, read once and cached: the same watch URLs
+     * the import door would materialise, so the «пропущено N» dedup is real.
+     * A failed read caches as unknown (absent from the map) — the video then
+     * stays selectable instead of vanishing on an engine hiccup.
+     */
+    private fun ensurePlaylistMembers(item: ChannelListItem) {
+        val cur = _channelCard.value ?: return
+        if (item.id in cur.playlistMembers || item.id in cur.membersLoading) return
+        _channelCard.value = cur.copy(membersLoading = cur.membersLoading + item.id)
+        viewModelScope.launch(Dispatchers.IO) {
+            val members = runCatching { listenerSubmissionFlow.playlistMemberUrls(item.url) }.getOrNull()
+            val now = _channelCard.value ?: return@launch
+            _channelCard.value = now.copy(
+                playlistMembers = if (members == null) now.playlistMembers else now.playlistMembers + (item.id to members),
+                membersLoading = now.membersLoading - item.id
+            )
+        }
+    }
+
+    fun startChannelImport() {
+        val cur = _channelCard.value ?: return
+        if (cur.running) return
+        val checked = cur.items.filter { it.id in cur.checkedIds }
+        val resolved = ChannelSelectionPolicy.resolve(checked, cur.playlistMembers, cur.includeSkipped)
+        if (resolved.toAdd.isEmpty()) return
+        closeChannelRun()
+        val acc = mutableListOf<ListenerSubmissionFlow.Start>()
+        val session = ChannelImportSession(
+            submit = { url -> listenerSubmissionFlow.submit(url).also { acc += it } },
+            pacing = PacingPolicy()
+        )
+        _channelCard.value = cur.copy(
+            running = true,
+            doneAdded = null,
+            doneStopped = false,
+            progress = ChannelImportSession.Progress(0, resolved.toAdd.size, "")
+        )
+        channelSessionJob = viewModelScope.launch(Dispatchers.IO) {
+            channelProgressJob = launch {
+                session.progress.collect { p ->
+                    _channelCard.value = _channelCard.value?.copy(progress = p)
+                }
+            }
+            val stopped = try {
+                session.run(resolved.toAdd)
+                false
+            } catch (_: CancellationException) {
+                // Deliberate stop (stopChannelImport): partial results in
+                // acc already went through the ordinary per-item path.
+                true
+            } finally {
+                channelProgressJob?.cancel()
+            }
+            val added = acc.count { it is ListenerSubmissionFlow.Start.Imported }
+            val total = resolved.toAdd.size
+            _channelCard.value = _channelCard.value?.copy(
+                running = false,
+                progress = null,
+                doneAdded = added,
+                doneTotal = total,
+                doneStopped = stopped
+            )
+            refreshAwaitingSubmissions()
+            refreshDeferredSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    fun stopChannelImport() {
+        channelSessionJob?.cancel()
+    }
+
+    private fun closeChannelRun() {
+        channelSessionJob?.cancel()
+        channelSessionJob = null
+        channelProgressJob?.cancel()
+        channelProgressJob = null
     }
 
 
@@ -598,12 +1141,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val submissionSourceId = playerState.value.currentSourceId
                 if (submissionSourceId.isNotBlank()) {
                     when (val submissionVerdict = listenerSubmissionFlow.onPlaybackStarted(submissionSourceId)) {
-                        ListenerSubmissionFlow.Verdict.Published ->
+                        ListenerSubmissionFlow.Verdict.Published -> {
                             _submissionState.value = SubmissionUiState.Published
-                        is ListenerSubmissionFlow.Verdict.Refused ->
+                            _submissionPublished.tryEmit(Unit)
+                            refreshAwaitingSubmissions()
+                        }
+                        is ListenerSubmissionFlow.Verdict.Refused -> {
                             if (_submissionState.value is SubmissionUiState.Imported) {
                                 _submissionState.value = SubmissionUiState.Refused(submissionVerdict.reason)
                             }
+                            refreshAwaitingSubmissions()
+                        }
+                        ListenerSubmissionFlow.Verdict.DeferredPublication -> {
+                            // Spec-53 T12 — the promise is kept, just later:
+                            // the sheet says so, and the card keeps the badge
+                            // until tomorrow's pass settles it.
+                            if (_submissionState.value is SubmissionUiState.Imported) {
+                                _submissionState.value = SubmissionUiState.DeferredPublication
+                            }
+                            refreshAwaitingSubmissions()
+                        }
                         ListenerSubmissionFlow.Verdict.NoPending -> Unit
                     }
                 }
@@ -2913,7 +3470,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Single-flight guard: a running embedding pass is never re-launched. */
     private val _embeddingPassInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val recommendationWorks = sourceCatalog.allWorks
+    // ADR-0041: recommendations are a discovery surface of the Mirror, so the
+    // pool is the CLAIMED Works only — a Work whose every Source was removed
+    // can never be opened and must not be offered (the ghost behind the
+    // 2026-09-15 «Рекомендовано для вас» report).
+    private val recommendationWorks = sourceCatalog.discoverableWorks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
 
@@ -3468,6 +4029,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     key != null && watched.containsKey(key)
                 }
             }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * Spec-53 T7 — whether the open book has a PUBLISHED submission, i.e.
+     * whether «Оновити в спільній базі» may exist at all.
+     */
+    val bookPublishedSubmission: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(false)
+            else flowOf(listenerSubmissionFlow.publishedSubmission(bookId) != null)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 

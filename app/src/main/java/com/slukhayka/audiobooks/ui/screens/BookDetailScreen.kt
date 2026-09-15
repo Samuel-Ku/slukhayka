@@ -80,6 +80,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.MetadataCorrectionDialog
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -197,6 +198,9 @@ fun BookDetailScreen(
     val audioUnavailable by viewModel.bookAudioUnavailable.collectAsState()
     val bookWatched by viewModel.bookWatched.collectAsState()
     val narrationClaimDone by viewModel.narrationClaimDone.collectAsState()
+    // Spec-53 T7 — the correction dialog and the shared-base gate.
+    val bookPublishedSubmission by viewModel.bookPublishedSubmission.collectAsState()
+    var showMetadataDialog by remember(currentBook.id) { mutableStateOf(false) }
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
     val isDownloadPaused = currentBook.downloadState == DownloadState.PAUSED
@@ -651,6 +655,34 @@ fun BookDetailScreen(
                                     viewModel.setCompleted(currentBook.id, !isListenedThis)
                                 }
                             )
+                            // Spec-53 T7 — a bad parse is fixable, locally…
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.book_detail_correct_metadata)) },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                modifier = Modifier.testTag("book_detail_correct_metadata"),
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showMetadataDialog = true
+                                }
+                            )
+                            // …and only a published submission can be corrected
+                            // in the shared base; otherwise the action is absent.
+                            if (bookPublishedSubmission) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_detail_update_published)) },
+                                    leadingIcon = { Icon(Icons.Default.CloudUpload, contentDescription = null) },
+                                    modifier = Modifier.testTag("book_detail_update_published"),
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.updatePublishedMetadata(
+                                            currentBook.id,
+                                            currentBook.title,
+                                            currentBook.author,
+                                            currentBook.narrator
+                                        )
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
                                 leadingIcon = {
@@ -1436,6 +1468,20 @@ fun BookDetailScreen(
                 TextButton(onClick = { pendingChapterDeleteIndex = null }) {
                     Text(stringResource(R.string.book_detail_cancel))
                 }
+            }
+        )
+    }
+
+    // Spec-53 T7 — the metadata correction form.
+    if (showMetadataDialog) {
+        MetadataCorrectionDialog(
+            initialTitle = currentBook.title,
+            initialAuthor = currentBook.author,
+            initialNarrator = currentBook.narrator,
+            onDismiss = { showMetadataDialog = false },
+            onSave = { title, author, narrator ->
+                showMetadataDialog = false
+                viewModel.correctBookMetadata(currentBook.id, title, author, narrator)
             }
         )
     }

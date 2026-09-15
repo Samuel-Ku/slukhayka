@@ -1,0 +1,6 @@
+SPIKE FIXTURE (spec-53 T1): channel videos tab, first 5 of 30 (name, watch url, duration seconds).
+CHANNEL_VIDEO type=STREAM name=МАРСІАНСЬКА ОДІССЕЯ #фантастика #вейнбаум #стенлівейнбаум #аудіокнигиукраїнською #класика #ретро url=https://www.youtube.com/watch?v=F_OkQ2hHEvQ duration=4674
+CHANNEL_VIDEO type=STREAM name=ПРИГОДИ ПАРКЕРА ПАЙНА #детектив #аудіокнига #читаювголос #агатакрісті #паркерпайн #пайн #цикл url=https://www.youtube.com/watch?v=oc5ghRfqBoA duration=3143
+CHANNEL_VIDEO type=STREAM name=Едвард Хох НЕЙМОВІРНИЙ ЗЛОЧИН #детектив #аудіокнигиукраїнською #трилер #афера #хох #розслідування url=https://www.youtube.com/watch?v=Jo12AzgMRGc duration=2266
+CHANNEL_VIDEO type=STREAM name=Альона Сохацька КОНСИСТЕНЦІЯ ДУРОСТІ #текаавторів #містика #дивне #читаювголос #химерне #нашіавтори url=https://www.youtube.com/watch?v=0sl6XNJf-vU duration=453
+CHANNEL_VIDEO type=STREAM name=Бертрам Чандлер ДРЕЙФ #фантастика #космос #аудіокнигиукраїнською #читаювголос #аудіокнига #химерне url=https://www.youtube.com/watch?v=SM6j_-RXSSM duration=1328

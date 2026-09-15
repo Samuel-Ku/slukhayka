@@ -618,6 +618,23 @@ interface AudiobookDao {
     @Query("SELECT * FROM works ORDER BY addedAt DESC")
     fun observeWorks(): Flow<List<WorkEntity>>
 
+    /**
+     * ADR-0041 — the discovery pool of the Catalog Mirror: only Works that
+     * still carry at least one Source claim in `work_sources`. Removing a
+     * source (the scam purge, a shared tombstone) deletes its claims but keeps
+     * the Work as the merge anchor; a claim-less Work can never be opened or
+     * played, so no discovery surface may publish it as a card. A Work that
+     * regains a claim reappears by itself.
+     */
+    @Query(
+        """
+        SELECT * FROM works
+        WHERE EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = works.id)
+        ORDER BY addedAt DESC
+        """
+    )
+    fun observeDiscoverableWorks(): Flow<List<WorkEntity>>
+
     @Query("SELECT COUNT(*) FROM works")
     suspend fun countWorks(): Int
 
@@ -657,7 +674,11 @@ interface AudiobookDao {
                    ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
                ) ELSE NULL END AS matchingEditionId
         FROM works w
-        WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
+        -- ADR-0041: the endless feed is a discovery surface of the Catalog
+        -- Mirror — a Work whose every Source claim was removed (scam purge,
+        -- shared tombstone) can never be opened and is not publishable.
+        WHERE EXISTS (SELECT 1 FROM work_sources ws0 WHERE ws0.workId = w.id)
+          AND (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
           AND (
@@ -710,7 +731,11 @@ interface AudiobookDao {
                    ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
                ) ELSE NULL END AS matchingEditionId
         FROM works w
-        WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
+        -- ADR-0041: the endless feed is a discovery surface of the Catalog
+        -- Mirror — a Work whose every Source claim was removed (scam purge,
+        -- shared tombstone) can never be opened and is not publishable.
+        WHERE EXISTS (SELECT 1 FROM work_sources ws0 WHERE ws0.workId = w.id)
+          AND (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
           AND (

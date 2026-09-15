@@ -96,6 +96,28 @@ const VALID_CARD = {
 const CARD_WITH_QUERY = { ...VALID_CARD, query: "шевченко" };
 const OVERLONG_CARD = { ...VALID_CARD, title: "т".repeat(301) };
 
+// v1.7 (модерація надсилань) — один кандидат у черзі. submitterHash — sha256
+// (64 символи), не сирий uid; state ставить клієнт лише 'pending'.
+const VALID_PENDING = {
+  url: "https://youtu.be/ozaZXk5Qcwc",
+  canonicalUrl: "https://www.youtube.com/watch?v=ozaZXk5Qcwc",
+  title: "Звички невдах",
+  author: "Стівен Адамс",
+  narrator: "YouTube",
+  coverUrl: "https://i.ytimg.com/vi/ozaZXk5Qcwc/maxresdefault.jpg",
+  uploader: "Корисні книги",
+  durationSeconds: 5000,
+  chaptersCount: 1,
+  sourceId: "youtube",
+  metadataJson: "{\"title\":\"Звички невдах\"}",
+  submitterHash: "a".repeat(64),
+  playedAt: 1700000000000,
+  createdAt: 1700000000000,
+  state: "pending",
+};
+const PENDING_RAW_UID = { ...VALID_PENDING, submitterHash: "uid-alice" };
+const PENDING_ALREADY_APPROVED = { ...VALID_PENDING, state: "approved" };
+
 // #691 — one published listener collection. authorId is sha256(uid): a 64-char
 // hex string, never the raw uid.
 const VALID_COLLECTION = {
@@ -336,14 +358,27 @@ const MATRIX = [
   ["F22", `book_facets/${DUPLICATE_GENRE_WORK_FACET.assertionId}`, "create", null, DUPLICATE_GENRE_WORK_FACET, "DENY", "genre ids унікальні"],
   ["F23", `book_facets/${DUPLICATE_SERIES_WORK_FACET.assertionId}`, "create", null, DUPLICATE_SERIES_WORK_FACET, "DENY", "Series ids унікальні"],
   // #522 — the collective catalogue cards lane.
+  // v1.7: картку пише ЛИШЕ бот (Admin SDK). Клієнтський запис закрито
+  // повністю — інакше модераторський шлюз обходився б будь-якою збіркою.
   ["K1", "catalog_cards/qa_k1", "get", null, null, "ALLOW", "картка — публічний факт, читання відкрите"],
-  ["K2", "catalog_cards/qa_k2", "create", "uid-alice", VALID_CARD, "ALLOW", "bounded card (+AppCheck у проді)"],
+  ["K2", "catalog_cards/qa_k2", "create", "uid-alice", VALID_CARD, "DENY", "клієнт більше не публікує картку — лише бот"],
   ["K3", "catalog_cards/qa_k3", "create", "uid-alice", CARD_WITH_QUERY, "DENY", "зайве поле query (hasOnly)"],
   ["K4", "catalog_cards/qa_k4", "create", "uid-alice", OVERLONG_CARD, "DENY", "title поза межею"],
   ["K5", "catalog_cards/qa_k5", "create", null, VALID_CARD, "DENY", "нема auth"],
   ["K6", "catalog_cards/qa_k6", "create", "uid-alice", VALID_CARD, "DENY", "нема AppCheck-токена"],
-  ["K7", "catalog_cards/qa_k7", "update", "uid-alice", VALID_CARD, "ALLOW", "повторна публікація тієї самої картки"],
+  ["K7", "catalog_cards/qa_k7", "update", "uid-alice", VALID_CARD, "DENY", "клієнтський update закрито — лише бот"],
   ["K8", "catalog_cards/qa_k2", "delete", "uid-alice", null, "DENY", "client delete заборонений"],
+  // v1.7 — черга модерації: клієнт кладе кандидата, вирішує бот.
+  ["N1", "pending_submissions/qa_n1", "create", "uid-alice", VALID_PENDING, "ALLOW", "валідний кандидат (+AppCheck у проді)"],
+  ["N2", "pending_submissions/qa_n2", "create", "uid-alice", PENDING_RAW_UID, "DENY", "submitterHash мусить бути sha256 (64), не сирий uid"],
+  ["N3", "pending_submissions/qa_n3", "create", "uid-alice", PENDING_ALREADY_APPROVED, "DENY", "клієнт ставить лише state=pending"],
+  ["N4", "pending_submissions/qa_n4", "create", null, VALID_PENDING, "DENY", "нема auth"],
+  ["N5", "pending_submissions/qa_n1", "get", "uid-alice", null, "DENY", "черга не публічна"],
+  ["N6", "pending_submissions/qa_n1", "update", "uid-alice", VALID_PENDING, "DENY", "стан міняє лише бот"],
+  ["N7", "pending_submissions/qa_n1", "delete", "uid-alice", null, "DENY", "видаляє лише бот"],
+  // v1.7 — список відхилених: читається для пре-чека, пише лише бот.
+  ["X1", "rejected_submissions/qa_x1", "get", null, null, "ALLOW", "список відхилених читається для пре-чека"],
+  ["X2", "rejected_submissions/qa_x2", "create", "uid-alice", { canonicalUrl: "https://www.youtube.com/watch?v=x" }, "DENY", "пише лише бот"],
   // #527 — the shared collective blocks.
   ["L1", "catalog_blocks/qa_l1", "get", null, null, "ALLOW", "блок — публічний факт, читання відкрите"],
   ["L2", "catalog_blocks/qa_l2", "create", "uid-alice", VALID_BLOCK, "ALLOW", "bounded block (+AppCheck у проді)"],
@@ -387,6 +422,11 @@ const EVIDENCE = {
   K6: "as-is", K7: "open", K8: "open",
   L1: "as-is", L2: "open", L3: "open", L4: "open", L5: "open",
   L6: "as-is", L7: "open",
+  // v1.7 — модерація: кандидат дозволений і його форма доводяться з відкритим
+  // гейтом; читання (у т.ч. заборонене) і закритий запис у каталог — «as-is».
+  N1: "open", N2: "open", N3: "open", N4: "open",
+  N5: "as-is", N6: "open", N7: "open",
+  X1: "as-is", X2: "open",
 };
 
 function b64(o) {

@@ -281,6 +281,33 @@ service cloud.firestore {
         && d.observedAt is number;
     }
 
+    // v1.7 (модерація надсилань) — один КАНДИДАТ у черзі. Застосунок кладе
+    // його після реального програвання; рішення ухвалює куратор у боті.
+    // Набір полів — це і є гейт: ні запиту, ні кукі, ні сирого uid тут бути не
+    // може, а submitterHash — sha256 (64 символи), не uid.
+    function isWellFormedPendingSubmission(d) {
+      return d.keys().hasOnly([
+          'url', 'canonicalUrl', 'title', 'author', 'narrator', 'coverUrl',
+          'uploader', 'durationSeconds', 'chaptersCount', 'sourceId',
+          'metadataJson', 'submitterHash', 'playedAt', 'createdAt', 'state'
+        ])
+        && d.url is string && d.url.size() > 0 && d.url.size() <= 2000
+        && d.canonicalUrl is string && d.canonicalUrl.size() > 0 && d.canonicalUrl.size() <= 2000
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 300
+        && (!('author' in d) || (d.author is string && d.author.size() <= 200))
+        && (!('narrator' in d) || (d.narrator is string && d.narrator.size() <= 200))
+        && (!('coverUrl' in d) || (d.coverUrl is string && d.coverUrl.size() <= 2000))
+        && (!('uploader' in d) || (d.uploader is string && d.uploader.size() <= 200))
+        && (!('durationSeconds' in d) || (d.durationSeconds is number && d.durationSeconds >= 0))
+        && (!('chaptersCount' in d) || (d.chaptersCount is number && d.chaptersCount >= 0))
+        && d.sourceId is string && d.sourceId.size() > 0 && d.sourceId.size() <= 64
+        && d.metadataJson is string && d.metadataJson.size() <= 200000
+        && d.submitterHash is string && d.submitterHash.size() == 64
+        && d.playedAt is number && d.playedAt > 0
+        && d.createdAt is number && d.createdAt > 0
+        && d.state == 'pending';
+    }
+
     // #527 — one SHARED collective block: the Source-scoped identity, the
     // provenance URL, the honest window/version and the cards in the source's
     // own order. The allowed-field set is the gate: a query, a cookie/session
@@ -582,11 +609,30 @@ service cloud.firestore {
         && d.publishedAt is number;
     }
 
+    // v1.7 (модерація надсилань) — картку в спільний каталог пише ЛИШЕ бот
+    // (Admin SDK, на який правила не діють). Клієнт більше не публікує
+    // напряму: інакше модераторський шлюз обійшла б будь-яка модифікована
+    // збірка. Читання лишається відкритим — каталог і далі публічний факт.
     match /catalog_cards/{document} {
       allow read: if true;
-      allow create, update: if isAppCheckValid() && request.auth != null
-        && isWellFormedCatalogCard(request.resource.data);
-      allow delete: if false;
+      allow write: if false;
+    }
+
+    // v1.7 — черга модерації. Кандидат зʼявляється тут після реального
+    // програвання в того, хто надіслав. Читає й вирішує чергу бот; клієнту
+    // читання не потрібне (у документі submitterHash, і черга не публічна).
+    match /pending_submissions/{document} {
+      allow read: if false;
+      allow create: if isAppCheckValid() && request.auth != null
+        && isWellFormedPendingSubmission(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // v1.7 — відхилені посилання. Застосунок читає список, щоб не ставити в
+    // чергу те, що куратор уже відхилив; пише лише бот.
+    match /rejected_submissions/{document} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // #691 — published listener collections: an anonymous PUBLIC fact (read is

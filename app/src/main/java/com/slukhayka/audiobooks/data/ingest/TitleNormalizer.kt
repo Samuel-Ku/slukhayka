@@ -177,4 +177,118 @@ object TitleNormalizer {
         if (cut.isEmpty()) return null to line
         return match.groupValues[1] to cut
     }
+
+    // ---------------------------------------------------------------------
+    // YouTube video titles (spec-53 T9 follow-up)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Parses ONE YouTube video title into title + author.
+     *
+     * Video titles are a single line, unlike the multi-line captions
+     * [parse] handles, and they carry the author in a handful of observed
+     * shapes:
+     *
+     * - `Назва | Автор | Аудіокнига українською повністю` — the trailing
+     *   promo segment is dropped and the remaining `|` segment is the author;
+     * - `Назва by Author | Audiobook …` — the English `by` marker;
+     * - `Автор — Назва` — a dash with a name on the left.
+     *
+     * Conservative by the same rule as the caption parser: an author is
+     * claimed ONLY when the segment looks like a person's name (1–4 words,
+     * each starting with a letter, no digits, no promo marker). Otherwise the
+     * whole line stays the title and the author stays null — never invented.
+     */
+    fun parseVideoTitle(raw: String): ParsedPost {
+        val cleaned = raw.replace('\n', ' ').trim()
+        if (cleaned.isEmpty()) return ParsedPost(title = raw.trim())
+        val segments = cleaned.split('|').map { it.trim() }.filter { it.isNotEmpty() }
+        val content = segments.filterNot { isPromoSegment(it) }
+        if (content.isEmpty()) return ParsedPost(title = cleaned)
+
+        // «… by Author» wins first: it is the least ambiguous marker.
+        val bySplit = BY_AUTHOR.find(content.first())
+        if (bySplit != null) {
+            val title = bySplit.groupValues[1].trim().trimEnd('-', '—', '–', ':', ',')
+            val author = bySplit.groupValues[2].trim()
+            if (title.isNotBlank() && looksLikeName(author)) {
+                return ParsedPost(title = title, author = author)
+            }
+        }
+
+        // A «| Автор» segment: among the segments AFTER the first, exactly ONE
+        // that reads as a person's name (2–3 words) is the author. Several
+        // candidates → ambiguous → no author. Observed real title:
+        // «Звички невдах | Стівен Адамс | Аудіокнига українською повністю |
+        // Досить мислити як лузер» — the promo segment is dropped, «Стівен
+        // Адамс» is the only name, the subtitle stays part of the title.
+        if (content.size >= 2) {
+            val candidates = content.drop(1).filter { looksLikePersonName(it) }
+            if (candidates.size == 1) {
+                val author = candidates.single()
+                val titleParts = content.filterNot { it == author }
+                if (titleParts.isNotEmpty()) {
+                    return ParsedPost(title = titleParts.joinToString(" | "), author = author)
+                }
+            }
+        }
+
+        // «Автор — Назва»: a dash with a name on the LEFT only.
+        val dash = DASH_SPLIT.find(content.first())
+        if (dash != null) {
+            val left = dash.groupValues[1].trim()
+            val right = dash.groupValues[2].trim()
+            if (right.isNotBlank() && looksLikeName(left) && left.split(' ').size <= 3) {
+                return ParsedPost(title = right, author = left)
+            }
+        }
+
+        return ParsedPost(title = cleaned)
+    }
+
+    /** A promo/brand segment that is never an author or part of a title. */
+    private fun isPromoSegment(segment: String): Boolean {
+        val lowered = segment.lowercase()
+        return PROMO_MARKERS.any { lowered.contains(it) }
+    }
+
+    private fun hasPromoWord(segment: String): Boolean = isPromoSegment(segment)
+
+    /**
+     * A person's name inside a pipe-separated title: 2–3 words. A longer
+     * segment is a subtitle («Досить мислити як лузер»), not an author.
+     */
+    private fun looksLikePersonName(candidate: String): Boolean {
+        val words = candidate.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return words.size in 2..3 && looksLikeName(candidate)
+    }
+
+    /**
+     * A person's name, as far as a title can prove it: 1–4 words, each
+     * starting with a letter, no digits, no URL, no sentence punctuation.
+     * Deliberately strict — a false «author» is worse than an empty one.
+     */
+    private fun looksLikeName(candidate: String): Boolean {
+        val text = candidate.trim()
+        if (text.isEmpty() || text.length > 60) return false
+        if (text.any { it.isDigit() }) return false
+        if (text.contains("http", ignoreCase = true) || text.contains('@')) return false
+        if (text.any { it in "!?;:\"" }) return false
+        val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty() || words.size > 4) return false
+        return words.all { word -> word.first().isLetter() }
+    }
+
+    /** The promo/brand tail YouTube uploaders append; never content. */
+    private val PROMO_MARKERS = listOf(
+        "аудіокнига", "аудиокнига", "аудіокниги", "audiobook", "audiobooki",
+        "слухати онлайн", "повністю", "українською", "po polsku", "lektor",
+        "full audiobook", "książka audio", "книга слухати"
+    )
+
+    /** `… by Author` — the English author marker. */
+    private val BY_AUTHOR = Regex("""^(.*?)\s+by\s+(.+)$""", RegexOption.IGNORE_CASE)
+
+    /** A dash separator with content on both sides. */
+    private val DASH_SPLIT = Regex("""^(.+?)\s+[—–-]\s+(.+)$""")
 }

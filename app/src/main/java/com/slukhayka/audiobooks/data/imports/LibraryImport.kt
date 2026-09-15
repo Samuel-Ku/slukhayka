@@ -1223,12 +1223,23 @@ class LibraryImport(
                 listOf(
                     AudiobookEntity(
                         id = bookId,
-                        title = plan.title,
+                        // Спец-53 T9: той самий нормалізований заголовок, що й у
+                        // `works` — інакше в медіатеці видно сирий YouTube-заголовок
+                        // із «| Audiobook …» і емодзі.
+                        title = MetadataAssertions.normalizeTitle(plan.title, plan.author),
                         author = plan.author.orEmpty(),
                         narrator = narrator,
-                        description = "Надіслано посиланням: $url",
+                        // Спец-53 T9: стандартний провенанс замість самого лише
+                        // URL — джерело й канал; без каналу лишається чесне
+                        // «звідки книга», без вигадок про зміст.
+                        description = plan.channelName?.trim()?.takeIf { it.isNotBlank() }
+                            ?.let { "Джерело: YouTube · $it. Додано з посилання." }
+                            ?: "Джерело: YouTube. Додано з посилання.",
                         coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-                        coverImageUrl = null,
+                        // Спец-53 T9: рушій уже віддав найширший thumbnail —
+                        // втрачати його було помилкою. Малюнок лишається лише
+                        // як запасний, коли рушій обкладинки не побачив.
+                        coverImageUrl = metadata?.coverUrl?.takeIf { it.isNotBlank() },
                         genre = LOCAL_GENRE,
                         sourceUrl = url,
                         isDownloaded = false,

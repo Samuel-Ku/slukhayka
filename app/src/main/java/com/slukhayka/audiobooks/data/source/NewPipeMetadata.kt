@@ -41,7 +41,9 @@ object NewPipeMetadata {
         val durationSeconds: Long? = null,
         val entries: List<Entry> = emptyList(),
         /** Spec-53 T9 — the observed cover for the pre-add preview. */
-        val coverUrl: String? = null
+        val coverUrl: String? = null,
+        /** Spec-53 (T9 follow-up) — the uploader/channel name, for provenance. */
+        val uploader: String? = null
     )
 
     /**
@@ -57,6 +59,9 @@ object NewPipeMetadata {
         out.append("\"title\":\"").append(escape(metadata.title)).append('"')
         metadata.coverUrl?.takeIf { it.isNotBlank() }?.let {
             out.append(",\"thumbnail\":\"").append(escape(it)).append('"')
+        }
+        metadata.uploader?.takeIf { it.isNotBlank() }?.let {
+            out.append(",\"uploader\":\"").append(escape(it)).append('"')
         }
         metadata.durationSeconds?.takeIf { it > 0 }?.let {
             out.append(",\"duration\":").append(it)
@@ -109,6 +114,7 @@ object NewPipeMetadata {
                 Metadata(
                     title = playlist.name.orEmpty(),
                     coverUrl = playlist.thumbnails.bestCoverUrl(),
+                    uploader = playlist.uploaderName?.takeIf { it.isNotBlank() },
                     entries = playlist.relatedItems
                         .filterIsInstance<StreamInfoItem>()
                         .map { item ->
@@ -125,7 +131,8 @@ object NewPipeMetadata {
                 Metadata(
                     title = stream.name.orEmpty(),
                     durationSeconds = stream.duration.takeIf { it > 0 },
-                    coverUrl = stream.thumbnails.bestCoverUrl()
+                    coverUrl = stream.thumbnails.bestCoverUrl(),
+                    uploader = stream.uploaderName?.takeIf { it.isNotBlank() }
                 )
             }
         } catch (e: kotlinx.coroutines.CancellationException) {

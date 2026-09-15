@@ -104,9 +104,37 @@ class LibraryImportSubmissionTest {
         assertEquals(listOf(4285L, 4075L), chapters.map { it.durationSeconds })
     }
 
+    // Spec-53 T9 follow-up — the real shape of a YouTube audiobook upload:
+    // the author lives in the title, the engine supplies the cover and the
+    // uploader, and the promo tail must not survive into the library.
     @Test
-    fun `preview corrections land in the import - identity built corrected`() = runBlocking {
-        val result = libraryImport.importSubmittedYouTube(
+    fun `submitted video keeps the engine cover, reads the author and standardizes the description`() = runBlocking {
+        val json = """
+            {"title": "Звички невдах | Стівен Адамс | Аудіокнига українською повністю | Досить мислити як лузер",
+             "thumbnail": "https://i.ytimg.com/vi/ozaZXk5Qcwc/maxresdefault.jpg?v=66294a0e",
+             "uploader": "Корисні книги",
+             "duration": 5000}
+        """.trimIndent()
+        val url = "https://www.youtube.com/watch?v=ozaZXk5Qcwc"
+
+        val result = libraryImport.importSubmittedYouTube(url, json, "")
+
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        val book = dao.getAudiobookById(result.bookId!!)!!
+        assertEquals("Звички невдах | Досить мислити як лузер", book.title)
+        assertEquals("Стівен Адамс", book.author)
+        assertEquals("https://i.ytimg.com/vi/ozaZXk5Qcwc/maxresdefault.jpg?v=66294a0e", book.coverImageUrl)
+        assertEquals("Джерело: YouTube · Корисні книги. Додано з посилання.", book.description)
+        assertNotNull(
+            "a real author gives the Work an identity instead of a blank one",
+            dao.findWorkByMergeKey(
+                MergeKey.keyFor("Звички невдах | Досить мислити як лузер", "Стівен Адамс")
+            )
+        )
+    }
+
+    @Test
+    fun `preview corrections land in the import - identity built corrected`() = runBlocking {        val result = libraryImport.importSubmittedYouTube(
             playlistUrl, playlistJson, "@youtube",
             titleOverride = "Виправлена назва",
             authorOverride = "Справжній автор"

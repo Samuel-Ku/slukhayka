@@ -34,7 +34,13 @@ object YouTubeSubmissionPlanner {
         val author: String?,
         val narrator: String?,
         val sourceUrl: String,
-        val chapters: List<SubmittedChapter>
+        val chapters: List<SubmittedChapter>,
+        /**
+         * Spec-53 (T9 follow-up) — the uploader/channel the engine observed.
+         * Provenance for the book's description; null when the engine saw
+         * none, and then the description says only where the book came from.
+         */
+        val channelName: String? = null
     )
 
     /** One playlist entry as yt-dlp's flat-playlist JSON carries it. */
@@ -63,7 +69,9 @@ object YouTubeSubmissionPlanner {
          * `thumbnail`, NewPipe's widest thumbnail); null when the engine saw
          * none — never a placeholder.
          */
-        val coverUrl: String? = null
+        val coverUrl: String? = null,
+        /** Spec-53 (T9 follow-up) — the uploader/channel name, for provenance. */
+        val uploader: String? = null
     )
 
     /**
@@ -99,7 +107,8 @@ object YouTubeSubmissionPlanner {
             title = title,
             entries = entries,
             durationSeconds = durationSeconds,
-            coverUrl = (root["thumbnail"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+            coverUrl = (root["thumbnail"] as? String)?.trim()?.takeIf { it.isNotBlank() },
+            uploader = (root["uploader"] as? String)?.trim()?.takeIf { it.isNotBlank() }
         )
     }
 
@@ -125,7 +134,18 @@ object YouTubeSubmissionPlanner {
         channelId: String,
         selectedWatchUrls: Set<String>? = null
     ): SubmissionPlan {
-        val identity = TitleNormalizer.parse(metadata.title, channelId)
+        // Spec-53 (T9 follow-up) — a channel-post pattern wins when it
+        // declares an author; otherwise a single-line YouTube title gets the
+        // video-shape parse, which drops the promo tail («| Audiobook …») and
+        // reads the author from «| Автор», «by Author» or «Автор — Назва».
+        // Never invented: with no provable name the raw line stays the title.
+        val caption = TitleNormalizer.parse(metadata.title, channelId)
+        val identity = if (caption.author == null && !metadata.title.contains('\n')) {
+            val video = TitleNormalizer.parseVideoTitle(metadata.title)
+            if (video.author != null || video.title != metadata.title) video else caption
+        } else {
+            caption
+        }
         val title = identity.title.ifBlank { metadata.title }
         val chapters = if (metadata.entries.isNotEmpty()) {
             metadata.entries.mapIndexedNotNull { index, entry ->
@@ -145,7 +165,8 @@ object YouTubeSubmissionPlanner {
                 author = identity.author,
                 narrator = identity.narrator,
                 sourceUrl = sourceUrl,
-                chapters = emptyList()
+                chapters = emptyList(),
+                channelName = metadata.uploader
             )
             listOf(SubmittedChapter(title = title, watchUrl = watchUrl, durationSeconds = metadata.durationSeconds ?: 0L))
         }
@@ -154,7 +175,8 @@ object YouTubeSubmissionPlanner {
             author = identity.author,
             narrator = identity.narrator,
             sourceUrl = sourceUrl,
-            chapters = chapters
+            chapters = chapters,
+            channelName = metadata.uploader
         )
     }
 

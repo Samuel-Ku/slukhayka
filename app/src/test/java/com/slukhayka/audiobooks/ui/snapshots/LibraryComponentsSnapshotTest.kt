@@ -211,7 +211,8 @@ class LibraryComponentsSnapshotTest {
     }
 
     // Spec-28 #193 AC: «one tap each» — tapping every status chip reports
-    // exactly that status, including the off-screen tail of the scrollable row.
+    // exactly that status. UI: чипси тепер у FlowRow, тож усі вони завжди
+    // скомпоновані й доступні для тапу без прокрутки.
     @Test
     fun status_row_one_tap_per_status() {
         var selected: LibraryFilter? = null
@@ -224,9 +225,7 @@ class LibraryComponentsSnapshotTest {
         }
 
         STATUS_FILTERS.forEach { f ->
-            composeTestRule.onNodeWithText(f.label)
-                .performScrollTo()
-                .performClick()
+            composeTestRule.onNodeWithText(f.label).performClick()
             assertEquals(f, selected)
         }
     }

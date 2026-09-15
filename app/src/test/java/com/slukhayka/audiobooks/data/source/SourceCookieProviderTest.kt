@@ -74,7 +74,7 @@ class SourceCookieProviderTest {
     }
 
     @Test
-    fun `cover headers are scoped to 4read and use only that host cookie`() {
+    fun `cover headers are scoped to the browser source and use only that host cookie`() {
         val provider = FakeSourceCookieProvider(
             mapOf(
                 "4read.org" to "cf_clearance=4read",
@@ -87,7 +87,16 @@ class SourceCookieProviderTest {
         assertEquals("https://4read.org/", headers["Referer"])
         assertEquals("cf_clearance=4read", headers["Cookie"])
         assertEquals("image", headers["Sec-Fetch-Dest"])
-        assertTrue(provider.coverHeadersFor("https://s1.reasd.org/cover.jpg").isEmpty())
+
+        // Аудіо-хост того самого браузерного джерела входить у referer-скоуп
+        // реєстру, тож обкладинка з нього теж ходить веб-сесією: без
+        // Referer/кукі Cloudflare віддавав 403 і картка виглядала порожньою.
+        // Кукі при цьому береться ЛИШЕ хоста цього URL — 4read-ове не тече.
+        val audioHost = provider.coverHeadersFor("https://s1.reasd.org/cover.jpg")
+        assertEquals("https://4read.org/", audioHost["Referer"])
+        assertEquals("reasd_token=audio", audioHost["Cookie"])
+
+        // Чужий хост не отримує нічого: Referer не тече туди, де не потрібен.
         assertTrue(provider.coverHeadersFor("https://example.org/cover.jpg").isEmpty())
     }
 

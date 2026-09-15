@@ -20,7 +20,7 @@ data class SubmissionState(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED, WATCHING }
+    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED, WATCHING, DEFERRED }
 }
 
 interface SubmissionStateStore {
@@ -35,6 +35,12 @@ interface SubmissionStateStore {
 
     /** Rows whose library card waits for a direct source (spec-53 T5). */
     suspend fun watching(): List<SubmissionState>
+
+    /** Spec-53 T8 — links pasted without a network, oldest first. */
+    suspend fun deferred(): List<SubmissionState>
+
+    /** Spec-53 T8 — drops one row (a processed or discarded deferred link). */
+    suspend fun remove(sourceId: String)
 
     suspend fun updateState(sourceId: String, state: SubmissionState.State, reason: String?, updatedAt: Long)
 }
@@ -53,6 +59,13 @@ class InMemorySubmissionStateStore : SubmissionStateStore {
 
     override suspend fun watching(): List<SubmissionState> =
         rows.values.filter { it.state == SubmissionState.State.WATCHING }
+
+    override suspend fun deferred(): List<SubmissionState> =
+        rows.values.filter { it.state == SubmissionState.State.DEFERRED }.sortedBy { it.createdAt }
+
+    override suspend fun remove(sourceId: String) {
+        rows.remove(sourceId)
+    }
     override suspend fun updateState(
         sourceId: String,
         state: SubmissionState.State,
@@ -77,6 +90,13 @@ class RoomSubmissionStateStore(private val dao: AudiobookDao) : SubmissionStateS
 
     override suspend fun watching(): List<SubmissionState> =
         dao.submissionStatesByState(SubmissionState.State.WATCHING.name).map { it.toModel() }
+
+    override suspend fun deferred(): List<SubmissionState> =
+        dao.submissionStatesByState(SubmissionState.State.DEFERRED.name).map { it.toModel() }
+
+    override suspend fun remove(sourceId: String) {
+        dao.deleteSubmissionState(sourceId)
+    }
     override suspend fun updateState(
         sourceId: String,
         state: SubmissionState.State,

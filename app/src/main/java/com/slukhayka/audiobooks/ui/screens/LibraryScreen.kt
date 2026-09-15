@@ -186,7 +186,11 @@ fun LibraryScreen(
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
     val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
-    LaunchedEffect(Unit) { viewModel.refreshAwaitingSubmissions() }
+    LaunchedEffect(Unit) {
+        viewModel.refreshAwaitingSubmissions()
+        // Spec-53 T8 — the deferred queue runs on open: one pass, no retries.
+        viewModel.processDeferredSubmissions()
+    }
     LaunchedEffect(Unit) {
         viewModel.submissionPublished.collect {
             snackbarHostState.showSnackbar(context.getString(com.slukhayka.audiobooks.R.string.submission_published_toast))
@@ -767,9 +771,13 @@ fun LibraryScreen(
         if (showSubmissionSheet) {
             val submissionState by viewModel.submissionState.collectAsState()
             val submissionRemaining by viewModel.submissionRemaining.collectAsState()
+            val deferredLinks by viewModel.deferredSubmissions.collectAsState()
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
+                deferredLinks = deferredLinks,
+                onRetryDeferred = { viewModel.retryDeferredSubmission(it) },
+                onRemoveDeferred = { viewModel.removeDeferredSubmission(it) },
                 onListen = { viewModel.listenToLastImported() },
                 // Spec-53 T6 — the friendly dupe leads to the owned copy.
                 onOpenBook = { bookId ->

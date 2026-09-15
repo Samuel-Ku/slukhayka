@@ -1518,6 +1518,11 @@ class FakeAudiobookDao(
     ): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
         submissionStates.values.filter { it.state == state }
 
+    // Spec-53 T8 (#715) — drops one deferred row.
+    override suspend fun deleteSubmissionState(sourceId: String) {
+        submissionStates.remove(sourceId)
+    }
+
     override suspend fun updateSubmissionState(
         sourceId: String, state: String, reason: String?, updatedAt: Long
     ) {

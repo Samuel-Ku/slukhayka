@@ -1506,6 +1506,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM submission_states WHERE state = :state ORDER BY createdAt")
     suspend fun submissionStatesByState(state: String): List<SubmissionStateEntity>
 
+    /** Spec-53 T8 — drops one submission row (processed or discarded). */
+    @Query("DELETE FROM submission_states WHERE sourceId = :sourceId")
+    suspend fun deleteSubmissionState(sourceId: String)
+
     @Query(
         "UPDATE submission_states SET state = :state, reason = :reason, updatedAt = :updatedAt WHERE sourceId = :sourceId"
     )

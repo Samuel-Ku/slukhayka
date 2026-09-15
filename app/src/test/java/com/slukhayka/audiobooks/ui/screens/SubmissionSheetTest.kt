@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
+import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -119,6 +120,43 @@ class SubmissionSheetTest {
     fun `a shared-base duplicate says so plainly`() {
         show(SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.ALREADY_PUBLISHED))
         compose.onNodeWithText("Уже в спільній базі.").assertExists()
+    }
+
+    @Test
+    fun `the offline queue is visible with both actions`() {
+        var retried: String? = null
+        var removed: String? = null
+        compose.setContent {
+            AudiobookTheme {
+                SubmissionSheetContent(
+                    state = SubmissionUiState.Deferred,
+                    remainingToday = 7,
+                    onSubmit = {},
+                    deferredLinks = listOf(
+                        SubmissionState(
+                            sourceId = "deferred-1",
+                            url = "https://youtu.be/abc",
+                            bookId = "",
+                            metadataJson = "",
+                            channelId = "",
+                            state = SubmissionState.State.DEFERRED
+                        )
+                    ),
+                    onRetryDeferred = { retried = it },
+                    onRemoveDeferred = { removed = it },
+                    includePaneSemantics = false
+                )
+            }
+        }
+
+        compose.onNodeWithText("Відкладені посилання").assertExists()
+        compose.onNodeWithText(
+            "Немає мережі — посилання відкладено. Оброблю, коли зʼявиться звʼязок."
+        ).assertExists()
+        compose.onNodeWithTag("submission_deferred_retry_deferred-1").performClick()
+        assertEquals("deferred-1", retried)
+        compose.onNodeWithTag("submission_deferred_remove_deferred-1").performClick()
+        assertEquals("deferred-1", removed)
     }
 
     @Test

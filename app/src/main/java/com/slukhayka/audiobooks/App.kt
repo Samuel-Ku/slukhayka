@@ -485,6 +485,8 @@ class App : Application() {
                 )
             },
             watchSource = { mergeKey, workId -> sourceWatchStore.watch(mergeKey, workId) },
+            // Spec-53 T8 — offline is a queue, not a failure.
+            isOnline = { isNetworkAvailable() },
             // Spec-53 T3 — restart-safe submission states (multi-slot).
             store = com.slukhayka.audiobooks.data.ingest.RoomSubmissionStateStore(audiobookDao),
             remainingToday = {
@@ -496,6 +498,18 @@ class App : Application() {
         )
     }
 
+
+    /**
+     * Spec-53 T8 — the honest connectivity read behind the deferred
+     * submission queue. A missing service (tests, stripped builds) reads as
+     * online, so the queue never blocks on a permission the app cannot see.
+     */
+    private fun isNetworkAvailable(): Boolean {
+        val manager = getSystemService(android.net.ConnectivityManager::class.java) ?: return true
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
 
     /**
      * #431 — one clean, cookie-free transport check shared by every recovered

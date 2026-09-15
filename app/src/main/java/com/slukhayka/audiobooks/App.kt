@@ -420,8 +420,15 @@ class App : Application() {
                 // is no longer on the listener path.
                 com.slukhayka.audiobooks.data.source.NewPipeMetadata.fetchMetadataJson(url)
             },
-            importYouTube = { url, metadataJson, channelId ->
-                val imported = libraryImport.importSubmittedYouTube(url, metadataJson, channelId)
+            importYouTube = { url, metadataJson, channelId, edits ->
+                val imported = libraryImport.importSubmittedYouTube(
+                    url,
+                    metadataJson,
+                    channelId,
+                    titleOverride = edits?.title,
+                    authorOverride = edits?.author,
+                    narratorOverride = edits?.narrator
+                )
                 com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
                     result = when (imported.result) {
                         LibraryImport.SubmittedImportResult.IMPORTED ->

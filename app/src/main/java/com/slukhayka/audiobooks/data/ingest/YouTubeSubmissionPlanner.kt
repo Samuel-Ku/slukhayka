@@ -57,7 +57,13 @@ object YouTubeSubmissionPlanner {
          * total — so playlists stay null). A metadata delta, not a canonical
          * fact; null when absent/implausible.
          */
-        val durationSeconds: Long? = null
+        val durationSeconds: Long? = null,
+        /**
+         * Spec-53 T9 — the observed cover for the pre-add preview (yt-dlp's
+         * `thumbnail`, NewPipe's widest thumbnail); null when the engine saw
+         * none — never a placeholder.
+         */
+        val coverUrl: String? = null
     )
 
     /**
@@ -92,7 +98,8 @@ object YouTubeSubmissionPlanner {
             id = root["id"] as? String,
             title = title,
             entries = entries,
-            durationSeconds = durationSeconds
+            durationSeconds = durationSeconds,
+            coverUrl = (root["thumbnail"] as? String)?.trim()?.takeIf { it.isNotBlank() }
         )
     }
 

@@ -1135,15 +1135,32 @@ class LibraryImport(
      * (signed URLs are never persisted). The exact same submitted URL is a
      * no-op (dedup by URL — the edition id embeds a fresh bookId for
      * blank-identity submissions, so it cannot be the dedup key).
+     *
+     * Spec-53 T9 — [titleOverride]/[authorOverride]/[narratorOverride] carry
+     * the pre-add preview's corrections into the import: identity (mergeKey,
+     * Work) is built corrected, so the added book never needs a fix
+     * afterwards. A blank title override keeps the engine title (a card must
+     * keep its name); otherwise a non-null override replaces verbatim —
+     * clearing an invented claim included.
      */
     suspend fun importSubmittedYouTube(
         url: String,
         metadataJson: String,
-        channelId: String
+        channelId: String,
+        titleOverride: String? = null,
+        authorOverride: String? = null,
+        narratorOverride: String? = null
     ): SubmittedImport = withContext(Dispatchers.IO) {
         val metadata = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.parseMetadata(metadataJson)
             ?: return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
         val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.plan(url, metadata, channelId)
+            .let { base ->
+                base.copy(
+                    title = titleOverride?.trim()?.takeIf { it.isNotBlank() } ?: base.title,
+                    author = authorOverride?.trim() ?: base.author,
+                    narrator = narratorOverride?.trim() ?: base.narrator
+                )
+            }
         if (plan.chapters.isEmpty()) return@withContext SubmittedImport(SubmittedImportResult.NO_PLAYABLE_TRACKS)
 
         val mergeKey = MergeKey.keyFor(plan.title, plan.author.orEmpty())

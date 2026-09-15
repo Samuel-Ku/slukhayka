@@ -39,7 +39,9 @@ object NewPipeMetadata {
     data class Metadata(
         val title: String,
         val durationSeconds: Long? = null,
-        val entries: List<Entry> = emptyList()
+        val entries: List<Entry> = emptyList(),
+        /** Spec-53 T9 — the observed cover for the pre-add preview. */
+        val coverUrl: String? = null
     )
 
     /**
@@ -53,6 +55,9 @@ object NewPipeMetadata {
         val out = StringBuilder()
         out.append('{')
         out.append("\"title\":\"").append(escape(metadata.title)).append('"')
+        metadata.coverUrl?.takeIf { it.isNotBlank() }?.let {
+            out.append(",\"thumbnail\":\"").append(escape(it)).append('"')
+        }
         metadata.durationSeconds?.takeIf { it > 0 }?.let {
             out.append(",\"duration\":").append(it)
         }
@@ -103,6 +108,7 @@ object NewPipeMetadata {
                 val playlist = PlaylistInfo.getInfo(ServiceList.YouTube, url)
                 Metadata(
                     title = playlist.name.orEmpty(),
+                    coverUrl = playlist.thumbnails.bestCoverUrl(),
                     entries = playlist.relatedItems
                         .filterIsInstance<StreamInfoItem>()
                         .map { item ->
@@ -118,7 +124,8 @@ object NewPipeMetadata {
                 val stream = StreamInfo.getInfo(ServiceList.YouTube, url)
                 Metadata(
                     title = stream.name.orEmpty(),
-                    durationSeconds = stream.duration.takeIf { it > 0 }
+                    durationSeconds = stream.duration.takeIf { it > 0 },
+                    coverUrl = stream.thumbnails.bestCoverUrl()
                 )
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -131,6 +138,13 @@ object NewPipeMetadata {
 
     private fun watchIdOf(watchUrl: String): String? =
         watchUrl.substringAfter("v=", "").substringBefore('&').takeIf { it.isNotBlank() }
+
+    /**
+     * Spec-53 T9 — the widest observed thumbnail wins (usually the highest
+     * resolution); a blank list honestly yields null, never a placeholder.
+     */
+    private fun List<org.schabi.newpipe.extractor.Image>.bestCoverUrl(): String? =
+        filter { it.url.isNotBlank() }.maxByOrNull { it.width }?.url
 
     private fun escape(value: String): String {
         val out = StringBuilder(value.length + 8)

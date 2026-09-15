@@ -23,8 +23,17 @@ import kotlinx.coroutines.CancellationException
 class ListenerSubmissionFlow(
     /** `yt-dlp -J --flat-playlist` metadata of the submitted link, or null. */
     private val fetchMetadata: suspend (url: String) -> String?,
-    /** The ordinary import door: [ImportOutcome.IMPORTED] / ALREADY_ADDED carry ids. */
-    private val importYouTube: suspend (url: String, metadataJson: String, channelId: String) -> ImportOutcome,
+    /**
+     * The ordinary import door: [ImportOutcome.IMPORTED] / ALREADY_ADDED carry ids.
+     * Spec-53 T9 — [edits] carries the preview's corrections into the import,
+     * so the added book starts corrected instead of needing a fix afterwards.
+     */
+    private val importYouTube: suspend (
+        url: String,
+        metadataJson: String,
+        channelId: String,
+        edits: PreviewEdits?
+    ) -> ImportOutcome,
     /** The parsed Telegram preview identity (chapters are honestly empty — RED verdict). */
     private val fetchTgIdentity: suspend (url: String) -> TgIdentity?,
     /**
@@ -83,6 +92,36 @@ class ListenerSubmissionFlow(
         val bookId: String? = null,
         val mergeKey: String? = null,
         val workId: String? = null
+    )
+
+    /**
+     * Spec-53 T9 — the listener's preview corrections. Null fields mean
+     * "keep the engine's value"; the import applies them before
+     * materialisation, so identity (mergeKey, Work) is built corrected.
+     */
+    data class PreviewEdits(
+        val title: String? = null,
+        val author: String? = null,
+        val narrator: String? = null
+    )
+
+    /** Spec-53 T9 — what the pre-add preview may show. */
+    enum class PreviewKind { YOUTUBE_VIDEO, YOUTUBE_PLAYLIST, TELEGRAM_POST }
+
+    /**
+     * Spec-53 T9 — the honest pre-add preview: everything the engine really
+     * observed (title, author, cover, durations, chapter count), nothing
+     * invented. A null cover/duration means "the engine saw none".
+     */
+    data class SubmissionPreview(
+        val url: String,
+        val kind: PreviewKind,
+        val title: String,
+        val author: String?,
+        val narrator: String?,
+        val coverUrl: String?,
+        val durationSeconds: Long?,
+        val chapterCount: Int
     )
 
     /** Why a submission was refused — mapped to honest copy by the UI. */
@@ -162,7 +201,7 @@ class ListenerSubmissionFlow(
      * playback verdict; a TG link publishes metadata-only immediately (the
      * public preview exposes no audio — the RED prototype verdict).
      */
-    suspend fun submit(rawUrl: String): Start {
+    suspend fun submit(rawUrl: String, edits: PreviewEdits? = null): Start {
         // Spec-53 T6 — one canonical form per link, so dedup and identity are
         // real: every live YouTube shape and every TG query string lands here.
         val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return Start.Unsupported
@@ -172,9 +211,75 @@ class ListenerSubmissionFlow(
         if (remaining <= 0) return Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
         return when (classify(url)) {
             Kind.UNSUPPORTED -> Start.Unsupported
-            Kind.YOUTUBE -> submitYouTube(url, remaining)
+            Kind.YOUTUBE -> submitYouTube(url, remaining, edits)
             Kind.TELEGRAM -> submitTelegram(url, remaining)
         }
+    }
+
+    /**
+     * Spec-53 T9 — the pre-add preview: engine data only, zero side effects
+     * (no import, no budget, no store writes). Null when the link is
+     * unsupported, offline, or the engine saw nothing usable.
+     */
+    suspend fun previewSubmission(rawUrl: String): SubmissionPreview? {
+        val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return null
+        if (!runCatching { isOnline() }.getOrDefault(true)) return null
+        return when (classify(url)) {
+            Kind.YOUTUBE -> previewYouTube(url)
+            Kind.TELEGRAM -> previewTelegram(url)
+            Kind.UNSUPPORTED -> null
+        }
+    }
+
+    private suspend fun previewYouTube(url: String): SubmissionPreview? {
+        val metadataJson = try {
+            fetchMetadata(url)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return null
+        if (metadata.title.isBlank()) return null
+        val plan = YouTubeSubmissionPlanner.plan(url, metadata, "")
+        if (plan.chapters.isEmpty()) return null
+        val playlist = metadata.entries.isNotEmpty()
+        val totalSeconds = if (playlist) {
+            plan.chapters.sumOf { it.durationSeconds }.takeIf { it > 0 }
+        } else {
+            metadata.durationSeconds
+        }
+        return SubmissionPreview(
+            url = url,
+            kind = if (playlist) PreviewKind.YOUTUBE_PLAYLIST else PreviewKind.YOUTUBE_VIDEO,
+            title = plan.title,
+            author = plan.author,
+            narrator = plan.narrator,
+            coverUrl = metadata.coverUrl,
+            durationSeconds = totalSeconds,
+            chapterCount = plan.chapters.size
+        )
+    }
+
+    private suspend fun previewTelegram(url: String): SubmissionPreview? {
+        val identity = try {
+            fetchTgIdentity(url)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        if (identity.title.isBlank()) return null
+        return SubmissionPreview(
+            url = url,
+            kind = PreviewKind.TELEGRAM_POST,
+            title = identity.title,
+            author = identity.author,
+            narrator = identity.narrator,
+            coverUrl = identity.coverUrl,
+            durationSeconds = null,
+            chapterCount = 0
+        )
     }
 
     /** Spec-53 T8 — stores a deferred link once, keyed by its canonical URL. */
@@ -224,7 +329,7 @@ class ListenerSubmissionFlow(
         return results
     }
 
-    private suspend fun submitYouTube(url: String, remaining: Int): Start {
+    private suspend fun submitYouTube(url: String, remaining: Int, edits: PreviewEdits?): Start {
         val metadataJson = try {
             fetchMetadata(url)
         } catch (cancelled: CancellationException) {
@@ -234,7 +339,7 @@ class ListenerSubmissionFlow(
         } ?: return Start.Refused(Reason.METADATA_FAILED, remaining)
 
         val outcome = try {
-            importYouTube(url, metadataJson, "")
+            importYouTube(url, metadataJson, "", edits)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

@@ -285,7 +285,20 @@
     <string name="submission_sheet_subtitle">YouTube-відео, плейлист або пост Telegram. Книга з’явиться у медіатеці одразу, а в спільному каталозі — після реального програвання.</string>
     <string name="submission_url_label">Посилання</string>
     <string name="submission_remaining">Залишилось надсилань сьогодні: %1$d</string>
-    <string name="submission_submit_action">Надіслати</string>
+    <string name="submission_submit_action">Додати одразу</string>
+    <!-- Spec-53 T9 — the optional pre-add preview. -->
+    <string name="submission_preview_action">Переглянути</string>
+    <string name="submission_preview_add">Додати</string>
+    <string name="submission_preview_edit">Редагувати</string>
+    <string name="submission_preview_single_video">одне відео</string>
+    <string name="submission_preview_playlist_prefix">плейлист</string>
+    <string name="submission_preview_telegram">Telegram-пост</string>
+    <plurals name="submission_preview_chapters">
+        <item quantity="one">%1$d розділ</item>
+        <item quantity="few">%1$d розділи</item>
+        <item quantity="many">%1$d розділів</item>
+        <item quantity="other">%1$d розділів</item>
+    </plurals>
     <string name="submission_status_working">Обробляємо посилання…</string>
     <string name="submission_status_imported">Книгу додано. Слухайте — після програвання вона потрапить у спільний каталог.</string>
     <string name="submission_status_imported_local">Книгу додано локально. Спільна база недоступна — публікації не буде.</string>

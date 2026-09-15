@@ -80,6 +80,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.MetadataCorrectionDialog
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -1563,75 +1564,4 @@ data class PersonBookmarkControl(
     val onToggle: () -> Unit = {},
     val onToggleNotify: (Boolean) -> Unit = {}
 )
-
-/**
- * Spec-53 T7 — the correction form for the three claims a parse gets wrong.
- * One honest rule: the title cannot be saved blank (the card would lose its
- * name), while a cleared author or narrator really clears the claim.
- */
-@Composable
-private fun MetadataCorrectionDialog(
-    initialTitle: String,
-    initialAuthor: String,
-    initialNarrator: String,
-    onDismiss: () -> Unit,
-    onSave: (title: String, author: String, narrator: String) -> Unit
-) {
-    var title by remember { mutableStateOf(initialTitle) }
-    var author by remember { mutableStateOf(initialAuthor) }
-    var narrator by remember { mutableStateOf(initialNarrator) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.book_detail_correct_metadata)) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text(stringResource(R.string.book_detail_metadata_title)) },
-                    singleLine = true,
-                    isError = title.isBlank(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("metadata_edit_title")
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = author,
-                    onValueChange = { author = it },
-                    label = { Text(stringResource(R.string.book_detail_metadata_author)) },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("metadata_edit_author")
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = narrator,
-                    onValueChange = { narrator = it },
-                    label = { Text(stringResource(R.string.book_detail_metadata_narrator)) },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("metadata_edit_narrator")
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onSave(title, author, narrator) },
-                enabled = title.isNotBlank(),
-                modifier = Modifier.testTag("metadata_edit_save")
-            ) {
-                Text(stringResource(R.string.book_detail_metadata_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.book_detail_cancel))
-            }
-        },
-        modifier = Modifier.testTag("metadata_correction_dialog")
-    )
-}
 

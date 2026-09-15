@@ -120,6 +120,24 @@ class FeedSnapshotTest {
         sourceId = "sluhayua"
     )
 
+    @Test
+    fun `cover parser revision refreshes only affected legacy snapshots`() = runBlocking {
+        val dao = db.audiobookDao()
+        val key = FeedSnapshotPolicy.FEED_NEW_ARRIVALS
+        for (source in listOf("lihtar", "audiobookmp3", "sluhayua")) {
+            val old = listOf(book("Книга", "https://example.com/$source").copy(sourceId = source))
+            dao.upsertFeedSnapshot(FeedSnapshotEntity(source, key, "", now, FeedSnapshotCodec.encodeBooks(old)))
+            if (source == "sluhayua") {
+                assertEquals(old, store.freshBooks(source, key))
+            } else {
+                assertNull("legacy malformed cards need one fresh parse", store.freshBooks(source, key))
+                val fixed = old.map { it.copy(coverImageUrl = "https://covers.example/book.jpg") }
+                store.saveBooks(source, key, fixed)
+                assertEquals(fixed, FeedSnapshotStore(dao, clock).freshBooks(source, key))
+            }
+        }
+    }
+
     /** A counting fake adapter — the honest «did the network get hit» probe. */
     private class CountingAdapter : SourceAdapter {
         val fetchNewCalls = AtomicInteger(0)

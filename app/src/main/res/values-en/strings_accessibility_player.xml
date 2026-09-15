@@ -69,6 +69,7 @@
          the card title shows no detail; TRANSIENT (stream/timeout/prepare
          exception) shows a plain-language detail without internal codes. -->
     <string name="a11y_player_error_stream">Could not play audio from this source.</string>
+    <string name="a11y_player_error_audio_notice">Audio was blocked: a refused source or an unrelated substitute recording. No compatible replacement was found in other allowed sources.</string>
     <string name="a11y_player_error_timeout">Stream timed out (%1$d s)</string>
     <string name="a11y_player_error_prepare_exception">Couldn\'t prepare this chapter.</string>
     <string name="a11y_player_error_heal_failed">The book is currently unavailable: the source file moved or is blocked, and it couldn\'t be refreshed.</string>

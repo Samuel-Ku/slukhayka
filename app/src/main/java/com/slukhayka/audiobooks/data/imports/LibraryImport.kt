@@ -34,6 +34,8 @@ import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.VerifiedProfileReadOutcome
 import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfileReader
+import com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
@@ -111,6 +113,10 @@ class LibraryImport(
     private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
+
+    /** Source-declared resolve budget; callers keep their own Player-start limit. */
+    fun resolutionBudgetMs(sourceId: String): Long? =
+        sourceAdapters.firstOrNull { it.sourceId == sourceId }?.resolutionBudgetMs
 
     /**
      * #618 — one local import/rescan of an Edition at a time. Serialising the
@@ -241,7 +247,7 @@ class LibraryImport(
                 // identities never churn under the scrub.
                 val book = AudiobookEntity(
                     id = bookId,
-                    title = MetadataAssertions.normalizeTitle(detail.title),
+                    title = MetadataAssertions.normalizeTitle(detail.title, detail.author),
                     author = MetadataAssertions.normalizeClaimedText(detail.author) ?: sourceId,
                     narrator = narrator,
                     // #264: the claimed description passes the same one-rule
@@ -780,7 +786,8 @@ class LibraryImport(
             val fresh = detail.chapters.getOrNull(chapterIndex) ?: return@withContext null
             // The page still serves the same dead link (or a non-http one) —
             // nothing to heal, and no pointless retry.
-            if (fresh.streamUrl == failedUrl || !BookProfileLimits.isHttpUrl(fresh.streamUrl)) {
+            val freshHttpUrl = fresh.streamUrl.toHttpUrlOrNull()
+            if (fresh.streamUrl == failedUrl || freshHttpUrl == null || AudioNoticePolicy.isBlockedAudio(freshHttpUrl)) {
                 return@withContext null
             }
             val track = tracks.firstOrNull { it.trackIndex == chapterIndex }
@@ -1184,7 +1191,7 @@ class LibraryImport(
                     WorkEntity(
                         id = mergeKey,
                         mergeKey = mergeKey,
-                        title = MetadataAssertions.normalizeTitle(plan.title),
+                        title = MetadataAssertions.normalizeTitle(plan.title, plan.author),
                         author = plan.author?.trim().orEmpty(),
                         addedAt = System.currentTimeMillis()
                     )
@@ -1458,7 +1465,7 @@ class LibraryImport(
             // Spec-24 T1: the claimed poster title is scrubbed of SEO
             // suffixes at the catalog write path — the stored row is clean
             // by construction.
-            title = MetadataAssertions.normalizeTitle(book.title),
+            title = MetadataAssertions.normalizeTitle(book.title, book.author),
             // #812 - zhodnoho napysu 4read u zapysi. Porozhnii avtor lyshaietsia
             // porozhnim: vyhadane imia hirshe za vidsutnie.
             author = book.author,
@@ -1535,7 +1542,7 @@ class LibraryImport(
                 id = mergeKey,
                 mergeKey = mergeKey,
                 // Spec-24 T1: the Work row stores the scrubbed title too.
-                title = MetadataAssertions.normalizeTitle(book.title),
+                title = MetadataAssertions.normalizeTitle(book.title, book.author),
                 author = book.author.trim(),
                 seriesTitle = book.seriesTitle,
                 seriesUrl = book.seriesUrl,

@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.data.privacy
 
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
@@ -12,9 +14,62 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 class TransportClientsTest {
-    private class Origin : AutoCloseable {
+    @Test
+    fun `audio requests carry browser fetch metadata and preserve ranges while page requests stay unchanged`() {
+        TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+        try {
+            Origin().use { origin ->
+                for (calls in listOf(TransportClients.playbackCalls, TransportClients.audioCalls, TransportClients.calls)) {
+                    calls.newCall(Request.Builder().url(origin.url).header("Range", "bytes=17-31").build())
+                        .execute().close()
+                }
+                val headers = origin.requestHeaders.toList()
+                assertEquals(3, headers.size)
+                for (media in headers.take(2)) {
+                    assertEquals("no-cors", media["sec-fetch-mode"])
+                    assertEquals("audio", media["sec-fetch-dest"])
+                    assertEquals("bytes=17-31", media["range"])
+                }
+                assertNull(headers.last()["sec-fetch-mode"])
+                assertNull(headers.last()["sec-fetch-dest"])
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    @Test
+    fun `HTTPS upgrade is restricted to the known Archive endpoint`() {
+        val legacy = "http://archive.org/download/a%20book/part.mp3?key=a%2Fb".toHttpUrl()
+        assertEquals("https://archive.org/download/a%20book/part.mp3?key=a%2Fb", KnownSourceHttps.upgrade(legacy).toString())
+        for (unchanged in listOf(
+            "http://archive.org:8080/chapter.mp3", "http://archive.org.example/chapter.mp3",
+            "http://example.org/chapter.mp3", "https://archive.org/chapter.mp3"
+        )) {
+            val url = unchanged.toHttpUrl()
+            assertEquals(url, KnownSourceHttps.upgrade(url))
+        }
+    }
+
+    @Test
+    fun `legacy Archive audio uses HTTPS before connection and keeps its Range`() {
+        TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+        try {
+            for (base in listOf(TransportClients.okHttp, TransportClients.playbackHttp)) {
+                val client = base.newBuilder().addInterceptor { chain ->
+                    assertEquals("https", chain.request().url.scheme)
+                    assertEquals("bytes=0-0", chain.request().header("Range"))
+                    okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                        .code(206).message("Partial").body(byteArrayOf(0).toResponseBody()).build()
+                }.build()
+                client.newCall(Request.Builder().url("http://archive.org/download/book/chapter.mp3")
+                    .header("Range", "bytes=0-0").build()).execute().close()
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    private class Origin(val response: String = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok") : AutoCloseable {
         val server = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
         val requests = AtomicInteger()
+        val requestHeaders = java.util.concurrent.ConcurrentLinkedQueue<Map<String, String>>()
         val sockets = ConcurrentHashMap.newKeySet<Socket>()
         val workers = Executors.newCachedThreadPool()
         val url get() = "http://127.0.0.1:${server.localPort}/audio"
@@ -29,9 +84,14 @@ class TransportClientsTest {
                                 try {
                                     val reader = it.getInputStream().bufferedReader()
                                     while (reader.readLine() != null) {
-                                        while (!reader.readLine().isNullOrEmpty()) { }
+                                        val headers = mutableMapOf<String, String>()
+                                        while (true) {
+                                            val line = reader.readLine()?.takeIf { it.isNotEmpty() } ?: break
+                                            headers[line.substringBefore(':').lowercase()] = line.substringAfter(':').trim()
+                                        }
+                                        requestHeaders.add(headers)
                                         requests.incrementAndGet()
-                                        it.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".toByteArray())
+                                        it.getOutputStream().write(response.toByteArray())
                                         it.getOutputStream().flush()
                                     }
                                 } catch (_: IOException) { }
@@ -46,6 +106,121 @@ class TransportClientsTest {
             sockets.forEach { it.close() }
             workers.shutdownNow()
         }
+    }
+
+    @Test
+    fun `both playback and downloads reject notice redirects before following them`() {
+        try {
+            TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+            for (status in listOf(301, 302, 303, 307, 308)) {
+                Origin("HTTP/1.1 $status Redirect\r\nLocation: https://reasd.org/notice/4read-notice.mp3?x=1\r\nContent-Length: 0\r\n\r\n").use { origin ->
+                    for (factory in listOf(TransportClients.calls, TransportClients.playbackCalls)) {
+                        try {
+                            factory.newCall(Request.Builder().url(origin.url).build()).execute().use {
+                                fail("The 52-second notice must never reach the player or downloader")
+                            }
+                        } catch (error: IOException) {
+                            assertTrue("Expected the notice verdict, got $error", AudioNoticePolicy.causedByNotice(error))
+                        }
+                    }
+                    assertEquals(2, origin.requests.get())
+                }
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    @Test
+    fun `a stored notice URL is blocked before DNS or network`() {
+        try {
+            TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+            for (factory in listOf(TransportClients.calls, TransportClients.playbackCalls)) {
+                try {
+                    factory.newCall(Request.Builder().url("https://reasd.org/notice/4read-notice.mp3").build())
+                        .execute().use { fail("Stored notice must be blocked too") }
+                } catch (error: IOException) {
+                    assertTrue(AudioNoticePolicy.causedByNotice(error))
+                }
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    @Test
+    fun `4read audio stays refused while its metadata and covers stay accessible`() {
+        Origin().use { origin ->
+            try {
+                TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+                val metadata = TransportClients.okHttp.newBuilder()
+                    .dns(object : okhttp3.Dns {
+                        override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.1"))
+                    }).build()
+                for (host in listOf("4read.org", "cdn.4read.org")) {
+                    val base = origin.url.replace("127.0.0.1", host)
+                    metadata.newCall(Request.Builder().url("$base/cover.jpg").build()).execute().use {
+                        assertEquals(200, it.code)
+                    }
+                    val before = origin.requests.get()
+                    for (factory in listOf(TransportClients.audioCalls, TransportClients.playbackCalls)) {
+                        try {
+                            factory.newCall(Request.Builder().url("$base/extensionless-stream").build())
+                                .execute().use { fail("Refused audio must not reach DNS or origin") }
+                        } catch (error: IOException) {
+                            assertTrue(AudioNoticePolicy.causedByNotice(error))
+                        }
+                    }
+                    assertEquals(before, origin.requests.get())
+                }
+            } finally { TransportPrivacy.install(PrivacyPrefs()) }
+        }
+    }
+
+    @Test
+    fun `audio redirects to refused hosts are blocked even without an mp3 extension`() {
+        try {
+            TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+            Origin("HTTP/1.1 302 Redirect\r\nLocation: https://4read.org/stream?id=1\r\nContent-Length: 0\r\n\r\n").use { origin ->
+                for (factory in listOf(TransportClients.audioCalls, TransportClients.playbackCalls)) {
+                    try {
+                        factory.newCall(Request.Builder().url(origin.url).build()).execute().use { fail("Forbidden hop") }
+                    } catch (error: IOException) {
+                        assertTrue(AudioNoticePolicy.causedByNotice(error))
+                    }
+                }
+                assertEquals(2, origin.requests.get())
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    @Test
+    fun `reasd recordings reach playback and downloads but their notice redirects never reach the target`() {
+        try {
+            TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+            for (response in listOf(
+                "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 2\r\n\r\nok",
+                "HTTP/1.1 302 Redirect\r\nLocation: /notice/4read-notice.mp3\r\nContent-Length: 0\r\n\r\n"
+            )) {
+                Origin(response).use { origin ->
+                    for (base in listOf(TransportClients.okHttp, TransportClients.playbackHttp)) {
+                        val client = base.newBuilder().dns(object : okhttp3.Dns {
+                            override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.1"))
+                        }).build()
+                        val request = AudioNoticePolicy.audioRequest(Request.Builder()
+                            .url(origin.url.replace("127.0.0.1", "reasd.org"))
+                            .header("Range", "bytes=0-1").build())
+                        if (response.startsWith("HTTP/1.1 200")) {
+                            client.newCall(request).execute().use { assertEquals("ok", it.body!!.string()) }
+                        } else {
+                            try {
+                                client.newCall(request).execute().use { fail("Notice redirect was followed") }
+                            } catch (error: IOException) {
+                                assertTrue(AudioNoticePolicy.causedByNotice(error))
+                            }
+                        }
+                    }
+                    assertEquals("Only the book request, never the notice request", 2, origin.requests.get())
+                    assertTrue(origin.requestHeaders.all { it["range"] == "bytes=0-1" })
+                }
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
     }
 
     @Test

@@ -41,5 +41,10 @@ object AppDimens {
     // Scrollable content pads its bottom by this token instead of a scattered
     // hardcoded 120 dp — a mini-player height change edits one line, not a
     // dozen screens.
-    val SpaceAboveMiniPlayer = 120.dp
+    //
+    // UI: на екрані «Слухати» міні-плеєр сховано (там уже є картка
+    // «Продовжити слухати»), тож той екран НЕ бере цей токен — він ставить
+    // маленький відступ. Решта екранів лишають повний, бо панель у
+    // `bottomBar` перекриває їм останній елемент.
+    val SpaceAboveMiniPlayer = 60.dp
 }

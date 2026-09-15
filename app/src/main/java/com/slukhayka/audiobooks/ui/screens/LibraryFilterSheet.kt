@@ -85,18 +85,23 @@ private val FilterChipAccentColors
  * guide §6.3). A plain `Row` + `horizontalScroll` (not a `LazyRow`) so every
  * chip is always composed — taps and snapshots see all five statuses.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun LibraryStatusRow(
     selected: LibraryFilter,
     onSelect: (LibraryFilter) -> Unit
 ) {
-    Row(
+    // UI: FlowRow замість Row + horizontalScroll. Усі чипси так само
+    // складаються (тапи й знімки бачать усі п'ять станів), але тепер вони
+    // ПЕРЕНОСЯТЬСЯ на другий рядок, а не обрізаються краєм екрана —
+    // «Завантажені» більше не виглядає зламаною.
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .testTag("library_status_row"),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         STATUS_FILTERS.forEach { f ->
             val isSelected = selected == f

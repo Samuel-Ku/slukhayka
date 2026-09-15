@@ -939,6 +939,7 @@ class App : Application() {
             allBooks = { audiobookDao.getAllAudiobooksOnce() },
             chaptersFor = sourceCatalog::getPlayableChapters,
             refusedSourceIds = { sourceAudioRefusal.refusedSources.value },
+            sameEditionChapters = sourceCatalog::storedEditionSources,
         )
     }
 

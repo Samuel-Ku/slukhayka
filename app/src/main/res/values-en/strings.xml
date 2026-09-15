@@ -268,6 +268,26 @@
     <!-- Spec-53 T9 — the optional pre-add preview. -->
     <string name="submission_preview_action">Preview</string>
     <string name="submission_preview_add">Add</string>
+    <!-- Spec-53 T10 — the whole-channel selection card. -->
+    <string name="submission_channel_open">Browse channel</string>
+    <string name="submission_channel_title_default">Channel</string>
+    <string name="submission_channel_close">Close</string>
+    <string name="submission_channel_videos">Videos</string>
+    <string name="submission_channel_playlists">Playlists</string>
+    <string name="submission_channel_loading">Reading channel…</string>
+    <string name="submission_channel_failed">Couldn\'t read the channel.</string>
+    <string name="submission_channel_retry">Retry</string>
+    <string name="submission_channel_empty">This tab is empty.</string>
+    <string name="submission_channel_last_n">Latest:</string>
+    <string name="submission_channel_skipped">Skipped %1$d videos</string>
+    <string name="submission_channel_add_skipped">Add</string>
+    <string name="submission_channel_more">More</string>
+    <string name="submission_channel_playlist">playlist</string>
+    <string name="submission_channel_stop">Stop</string>
+    <string name="submission_channel_progress">%1$d/%2$d · %3$s</string>
+    <string name="submission_channel_done">Added %1$d of %2$d</string>
+    <string name="submission_channel_stopped">Stopped · added %1$d of %2$d</string>
+    <string name="submission_channel_add_selected">Add selected (%1$d)</string>
     <string name="submission_preview_edit">Edit</string>
     <string name="submission_preview_single_video">single video</string>
     <string name="submission_preview_playlist_prefix">playlist</string>

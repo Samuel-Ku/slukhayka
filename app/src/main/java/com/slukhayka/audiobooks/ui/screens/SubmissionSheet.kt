@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.ingest.ChannelCardState
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -98,7 +99,12 @@ fun SubmissionSheet(
     preview: ListenerSubmissionFlow.SubmissionPreview? = null,
     onPreview: ((String) -> Unit)? = null,
     onClearPreview: (() -> Unit)? = null,
-    onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null
+    onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null,
+    /** Spec-53 T10 — the whole-channel selection card and its doors. */
+    channelCard: ChannelCardState? = null,
+    isChannelLink: ((String) -> Boolean)? = null,
+    onOpenChannel: ((String) -> Unit)? = null,
+    channelCallbacks: ChannelCardCallbacks? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -121,6 +127,10 @@ fun SubmissionSheet(
             onPreview = onPreview,
             onClearPreview = onClearPreview,
             onSubmitWithEdits = onSubmitWithEdits,
+            channelCard = channelCard,
+            isChannelLink = isChannelLink,
+            onOpenChannel = onOpenChannel,
+            channelCallbacks = channelCallbacks,
             includePaneSemantics = false
         )
     }
@@ -144,6 +154,11 @@ fun SubmissionSheetContent(
     onPreview: ((String) -> Unit)? = null,
     onClearPreview: (() -> Unit)? = null,
     onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null,
+    /** Spec-53 T10 — the whole-channel selection card and its doors. */
+    channelCard: ChannelCardState? = null,
+    isChannelLink: ((String) -> Boolean)? = null,
+    onOpenChannel: ((String) -> Unit)? = null,
+    channelCallbacks: ChannelCardCallbacks? = null,
     includePaneSemantics: Boolean = true
 ) {
     var url by rememberSaveable(prefillUrl) { mutableStateOf(prefillUrl.orEmpty()) }
@@ -195,6 +210,9 @@ fun SubmissionSheetContent(
                 url = it
                 // Spec-53 T9 — a changed link invalidates the loaded card.
                 if (preview != null) onClearPreview?.invoke()
+                // Spec-53 T10 — same for the open channel card: it shows
+                // ITS link, never the edited one.
+                if (channelCard != null) channelCallbacks?.onClose?.invoke()
             },
             label = { Text(stringResource(R.string.submission_url_label)) },
             singleLine = true,
@@ -305,7 +323,20 @@ fun SubmissionSheetContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (onPreview != null) {
+            // Spec-53 T10 — a channel link gets the selection card's door
+            // instead of the single-book preview: a channel is picked,
+            // never auto-imported.
+            if (isChannelLink?.invoke(url) == true && channelCard == null && onOpenChannel != null) {
+                OutlinedButton(
+                    onClick = { onOpenChannel(url.trim()) },
+                    enabled = url.isNotBlank() && state !is SubmissionUiState.Working,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("submission_channel_open")
+                ) {
+                    Text(stringResource(R.string.submission_channel_open))
+                }
+            } else if (onPreview != null) {
                 OutlinedButton(
                     onClick = { onPreview(url.trim()) },
                     enabled = url.isNotBlank() && state !is SubmissionUiState.Working,
@@ -422,6 +453,13 @@ fun SubmissionSheetContent(
                     )
                     showPreviewEdit = false
                 }
+            )
+        }
+        // Spec-53 T10 — the whole-channel selection card.
+        if (channelCard != null && channelCallbacks != null) {
+            ChannelImportCard(
+                state = channelCard,
+                callbacks = channelCallbacks
             )
         }
     }

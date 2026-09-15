@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.db
 import androidx.paging.PagingSource
 import androidx.room.*
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
+import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -479,6 +480,8 @@ interface AudiobookDao {
     suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity) {
         upsertWork(work)
         upsertWorkSource(workSource)
+        // #823 — the new Work joins the search index in the same transaction.
+        refreshWorkSearchIndex(work.id)
     }
 
     /**
@@ -498,11 +501,95 @@ interface AudiobookDao {
                 return false
             }
             upsertWorkSource(workSource)
+            // #823 — an existing Work re-enumerated: its index row is
+            // rewritten idempotently in the same transaction.
+            refreshWorkSearchIndex(workSource.workId)
             true
         } catch (e: Exception) {
             android.util.Log.w("AudiobookDao", "safeUpsertWorkSource failed for ${workSource.id}: ${e.message}")
             false
         }
+    }
+
+    // --- Пошуковий індекс: FTS4 projection of the mirror (#822, #823) ------
+    //
+    // One row per mergeable Work, folded by SearchIndexNormalize on BOTH
+    // sides (write folds here, read folds the query before MATCH). The index
+    // is maintained only through these doors — never written directly by a
+    // feature — so it can never drift from works/editions/edition_facets.
+
+    @Query("INSERT INTO works_fts(workId, title, author, series, narrator) VALUES(:workId, :title, :author, :series, :narrator)")
+    suspend fun insertWorkSearchRow(workId: String, title: String, author: String, series: String, narrator: String)
+
+    @Query("DELETE FROM works_fts WHERE workId = :workId")
+    suspend fun deleteWorkSearchRows(workId: String): Int
+
+    /** Prefix-token MATCH over folded fields; rowid order = insertion order. */
+    @Query("SELECT workId FROM works_fts WHERE works_fts MATCH :match ORDER BY rowid LIMIT :limit")
+    suspend fun matchWorkSearch(match: String, limit: Int): List<String>
+
+    @Query("SELECT COUNT(*) FROM works_fts")
+    suspend fun workSearchRowCount(): Int
+
+    @Query("SELECT id FROM works WHERE mergeKey != '' AND id NOT IN (SELECT workId FROM works_fts)")
+    suspend fun missingWorkSearchIds(): List<String>
+
+    @Query("SELECT narrator FROM editions WHERE workId = :workId AND narrator != '' LIMIT 1")
+    suspend fun firstEditionNarrator(workId: String): String?
+
+    @Query("SELECT narratorId FROM edition_facets WHERE workId = :workId AND narratorId IS NOT NULL AND narratorId != '' LIMIT 1")
+    suspend fun firstFacetNarrator(workId: String): String?
+
+    /**
+     * #824 — every rendition language the mirror holds for one Work, for the
+     * local search card. Both carriers: catalogue/domain editions anchor the
+     * Work id, library editions anchor the library row — the facets (always
+     * domain-anchored) cover the latter.
+     */
+    @Query(
+        "SELECT DISTINCT language FROM edition_facets WHERE workId = :workId AND language IS NOT NULL AND language != '' " +
+            "UNION " +
+            "SELECT DISTINCT language FROM editions WHERE workId = :workId AND language != ''"
+    )
+    suspend fun editionLanguagesForWork(workId: String): List<String>
+
+    /**
+     * Rewrites one Work's index row from the owning rows. Idempotent:
+     * re-writing an unchanged Work yields the same row. Works without an
+     * identity (blank mergeKey) are never indexed — a leftover row is
+     * removed instead. ADR-0005: a tombstoned Work is never resurrected,
+     * including through the index — its row is purged here, on every write
+     * door that funnels through this refresh.
+     */
+    @Transaction
+    suspend fun refreshWorkSearchIndex(workId: String) {
+        val work = getWorkById(workId) ?: return
+        if (work.mergeKey.isBlank() || isBookTombstoned(work.id)) {
+            deleteWorkSearchRows(workId)
+            return
+        }
+        val narrator = firstEditionNarrator(workId) ?: firstFacetNarrator(workId).orEmpty()
+        deleteWorkSearchRows(workId)
+        insertWorkSearchRow(
+            workId = workId,
+            title = SearchIndexNormalize.titleField(work.title),
+            author = SearchIndexNormalize.personField(work.author),
+            series = SearchIndexNormalize.titleField(work.seriesTitle),
+            narrator = SearchIndexNormalize.personField(narrator)
+        )
+    }
+
+    /**
+     * One-shot Kotlin backfill (fresh installs after the v45 migration,
+     * tests): indexes every mergeable Work missing from the FTS table. The
+     * fold needs Kotlin, so SQL alone cannot do this — hence a door, not a
+     * migration INSERT. Safe to replay; returns the number of rows indexed.
+     */
+    @Transaction
+    suspend fun ensureWorkSearchBackfilled(): Int {
+        val missing = missingWorkSearchIds()
+        missing.forEach { refreshWorkSearchIndex(it) }
+        return missing.size
     }
 
     // --- Spec-25: series universes (the lazy resolution cache) -------------
@@ -1407,6 +1494,10 @@ interface AudiobookDao {
                 it.durationBucketId, it.chapterCount, it.isAbridged, it.availabilityAvailable,
                 it.availabilityObservedAtMillis, it.availabilityTtlSeconds, it.updatedAt
             )
+            // #823 — the narrator is the only index field facets can change.
+            if (!it.narratorId.isNullOrBlank()) {
+                refreshWorkSearchIndex(it.workId)
+            }
         }
         authors.forEach { mergeAuthorFacet(it.id, it.displayName, it.normalizedName, it.updatedAt) }
         insertAuthorAliases(aliases)

@@ -11,6 +11,7 @@ import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import com.slukhayka.audiobooks.data.facets.GenreIdentity
 import com.slukhayka.audiobooks.data.metadata.DurationSanity
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
 
 @Database(
     entities = [
@@ -34,6 +35,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         WorkEntity::class,
         EditionEntity::class,
         WorkSourceEntity::class,
+        WorkSearchFtsEntity::class,
         LibraryEntryEntity::class,
         HiddenReviewerEntity::class,
         RecommendationPreferenceEntity::class,
@@ -51,7 +53,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class
     ],
-    version = 44,
+    version = 45,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -77,7 +79,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45
                     )
                     .build()
                 INSTANCE = instance
@@ -1373,6 +1375,77 @@ abstract class AudiobookDatabase : RoomDatabase() {
                  db.execSQL("UPDATE `audiobooks` SET `genre` = '' WHERE `genre` LIKE '%4read%' OR `genre` LIKE '%reasd%'")
                  db.execSQL("UPDATE `audiobooks` SET `narrator` = '' WHERE `narrator` LIKE '%4read%' OR `narrator` LIKE '%reasd%'")
              }
+         }
+
+         /**
+          * #823 — v44 -> v45: the local search index. An FTS4 projection of
+          * the Catalog Mirror (one folded row per mergeable Work) that
+          * answers listener search with zero network requests. The fold
+          * needs Kotlin, so the migration creates the table and backfills
+          * it through [backfillWorkSearchIndex] instead of SQL INSERTs.
+          *
+          * FTS4, not FTS5: FTS5/unicode61 is unavailable in Robolectric's
+          * bundled SQLite, while FTS4 runs on real Android and under test.
+          */
+         internal val MIGRATION_44_45 = object : Migration(44, 45) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "CREATE VIRTUAL TABLE IF NOT EXISTS `works_fts` USING FTS4(" +
+                         "`workId` TEXT NOT NULL, " +
+                         "`title` TEXT NOT NULL, " +
+                         "`author` TEXT NOT NULL, " +
+                         "`series` TEXT NOT NULL, " +
+                         "`narrator` TEXT NOT NULL)"
+                 )
+                 backfillWorkSearchIndex(db)
+             }
+         }
+
+         /** Public for the migration acceptance test; replay is idempotent. */
+         internal fun backfillWorkSearchIndex(db: SupportSQLiteDatabase): Int {
+             var indexed = 0
+             db.query("SELECT id, title, author, seriesTitle FROM works WHERE mergeKey != ''").use { cursor ->
+                 val idIndex = cursor.getColumnIndexOrThrow("id")
+                 val titleIndex = cursor.getColumnIndexOrThrow("title")
+                 val authorIndex = cursor.getColumnIndexOrThrow("author")
+                 val seriesIndex = cursor.getColumnIndexOrThrow("seriesTitle")
+                 while (cursor.moveToNext()) {
+                     val workId = cursor.getString(idIndex)
+                     val narrator = firstWorkNarrator(db, workId).orEmpty()
+                     db.execSQL(
+                         "DELETE FROM works_fts WHERE workId = ?",
+                         arrayOf(workId)
+                     )
+                     db.execSQL(
+                         "INSERT INTO works_fts(workId, title, author, series, narrator) VALUES (?, ?, ?, ?, ?)",
+                         arrayOf(
+                             workId,
+                             SearchIndexNormalize.titleField(cursor.getString(titleIndex)),
+                             SearchIndexNormalize.personField(cursor.getString(authorIndex)),
+                             SearchIndexNormalize.titleField(cursor.getString(seriesIndex)),
+                             SearchIndexNormalize.personField(narrator)
+                         )
+                     )
+                     indexed++
+                 }
+             }
+             return indexed
+         }
+
+         private fun firstWorkNarrator(db: SupportSQLiteDatabase, workId: String): String? {
+             db.query(
+                 "SELECT narrator FROM editions WHERE workId = ? AND narrator != '' LIMIT 1",
+                 arrayOf(workId)
+             ).use { cursor ->
+                 if (cursor.moveToFirst()) return cursor.getString(0)
+             }
+             db.query(
+                 "SELECT narratorId FROM edition_facets WHERE workId = ? AND narratorId IS NOT NULL AND narratorId != '' LIMIT 1",
+                 arrayOf(workId)
+             ).use { cursor ->
+                 if (cursor.moveToFirst()) return cursor.getString(0)
+             }
+             return null
          }
 
          internal val MIGRATION_41_42 = object : Migration(41, 42) {

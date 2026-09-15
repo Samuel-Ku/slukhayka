@@ -52,7 +52,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         EmbeddingVectorEntity::class,
         SubmissionStateEntity::class
     ],
-    version = 44,
+    version = 45,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -78,7 +78,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45
                     )
                     .build()
                 INSTANCE = instance
@@ -1343,20 +1343,15 @@ abstract class AudiobookDatabase : RoomDatabase() {
           * Прибираємо значення, а не книжки: жанр — це мітка, а не сутність.
           */
          /**
-          * v43 -> v44, дві незалежні зміни в одній версії.
+          * UI: назви розділів, збережені в URL-кодуванні.
           *
-          * **UI: назви розділів, збережені в URL-кодуванні.** Джерело віддає
-          * імена файлів як `%D0%94%D1%96%D0%BD...`, і раніше вони лягали в
-          * базу без декодування — у міні-плеєрі й списку розділів було видно
-          * «%D0%9D…». Парсер виправлено; цей прохід лікує те, що вже
-          * збережено.
+          * Джерело віддає імена файлів як `%D0%94%D1%96%D0%BD...`, і раніше
+          * вони лягали в базу без декодування — у міні-плеєрі й списку
+          * розділів було видно «%D0%9D…». Парсер виправлено; цей прохід
+          * лікує те, що вже збережено.
           *
-          * **Spec-53 T3 (#710) — стани надсилань.** Локальна копія
-          * вставленого посилання лишається `AWAITING_PLAY`, доки плеєр не
-          * засвідчить реальне програвання, тож перезапуск нічого не втрачає.
-          *
-          * Обидві гілки призначили цю саму версію, тож обидві дії живуть
-          * разом: інсталяція з 43 отримує і ремонт назв, і нову таблицю.
+          * Версію 44 випущено в 1.4.1, тому вона лишається рівно такою:
+          * перевизначати випущену схему не можна (див. [MIGRATION_44_45]).
           */
          internal val MIGRATION_43_44 = object : Migration(43, 44) {
              override fun migrate(db: SupportSQLiteDatabase) {
@@ -1374,7 +1369,21 @@ abstract class AudiobookDatabase : RoomDatabase() {
                  updates.forEach { (id, title) ->
                      db.execSQL("UPDATE `chapters` SET `title` = ? WHERE `id` = ?", arrayOf(title, id))
                  }
+             }
+         }
 
+         /**
+          * Spec-53 T3 (#710) — v44 -> v45: the persistent listener-submission
+          * states. The pasted link's local copy keeps `AWAITING_PLAY` until the
+          * player's real playing event settles it, so a restart loses nothing.
+          *
+          * Нова версія, а не 44: версію 44 вже випущено в 1.4.1 (ремонт назв),
+          * і перевизначати випущену схему не можна — інакше Room падає на
+          * «changed schema but forgot to update the version number» у кожного,
+          * хто оновлюється з 1.4.1.
+          */
+         internal val MIGRATION_44_45 = object : Migration(44, 45) {
+             override fun migrate(db: SupportSQLiteDatabase) {
                  db.execSQL(
                      "CREATE TABLE IF NOT EXISTS `submission_states` (" +
                          "`sourceId` TEXT NOT NULL, " +

@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 44,
-    "identityHash": "bc12408c440c62a7f503f7a4778d68f0",
+    "version": 45,
+    "identityHash": "23608102f530e8ca38c871bbba1b3df4",
     "entities": [
       {
         "tableName": "audiobooks",
@@ -2145,11 +2145,76 @@
             "workId"
           ]
         }
+      },
+      {
+        "tableName": "submission_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `url` TEXT NOT NULL, `bookId` TEXT NOT NULL, `metadataJson` TEXT NOT NULL, `channelId` TEXT NOT NULL, `state` TEXT NOT NULL, `reason` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`sourceId`))",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "url",
+            "columnName": "url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookId",
+            "columnName": "bookId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "metadataJson",
+            "columnName": "metadataJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceId"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'bc12408c440c62a7f503f7a4778d68f0')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '23608102f530e8ca38c871bbba1b3df4')"
     ]
   }
 }

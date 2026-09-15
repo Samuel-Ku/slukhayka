@@ -20,7 +20,7 @@ data class SubmissionState(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED, WATCHING, DEFERRED }
+    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED, WATCHING, DEFERRED, DEFERRED_PUBLICATION }
 }
 
 interface SubmissionStateStore {
@@ -38,6 +38,13 @@ interface SubmissionStateStore {
 
     /** Spec-53 T8 — links pasted without a network, oldest first. */
     suspend fun deferred(): List<SubmissionState>
+
+    /**
+     * Spec-53 T12 — submissions whose REAL verdict landed on an exhausted
+     * day: the publication waits for tomorrow, and the stored row IS the
+     * verdict's proof (no second playback is ever needed).
+     */
+    suspend fun deferredPublications(): List<SubmissionState>
 
     /** Spec-53 T8 — drops one row (a processed or discarded deferred link). */
     suspend fun remove(sourceId: String)
@@ -62,6 +69,11 @@ class InMemorySubmissionStateStore : SubmissionStateStore {
 
     override suspend fun deferred(): List<SubmissionState> =
         rows.values.filter { it.state == SubmissionState.State.DEFERRED }.sortedBy { it.createdAt }
+
+    override suspend fun deferredPublications(): List<SubmissionState> =
+        rows.values
+            .filter { it.state == SubmissionState.State.DEFERRED_PUBLICATION }
+            .sortedBy { it.createdAt }
 
     override suspend fun remove(sourceId: String) {
         rows.remove(sourceId)
@@ -93,6 +105,9 @@ class RoomSubmissionStateStore(private val dao: AudiobookDao) : SubmissionStateS
 
     override suspend fun deferred(): List<SubmissionState> =
         dao.submissionStatesByState(SubmissionState.State.DEFERRED.name).map { it.toModel() }
+
+    override suspend fun deferredPublications(): List<SubmissionState> =
+        dao.submissionStatesByState(SubmissionState.State.DEFERRED_PUBLICATION.name).map { it.toModel() }
 
     override suspend fun remove(sourceId: String) {
         dao.deleteSubmissionState(sourceId)

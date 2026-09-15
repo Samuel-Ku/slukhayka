@@ -203,6 +203,14 @@ class ListenerSubmissionFlow(
     sealed interface Verdict {
         data object Published : Verdict
         data class Refused(val reason: Reason) : Verdict
+
+        /**
+         * Spec-53 T12 — the verdict was real, the day's budget was gone. The
+         * publication is not refused: it waits for tomorrow, and the stored
+         * row keeps the proof so no second playback is needed.
+         */
+        data object DeferredPublication : Verdict
+
         data object NoPending : Verdict
     }
 
@@ -586,8 +594,19 @@ class ListenerSubmissionFlow(
                 }
                 SubmissionPublisher.Result.ALREADY_PUBLISHED ->
                     settleRefused(sourceId, Reason.ALREADY_PUBLISHED)
-                SubmissionPublisher.Result.DAILY_LIMIT_REACHED ->
-                    settleRefused(sourceId, Reason.DAILY_LIMIT_REACHED)
+                SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> {
+                    // Spec-53 T12 — the playback really happened, so the
+                    // promise is not thrown away: the row moves to
+                    // DEFERRED_PUBLICATION and tomorrow's pass publishes from
+                    // this very row, with no second playback.
+                    store.updateState(
+                        sourceId,
+                        SubmissionState.State.DEFERRED_PUBLICATION,
+                        Reason.DAILY_LIMIT_REACHED.name,
+                        System.currentTimeMillis()
+                    )
+                    Verdict.DeferredPublication
+                }
                 SubmissionPublisher.Result.METADATA_FAILED ->
                     settleRefused(sourceId, Reason.METADATA_FAILED)
                 SubmissionPublisher.Result.NOT_VERIFIED ->
@@ -612,6 +631,65 @@ class ListenerSubmissionFlow(
     /** Spec-53 T5 — the book ids whose card waits for a direct source. */
     suspend fun watchingBookIds(): Set<String> =
         runCatching { store.watching().map { it.bookId }.toSet() }.getOrDefault(emptySet())
+
+    /** Spec-53 T12 — the book ids whose publication waits for tomorrow. */
+    suspend fun deferredPublicationBookIds(): Set<String> =
+        runCatching { store.deferredPublications().map { it.bookId }.toSet() }.getOrDefault(emptySet())
+
+    /**
+     * Spec-53 T12 — the next-day pass. Every stored submission whose REAL
+     * verdict already landed is published from ITS OWN row: no second
+     * playback, no re-import, no new fetch. The daily budget is re-read by
+     * the publisher, so a still-exhausted day simply leaves the row waiting;
+     * the limit is respected, never bypassed.
+     */
+    suspend fun publishDeferredPublications(): List<Verdict> {
+        val results = mutableListOf<Verdict>()
+        for (row in runCatching { store.deferredPublications() }.getOrDefault(emptyList())) {
+            val pub = publisher ?: break
+            val submitter = runCatching { submitterId.invoke() }.getOrNull() ?: break
+            val verdict = try {
+                when (
+                    pub.publishDeferred(
+                        url = row.url,
+                        metadataJson = row.metadataJson,
+                        channelId = row.channelId,
+                        sourceId = row.sourceId,
+                        submitterId = submitter,
+                        // The row was written the moment the verdict landed,
+                        // so its stamp IS the honest verdict time — and it
+                        // survives the restart that wipes the in-memory
+                        // verification record.
+                        verifiedAt = row.updatedAt
+                    )
+                ) {
+                    SubmissionPublisher.Result.PUBLISHED,
+                    SubmissionPublisher.Result.ALREADY_PUBLISHED -> {
+                        // Already in the shared base (another device may have
+                        // won the race): the promise is settled either way.
+                        store.updateState(
+                            row.sourceId,
+                            SubmissionState.State.PUBLISHED,
+                            null,
+                            System.currentTimeMillis()
+                        )
+                        Verdict.Published
+                    }
+                    SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> Verdict.DeferredPublication
+                    else -> Verdict.Refused(Reason.METADATA_FAILED)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
+            }
+            results += verdict
+            // The day is still exhausted: asking the remaining rows would only
+            // repeat the same refusal.
+            if (verdict is Verdict.DeferredPublication) break
+        }
+        return results
+    }
 
     /**
      * Spec-53 T7 — the published submission of one book, when it exists. This

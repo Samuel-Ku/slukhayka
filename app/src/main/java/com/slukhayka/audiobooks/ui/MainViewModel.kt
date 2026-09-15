@@ -391,6 +391,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Spec-53 T5 — books whose card waits for a direct source. */
     private val _watchingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
     val watchingSubmissionBookIds: StateFlow<Set<String>> = _watchingSubmissionBookIds.asStateFlow()
+
+    /** Spec-53 T12 — books whose publication waits for tomorrow's budget. */
+    private val _deferredPublicationBookIds = MutableStateFlow<Set<String>>(emptySet())
+    val deferredPublicationBookIds: StateFlow<Set<String>> = _deferredPublicationBookIds.asStateFlow()
     // One-shot quiet notice after a submission really published (snackbar).
     private val _submissionPublished = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val submissionPublished: SharedFlow<Unit> = _submissionPublished.asSharedFlow()
@@ -418,13 +422,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         closeChannelCard()
     }
 
-    /** Spec-53 T3/T5 — refresh the awaiting and watching badges from the store. */
+    /** Spec-53 T3/T5/T12 — refresh the awaiting, watching and waiting badges. */
     fun refreshAwaitingSubmissions() {
         viewModelScope.launch(Dispatchers.IO) {
             _awaitingSubmissionBookIds.value =
                 runCatching { listenerSubmissionFlow.awaitingBookIds() }.getOrDefault(emptySet())
             _watchingSubmissionBookIds.value =
                 runCatching { listenerSubmissionFlow.watchingBookIds() }.getOrDefault(emptySet())
+            _deferredPublicationBookIds.value =
+                runCatching { listenerSubmissionFlow.deferredPublicationBookIds() }
+                    .getOrDefault(emptySet())
         }
     }
 
@@ -695,6 +702,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             outcomes.lastOrNull()?.let { applySubmissionStart(it) }
             refreshAwaitingSubmissions()
             refreshDeferredSubmissions()
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    /**
+     * Spec-53 T12 — the next-day pass over submissions whose real verdict
+     * landed on an exhausted day. No re-play, no re-import: the stored row is
+     * the proof. A land is announced by the SAME quiet toast as a fresh
+     * publication — the sheet's copy is the reminder, never a system
+     * notification (the spec keeps those out of scope).
+     */
+    fun processDeferredPublications() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val verdicts = runCatching { listenerSubmissionFlow.publishDeferredPublications() }
+                .getOrDefault(emptyList())
+            if (verdicts.any { it is ListenerSubmissionFlow.Verdict.Published }) {
+                _submissionPublished.tryEmit(Unit)
+            }
+            refreshAwaitingSubmissions()
             _submissionRemaining.value =
                 runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
         }
@@ -1119,6 +1146,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         is ListenerSubmissionFlow.Verdict.Refused -> {
                             if (_submissionState.value is SubmissionUiState.Imported) {
                                 _submissionState.value = SubmissionUiState.Refused(submissionVerdict.reason)
+                            }
+                            refreshAwaitingSubmissions()
+                        }
+                        ListenerSubmissionFlow.Verdict.DeferredPublication -> {
+                            // Spec-53 T12 — the promise is kept, just later:
+                            // the sheet says so, and the card keeps the badge
+                            // until tomorrow's pass settles it.
+                            if (_submissionState.value is SubmissionUiState.Imported) {
+                                _submissionState.value = SubmissionUiState.DeferredPublication
                             }
                             refreshAwaitingSubmissions()
                         }

@@ -30,6 +30,7 @@ import com.slukhayka.audiobooks.data.db.TombstoneEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
+import com.slukhayka.audiobooks.data.db.WorkSearchFtsEntity
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
 import com.slukhayka.audiobooks.data.people.NarratorSummary
 import com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity
@@ -970,6 +971,50 @@ class FakeAudiobookDao(
         return true
     }
 
+    // --- Пошуковий індекс (#823): in-memory mirror, no SQL semantics --------
+    // The write doors above intentionally stay index-free here (the fake
+    // covers the persistence boundary, not SQL doors — Room tests prove the
+    // write-through). Tests drive these doors directly or via the inherited
+    // refreshWorkSearchIndex/ensureWorkSearchBackfilled, which run against
+    // the state below.
+
+    private val workSearchState = MutableStateFlow(emptyMap<String, WorkSearchFtsEntity>())
+
+    override suspend fun insertWorkSearchRow(workId: String, title: String, author: String, series: String, narrator: String) {
+        workSearchState.update { current -> current + (workId to WorkSearchFtsEntity(workId, title, author, series, narrator)) }
+    }
+
+    override suspend fun deleteWorkSearchRows(workId: String): Int {
+        val removed = if (workSearchState.value.containsKey(workId)) 1 else 0
+        workSearchState.update { current -> current - workId }
+        return removed
+    }
+
+    override suspend fun matchWorkSearch(match: String, limit: Int): List<String> {
+        val tokens = match.split(' ').map { it.trim('"').trimEnd('*') }.filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return emptyList()
+        return workSearchState.value.values.filter { row ->
+            val words = "${row.title} ${row.author} ${row.series} ${row.narrator}".split(' ').filter { it.isNotBlank() }
+            tokens.all { token -> words.any { word -> word.startsWith(token) } }
+        }.map { it.workId }.take(limit.coerceAtLeast(0))
+    }
+
+    override suspend fun workSearchRowCount(): Int = workSearchState.value.size
+
+    override suspend fun missingWorkSearchIds(): List<String> =
+        worksState.value.filter { it.mergeKey.isNotBlank() && it.id !in workSearchState.value }.map { it.id }
+
+    override suspend fun firstEditionNarrator(workId: String): String? =
+        editionsState.value.firstOrNull { it.workId == workId && it.narrator.isNotBlank() }?.narrator
+
+    override suspend fun firstFacetNarrator(workId: String): String? =
+        editionFacetsState.value.firstOrNull { it.workId == workId && !it.narratorId.isNullOrBlank() }?.narratorId
+
+    override suspend fun editionLanguagesForWork(workId: String): List<String> =
+        (editionFacetsState.value.filter { it.workId == workId }.mapNotNull { it.language?.takeIf { code -> code.isNotBlank() } } +
+            editionsState.value.filter { it.workId == workId }.map { it.language }.filter { it.isNotBlank() })
+            .distinct()
+
     // --- Spec-25 (#171): the universe resolution cache ---------------------
 
     override suspend fun upsertUniverse(universe: UniverseEntity) {
@@ -1517,6 +1562,10 @@ class FakeAudiobookDao(
         state: String
     ): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
         submissionStates.values.filter { it.state == state }
+
+    override suspend fun deleteSubmissionState(sourceId: String) {
+        submissionStates.remove(sourceId)
+    }
 
     override suspend fun updateSubmissionState(
         sourceId: String, state: String, reason: String?, updatedAt: Long

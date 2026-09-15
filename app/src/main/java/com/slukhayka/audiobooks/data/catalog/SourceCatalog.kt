@@ -45,6 +45,7 @@ import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.search.SearchCache
+import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.HttpFetcher
@@ -53,6 +54,7 @@ import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceIds
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
+import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
@@ -180,7 +182,15 @@ class SourceCatalog(
     // legacy-page materialization it rides) excludes every refused source,
     // so nothing refused is ever probed, streamed or downloaded. Empty set
     // = no refusal = exactly the pre-ADR-0037 behaviour.
-    private val sourceAudioRefusal: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    private val sourceAudioRefusal: StateFlow<Set<String>> = MutableStateFlow(emptySet()),
+    /**
+     * #825 — liveness of one source's first-party session, mirroring the
+     * replacement resolver's seam (same default, same meaning): a
+     * session-backed index match is usable only while the session exists.
+     * Wired in App to the cookie-backed session check; false in tests and
+     * wherever no session can exist.
+     */
+    private val sessionAlive: (sourceId: String) -> Boolean = { false }
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
@@ -302,6 +312,14 @@ class SourceCatalog(
 
     /** TTL of the in-memory per-source «new arrivals» feed cache (spec-10 T4). */
     private val newFeedTtlMs = 15 * 60 * 1000L
+    // #824 — the local search leg: a MATCH answer of at least this many
+    // SourceBook rows returns with zero network requests; below it the live
+    // volley fills the gap behind the local rows.
+    private val localSearchSufficientCount = 3
+    // #824 — MATCH cap per query (cards, before source fan-out) and the
+    // bound on live hits mirrored per search gap-fill.
+    private val localSearchLimit = 50
+    private val searchGapFillMax = 20
 
     /**
      * One «Нове з джерела» feed row (spec-10 T5): a source and its recent
@@ -900,11 +918,17 @@ class SourceCatalog(
      * the T1 verdicts) are discovered by filtering their recent feed. Results
      * are merged by the Work-level [MergeKey] — one card per Work with all
      * matching sources (see [mergeGlobalSearchResults]). Ephemeral: nothing is
-     * imported into Room until the user taps a result.
+     * imported into Room until the user taps a result — EXCEPT the search
+     * gap-fill below, which mirrors live hits into the Catalog Mirror (and
+     * hence the search index) so the next identical query answers locally.
      *
      * Spec-33 T2 (#227): a FRESH shared-cache hit ([searchCache]) returns the
      * cached merged result without touching any source; a miss or a stale
      * entry resolves live and writes the result back best-effort.
+     *
+     * #822/#824 — the local search index answers FIRST: a sufficient local
+     * hit returns merged cards with zero network requests; the live volley
+     * fires only as a gap-fill behind a thin local answer.
      */
     suspend fun searchAllSources(query: String): List<GlobalSearchResult> =
         withContext(Dispatchers.IO) {
@@ -924,17 +948,36 @@ class SourceCatalog(
                 return@withContext cached.visibleInContentLanguages(contentLanguageSelection.value)
             }
 
-            // Spec-49 follow-up (#722) — one parallel volley across every
-            // source, never a sequential crawl: each adapter answers through
-            // the same search-with-feed-fallback seam the replacement
-            // resolver consumes (#721); awaitAll preserves source order, so
-            // the merged rows are unchanged.
-            val matched = sourceAdapters
-                // #741: a scam source (4read) never appears in search results.
-                .filterNot { SourceRegistry.isScam(it.sourceId) }
-                .map { adapter -> async { searchSource(adapter, cleanQuery) } }
-                .awaitAll()
-                .flatten()
+            // #824 — the folded local index first: zero requests. A sufficient
+            // answer (at least LOCAL_SEARCH_SUFFICIENT_COUNT cards) never
+            // touches the network; a thin answer keeps its rows and the live
+            // volley only fills the gap behind them.
+            val localBooks = searchLocalBooks(cleanQuery)
+            val matched = if (localBooks.size >= localSearchSufficientCount) {
+                localBooks
+            } else {
+                // Spec-49 follow-up (#722) — one parallel volley across every
+                // source, never a sequential crawl: each adapter answers through
+                // the same search-with-feed-fallback seam the replacement
+                // resolver consumes (#721); awaitAll preserves source order, so
+                // the merged rows are unchanged.
+                val live = sourceAdapters
+                    // #741: a scam source (4read) never appears in search results.
+                    .filterNot { SourceRegistry.isScam(it.sourceId) }
+                    .map { adapter -> async { searchSource(adapter, cleanQuery) } }
+                    .awaitAll()
+                    .flatten()
+                // #824 — gap-fill: live hits mirror into the Catalog Mirror
+                // (guarded like any enumeration write) so the next identical
+                // query answers locally. Best-effort and silent — a failing
+                // write never breaks or delays search.
+                try {
+                    persistSearchGapFill(live)
+                } catch (e: Exception) {
+                    Log.w("SourceCatalog", "search gap-fill skipped", e)
+                }
+                localBooks + live
+            }
             // ADR-0040 — search cards carrying a claimed genre land a
             // SEARCH-rank genre document through the one facet door (fill-gap;
             // an enumeration document always supersedes it by provenance rank,
@@ -946,6 +989,22 @@ class SourceCatalog(
                 Log.w("SourceCatalog", "search genre assertions skipped", e)
             }
             val merged = mergeGlobalSearchResults(matched)
+            // #824 — the local rank rides over the merge's alphabetical
+            // order whenever the index contributed a row: exact folded title
+            // → title/author prefix → MATCH order (stable — rank ties keep
+            // the merge order). A live-only answer keeps its historic order.
+            val ordered = if (localBooks.isNotEmpty()) {
+                val foldedQuery = SearchIndexNormalize.titleField(cleanQuery)
+                merged.sortedBy { card ->
+                    SearchIndexNormalize.rankMatch(
+                        SearchIndexNormalize.titleField(card.title),
+                        SearchIndexNormalize.personField(card.author),
+                        foldedQuery
+                    )
+                }
+            } else {
+                merged
+            }
             // Spec-30 T2 (#217): attach the resolved durations (local DB →
             // shared cache) to the visible cards. Best-effort and silent — a
             // resolver-less or failing path leaves the cards unchanged.
@@ -953,8 +1012,8 @@ class SourceCatalog(
             // a locally known cover wins, the shared cache fills the gap and
             // mirrors hits into the local database (the existing cover write
             // path), and the source's own claim is the last resort.
-            val resolved = durationResolver?.let { it.resolve(merged) }
-                ?.let { coverResolver?.resolve(it) } ?: merged
+            val resolved = durationResolver?.let { it.resolve(ordered) }
+                ?.let { coverResolver?.resolve(it) } ?: ordered
             // Spec-33 T2 (#227): write the merged result back best-effort so
             // the next listener with the same query reads the cache instead
             // of re-resolving (US-1/US-2). Negatives are never written — the
@@ -969,12 +1028,135 @@ class SourceCatalog(
         }
 
     /**
+     * #822/#824 — the local leg of aggregated search: folded MATCH over the
+     * search index, hydrated into [SourceBook] rows from the mirror so the
+     * whole downstream (merge → resolvers → cache → language filter) is
+     * shared with the live leg. Zero network requests by construction — only
+     * indexed Room reads.
+     *
+     * Ranking is exact folded title → title/author prefix → MATCH order
+     * (stable); a Work without a source row never surfaces (the mirror rule
+     * that an unclaimed Work is not discoverable). The card language is the
+     * one language every rendition agrees on, else unknown — the same
+     * unknown-never-hides rule the merge applies to disagreeing sources.
+     */
+    private suspend fun searchLocalBooks(query: String): List<SourceBook> {
+        val match = SearchIndexNormalize.matchQuery(query) ?: return emptyList()
+        val foldedQuery = SearchIndexNormalize.titleField(query)
+        val ids = dao.matchWorkSearch(match, localSearchLimit)
+        if (ids.isEmpty()) return emptyList()
+        data class LocalHit(val order: Int, val rank: Int, val books: List<SourceBook>)
+        val hits = ids.mapIndexedNotNull { order, workId ->
+            val work = dao.getWorkById(workId) ?: return@mapIndexedNotNull null
+            // ADR-0005: a tombstoned Work never resurfaces — including
+            // through the index (same predicate as the enumeration guard).
+            if (dao.isBookTombstoned(work.id)) return@mapIndexedNotNull null
+            val sources = dao.getWorkSourcesForWorkSync(workId)
+                // #741: a scam row never surfaces, even if one was written.
+                .filterNot { SourceRegistry.isScam(it.sourceId) }
+                // #825: a session-backed row only with a live session.
+                .filter { isIndexUsableNow(it.sourceId) }
+            if (sources.isEmpty()) return@mapIndexedNotNull null
+            val narrator = dao.firstEditionNarrator(workId)
+                ?: dao.firstFacetNarrator(workId).orEmpty()
+            val language = dao.editionLanguagesForWork(workId).singleOrNull().orEmpty()
+            val cover = work.coverImageUrl
+                ?: sources.firstNotNullOfOrNull { it.coverImageUrl }
+            val books = sources.map { source ->
+                SourceBook(
+                    title = work.title,
+                    author = work.author,
+                    narrator = narrator,
+                    url = source.sourceUrl,
+                    coverImageUrl = cover,
+                    seriesTitle = work.seriesTitle,
+                    seriesIndex = work.seriesIndex,
+                    sourceId = source.sourceId,
+                    language = language
+                )
+            }
+            val rank = SearchIndexNormalize.rankMatch(
+                SearchIndexNormalize.titleField(work.title),
+                SearchIndexNormalize.personField(work.author),
+                foldedQuery
+            )
+            LocalHit(order, rank, books)
+        }
+        return hits.sortedWith(compareBy({ it.rank }, { it.order })).flatMap { it.books }
+    }
+
+    /**
+     * #825 — the index-usability rule, mirroring the replacement resolver:
+     * DIRECT/UNKNOWN rows are always usable (the live search shows them with
+     * no session either); a session-backed (BROWSER/TELEGRAM) row only while
+     * the listener's live first-party session exists. Without one the entry
+     * is skipped — never a new browser door, never an implicit login.
+     */
+    private fun isIndexUsableNow(sourceId: String): Boolean {
+        val mode = SourceAccessPolicy.modeFor(sourceId)
+        if (mode == SourceAccessMode.DIRECT || mode == SourceAccessMode.UNKNOWN) return true
+        return sessionAlive(sourceId)
+    }
+
+    /**
+     * #824 — the search gap-fill: live hits land in the Catalog Mirror
+     * through the merge-on-write door (which also refreshes their index
+     * rows), so the next identical query answers locally. Guarded exactly
+     * like an enumeration write — scam sources, identity-less cards and
+     * tombstoned Works never materialize — but WITHOUT genre claims: genres
+     * from search stay SEARCH-rank through [persistSearchGenreAssertions],
+     * never promotion-by-persistence (ADR-0040). Bounded and best-effort.
+     */
+    private suspend fun persistSearchGapFill(books: List<SourceBook>) {
+        val mergeable = books
+            .filter {
+                !SourceRegistry.isScam(it.sourceId) &&
+                    it.title.isNotBlank() && it.author.isNotBlank() && it.url.isNotBlank() &&
+                    MergeKey.keyFor(it.title, it.author).isNotBlank()
+            }
+            .take(searchGapFillMax)
+        if (mergeable.isEmpty()) return
+        try {
+            writeBatchRunner {
+                for (book in mergeable) {
+                    try {
+                        val mergeKey = MergeKey.keyFor(book.title, book.author)
+                        val existing = dao.findWorkByMergeKey(mergeKey)
+                        if (dao.isBookTombstoned(existing?.id ?: mergeKey)) continue
+                        writeWorkEdition(
+                            sourceId = book.sourceId,
+                            title = book.title,
+                            author = book.author,
+                            narrator = book.narrator,
+                            sourceUrl = book.url,
+                            streamOnly = streamOnlyFor(book.sourceId),
+                            coverImageUrl = book.coverImageUrl,
+                            durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
+                            seriesTitle = book.seriesTitle,
+                            seriesIndex = book.seriesIndex,
+                            genreTexts = null,
+                            language = book.language
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        Log.w("SourceCatalog", "search gap-fill skipped", failure)
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("SourceCatalog", "search gap-fill pass skipped", failure)
+        }
+    }
+
+    /**
      * Spec-10 — replaces a weak feed entry (blank author, possibly a
      * transliterated title) with the metadata parsed from its own book page.
      * Best-effort: any failure keeps the original entry.
      */
-    private suspend fun enrichFeedMatch(adapter: SourceAdapter, book: SourceBook): SourceBook {
-        return try {
+    private suspend fun enrichFeedMatch(adapter: SourceAdapter, book: SourceBook): SourceBook {        return try {
             val detail = adapter.fetchBookPage(book.url)
             if (detail.title.isBlank() && detail.author.isBlank() && detail.narrator.isBlank()) {
                 book

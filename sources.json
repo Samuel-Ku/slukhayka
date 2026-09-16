@@ -134,16 +134,18 @@
     },
     {
       "id": "telegram",
-      "displayName": "Спільна бібліотека",
-      "homeUrl": "https://t.me/s/slukhayka_shared",
+      "displayName": "Слухайка",
+      "homeUrl": "https://t.me/slukhayka",
       "contentLanguage": "uk",
       "accessMode": "TELEGRAM",
       "order": 10,
       "streamOnly": false,
       "transportHosts": [],
       "telegramProfile": {
-        "groupUrl": "https://t.me/s/slukhayka_shared",
-        "channelId": "slukhayka_shared"
+        "groupUrl": "https://t.me/slukhayka",
+        "chatId": -1004476157917,
+        "threadId": 573,
+        "isForum": true
       }
     },
     {

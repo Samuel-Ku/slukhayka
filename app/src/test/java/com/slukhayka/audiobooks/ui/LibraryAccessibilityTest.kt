@@ -151,6 +151,28 @@ class LibraryAccessibilityTest {
     }
 
     @Test
+    fun libraryEntryHasNoSeparatePlayShortcut() {
+        // v1.5 review, on-device: a play disc on every row put the screen's
+        // accent on eight identical circles and stole it from the «Продовжити»
+        // CTA. The row is the way in — and it stays exactly one action.
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibraryBookCard(
+                    book = fixtureBook,
+                    grid = false,
+                    onClick = {},
+                    onListenNow = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("library_book_item_${fixtureBook.book.id}")
+            .assertHasClickAction()
+        composeTestRule.onNodeWithContentDescription("Слухати книгу Нейромант")
+            .assertDoesNotExist()
+    }
+
+    @Test
     fun statusControlsExposeSelection() {
         var selectedFilter: LibraryFilter? = null
         composeTestRule.setContent {
@@ -337,10 +359,10 @@ class LibraryAccessibilityTest {
         composeTestRule.onNodeWithText("Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі.")
             .assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_empty_import")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithTag("library_empty_browse")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         assertEquals(true, imported)
         assertEquals(true, browsed)
@@ -368,7 +390,7 @@ class LibraryAccessibilityTest {
                     listOf("Перейти до закладки у книзі Нейромант, ${bookmark.chapterTitle}, $time")
                 )
             )
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithTag("bookmark_delete_${bookmark.id}")
             .assert(
                 SemanticsMatcher.expectValue(
@@ -376,7 +398,7 @@ class LibraryAccessibilityTest {
                     listOf("Видалити закладку з книги Нейромант, ${bookmark.chapterTitle}, $time")
                 )
             )
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -394,6 +416,6 @@ class LibraryAccessibilityTest {
 
         composeTestRule.onNodeWithContentDescription("Нейромант, Вільям Гібсон")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 }

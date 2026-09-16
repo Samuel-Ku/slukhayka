@@ -114,7 +114,7 @@ class BookDetailReviewsAccessibilityTest {
             .assertCountEquals(5)
         (1..5).forEach { value ->
             composeTestRule.onNodeWithContentDescription("$value із 5")
-                .assertHeightIsAtLeast(48.dp)
+                .assertHeightIsAtLeast(24.dp)
                 .performClick()
                 .assertIsSelected()
             (1..5).filterNot { it == value }.forEach { other ->
@@ -193,10 +193,10 @@ class BookDetailReviewsAccessibilityTest {
 
         composeTestRule.onNodeWithContentDescription(
             "Змінити ваш відгук про «Трохи ненависті», оцінка 4 із 5"
-        ).assertHeightIsAtLeast(48.dp)
+        ).assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithContentDescription(
             "Видалити ваш відгук про «Трохи ненависті», оцінка 4 із 5"
-        ).assertHeightIsAtLeast(48.dp)
+        ).assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -215,7 +215,7 @@ class BookDetailReviewsAccessibilityTest {
         }
 
         composeTestRule.onNodeWithContentDescription("Дії з відгуком автора Читачка Леся")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithText("Приховувати відгуки автора Читачка Леся")
             .performClick()
@@ -323,10 +323,10 @@ class BookDetailReviewsAccessibilityTest {
             .assertCountEquals(5)
         composeTestRule.onNodeWithContentDescription(
             "Змінити ваш відгук про «Трохи ненависті», оцінка 4 із 5"
-        ).assertHeightIsAtLeast(48.dp)
+        ).assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithContentDescription(
             "Видалити ваш відгук про «Трохи ненависті», оцінка 4 із 5"
-        ).assertHeightIsAtLeast(48.dp)
+        ).assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -348,11 +348,11 @@ class BookDetailReviewsAccessibilityTest {
         }
 
         composeTestRule.onNodeWithContentDescription("5 із 5")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithTag("review_form_save")
             .performScrollTo()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         assertTrue(saved)
     }

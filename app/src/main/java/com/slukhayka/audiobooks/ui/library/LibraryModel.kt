@@ -7,6 +7,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.source.SourceRegistry
+import com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import java.util.Locale
@@ -118,7 +119,15 @@ data class LibraryBook(
     val sourceName: String
         get() {
             val sourceId = sourceIdForUrl(book.sourceUrl)
-            return if (SourceRegistry.isScam(sourceId)) "" else sourceDisplayName(sourceId)
+            // #741 — a removed/scam source is not branded at all.
+            // #850 — neither is an unrecognised one: «unknown» is an internal
+            // marker, and showing it leaked a raw id into the chip and into
+            // the TalkBack state description.
+            return if (sourceId == UNKNOWN_SOURCE_ID || SourceRegistry.isScam(sourceId)) {
+                ""
+            } else {
+                sourceDisplayName(sourceId)
+            }
         }
 
     /** «Сага про Дріззта · Книга 2» — or just the series title, or null. */

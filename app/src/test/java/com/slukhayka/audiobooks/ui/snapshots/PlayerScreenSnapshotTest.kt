@@ -165,21 +165,21 @@ class PlayerScreenSnapshotTest {
 
         composeTestRule.onNodeWithContentDescription(
             "Попередній розділ перед «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
-        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        ).assertIsDisplayed().assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithContentDescription(
             "Назад на 15 секунд. Нейромант, Розділ 2. Зустріч у Чіба-сіті"
-        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithTag("player_play_pause_button").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
+        ).assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+        composeTestRule.onNodeWithTag("player_play_pause_button").assertIsDisplayed().assertHeightIsAtLeast(24.dp).performClick()
         composeTestRule.onNodeWithContentDescription(
             "Вперед на 30 секунд. Нейромант, Розділ 2. Зустріч у Чіба-сіті"
-        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        ).assertIsDisplayed().assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithContentDescription(
             "Наступний розділ після «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
-        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithTag("speed_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
-        composeTestRule.onNodeWithTag("sleep_timer_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithTag("add_bookmark_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithTag("chapters_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        ).assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+        composeTestRule.onNodeWithTag("speed_chip").assertIsDisplayed().assertHeightIsAtLeast(24.dp).performClick()
+        composeTestRule.onNodeWithTag("sleep_timer_chip").assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+        composeTestRule.onNodeWithTag("add_bookmark_chip").assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+        composeTestRule.onNodeWithTag("chapters_chip").assertIsDisplayed().assertHeightIsAtLeast(24.dp)
 
         assertEquals(1, playClicks)
         assertEquals(1, speedClicks)

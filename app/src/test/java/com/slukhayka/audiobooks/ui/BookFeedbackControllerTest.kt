@@ -32,7 +32,8 @@ class BookFeedbackControllerTest {
     }
     private fun controller(scope: CoroutineScope, store: BookFeedbackStore, available: Boolean = true) = BookFeedbackController(
         scope, store, { book }, { "edition" }, { ListenerProfile("uid", "Ім’я") },
-        if (available) reviewStore else null, if (available) narrationStore else null)
+        ListenerReviewLifecycle(if (available) reviewStore else null),
+        if (available) narrationStore else null)
     private suspend fun ready(c: BookFeedbackController) = withTimeout(3_000) { c.state.first { it != null && !it.loading }!! }
 
     @Test fun partialFailureRetainsDraftAndRetryUsesTheSameWorkAndEditionKeys() = runBlocking {
@@ -83,7 +84,7 @@ class BookFeedbackControllerTest {
         val c = BookFeedbackController(this, store, { book.copy(id = it) }, { "edition" }, {
             if (calls.incrementAndGet() == 1) awaitCancellation()
             ListenerProfile("uid", "Ім’я")
-        }, reviewStore, narrationStore)
+        }, ListenerReviewLifecycle(reviewStore), narrationStore)
         c.open("first")
         withTimeout(3_000) { c.state.first { it != null } }
         while (calls.get() == 0) delay(1)
@@ -92,4 +93,70 @@ class BookFeedbackControllerTest {
         assertEquals("second", ready(c).bookId)
     }
 
+    @Test fun theCompletionEditorSavesTheReviewThroughTheLifecycle() = runBlocking {
+        val store = BookFeedbackStore(MemoryFeedbackPreferences())
+        val lifecycle = ListenerReviewLifecycle(reviewStore)
+        val c = BookFeedbackController(this, store, { book }, { "edition" }, {
+            ListenerProfile("uid", "Ім’я")
+        }, lifecycle, narrationStore)
+        c.open("row"); ready(c)
+        c.edit(BookFeedbackDraft(4, 0, "Текст")); c.save()
+        withTimeout(3_000) { c.state.first { it?.accepted == true } }
+
+        assertTrue(
+            "the review is in the lifecycle module's own state (local acceptance)",
+            lifecycle.state.value.visible.any { it.uid == "uid" && it.rating == 4 }
+        )
+        assertEquals("work", reviewStore.documents.values.single()["workId"])
+    }
+
+    @Test fun anAcceptedReviewIsNeverRecreatedByARetry() = runBlocking {
+        val store = BookFeedbackStore(MemoryFeedbackPreferences())
+        val c = controller(this, store)
+        c.open("row"); ready(c)
+        c.edit(BookFeedbackDraft(2, 5, "Текст")); c.save()
+        withTimeout(3_000) { c.state.first { it?.failed == true } }
+
+        assertEquals(1, reviewStore.documents.size)
+        val createdAt = (reviewStore.documents.values.single()["createdAt"] as Number).toLong()
+
+        narrationStore.accept = true
+        c.save()
+        withTimeout(3_000) { c.state.first { it?.accepted == true } }
+
+        assertEquals("a retry must not recreate the accepted review", 1, reviewStore.documents.size)
+        assertEquals(createdAt, (reviewStore.documents.values.single()["createdAt"] as Number).toLong())
+        assertEquals("edition", narrationStore.documents.values.single()["editionId"])
+    }
+    @Test fun aLocallyAcceptedReviewClosesTheEditorBeforeTheBackendAnswers() = runBlocking {
+        val store = BookFeedbackStore(MemoryFeedbackPreferences())
+        val acknowledgement = CompletableDeferred<ReviewRemoteResult>()
+        val queuedStore = object : ListenerReviewsStore {
+            val documents = mutableMapOf<String, Map<String, Any>>()
+            override suspend fun queryWorkDocuments(workId: String) = documents.values.toList()
+            override suspend fun queryWorksDocuments(workIds: List<String>) = documents.values.toList()
+            override suspend fun enqueueDocument(documentId: String, document: Map<String, Any>): ReviewWriteReceipt {
+                documents[documentId] = document
+                return ReviewWriteReceipt.Queued { acknowledgement.await() }
+            }
+            override suspend fun removeDocument(documentId: String) = true
+        }
+        val c = BookFeedbackController(this, store, { book }, { "edition" }, {
+            ListenerProfile("uid", "Ім’я")
+        }, ListenerReviewLifecycle(queuedStore, scope = this), narrationStore)
+        c.open("row"); ready(c)
+        c.edit(BookFeedbackDraft(3, 0, "")); c.save()
+
+        // Local acceptance is enough: the editor closes without the backend.
+        withTimeout(3_000) { c.state.first { it?.accepted == true } }
+        assertEquals(1, queuedStore.documents.size)
+        assertNull(store.draft("row"))
+        val afterAcceptance = c.state.value
+
+        // The backend answers LATE with a failure: the closed editor is not
+        // reopened and its state is not rewritten.
+        acknowledgement.complete(ReviewRemoteResult.FAILED)
+        delay(50)
+        assertEquals(afterAcceptance, c.state.value)
+    }
 }

@@ -70,6 +70,13 @@ class InMemorySharedCollections(
 
     override suspend fun myVote(voterKey: String): Int? = votes[voterKey]
 
+    override suspend fun readContaining(bookId: String): CollectionReadResult {
+        if (bookId.isBlank()) return CollectionReadResult.Empty
+        val visible = published.values.filter { bookId in it.bookIds && !it.hidden }
+        return if (visible.isEmpty()) CollectionReadResult.Empty
+        else CollectionReadResult.Data(visible)
+    }
+
     override suspend fun topPublic(limit: Int): List<PublishedCollection> =
         CollectionRanking.top(published.values.filterNot { it.hidden }, limit)
 

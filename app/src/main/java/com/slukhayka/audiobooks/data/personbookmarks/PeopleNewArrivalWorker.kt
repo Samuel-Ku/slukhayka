@@ -75,8 +75,21 @@ class PeopleNewArrivalWorker(
                     CHANNEL_ID, "Новинки від людей", NotificationManager.IMPORTANCE_DEFAULT
                 ))
             }
+            // ADR-0052 §6 — the alert carries the identity of the first
+            // person it is about so its tap opens THAT page, not the feed.
+            // `people` and `notifiedCounts` are both projections of the same
+            // eligible list in the same order, so their first entries name
+            // the same person (role from the key, name from `people`).
+            val firstPersonName = decision.people.firstOrNull()?.takeIf { it.isNotBlank() }
+            val firstPersonRole = decision.notifiedCounts.keys.firstOrNull()?.role
             val intent = Intent(context, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_OPEN_PEOPLE_NEW, true)
+                .apply {
+                    if (firstPersonName != null && firstPersonRole != null) {
+                        putExtra(MainActivity.EXTRA_PEOPLE_NEW_NAME, firstPersonName)
+                        putExtra(MainActivity.EXTRA_PEOPLE_NEW_ROLE, firstPersonRole.name)
+                    }
+                }
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             val pending = PendingIntent.getActivity(
                 context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

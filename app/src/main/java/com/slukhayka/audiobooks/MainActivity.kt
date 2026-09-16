@@ -239,6 +239,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsReturnDestination by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
+    // #860 — Settings left the bottom bar: the gear opens it from a root, and
+    // BACK must return to THAT root, not to the first one.
+    var settingsReturnTab by rememberSaveable { mutableStateOf(SelectedTab.EXPLORE) }
     var bookDetailChildOrigin by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildEditionId by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildRouteOpen by rememberSaveable { mutableStateOf(false) }
@@ -444,6 +447,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             }
             null -> Unit
         }
+    }
+
+    // #860 — from Settings, BACK returns to the root the gear was tapped on.
+    // It is enabled only while Settings is the visible root, so it never
+    // competes with the detail/player handler below.
+    BackHandler(enabled = selectedTab == SelectedTab.SETTINGS && selectedBookId == null) {
+        viewModel.selectTab(settingsReturnTab)
     }
 
     // Handle system back press
@@ -1010,6 +1020,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
                         )
                         SelectedTab.EXPLORE ->                        HomeScreen(
+                            // #860 — the gear opens Settings from THIS root.
+                            onOpenSettings = {
+                                settingsReturnTab = SelectedTab.EXPLORE
+                                viewModel.selectTab(SelectedTab.SETTINGS)
+                            },
                             durationEnrichment = viewModel.durationEnrichment,
                             chapterDurationProbe = viewModel.chapterDurationProbe,
                             updateChecker = viewModel.updateChecker,
@@ -1044,6 +1059,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             }
                         )
                         SelectedTab.LIBRARY -> LibraryScreen(
+                            // #860 — the gear opens Settings from THIS root.
+                            onOpenSettings = {
+                                settingsReturnTab = SelectedTab.LIBRARY
+                                viewModel.selectTab(SelectedTab.SETTINGS)
+                            },
                             viewModel = viewModel,
                             // ADR-0008 batch 1 (#154): the screen receives the
                             // modules it reads from as parameters, wired here
@@ -1263,18 +1283,8 @@ fun AppBottomBar(
                 modifier = Modifier.testTag("tab_library")
             )
 
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.SETTINGS && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.SETTINGS) },
-                icon = { Icon(imageVector = Icons.Default.Settings, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_settings), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_settings")
-            )
+            // #860 / ADR-0049 — «Налаштування» left the bar: the gear in every
+            // root header opens them, so the bar keeps only working sections.
         }
     }
 }

@@ -338,6 +338,7 @@
     <string name="submission_badge_pending_moderation">On moderation</string>
     <string name="submission_badge_in_shared_base">In the shared base</string>
     <string name="submission_badge_rejected">Rejected</string>
+    <string name="a11y_open_settings">Settings</string>
     <string name="submission_status_already_in_library">Already in your library.</string>
     <string name="submission_open_book">Open the book</string>
     <string name="submission_status_refused_not_verified">Publishing needs a real playback.</string>

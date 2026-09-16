@@ -132,7 +132,9 @@ fun LibraryScreen(
     onBrowseClick: () -> Unit,
     onPersonClick: (CatalogPerson) -> Unit = {},
     restoreFocusBookId: String? = null,
-    onBookFocusRestored: (String) -> Unit = {}
+    onBookFocusRestored: (String) -> Unit = {},
+    /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
+    onOpenSettings: () -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     val libraryAvailability by viewModel.libraryAvailability.collectAsState()
@@ -390,6 +392,8 @@ fun LibraryScreen(
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 actions = {
+                    // #860 — the gear sits in the SAME place on every root.
+                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
                     if (activeTab != 0) {
                         // A section is open: one explicit way back to the books
                         // (system back does the same).

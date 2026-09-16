@@ -134,12 +134,17 @@
     },
     {
       "id": "telegram",
-      "displayName": "Telegram",
+      "displayName": "Спільна бібліотека",
+      "homeUrl": "https://t.me/s/slukhayka_shared",
       "contentLanguage": "uk",
-      "accessMode": "UNKNOWN",
+      "accessMode": "TELEGRAM",
       "order": 10,
       "streamOnly": false,
-      "transportHosts": []
+      "transportHosts": [],
+      "telegramProfile": {
+        "groupUrl": "https://t.me/s/slukhayka_shared",
+        "channelId": "slukhayka_shared"
+      }
     },
     {
       "id": "sluhayknigi",

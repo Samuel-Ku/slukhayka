@@ -3,15 +3,19 @@ package com.slukhayka.audiobooks.data.source
 /**
  * The stable access order used whenever one Work exposes more than one
  * physical source. Local copies win, then sources that can be opened with a
- * direct HTTP request, then legacy/unknown sources, and browser-only sources
- * are last. This is deliberately a capability order, not a health score: a
- * transient 403 must not permanently demote a source.
+ * direct HTTP request, then legacy/unknown sources, then browser-only ones,
+ * and account-bound sources are last. This is deliberately a capability order,
+ * not a health score: a transient 403 must not permanently demote a source.
  *
  * ADR-0038 — the facts are the [SourceRegistry] (`sources.json`): the mode
  * comes from each entry's `accessMode`, the within-tier order from its
- * `order`. The tier RULE (LOCAL < DIRECT < UNKNOWN < BROWSER) stays code.
+ * `order`. The tier RULE (LOCAL < DIRECT < UNKNOWN < BROWSER < TELEGRAM)
+ * stays code.
+ *
+ * ADR-0050 — `TELEGRAM` is account-bound: it is tried last and is NEVER
+ * opened as an implicit side effect of a card tap.
  */
-enum class SourceAccessMode { DIRECT, UNKNOWN, BROWSER }
+enum class SourceAccessMode { DIRECT, UNKNOWN, BROWSER, TELEGRAM }
 
 data class SourceAccessCandidate(
     val sourceId: String,
@@ -41,7 +45,19 @@ object SourceAccessPolicy {
         candidate.localAvailable || candidate.sourceId == "local" -> 0
         candidate.accessMode == SourceAccessMode.DIRECT -> 1
         candidate.accessMode == SourceAccessMode.UNKNOWN -> 2
-        else -> 3
+        candidate.accessMode == SourceAccessMode.BROWSER -> 3
+        // ADR-0050 — an account-bound source is the LAST resort.
+        else -> 4
+    }
+
+    /**
+     * ADR-0050 — a session-bound (BROWSER) or account-bound (TELEGRAM) source
+     * is never crossed into implicitly: only an explicit listener action or a
+     * recovery flow may open it.
+     */
+    fun requiresExplicitAction(sourceId: String): Boolean = when (modeFor(sourceId)) {
+        SourceAccessMode.BROWSER, SourceAccessMode.TELEGRAM -> true
+        else -> false
     }
 
     /**

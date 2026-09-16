@@ -158,6 +158,12 @@ class SourceRegistryConformanceTest {
                 searchDoor = it.string("searchDoor").takeIf(String::isNotBlank),
                 releaseBrowserDoor = it.bool("releaseBrowserDoor")
             )
+        },
+        telegramProfile = raw.map("telegramProfile")?.let {
+            TelegramProfileFacts(
+                groupUrl = it.string("groupUrl"),
+                channelId = it.string("channelId")
+            )
         }
     )
 

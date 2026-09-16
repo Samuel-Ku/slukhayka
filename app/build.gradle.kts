@@ -639,3 +639,24 @@ tasks.matching { it.javaClass.name.startsWith("com.chaquo.python") }
             "Chaquopy 17 starts an external Python process and is not configuration-cache serializable"
         )
     }
+
+// #487 — a RELEASE build must never ship without the E5 model: a missing asset
+// is a build failure, not a silent keyword-only APK. `downloadE5Model` is the
+// only supported way to produce the assets, and this task is wired into the
+// release pipeline so the failure is mechanical instead of invisible.
+val verifyE5ModelAssets = tasks.register("verifyE5ModelAssets") {
+    group = "verification"
+    description = "Fails when a release build lacks the E5 model + tokenizer assets (#487)"
+    val modelFile = file("src/main/assets/models/e5/model.onnx")
+    val tokenizerFile = file("src/main/assets/models/e5/tokenizer.json")
+    inputs.files(modelFile, tokenizerFile).optional()
+    doLast {
+        val missing = listOf(modelFile, tokenizerFile).filterNot { it.isFile }
+        check(missing.isEmpty()) {
+            "Release build requires the E5 model assets; run ./gradlew downloadE5Model. Missing: $missing"
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyE5ModelAssets)
+}

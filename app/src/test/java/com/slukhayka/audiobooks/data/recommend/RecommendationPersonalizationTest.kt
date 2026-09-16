@@ -319,4 +319,31 @@ class RecommendationPersonalizationTest {
 
     private fun candidate(id: String, title: String, author: String, series: String) =
         RecommendationEngine.Candidate(id = id, title = title, author = author, series = series)
+    @Test
+    fun `a blocked author never enters the row`() {
+        val candidates = listOf(
+            candidate("k1", "Кобзар", "Тарас Шевченко", "Поезія"),
+            candidate("k2", "Гайдамаки", "Тарас Шевченко", "Поезія"),
+            candidate("m1", "Гіперіон", "Ден Сімонс", "Фантастика")
+        )
+        val signal = RecommendationEngine.Signal("s1", "Улюблена", author = "Ден Сімонс", weight = 1.0)
+        val vectors = buildMap {
+            put("s1", floatArrayOf(1f, 0f))
+            candidates.forEachIndexed { index, item ->
+                put(item.id, floatArrayOf(1f, index * .01f))
+            }
+        }
+
+        val ranked = RecommendationPersonalization.rank(
+            candidates = candidates,
+            signals = listOf(signal),
+            vectors = vectors,
+            excludedAuthors = setOf("Тарас Шевченко"),
+            topN = 10,
+            explorationCount = 0
+        )
+
+        assertTrue(ranked.isNotEmpty())
+        assertFalse(ranked.any { it.candidate.author == "Тарас Шевченко" })
+    }
 }

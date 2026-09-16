@@ -48,6 +48,7 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
@@ -98,9 +99,20 @@ class MainActivityAccessibilityTest {
     private val app: Application
         get() = ApplicationProvider.getApplicationContext()
 
+    /**
+     * The database is the runner's own scratch file
+     * ([com.slukhayka.audiobooks.IsolatedDatabaseTestRunner]), so nothing of
+     * the listener's is ever at risk here — only the generated audio needs
+     * removing so a device run leaves no artefacts behind.
+     */
+    @After
+    fun removeGeneratedFixtureAudio() {
+        File(app.filesDir, FIXTURE_AUDIO_NAME).delete()
+    }
+
     @Before
     fun seedDeterministicLocalJourney() {
-        val localAudio = File(app.filesDir, "accessibility_fixture_stable.wav")
+        val localAudio = File(app.filesDir, FIXTURE_AUDIO_NAME)
         writeSilentWav(localAudio, durationSeconds = FIXTURE_DURATION_SECONDS.toInt())
 
         runBlocking(Dispatchers.IO) {
@@ -612,6 +624,7 @@ class MainActivityAccessibilityTest {
 
     companion object {
         private const val FIXTURE_DURATION_SECONDS = 30L
+        private const val FIXTURE_AUDIO_NAME = "accessibility_fixture_stable.wav"
         private const val NAV_TIMEOUT_MS = 20_000L
         private const val PLAYBACK_TIMEOUT_MS = 5_000L
     }

@@ -46,4 +46,25 @@ class InMemorySharedCollections(
 
     override suspend fun containing(bookId: String): List<PublishedCollection> =
         published.values.filter { bookId.isNotBlank() && bookId in it.bookIds }
+
+    private val votes = linkedMapOf<String, Int>()
+
+    override suspend fun vote(documentId: String, voterKey: String, stars: Int): PublishResult {
+        if (!online) return PublishResult.Refused("offline")
+        if (voterKey.isBlank() || !CollectionRating.isValidStars(stars)) {
+            return PublishResult.Refused("bad-vote")
+        }
+        val document = published[documentId] ?: return PublishResult.Refused("unknown-collection")
+        val (sum, count) = CollectionRating.applyVote(
+            document.ratingSum,
+            document.ratingCount,
+            votes[voterKey],
+            stars
+        )
+        votes[voterKey] = stars
+        published[documentId] = document.copy(ratingSum = sum, ratingCount = count)
+        return PublishResult.Published
+    }
+
+    override suspend fun myVote(voterKey: String): Int? = votes[voterKey]
 }

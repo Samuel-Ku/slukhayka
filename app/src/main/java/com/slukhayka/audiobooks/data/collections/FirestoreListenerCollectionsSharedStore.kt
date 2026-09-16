@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.QuerySnapshot
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
@@ -75,6 +76,53 @@ class FirestoreListenerCollectionsSharedStore(
         return documents.mapNotNull(PublishedCollectionCodec::decode)
     }
 
+    override suspend fun vote(documentId: String, voterKey: String, stars: Int): PublishResult {
+        if (documentId.isBlank() || voterKey.isBlank() || !CollectionRating.isValidStars(stars)) {
+            return PublishResult.Refused("bad-vote")
+        }
+        return try {
+            // The aggregate and the vote travel in ONE transaction: a re-vote
+            // replaces the person's previous stars and never doubles a count.
+            firestore.runTransaction<Void> { transaction ->
+                val voteRef = firestore.collection(VOTES).document(voterKey)
+                val previous = transaction.get(voteRef).getLong(FIELD_STARS)?.toInt()
+                val collectionRef = firestore.collection(COLLECTION).document(documentId)
+                val snapshot = transaction.get(collectionRef)
+                val sum = snapshot.getLong(FIELD_RATING_SUM)?.toInt() ?: 0
+                val count = snapshot.getLong(FIELD_RATING_COUNT)?.toInt() ?: 0
+                val (newSum, newCount) = CollectionRating.applyVote(sum, count, previous, stars)
+                transaction.set(
+                    voteRef,
+                    mapOf(
+                        FIELD_DOCUMENT_ID to documentId,
+                        FIELD_STARS to stars,
+                        FIELD_CREATED_AT to clock()
+                    )
+                )
+                transaction.update(
+                    collectionRef,
+                    mapOf(FIELD_RATING_SUM to newSum, FIELD_RATING_COUNT to newCount)
+                )
+                null
+            }.awaitWrite()
+            PublishResult.Published
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            PublishResult.Refused("vote-failed")
+        }
+    }
+
+    override suspend fun myVote(voterKey: String): Int? {
+        if (voterKey.isBlank()) return null
+        val document = try {
+            firestore.collection(VOTES).document(voterKey).get().awaitDocument()
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return (document[FIELD_STARS] as? Number)?.toInt()?.takeIf { CollectionRating.isValidStars(it) }
+    }
+
     private suspend fun queryByAuthor(authorId: String): List<PublishedCollection> {
         val documents = try {
             firestore.collection(COLLECTION)
@@ -101,6 +149,13 @@ class FirestoreListenerCollectionsSharedStore(
         false
     }
 
+    /** Bridges one document read: its fields, or null on failure/missing. */
+    private suspend fun Task<com.google.firebase.firestore.DocumentSnapshot>.awaitDocument(): Map<String, Any>? =
+        suspendCancellableCoroutine { cont ->
+            addOnSuccessListener { snapshot -> cont.resume(snapshot.data) }
+            addOnFailureListener { cont.resume(null) }
+        }
+
     /** Bridges the Play Services [Task] onto a coroutine: documents or null on failure. */
     private suspend fun Task<QuerySnapshot>.awaitDocuments(): List<Map<String, Any>>? =
         suspendCancellableCoroutine { cont ->
@@ -116,8 +171,15 @@ class FirestoreListenerCollectionsSharedStore(
 
     companion object {
         private const val COLLECTION = "curator_collections"
+        /** #694 — anonymous votes: one document per (person, collection) key. */
+        private const val VOTES = "curator_collection_votes"
         private const val FIELD_AUTHOR_ID = "authorId"
         private const val FIELD_BOOK_IDS = "bookIds"
+        private const val FIELD_RATING_SUM = "ratingSum"
+        private const val FIELD_RATING_COUNT = "ratingCount"
+        private const val FIELD_DOCUMENT_ID = "documentId"
+        private const val FIELD_STARS = "stars"
+        private const val FIELD_CREATED_AT = "createdAt"
 
         /**
          * The default Firebase app's Firestore, or null when Firebase is not

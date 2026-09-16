@@ -118,6 +118,14 @@ const COLLECTION_WITH_RATINGS = {
   ratingSum: 9,
   ratingCount: 2
 };
+// #694 — one anonymous vote: id is sha256(uid + collectionId), shape is fixed.
+const VALID_COLLECTION_VOTE = {
+  documentId: "a".repeat(64) + "-c1",
+  stars: 5,
+  createdAt: 1700000000000
+};
+const VOTE_WITH_BAD_STARS = { ...VALID_COLLECTION_VOTE, stars: 9 };
+const VOTE_WITH_EXTRA_FIELD = { ...VALID_COLLECTION_VOTE, uid: "raw-uid" };
 
 
 // #527 — one shared collective block: identity, provenance and ordered cards.
@@ -368,6 +376,10 @@ const MATRIX = [
   ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
   ["M8", "curator_collections/qa_m8", "create", "uid-alice", COLLECTION_BAD_REASONS, "DENY", "reasons не список"],
   ["M9", "curator_collections/qa_m9", "create", "uid-alice", COLLECTION_WITH_RATINGS, "ALLOW", "#694 — агрегат оцінок дозволений"],
+  ["M10", "curator_collection_votes/qa_m10", "create", "uid-alice", VALID_COLLECTION_VOTE, "ALLOW", "#694 — один анонімний голос"],
+  ["M11", "curator_collection_votes/qa_m11", "create", "uid-alice", VOTE_WITH_BAD_STARS, "DENY", "#694 — зірки поза 1..5"],
+  ["M12", "curator_collection_votes/qa_m12", "create", "uid-alice", VOTE_WITH_EXTRA_FIELD, "DENY", "#694 — сирий uid у документі голосу (hasOnly)"],
+  ["M13", "curator_collection_votes/qa_m13", "create", null, VALID_COLLECTION_VOTE, "DENY", "#694 — нема auth"],
 ];
 
 // Який прогін є доказом кожного рядка.

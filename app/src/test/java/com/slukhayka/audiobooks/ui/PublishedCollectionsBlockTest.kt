@@ -55,4 +55,29 @@ class PublishedCollectionsBlockTest {
         composeTestRule.onNodeWithTag("published_collection_row_doc-2").performClick()
         assertEquals("doc-2", opened)
     }
+    @Test
+    fun `a rated collection shows its real average and vote count`() {
+        setBlock(
+            rows = listOf(
+                PublishedCollectionRow(
+                    "doc-1",
+                    "Магія",
+                    3,
+                    "Слухач",
+                    average = 4.5,
+                    ratingCount = 2
+                )
+            )
+        )
+
+        composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+    }
+
+    @Test
+    fun `an unrated collection shows the honest empty line, never stars`() {
+        setBlock(rows = listOf(PublishedCollectionRow("doc-1", "Магія", 3, "Слухач")))
+
+        composeTestRule.onNodeWithText("Ще без оцінок").assertIsDisplayed()
+        composeTestRule.onNodeWithText("★ 0.0 · 0 оцінок").assertDoesNotExist()
+    }
 }

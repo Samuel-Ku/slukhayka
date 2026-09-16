@@ -189,6 +189,8 @@
     <string name="collection_with_book_title">Collections with this book</string>
     <string name="collection_by_pseudonym">a listener collection by %1$s</string>
     <string name="collection_no_ratings">No ratings yet</string>
+    <string name="collection_your_rating">Your rating</string>
+    <string name="collection_vote_error">Couldn\'t save your rating. Try again.</string>
     <string name="listen_shelves_restore_all">Restore all hidden</string>
     <string name="listen_remaining_h">%1$d h left</string>
     <string name="listen_remaining_m">%1$d min left</string>

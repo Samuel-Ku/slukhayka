@@ -41,6 +41,14 @@ class PublicCollectionsGate(
     suspend fun containing(bookId: String): List<PublishedCollection> =
         sharedStore?.containing(bookId).orEmpty()
 
+    /** #694 — voting is online-only; without a shared store it refuses honestly. */
+    suspend fun vote(documentId: String, voterKey: String, stars: Int): PublishResult =
+        sharedStore?.vote(documentId, voterKey, stars)
+            ?: PublishResult.Refused(NO_SHARED_STORE)
+
+    /** #694 — the listener's own vote; without a shared store there is none. */
+    suspend fun myVote(voterKey: String): Int? = sharedStore?.myVote(voterKey)
+
     companion object {
         const val NO_SHARED_STORE = "no-shared-store"
     }

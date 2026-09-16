@@ -5326,6 +5326,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Spec-51 (#694) — the viewer's own vote on the collection they opened.
+    private val _publicCollectionMyVote = MutableStateFlow<Int?>(null)
+    val publicCollectionMyVote: StateFlow<Int?> = _publicCollectionMyVote.asStateFlow()
+    private val _publicCollectionVoteResults = MutableSharedFlow<Boolean>(extraBufferCapacity = 8)
+
+    /** true = stored, false = an honest refusal (offline / no identity). */
+    val publicCollectionVoteResults: SharedFlow<Boolean> = _publicCollectionVoteResults.asSharedFlow()
+
+    /** Reads the listener's own stars for one collection (voterKey = sha256(uid+id)). */
+    fun loadMyCollectionVote(collectionId: String) {
+        val key = com.slukhayka.audiobooks.data.collections.CollectionIdentity
+            .voterKey(_listenerIdentity.value?.uid, collectionId)
+        if (!publicCollectionsAvailable || key.isEmpty()) {
+            _publicCollectionMyVote.value = null
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _publicCollectionMyVote.value = App.instance.publicCollectionsGate.myVote(key)
+        }
+    }
+
+    /**
+     * One vote per person; a re-vote replaces it. Online-only: a refusal is
+     * announced and nothing is queued or faked.
+     */
+    fun voteCollection(bookId: String, documentId: String, collectionId: String, stars: Int) {
+        val key = com.slukhayka.audiobooks.data.collections.CollectionIdentity
+            .voterKey(_listenerIdentity.value?.uid, collectionId)
+        if (!publicCollectionsAvailable || key.isEmpty()) {
+            viewModelScope.launch { _publicCollectionVoteResults.emit(false) }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val stored = App.instance.publicCollectionsGate.vote(documentId, key, stars) ==
+                com.slukhayka.audiobooks.data.collections.PublishResult.Published
+            if (stored) {
+                _publicCollectionMyVote.value = stars
+                // The server aggregate is the truth: re-read the surface
+                // instead of inventing the new average locally.
+                loadCollectionsWithBook(bookId)
+            }
+            _publicCollectionVoteResults.emit(stored)
+        }
+    }
+
     /**
      * Reads the signed-in listener's own published collections. The uid comes
      * from the identity module and is hashed immediately — it never travels.

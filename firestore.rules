@@ -606,5 +606,26 @@ service cloud.firestore {
       allow delete: if isAppCheckValid() && request.auth != null
         && isWellFormedCuratorCollection(resource.data);
     }
+
+    // #694 — one anonymous vote per (person, collection): the document id is
+    // sha256(uid + collectionId), so a raw uid never appears. Reading requires
+    // auth + App Check (a vote is a private fact, unlike a published
+    // collection); the aggregate on the collection document is updated by the
+    // client's transaction under the shape rule above. App Check + auth, not
+    // authorship, is what the rules can guarantee (the same client-trust
+    // decision as publishing).
+    function isWellFormedCollectionVote(d) {
+      return d.keys().hasOnly(['documentId', 'stars', 'createdAt'])
+        && d.documentId is string && d.documentId.size() > 0 && d.documentId.size() <= 200
+        && d.stars is int && d.stars >= 1 && d.stars <= 5
+        && d.createdAt is number;
+    }
+
+    match /curator_collection_votes/{document} {
+      allow read: if isAppCheckValid() && request.auth != null;
+      allow create, update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCollectionVote(request.resource.data);
+      allow delete: if false;
+    }
   }
 }

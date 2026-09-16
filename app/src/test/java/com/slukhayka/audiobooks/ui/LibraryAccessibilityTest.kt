@@ -356,7 +356,7 @@ class LibraryAccessibilityTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Медіатека порожня").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Мої книги порожні").assertIsDisplayed()
         composeTestRule.onNodeWithText("Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі.")
             .assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_empty_import")

@@ -4304,6 +4304,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .map { state -> state.confirmed.map { it.rating } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+
     // A submission result is an event, not accessibility-specific state: the
     // screen uses it to keep failed input open and to retire successful forms.
     val reviewSaveResults: SharedFlow<ReviewSaveEvent> = listenerReviewLifecycle.results
@@ -4350,6 +4351,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _hiddenAuthors.value = _hiddenAuthors.value - authorName
         }
     }
+
+    /**
+     * Spec-620 (#623) — how many CONFIRMED reviews of the open Work the local
+     * mute list hides. They still stand behind the headline average, so the
+     * surface explains the gap instead of leaving two numbers disagreeing.
+     */
+    val hiddenConfirmedReviewCount: StateFlow<Int> = combine(
+        listenerReviewLifecycle.state,
+        _hiddenAuthors
+    ) { reviewState, hidden -> reviewState.confirmed.count { it.authorName in hidden } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     /** Server truth overlaid with the honest pending cards, newest first. */
     val bookReviews: StateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>> = combine(

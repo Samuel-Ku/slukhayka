@@ -217,6 +217,15 @@
         <item quantity="many">%1$d відгуків</item>
         <item quantity="other">%1$d відгуків</item>
     </plurals>
+    <!-- Spec-620 (#623): locally muted authors change card VISIBILITY only —
+         their confirmed votes still stand behind the headline average, and the
+         surface says so instead of leaving the two numbers unexplained. -->
+    <plurals name="book_detail_reviews_hidden_note">
+        <item quantity="one">Ще %1$d відгук приховано вами — він урахований у середній</item>
+        <item quantity="few">Ще %1$d відгуки приховано вами — вони ураховані в середній</item>
+        <item quantity="many">Ще %1$d відгуків приховано вами — вони ураховані в середній</item>
+        <item quantity="other">Ще %1$d відгуків приховано вами — вони ураховані в середній</item>
+    </plurals>
 
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Автори</string>

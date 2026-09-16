@@ -162,6 +162,10 @@ class SourceCatalog(
     // explicit user refresh. Null keeps the pre-#467 behaviour (network on
     // every cache miss); tests inject a store over an in-memory database.
     private val feedSnapshotStore: FeedSnapshotStore? = null,
+    // Spec-620 (#622): the ONE clock behind the feed snapshots — the refresh
+    // module stamps and expires memory and Room from this single source, so
+    // the two halves of the cache can never disagree about a snapshot's age.
+    private val feedNowMillis: () -> Long = System::currentTimeMillis,
     // #485 — the persistent source-signal store: every live-collection fetch
     // records provenance-bearing popularity assertions beneath the shelves.
     // Null in tests that don't exercise the layer — the shelves then behave
@@ -304,14 +308,19 @@ class SourceCatalog(
     // Global search (spec-10 T4)
     // ---------------------------------------------------------------------
 
-    // Per-source «new arrivals» feeds are cached in memory so repeated search
-    // keystrokes never re-fetch the same homepage; the cache is a session
-    // convenience, safe to lose.
+    // Per-source «new arrivals» feeds ride ONE refresh module (spec-620 #622)
+    // that owns memory + Room + Source behind a single injected clock and the
+    // six-hour TTL. Kept as a field, not rebuilt per call, so the in-memory
+    // half survives within the session exactly as before.
+    private val feedRefresh = FeedSnapshotRefresh(
+        nowMillis = feedNowMillis,
+        readPersisted = { sourceId, feedKey -> feedSnapshotStore?.snapshot(sourceId, feedKey) },
+        writePersisted = { snapshot -> feedSnapshotStore?.saveSnapshot(snapshot) ?: false }
+    )
+
     private class CachedFeed(val fetchedAt: Long, val books: List<SourceBook>)
 
-    private val newFeedCache = java.util.concurrent.ConcurrentHashMap<String, CachedFeed>()
-
-    /** TTL of the in-memory per-source «new arrivals» feed cache (spec-10 T4). */
+    /** TTL of the in-memory per-source catalogue cache (spec-10 T4). */
     private val newFeedTtlMs = 15 * 60 * 1000L
 
     /**
@@ -713,30 +722,33 @@ class SourceCatalog(
     private fun SourceBook.effectiveFor(adapter: SourceAdapter): SourceBook =
         if (language.isNotBlank()) this else copy(language = adapter.contentLanguage)
 
+    /**
+     * Spec-620 (#622) — the new-arrivals feed behind ONE refresh module. The
+     * module owns memory, Room and Source from a single clock; a failure or a
+     * cancellation here means an EMPTY row for this refresh, never a cached
+     * fake-fresh empty that would blank the rail for the rest of the TTL.
+     *
+     * #812 — a scam source has no feed to serve: an empty row, never a fetch.
+     */
     private suspend fun newFeedFor(
         adapter: SourceAdapter,
         skipCache: Boolean = false,
         forceRefresh: Boolean = false
     ): List<SourceBook> {
-        val now = System.currentTimeMillis()
-        if (!skipCache && !forceRefresh) {
-            newFeedCache[adapter.sourceId]?.let { cached ->
-                if (now - cached.fetchedAt < newFeedTtlMs) return cached.books
-            }
-            // #467: the persisted snapshot answers before any network call —
-            // the source is hit only after the 6-hour new-arrivals TTL.
-            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_NEW_ARRIVALS)?.let { return it }
+        if (com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(adapter.sourceId)) return emptyList()
+        return when (
+            val outcome = feedRefresh.refresh(
+                sourceId = adapter.sourceId,
+                feedKey = FeedSnapshotPolicy.FEED_NEW_ARRIVALS,
+                forceRefresh = forceRefresh,
+                skipCache = skipCache,
+                fetch = { adapter.fetchNew() }
+            )
+        ) {
+            is FeedRefreshOutcome.Data -> outcome.books
+            FeedRefreshOutcome.Empty -> emptyList()
+            FeedRefreshOutcome.Failure -> emptyList()
         }
-        val books = try {
-            adapter.fetchNew()
-        } catch (e: Exception) {
-            emptyList()
-        }
-        newFeedCache[adapter.sourceId] = CachedFeed(now, books)
-        // #467: remember what the live fetch served so the next read within
-        // the new-arrivals TTL never touches the network.
-        feedSnapshotStore?.saveBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_NEW_ARRIVALS, books)
-        return books
     }
 
     /**

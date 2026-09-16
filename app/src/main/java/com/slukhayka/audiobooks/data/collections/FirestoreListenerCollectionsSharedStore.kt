@@ -26,18 +26,11 @@ class FirestoreListenerCollectionsSharedStore(
         pseudonym: String
     ): PublishResult {
         if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
-        val clean = pseudonym.trim().take(PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
-        if (clean.isEmpty()) return PublishResult.Refused("no-pseudonym")
-
-        val document = PublishedCollection(
-            authorId = authorId,
-            collectionId = collection.id,
-            pseudonym = clean,
-            title = collection.title,
-            description = collection.description,
-            bookIds = collection.items.map { it.bookId },
-            publishedAt = clock()
-        )
+        // #695 — the reasons travel with the books: a fork of this collection
+        // rebuilds its composition from them, so dropping them here would
+        // quietly break the fork AC.
+        val document = PublishedCollectionFactory.of(collection, authorId, pseudonym, clock())
+            ?: return PublishResult.Refused("no-pseudonym")
         return if (write(document.documentId, PublishedCollectionCodec.encode(document))) {
             PublishResult.Published
         } else {

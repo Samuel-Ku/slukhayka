@@ -202,6 +202,8 @@
     <string name="collection_report_error">Не вдалося надіслати скаргу. Спробуйте ще раз.</string>
     <string name="collection_hidden_by_reports">Приховано за скаргами</string>
     <string name="collection_delete">Видалити добірку</string>
+    <string name="collections_rail_title">Добірки слухачів</string>
+    <string name="curator_profile_empty">У цього куратора ще немає видимих добірок</string>
     <string name="listen_shelves_restore_all">Відновити всі приховані</string>
     <string name="listen_remaining_h">Залишилося %1$d год</string>
     <string name="listen_remaining_m">Залишилося %1$d хв</string>

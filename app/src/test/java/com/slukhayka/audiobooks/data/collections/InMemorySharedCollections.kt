@@ -68,6 +68,12 @@ class InMemorySharedCollections(
 
     override suspend fun myVote(voterKey: String): Int? = votes[voterKey]
 
+    override suspend fun topPublic(limit: Int): List<PublishedCollection> =
+        CollectionRanking.top(published.values.filterNot { it.hidden }, limit)
+
+    override suspend fun visibleBy(authorId: String): List<PublishedCollection> =
+        published.values.filter { it.authorId == authorId && !it.hidden }
+
     override suspend fun deleteOwnCollection(documentId: String): PublishResult {
         if (!online) return PublishResult.Refused("offline")
         return if (published.remove(documentId) != null) {

@@ -5404,6 +5404,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _reportedCollectionIds.update { it - documentId }
     }
 
+    // Spec-51 (#693) — the public «Добірки слухачів» rail and the curator
+    // profile. Both are honest absences without a shared store.
+    private val _publicCollectionsRail =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val publicCollectionsRail:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _publicCollectionsRail.asStateFlow()
+
+    fun loadPublicCollectionsRail(limit: Int = 10) {
+        if (!publicCollectionsAvailable) {
+            _publicCollectionsRail.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _publicCollectionsRail.value = App.instance.publicCollectionsGate.topPublic(limit)
+        }
+    }
+
+    /** Pseudonym of the open curator profile (null = closed). */
+    private val _curatorProfilePseudonym = MutableStateFlow<String?>(null)
+    val curatorProfilePseudonym: StateFlow<String?> = _curatorProfilePseudonym.asStateFlow()
+    private val _curatorProfileCollections =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val curatorProfileCollections:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _curatorProfileCollections.asStateFlow()
+    private var curatorProfileRequest = 0L
+
+    /** Opens a curator by pseudonym; only VISIBLE collections are read. */
+    fun openCuratorProfile(authorId: String, pseudonym: String) {
+        val request = ++curatorProfileRequest
+        _curatorProfilePseudonym.value = pseudonym
+        _curatorProfileCollections.value = emptyList()
+        if (!publicCollectionsAvailable || authorId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val visible = App.instance.publicCollectionsGate.visibleBy(authorId)
+            if (request == curatorProfileRequest) _curatorProfileCollections.value = visible
+        }
+    }
+
+    fun closeCuratorProfile() {
+        curatorProfileRequest++
+        _curatorProfilePseudonym.value = null
+        _curatorProfileCollections.value = emptyList()
+    }
+
     /** #696 — the author removes a hidden (or any own) published collection. */
     fun deleteOwnPublishedCollection(documentId: String) {
         viewModelScope.launch(Dispatchers.IO) {

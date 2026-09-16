@@ -4,6 +4,11 @@ status: accepted
 
 # The library holds several rendition cards under one Work
 
+> Частково переглянуто [ADR-0048](0048-one-work-card-opens-every-narration.md):
+> особиста картка знову одна на Work, а начитки показуються з її деталей.
+> Правило дедуплікації за начиткою (`EditionId`) і розрізнення начиток нижче
+> лишаються чинними — змінилася лише подача карток.
+
 ADR-0010 made the narrator an Edition property and promised the multi-Edition
 library as future work: "importing a second narration of an already-imported
 book merges into the existing card". That policy threw the second narration's

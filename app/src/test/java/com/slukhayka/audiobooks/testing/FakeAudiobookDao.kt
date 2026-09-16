@@ -1065,6 +1065,10 @@ class FakeAudiobookDao(
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
+    /** #484 — the fake owns no entry facts; the pool honestly has none. */
+    override fun observeWorkFacts(): Flow<List<com.slukhayka.audiobooks.data.db.WorkFacts>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
+
     /** ADR-0041 — the discovery pool: only Works with at least one claim. */
     override fun observeDiscoverableWorks(): Flow<List<WorkEntity>> =
         combine(worksState, workSourcesState) { works, claims ->

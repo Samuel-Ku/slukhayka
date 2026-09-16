@@ -635,6 +635,25 @@ interface AudiobookDao {
     )
     fun observeDiscoverableWorks(): Flow<List<WorkEntity>>
 
+    /**
+     * #484 — the genre/description already known per Work, in ONE bulk read:
+     * the recommendation embedding text gains them without a per-candidate
+     * lookup. A Work without an owned entry simply has no facts row.
+     */
+    @Query(
+        """
+        SELECT w.mergeKey AS mergeKey,
+               MAX(a.genre) AS genre,
+               MAX(a.description) AS description
+        FROM works w
+        JOIN library_entries le ON le.workId = w.id
+        JOIN audiobooks a ON a.id = le.id
+        WHERE w.mergeKey != ''
+        GROUP BY w.mergeKey
+        """
+    )
+    fun observeWorkFacts(): Flow<List<WorkFacts>>
+
     @Query("SELECT COUNT(*) FROM works")
     suspend fun countWorks(): Int
 

@@ -633,7 +633,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val verdicts = runCatching { listenerSubmissionFlow.publishDeferredPublications() }
                 .getOrDefault(emptyList())
-            if (verdicts.any { it is ListenerSubmissionFlow.Verdict.Published }) {
+            if (verdicts.any {
+                    it is ListenerSubmissionFlow.Verdict.Published ||
+                        it is ListenerSubmissionFlow.Verdict.PendingModeration
+                }
+            ) {
                 _submissionPublished.tryEmit(Unit)
             }
             refreshAwaitingSubmissions()
@@ -1058,6 +1062,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     when (val submissionVerdict = listenerSubmissionFlow.onPlaybackStarted(submissionSourceId)) {
                         ListenerSubmissionFlow.Verdict.Published -> {
                             _submissionState.value = SubmissionUiState.Published
+                            _submissionPublished.tryEmit(Unit)
+                            refreshAwaitingSubmissions()
+                        }
+                        // #837 — the queue accepted the candidate; the curator
+                        // has not decided, so the honest state is "on moderation".
+                        ListenerSubmissionFlow.Verdict.PendingModeration -> {
+                            _submissionState.value = SubmissionUiState.PendingModeration
                             _submissionPublished.tryEmit(Unit)
                             refreshAwaitingSubmissions()
                         }

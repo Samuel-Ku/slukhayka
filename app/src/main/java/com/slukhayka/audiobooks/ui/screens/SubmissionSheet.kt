@@ -64,6 +64,9 @@ sealed interface SubmissionUiState {
      */
     data class AlreadyInLibrary(val bookId: String) : SubmissionUiState
     data object Published : SubmissionUiState
+
+    /** #837 — the verified submission waits for the curator's decision. */
+    data object PendingModeration : SubmissionUiState
     data object MetadataPublished : SubmissionUiState
 
     /** Spec-53 T8 — the paste had no network and waits in the visible queue. */
@@ -529,6 +532,7 @@ private fun submissionStatusText(state: SubmissionUiState): String? = when (stat
         stringResource(R.string.submission_status_imported_local)
     }
     SubmissionUiState.Published -> stringResource(R.string.submission_status_published)
+    SubmissionUiState.PendingModeration -> stringResource(R.string.submission_status_pending_moderation)
     is SubmissionUiState.AlreadyInLibrary ->
         stringResource(R.string.submission_status_already_in_library)
     SubmissionUiState.MetadataPublished -> stringResource(R.string.submission_status_metadata_published)

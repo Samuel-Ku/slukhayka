@@ -1526,6 +1526,12 @@ class FakeAudiobookDao(
     ): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
         submissionStates.values.filter { it.state == state }
 
+    /** #837 — the rows a book card's honest submission badge derives from. */
+    override suspend fun badgeSubmissionStates(): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
+        submissionStates.values.filter {
+            it.state in setOf("PENDING_MODERATION", "PUBLISHED", "REFUSED")
+        }
+
     // Spec-53 T8 (#715) — drops one deferred row.
     override suspend fun deleteSubmissionState(sourceId: String) {
         submissionStates.remove(sourceId)

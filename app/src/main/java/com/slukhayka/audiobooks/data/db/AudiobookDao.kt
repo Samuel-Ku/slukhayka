@@ -1600,6 +1600,13 @@ interface AudiobookDao {
     @Query("SELECT * FROM submission_states WHERE state = :state ORDER BY createdAt")
     suspend fun submissionStatesByState(state: String): List<SubmissionStateEntity>
 
+    /** #837 — the rows a book card's honest submission badge derives from. */
+    @Query(
+        "SELECT * FROM submission_states " +
+            "WHERE state IN ('PENDING_MODERATION', 'PUBLISHED', 'REFUSED')"
+    )
+    suspend fun badgeSubmissionStates(): List<SubmissionStateEntity>
+
     /** Spec-53 T8 — drops one submission row (processed or discarded). */
     @Query("DELETE FROM submission_states WHERE sourceId = :sourceId")
     suspend fun deleteSubmissionState(sourceId: String)

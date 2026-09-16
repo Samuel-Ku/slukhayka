@@ -80,6 +80,7 @@ import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.SubmissionBadge
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.MetadataChip
@@ -193,6 +194,8 @@ fun LibraryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
+    // #837 — the honest per-book submission badge (state, not a promise).
+    val submissionBadges by viewModel.submissionBadges.collectAsState()
     val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
     val deferredPublicationBookIds by viewModel.deferredPublicationBookIds.collectAsState()
     LaunchedEffect(Unit) {
@@ -655,6 +658,7 @@ fun LibraryScreen(
                                 restoreFocusBookId = restoreFocusBookId,
                                 bookReturnFocusRequester = bookReturnFocusRequester,
                                 awaitingSubmissionBookIds = awaitingSubmissionBookIds,
+                                submissionBadges = submissionBadges,
                                 watchingSubmissionBookIds = watchingSubmissionBookIds,
                                 deferredPublicationBookIds = deferredPublicationBookIds,
                                 onBookClick = onBookClick,
@@ -1254,6 +1258,7 @@ internal fun LazyGridScope.libraryGridContent(
     awaitingSubmissionBookIds: Set<String>,
     watchingSubmissionBookIds: Set<String>,
     deferredPublicationBookIds: Set<String>,
+    submissionBadges: Map<String, SubmissionBadge> = emptyMap(),
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onRecheck: (String) -> Unit
@@ -1265,6 +1270,7 @@ internal fun LazyGridScope.libraryGridContent(
             awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
             watchingSource = entry.book.id in watchingSubmissionBookIds,
             deferredPublication = entry.book.id in deferredPublicationBookIds,
+            submissionBadge = submissionBadges[entry.book.id] ?: SubmissionBadge.NONE,
             onListenNow = { onPlayClick(entry.book) },
             onClick = { onBookClick(entry.book.id) },
             modifier = if (entry.book.id == restoreFocusBookId) {
@@ -1731,6 +1737,8 @@ fun LibraryBookCard(
     watchingSource: Boolean = false,
     /** Spec-53 T12 — the real verdict landed, the day's budget had not. */
     deferredPublication: Boolean = false,
+    /** #837 — the honest moderation badge of MY submission of this book. */
+    submissionBadge: SubmissionBadge = SubmissionBadge.NONE,
     /** Spec-53 T3 — badge tap: open the book and start playing it. */
     onListenNow: (() -> Unit)? = null
 ) {
@@ -1804,6 +1812,7 @@ fun LibraryBookCard(
                         onRecheck,
                         downloadCount = downloadCount,
                         awaitingPlayback = awaitingPlayback,
+                        submissionBadge = submissionBadge,
                         watchingSource = watchingSource,
                         deferredPublication = deferredPublication,
                         onListenNow = onListenNow
@@ -1829,6 +1838,7 @@ private fun LibraryBookRowContent(
     awaitingPlayback: Boolean = false,
     watchingSource: Boolean = false,
     deferredPublication: Boolean = false,
+    submissionBadge: SubmissionBadge = SubmissionBadge.NONE,
     onListenNow: (() -> Unit)? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
@@ -1889,6 +1899,24 @@ private fun LibraryBookRowContent(
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
+                )
+            }
+            if (submissionBadge != SubmissionBadge.NONE) {
+                // #837 — the honest state of MY submission of this book: a
+                // queued candidate, an approved publication, or the curator's
+                // rejection. Never a promise, never before the fact.
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(submissionBadgeRes(submissionBadge)),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = when (submissionBadge) {
+                        SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
+                        SubmissionBadge.IN_SHARED_BASE -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.secondary
+                    },
+                    modifier = Modifier.testTag(
+                        "submission_badge_${submissionBadge.name.lowercase()}_${book.book.id}"
+                    )
                 )
             }
             // #397 — the offline state (cloud / «7 із 12») is not a title
@@ -2511,4 +2539,12 @@ fun BookmarkedPersonRow(
             )
         }
     }
+}
+
+/** #837 — the card badge's honest label. */
+private fun submissionBadgeRes(badge: SubmissionBadge): Int = when (badge) {
+    SubmissionBadge.PENDING_MODERATION -> R.string.submission_badge_pending_moderation
+    SubmissionBadge.IN_SHARED_BASE -> R.string.submission_badge_in_shared_base
+    SubmissionBadge.REJECTED -> R.string.submission_badge_rejected
+    SubmissionBadge.NONE -> R.string.submission_badge_pending_moderation
 }

@@ -1,6 +1,18 @@
 # Задачі: бібліотека всіх форматів, «Мої книги» й соціальний шар — 2026-09-16
 
-Статус: **чернетка декомпозиції.** GitHub Issues ще не створені.
+Статус: **створено 17 issues** (#860–#876), мітка `spec-54`, мілстоун v1.8.
+
+| Задача | Issue | Задача | Issue |
+|---|---|---|---|
+| T01 шестерня й налаштування | [#860](https://github.com/Samuel-Ku/slukhayka/issues/860) | T12 полиці Огляду | [#868](https://github.com/Samuel-Ku/slukhayka/issues/868) |
+| T10 тема «Нічна бібліотека» | [#861](https://github.com/Samuel-Ku/slukhayka/issues/861) | T14 одна картка Work | [#869](https://github.com/Samuel-Ku/slukhayka/issues/869) |
+| T11 типографські обкладинки | [#862](https://github.com/Samuel-Ku/slukhayka/issues/862) | T15 ручне додавання | [#870](https://github.com/Samuel-Ku/slukhayka/issues/870) |
+| T13 схема й міграція | [#863](https://github.com/Samuel-Ku/slukhayka/issues/863) | T03 стан і фокус вкладок | [#871](https://github.com/Samuel-Ku/slukhayka/issues/871) |
+| T17 специфікація «Друзів» | [#864](https://github.com/Samuel-Ku/slukhayka/issues/864) | T04 «Підсумки слухання» | [#872](https://github.com/Samuel-Ku/slukhayka/issues/872) |
+| T02 три робочі вкладки | [#865](https://github.com/Samuel-Ku/slukhayka/issues/865) | T06 Книги / Полиці / Збережене | [#873](https://github.com/Samuel-Ku/slukhayka/issues/873) |
+| T05 групи налаштувань | [#866](https://github.com/Samuel-Ku/slukhayka/issues/866) | T07 єдина сторінка людини | [#874](https://github.com/Samuel-Ku/slukhayka/issues/874) |
+| T09 «Імпортоване» | [#867](https://github.com/Samuel-Ku/slukhayka/issues/867) | T08 добірки повним екраном | [#875](https://github.com/Samuel-Ku/slukhayka/issues/875) |
+| | | T16 прогрес, журнал, «Мій рік» | [#876](https://github.com/Samuel-Ku/slukhayka/issues/876) |
 
 Джерело: п'ять дизайн-документів, унесених у репозиторій разом із прийнятими
 [ADR-0046…0049](../adr/):

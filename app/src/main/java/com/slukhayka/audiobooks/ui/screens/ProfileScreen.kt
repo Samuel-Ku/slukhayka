@@ -91,7 +91,7 @@ fun ProfileScreen(
     onBackClick: () -> Unit,
     hiddenAuthors: List<String> = emptyList(),
     onUnhideAuthor: (String) -> Unit = {},
-    // ADR-0023 (spec-43 T6): the visible Progress Sync switch — the screen
+    // ADR-0051 (spec-43 T6): the visible Progress Sync switch — the screen
     // reads the settings store directly (ADR-0008); defaults keep existing
     // call sites and previews unchanged.
     progressSyncSettings: ProgressSyncSettingsStore? = null,

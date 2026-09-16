@@ -100,7 +100,7 @@ class ListeningStateStore(
     suspend fun updatePausedAt(bookId: String, pausedAt: Long?) =
         dao.updatePausedAt(bookId, pausedAt)
 
-    // --- Progress Sync (ADR-0023, spec-43 T6) --------------------------------
+    // --- Progress Sync (ADR-0051, spec-43 T6) --------------------------------
     // The three members below are the store's ProgressMirror face: the narrow
     // seam [ProgressSyncController] sequences over. Nothing here changes how
     // playback itself reads or writes the row.
@@ -113,7 +113,7 @@ class ListeningStateStore(
         dao.getPlaybackProgressSyncByEdition(editionId)
 
     /**
-     * Applies a remote mirror into the local row (ADR-0023): position,
+     * Applies a remote mirror into the local row (ADR-0051): position,
      * chapter, completion and speed come from the cloud; the row keeps its
      * LOCAL recency stamp and drops THIS device's pause marker — Smart Rewind
      * belongs to the pause made here, never to one imported from another

@@ -2,7 +2,7 @@
  * W4.1 — the store seam of the `book_reviews` and `edition_ratings`
  * collections, shaped exactly like the Kotlin stores
  * (`FirestoreListenerReviewsStore` / `FirestoreNarrationRatingsStore`,
- * ADR-0023 house pattern): the policy lives in the pure modules
+ * ADR-0051 house pattern): the policy lives in the pure modules
  * (`reviewModel.ts`, `narrationRatingModel.ts`), the transport only moves
  * documents, and every failure degrades to null / an empty list — never an
  * exception. Documents live under the deterministic keys

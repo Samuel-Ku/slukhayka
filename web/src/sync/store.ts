@@ -9,7 +9,7 @@ import {
 import { ProgressSyncCodec, type RemoteListeningState } from './policy'
 
 /**
- * ADR-0023 (spec-43 T6) — the Progress Sync store behind a pure seam.
+ * ADR-0051 (spec-43 T6) — the Progress Sync store behind a pure seam.
  * Mirrors app/src/main/java/com/slukhayka/audiobooks/data/listening/ListenerProgressSyncStore.kt
  */
 

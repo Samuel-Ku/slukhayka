@@ -9,7 +9,7 @@ package com.slukhayka.audiobooks.data.listening
  * pinned IDENTICALLY on both platforms by fixture tests over the same
  * vectors — a web row and a Kotlin row are the same document.
  *
- * The seam follows [ListenerProgressSyncStore]'s house pattern (ADR-0023):
+ * The seam follows [ListenerProgressSyncStore]'s house pattern (ADR-0051):
  * policy in pure default methods over a minimal document transport; only
  * the transport is Android glue ([FirestoreWorkRelationshipsStore]).
  */

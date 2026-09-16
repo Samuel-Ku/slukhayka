@@ -18,7 +18,7 @@ import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
  * Every path degrades silently — no Firebase config, a switched-off toggle
  * or a `local-…` identity leaves the app exactly as it was, never an
  * exception into the library flow (same contract as
- * [ProgressSyncController]). Sync is on by default (ADR-0023 п.1): the rows
+ * [ProgressSyncController]). Sync is on by default (ADR-0051 п.1): the rows
  * carry nothing until the listener's own devices share one profile.
  */
 class WorkRelationshipsSync(

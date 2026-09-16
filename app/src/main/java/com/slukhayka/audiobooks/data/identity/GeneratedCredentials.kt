@@ -9,8 +9,9 @@ import kotlin.random.Random
  * accounts), so the anonymous session is immediately elevated with these
  * credentials via linkWithCredential — public Firebase API only, no custom
  * backend. The pair never leaves the device except encoded as the t2
- * recovery code / encrypted device binding. Pure: seeded Random makes tests
- * deterministic.
+ * recovery code / encrypted device binding; at rest and in Auto Backup the
+ * password travels only as a DeviceBindingCipher-sealed blob. Pure: seeded
+ * Random makes tests deterministic.
  */
 object GeneratedCredentials {
 

@@ -24,6 +24,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.MainViewModel
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -111,6 +112,16 @@ class AudioPlaybackEspressoTest {
      * supported). Then deterministically seed the Room database with one
      * downloaded book + one chapter pointing at the local fixture file.
      */
+    /**
+     * This test seeds a fixture book into the scratch database the runner
+     * owns ([com.slukhayka.audiobooks.IsolatedDatabaseTestRunner]) — never
+     * the listener's library. Only the copied audio needs removing here.
+     */
+    @After
+    fun removeFixtureAudio() {
+        File(app.filesDir, "fixture_short.mp3").delete()
+    }
+
     @Before
     fun seedDeterministicLibrary() {
         val target = File(app.filesDir, "fixture_short.mp3")

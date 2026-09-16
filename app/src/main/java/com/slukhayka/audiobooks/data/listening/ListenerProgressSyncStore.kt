@@ -1,7 +1,7 @@
 package com.slukhayka.audiobooks.data.listening
 
 /**
- * ADR-0023 (spec-43 T6) — the Progress Sync store behind a pure JVM seam,
+ * ADR-0051 (spec-43 T6) — the Progress Sync store behind a pure JVM seam,
  * shaped exactly like [com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore]'s
  * philosophy: best-effort and silent by contract — a miss, a failure or a
  * corrupt document yields null / false, never an exception. The read/write

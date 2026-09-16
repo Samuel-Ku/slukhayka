@@ -5,7 +5,7 @@
 від застосунку. Метод: grill-with-docs — рішення раундів фіксуються в
 `docs/adr/`, спека поставки народжується з останнього раунду.
 
-База: специфікація spec-43 (каркас web, ADR-0023/0024), специфікація v1.4
+База: специфікація spec-43 (каркас web, ADR-0051/0024), специфікація v1.4
 (ADR-0033: «Web Client успадковує ті самі контракти окремою спекою» —
 це вона й є).
 
@@ -17,7 +17,7 @@
   sluhayua, lihtar, audiobook-mp3, sound-books, playerjs, LibriVox);
 - перевірка доступності (порт Edition Availability Assertion), мовні
   чіпи EN/UA + фільтр мови контенту, Smart Rewind, MediaSession,
-  код відновлення + Progress Sync після прив'язки (ADR-0023), uk/en
+  код відновлення + Progress Sync після прив'язки (ADR-0051), uk/en
   словник (~60 ключів) із парністю на рівні типів.
 
 Чого немає (проти Android):
@@ -59,7 +59,7 @@ Web не мігрує власні компоненти, а будує одра�
 свідомої прив'язки; Metadata Overrides — пізніше, окремим тікетом.
 Книга, прихована на Android, не має воскресати в Огляді web;
 tombstone якориться за Work/mergeKey — так само як covers і reviews.
-Це та сама «later spec», яку ADR-0023 записав для Library Entries.
+Це та сама «later spec», яку ADR-0051 записав для Library Entries.
 
 **R-W4. Персональні рекомендації на web = той самий поділ, що Android
 (варіант (a)).** Читається той самий серверний Recommendation Profile

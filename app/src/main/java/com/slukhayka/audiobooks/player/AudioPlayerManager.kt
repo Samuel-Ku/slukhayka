@@ -232,7 +232,7 @@ class AudioPlayerManager(
      */
     private val widgetSyncEnabled: Boolean = true,
     /**
-     * ADR-0023 (spec-43 T6) — Progress Sync: throttled upload at save points,
+     * ADR-0051 (spec-43 T6) — Progress Sync: throttled upload at save points,
      * immediate on pauses/completions. Null in tests and without Firebase —
      * then nothing ever leaves the device.
      */
@@ -1711,7 +1711,7 @@ class AudioPlayerManager(
                 }
             }
         }
-        // ADR-0023 (spec-43 T6): a pause is an honest moment — push at once.
+        // ADR-0051 (spec-43 T6): a pause is an honest moment — push at once.
         saveCurrentProgressToDb(immediateSync = true)
     }
 
@@ -2123,7 +2123,7 @@ class AudioPlayerManager(
                     positionSeconds = _playerState.value.durationMs / 1000L
                  )
              }
-            // ADR-0023 (spec-43 T6): completion is an honest moment too.
+            // ADR-0051 (spec-43 T6): completion is an honest moment too.
             saveCurrentProgressToDb(immediateSync = true)
         }
     }
@@ -2209,7 +2209,7 @@ class AudioPlayerManager(
             // ADR-0007: progress is keyed by the Edition — no source key.
             listeningState.updateProgress(book.id, currentChapter, posSec)
             listeningState.recordListeningTime(5L)
-            // ADR-0023 (spec-43 T6): pauses/completions push at once, periodic
+            // ADR-0051 (spec-43 T6): pauses/completions push at once, periodic
             // ticks ride the pacing window; failures stay silent.
             progressSync?.pushAfterSave(book.id, immediate = immediateSync)
         }

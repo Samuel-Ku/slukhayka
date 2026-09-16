@@ -12,7 +12,7 @@ import kotlin.coroutines.resume
 /**
  * #581 W0.3 — the Firestore implementation of [WorkRelationshipsStore] over
  * the `work_relationships` collection: thin Android glue in the exact shape
- * of [FirestoreListenerProgressSyncStore] (ADR-0023 house pattern) —
+ * of [FirestoreListenerProgressSyncStore] (ADR-0051 house pattern) —
  * server-stamped writes, SERVER-source read-back of the ordering stamp,
  * fail-closed around every call. Firebase itself is optional: [create]
  * returns null without config, and Work-relationship sync then simply does

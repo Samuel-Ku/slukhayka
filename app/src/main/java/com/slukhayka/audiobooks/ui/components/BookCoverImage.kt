@@ -115,28 +115,37 @@ fun BookCoverImage(
         )
     } else {
         // Fallback layout: genre-tinted typographic cover with book title &
-        // author (spec-22 T3) — a known genre blends its accent into the
-        // surface tones; unknown genres keep the brand-accent gradient.
+        // author (spec-22 T3). The genre tint is a soft glow behind the mark,
+        // NOT a full-height wash: on a shelf tile the old vertical gradient
+        // pooled into a brown band across the bottom third and read as dirt
+        // rather than as "that genre's book" (device review, 2026-09-16).
         val fallbackAccent = genreAccentColor(book.genre)
         Box(
             modifier = modifier
                 .clearAndSetSemantics {
                     resolvedContentDescription?.let { contentDescription = it }
                 }
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surface,
-                            MaterialTheme.colorScheme.surfaceContainerHigh,
-                            (fallbackAccent ?: MaterialTheme.colorScheme.primary)
-                                .copy(alpha = if (fallbackAccent != null) 0.45f else 0.25f)
-                        )
-                    )
-                )
-                .padding(6.dp),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.Center
         ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                // A known genre shows its own colour; an unknown
+                                // one still gets the faintest brand presence
+                                // instead of a dead grey rectangle.
+                                (fallbackAccent ?: MaterialTheme.colorScheme.primary)
+                                    .copy(alpha = if (fallbackAccent != null) 0.22f else 0.10f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
             Column(
+                modifier = Modifier.padding(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {

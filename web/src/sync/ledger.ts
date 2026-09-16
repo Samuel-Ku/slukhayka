@@ -1,5 +1,5 @@
 /**
- * ADR-0023 (spec-43 T6) — what this browser already knows about the cloud's
+ * ADR-0051 (spec-43 T6) — what this browser already knows about the cloud's
  * listening_state documents, per Edition: the newest server timestamp it has
  * SEEN and the last push attempt's wall-clock mark.
  * Mirrors Android's SharedPreferencesProgressSyncLedger.

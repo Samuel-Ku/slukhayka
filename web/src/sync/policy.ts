@@ -1,5 +1,5 @@
 /**
- * ADR-0023 (spec-43 T6) — the server-side mirror of one Edition's Listening
+ * ADR-0051 (spec-43 T6) — the server-side mirror of one Edition's Listening
  * State. Only the fields Progress Sync carries: position, chapter,
  * completion, preferred speed — never Library Entries or other listeners' rows.
  */

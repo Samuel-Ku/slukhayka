@@ -4,6 +4,10 @@ status: accepted
 
 # Crash reports wait for an explicit choice
 
+> Об'єднано з `0025-opt-in-crash-reports-through-crashlytics.md`: це було те
+> саме рішення, записане двічі під одним номером. Транспорт (Firebase
+> Crashlytics, замінний адаптер) збережено в «Наслідках» нижче.
+
 Слухайка needs production crash evidence, especially when Android kills or
 breaks background playback. Automatic reporting would solve that by quietly
 sending data before the listener had a chance to decide. That is not an
@@ -60,3 +64,6 @@ history.
   working locally.
 - Unexpected background stops become queryable without broadening the privacy
   boundary or introducing a second consent flow.
+- The transport is Firebase Crashlytics, but only through a replaceable
+  adapter: no screen or playback module may write arbitrary Crashlytics
+  payloads.

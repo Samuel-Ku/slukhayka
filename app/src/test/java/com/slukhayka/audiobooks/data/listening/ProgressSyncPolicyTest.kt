@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ADR-0023 (spec-43 T6) — the pure decision matrix of Progress Sync: what
+ * ADR-0051 (spec-43 T6) — the pure decision matrix of Progress Sync: what
  * pulls, what pushes, how documents decode. No Android, no coroutines.
  */
 class ProgressSyncPolicyTest {

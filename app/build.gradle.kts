@@ -314,6 +314,10 @@ dependencies {
   // duplicate on the unit-test classpath would be ambiguous. The eval gate
   // script gets the desktop jar via its own configuration below.
   implementation(libs.onnxruntime.android)
+  // ADR-0050 / #829 — the Telegram MTProto engine (TDLib), a PINNED prebuilt
+  // AAR. It is fetched by downloadTdlib (version + sha256 pinned there) and
+  // never committed; preBuild depends on that task so a clean checkout builds.
+  implementation(files("libs/tdlib-1.8.67-d1085f9.aar"))
 
 // spec-19 T3: the reproducible eval gate — runRecommendationEval. A host
 // JVM script (test sources, so it reuses the fixtures + RecommendationEval)
@@ -698,3 +702,7 @@ val downloadTdlib by tasks.registering(Exec::class) {
     """.trimIndent()
   )
 }
+
+// #829 — the AAR is a compile dependency, so the pinned artifact must exist
+// before any build; the download task is the only supported producer.
+tasks.named("preBuild") { dependsOn(downloadTdlib) }

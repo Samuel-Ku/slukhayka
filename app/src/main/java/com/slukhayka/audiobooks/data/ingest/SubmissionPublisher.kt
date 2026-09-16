@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.ingest
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode
 import com.slukhayka.audiobooks.data.metadata.SubmissionChapter
+import com.slukhayka.audiobooks.data.metadata.SubmissionCandidateFactory
 import com.slukhayka.audiobooks.data.metadata.SubmissionPublication
 
 /**
@@ -96,22 +97,30 @@ class SubmissionPublisher(
         val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
         if (plan.title.isBlank()) return Result.METADATA_FAILED
 
-        val publication = SubmissionPublication(
-            sourceUrl = url.trim(),
-            accessMode = SubmissionAccessMode.YOUTUBE,
+        // Moderation T1 (#834) — a verified submission becomes a CANDIDATE in
+        // pending_submissions; only the curator's bot writes catalog_cards.
+        val verifiedAt = verifiedAtOverride
+            ?: policy.verifiedAt(sourceId)
+            ?: return Result.NOT_VERIFIED
+        val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf(url)
+        // The queue is now the dedup source: the same canonical link is one
+        // candidate, and a repeat is the friendly ALREADY_PUBLISHED state.
+        if (sharedStore.getCandidate(canonical) != null) return Result.ALREADY_PUBLISHED
+        val candidate = SubmissionCandidateFactory.create(
+            url = url,
+            canonical = canonical,
             title = plan.title,
+            uid = submitterId,
+            playedAt = verifiedAt,
+            createdAt = clock(),
             author = plan.author,
             narrator = plan.narrator,
             durationSeconds = metadata.durationSeconds,
-            chapters = plan.chapters.map { SubmissionChapter(it.title, it.watchUrl) },
-            verifiedAt = verifiedAtOverride
-                ?: policy.verifiedAt(sourceId)
-                ?: return Result.NOT_VERIFIED,
-            submittedAt = clock(),
-            submitterId = submitterId
-        )
-        sharedStore.publishSubmission(publication)
-        return Result.PUBLISHED
+            chaptersCount = plan.chapters.size,
+            sourceId = sourceId,
+            metadataJson = metadataJson
+        ) ?: return Result.METADATA_FAILED
+        return if (sharedStore.enqueueCandidate(candidate)) Result.PUBLISHED else Result.METADATA_FAILED
     }
 
     /**

@@ -56,14 +56,20 @@ class SubmissionPublisherTest {
         assertEquals(SubmissionAccessMode.YOUTUBE, publication.accessMode)
         assertEquals("Стівен Кінг", publication.author)
         assertEquals("Острів Дума", publication.title)
-        assertEquals(2, publication.chapters.size)
+        // Moderation T1 (#834) — the CANDIDATE carries the observed chapter
+        // COUNT; per-chapter watch URLs ride inside metadataJson, so the queue
+        // document itself can never carry a signed or fabricated URL.
+        val candidate = store.candidatePuts.single()
+        assertEquals(2, candidate.chaptersCount)
         assertTrue(
-            "chapters carry canonical watch URLs, never signed URLs",
-            publication.chapters.all { it.watchUrl.startsWith("https://www.youtube.com/watch?v=") }
+            "the queued link is canonical, never a signed one",
+            candidate.canonicalUrl.startsWith("https://") && !candidate.canonicalUrl.contains("signature=")
         )
         assertEquals("the verdict moment rides the document", 10_000L, publication.verifiedAt)
         assertEquals("the write moment is the clock", 10_000L, publication.submittedAt)
-        assertEquals("device-1", publication.submitterId)
+        val queued = store.candidatePuts.single()
+        assertEquals("the queue carries the submitter HASH", 64, queued.submitterHash.length)
+        assertTrue("the raw device id never reaches the queue", queued.submitterHash != "device-1")
         assertEquals("the publish consumed one daily slot", 1L, store.getSubmissionCount("device-1", "0"))
     }
 

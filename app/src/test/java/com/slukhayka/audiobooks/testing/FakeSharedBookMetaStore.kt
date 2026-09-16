@@ -18,6 +18,9 @@ import com.slukhayka.audiobooks.data.metadata.SharedTombstoneCursor
 import com.slukhayka.audiobooks.data.metadata.SharedTombstonePage
 import com.slukhayka.audiobooks.data.metadata.SharedTombstonePageLimits
 import com.slukhayka.audiobooks.data.metadata.SourceRefusalVoteCodec
+import com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode
+import com.slukhayka.audiobooks.data.metadata.SubmissionCandidate
+import com.slukhayka.audiobooks.data.metadata.SubmissionChapter
 import com.slukhayka.audiobooks.data.metadata.SubmissionCursor
 import com.slukhayka.audiobooks.data.metadata.SubmissionPage
 import com.slukhayka.audiobooks.data.metadata.SubmissionPageLimits
@@ -98,6 +101,38 @@ class FakeSharedBookMetaStore(
 
     override suspend fun getSubmission(sourceUrl: String): SubmissionPublication? =
         submissions[SubmissionPublicationCodec.documentId(sourceUrl)]
+
+    /**
+     * Moderation T1 (#834) — the raw candidates the door queued. The fake also
+     * PROJECTS each candidate into [submissionPuts], so the door's existing
+     * payload assertions keep observing what the listener assembled.
+     */
+    val candidatePuts = mutableListOf<SubmissionCandidate>()
+
+    var enqueueCandidateResult: Boolean = true
+
+    override suspend fun enqueueCandidate(candidate: SubmissionCandidate): Boolean {
+        if (!enqueueCandidateResult) return false
+        candidatePuts += candidate
+        val projected = SubmissionPublication(
+            sourceUrl = candidate.url,
+            accessMode = SubmissionAccessMode.YOUTUBE,
+            title = candidate.title,
+            author = candidate.author,
+            narrator = candidate.narrator,
+            durationSeconds = candidate.durationSeconds,
+            chapters = List(candidate.chaptersCount) { SubmissionChapter("", "") },
+            verifiedAt = candidate.playedAt,
+            submittedAt = candidate.createdAt,
+            submitterId = candidate.submitterHash
+        )
+        submissionPuts += projected
+        submissions[SubmissionPublicationCodec.documentId(candidate.url)] = projected
+        return true
+    }
+
+    override suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? =
+        candidatePuts.lastOrNull { it.canonicalUrl == canonicalUrl }
 
     override suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage {
         if (throwOnSubmissionPage) throw IllegalStateException("shared base down")

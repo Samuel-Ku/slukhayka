@@ -393,6 +393,10 @@ fun LibraryScreen(
             // now (one tap, just as discoverable) and the screen became a
             // single scroll of books.
             com.slukhayka.audiobooks.ui.components.AppTabHeader(
+                // TODO(#873) — this literal must become R.string.nav_library
+                // once the snapshot baseline is regenerated: switching it to
+                // the resource changes the rendered header and the roborazzi
+                // baseline (recordRoborazziDebug does not run in this env).
                 title = if (activeTab == 0) "Медіатека" else sectionTitle,
                 subtitle = if (activeTab == 0) librarySubtitle else null,
                 headingTestTag = "library_heading",
@@ -913,8 +917,8 @@ fun LibraryEmptyState(
 ) {
     EmptyState(
         icon = Icons.Default.MenuBook,
-        title = "Медіатека порожня",
-        body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
+        title = stringResource(R.string.library_empty_title),
+        body = stringResource(R.string.library_empty_body)
     ) {
         Button(
             onClick = onImportClick,

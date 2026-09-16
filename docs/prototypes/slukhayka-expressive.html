@@ -1,0 +1,1846 @@
+<!doctype html>
+<html lang="en" data-visualize-standalone>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Slukhayka Expressive</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Slukhayka Expressive" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; data-visualize-standalone&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Slukhayka Expressive&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(
+    --background,
+    var(--color-background-primary, light-dark(rgb(255 255 255), rgb(24 24 24)))
+  ) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: var(
+    --color-background-primary,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --card: color-mix(in oklab, var(--foreground) 5%, var(--background));
+  --card-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --popover: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255), rgb(45 45 45))
+  );
+  --popover-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --primary: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --primary-foreground: var(
+    --color-text-inverse,
+    light-dark(rgb(255 255 255), rgb(13 13 13))
+  );
+  --secondary: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%))
+  );
+  --secondary-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: var(
+    --color-text-secondary,
+    light-dark(rgb(26 28 31 / 49.4%), rgb(255 255 255 / 49.8%))
+  );
+  --accent: var(
+    --color-background-info,
+    light-dark(rgb(229 242 255), rgb(13 39 63))
+  );
+  --accent-foreground: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --destructive: var(
+    --color-text-warning,
+    light-dark(rgb(226 85 7), rgb(255 133 73))
+  );
+  --border: var(
+    --color-border-secondary,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+  --input: var(
+    --color-border-primary,
+    light-dark(
+      rgb(26 28 31 / 11.8%),
+      color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+    )
+  );
+  --ring: var(
+    --color-ring-primary,
+    light-dark(rgb(51 156 255), rgb(131 195 255 / 76%))
+  );
+  --font-size-base: var(--font-text-md-size, 14px);
+  --blue: light-dark(rgb(51 156 255), rgb(51 156 255));
+  --orange: light-dark(rgb(226 85 7), rgb(251 106 34));
+  --green: light-dark(rgb(0 162 64), rgb(64 201 119));
+  --red: light-dark(rgb(224 46 42), rgb(255 103 100));
+  --purple: light-dark(rgb(146 79 247), rgb(173 123 249));
+  --yellow: light-dark(rgb(255 195 0), rgb(255 210 64));
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --icon-size: 16px;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --corner-shape: round;
+  --radius: var(--border-radius-lg, 10px);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  /* Preserve MCP aliases for older inline renderers without creating :root cycles. */
+  --color-background-primary: var(
+    --background,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --color-text-primary: var(
+    --foreground,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --color-border-secondary: var(
+    --border,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+
+  margin: 0;
+  padding: var(--visualize-paint-gutter, 0px);
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: var(--corner-shape);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: var(--corner-shape);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card, .progress) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+hr {
+  width: 100%;
+  height: 1px;
+  margin-block: 6px;
+  border: 0;
+  background: var(--border);
+}
+
+.nav {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.progress {
+  display: flex;
+  height: 8px;
+  margin-block: calc((var(--line-height-normal, 1.5em) - 8px) / 2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+}
+
+.progress-bar:only-child {
+  border-radius: var(--radius-full);
+}
+
+.progress-bar {
+  height: 100%;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--viz-series-1);
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.nav-link,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn,
+.nav-link {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover,
+.nav-link:not(:disabled):not([aria-disabled=&quot;true&quot;]):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.nav-pills .nav-link {
+  min-width: 0;
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.nav-justified .nav-link {
+  flex: 1 1 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.nav-pills .nav-link.active {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.btn:disabled,
+.nav-link:disabled,
+.nav-link[aria-disabled=&quot;true&quot;] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: var(--corner-shape);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: var(--corner-shape);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+  [aria-pressed=&quot;true&quot;],
+  [aria-selected=&quot;true&quot;],
+  .is-selected
+) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible,
+.nav-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .btn,
+  .nav-link,
+  .form-control,
+  .form-select {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Keep small-screen WebKit from zooming when a text field receives focus. */
+  .form-control,
+  .form-select {
+    font-size: max(16px, var(--font-size-normal));
+  }
+
+  .form-control[type=&quot;file&quot;]::file-selector-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .form-control-color[type=&quot;color&quot;] {
+    width: 44px;
+    height: 44px;
+  }
+
+  .form-control:is(
+    [type=&quot;date&quot;],
+    [type=&quot;datetime-local&quot;],
+    [type=&quot;month&quot;],
+    [type=&quot;time&quot;],
+    [type=&quot;week&quot;]
+  ) {
+    min-width: 0;
+    max-width: 100%;
+    padding-block: 8px;
+  }
+
+  .form-check {
+    min-height: 44px;
+    padding-inline: 15px;
+  }
+
+  .form-check-input {
+    position: relative;
+  }
+
+  .form-check-input::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    content: &quot;&quot;;
+    transform: translate(-50%, -50%);
+  }
+
+  .form-check-label {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .form-range {
+    height: 44px;
+    touch-action: pan-y;
+  }
+
+  .form-range::-webkit-slider-runnable-track {
+    height: 44px;
+  }
+
+  .form-range::-moz-range-track {
+    height: 44px;
+  }
+
+  .form-range::-webkit-slider-thumb {
+    margin-top: 12px;
+  }
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+/* Model-authored chart rules can otherwise stretch icons after these styles load. */
+svg.lucide {
+  display: block;
+  width: var(--icon-size) !important;
+  height: var(--icon-size) !important;
+  flex: none;
+  margin: 0 !important;
+  stroke-width: 1.6;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;style&gt;
+@import url(&#x27;https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap&#x27;);
+#slx { --sl-bg:light-dark(#FAF6EE,#111318); --sl-surface:light-dark(#FFFFFF,#191C23); --sl-card:light-dark(#F0EADC,#242832); --sl-line:light-dark(#DBD3C5,#353944); --sl-ink:light-dark(#211D17,#F1EDE5); --sl-muted:light-dark(#6E6557,#B9B1A5); --sl-accent:light-dark(#835800,#E9A13B); --sl-on:light-dark(#FFFFFF,#241A00); --sl-tonal:light-dark(#F5E3BD,#3A2E19); --sl-on-tonal:light-dark(#674500,#F3D9A8); --sl-success:light-dark(#336444,#A9D0B1); --sl-radius:24px; font-family:Manrope,system-ui,sans-serif; color:var(--sl-ink); max-width:430px; margin:0 auto; }
+#slx *, #slx *::before, #slx *::after {box-sizing:border-box;}
+#slx button, #slx input, #slx select {font:inherit;}
+#slx button {color:inherit; cursor:pointer; touch-action:manipulation; border:0; background:none; padding:0; font-weight:600; transition:background .18s,transform .18s;}
+#slx button:active {transform:scale(.98);}
+#slx button:focus-visible, #slx input:focus-visible, #slx select:focus-visible {outline:3px solid var(--sl-accent); outline-offset:3px;}
+#slx button:disabled {cursor:default; opacity:.5;}
+#slx h1,#slx h2,#slx h3,#slx p {margin:0;}
+#slx h1 {font-size:32px; line-height:1.15; letter-spacing:-1.2px; font-weight:800;}
+#slx h2 {font-size:20px; line-height:1.3; letter-spacing:-.5px; font-weight:800;}
+#slx h3 {font-size:16px; line-height:1.4; font-weight:700;}
+#slx p {font-size:14px; line-height:1.6;}
+#slx .sl-shell {background:var(--sl-bg); border:1px solid var(--sl-line); border-radius:28px; overflow:clip;}
+#slx .sl-cap {font-size:10px; font-weight:700; letter-spacing:1.15px; color:var(--sl-muted); text-align:center; padding:0 0 10px;}
+#slx .sl-top {padding:20px 20px 16px; display:flex; align-items:center; gap:10px;}
+#slx .sl-top-title {flex:1; min-width:0;}
+#slx .sl-wordmark {font-size:12px; letter-spacing:.35px; font-weight:800; margin-bottom:5px; display:flex; align-items:center; gap:6px; color:var(--sl-muted);}
+#slx .sl-wordmark svg {width:15px; height:15px; color:var(--sl-accent);}
+#slx .sl-icon {width:48px; height:48px; min-width:48px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;}
+#slx .sl-icon svg {width:22px; height:22px;}
+#slx .sl-icon:hover {background:var(--sl-card);}
+#slx .sl-icon.sl-tonal {background:var(--sl-card);}
+#slx .sl-main {padding:0 20px 24px; min-height:390px;}
+#slx .sl-stack {display:flex; flex-direction:column; gap:24px;}
+#slx .sl-section {margin-top:26px;}
+#slx .sl-heading {display:flex; align-items:center; gap:8px; margin-bottom:12px;}
+#slx .sl-heading h2 {flex:1;}
+#slx .sl-text-action {color:var(--sl-accent); min-height:48px; display:inline-flex; align-items:center; gap:5px; font-size:13px; white-space:nowrap;}
+#slx .sl-text-action svg {width:16px; height:16px;}
+#slx .sl-muted {color:var(--sl-muted); font-size:13px; line-height:1.5;}
+#slx .sl-eyebrow {font-size:10px; letter-spacing:1.5px; font-weight:800; text-transform:uppercase;}
+#slx .sl-primary, #slx .sl-secondary {min-height:52px; border-radius:999px; padding:12px 20px; display:inline-flex; align-items:center; justify-content:center; gap:8px; font-size:14px; line-height:1.4;}
+#slx .sl-primary {background:var(--sl-accent); color:var(--sl-on);}
+#slx .sl-secondary {background:var(--sl-card); color:var(--sl-ink);}
+#slx .sl-primary svg,#slx .sl-secondary svg {width:20px; height:20px; flex:none;}
+#slx .sl-wide {width:100%;}
+#slx .sl-actions {display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+#slx .sl-actions &gt; .sl-primary {flex:1;}
+#slx .sl-hero {border-radius:var(--sl-radius); background:#302821; color:#FFF4DE; position:relative; isolation:isolate; overflow:hidden; padding:24px; min-height:332px; display:flex; flex-direction:column; justify-content:flex-end;}
+#slx .sl-hero::before {content:&#x27;&#x27;; position:absolute; z-index:-1; inset:0; background:linear-gradient(180deg,transparent 8%,#171B23 94%),radial-gradient(ellipse at 66% 16%,#BD925A 0%,#695C4C 28%,#302E31 65%);}
+#slx .sl-hero .sl-hero-cover {position:absolute; width:128px; top:22px; right:28px; transform:rotate(9deg); box-shadow:0 12px 32px #0005; z-index:-1;}
+#slx .sl-hero .sl-eyebrow {position:absolute; top:24px; left:24px; color:#F1D5A5; max-width:100px; line-height:1.6;}
+#slx .sl-hero h2 {font-size:40px; letter-spacing:-1.5px; font-weight:800;}
+#slx .sl-hero .sl-author {color:#E1D6C5; font-size:13px; margin:3px 0 12px;}
+#slx .sl-hero .sl-primary {background:#E9A13B; color:#241A00;}
+#slx .sl-hero .sl-icon {color:#F9E4C5; background:#FFFFFF16;}
+#slx .sl-hero-progress {display:flex; gap:10px; align-items:center; margin-bottom:17px; font-size:11px; color:#E1D6C5;}
+#slx .sl-hero-progress span {white-space:nowrap;}
+#slx .sl-track {height:4px; border-radius:3px; background:var(--sl-line); overflow:hidden; flex:1;}
+#slx .sl-track &gt; i {display:block; background:var(--sl-accent); height:100%; border-radius:3px;}
+#slx .sl-hero .sl-track {background:#FFFFFF28;}
+#slx .sl-hero .sl-track &gt; i {background:#E9A13B;}
+#slx .sl-grid {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px;}
+#slx .sl-poster {display:block; width:100%; text-align:left; min-width:0;}
+#slx .sl-poster-title {display:block; margin-top:9px; font-size:13px; font-weight:800; line-height:1.4; overflow-wrap:anywhere;}
+#slx .sl-poster-meta {display:block; color:var(--sl-muted); font-size:11px; line-height:1.5; margin-top:3px;}
+#slx .sl-cover {aspect-ratio:2/3; border-radius:10px; width:100%; padding:12%; display:flex; flex-direction:column; justify-content:space-between; position:relative; overflow:hidden; isolation:isolate; color:#F6EAC9; background:#5A4835; box-shadow:inset 3px 0 0 #FFFFFF12;}
+#slx .sl-cover::before,#slx .sl-cover::after {content:&#x27;&#x27;; position:absolute; z-index:-1;}
+#slx .sl-cover small {font-size:clamp(8px,2vw,10px); font-weight:600; letter-spacing:.5px; line-height:1.5; text-transform:uppercase;}
+#slx .sl-cover b {font-size:clamp(18px,5vw,27px); line-height:1.05; letter-spacing:-.7px; font-weight:800; overflow-wrap:normal;}
+#slx .sl-cover em {font-size:8px; font-style:normal; letter-spacing:2px; text-transform:uppercase;}
+#slx .sl-cover.dune {background:#A65D35; color:#FCE8B7;}
+#slx .sl-cover.dune::before {width:70%; aspect-ratio:1; border-radius:50%; top:23%; left:45%; background:#F0BE69; box-shadow:inset 13px -10px 0 #BD763F;}
+#slx .sl-cover.dune::after {width:210%; height:70%; border-radius:48%; left:-50%; bottom:-20%; background:#553E3A; transform:rotate(-19deg); box-shadow:0 -13px 0 #71413B,0 -28px 0 #CE8450;}
+#slx .sl-cover.misto {background:#B9CCC1; color:#173D3F;}
+#slx .sl-cover.misto::before {inset:22% -15% 18%; background:repeating-linear-gradient(90deg,transparent 0 16px,#386966 16px 27px,transparent 27px 35px),linear-gradient(0deg,#457A78 0 22%,transparent 22%); transform:skewY(-15deg);}
+#slx .sl-cover.misto b {background:#B9CCC1; align-self:flex-start; padding:4px 0;}
+#slx .sl-cover.tigers {background:#E4A733; color:#2A3425;}
+#slx .sl-cover.tigers::before {inset:25% -18% 10%; background:repeating-linear-gradient(115deg,#25382D 0 8px,transparent 8px 27px); transform:rotate(18deg);}
+#slx .sl-cover.tigers b {position:relative; top:-12%; background:#E4A733; padding:5px 0;}
+#slx .sl-cover.shadows {background:#304936; color:#EEE3BC;}
+#slx .sl-cover.shadows::before {inset:17% -20% -5%; background:repeating-linear-gradient(76deg,transparent 0 16px,#769479 17px 19px,transparent 20px 30px); transform:rotate(8deg); opacity:.7;}
+#slx .sl-cover.shadows::after {width:40%; aspect-ratio:1; border-radius:50%; background:#D9C997; top:18%; left:30%; z-index:-2;}
+#slx .sl-cover.shadows b {font-size:clamp(17px,4.5vw,24px); text-shadow:0 2px 15px #183224;}
+#slx .sl-cover.intermezzo {background:#DED9C7; color:#8B402F;}
+#slx .sl-cover.intermezzo::before {width:85%; height:48%; border:13px solid #BC663D; border-radius:50%; top:22%; left:33%; transform:rotate(-28deg);}
+#slx .sl-cover.intermezzo b {font-size:clamp(14px,3.8vw,20px);}
+#slx .sl-cover.forest {background:#4D4962; color:#EFE0C2;}
+#slx .sl-cover.forest::before {width:130%; height:70%; border-radius:50%; border:1px solid #C2A58F; box-shadow:0 0 0 10px #4D4962,0 0 0 11px #C2A58F,0 0 0 25px #4D4962,0 0 0 26px #C2A58F; top:30%; left:5%; transform:rotate(-36deg);}
+#slx .sl-cover.forest b {text-shadow:0 2px 6px #302B45;}
+#slx .sl-book-row {display:flex; gap:14px; align-items:center; padding:16px 0; border-bottom:1px solid var(--sl-line);}
+#slx .sl-book-row:last-child {border:0;}
+#slx .sl-row-cover {width:68px; flex:none;}
+#slx .sl-row-cover .sl-cover {border-radius:7px;}
+#slx .sl-row-cover .sl-cover b {font-size:15px;}
+#slx .sl-row-cover .sl-cover small {font-size:6px;}
+#slx .sl-row-cover .sl-cover em {font-size:5px;}
+#slx .sl-row-copy {text-align:left; flex:1; min-width:0;}
+#slx .sl-row-copy h3 {margin-bottom:3px;}
+#slx .sl-row-copy .sl-track {margin:9px 0 5px;}
+#slx .sl-formats {display:flex; gap:7px; align-items:center; color:var(--sl-muted); font-size:11px; margin-top:7px; flex-wrap:wrap;}
+#slx .sl-formats span {display:inline-flex; align-items:center; gap:3px;}
+#slx .sl-formats svg {width:13px; height:13px;}
+#slx .sl-chip-row {display:flex; gap:6px; flex-wrap:wrap; margin:12px 0;}
+#slx .sl-chip {min-height:48px; border:1px solid var(--sl-line); border-radius:999px; padding:8px 13px; font-size:12px; display:inline-flex; align-items:center; justify-content:center; gap:6px;}
+#slx .sl-chip[aria-pressed=true] {background:var(--sl-tonal); border-color:transparent; color:var(--sl-on-tonal);}
+#slx .sl-chip svg {width:16px; height:16px;}
+#slx .sl-tabs {display:flex; border-bottom:1px solid var(--sl-line); margin-bottom:16px;}
+#slx .sl-tabs button {flex:1; min-height:48px; padding:10px 4px; font-size:13px; color:var(--sl-muted); position:relative;}
+#slx .sl-tabs button[aria-pressed=true] {color:var(--sl-ink);}
+#slx .sl-tabs button[aria-pressed=true]::after {content:&#x27;&#x27;; height:3px; background:var(--sl-accent); border-radius:2px; position:absolute; bottom:-1px; left:22%; right:22%;}
+#slx .sl-search {display:flex; align-items:center; gap:10px; border-radius:999px; padding:0 16px; background:var(--sl-card); min-height:54px;}
+#slx .sl-search svg {width:20px; color:var(--sl-muted); flex:none;}
+#slx .sl-search input {min-width:0; width:100%; background:none; color:var(--sl-ink); border:0; padding:12px 0; font-size:14px;}
+#slx input::placeholder {color:var(--sl-muted); opacity:1;}
+#slx .sl-feature {display:flex; text-align:left; justify-content:space-between; gap:14px; width:100%; background:var(--sl-tonal); color:var(--sl-on-tonal); border-radius:20px; padding:21px; min-height:150px;}
+#slx .sl-feature h2 {font-size:24px; margin:6px 0 10px;}
+#slx .sl-feature svg {width:30px; height:30px; margin-top:auto; flex:none;}
+#slx .sl-list-row {width:100%; min-height:72px; display:flex; align-items:center; gap:12px; text-align:left; padding:13px 0; border-bottom:1px solid var(--sl-line);}
+#slx .sl-list-row &gt; svg {width:21px; height:21px; color:var(--sl-muted); flex:none;}
+#slx .sl-list-row &gt; svg:last-child {width:17px;}
+#slx .sl-list-row .sl-list-copy {flex:1; min-width:0;}
+#slx .sl-list-row strong {font-size:14px; display:block; font-weight:700;}
+#slx .sl-list-row small {font-size:12px; color:var(--sl-muted); display:block; margin-top:4px; line-height:1.5;}
+#slx .sl-mini {margin:0 10px; display:flex; align-items:center; gap:3px; padding:7px; background:var(--sl-card); border-radius:16px 16px 0 0; border-bottom:2px solid var(--sl-accent);}
+#slx .sl-mini-info {display:flex; align-items:center; gap:10px; text-align:left; flex:1; min-width:0;}
+#slx .sl-mini-art {width:37px; flex:none;}
+#slx .sl-mini-art .sl-cover {border-radius:5px; padding:4px; height:48px;}
+#slx .sl-mini-art .sl-cover b {font-size:11px;}
+#slx .sl-mini-art .sl-cover small,#slx .sl-mini-art .sl-cover em {display:none;}
+#slx .sl-mini strong {display:block; font-size:12px; font-weight:800;}
+#slx .sl-mini small {display:block; font-size:10px; color:var(--sl-muted); margin-top:3px;}
+#slx .sl-nav {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; padding:10px 8px 12px; background:var(--sl-surface);}
+#slx .sl-nav button {min-height:59px; font-size:11px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; color:var(--sl-muted);}
+#slx .sl-nav span {width:56px; height:29px; border-radius:999px; display:flex; align-items:center; justify-content:center;}
+#slx .sl-nav svg {width:21px; height:21px;}
+#slx .sl-nav button[aria-current=page] {color:var(--sl-ink); font-weight:800;}
+#slx .sl-nav button[aria-current=page] span {background:var(--sl-tonal); color:var(--sl-on-tonal);}
+#slx .sl-week {display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin:20px 0;}
+#slx .sl-day {text-align:center; color:var(--sl-muted); font-size:10px;}
+#slx .sl-day b {display:flex; align-items:center; justify-content:center; min-height:44px; border-radius:50%; margin:5px 0; font-size:13px; color:var(--sl-ink);}
+#slx .sl-day.active b {background:var(--sl-accent); color:var(--sl-on);}
+#slx .sl-day.done b {background:var(--sl-card);}
+#slx .sl-day i {display:block; width:4px; height:4px; border-radius:50%; background:var(--sl-accent); margin:auto;}
+#slx .sl-reading {padding:20px; border-radius:20px; background:var(--sl-surface);}
+#slx .sl-reading .sl-book-row {padding:12px 0 16px; border:0;}
+#slx .sl-reading .sl-big-progress {font-size:28px; font-weight:800; letter-spacing:-1px; margin:16px 0 8px;}
+#slx .sl-reading .sl-big-progress small {font-size:13px; font-weight:500; color:var(--sl-muted); letter-spacing:0;}
+#slx .sl-timeline {margin:8px 0 0;}
+#slx .sl-event {position:relative; padding:0 0 24px 26px; border-left:1px solid var(--sl-line); margin-left:5px;}
+#slx .sl-event::before {content:&#x27;&#x27;; position:absolute; left:-4px; top:6px; width:7px; height:7px; border-radius:50%; background:var(--sl-accent);}
+#slx .sl-event strong {font-size:13px; display:block;}
+#slx .sl-event p {font-size:12px; color:var(--sl-muted); margin-top:3px;}
+#slx .sl-detail-hero {display:flex; gap:22px; align-items:center; padding:12px 0 24px;}
+#slx .sl-detail-art {width:40%; max-width:150px; flex:none;}
+#slx .sl-detail-text {min-width:0;}
+#slx .sl-detail-text h1 {font-size:26px; margin:7px 0; overflow-wrap:anywhere;}
+#slx .sl-notice {font-size:12px; line-height:1.6; color:var(--sl-muted); padding:12px 0; display:flex; gap:8px; align-items:flex-start;}
+#slx .sl-notice svg {width:17px; height:17px; flex:none; margin-top:2px;}
+#slx .sl-setting-group {margin-top:20px;}
+#slx .sl-setting-group &gt; h2 {font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--sl-muted); margin-bottom:8px;}
+#slx .sl-setting-group .sl-list-row:last-child {border-bottom:0;}
+#slx .sl-player {text-align:center; padding-top:5px;}
+#slx .sl-player-art {max-width:215px; width:67%; margin:0 auto 26px;}
+#slx .sl-player-art .sl-cover {padding:13%; border-radius:16px; box-shadow:0 12px 34px #0002;}
+#slx .sl-player-art .sl-cover b {font-size:45px;}
+#slx .sl-player-art .sl-cover small {font-size:12px;}
+#slx .sl-player h1 {font-size:29px;}
+#slx .sl-player input[type=range] {width:100%; accent-color:var(--sl-accent); margin-top:26px; min-height:48px; cursor:pointer;}
+#slx .sl-time {display:flex; justify-content:space-between; color:var(--sl-muted); font-size:12px; font-variant-numeric:tabular-nums;}
+#slx .sl-transport {display:flex; justify-content:space-between; align-items:center; gap:4px; margin:20px 0;}
+#slx .sl-play {width:80px; min-width:72px; height:72px; border-radius:26px; background:var(--sl-accent); color:var(--sl-on); display:flex; align-items:center; justify-content:center;}
+#slx .sl-play svg {width:34px; height:34px;}
+#slx .sl-skip {display:flex; flex-direction:column; align-items:center; gap:2px; justify-content:center; min-width:48px; min-height:56px; font-size:10px;}
+#slx .sl-skip svg {width:25px; height:25px;}
+#slx .sl-tools {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin-bottom:15px;}
+#slx .sl-tools button {font-size:10px; display:flex; flex-direction:column; gap:7px; align-items:center; min-height:60px; padding:8px 0; justify-content:center;}
+#slx .sl-tools svg {width:21px; height:21px;}
+#slx .sl-overlay {position:relative; margin-top:16px; padding:22px; border:1px solid var(--sl-line); border-radius:24px; background:var(--sl-surface);}
+#slx .sl-overlay-head {display:flex; align-items:center; gap:8px; margin-bottom:14px;}
+#slx .sl-overlay-head h2 {flex:1;}
+#slx label.sl-field {display:block; font-size:13px; font-weight:700; margin:18px 0;}
+#slx .sl-field input,#slx .sl-field select {display:block; background:var(--sl-bg); color:var(--sl-ink); border:1px solid var(--sl-line); border-radius:12px; min-height:54px; padding:10px 14px; width:100%; margin-top:8px; font-size:16px;}
+#slx .sl-error {color:light-dark(#A52B28,#FFB4AA); font-size:12px; margin:10px 0;}
+#slx .sl-feedback {padding:12px 18px; background:var(--sl-tonal); color:var(--sl-on-tonal); font-size:12px; line-height:1.5;}
+#slx .sl-empty {padding:36px 0; text-align:center;}
+#slx .sl-empty svg {width:35px; height:35px; color:var(--sl-muted); margin-bottom:14px;}
+#slx .sl-empty p {margin-top:8px; color:var(--sl-muted);}
+#slx .sl-stat-pair {display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:24px 0;}
+#slx .sl-stat-pair strong {font-size:32px; letter-spacing:-1px; display:block;}
+#slx .sl-stat-pair small {color:var(--sl-muted); font-size:12px;}
+#slx .sl-checkrow {display:flex; gap:12px; align-items:center; padding:14px 0; min-height:54px; font-size:14px;}
+#slx .sl-checkrow input {width:22px; height:22px; accent-color:var(--sl-accent); flex:none;}
+#slx .sl-checkrow span {flex:1;}
+#slx .sl-checkrow small {font-size:12px; color:var(--sl-muted);}
+#slx .sl-status {color:var(--sl-success); font-size:12px; display:flex; gap:6px; align-items:center;}
+#slx .sl-status svg {width:16px; height:16px;}
+#slx .sl-sr {position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap;}
+#slx .sl-main {animation:sl-appear .2s ease-out;}
+@keyframes sl-appear {from{opacity:.45;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:370px) {#slx .sl-top{padding:18px 14px 14px}#slx .sl-main{padding:0 14px 20px}#slx .sl-hero{padding:20px}#slx .sl-hero .sl-eyebrow{left:20px}#slx h1{font-size:29px}#slx .sl-grid{gap:10px}#slx .sl-chip{padding:8px 10px}#slx .sl-detail-hero{gap:16px}#slx .sl-reading{padding:16px}#slx .sl-hero .sl-hero-cover{right:20px;width:120px}#slx .sl-nav span{width:48px}#slx .sl-transport{gap:0}#slx .sl-play{width:56px;min-width:56px;border-radius:20px}}
+@media(prefers-reduced-motion:reduce) {#slx *,#slx *::before,#slx *::after {animation:none!important; transition:none!important;}#slx button:active{transform:none}}
+#slx .sl-goal {width:100%;padding:20px 22px;border-radius:24px;background:var(--sl-tonal);color:var(--sl-on-tonal);display:flex;gap:20px;text-align:left;}
+#slx .sl-goal &gt; span:first-child {flex:1;min-width:0;}
+#slx .sl-goal strong {display:block;font-size:34px;line-height:1.5;letter-spacing:-1px;font-weight:800;}
+#slx .sl-goal strong small {font-size:14px;letter-spacing:0;font-weight:500;}
+#slx .sl-goal .sl-track {display:block;background:light-dark(#DFCAA0,#665237);margin-top:9px;}
+#slx .sl-goal-side {font-size:13px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;}
+#slx .sl-goal-side svg {width:24px;height:24px;}
+#slx .sl-reading-status {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
+#slx .sl-reading-status .sl-chip {font-size:12px;padding:10px 6px;gap:5px;}
+#slx .sl-reading-status .sl-chip span {font-size:11px;opacity:.8;}
+#slx .sl-my-rating {display:flex;align-items:center;gap:5px;color:var(--sl-accent);font-size:19px;line-height:1.5;margin-top:9px;}
+#slx .sl-my-rating span {font-size:11px;letter-spacing:0;color:var(--sl-muted);margin-left:5px;}
+#slx .sl-personal {margin-bottom:24px;border-bottom:1px solid var(--sl-line);padding-bottom:10px;}
+#slx .sl-star {min-width:48px;min-height:48px;display:flex;align-items:center;justify-content:center;}
+#slx .sl-star svg {width:25px;height:25px;}
+#slx .sl-star[aria-pressed=true] svg {fill:var(--sl-accent);}
+#slx .sl-personal .sl-text-action {margin-right:16px;}
+#slx .sl-review-text {color:var(--sl-ink);margin:12px 0 4px;overflow-wrap:anywhere;}
+#slx .sl-year {background:var(--sl-tonal);color:var(--sl-on-tonal);border-radius:24px;padding:25px;}
+#slx .sl-year h1 {font-size:64px;line-height:1.4;letter-spacing:-2px;margin-top:12px;}
+#slx .sl-year h1 span {font-size:24px;letter-spacing:-.5px;}
+#slx .sl-year .sl-track {margin:20px 0 8px;background:light-dark(#DFCAA0,#665237);}
+#slx .sl-year .sl-text-action {color:var(--sl-on-tonal);}
+#slx .sl-field textarea {font:inherit;display:block;width:100%;background:var(--sl-bg);color:var(--sl-ink);border:1px solid var(--sl-line);border-radius:12px;padding:12px;margin-top:8px;resize:vertical;}
+#slx .sl-field textarea:focus-visible {outline:3px solid var(--sl-accent);outline-offset:3px;}
+
+#slx .sl-social-caption {margin:12px 0 20px;}
+#slx .sl-social-post {padding:20px 0;border-bottom:1px solid var(--sl-line);}
+#slx .sl-social-post .sl-list-row {border:0;padding-top:0;}
+#slx .sl-social-post .sl-book-row {margin-bottom:12px;}
+#slx .sl-social-actions {margin-top:14px;}
+#slx .sl-social-actions .sl-secondary {min-width:0;white-space:normal;}
+#slx .sl-social-rating {color:var(--sl-accent);letter-spacing:2px;margin:8px 0;}
+#slx .sl-social-name {margin:8px 0 12px;}
+#slx .sl-field textarea {display:block;width:100%;min-width:0;resize:vertical;background:var(--sl-bg);color:var(--sl-ink);border:1px solid var(--sl-line);border-radius:12px;padding:12px;margin-top:8px;font:inherit;}
+#slx .sl-field textarea:focus-visible {outline:3px solid var(--sl-accent);outline-offset:3px;}
+#slx .sl-social-comment {padding:12px 14px;margin-top:12px;border-radius:12px;background:var(--sl-card);overflow-wrap:anywhere;}
+#slx .sl-social-comment strong {font-size:12px;}
+#slx .sl-social-comment p {margin-top:4px;}
+
+&lt;/style&gt;
+&lt;div id=&quot;slx&quot; aria-label=&quot;Дизайн Слухайки&quot;&gt;
+  &lt;div class=&quot;sl-cap&quot;&gt;КОНЦЕПТ · УМОВНІ ОБКЛАДИНКИ Й ДЕМОНСТРАЦІЙНІ ДАНІ&lt;/div&gt;
+  &lt;div class=&quot;sl-shell&quot;&gt;&lt;div id=&quot;sl-screen&quot;&gt;&lt;/div&gt;&lt;div id=&quot;sl-feedback&quot; aria-live=&quot;polite&quot;&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;/div&gt;
+&lt;script&gt;
+(() =&gt; {
+  const root = document.getElementById(&#x27;slx&#x27;);
+  const outlet = root.querySelector(&#x27;#sl-screen&#x27;);
+  const notices = root.querySelector(&#x27;#sl-feedback&#x27;);
+  const icon = name =&gt; `&lt;i data-lucide=&quot;${name}&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;`;
+  const escape = value =&gt; String(value).replace(/[&amp;&lt;&gt;&quot;&#x27;]/g,c=&gt;({&#x27;&amp;&#x27;:&#x27;&amp;amp;&#x27;,&#x27;&lt;&#x27;:&#x27;&amp;lt;&#x27;,&#x27;&gt;&#x27;:&#x27;&amp;gt;&#x27;,&#x27;&quot;&#x27;:&#x27;&amp;quot;&#x27;,&quot;&#x27;&quot;:&#x27;&amp;#39;&#x27;}[c]));
+  const books = [
+    {id:&#x27;dune&#x27;,title:&#x27;Дюна&#x27;,author:&#x27;Френк Герберт&#x27;,cover:&#x27;ДЮНА&#x27;,formats:[&#x27;audio&#x27;],genre:&#x27;Фантастика&#x27;,duration:720,narrator:&#x27;Демонстраційна озвучка&#x27;},
+    {id:&#x27;misto&#x27;,title:&#x27;Місто&#x27;,author:&#x27;Валер’ян Підмогильний&#x27;,cover:&#x27;МІСТО&#x27;,formats:[&#x27;paper&#x27;,&#x27;ebook&#x27;,&#x27;audio&#x27;],genre:&#x27;Класика&#x27;,pages:320},
+    {id:&#x27;tigers&#x27;,title:&#x27;Тигролови&#x27;,author:&#x27;Іван Багряний&#x27;,cover:&#x27;ТИГРО-&lt;br&gt;ЛОВИ&#x27;,formats:[&#x27;audio&#x27;,&#x27;paper&#x27;],genre:&#x27;Пригоди&#x27;,duration:560,pages:304},
+    {id:&#x27;shadows&#x27;,title:&#x27;Тіні забутих предків&#x27;,author:&#x27;Михайло Коцюбинський&#x27;,cover:&#x27;ТІНІ&lt;br&gt;ЗАБУТИХ&lt;br&gt;ПРЕДКІВ&#x27;,formats:[&#x27;paper&#x27;,&#x27;audio&#x27;],genre:&#x27;Класика&#x27;,pages:224,duration:172},
+    {id:&#x27;intermezzo&#x27;,title:&#x27;Intermezzo&#x27;,author:&#x27;Михайло Коцюбинський&#x27;,cover:&#x27;INTER-&lt;br&gt;MEZZO&#x27;,formats:[&#x27;ebook&#x27;,&#x27;audio&#x27;],genre:&#x27;Класика&#x27;},
+    {id:&#x27;forest&#x27;,title:&#x27;Лісова пісня&#x27;,author:&#x27;Леся Українка&#x27;,cover:&#x27;ЛІСОВА&lt;br&gt;ПІСНЯ&#x27;,formats:[&#x27;paper&#x27;,&#x27;audio&#x27;],genre:&#x27;Класика&#x27;,pages:192,duration:185}
+  ];
+  const formatNames={audio:&#x27;Аудіо&#x27;,paper:&#x27;Паперова&#x27;,ebook:&#x27;Електронна&#x27;};
+  const formatIcons={audio:&#x27;headphones&#x27;,paper:&#x27;book-open&#x27;,ebook:&#x27;tablet&#x27;};
+  const tabs=[[&#x27;listen&#x27;,&#x27;headphones&#x27;,&#x27;Слухати&#x27;],[&#x27;browse&#x27;,&#x27;compass&#x27;,&#x27;Огляд&#x27;],[&#x27;library&#x27;,&#x27;library&#x27;,&#x27;Мої книги&#x27;],[&#x27;friends&#x27;,&#x27;users&#x27;,&#x27;Друзі&#x27;]];
+  const shelfNames=[&#x27;Продовжити слухати&#x27;,&#x27;Майже дочитали&#x27;,&#x27;Поверніться&#x27;,&#x27;Продовжити серію&#x27;,&#x27;Готово до поїздки&#x27;,&#x27;Щось коротке&#x27;,&#x27;Улюблені автори&#x27;,&#x27;Нещодавно додані&#x27;];
+  const state={tab:&#x27;listen&#x27;,route:&#x27;listen&#x27;,stack:[],book:&#x27;dune&#x27;,format:&#x27;audio&#x27;,playing:false,mini:true,library:[&#x27;dune&#x27;,&#x27;misto&#x27;,&#x27;shadows&#x27;,&#x27;intermezzo&#x27;],libView:&#x27;Книги&#x27;,filter:&#x27;Усі&#x27;,grid:false,query:&#x27;&#x27;,genre:&#x27;Усі&#x27;,tracker:&#x27;Щоденник&#x27;,paperProgress:{shadows:96,misto:136},ebookProgress:{misto:42},audio:198,speed:&#x27;1.25&#x27;,timer:&#x27;Вимкнено&#x27;,downloads:{},theme:&#x27;system&#x27;,panel:null,events:[],bookmarks:[{bookId:&#x27;dune&#x27;,position:161}],shelves:[true,false,false,false,true,false,false,false],newFormat:&#x27;paper&#x27;};
+  const tabHistory={};
+  let panelReturn=null, previousPanel=null, previousPanelRoute=null, lastTrigger=null;
+  const snapshot=()=&gt;({route:state.route,book:state.book,format:state.format,settingTitle:state.settingTitle});
+  const paperValue=id=&gt;state.paperProgress[id]||0;
+  const ebookValue=id=&gt;state.ebookProgress[id]||0;
+  const progressBook=()=&gt;state.route===&#x27;book&#x27;?state.book:&#x27;shadows&#x27;;
+  const chapterStart=i=&gt;i&lt;=11?i*18:198+(i-11)*(522/21);
+  const chapterNumber=()=&gt;Math.min(32,Array.from({length:32},(_,i)=&gt;chapterStart(i)).filter(t=&gt;t&lt;=state.audio).length);
+  const timeLabel=minutes=&gt;{const total=Math.round(minutes*60);return Math.floor(total/3600)+&#x27;:&#x27;+String(Math.floor(total/60)%60).padStart(2,&#x27;0&#x27;)+&#x27;:&#x27;+String(total%60).padStart(2,&#x27;0&#x27;);};
+  function focusHeading(){requestAnimationFrame(()=&gt;{const el=root.querySelector(&#x27;.sl-top&#x27;);if(!el)return;el.scrollIntoView({block:&#x27;start&#x27;,behavior:&#x27;auto&#x27;});});}
+  function switchTab(tab,reset=false){tabHistory[state.tab]={...snapshot(),stack:[...state.stack]};const saved=reset?null:tabHistory[tab];state.tab=tab;Object.assign(state,saved||{route:tab,stack:[],book:&#x27;dune&#x27;,format:&#x27;audio&#x27;,settingTitle:undefined});state.panel=null;panelReturn=null;clearNotice();focusHeading();}
+  const design={theme:&#x27;system&#x27;,shape:&#x27;expressive&#x27;,start:&#x27;listen&#x27;};
+  function cover(book){return `&lt;div class=&quot;sl-cover ${book.id}&quot; aria-hidden=&quot;true&quot;&gt;&lt;small&gt;${escape(book.author)}&lt;/small&gt;&lt;b&gt;${book.cover}&lt;/b&gt;&lt;em&gt;Слухайка&lt;/em&gt;&lt;/div&gt;`;}
+  function formats(book){return `&lt;div class=&quot;sl-formats&quot;&gt;${book.formats.map(f=&gt;`&lt;span&gt;${icon(formatIcons[f])}${formatNames[f]}&lt;/span&gt;`).join(&#x27;&#x27;)}&lt;/div&gt;`;}
+  function poster(id){const b=books.find(b=&gt;b.id===id);return `&lt;button class=&quot;sl-poster&quot; data-action=&quot;book&quot; data-id=&quot;${id}&quot; aria-label=&quot;Відкрити: ${escape(b.title)}&quot;&gt;${cover(b)}&lt;span class=&quot;sl-poster-title&quot;&gt;${escape(b.title)}&lt;/span&gt;&lt;span class=&quot;sl-poster-meta&quot;&gt;${escape(b.author)}&lt;/span&gt;&lt;/button&gt;`;}
+  function section(title,body,action=&#x27;&#x27;){return `&lt;section class=&quot;sl-section&quot;&gt;&lt;div class=&quot;sl-heading&quot;&gt;&lt;h2&gt;${title}&lt;/h2&gt;${action}&lt;/div&gt;${body}&lt;/section&gt;`;}
+  function button(label,action,cls=&#x27;sl-primary&#x27;,extra=&#x27;&#x27;){return `&lt;button class=&quot;${cls}&quot; data-action=&quot;${action}&quot; ${extra}&gt;${label}&lt;/button&gt;`;}
+  function chip(label,action,selected,extra=&#x27;&#x27;){return button(label,action,&#x27;sl-chip&#x27;,`aria-pressed=&quot;${selected}&quot; ${extra}`);}
+  function row(label,sub,ico,action,extra=&#x27;&#x27;){return `&lt;button class=&quot;sl-list-row&quot; data-action=&quot;${action}&quot; ${extra}&gt;${icon(ico)}&lt;span class=&quot;sl-list-copy&quot;&gt;&lt;strong&gt;${label}&lt;/strong&gt;${sub?`&lt;small&gt;${sub}&lt;/small&gt;`:&#x27;&#x27;}&lt;/span&gt;${icon(&#x27;chevron-right&#x27;)}&lt;/button&gt;`;}
+  function bookRow(id,detail=&#x27;&#x27;){const b=books.find(b=&gt;b.id===id);return `&lt;div class=&quot;sl-book-row&quot;&gt;&lt;button class=&quot;sl-row-cover&quot; data-action=&quot;book&quot; data-id=&quot;${id}&quot; aria-label=&quot;Відкрити: ${escape(b.title)}&quot;&gt;${cover(b)}&lt;/button&gt;&lt;button class=&quot;sl-row-copy&quot; data-action=&quot;book&quot; data-id=&quot;${id}&quot;&gt;&lt;h3&gt;${escape(b.title)}&lt;/h3&gt;&lt;div class=&quot;sl-muted&quot;&gt;${escape(b.author)}&lt;/div&gt;${detail||formats(b)}&lt;/button&gt;&lt;/div&gt;`;}
+  function title(){if(state.route===&#x27;friendProfile&#x27;)return &#x27;Профіль читача&#x27;;if(state.route===&#x27;year&#x27;)return &#x27;Мій рік&#x27;;if(state.route===&#x27;tracker&#x27;)return &#x27;Історія читання&#x27;;if(state.route===&#x27;myshelf&#x27;)return state.customShelves[state.activeShelf].name;if(state.route===&#x27;book&#x27;)return &#x27;Книга&#x27;;if(state.route===&#x27;settings&#x27;)return &#x27;Налаштування&#x27;;if(state.route===&#x27;player&#x27;)return &#x27;Зараз звучить&#x27;;if(state.route===&#x27;collection&#x27;)return &#x27;Добірка&#x27;;if(state.route===&#x27;downloads&#x27;)return &#x27;Завантаження&#x27;;if(state.route===&#x27;setting&#x27;)return state.settingTitle;if(state.route===&#x27;add&#x27;)return &#x27;Додати книгу&#x27;;if(state.route===&#x27;catalog&#x27;)return &#x27;Каталог&#x27;;return tabs.find(t=&gt;t[0]===state.route)?.[2]||&#x27;Слухайка&#x27;;}
+  function header(){const isRoot=tabs.some(t=&gt;t[0]===state.route);return `&lt;header class=&quot;sl-top&quot;&gt;${isRoot?&#x27;&#x27;:button(icon(state.route===&#x27;player&#x27;?&#x27;chevron-down&#x27;:&#x27;arrow-left&#x27;),&#x27;back&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Назад&quot;&#x27;)}&lt;div class=&quot;sl-top-title&quot;&gt;${isRoot?`&lt;div class=&quot;sl-wordmark&quot;&gt;${icon(&#x27;audio-lines&#x27;)}слухайка&lt;/div&gt;`:&#x27;&#x27;}&lt;${isRoot?&#x27;h1&#x27;:&#x27;h2&#x27;}&gt;${escape(title())}&lt;/${isRoot?&#x27;h1&#x27;:&#x27;h2&#x27;}&gt;&lt;/div&gt;${isRoot?button(icon(&#x27;settings&#x27;),&#x27;settings&#x27;,&#x27;sl-icon sl-tonal&#x27;,&#x27;aria-label=&quot;Налаштування&quot;&#x27;):state.route===&#x27;player&#x27;?button(icon(&#x27;cast&#x27;),&#x27;cast&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Транслювати&quot;&#x27;):&#x27;&#x27;}&lt;/header&gt;`;}
+  function listen(){const seen=new Set();let html=&#x27;&#x27;;if(state.shelves[0]&amp;&amp;state.library.includes(&#x27;dune&#x27;)){seen.add(&#x27;dune&#x27;);html=`&lt;div class=&quot;sl-hero&quot;&gt;&lt;div class=&quot;sl-hero-cover&quot;&gt;${cover(books[0])}&lt;/div&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Ваша історія&lt;br&gt;триває&lt;/span&gt;&lt;h2&gt;Дюна&lt;/h2&gt;&lt;div class=&quot;sl-author&quot;&gt;Френк Герберт · розділ ${chapterNumber()}&lt;/div&gt;&lt;div class=&quot;sl-hero-progress&quot;&gt;&lt;div class=&quot;sl-track&quot;&gt;&lt;i style=&quot;width:${state.audio/720*100}%&quot;&gt;&lt;/i&gt;&lt;/div&gt;&lt;span&gt;ще ${Math.floor((720-state.audio)/60)} год ${Math.ceil((720-state.audio)%60)} хв&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;sl-actions&quot;&gt;${button(icon(&#x27;play&#x27;)+&#x27;Продовжити&#x27;,&#x27;resumeplayer&#x27;)}${button(icon(&#x27;info&#x27;),&#x27;book&#x27;,&#x27;sl-icon&#x27;,&#x27;data-id=&quot;dune&quot; aria-label=&quot;Про книгу Дюна&quot;&#x27;)}&lt;/div&gt;&lt;/div&gt;`;}const shelfBooks=[[],[&#x27;intermezzo&#x27;],[&#x27;misto&#x27;,&#x27;shadows&#x27;],[],[&#x27;misto&#x27;,&#x27;shadows&#x27;,&#x27;intermezzo&#x27;],[&#x27;intermezzo&#x27;],[&#x27;shadows&#x27;,&#x27;intermezzo&#x27;],[&#x27;intermezzo&#x27;,&#x27;shadows&#x27;,&#x27;misto&#x27;,&#x27;dune&#x27;]];for(let i=1;i&lt;shelfNames.length;i++){if(!state.shelves[i])continue;const ids=shelfBooks[i].filter(id=&gt;state.library.includes(id)&amp;&amp;books.find(b=&gt;b.id===id)?.formats.includes(&#x27;audio&#x27;)&amp;&amp;!seen.has(id));if(!ids.length)continue;ids.forEach(id=&gt;seen.add(id));html+=section(shelfNames[i],`&lt;div class=&quot;sl-grid&quot;&gt;${ids.map(poster).join(&#x27;&#x27;)}&lt;/div&gt;`);}if(!html)html=&#x27;&lt;div class=&quot;sl-empty&quot;&gt;&lt;h3&gt;Полиці приховано&lt;/h3&gt;&lt;p&gt;Виберіть, що показувати, у налаштуванні полиць.&lt;/p&gt;&lt;/div&gt;&#x27;;return html+button(icon(&#x27;sliders-horizontal&#x27;)+&#x27;Налаштувати полиці&#x27;,&#x27;shelves&#x27;,&#x27;sl-text-action sl-wide&#x27;);}
+  function browse(){const matches=books.filter(b=&gt;(state.genre===&#x27;Усі&#x27;||b.genre===state.genre)&amp;&amp;(!state.query||(b.title+&#x27; &#x27;+b.author).toLocaleLowerCase(&#x27;uk&#x27;).includes(state.query.toLocaleLowerCase(&#x27;uk&#x27;))));return `&lt;label class=&quot;sl-search&quot;&gt;${icon(&#x27;search&#x27;)}&lt;span class=&quot;sl-sr&quot;&gt;Пошук книги або автора&lt;/span&gt;&lt;input id=&quot;sl-search&quot; placeholder=&quot;Книга, автор або диктор&quot; value=&quot;${escape(state.query)}&quot;&gt;&lt;/label&gt;&lt;div class=&quot;sl-chip-row&quot;&gt;${[&#x27;Усі&#x27;,&#x27;Класика&#x27;,&#x27;Фантастика&#x27;,&#x27;Пригоди&#x27;].map(g=&gt;chip(g,&#x27;genre&#x27;,g===state.genre,`data-value=&quot;${g}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;${!state.query&amp;&amp;state.genre===&#x27;Усі&#x27;?`&lt;button class=&quot;sl-feature&quot; data-action=&quot;collection&quot;&gt;&lt;span&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Добірка редакції · демо&lt;/span&gt;&lt;h2&gt;Класика,&lt;br&gt;яка звучить.&lt;/h2&gt;&lt;span style=&quot;font-size:12px&quot;&gt;4 історії для нового знайомства&lt;/span&gt;&lt;/span&gt;${icon(&#x27;arrow-up-right&#x27;)}&lt;/button&gt;`:&#x27;&#x27;}${section(state.query?&#x27;Результати пошуку&#x27;:&#x27;Знайдіть свою історію&#x27;,matches.length?`&lt;div class=&quot;sl-grid&quot;&gt;${matches.map(b=&gt;poster(b.id)).join(&#x27;&#x27;)}&lt;/div&gt;`:`&lt;div class=&quot;sl-empty&quot;&gt;${icon(&#x27;search&#x27;)}&lt;h3&gt;Нічого не знайшлося&lt;/h3&gt;&lt;p&gt;Спробуйте іншу назву або автора.&lt;/p&gt;&lt;/div&gt;`,!state.query?button(&#x27;Каталог&#x27;+icon(&#x27;chevron-right&#x27;),&#x27;catalog&#x27;,&#x27;sl-text-action&#x27;):&#x27;&#x27;)}`;}
+  function tracker(){return `&lt;div class=&quot;sl-tabs&quot;&gt;${[&#x27;Щоденник&#x27;,&#x27;Підсумки&#x27;].map(t=&gt;button(t,&#x27;trackertab&#x27;,&#x27;&#x27;,`aria-pressed=&quot;${state.tracker===t}&quot; data-value=&quot;${t}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;${state.tracker===&#x27;Щоденник&#x27;?`&lt;div class=&quot;sl-heading&quot;&gt;&lt;h2&gt;Вересень 2026&lt;/h2&gt;&lt;span class=&quot;sl-muted&quot;&gt;Цей тиждень&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;sl-week&quot;&gt;${[&#x27;Пн&#x27;,&#x27;Вт&#x27;,&#x27;Ср&#x27;,&#x27;Чт&#x27;,&#x27;Пт&#x27;,&#x27;Сб&#x27;,&#x27;Нд&#x27;].map((d,i)=&gt;`&lt;div class=&quot;sl-day ${i===2?&#x27;active&#x27;:i&lt;2?&#x27;done&#x27;:&#x27;&#x27;}&quot;&gt;${d}&lt;b&gt;${14+i}&lt;/b&gt;${i&lt;3?&#x27;&lt;i&gt;&lt;/i&gt;&#x27;:&#x27;&#x27;}&lt;/div&gt;`).join(&#x27;&#x27;)}&lt;/div&gt;&lt;div class=&quot;sl-reading&quot;&gt;&lt;span class=&quot;sl-eyebrow&quot; style=&quot;color:var(--sl-muted)&quot;&gt;Зараз читаю · паперова&lt;/span&gt;${bookRow(&#x27;shadows&#x27;)}&lt;div class=&quot;sl-big-progress&quot;&gt;${paperValue(&#x27;shadows&#x27;)} &lt;small&gt;із 224 сторінок&lt;/small&gt;&lt;/div&gt;&lt;div class=&quot;sl-track&quot;&gt;&lt;i style=&quot;width:${paperValue(&#x27;shadows&#x27;)/224*100}%&quot;&gt;&lt;/i&gt;&lt;/div&gt;${button(icon(&#x27;plus&#x27;)+&#x27;Записати прогрес&#x27;,&#x27;progress&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;style=&quot;margin-top:20px&quot;&#x27;)}&lt;/div&gt;${section(&#x27;Сьогодні&#x27;,`&lt;div class=&quot;sl-timeline&quot;&gt;${state.events.map(e=&gt;`&lt;div class=&quot;sl-event&quot;&gt;&lt;strong&gt;${escape(e.title)}&lt;/strong&gt;&lt;p&gt;${escape(e.detail)}&lt;/p&gt;&lt;/div&gt;`).join(&#x27;&#x27;)}&lt;div class=&quot;sl-event&quot;&gt;&lt;strong&gt;Дюна · 28 хв слухання&lt;/strong&gt;&lt;p&gt;Аудіо · записано автоматично&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;sl-event&quot;&gt;&lt;strong&gt;Тіні забутих предків · 24 сторінки&lt;/strong&gt;&lt;p&gt;Паперова книга · 72 → 96&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;`)}`:`&lt;div class=&quot;sl-eyebrow&quot; style=&quot;margin-top:24px;color:var(--sl-muted)&quot;&gt;Вересень · демонстраційні записи&lt;/div&gt;&lt;div class=&quot;sl-stat-pair&quot;&gt;&lt;div&gt;&lt;strong&gt;${24+state.events.reduce((sum,event)=&gt;sum+(event.pagesRead||0),0)}&lt;/strong&gt;&lt;small&gt;сторінок прочитано&lt;/small&gt;&lt;/div&gt;&lt;div&gt;&lt;strong&gt;28 &lt;span style=&quot;font-size:16px&quot;&gt;хв&lt;/span&gt;&lt;/strong&gt;&lt;small&gt;аудіо прослухано&lt;/small&gt;&lt;/div&gt;&lt;/div&gt;&lt;p class=&quot;sl-muted&quot;&gt;Паперові й електронні книги зберігають свій прогрес. Час слухання рахується окремо.&lt;/p&gt;${section(&#x27;У процесі&#x27;,bookRow(&#x27;shadows&#x27;)+bookRow(&#x27;dune&#x27;))}`}`;}
+  function detail(){const b=books.find(b=&gt;b.id===state.book),saved=state.library.includes(b.id);let progress=&#x27;&#x27;;if(state.format===&#x27;audio&#x27;){progress=`&lt;div class=&quot;sl-status&quot;&gt;${icon(&#x27;circle-check&#x27;)}Аудіо доступне&lt;/div&gt;${row(&#x27;Озвучка&#x27;,&#x27;Варіант 1 · демо&#x27;,&#x27;mic&#x27;,&#x27;narrations&#x27;)}${b.id===&#x27;dune&#x27;?`&lt;div class=&quot;sl-notice&quot;&gt;${icon(&#x27;history&#x27;)}Розділ ${chapterNumber()} · позиція ${timeLabel(state.audio)} із 12 год&lt;/div&gt;`:&#x27;&#x27;}&lt;div class=&quot;sl-actions&quot;&gt;${button(icon(&#x27;play&#x27;)+(b.id===&#x27;dune&#x27;?&#x27;Продовжити&#x27;:&#x27;Слухати&#x27;),&#x27;playbook&#x27;)}${button(icon(state.downloads[b.id]?&#x27;check&#x27;:&#x27;download&#x27;),&#x27;download&#x27;,&#x27;sl-icon sl-tonal&#x27;,`data-id=&quot;${b.id}&quot; aria-label=&quot;${state.downloads[b.id]?&#x27;Скасувати завантаження&#x27;:&#x27;Завантажити аудіо&#x27;}&quot;`)}&lt;/div&gt;${row(&#x27;Розділи та завантаження&#x27;,&#x27;Вибрати окремі розділи&#x27;,&#x27;list-music&#x27;,&#x27;chapters&#x27;,&#x27;sl-tool&#x27;)}${row(&#x27;Джерело аудіо&#x27;,&#x27;Доступність і перевірка&#x27;,&#x27;radio&#x27;,&#x27;source&#x27;)}`;}else if(state.format===&#x27;paper&#x27;){const value=paperValue(b.id);progress=`&lt;div class=&quot;sl-reading&quot;&gt;&lt;span class=&quot;sl-eyebrow&quot; style=&quot;color:var(--sl-muted)&quot;&gt;Зараз читаю&lt;/span&gt;&lt;div class=&quot;sl-big-progress&quot;&gt;${value}&lt;small&gt; / ${b.pages||320} стор.&lt;/small&gt;&lt;/div&gt;&lt;div class=&quot;sl-track&quot;&gt;&lt;i style=&quot;width:${value/(b.pages||320)*100}%&quot;&gt;&lt;/i&gt;&lt;/div&gt;${button(icon(&#x27;plus&#x27;)+&#x27;Записати прогрес&#x27;,&#x27;progress&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;style=&quot;margin-top:20px&quot;&#x27;)}&lt;/div&gt;`;}else{progress=`&lt;div class=&quot;sl-reading&quot;&gt;&lt;span class=&quot;sl-eyebrow&quot; style=&quot;color:var(--sl-muted)&quot;&gt;Електронна книга&lt;/span&gt;&lt;div class=&quot;sl-big-progress&quot;&gt;${ebookValue(state.book)}&lt;small&gt; % прочитано&lt;/small&gt;&lt;/div&gt;&lt;div class=&quot;sl-track&quot;&gt;&lt;i style=&quot;width:${ebookValue(state.book)}%&quot;&gt;&lt;/i&gt;&lt;/div&gt;${button(icon(&#x27;plus&#x27;)+&#x27;Записати прогрес&#x27;,&#x27;ebookprogress&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;style=&quot;margin-top:20px&quot;&#x27;)}&lt;/div&gt;`;}return `&lt;div class=&quot;sl-detail-hero&quot;&gt;&lt;div class=&quot;sl-detail-art&quot;&gt;${cover(b)}&lt;/div&gt;&lt;div class=&quot;sl-detail-text&quot;&gt;&lt;span class=&quot;sl-eyebrow&quot; style=&quot;color:var(--sl-muted)&quot;&gt;${b.genre}&lt;/span&gt;&lt;h1&gt;${escape(b.title)}&lt;/h1&gt;&lt;p class=&quot;sl-muted&quot;&gt;${escape(b.author)}&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;${personalBook(b)}&lt;div class=&quot;sl-tabs&quot;&gt;${b.formats.map(f=&gt;button(formatNames[f],&#x27;format&#x27;,&#x27;&#x27;,`aria-pressed=&quot;${state.format===f}&quot; data-value=&quot;${f}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;${progress}${section(&#x27;Про книгу&#x27;,`&lt;p&gt;${b.id===&#x27;dune&#x27;?&#x27;Пустельна планета, боротьба за владу й історія, що розгортається далеко за межами однієї долі.&#x27;:b.id===&#x27;shadows&#x27;?&#x27;Історія кохання Івана й Марічки серед карпатських гір, традицій і давніх вірувань.&#x27;:&#x27;Книга, до якої хочеться повертатися. Збережіть її у своїй бібліотеці та оберіть зручний формат.&#x27;}&lt;/p&gt;`)}${row(&#x27;Оцінки та відгуки&#x27;,&#x27;Окремо про книгу й озвучку&#x27;,&#x27;star&#x27;,&#x27;reviews&#x27;)}`;}
+  Object.assign(state, {
+    tab:&#x27;library&#x27;, route:&#x27;library&#x27;, library:[&#x27;dune&#x27;,&#x27;misto&#x27;,&#x27;tigers&#x27;,&#x27;shadows&#x27;,&#x27;intermezzo&#x27;],
+    bookStatuses:{dune:&#x27;reading&#x27;,misto:&#x27;reading&#x27;,tigers:&#x27;want&#x27;,shadows:&#x27;reading&#x27;,intermezzo:&#x27;read&#x27;},
+    statusFilter:&#x27;reading&#x27;, ratings:{intermezzo:5}, reviews:{}, goal:12, selectedRating:0,
+    customShelves:[{name:&#x27;На осінь&#x27;,books:[&#x27;misto&#x27;,&#x27;tigers&#x27;]}], activeShelf:0, myQuery:&#x27;&#x27;
+  });
+  state.ebookProgress.intermezzo=100;
+  design.start=&#x27;library&#x27;;
+  const readingStatuses={want:&#x27;Хочу прочитати&#x27;,reading:&#x27;Читаю / слухаю&#x27;,read:&#x27;Прочитано&#x27;,dnf:&#x27;Не завершено&#x27;};
+  const completed=()=&gt;state.library.filter(id=&gt;state.bookStatuses[id]===&#x27;read&#x27;).length;
+  function myProgress(b){
+    if(state.bookStatuses[b.id]===&#x27;read&#x27;)return `${formats(b)}&lt;div class=&quot;sl-my-rating&quot;&gt;${&#x27;★&#x27;.repeat(state.ratings[b.id]||0)}${&#x27;☆&#x27;.repeat(5-(state.ratings[b.id]||0))}&lt;span&gt;Прочитано&lt;/span&gt;&lt;/div&gt;`;
+    if(state.bookStatuses[b.id]===&#x27;want&#x27;)return `${formats(b)}&lt;div class=&quot;sl-muted&quot; style=&quot;margin-top:7px&quot;&gt;Хочу прочитати&lt;/div&gt;`;
+    if(state.bookStatuses[b.id]===&#x27;dnf&#x27;)return `${formats(b)}&lt;div class=&quot;sl-muted&quot; style=&quot;margin-top:7px&quot;&gt;Не завершено&lt;/div&gt;`;
+    const audio=b.id===&#x27;dune&#x27;,electronic=b.formats[0]===&#x27;ebook&#x27;;
+    const percent=audio?state.audio/720*100:electronic?ebookValue(b.id):paperValue(b.id)/(b.pages||320)*100;
+    const label=audio?`Аудіо · ${Math.round(percent)}%`:electronic?`Е-книга · ${Math.round(percent)}%`:`Паперова · ${paperValue(b.id)} / ${b.pages||320} стор.`;
+    return `&lt;div class=&quot;sl-track&quot;&gt;&lt;i style=&quot;width:${percent}%&quot;&gt;&lt;/i&gt;&lt;/div&gt;&lt;div class=&quot;sl-muted&quot;&gt;${label}&lt;/div&gt;`;
+  }
+  function library(){
+    const goal=`&lt;button class=&quot;sl-goal&quot; data-action=&quot;year&quot;&gt;&lt;span&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Мій рік у книжках&lt;/span&gt;&lt;strong&gt;${completed()} &lt;small&gt;із ${state.goal} книг&lt;/small&gt;&lt;/strong&gt;&lt;span class=&quot;sl-track&quot;&gt;&lt;i style=&quot;width:${Math.min(100,completed()/state.goal*100)}%&quot;&gt;&lt;/i&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;sl-goal-side&quot;&gt;2026${icon(&#x27;arrow-up-right&#x27;)}&lt;/span&gt;&lt;/button&gt;`;
+    let body=&#x27;&#x27;;
+    if(state.libView===&#x27;Книги&#x27;){
+      const list=books.filter(b=&gt;state.library.includes(b.id)&amp;&amp;(state.statusFilter===&#x27;all&#x27;||state.bookStatuses[b.id]===state.statusFilter)&amp;&amp;(state.filter===&#x27;Усі&#x27;||b.formats.includes(state.filter))&amp;&amp;(!state.myQuery||(b.title+&#x27; &#x27;+b.author).toLocaleLowerCase(&#x27;uk&#x27;).includes(state.myQuery.toLocaleLowerCase(&#x27;uk&#x27;))));
+      body=`&lt;div class=&quot;sl-reading-status&quot;&gt;${[[&#x27;want&#x27;,&#x27;Хочу&#x27;],[&#x27;reading&#x27;,&#x27;Читаю&#x27;],[&#x27;read&#x27;,&#x27;Прочитано&#x27;]].map(([v,l])=&gt;chip(`${l} &lt;span&gt;${state.library.filter(id=&gt;state.bookStatuses[id]===v).length}&lt;/span&gt;`,&#x27;readingfilter&#x27;,state.statusFilter===v,`data-value=&quot;${v}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;&lt;div class=&quot;sl-heading&quot; style=&quot;margin:17px 0 6px&quot;&gt;&lt;span class=&quot;sl-muted&quot; style=&quot;flex:1&quot;&gt;${state.statusFilter===&#x27;reading&#x27;?&#x27;Читаю та слухаю зараз&#x27;:state.statusFilter===&#x27;all&#x27;?&#x27;Усі мої книги&#x27;:readingStatuses[state.statusFilter]}&lt;/span&gt;${button(icon(&#x27;search&#x27;),&#x27;mysearch&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Пошук у моїх книгах&quot;&#x27;)}${button(icon(&#x27;sliders-horizontal&#x27;),&#x27;myfilters&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Фільтри моїх книг&quot;&#x27;)}${button(icon(state.grid?&#x27;list&#x27;:&#x27;layout-grid&#x27;),&#x27;layout&#x27;,&#x27;sl-icon&#x27;,`aria-label=&quot;${state.grid?&#x27;Показати списком&#x27;:&#x27;Показати сіткою&#x27;}&quot;`)}&lt;/div&gt;${list.length?(state.grid?`&lt;div class=&quot;sl-grid&quot;&gt;${list.map(b=&gt;poster(b.id)).join(&#x27;&#x27;)}&lt;/div&gt;`:list.map(b=&gt;bookRow(b.id,myProgress(b))).join(&#x27;&#x27;)):`&lt;div class=&quot;sl-empty&quot;&gt;${icon(&#x27;book-open&#x27;)}&lt;h3&gt;Тут поки немає книг&lt;/h3&gt;&lt;p&gt;Збережіть книгу або змініть фільтри.&lt;/p&gt;&lt;/div&gt;`}${button(icon(&#x27;plus&#x27;)+&#x27;Додати книгу&#x27;,&#x27;add&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;style=&quot;margin:18px 0 4px&quot;&#x27;)}`;
+    }else if(state.libView===&#x27;Полиці&#x27;){
+      body=`${state.customShelves.map((s,i)=&gt;row(escape(s.name),`${s.books.length} книги`,&#x27;library&#x27;,&#x27;myshelf&#x27;,`data-value=&quot;${i}&quot;`)).join(&#x27;&#x27;)}${button(icon(&#x27;plus&#x27;)+&#x27;Створити полицю&#x27;,&#x27;createshelf&#x27;,&#x27;sl-text-action&#x27;)}${section(&#x27;Збережені добірки&#x27;,`&lt;button class=&quot;sl-feature&quot; data-action=&quot;collection&quot;&gt;&lt;span&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Добірка редакції&lt;/span&gt;&lt;h2&gt;Класика,&lt;br&gt;яка звучить.&lt;/h2&gt;&lt;span style=&quot;font-size:12px&quot;&gt;4 книги&lt;/span&gt;&lt;/span&gt;${icon(&#x27;arrow-up-right&#x27;)}&lt;/button&gt;`)}`;
+    }else{body=`${row(&#x27;Закладки&#x27;,`${state.bookmarks.length} записи з аудіокниг`,&#x27;bookmark&#x27;,&#x27;bookmarks&#x27;)}${row(&#x27;Автори та диктори&#x27;,&#x27;Збережені люди й нові книги&#x27;,&#x27;users&#x27;,&#x27;people&#x27;)}${row(&#x27;Мої оцінки й відгуки&#x27;,&#x27;Враження про прочитане&#x27;,&#x27;star&#x27;,&#x27;myreviews&#x27;)}`;}
+    return `${goal}&lt;div class=&quot;sl-tabs&quot; style=&quot;margin-top:18px&quot;&gt;${[&#x27;Книги&#x27;,&#x27;Полиці&#x27;,&#x27;Збережене&#x27;].map(t=&gt;button(t,&#x27;libtab&#x27;,&#x27;&#x27;,`aria-pressed=&quot;${state.libView===t}&quot; data-value=&quot;${t}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;${body}${row(&#x27;Завантаження&#x27;,&#x27;Аудіо на пристрої та черга&#x27;,&#x27;download&#x27;,&#x27;downloads&#x27;)}`;
+  }
+  function year(){return `&lt;div class=&quot;sl-year&quot;&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Читацька ціль · 2026&lt;/span&gt;&lt;h1&gt;${completed()}&lt;span&gt; / ${state.goal}&lt;/span&gt;&lt;/h1&gt;&lt;p&gt;книг прочитано й прослухано&lt;/p&gt;&lt;div class=&quot;sl-track&quot;&gt;&lt;i style=&quot;width:${Math.min(100,completed()/state.goal*100)}%&quot;&gt;&lt;/i&gt;&lt;/div&gt;${button(&#x27;Змінити ціль&#x27;+icon(&#x27;pencil&#x27;),&#x27;editgoal&#x27;,&#x27;sl-text-action&#x27;)}&lt;/div&gt;${section(&#x27;Вересень&#x27;,books.filter(b=&gt;state.bookStatuses[b.id]===&#x27;read&#x27;).map(b=&gt;bookRow(b.id,myProgress(b))).join(&#x27;&#x27;)||&#x27;&lt;p class=&quot;sl-muted&quot;&gt;Завершені книги з’являться тут.&lt;/p&gt;&#x27;)}${row(&#x27;Історія читання&#x27;,&#x27;Прогрес і записи за днями&#x27;,&#x27;history&#x27;,&#x27;diary&#x27;)}${row(&#x27;Підсумки&#x27;,&#x27;Сторінки й час слухання окремо&#x27;,&#x27;chart-no-axes-column&#x27;,&#x27;summary&#x27;)}`;}
+  function myShelf(){const shelf=state.customShelves[state.activeShelf];return `&lt;p class=&quot;sl-muted&quot;&gt;Власна полиця · ${shelf.books.length} книги&lt;/p&gt;${shelf.books.map(id=&gt;bookRow(id)).join(&#x27;&#x27;)}${row(&#x27;Додати книги&#x27;,&#x27;Оберіть зі своєї бібліотеки&#x27;,&#x27;plus&#x27;,&#x27;shelfbooks&#x27;)}`;}
+  function personalBook(b){return `&lt;div class=&quot;sl-personal&quot;&gt;&lt;div class=&quot;sl-actions&quot;&gt;${button(icon(state.bookStatuses[b.id]===&#x27;read&#x27;?&#x27;check&#x27;:&#x27;book-open&#x27;)+(readingStatuses[state.bookStatuses[b.id]]||&#x27;Хочу прочитати&#x27;),&#x27;readingstatus&#x27;,&#x27;sl-secondary&#x27;,`data-id=&quot;${b.id}&quot;`)}${button(icon(&#x27;library&#x27;),&#x27;booktoshelf&#x27;,&#x27;sl-icon sl-tonal&#x27;,&#x27;aria-label=&quot;Додати на полицю&quot;&#x27;)}&lt;/div&gt;&lt;div class=&quot;sl-my-rating&quot; aria-label=&quot;Моя оцінка&quot;&gt;${Array.from({length:5},(_,i)=&gt;button(icon(&#x27;star&#x27;),&#x27;ratebook&#x27;,&#x27;sl-star&#x27;,`data-value=&quot;${i+1}&quot; aria-label=&quot;${i+1} з 5&quot; aria-pressed=&quot;${(state.ratings[b.id]||0)&gt;=i+1}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;${state.reviews[b.id]?`&lt;p class=&quot;sl-review-text&quot;&gt;${escape(state.reviews[b.id])}&lt;/p&gt;`:&#x27;&#x27;}${button(state.reviews[b.id]?&#x27;Редагувати мій відгук&#x27;:&#x27;Написати відгук&#x27;,&#x27;writereview&#x27;,&#x27;sl-text-action&#x27;)}${state.bookStatuses[b.id]===&#x27;read&#x27;?button(icon(&#x27;users&#x27;)+&#x27;Поділитися з друзями&#x27;,&#x27;socialpublish&#x27;,&#x27;sl-text-action&#x27;):&#x27;&#x27;}&lt;/div&gt;`;}
+  function readingPanel(){let html=&#x27;&#x27;,head=&#x27;&#x27;;switch(state.panel){
+    case &#x27;readingstatus&#x27;:head=&#x27;Моє читання&#x27;;html=`&lt;p class=&quot;sl-muted&quot;&gt;${escape(books.find(b=&gt;b.id===state.book).title)}&lt;/p&gt;${Object.entries(readingStatuses).map(([v,l])=&gt;row(l,v===state.bookStatuses[state.book]?&#x27;Поточний стан&#x27;:&#x27;&#x27;,v===&#x27;read&#x27;?&#x27;check&#x27;:v===&#x27;want&#x27;?&#x27;bookmark&#x27;:&#x27;book-open&#x27;,&#x27;setreadingstatus&#x27;,`data-value=&quot;${v}&quot;`)).join(&#x27;&#x27;)}&lt;p class=&quot;sl-muted&quot; style=&quot;margin-top:12px&quot;&gt;Зміна стану не перемотує аудіо й не стирає записи.&lt;/p&gt;`;break;
+    case &#x27;editgoal&#x27;:head=&#x27;Ваша читацька ціль&#x27;;html=`&lt;form id=&quot;sl-goal-form&quot;&gt;&lt;label class=&quot;sl-field&quot;&gt;Скільки книг хочете прочитати у 2026?&lt;input name=&quot;goal&quot; type=&quot;number&quot; min=&quot;1&quot; max=&quot;1000&quot; value=&quot;${state.goal}&quot; required&gt;&lt;/label&gt;&lt;p class=&quot;sl-muted&quot;&gt;Паперові, електронні й аудіокниги разом. Ціль можна змінити.&lt;/p&gt;&lt;button class=&quot;sl-primary sl-wide&quot; type=&quot;submit&quot; style=&quot;margin-top:18px&quot;&gt;Зберегти ціль&lt;/button&gt;&lt;/form&gt;`;break;
+    case &#x27;writereview&#x27;:head=&#x27;Мій відгук&#x27;;html=`&lt;form id=&quot;sl-review-form&quot;&gt;&lt;label class=&quot;sl-field&quot;&gt;Що запам’яталося?&lt;textarea name=&quot;review&quot; maxlength=&quot;2000&quot; rows=&quot;5&quot; placeholder=&quot;Ваші враження від книги&quot;&gt;${escape(state.reviews[state.book]||&#x27;&#x27;)}&lt;/textarea&gt;&lt;/label&gt;&lt;p class=&quot;sl-muted&quot;&gt;Зберігається лише в цьому макеті. У стрічку автоматично не потрапляє.&lt;/p&gt;&lt;button class=&quot;sl-primary sl-wide&quot; type=&quot;submit&quot; style=&quot;margin-top:18px&quot;&gt;Зберегти відгук&lt;/button&gt;&lt;/form&gt;`;break;
+    case &#x27;createshelf&#x27;:head=&#x27;Нова полиця&#x27;;html=`&lt;form id=&quot;sl-shelf-form&quot;&gt;&lt;label class=&quot;sl-field&quot;&gt;Назва полиці&lt;input name=&quot;shelf&quot; maxlength=&quot;40&quot; placeholder=&quot;Наприклад, На вихідні&quot; required&gt;&lt;/label&gt;&lt;button class=&quot;sl-primary sl-wide&quot; type=&quot;submit&quot;&gt;Створити&lt;/button&gt;&lt;/form&gt;`;break;
+    case &#x27;booktoshelf&#x27;:head=&#x27;Додати на полицю&#x27;;html=`${state.customShelves.map((s,i)=&gt;`&lt;label class=&quot;sl-checkrow&quot;&gt;&lt;input type=&quot;checkbox&quot; data-membership=&quot;${i}&quot; ${s.books.includes(state.book)?&#x27;checked&#x27;:&#x27;&#x27;}&gt;&lt;span&gt;${escape(s.name)}&lt;/span&gt;&lt;/label&gt;`).join(&#x27;&#x27;)}${button(icon(&#x27;plus&#x27;)+&#x27;Нова полиця&#x27;,&#x27;createshelf&#x27;,&#x27;sl-text-action&#x27;)}`;break;
+    case &#x27;shelfbooks&#x27;:head=&#x27;Книги на полиці&#x27;;html=books.filter(b=&gt;state.library.includes(b.id)).map(b=&gt;`&lt;label class=&quot;sl-checkrow&quot;&gt;&lt;input type=&quot;checkbox&quot; data-shelfbook=&quot;${b.id}&quot; ${state.customShelves[state.activeShelf].books.includes(b.id)?&#x27;checked&#x27;:&#x27;&#x27;}&gt;&lt;span&gt;${escape(b.title)}&lt;/span&gt;&lt;/label&gt;`).join(&#x27;&#x27;);break;
+    case &#x27;myfilters&#x27;:head=&#x27;Мої книги: фільтри&#x27;;html=`&lt;h3&gt;Стан читання&lt;/h3&gt;&lt;div class=&quot;sl-chip-row&quot;&gt;${[[&#x27;all&#x27;,&#x27;Усі&#x27;],...Object.entries(readingStatuses)].map(([v,l])=&gt;chip(l,&#x27;readingfilter&#x27;,state.statusFilter===v,`data-value=&quot;${v}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;&lt;h3&gt;Формат&lt;/h3&gt;&lt;div class=&quot;sl-chip-row&quot;&gt;${[[&#x27;Усі&#x27;,&#x27;Усі формати&#x27;],...Object.entries(formatNames)].map(([v,l])=&gt;chip(l,&#x27;filter&#x27;,state.filter===v,`data-value=&quot;${v}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;`;break;
+    case &#x27;mysearch&#x27;:head=&#x27;Знайти серед моїх книг&#x27;;html=`&lt;form id=&quot;sl-mysearch-form&quot;&gt;&lt;label class=&quot;sl-field&quot;&gt;Книга або автор&lt;input name=&quot;query&quot; value=&quot;${escape(state.myQuery)}&quot; placeholder=&quot;Назва або ім’я&quot;&gt;&lt;/label&gt;&lt;button class=&quot;sl-primary sl-wide&quot; type=&quot;submit&quot;&gt;Знайти&lt;/button&gt;&lt;/form&gt;`;break;
+    case &#x27;myreviews&#x27;:head=&#x27;Мої оцінки й відгуки&#x27;;html=books.filter(b=&gt;state.ratings[b.id]||state.reviews[b.id]).map(b=&gt;bookRow(b.id,`&lt;div class=&quot;sl-my-rating&quot;&gt;${&#x27;★&#x27;.repeat(state.ratings[b.id]||0)}&lt;span&gt;${state.reviews[b.id]?&#x27;Є відгук&#x27;:&#x27;Моя оцінка&#x27;}&lt;/span&gt;&lt;/div&gt;`)).join(&#x27;&#x27;)||&#x27;&lt;p class=&quot;sl-muted&quot;&gt;Ваші враження з’являться тут.&lt;/p&gt;&#x27;;break;
+    default:return &#x27;&#x27;;
+  }return `&lt;section class=&quot;sl-overlay&quot; aria-label=&quot;${head}&quot;&gt;&lt;div class=&quot;sl-overlay-head&quot;&gt;&lt;h2&gt;${head}&lt;/h2&gt;${button(icon(&#x27;x&#x27;),&#x27;closepanel&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Закрити&quot;&#x27;)}&lt;/div&gt;${html}&lt;/section&gt;`;}
+  function handleReading(action,target){const v=target.dataset.value;switch(action){
+    case &#x27;readingfilter&#x27;:state.statusFilter=v;return true;
+    case &#x27;year&#x27;:go(&#x27;year&#x27;);return true;
+    case &#x27;diary&#x27;:state.tracker=&#x27;Щоденник&#x27;;go(&#x27;tracker&#x27;);return true;
+    case &#x27;summary&#x27;:state.tracker=&#x27;Підсумки&#x27;;go(&#x27;tracker&#x27;);return true;
+    case &#x27;myshelf&#x27;:state.activeShelf=Number(v);go(&#x27;myshelf&#x27;);return true;
+    case &#x27;setreadingstatus&#x27;:{const old=state.bookStatuses[state.book];state.bookStatuses[state.book]=v;if(!state.library.includes(state.book))state.library.push(state.book);if(v!==old)state.events.unshift({title:books.find(b=&gt;b.id===state.book).title,detail:readingStatuses[v]});state.panel=null;announce(&#x27;Стан читання збережено.&#x27;);return true;}
+    case &#x27;ratebook&#x27;:state.ratings[state.book]=Number(v);announce(`Ваша оцінка: ${v} з 5.`);return true;
+    case &#x27;save&#x27;:case &#x27;readingstatus&#x27;:if(target.dataset.id)state.book=target.dataset.id;openPanel(&#x27;readingstatus&#x27;);return true;
+    case &#x27;mysearch&#x27;:case &#x27;myfilters&#x27;:case &#x27;editgoal&#x27;:case &#x27;writereview&#x27;:case &#x27;createshelf&#x27;:case &#x27;booktoshelf&#x27;:case &#x27;shelfbooks&#x27;:case &#x27;myreviews&#x27;:openPanel(action);return true;
+    default:return false;
+  }}
+  root.addEventListener(&#x27;submit&#x27;,e=&gt;{const form=e.target,data=new FormData(form);if(form.id===&#x27;sl-goal-form&#x27;){e.preventDefault();const value=Number(data.get(&#x27;goal&#x27;));if(!Number.isInteger(value)||value&lt;1||value&gt;1000)return;state.goal=value;state.panel=null;render();announce(&#x27;Ціль збережено.&#x27;);}if(form.id===&#x27;sl-review-form&#x27;){e.preventDefault();state.reviews[state.book]=String(data.get(&#x27;review&#x27;)).trim();state.panel=null;render();announce(&#x27;Відгук збережено у макеті.&#x27;);}if(form.id===&#x27;sl-shelf-form&#x27;){e.preventDefault();const name=String(data.get(&#x27;shelf&#x27;)).trim();if(!name)return;state.customShelves.push({name,books:[]});state.panel=null;render();announce(&#x27;Полицю створено.&#x27;);}if(form.id===&#x27;sl-mysearch-form&#x27;){e.preventDefault();state.myQuery=String(data.get(&#x27;query&#x27;)).trim();state.statusFilter=&#x27;all&#x27;;state.filter=&#x27;Усі&#x27;;state.panel=null;render();}});
+  root.addEventListener(&#x27;change&#x27;,e=&gt;{if(e.target.dataset.membership!==undefined){const shelf=state.customShelves[Number(e.target.dataset.membership)];shelf.books=e.target.checked?[...new Set([...shelf.books,state.book])]:shelf.books.filter(id=&gt;id!==state.book);if(e.target.checked&amp;&amp;!state.library.includes(state.book)){state.library.push(state.book);state.bookStatuses[state.book]=&#x27;want&#x27;;}announce(&#x27;Полицю оновлено.&#x27;);}if(e.target.dataset.shelfbook){const shelf=state.customShelves[state.activeShelf],id=e.target.dataset.shelfbook;shelf.books=e.target.checked?[...new Set([...shelf.books,id])]:shelf.books.filter(b=&gt;b!==id);announce(&#x27;Книги на полиці оновлено.&#x27;);}});
+
+// Insert inside the existing closure. All social data and actions are fictional and local.
+Object.assign(state,{socialTab:&#x27;Стрічка&#x27;,friend:&#x27;olena&#x27;,liked:{},sentRequests:{},audience:&#x27;private&#x27;,socialPosts:[],socialDraft:&#x27;&#x27;,socialBook:&#x27;misto&#x27;,socialFriends:[&#x27;olena&#x27;,&#x27;marko&#x27;],comments:{},socialCommentPost:null});
+const socialReaders={olena:{name:&#x27;Олена&#x27;,about:&#x27;Люблю міські історії та українську класику.&#x27;,books:[&#x27;misto&#x27;,&#x27;shadows&#x27;],wish:&#x27;tigers&#x27;,rating:5},marko:{name:&#x27;Марко&#x27;,about:&#x27;Слухаю фантастику й читаю пригоди.&#x27;,books:[&#x27;dune&#x27;,&#x27;tigers&#x27;],wish:&#x27;forest&#x27;,rating:4},iryna:{name:&#x27;Ірина&#x27;,about:&#x27;Читаю драматургію та зберігаю улюблені цитати.&#x27;,books:[&#x27;forest&#x27;,&#x27;misto&#x27;],wish:&#x27;shadows&#x27;,rating:5}};
+const socialSamples=[{id:&#x27;olena-misto&#x27;,reader:&#x27;olena&#x27;,book:&#x27;misto&#x27;,activity:&#x27;прочитала й оцінила&#x27;,rating:5,text:&#x27;Місто змінює людину, але й людина щоразу бачить у ньому щось інше.&#x27;},{id:&#x27;marko-tigers&#x27;,reader:&#x27;marko&#x27;,book:&#x27;tigers&#x27;,activity:&#x27;радить прочитати&#x27;,rating:4,text:&#x27;Пригоди, до яких хочеться повернутися. Наступного разу спробую аудіо.&#x27;}];
+function friends(){
+  const tabsHtml=`&lt;div class=&quot;sl-tabs&quot;&gt;${[&#x27;Стрічка&#x27;,&#x27;Друзі&#x27;].map(t=&gt;button(t,&#x27;socialtab&#x27;,&#x27;&#x27;,`data-value=&quot;${t}&quot; aria-pressed=&quot;${state.socialTab===t}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;`;
+  const caption=&#x27;&lt;p class=&quot;sl-muted sl-social-caption&quot;&gt;Демо: вигадані читачі й дописи. Жодна дія не надсилається іншим людям.&lt;/p&gt;&#x27;;
+  if(state.socialTab===&#x27;Друзі&#x27;)return tabsHtml+caption+section(&#x27;Ваші друзі&#x27;,state.socialFriends.map(id=&gt;row(socialReaders[id].name,socialReaders[id].about,&#x27;user-round-check&#x27;,&#x27;socialprofile&#x27;,`data-id=&quot;${id}&quot;`)).join(&#x27;&#x27;))+section(&#x27;Знайти друзів&#x27;,Object.entries(socialReaders).filter(([id])=&gt;!state.socialFriends.includes(id)).map(([id,p])=&gt;row(p.name,state.sentRequests[id]?&#x27;Запит очікує відповіді · демо&#x27;:&#x27;Можливо, вам цікаві ті самі книжки&#x27;,&#x27;user-round-plus&#x27;,&#x27;socialprofile&#x27;,`data-id=&quot;${id}&quot;`)).join(&#x27;&#x27;));
+  const commentsFor=id=&gt;(state.comments[id]||[]).map(text=&gt;`&lt;div class=&quot;sl-social-comment&quot;&gt;&lt;strong&gt;Ви · демо&lt;/strong&gt;&lt;p&gt;${escape(text)}&lt;/p&gt;&lt;/div&gt;`).join(&#x27;&#x27;);
+  const commentButton=id=&gt;button(icon(&#x27;message-circle&#x27;)+&#x27;Коментарі · &#x27;+(state.comments[id]||[]).length,&#x27;socialcomment&#x27;,&#x27;sl-secondary&#x27;,`data-id=&quot;${id}&quot;`);
+  const own=state.socialPosts.filter(p=&gt;p.audience===&#x27;friends&#x27;).map(p=&gt;`&lt;article class=&quot;sl-social-post&quot;&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Ви · щойно · для друзів&lt;/span&gt;${bookRow(p.book)}&lt;p&gt;${escape(p.text||&#x27;Ділюся книжкою зі своєї полиці.&#x27;)}&lt;/p&gt;&lt;div class=&quot;sl-social-actions&quot;&gt;${commentButton(p.id)}&lt;/div&gt;${commentsFor(p.id)}&lt;/article&gt;`).join(&#x27;&#x27;);
+  const posts=socialSamples.map(p=&gt;`&lt;article class=&quot;sl-social-post&quot;&gt;${row(socialReaders[p.reader].name,p.activity+&#x27; · у друзях&#x27;,&#x27;user-round&#x27;,&#x27;socialprofile&#x27;,`data-id=&quot;${p.reader}&quot;`)}${bookRow(p.book)}&lt;p class=&quot;sl-social-rating&quot; aria-label=&quot;Оцінка ${p.rating} із 5&quot;&gt;${&#x27;★&#x27;.repeat(p.rating)}${&#x27;☆&#x27;.repeat(5-p.rating)}&lt;/p&gt;&lt;p&gt;${escape(p.text)}&lt;/p&gt;&lt;div class=&quot;sl-actions sl-social-actions&quot;&gt;${chip(icon(&#x27;heart&#x27;)+&#x27;Подобається&#x27;,&#x27;sociallike&#x27;,!!state.liked[p.id],`data-id=&quot;${p.id}&quot;`)}${button(icon(state.bookStatuses?.[p.book]?&#x27;check&#x27;:&#x27;plus&#x27;)+(state.bookStatuses?.[p.book]?&#x27;На моїй полиці&#x27;:&#x27;Хочу прочитати&#x27;),&#x27;socialwant&#x27;,&#x27;sl-secondary&#x27;,`data-id=&quot;${p.book}&quot;`)}${commentButton(p.id)}&lt;/div&gt;${commentsFor(p.id)}&lt;/article&gt;`).join(&#x27;&#x27;);
+  return tabsHtml+caption+button(icon(&#x27;square-pen&#x27;)+&#x27;Поділитися книжкою&#x27;,&#x27;socialcompose&#x27;,&#x27;sl-secondary sl-wide&#x27;)+own+posts;
+}
+function friendProfile(){
+  const p=socialReaders[state.friend]||socialReaders.olena,pending=!!state.sentRequests[state.friend],connected=state.socialFriends.includes(state.friend);
+  const label=connected?&#x27;У друзях&#x27;:pending?&#x27;Запит надіслано · демо&#x27;:&#x27;Додати в друзі&#x27;;
+  return `&lt;div class=&quot;sl-reading&quot;&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Профіль читача · демо&lt;/span&gt;&lt;h1 class=&quot;sl-social-name&quot;&gt;${escape(p.name)}&lt;/h1&gt;&lt;p&gt;${escape(p.about)}&lt;/p&gt;&lt;div class=&quot;sl-social-actions&quot;&gt;${button(icon(connected?&#x27;user-round-check&#x27;:pending?&#x27;clock&#x27;:&#x27;user-plus&#x27;)+label,&#x27;socialrequest&#x27;,&#x27;sl-secondary sl-wide&#x27;,`data-id=&quot;${state.friend}&quot; ${pending||connected?&#x27;disabled&#x27;:&#x27;&#x27;}`)}&lt;/div&gt;&lt;/div&gt;${section(&#x27;Відкрита полиця · прочитано&#x27;,p.books.map(id=&gt;bookRow(id)).join(&#x27;&#x27;))}${section(&#x27;Хоче прочитати&#x27;,bookRow(p.wish)+button(icon(&#x27;plus&#x27;)+&#x27;Теж хочу прочитати&#x27;,&#x27;socialwant&#x27;,&#x27;sl-secondary&#x27;,`data-id=&quot;${p.wish}&quot;`))}${section(&#x27;Остання відкрита оцінка&#x27;,`&lt;p class=&quot;sl-social-rating&quot; aria-label=&quot;${p.rating} із 5&quot;&gt;${&#x27;★&#x27;.repeat(p.rating)}${&#x27;☆&#x27;.repeat(5-p.rating)}&lt;/p&gt;&lt;p&gt;${escape(books.find(b=&gt;b.id===p.books[0]).title)}&lt;/p&gt;`)}&lt;p class=&quot;sl-muted sl-social-caption&quot;&gt;Тут видно лише те, чим читач вирішив поділитися. Персонаж і дані вигадані.&lt;/p&gt;`;
+}
+function socialPanel(){
+  if(state.panel===&#x27;socialcomment&#x27;)return `&lt;section class=&quot;sl-overlay&quot; role=&quot;region&quot; aria-label=&quot;Коментар до допису&quot;&gt;&lt;div class=&quot;sl-overlay-head&quot;&gt;&lt;h2&gt;Коментар до допису&lt;/h2&gt;${button(icon(&#x27;x&#x27;),&#x27;closepanel&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Закрити&quot;&#x27;)}&lt;/div&gt;&lt;label class=&quot;sl-field&quot;&gt;Ваш коментар&lt;textarea name=&quot;socialCommentText&quot; rows=&quot;3&quot; maxlength=&quot;300&quot; placeholder=&quot;Що думаєте про цю книжку?&quot;&gt;&lt;/textarea&gt;&lt;/label&gt;&lt;p class=&quot;sl-muted&quot;&gt;Демо-коментар буде видно під цим дописом у макеті. Інші люди його не отримають.&lt;/p&gt;${button(&#x27;Додати коментар · демо&#x27;,&#x27;socialcommentconfirm&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;style=&quot;margin-top:16px&quot;&#x27;)}&lt;/section&gt;`;
+  if(state.panel!==&#x27;socialpublish&#x27;)return &#x27;&#x27;;
+  const options=books.filter(b=&gt;state.library.includes(b.id)||b.id===state.socialBook).map(b=&gt;`&lt;option value=&quot;${b.id}&quot; ${state.socialBook===b.id?&#x27;selected&#x27;:&#x27;&#x27;}&gt;${escape(b.title)}&lt;/option&gt;`).join(&#x27;&#x27;);
+  return `&lt;section class=&quot;sl-overlay&quot; role=&quot;region&quot; aria-label=&quot;Поділитися книжкою&quot;&gt;&lt;div class=&quot;sl-overlay-head&quot;&gt;&lt;h2&gt;Поділитися книжкою&lt;/h2&gt;${button(icon(&#x27;x&#x27;),&#x27;closepanel&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Закрити&quot;&#x27;)}&lt;/div&gt;&lt;label class=&quot;sl-field&quot;&gt;Книжка&lt;select name=&quot;socialBook&quot;&gt;${options}&lt;/select&gt;&lt;/label&gt;&lt;label class=&quot;sl-field&quot;&gt;Що хочете сказати?&lt;textarea name=&quot;socialText&quot; rows=&quot;3&quot; maxlength=&quot;300&quot; placeholder=&quot;Кілька слів про книгу&quot;&gt;${escape(state.socialDraft)}&lt;/textarea&gt;&lt;/label&gt;&lt;h3&gt;Хто побачить запис?&lt;/h3&gt;&lt;div class=&quot;sl-chip-row&quot;&gt;${chip(icon(&#x27;lock-keyhole&#x27;)+&#x27;Лише я&#x27;,&#x27;socialaudience&#x27;,state.audience===&#x27;private&#x27;,&#x27;data-value=&quot;private&quot;&#x27;)}${chip(icon(&#x27;users&#x27;)+&#x27;Друзі&#x27;,&#x27;socialaudience&#x27;,state.audience===&#x27;friends&#x27;,&#x27;data-value=&quot;friends&quot;&#x27;)}&lt;/div&gt;&lt;p class=&quot;sl-muted&quot;&gt;Прогрес і приватні нотатки не публікуються автоматично. У цьому макеті запис збережеться тільки локально.&lt;/p&gt;${button(state.audience===&#x27;friends&#x27;?&#x27;Поділитися з друзями · демо&#x27;:&#x27;Зберегти для себе&#x27;,&#x27;socialpublishconfirm&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;style=&quot;margin-top:16px&quot;&#x27;)}&lt;/section&gt;`;
+}
+function handleSocial(action,target){
+  const id=target.dataset.id,value=target.dataset.value;
+  const captureDraft=()=&gt;{const pane=target.closest(&#x27;.sl-overlay&#x27;);if(!pane)return;state.socialDraft=pane.querySelector(&#x27;[name=&quot;socialText&quot;]&#x27;)?.value||&#x27;&#x27;;state.socialBook=pane.querySelector(&#x27;[name=&quot;socialBook&quot;]&#x27;)?.value||state.socialBook;};
+  switch(action){
+    case &#x27;socialtab&#x27;:state.socialTab=value;return true;
+    case &#x27;socialprofile&#x27;:if(!socialReaders[id])return true;state.friend=id;go(&#x27;friendProfile&#x27;);return true;
+    case &#x27;socialrequest&#x27;:if(!socialReaders[id]||state.socialFriends.includes(id)||state.sentRequests[id])return true;state.sentRequests[id]=true;announce(&#x27;Демо: запит позначено як надісланий. Реальним людям нічого не надсилали.&#x27;);return true;
+    case &#x27;sociallike&#x27;:state.liked[id]=!state.liked[id];announce(state.liked[id]?&#x27;Вподобання збережено в макеті.&#x27;:&#x27;Вподобання прибрано.&#x27;);return true;
+    case &#x27;socialwant&#x27;:if(!books.some(b=&gt;b.id===id))return true;state.bookStatuses??={};if(!state.library.includes(id))state.library.push(id);if(!state.bookStatuses[id]){state.bookStatuses[id]=&#x27;want&#x27;;announce(&#x27;Книжку додано на полицю «Хочу прочитати».&#x27;);}else announce(&#x27;Книжка вже на вашій полиці. Її статус збережено.&#x27;);return true;
+    case &#x27;socialpublish&#x27;:case &#x27;socialcompose&#x27;:state.audience=&#x27;private&#x27;;state.socialDraft=&#x27;&#x27;;if(action===&#x27;socialpublish&#x27;&amp;&amp;books.some(b=&gt;b.id===state.book))state.socialBook=state.book;else if(!state.library.includes(state.socialBook))state.socialBook=state.library[0]||&#x27;misto&#x27;;openPanel(&#x27;socialpublish&#x27;);return true;
+    case &#x27;socialaudience&#x27;:captureDraft();state.audience=value===&#x27;friends&#x27;?&#x27;friends&#x27;:&#x27;private&#x27;;return true;
+    case &#x27;socialpublishconfirm&#x27;:captureDraft();if(!books.some(b=&gt;b.id===state.socialBook)){announce(&#x27;Оберіть книжку для запису.&#x27;);return true;}state.socialPosts.unshift({id:&#x27;own-&#x27;+state.socialPosts.length,book:state.socialBook,text:state.socialDraft.trim(),audience:state.audience});state.panel=null;state.socialTab=&#x27;Стрічка&#x27;;announce(state.audience===&#x27;friends&#x27;?&#x27;Демо-допис з’явився у вашій стрічці. Він не надсилався іншим людям.&#x27;:&#x27;Особистий запис збережено тільки для вас. У стрічці його немає.&#x27;);return true;
+    case &#x27;socialcomment&#x27;:if(!socialSamples.some(p=&gt;p.id===id)&amp;&amp;!state.socialPosts.some(p=&gt;p.id===id&amp;&amp;p.audience===&#x27;friends&#x27;))return true;state.socialCommentPost=id;openPanel(&#x27;socialcomment&#x27;);return true;
+    case &#x27;socialcommentconfirm&#x27;:{const text=target.closest(&#x27;.sl-overlay&#x27;)?.querySelector(&#x27;[name=&quot;socialCommentText&quot;]&#x27;)?.value.trim();if(!text){announce(&#x27;Напишіть коментар перед збереженням.&#x27;);return true;}(state.comments[state.socialCommentPost]??=[]).push(text.slice(0,300));state.panel=null;announce(&#x27;Коментар додано під дописом у макеті.&#x27;);return true;}
+    default:return false;
+  }
+}
+
+  function settings(){return `${row(&#x27;Профіль і пристрої&#x27;,&#x27;Синхронізація, відновлення доступу&#x27;,&#x27;user-round&#x27;,&#x27;setting&#x27;,&#x27;data-value=&quot;Профіль і пристрої&quot;&#x27;)}&lt;div class=&quot;sl-setting-group&quot;&gt;&lt;h2&gt;Застосунок&lt;/h2&gt;${row(&#x27;Вигляд і мова&#x27;,&#x27;Тема та мова інтерфейсу&#x27;,&#x27;palette&#x27;,&#x27;setting&#x27;,&#x27;data-value=&quot;Вигляд і мова&quot;&#x27;)}${row(&#x27;Книжки та рекомендації&#x27;,&#x27;Мови книг, вподобання, приховане&#x27;,&#x27;sparkles&#x27;,&#x27;setting&#x27;,&#x27;data-value=&quot;Книжки та рекомендації&quot;&#x27;)}&lt;/div&gt;&lt;div class=&quot;sl-setting-group&quot;&gt;&lt;h2&gt;Пристрій і доступ&lt;/h2&gt;${row(&#x27;Пам’ять пристрою&#x27;,&#x27;Аудіофайли, кеш і вільне місце&#x27;,&#x27;hard-drive&#x27;,&#x27;setting&#x27;,&#x27;data-value=&quot;Пам’ять пристрою&quot;&#x27;)}${row(&#x27;Джерела аудіо&#x27;,&#x27;Підключення й доступність&#x27;,&#x27;radio&#x27;,&#x27;setting&#x27;,&#x27;data-value=&quot;Джерела аудіо&quot;&#x27;)}${row(&#x27;Приватність і мережа&#x27;,&#x27;Звіти, з’єднання, дозволи&#x27;,&#x27;shield-check&#x27;,&#x27;setting&#x27;,&#x27;data-value=&quot;Приватність і мережа&quot;&#x27;)}&lt;/div&gt;`;}
+  function setting(){switch(state.settingTitle){case &#x27;Вигляд і мова&#x27;:return `&lt;div class=&quot;sl-setting-group&quot;&gt;&lt;h2&gt;Оформлення&lt;/h2&gt;&lt;div class=&quot;sl-chip-row&quot;&gt;${[[&#x27;system&#x27;,&#x27;Системна&#x27;],[&#x27;light&#x27;,&#x27;Світла&#x27;],[&#x27;dark&#x27;,&#x27;Темна&#x27;]].map(([v,l])=&gt;chip(l,&#x27;theme&#x27;,state.theme===v,`data-value=&quot;${v}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;&lt;/div&gt;${row(&#x27;Мова інтерфейсу&#x27;,&#x27;Українська&#x27;,&#x27;languages&#x27;,&#x27;locale&#x27;)}`;case &#x27;Книжки та рекомендації&#x27;:return `${row(&#x27;Мови книжок&#x27;,&#x27;Українська&#x27;,&#x27;languages&#x27;,&#x27;contentlanguages&#x27;)}${row(&#x27;Вподобання&#x27;,&#x27;Жанри, теми й підказки&#x27;,&#x27;sliders-horizontal&#x27;,&#x27;preferences&#x27;)}${row(&#x27;Приховані книги та автори&#x27;,&#x27;Керуйте рекомендаціями&#x27;,&#x27;eye-off&#x27;,&#x27;hidden&#x27;)}`;case &#x27;Пам’ять пристрою&#x27;:return `&lt;div class=&quot;sl-stat-pair&quot;&gt;&lt;div&gt;&lt;strong&gt;1,2 &lt;span style=&quot;font-size:16px&quot;&gt;ГБ&lt;/span&gt;&lt;/strong&gt;&lt;small&gt;аудіо на пристрої · демо&lt;/small&gt;&lt;/div&gt;&lt;div&gt;&lt;strong&gt;84 &lt;span style=&quot;font-size:16px&quot;&gt;МБ&lt;/span&gt;&lt;/strong&gt;&lt;small&gt;кеш обкладинок · демо&lt;/small&gt;&lt;/div&gt;&lt;/div&gt;${row(&#x27;Завантажене аудіо&#x27;,&#x27;Переглянути розділи&#x27;,&#x27;download&#x27;,&#x27;downloads&#x27;)}${row(&#x27;Повторно перевірити файли&#x27;,&#x27;Оновити стан доступності&#x27;,&#x27;refresh-cw&#x27;,&#x27;rescan&#x27;)}`;case &#x27;Джерела аудіо&#x27;:return `${row(&#x27;Підключені джерела&#x27;,&#x27;Перегляд активних підключень&#x27;,&#x27;link&#x27;,&#x27;connections&#x27;)}${row(&#x27;Відмови від джерел&#x27;,&#x27;Відновити доступ за бажанням&#x27;,&#x27;ban&#x27;,&#x27;refusals&#x27;)}`;case &#x27;Приватність і мережа&#x27;:return `${row(&#x27;Звіти про збої&#x27;,&#x27;Надсилання лише за вашою згодою&#x27;,&#x27;bug&#x27;,&#x27;crash&#x27;)}${row(&#x27;Мережеве з’єднання&#x27;,&#x27;Маршрут і захищений DNS&#x27;,&#x27;globe&#x27;,&#x27;network&#x27;)}${row(&#x27;Використання даних&#x27;,&#x27;Переглянути налаштування&#x27;,&#x27;database&#x27;,&#x27;privacy&#x27;)}`;default:return `&lt;p class=&quot;sl-muted&quot; style=&quot;margin-top:20px&quot;&gt;Ваша бібліотека доступна на цьому пристрої.&lt;/p&gt;${row(&#x27;Синхронізація&#x27;,&#x27;Підключити інший пристрій&#x27;,&#x27;refresh-cw&#x27;,&#x27;sync&#x27;)}${row(&#x27;Код відновлення&#x27;,&#x27;Доступ до профілю&#x27;,&#x27;key-round&#x27;,&#x27;recovery&#x27;)}${row(&#x27;Приховані користувачі&#x27;,&#x27;Автори відгуків&#x27;,&#x27;user-round-x&#x27;,&#x27;hiddenusers&#x27;)}`;}}
+  function player(){return `&lt;div class=&quot;sl-player&quot;&gt;&lt;div class=&quot;sl-player-art&quot;&gt;${cover(books[0])}&lt;/div&gt;&lt;h1&gt;Дюна&lt;/h1&gt;&lt;p class=&quot;sl-muted&quot; style=&quot;margin-top:5px&quot;&gt;Френк Герберт&lt;/p&gt;&lt;div class=&quot;sl-eyebrow&quot; style=&quot;margin-top:24px;color:var(--sl-muted)&quot;&gt;Розділ ${chapterNumber()} із 32&lt;/div&gt;&lt;label&gt;&lt;span class=&quot;sl-sr&quot;&gt;Позиція у книзі, хвилини&lt;/span&gt;&lt;input id=&quot;sl-seek&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;720&quot; value=&quot;${state.audio}&quot; step=&quot;1&quot;&gt;&lt;/label&gt;&lt;div class=&quot;sl-time&quot;&gt;&lt;span&gt;${timeLabel(state.audio)}&lt;/span&gt;&lt;span&gt;12:00:00&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;sl-transport&quot;&gt;${button(icon(&#x27;skip-back&#x27;),&#x27;prevchapter&#x27;,&#x27;sl-skip&#x27;,`aria-label=&quot;Попередній розділ&quot; ${chapterNumber()===1?&#x27;disabled&#x27;:&#x27;&#x27;}`)}${button(icon(&#x27;rotate-ccw&#x27;)+&#x27;15 с&#x27;,&#x27;rewind&#x27;,&#x27;sl-skip&#x27;,&#x27;aria-label=&quot;Назад на 15 секунд&quot;&#x27;)}${button(icon(state.playing?&#x27;pause&#x27;:&#x27;play&#x27;),&#x27;toggleplay&#x27;,&#x27;sl-play&#x27;,`aria-label=&quot;${state.playing?&#x27;Пауза&#x27;:&#x27;Відтворити&#x27;}&quot;`)}${button(icon(&#x27;rotate-cw&#x27;)+&#x27;30 с&#x27;,&#x27;forward&#x27;,&#x27;sl-skip&#x27;,&#x27;aria-label=&quot;Вперед на 30 секунд&quot;&#x27;)}${button(icon(&#x27;skip-forward&#x27;),&#x27;nextchapter&#x27;,&#x27;sl-skip&#x27;,`aria-label=&quot;Наступний розділ&quot; ${chapterNumber()===32?&#x27;disabled&#x27;:&#x27;&#x27;}`)}&lt;/div&gt;&lt;div class=&quot;sl-tools&quot;&gt;${button(`&lt;strong style=&quot;font-size:17px&quot;&gt;${state.speed}×&lt;/strong&gt;Швидкість`,&#x27;speed&#x27;,&#x27;sl-tool&#x27;)}${button(icon(&#x27;moon&#x27;)+(state.timer===&#x27;Вимкнено&#x27;?&#x27;Таймер&#x27;:state.timer),&#x27;timer&#x27;,&#x27;sl-tool&#x27;)}${button(icon(&#x27;bookmark-plus&#x27;)+&#x27;Закладка&#x27;,&#x27;bookmark&#x27;,&#x27;sl-tool&#x27;)}${button(icon(&#x27;list-music&#x27;)+&#x27;Розділи&#x27;,&#x27;chapters&#x27;,&#x27;sl-tool&#x27;)}&lt;/div&gt;&lt;/div&gt;${row(&#x27;Усі закладки&#x27;,`${state.bookmarks.length} записи`,&#x27;bookmark&#x27;,&#x27;bookmarks&#x27;)}`;}
+  function collection(){return `&lt;div class=&quot;sl-feature&quot;&gt;&lt;span&gt;&lt;span class=&quot;sl-eyebrow&quot;&gt;Редакційна добірка · демо&lt;/span&gt;&lt;h2&gt;Класика,&lt;br&gt;яка звучить.&lt;/h2&gt;&lt;span style=&quot;font-size:12px&quot;&gt;Інший ритм знайомих історій.&lt;/span&gt;&lt;/span&gt;${icon(&#x27;library&#x27;)}&lt;/div&gt;${[&#x27;misto&#x27;,&#x27;tigers&#x27;,&#x27;shadows&#x27;,&#x27;forest&#x27;].map(id=&gt;bookRow(id)).join(&#x27;&#x27;)}`;}
+  function downloads(){const ids=[&#x27;dune&#x27;,...Object.keys(state.downloads).filter(id=&gt;id!==&#x27;dune&#x27;&amp;&amp;state.downloads[id])];return `&lt;div class=&quot;sl-notice&quot;&gt;${icon(&#x27;wifi-off&#x27;)}Готові розділи можна слухати без інтернету. Стан завантажень тут демонстраційний.&lt;/div&gt;${ids.map(id=&gt;{const b=books.find(b=&gt;b.id===id);return bookRow(id,`&lt;div class=&quot;sl-status&quot;&gt;${icon(id===&#x27;dune&#x27;?&#x27;circle-check&#x27;:&#x27;clock&#x27;)}${id===&#x27;dune&#x27;?&#x27;4 з 32 розділів · на пристрої&#x27;:&#x27;Ще немає локальної копії&#x27;}&lt;/div&gt;`)+row(state.downloads[id]?&#x27;Скасувати завантаження&#x27;:id===&#x27;dune&#x27;?&#x27;Завантажити решту&#x27;:&#x27;Завантажити аудіо&#x27;,state.downloads[id]?&#x27;Очікує з’єднання&#x27;:escape(b.title),&#x27;download&#x27;,&#x27;download&#x27;,`data-id=&quot;${id}&quot;`);}).join(&#x27;&#x27;)}${row(&#x27;Розділи Дюни&#x27;,&#x27;Переглянути демонстраційні розділи&#x27;,&#x27;list-music&#x27;,&#x27;chapters&#x27;,&#x27;sl-tool&#x27;)}`;}
+  function add(){return `&lt;div class=&quot;sl-stack&quot; style=&quot;padding-top:8px&quot;&gt;${row(&#x27;Знайти книгу&#x27;,&#x27;Додати з медіатеки&#x27;,&#x27;search&#x27;,&#x27;browse&#x27;)}${row(&#x27;Записати вручну&#x27;,&#x27;Паперова або електронна книга&#x27;,&#x27;notebook-pen&#x27;,&#x27;manual&#x27;)}${row(&#x27;Імпортувати аудіо&#x27;,&#x27;Файл, папка або посилання&#x27;,&#x27;folder-input&#x27;,&#x27;import&#x27;)}&lt;/div&gt;`;}
+  function catalog(){return `&lt;div class=&quot;sl-notice&quot;&gt;${icon(&#x27;info&#x27;)}Автори, серії та рейтинги тут зібрані з медіатеки.&lt;/div&gt;${[[&#x27;Книги&#x27;,&#x27;book-open&#x27;],[&#x27;Серії&#x27;,&#x27;layers&#x27;],[&#x27;Добірки&#x27;,&#x27;library&#x27;],[&#x27;Автори&#x27;,&#x27;feather&#x27;],[&#x27;Диктори&#x27;,&#x27;mic&#x27;],[&#x27;Рейтинг медіатеки&#x27;,&#x27;star&#x27;]].map(([l,i])=&gt;row(l,&#x27;&#x27;,i,l===&#x27;Книги&#x27;?&#x27;browse&#x27;:l===&#x27;Добірки&#x27;?&#x27;collection&#x27;:&#x27;catalogitem&#x27;,`data-value=&quot;${l}&quot;`)).join(&#x27;&#x27;)}`;}
+  function panel(){if([&#x27;socialpublish&#x27;,&#x27;socialcomment&#x27;].includes(state.panel))return socialPanel();const rp=readingPanel();if(rp)return rp;if(!state.panel)return &#x27;&#x27;;let html=&#x27;&#x27;,head=&#x27;&#x27;;switch(state.panel){case &#x27;progress&#x27;:{head=&#x27;Записати читання&#x27;;const max=state.route===&#x27;book&#x27;?(books.find(b=&gt;b.id===state.book).pages||320):224;const current=paperValue(progressBook());html=`&lt;p class=&quot;sl-muted&quot;&gt;${state.route===&#x27;book&#x27;?escape(books.find(b=&gt;b.id===state.book).title):&#x27;Тіні забутих предків&#x27;} · паперова&lt;/p&gt;&lt;form id=&quot;sl-progress-form&quot;&gt;&lt;label class=&quot;sl-field&quot;&gt;На якій сторінці зупинилися?&lt;input name=&quot;pages&quot; type=&quot;number&quot; inputmode=&quot;numeric&quot; min=&quot;${current}&quot; max=&quot;${max}&quot; value=&quot;${Math.min(current+24,max)}&quot; required&gt;&lt;/label&gt;&lt;p class=&quot;sl-muted&quot;&gt;Було ${current} із ${max} сторінок.&lt;/p&gt;&lt;div id=&quot;sl-form-error&quot; class=&quot;sl-error&quot; role=&quot;alert&quot;&gt;&lt;/div&gt;${button(&#x27;Зберегти запис&#x27;,&#x27;submitprogress&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;type=&quot;submit&quot;&#x27;)}&lt;/form&gt;`;break;}case &#x27;ebookprogress&#x27;:head=&#x27;Прогрес е-книги&#x27;;html=`&lt;form id=&quot;sl-ebook-form&quot;&gt;&lt;label class=&quot;sl-field&quot;&gt;Прочитано, %&lt;input name=&quot;percent&quot; type=&quot;number&quot; min=&quot;${ebookValue(state.book)}&quot; max=&quot;100&quot; value=&quot;${Math.min(ebookValue(state.book)+8,100)}&quot; required&gt;&lt;/label&gt;${button(&#x27;Зберегти&#x27;,&#x27;submitebook&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;type=&quot;submit&quot;&#x27;)}&lt;/form&gt;`;break;case &#x27;shelves&#x27;:head=&#x27;Ваші полиці&#x27;;html=`&lt;p class=&quot;sl-muted&quot;&gt;Оберіть, що бачити на екрані «Слухати».&lt;/p&gt;${shelfNames.map((n,i)=&gt;`&lt;label class=&quot;sl-checkrow&quot;&gt;&lt;input type=&quot;checkbox&quot; data-shelf=&quot;${i}&quot; ${state.shelves[i]?&#x27;checked&#x27;:&#x27;&#x27;}&gt;&lt;span&gt;${n}&lt;/span&gt;&lt;small&gt;${i+1}&lt;/small&gt;&lt;/label&gt;`).join(&#x27;&#x27;)}`;break;case &#x27;speed&#x27;:head=&#x27;Швидкість&#x27;;html=`&lt;div class=&quot;sl-chip-row&quot;&gt;${[&#x27;0.75&#x27;,&#x27;1&#x27;,&#x27;1.25&#x27;,&#x27;1.5&#x27;,&#x27;1.75&#x27;,&#x27;2&#x27;].map(v=&gt;chip(v+&#x27;×&#x27;,&#x27;setspeed&#x27;,state.speed===v,`data-value=&quot;${v}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;&lt;p class=&quot;sl-muted&quot;&gt;Запам’ятати для цієї озвучки.&lt;/p&gt;`;break;case &#x27;timer&#x27;:head=&#x27;Таймер сну&#x27;;html=`&lt;div class=&quot;sl-chip-row&quot;&gt;${[&#x27;Вимкнено&#x27;,&#x27;15 хв&#x27;,&#x27;30 хв&#x27;,&#x27;45 хв&#x27;,&#x27;До кінця розділу&#x27;].map(v=&gt;chip(v,&#x27;settimer&#x27;,state.timer===v,`data-value=&quot;${v}&quot;`)).join(&#x27;&#x27;)}&lt;/div&gt;`;break;case &#x27;chapters&#x27;:head=&#x27;Розділи Дюни&#x27;;html=`&lt;p class=&quot;sl-muted&quot;&gt;Демонстраційна структура аудіокниги.&lt;/p&gt;${Array.from({length:32},(_,i)=&gt;row(&#x27;Розділ &#x27;+(i+1),i+1===chapterNumber()?&#x27;Поточний розділ&#x27;:i&lt;4?&#x27;На пристрої&#x27;:timeLabel(chapterStart(i)),i+1===chapterNumber()?&#x27;play&#x27;:i&lt;4?&#x27;circle-check&#x27;:&#x27;list-music&#x27;,&#x27;chapter&#x27;,`data-value=&quot;${i}&quot;`)).join(&#x27;&#x27;)}`;break;case &#x27;narrations&#x27;:head=&#x27;Вибрати озвучку&#x27;;html=`&lt;p class=&quot;sl-muted&quot;&gt;Прогрес кожної озвучки зберігається окремо.&lt;/p&gt;${row(&#x27;Озвучка 1&#x27;,&#x27;Поточна · демо&#x27;,&#x27;circle-check&#x27;,&#x27;closepanel&#x27;)}${row(&#x27;Озвучка 2&#x27;,&#x27;Ще не слухали · демо&#x27;,&#x27;mic&#x27;,&#x27;switchvoice&#x27;)}`;break;case &#x27;switchvoice&#x27;:head=&#x27;Змінити озвучку?&#x27;;html=`&lt;p&gt;Поточна позиція збережеться. Нова озвучка почнеться з початку.&lt;/p&gt;&lt;div class=&quot;sl-actions&quot; style=&quot;margin-top:18px&quot;&gt;${button(&#x27;Залишити поточну&#x27;,&#x27;closepanel&#x27;,&#x27;sl-secondary&#x27;)}${button(&#x27;Змінити&#x27;,&#x27;confirmswitch&#x27;)}&lt;/div&gt;`;break;case &#x27;source&#x27;:head=&#x27;Джерело аудіо&#x27;;html=`&lt;div class=&quot;sl-status&quot;&gt;${icon(&#x27;circle-check&#x27;)}Доступне · демонстраційний стан&lt;/div&gt;${row(&#x27;Перевірити доступність&#x27;,&#x27;Оновити стан джерела&#x27;,&#x27;refresh-cw&#x27;,&#x27;recheck&#x27;)}${row(&#x27;Повідомляти про появу аудіо&#x27;,&#x27;Стежити за цією книгою&#x27;,&#x27;bell&#x27;,&#x27;watch&#x27;)}`;break;case &#x27;bookmarks&#x27;:head=&#x27;Закладки Дюни&#x27;;html=`${state.bookmarks.map(mark=&gt;row(timeLabel(mark.position),&#x27;Повернутися до цього моменту&#x27;,&#x27;bookmark&#x27;,&#x27;jumpbookmark&#x27;,`data-value=&quot;${mark.position}&quot;`)).join(&#x27;&#x27;)}`;break;case &#x27;manual&#x27;:head=&#x27;Нова книга&#x27;;html=`&lt;form id=&quot;sl-add-form&quot;&gt;&lt;label class=&quot;sl-field&quot;&gt;Назва&lt;input name=&quot;title&quot; maxlength=&quot;80&quot; placeholder=&quot;Назва книги&quot; required&gt;&lt;/label&gt;&lt;label class=&quot;sl-field&quot;&gt;Автор&lt;input name=&quot;author&quot; maxlength=&quot;80&quot; placeholder=&quot;Ім’я автора&quot; required&gt;&lt;/label&gt;&lt;label class=&quot;sl-field&quot;&gt;Формат&lt;select name=&quot;format&quot;&gt;&lt;option value=&quot;paper&quot;&gt;Паперова&lt;/option&gt;&lt;option value=&quot;ebook&quot;&gt;Електронна&lt;/option&gt;&lt;/select&gt;&lt;/label&gt;${button(&#x27;Додати до бібліотеки&#x27;,&#x27;submitbook&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;type=&quot;submit&quot;&#x27;)}&lt;/form&gt;`;break;case &#x27;import&#x27;:head=&#x27;Імпортувати аудіо&#x27;;html=`${row(&#x27;Вибрати файл&#x27;,&#x27;MP3, M4B та інші аудіофайли&#x27;,&#x27;file-audio&#x27;,&#x27;importfile&#x27;)}${row(&#x27;Вибрати папку&#x27;,&#x27;Аудіокнига з кількох файлів&#x27;,&#x27;folder-open&#x27;,&#x27;importfolder&#x27;)}&lt;label class=&quot;sl-field&quot;&gt;Або вставте посилання&lt;input id=&quot;sl-link&quot; type=&quot;url&quot; placeholder=&quot;https://&quot;&gt;&lt;/label&gt;&lt;p class=&quot;sl-muted&quot;&gt;Спочатку ви переглянете знайдені книги.&lt;/p&gt;${button(&#x27;Попередній перегляд&#x27;,&#x27;importpreview&#x27;,&#x27;sl-primary sl-wide&#x27;,&#x27;style=&quot;margin-top:18px&quot;&#x27;)}`;break;case &#x27;reviews&#x27;:head=&#x27;Відгуки&#x27;;html=`&lt;div class=&quot;sl-chip-row&quot;&gt;${chip(&#x27;Про книгу&#x27;,&#x27;reviewtype&#x27;,true)}${chip(&#x27;Про озвучку&#x27;,&#x27;reviewtype&#x27;,false)}&lt;/div&gt;&lt;p class=&quot;sl-muted&quot;&gt;Відгуків у цьому макеті ще немає.&lt;/p&gt;`;break;case &#x27;locale&#x27;:head=&#x27;Мова інтерфейсу&#x27;;html=`&lt;div class=&quot;sl-chip-row&quot;&gt;${chip(&#x27;Українська&#x27;,&#x27;localechoice&#x27;,true)}${chip(&#x27;English&#x27;,&#x27;localechoice&#x27;,false)}&lt;/div&gt;`;break;case &#x27;contentlanguages&#x27;:head=&#x27;Мови книжок&#x27;;html=`&lt;label class=&quot;sl-checkrow&quot;&gt;&lt;input type=&quot;checkbox&quot; checked&gt;&lt;span&gt;Українська&lt;/span&gt;&lt;/label&gt;&lt;label class=&quot;sl-checkrow&quot;&gt;&lt;input type=&quot;checkbox&quot;&gt;&lt;span&gt;Англійська&lt;/span&gt;&lt;/label&gt;&lt;p class=&quot;sl-muted&quot;&gt;Мова інтерфейсу обирається окремо.&lt;/p&gt;`;break;default:head=state.panelTitle||&#x27;Деталі&#x27;;html=`&lt;p class=&quot;sl-muted&quot;&gt;${escape(state.panelText||&#x27;Цей другорядний сценарій описаний у карті екранів. У концепті показано точку входу.&#x27;)}&lt;/p&gt;`;}
+    return `&lt;section class=&quot;sl-overlay&quot; role=&quot;region&quot; aria-label=&quot;${head}&quot;&gt;&lt;div class=&quot;sl-overlay-head&quot;&gt;&lt;h2&gt;${head}&lt;/h2&gt;${button(icon(&#x27;x&#x27;),&#x27;closepanel&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Закрити&quot;&#x27;)}&lt;/div&gt;${html}&lt;/section&gt;`;
+  }
+  function bottom(){if([&#x27;settings&#x27;,&#x27;setting&#x27;,&#x27;player&#x27;,&#x27;add&#x27;].includes(state.route))return &#x27;&#x27;;return `${state.mini?`&lt;aside class=&quot;sl-mini&quot; aria-label=&quot;Мініплеєр&quot;&gt;&lt;button class=&quot;sl-mini-info&quot; data-action=&quot;player&quot;&gt;&lt;span class=&quot;sl-mini-art&quot;&gt;${cover(books[0])}&lt;/span&gt;&lt;span&gt;&lt;strong&gt;Дюна&lt;/strong&gt;&lt;small&gt;Розділ ${chapterNumber()} · ${state.speed}×&lt;/small&gt;&lt;/span&gt;&lt;/button&gt;${button(icon(state.playing?&#x27;pause&#x27;:&#x27;play&#x27;),&#x27;toggleplay&#x27;,&#x27;sl-icon&#x27;,`aria-label=&quot;${state.playing?&#x27;Пауза&#x27;:&#x27;Відтворити&#x27;}&quot;`)}${button(icon(&#x27;x&#x27;),&#x27;dismissmini&#x27;,&#x27;sl-icon&#x27;,&#x27;aria-label=&quot;Приховати мініплеєр і призупинити&quot;&#x27;)}&lt;/aside&gt;`:&#x27;&#x27;}&lt;nav class=&quot;sl-nav&quot; aria-label=&quot;Основна навігація&quot;&gt;${tabs.map(([id,ico,label])=&gt;`&lt;button data-action=&quot;tab&quot; data-value=&quot;${id}&quot; ${state.tab===id?&#x27;aria-current=&quot;page&quot;&#x27;:&#x27;&#x27;}&gt;&lt;span&gt;${icon(ico)}&lt;/span&gt;${label}&lt;/button&gt;`).join(&#x27;&#x27;)}&lt;/nav&gt;`;}
+  function render(){const hadPanel=previousPanel, oldRoute=previousPanelRoute;root.style.colorScheme=state.theme===&#x27;system&#x27;?&#x27;light dark&#x27;:state.theme;root.style.setProperty(&#x27;--sl-radius&#x27;,design.shape===&#x27;expressive&#x27;?&#x27;24px&#x27;:&#x27;14px&#x27;);const screens={listen,browse,library,tracker,year,friends,friendProfile,myshelf:myShelf,book:detail,settings,setting,player,collection,downloads,add,catalog};outlet.innerHTML=header()+`&lt;main class=&quot;sl-main&quot;&gt;${(screens[state.route]||listen)()}${panel()}&lt;/main&gt;`+bottom();globalThis.lucide?.createIcons({attrs:{width:20,height:20}});previousPanel=state.panel;previousPanelRoute=state.route;if(state.panel&amp;&amp;state.panel!==hadPanel){const current=state.panel;requestAnimationFrame(()=&gt;{if(state.panel!==current)return;const el=root.querySelector(&#x27;.sl-overlay&#x27;);(el?.querySelector(&#x27;input,textarea,select&#x27;)||el?.querySelector(&#x27;button&#x27;))?.focus({preventScroll:true});el?.scrollIntoView({block:&#x27;start&#x27;,behavior:&#x27;auto&#x27;});});}else if(hadPanel&amp;&amp;!state.panel&amp;&amp;oldRoute===state.route&amp;&amp;panelReturn){const trigger=panelReturn;panelReturn=null;requestAnimationFrame(()=&gt;{const el=[...root.querySelectorAll(&#x27;[data-action]&#x27;)].find(el=&gt;el.dataset.action===trigger.action&amp;&amp;(el.dataset.id||&#x27;&#x27;)===trigger.id&amp;&amp;(el.dataset.value||&#x27;&#x27;)===trigger.value);el?.focus({preventScroll:true});el?.scrollIntoView({block:&#x27;nearest&#x27;,behavior:&#x27;auto&#x27;});});}}
+  function announce(message){notices.className=&#x27;sl-feedback&#x27;;notices.textContent=message;}
+  function clearNotice(){notices.textContent=&#x27;&#x27;;notices.className=&#x27;&#x27;;}
+  function go(route){state.stack.push(snapshot());state.route=route;state.panel=null;panelReturn=null;clearNotice();render();focusHeading();}
+  function openPanel(name){if(!state.panel)panelReturn=lastTrigger;state.panel=name;clearNotice();render();}
+  function book(id){const b=books.find(b=&gt;b.id===id);state.stack.push(snapshot());state.book=id;state.format=b.formats[0];state.route=&#x27;book&#x27;;state.panel=null;panelReturn=null;clearNotice();render();focusHeading();}
+  root.addEventListener(&#x27;click&#x27;,e=&gt;{const target=e.target.closest(&#x27;[data-action]&#x27;);if(!target||!root.contains(target))return;const action=target.dataset.action,v=target.dataset.value;if(!target.closest(&#x27;.sl-overlay&#x27;))lastTrigger={action,id:target.dataset.id||&#x27;&#x27;,value:v||&#x27;&#x27;};
+    if([&#x27;submitprogress&#x27;,&#x27;submitebook&#x27;,&#x27;submitbook&#x27;].includes(action))return;
+    if(handleSocial(action,target)){render();return;}
+    if(handleReading(action,target)){render();return;}
+    switch(action){
+      case &#x27;tab&#x27;:switchTab(v,v===state.tab);break;
+      case &#x27;back&#x27;:if(state.panel){state.panel=null;}else{Object.assign(state,state.stack.pop()||{route:state.tab});focusHeading();}clearNotice();break;
+      case &#x27;book&#x27;:book(target.dataset.id);return;
+      case &#x27;settings&#x27;:case &#x27;collection&#x27;:case &#x27;downloads&#x27;:case &#x27;add&#x27;:case &#x27;catalog&#x27;:go(action);return;
+      case &#x27;browse&#x27;:switchTab(&#x27;browse&#x27;,true);break;
+      case &#x27;resumeplayer&#x27;:state.playing=true;state.mini=true;go(&#x27;player&#x27;);return;case &#x27;player&#x27;:state.mini=true;go(&#x27;player&#x27;);return;
+      case &#x27;playbook&#x27;:if(state.book===&#x27;dune&#x27;){state.playing=true;state.mini=true;go(&#x27;player&#x27;);return;}announce(&#x27;Для цієї демо-книги показано дизайн сторінки. Плеєр можна переглянути на «Дюні».&#x27;);return;
+      case &#x27;toggleplay&#x27;:state.playing=!state.playing;announce(state.playing?&#x27;Відтворення: демонстрація стану, без звуку.&#x27;:&#x27;Пауза.&#x27;);break;
+      case &#x27;dismissmini&#x27;:state.playing=false;state.mini=false;announce(&#x27;Призупинено. Позицію збережено.&#x27;);break;
+      case &#x27;save&#x27;:if(!state.library.includes(state.book)){state.library.push(state.book);announce(&#x27;Книгу додано до бібліотеки.&#x27;);}else{announce(&#x27;Ця книга вже у вашій бібліотеці.&#x27;);}break;
+      case &#x27;libtab&#x27;:state.libView=v;break;case &#x27;filter&#x27;:state.filter=v;break;case &#x27;genre&#x27;:state.genre=v;break;case &#x27;layout&#x27;:state.grid=!state.grid;break;case &#x27;trackertab&#x27;:state.tracker=v;break;case &#x27;format&#x27;:state.format=v;state.panel=null;break;
+      case &#x27;theme&#x27;:state.theme=v;design.theme=v;break;
+      case &#x27;setting&#x27;:state.settingTitle=v;go(&#x27;setting&#x27;);return;
+      case &#x27;download&#x27;:{const id=target.dataset.id||&#x27;dune&#x27;;state.downloads[id]=!state.downloads[id];const name=books.find(b=&gt;b.id===id)?.title;announce(state.downloads[id]?&#x27;Демо: «&#x27;+name+&#x27;» додано до черги завантажень.&#x27;:&#x27;Демо: завантаження «&#x27;+name+&#x27;» скасовано.&#x27;);break;}
+      case &#x27;setspeed&#x27;:state.speed=v;state.panel=null;announce(&#x27;Швидкість для цієї озвучки: &#x27;+v+&#x27;×.&#x27;);break;
+      case &#x27;settimer&#x27;:state.timer=v;state.panel=null;announce(v===&#x27;Вимкнено&#x27;?&#x27;Таймер вимкнено.&#x27;:&#x27;Таймер: &#x27;+v+&#x27;.&#x27;);break;
+      case &#x27;bookmark&#x27;:state.bookmarks.push({bookId:&#x27;dune&#x27;,position:state.audio});announce(&#x27;Закладку додано.&#x27;);break;
+      case &#x27;prevchapter&#x27;:state.audio=chapterStart(Math.max(0,chapterNumber()-2));break;case &#x27;nextchapter&#x27;:state.audio=chapterStart(Math.min(31,chapterNumber()));break;
+      case &#x27;rewind&#x27;:state.audio=Math.max(0,state.audio-.25);break;case &#x27;forward&#x27;:state.audio=Math.min(720,state.audio+.5);break;
+      case &#x27;closepanel&#x27;:state.panel=null;break;
+      case &#x27;progress&#x27;:case &#x27;ebookprogress&#x27;:case &#x27;shelves&#x27;:case &#x27;speed&#x27;:case &#x27;timer&#x27;:case &#x27;chapters&#x27;:case &#x27;narrations&#x27;:case &#x27;switchvoice&#x27;:case &#x27;source&#x27;:case &#x27;bookmarks&#x27;:case &#x27;manual&#x27;:case &#x27;import&#x27;:case &#x27;reviews&#x27;:case &#x27;locale&#x27;:case &#x27;contentlanguages&#x27;:openPanel(action);return;
+      case &#x27;confirmswitch&#x27;:state.panel=null;announce(&#x27;Демонстрація: обрано іншу озвучку. Дані поточної не змінені.&#x27;);break;
+      case &#x27;recheck&#x27;:state.panel=null;announce(&#x27;Демо: джерело доступне.&#x27;);break;case &#x27;watch&#x27;:state.panel=null;announce(&#x27;Демо: сповіщення про аудіо ввімкнено.&#x27;);break;
+      case &#x27;chapter&#x27;:state.audio=chapterStart(Number(v));state.panel=null;announce(&#x27;Обрано розділ &#x27;+(Number(v)+1)+&#x27; Дюни.&#x27;);break;
+      case &#x27;jumpbookmark&#x27;:state.audio=Number(v);state.mini=true;state.panel=null;if(state.route!==&#x27;player&#x27;){go(&#x27;player&#x27;);return;}break;
+      case &#x27;reviewtype&#x27;:announce(&#x27;У демонстрації відгуків поки немає.&#x27;);return;
+      case &#x27;localechoice&#x27;:announce(&#x27;У концепті тексти показані українською.&#x27;);return;
+      case &#x27;importfile&#x27;:case &#x27;importfolder&#x27;:state.panelTitle=action===&#x27;importfile&#x27;?&#x27;Вибрати аудіофайл&#x27;:&#x27;Вибрати папку&#x27;;state.panelText=&#x27;Демонстрація: у застосунку відкриється системний вибір &#x27;+(action===&#x27;importfile&#x27;?&#x27;файлу&#x27;:&#x27;папки&#x27;)+&#x27;, потім попередній перегляд знайдених книг. Цей макет не відкриває та не змінює ваші файли.&#x27;;state.panel=&#x27;info&#x27;;break;
+      case &#x27;importpreview&#x27;:{const value=root.querySelector(&#x27;#sl-link&#x27;).value;if(!value||!/^https?:\/\//.test(value)){announce(&#x27;Введіть посилання, що починається з https:// або http://.&#x27;);return;}state.panelTitle=&#x27;Попередній перегляд імпорту&#x27;;state.panelText=&#x27;У макеті мережевий імпорт не виконується. У застосунку тут буде список знайдених книг для підтвердження.&#x27;;state.panel=&#x27;info&#x27;;break;}
+      default:if(!state.panel)panelReturn=lastTrigger;state.panelTitle=target.querySelector(&#x27;strong&#x27;)?.textContent||target.textContent.trim()||&#x27;Деталі&#x27;;state.panelText={cast:&#x27;Пошук пристроїв для трансляції. У макеті пристрої не підключаються.&#x27;,rescan:&#x27;Демонстраційна перевірка завершена. Файли на пристрої не змінювалися.&#x27;,recovery:&#x27;У застосунку перегляд коду потребує підтвердження біометрією або PIN.&#x27;,network:&#x27;У застосунку тут обирається мережевий маршрут і DNS; зміни застосовуються окремою дією.&#x27;,people:&#x27;Збережені автори та диктори. У застосунку тут також доступні нові книги від цих людей.&#x27;}[action]||&#x27;Другорядний сценарій зафіксований у карті екранів. Тут показано його місце в новій навігації.&#x27;;state.panel=&#x27;info&#x27;;break;
+    }render();
+  });
+  root.addEventListener(&#x27;input&#x27;,e=&gt;{if(e.target.id===&#x27;sl-search&#x27;){const position=e.target.selectionStart;state.query=e.target.value;render();const field=root.querySelector(&#x27;#sl-search&#x27;);field.focus();field.setSelectionRange(position,position);}if(e.target.id===&#x27;sl-seek&#x27;){state.audio=Number(e.target.value);const time=root.querySelector(&#x27;.sl-time span&#x27;);time.textContent=timeLabel(state.audio);const label=root.querySelector(&#x27;.sl-player .sl-eyebrow&#x27;);if(label)label.textContent=&#x27;Розділ &#x27;+chapterNumber()+&#x27; із 32&#x27;;}});
+  root.addEventListener(&#x27;change&#x27;,e=&gt;{if(e.target.dataset.shelf!==undefined){state.shelves[Number(e.target.dataset.shelf)]=e.target.checked;render();announce(&#x27;Вибір полиць збережено в демонстрації.&#x27;);}});
+  root.addEventListener(&#x27;submit&#x27;,e=&gt;{e.preventDefault();const data=new FormData(e.target);if(e.target.id===&#x27;sl-progress-form&#x27;){const id=progressBook(),b=books.find(b=&gt;b.id===id),value=Number(data.get(&#x27;pages&#x27;)),max=b.pages||320,current=paperValue(id);if(!Number.isInteger(value)||value&lt;current||value&gt;max){root.querySelector(&#x27;#sl-form-error&#x27;).textContent=`Вкажіть ціле число від ${current} до ${max}.`;return;}state.paperProgress[id]=value;if(value&gt;current)state.events.unshift({title:`${b.title} · ${value-current} сторінок`,detail:`Паперова книга · ${current} → ${value}`,pagesRead:value-current});state.panel=null;render();announce(&#x27;Читання записано. Позиція аудіо не змінилася.&#x27;);}else if(e.target.id===&#x27;sl-ebook-form&#x27;){const value=Number(data.get(&#x27;percent&#x27;)),current=ebookValue(state.book);if(!Number.isInteger(value)||value&lt;current||value&gt;100)return;state.ebookProgress[state.book]=value;if(value&gt;current)state.events.unshift({title:books.find(b=&gt;b.id===state.book).title+&#x27; · &#x27;+current+&#x27; → &#x27;+value+&#x27;%&#x27;,detail:&#x27;Електронна книга · прогрес записано вручну&#x27;});state.panel=null;render();announce(&#x27;Прогрес електронної книги збережено.&#x27;);}else if(e.target.id===&#x27;sl-add-form&#x27;){const title=String(data.get(&#x27;title&#x27;)).trim(),author=String(data.get(&#x27;author&#x27;)).trim();if(!title||!author)return;const id=&#x27;manual&#x27;+books.length;books.push({id,title,author,cover:escape(title),formats:[String(data.get(&#x27;format&#x27;))],genre:&#x27;Моя книга&#x27;,pages:320});state.library.push(id);state.bookStatuses[id]=&#x27;want&#x27;;state.statusFilter=&#x27;want&#x27;;state.paperProgress[id]=0;state.ebookProgress[id]=0;state.panel=null;switchTab(&#x27;library&#x27;,true);state.libView=&#x27;Книги&#x27;;state.filter=&#x27;Усі&#x27;;render();announce(&#x27;Книгу додано до демонстраційної бібліотеки.&#x27;);}});
+  function submitLocalForm(form){if(form.reportValidity())form.dispatchEvent(new Event(&#x27;submit&#x27;,{bubbles:true,cancelable:true}));}
+  root.addEventListener(&#x27;click&#x27;,e=&gt;{const submit=e.target.closest(&#x27;button[type=&quot;submit&quot;]&#x27;);if(submit?.form){e.preventDefault();e.stopPropagation();submitLocalForm(submit.form);}},true);
+  root.addEventListener(&#x27;keydown&#x27;,e=&gt;{if(e.key===&#x27;Escape&#x27;&amp;&amp;state.panel){e.preventDefault();state.panel=null;render();}else if(e.key===&#x27;Enter&#x27;&amp;&amp;e.target.tagName===&#x27;INPUT&#x27;&amp;&amp;e.target.form){e.preventDefault();submitLocalForm(e.target.form);}});
+  render();
+  let lastDesignStart=design.start;
+  if(globalThis.Tweak){const tweaks=new Tweak({container:root,onChange:()=&gt;{state.theme=design.theme;if(design.start!==lastDesignStart){lastDesignStart=design.start;switchTab(design.start);}render();}});tweaks.addSelect(design,&#x27;theme&#x27;,{label:&#x27;Тема&#x27;,options:[{label:&#x27;Як у системі&#x27;,value:&#x27;system&#x27;},{label:&#x27;Нічна бібліотека&#x27;,value:&#x27;dark&#x27;},{label:&#x27;Теплий папір&#x27;,value:&#x27;light&#x27;}]});tweaks.addSelect(design,&#x27;shape&#x27;,{label:&#x27;Форма головного блоку&#x27;,options:[{label:&#x27;М’яка — Expressive&#x27;,value:&#x27;expressive&#x27;},{label:&#x27;Стримана — Editorial&#x27;,value:&#x27;editorial&#x27;}]});tweaks.addSelect(design,&#x27;start&#x27;,{label:&#x27;Початковий екран&#x27;,options:tabs.map(([value,icon,label])=&gt;({label,value}))});}
+})();
+&lt;/script&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+  let lastPointerWasTouch = false;
+  let pinnedByTouch = false;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    pinnedByTouch = false;
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handlePointer = (event) =&gt; {
+    lastPointerWasTouch =
+      event.type === &quot;pointerdown&quot; &amp;&amp; event.pointerType === &quot;touch&quot;;
+  };
+  const handleTouchClick = (event) =&gt; {
+    const isTouch = event.pointerType === &quot;touch&quot; || lastPointerWasTouch;
+    lastPointerWasTouch = false;
+    if (!isTouch || event.detail === 0) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (
+      trigger == null ||
+      !trigger.isConnected ||
+      getContent(trigger).length === 0 ||
+      (pinnedByTouch &amp;&amp; activeTrigger === trigger)
+    ) {
+      if (pinnedByTouch) {
+        closeTooltip();
+      }
+      return;
+    }
+    openTooltip(trigger);
+    pinnedByTouch = activeTrigger === trigger;
+    window.setTimeout(() =&gt; {
+      if (activeTrigger === trigger &amp;&amp; !trigger.isConnected) {
+        closeTooltip(false);
+      }
+    }, 0);
+  };
+  const handleLeave = (event) =&gt; {
+    if (pinnedByTouch) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    lastPointerWasTouch = false;
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    lastPointerWasTouch = false;
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerdown&quot;, handlePointer);
+    document.removeEventListener(&quot;pointercancel&quot;, handlePointer);
+    document.removeEventListener(&quot;click&quot;, handleTouchClick);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerdown&quot;, handlePointer);
+  document.addEventListener(&quot;pointercancel&quot;, handlePointer);
+  document.addEventListener(&quot;click&quot;, handleTouchClick);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-tabs&quot;&gt;
+(() =&gt; {
+  const selector = &#x27;.nav[role=&quot;tablist&quot;] [role=&quot;tab&quot;]&#x27;;
+  const disabled = &#x27;:disabled,[aria-disabled=&quot;true&quot;]&#x27;;
+  const selectTab = (selected) =&gt; {
+    const panelId = selected.getAttribute(&quot;aria-controls&quot;);
+    for (const tab of selected.closest(&#x27;[role=&quot;tablist&quot;]&#x27;).querySelectorAll(&#x27;[role=&quot;tab&quot;]&#x27;)) {
+      const active = tab === selected;
+      tab.classList.toggle(&quot;active&quot;, active);
+      tab.setAttribute(&quot;aria-selected&quot;, String(active));
+      const id = tab.getAttribute(&quot;aria-controls&quot;);
+      const panel = id &amp;&amp; document.getElementById(id);
+      if (panel != null) {
+        panel.hidden = id !== panelId;
+        if (!panel.hidden &amp;&amp; selected.id) {
+          panel.setAttribute(&quot;aria-labelledby&quot;, selected.id);
+        }
+      }
+    }
+  };
+  const interact = (event) =&gt; {
+    const tab = event.target?.closest?.(selector);
+    if (event.defaultPrevented || tab == null || tab.matches(disabled)) {
+      return;
+    }
+    if (event.type === &quot;click&quot;) {
+      selectTab(tab);
+      return;
+    }
+    const tabs = Array.from(
+      tab.closest(&#x27;[role=&quot;tablist&quot;]&#x27;).querySelectorAll(&#x27;[role=&quot;tab&quot;]&#x27;),
+    ).filter((candidate) =&gt; !candidate.matches(disabled));
+    const current = tabs.indexOf(tab);
+    let next;
+    if (event.key === &quot;ArrowRight&quot; || event.key === &quot;ArrowDown&quot;) {
+      next = (current + 1) % tabs.length;
+    } else if (event.key === &quot;ArrowLeft&quot; || event.key === &quot;ArrowUp&quot;) {
+      next = (current + tabs.length - 1) % tabs.length;
+    } else if (event.key === &quot;Home&quot;) {
+      next = 0;
+    } else if (event.key === &quot;End&quot;) {
+      next = tabs.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    tabs[next].focus();
+    selectTab(tabs[next]);
+  };
+
+  for (const list of document.querySelectorAll(&#x27;.nav[role=&quot;tablist&quot;]&#x27;)) {
+    const selected =
+      list.querySelector(&#x27;[role=&quot;tab&quot;][aria-selected=&quot;true&quot;]&#x27;) ??
+      list.querySelector(&#x27;[role=&quot;tab&quot;].active&#x27;) ??
+      list.querySelector(&#x27;[role=&quot;tab&quot;]&#x27;);
+    if (selected != null) {
+      selectTab(selected);
+    }
+  }
+  document.addEventListener(&quot;click&quot;, interact);
+  document.addEventListener(&quot;keydown&quot;, interact);
+  window.addEventListener(&quot;pagehide&quot;, () =&gt; {
+    document.removeEventListener(&quot;click&quot;, interact);
+    document.removeEventListener(&quot;keydown&quot;, interact);
+  }, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Особистою книжку робить явний намір, а не імпорт

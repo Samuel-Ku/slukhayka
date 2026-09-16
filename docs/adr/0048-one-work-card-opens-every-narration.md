@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Одна особиста картка Work відкриває всі начитки

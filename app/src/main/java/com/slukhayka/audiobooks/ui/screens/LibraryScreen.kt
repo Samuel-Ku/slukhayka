@@ -550,7 +550,12 @@ fun LibraryScreen(
                             documentId = published.documentId,
                             title = published.title,
                             bookCount = published.bookIds.size,
-                            pseudonym = published.pseudonym
+                            pseudonym = published.pseudonym,
+                            average = com.slukhayka.audiobooks.data.collections.CollectionRating.average(
+                                published.ratingSum,
+                                published.ratingCount
+                            ),
+                            ratingCount = published.ratingCount
                         )
                     },
                     onOpen = { openPublishedDocumentId = it }

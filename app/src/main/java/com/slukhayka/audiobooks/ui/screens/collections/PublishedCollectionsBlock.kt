@@ -15,14 +15,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
+import java.util.Locale
 
 /** One published collection as the Library shows it. */
 data class PublishedCollectionRow(
     val documentId: String,
     val title: String,
     val bookCount: Int,
-    val pseudonym: String
+    val pseudonym: String,
+    /** #694 — the real average, or null when nobody voted (no stars drawn). */
+    val average: Double? = null,
+    val ratingCount: Int = 0
 )
 
 /**
@@ -71,6 +78,26 @@ fun PublishedCollectionsBlock(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // #694 — the rating summary travels with every collection card.
+                val average = row.average
+                if (average != null) {
+                    val votes = pluralStringResource(
+                        R.plurals.library_rating_votes,
+                        row.ratingCount,
+                        row.ratingCount
+                    )
+                    Text(
+                        text = String.format(Locale.US, "★ %.1f · %s", average, votes),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.collection_no_ratings),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

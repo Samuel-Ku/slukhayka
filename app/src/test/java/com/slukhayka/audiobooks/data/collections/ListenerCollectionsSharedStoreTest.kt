@@ -59,6 +59,59 @@ class ListenerCollectionsSharedStoreTest {
     }
 
     @Test
+    fun `one vote per person updates the aggregate transactionally`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+        val voter = CollectionIdentity.voterKey("voter-uid", document.collectionId)
+
+        assertEquals(PublishResult.Published, store.vote(document.documentId, voter, 5))
+        val rated = store.publishedBy(authorId).single()
+        assertEquals(5, rated.ratingSum)
+        assertEquals(1, rated.ratingCount)
+        assertEquals(5, store.myVote(voter))
+
+        // A re-vote REPLACES the person's stars: still one voter.
+        assertEquals(PublishResult.Published, store.vote(document.documentId, voter, 2))
+        val reRated = store.publishedBy(authorId).single()
+        assertEquals(2, reRated.ratingSum)
+        assertEquals(1, reRated.ratingCount)
+    }
+
+    @Test
+    fun `two people are two independent votes`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+
+        store.vote(document.documentId, CollectionIdentity.voterKey("a", "c1"), 4)
+        store.vote(document.documentId, CollectionIdentity.voterKey("b", "c1"), 5)
+
+        val rated = store.publishedBy(authorId).single()
+        assertEquals(9, rated.ratingSum)
+        assertEquals(2, rated.ratingCount)
+    }
+
+    @Test
+    fun `a bad vote is refused and never touches the aggregate`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+
+        assertTrue(store.vote(document.documentId, "", 5) is PublishResult.Refused)
+        assertTrue(store.vote(document.documentId, "key", 0) is PublishResult.Refused)
+        assertTrue(store.vote(document.documentId, "key", 6) is PublishResult.Refused)
+        assertTrue(store.vote("missing", "key", 5) is PublishResult.Refused)
+
+        val untouched = store.publishedBy(authorId).single()
+        assertEquals(0, untouched.ratingSum)
+        assertEquals(0, untouched.ratingCount)
+
+        val offline = InMemorySharedCollections(online = false)
+        assertTrue(offline.vote(document.documentId, "key", 5) is PublishResult.Refused)
+    }
+
+    @Test
     fun `collections containing one book are found by their book list`() = runBlocking {
         val store = InMemorySharedCollections()
         store.publish(collection("c1", "book-a", "book-b"), authorId, "Слухач")

@@ -35,13 +35,22 @@ class PublicCollectionContentTest {
         publishedAt = 1L
     )
 
-    private fun setContent(available: Boolean, onSave: () -> Unit = {}) {
+    private fun setContent(
+        available: Boolean,
+        onSave: () -> Unit = {},
+        isOwn: Boolean = false,
+        myStars: Int? = null,
+        onVote: (Int) -> Unit = {}
+    ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 PublicCollectionContent(
                     collection = collection,
                     originalAvailableLocally = available,
-                    onSaveForYou = onSave
+                    onSaveForYou = onSave,
+                    myStars = myStars,
+                    isOwn = isOwn,
+                    onVote = onVote
                 )
             }
         }
@@ -80,5 +89,46 @@ class PublicCollectionContentTest {
             .assertIsEnabled()
             .performClick()
         assertEquals(1, saved)
+    }
+    @Test
+    fun `a collection without votes shows the honest empty line and no stars`() {
+        setContent(available = true)
+
+        composeTestRule.onNodeWithTag("public_collection_no_ratings").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("public_collection_average").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the real average and its vote count are shown once people vote`() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                PublicCollectionContent(
+                    collection = collection.copy(ratingSum = 9, ratingCount = 2),
+                    originalAvailableLocally = true,
+                    onSaveForYou = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("public_collection_no_ratings").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the author never sees the self-rating control`() {
+        setContent(available = true, isOwn = true)
+
+        composeTestRule.onNodeWithTag("public_collection_your_rating").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rating_star_1").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a reader can rate the collection and the choice is reported`() {
+        var voted = 0
+        setContent(available = true, isOwn = false, onVote = { voted = it })
+
+        composeTestRule.onNodeWithTag("rating_star_4").performClick()
+
+        assertEquals(4, voted)
     }
 }

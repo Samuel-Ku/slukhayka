@@ -42,4 +42,15 @@ interface ListenerCollectionsSharedStore {
      * caller's ([CollectionRanking]); this is a plain read.
      */
     suspend fun containing(bookId: String): List<PublishedCollection>
+
+    /**
+     * Spec-51 (#694) — one vote per person, applied TRANSACTIONALLY with the
+     * collection's `ratingSum`/`ratingCount`. [voterKey] is
+     * [CollectionIdentity.voterKey]; a re-vote REPLACES the previous stars.
+     * Online-only with an honest refusal, like publishing.
+     */
+    suspend fun vote(documentId: String, voterKey: String, stars: Int): PublishResult
+
+    /** The listener's own stars for one collection, or null when not voted. */
+    suspend fun myVote(voterKey: String): Int?
 }

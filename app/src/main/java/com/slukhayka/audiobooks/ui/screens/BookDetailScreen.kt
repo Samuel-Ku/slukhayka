@@ -424,6 +424,7 @@ fun BookDetailScreen(
     val reviewQueuedMessage = stringResource(R.string.book_detail_review_save_queued)
     val reviewFailureMessage = stringResource(R.string.book_detail_review_save_error)
     val reviewDeleteFailureMessage = stringResource(R.string.book_detail_review_delete_error)
+    val collectionVoteErrorMessage = stringResource(R.string.collection_vote_error)
     val reviewRetryLabel = stringResource(R.string.feedback_retry)
     LaunchedEffect(viewModel, snackbarHostState, reviewsWorkId) {
         viewModel.reviewSaveResults.collect { event ->
@@ -456,6 +457,13 @@ fun BookDetailScreen(
                     snackbarHostState.showSnackbar(reviewQueuedMessage)
                 }
             }
+        }
+    }
+
+    // Spec-51 (#694) — a refused vote is honest: nothing was stored.
+    LaunchedEffect(viewModel, snackbarHostState) {
+        viewModel.publicCollectionVoteResults.collect { stored ->
+            if (!stored) snackbarHostState.showSnackbar(collectionVoteErrorMessage)
         }
     }
 
@@ -1626,6 +1634,12 @@ fun BookDetailScreen(
     // page. The sheet is read-only plus «Зберегти собі» (#695).
     val openPublicCollection = collectionsWithBook.firstOrNull { it.documentId == openPublicCollectionId }
     if (openPublicCollection != null) {
+        // #694 — the viewer's own stars for the opened collection; the author
+        // never sees the voting control at all.
+        val myCollectionVote by viewModel.publicCollectionMyVote.collectAsState()
+        LaunchedEffect(openPublicCollection.collectionId) {
+            viewModel.loadMyCollectionVote(openPublicCollection.collectionId)
+        }
         @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
         androidx.compose.material3.ModalBottomSheet(onDismissRequest = { openPublicCollectionId = null }) {
             com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
@@ -1636,6 +1650,18 @@ fun BookDetailScreen(
                 onSaveForYou = {
                     viewModel.saveForkOfPublished(openPublicCollection.documentId)
                     openPublicCollectionId = null
+                },
+                myStars = myCollectionVote,
+                isOwn = openPublicCollection.authorId ==
+                    com.slukhayka.audiobooks.data.collections.CuratorIdentity
+                        .authorId(listenerProfile?.uid),
+                onVote = { stars ->
+                    viewModel.voteCollection(
+                        bookId = currentBook.id,
+                        documentId = openPublicCollection.documentId,
+                        collectionId = openPublicCollection.collectionId,
+                        stars = stars
+                    )
                 }
             )
         }

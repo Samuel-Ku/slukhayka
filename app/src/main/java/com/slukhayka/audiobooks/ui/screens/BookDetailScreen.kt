@@ -72,7 +72,7 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.ReviewSaveResult
+import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
@@ -275,6 +275,10 @@ fun BookDetailScreen(
     val listenerProfile by viewModel.listenerIdentity.collectAsState()
     val bookReviews by viewModel.bookReviews.collectAsState()
     val pendingReviewKeys by viewModel.pendingReviewKeys.collectAsState()
+    // Spec-620 (#623) — the headline average counts only CONFIRMED reviews: a
+    // pending card is not yet a vote, and a pending EDIT keeps the previous
+    // confirmed rating instead of moving the number before acceptance.
+    val confirmedReviewRatings by viewModel.confirmedReviewRatings.collectAsState()
 
     // ADR-0023 (#348): narration ratings of this Work + THIS card's Edition id.
     val narrationRatings by viewModel.narrationRatings.collectAsState()
@@ -295,12 +299,12 @@ fun BookDetailScreen(
     // #358 — the delete confirmation lives here (destructive action never
     // looks neutral, spec-27); the row only raises the request.
     var showNarrationRatingDeleteConfirm by remember { mutableStateOf(false) }
-    val detailPresentation = remember(currentBook, sourceProfiles, bookSources, bookReviews) {
+    val detailPresentation = remember(currentBook, sourceProfiles, bookSources, confirmedReviewRatings) {
         bookDetailPresentation(
             book = currentBook,
             sourceProfiles = sourceProfiles,
             playableSources = bookSources,
-            listenerRatings = bookReviews.map { it.rating }
+            listenerRatings = confirmedReviewRatings
         )
     }
     LaunchedEffect(reviewsWorkId) {

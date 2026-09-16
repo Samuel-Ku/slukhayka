@@ -46,8 +46,7 @@ import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
-import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
-import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
+import com.slukhayka.audiobooks.data.reviews.ReviewSaveEvent
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
@@ -174,92 +173,6 @@ data class SelectedPerson(
     val path: String,
     val role: PersonRole
 )
-
-/** One-shot visible outcome of submitting a listener review. */
-enum class ReviewSaveResult {
-    PUBLISHED,
-    QUEUED,
-    FAILED
-}
-
-/** One submission outcome, scoped to both its Work and deterministic review document. */
-data class ReviewSaveEvent(
-    val workId: String,
-    val documentId: String,
-    val generation: Long,
-    val result: ReviewSaveResult
-)
-
-internal data class ReviewSubmission(
-    val workId: String,
-    val documentId: String,
-    val generation: Long
-) {
-    fun event(result: ReviewSaveResult): ReviewSaveEvent = ReviewSaveEvent(
-        workId = workId,
-        documentId = documentId,
-        generation = generation,
-        result = result
-    )
-}
-
-/** Rejects acknowledgements superseded by a newer write to the same review document. */
-internal class ReviewSubmissionGate {
-    private val generations = ConcurrentHashMap<String, AtomicLong>()
-
-    fun begin(workId: String, documentId: String): ReviewSubmission = ReviewSubmission(
-        workId = workId,
-        documentId = documentId,
-        generation = generations.computeIfAbsent(documentId) { AtomicLong() }.incrementAndGet()
-    )
-
-    fun isLatest(submission: ReviewSubmission): Boolean =
-        generations[submission.documentId]?.get() == submission.generation
-}
-
-internal data class ReviewLoadRequest(
-    val workId: String,
-    val generation: Long
-)
-
-/** Prevents an older fetch of one Work from replacing a newer server snapshot. */
-internal class ReviewLoadGate {
-    private val generations = ConcurrentHashMap<String, AtomicLong>()
-
-    fun begin(workId: String): ReviewLoadRequest = ReviewLoadRequest(
-        workId = workId,
-        generation = generations.computeIfAbsent(workId) { AtomicLong() }.incrementAndGet()
-    )
-
-    fun isLatest(request: ReviewLoadRequest): Boolean =
-        generations[request.workId]?.get() == request.generation
-}
-
-/**
- * Delivers the local queue result before waiting for Firestore's backend Task.
- * Remote failure remains a visible event; caller cancellation still escapes.
- */
-internal suspend fun followReviewWrite(
-    receipt: ReviewWriteReceipt,
-    onVisibleResult: suspend (ReviewSaveResult) -> Unit,
-    onRemoteResult: suspend (ReviewRemoteResult) -> Unit
-) {
-    when (receipt) {
-        ReviewWriteReceipt.Rejected -> onVisibleResult(ReviewSaveResult.FAILED)
-        is ReviewWriteReceipt.Queued -> {
-            onVisibleResult(ReviewSaveResult.QUEUED)
-            val remoteResult = receipt.awaitRemote()
-            onRemoteResult(remoteResult)
-            onVisibleResult(
-                if (remoteResult == ReviewRemoteResult.PUBLISHED) {
-                    ReviewSaveResult.PUBLISHED
-                } else {
-                    ReviewSaveResult.FAILED
-                }
-            )
-        }
-    }
-}
 
 /** Listener reviews belong to a Work; legacy Editions fall back to their own id. */
 internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
@@ -4370,20 +4283,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val _serverBookReviews = MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>>(emptyList())
+    // Spec-620 (#623) — ONE Work-scoped review lifecycle module. Read, local
+    // acceptance, the pending overlay and the backend acknowledgement all live
+    // there now; MainViewModel only composes it with the local mute list and
+    // feeds the screens.
+    private val listenerReviewLifecycle =
+        com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(listenerReviews)
 
     /** Optimistically submitted reviews not yet confirmed online (#280). */
-    private val _pendingReviews =
-        MutableStateFlow<Map<String, com.slukhayka.audiobooks.data.reviews.ListenerReview>>(emptyMap())
-    val pendingReviewKeys: StateFlow<Set<String>> = _pendingReviews
-        .map { it.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    val pendingReviewKeys: StateFlow<Set<String>> = listenerReviewLifecycle.state
+        .map { it.pending.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    /**
+     * Spec-620 (#623) — the CONFIRMED listener ratings the headline average is
+     * built from. A pending card is not a vote yet, and a pending EDIT keeps
+     * the previous confirmed rating; a locally hidden author changes card
+     * visibility only, never this number (#281).
+     */
+    val confirmedReviewRatings: StateFlow<List<Int>> = listenerReviewLifecycle.state
+        .map { state -> state.confirmed.map { it.rating } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // A submission result is an event, not accessibility-specific state: the
     // screen uses it to keep failed input open and to retire successful forms.
-    private val reviewSubmissionGate = ReviewSubmissionGate()
-    private val reviewLoadGate = ReviewLoadGate()
-    private val _reviewSaveResults = MutableSharedFlow<ReviewSaveEvent>(extraBufferCapacity = 16)
-    val reviewSaveResults: SharedFlow<ReviewSaveEvent> = _reviewSaveResults.asSharedFlow()
+    val reviewSaveResults: SharedFlow<ReviewSaveEvent> = listenerReviewLifecycle.results
 
     // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
     private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
@@ -4430,40 +4353,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Server truth overlaid with the honest pending cards, newest first. */
     val bookReviews: StateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>> = combine(
-        _serverBookReviews,
-        _pendingReviews,
+        listenerReviewLifecycle.state,
         _hiddenAuthors
-    ) { server, pending, hidden ->
-        ((server.filterNot { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) in pending.keys } +
-            pending.values)
-            .sortedByDescending { it.createdAt })
-            .filterNot { it.authorName in hidden }
+    ) { reviewState, hidden ->
+        // Local mute changes VISIBILITY only — the confirmed votes behind the
+        // headline average are untouched (#281).
+        reviewState.visible.filterNot { it.authorName in hidden }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** Best-effort refresh of one Work's reviews; offline serves the cache silently (#280). */
+    /**
+     * Best-effort refresh of one Work's reviews; a failed read keeps the last
+     * confirmed snapshot instead of showing an empty community (#280/#623).
+     */
     fun loadReviews(workId: String) {
-        val store = listenerReviews ?: return
-        val request = reviewLoadGate.begin(workId)
-        viewModelScope.launch(Dispatchers.IO) {
-            val fresh = try {
-                store.getReviews(workId)
-            } catch (e: Exception) {
-                emptyList()
-            }
-            val selectedEdition = selectedBook.value
-            val stillSelected = selectedEdition?.id == _selectedBookId.value &&
-                selectedEdition?.let { reviewWorkIdFor(it.id, it.workId) } == workId
-            if (stillSelected && reviewLoadGate.isLatest(request)) {
-                _serverBookReviews.value = fresh
-            }
-        }
+        listenerReviewLifecycle.open(workId)
+        viewModelScope.launch(Dispatchers.IO) { listenerReviewLifecycle.refresh(workId) }
     }
 
     /**
      * #277/#278 — create or EDIT one review (idempotent `set()` under the
-     * same `${workId}_${uid}` key). The card appears optimistically with the
-     * honest pending state; the Firestore persistence queue does the actual
-     * sending (survives kill-and-restart, #280).
+     * same `${workId}_${uid}` key). The lifecycle module owns the optimistic
+     * card, the honest pending state and the later backend acknowledgement;
+     * the Firestore persistence queue does the actual sending (survives
+     * kill-and-restart, #280).
      */
     fun saveReview(
         workId: String,
@@ -4472,76 +4384,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         editionTag: String?,
         editing: com.slukhayka.audiobooks.data.reviews.ListenerReview?
     ) {
-        val store = listenerReviews
         val profile = _listenerIdentity.value
-        val documentId = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(
-            workId,
-            profile?.uid.orEmpty()
-        )
-        if (
-            store == null || profile == null ||
-            rating !in com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MIN_RATING..
-                com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MAX_RATING
-        ) {
-            val rejected = reviewSubmissionGate.begin(workId, documentId)
-            _reviewSaveResults.tryEmit(rejected.event(ReviewSaveResult.FAILED))
-            return
-        }
-        val now = System.currentTimeMillis()
-        val review = com.slukhayka.audiobooks.data.reviews.ListenerReview(
-            workId = workId,
-            uid = profile.uid,
-            authorName = profile.nickname.ifBlank { profile.uid },
-            rating = rating,
-            body = body?.trim()?.takeIf { it.isNotEmpty() },
-            editionTag = editionTag?.trim()?.takeIf { it.isNotEmpty() },
-            createdAt = editing?.createdAt ?: now,
-            editedAt = if (editing != null) now else null
-        )
-        val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(review.workId, review.uid)
-        val submission = reviewSubmissionGate.begin(review.workId, key)
-        // Optimistic insert FIRST — the user sees their card instantly.
-        _pendingReviews.update { it + (key to review) }
         viewModelScope.launch(Dispatchers.IO) {
-            val receipt = try {
-                store.enqueueReview(review)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ReviewWriteReceipt.Rejected
-            }
-            followReviewWrite(
-                receipt = receipt,
-                onVisibleResult = { result ->
-                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
-                    if (result == ReviewSaveResult.FAILED) {
-                        _pendingReviews.update { it - key }
-                    }
-                    _reviewSaveResults.emit(submission.event(result))
-                },
-                onRemoteResult = {
-                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
-                    // Either backend verdict ends the local pending badge. A
-                    // failure is announced by followReviewWrite immediately
-                    // after this callback; publication needs no second toast.
-                    _pendingReviews.update { it - key }
-                }
+            listenerReviewLifecycle.save(
+                workId = workId,
+                uid = profile?.uid.orEmpty(),
+                nickname = profile?.nickname.orEmpty(),
+                rating = rating,
+                body = body,
+                editionTag = editionTag,
+                editing = editing
             )
-            if (reviewSubmissionGate.isLatest(submission)) loadReviews(workId)
         }
     }
 
     /** Best-effort delete of the listener's own review; the list re-reads the truth. */
     fun deleteOwnReview(workId: String, uid: String) {
         val store = listenerReviews ?: return
-        val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(workId, uid)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 store.deleteReview(workId, uid)
             } catch (e: Exception) {
                 // Silent — the refresh below restores whatever is real.
             }
-            _pendingReviews.update { it - key }
+            listenerReviewLifecycle.dropPending(workId, uid)
             loadReviews(workId)
         }
     }

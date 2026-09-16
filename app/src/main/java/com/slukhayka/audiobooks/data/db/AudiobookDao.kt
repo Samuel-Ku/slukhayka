@@ -1525,6 +1525,17 @@ interface AudiobookDao {
     @Query("DELETE FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey")
     suspend fun clearFeedSnapshots(sourceId: String, feedKey: String)
 
+    /**
+     * Spec-620 (#625) — atomically replaces one feed's snapshot rows: the clear
+     * and the insert land in ONE Room transaction, so no reader ever observes a
+     * half-replaced (momentarily empty) snapshot.
+     */
+    @Transaction
+    suspend fun replaceFeedSnapshot(sourceId: String, feedKey: String, snapshot: FeedSnapshotEntity) {
+        clearFeedSnapshots(sourceId, feedKey)
+        upsertFeedSnapshot(snapshot)
+    }
+
     // --- Popularity assertions (#485) ---------------------------------------
 
     /** Upserts source-signal assertions (REPLACE by id — a re-observation refreshes its row, never accumulates). */

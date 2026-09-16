@@ -318,9 +318,7 @@ class SourceCatalog(
         writePersisted = { snapshot -> feedSnapshotStore?.saveSnapshot(snapshot) ?: false }
     )
 
-    private class CachedFeed(val fetchedAt: Long, val books: List<SourceBook>)
-
-    /** TTL of the in-memory per-source catalogue cache (spec-10 T4). */
+    /** TTL of the in-memory live-collections cache (spec-10 T4 shape). */
     private val newFeedTtlMs = 15 * 60 * 1000L
 
     /**
@@ -410,11 +408,20 @@ class SourceCatalog(
     private val _isUnifiedCatalogLoading = MutableStateFlow(false)
     val isUnifiedCatalogLoading: StateFlow<Boolean> = _isUnifiedCatalogLoading.asStateFlow()
 
-    // Per-adapter catalogue enumeration cache (same shape/TTL as the new-feed
-    // cache): repeated Огляд visits reuse the session's enumeration instead of
-    // re-walking every category page. The merged union is recomputed from the
-    // cached lists (cheap in-memory merge), never re-fetched.
-    private val adapterCatalogCache = java.util.concurrent.ConcurrentHashMap<String, CachedFeed>()
+    /**
+     * Spec-620 (#625) — the browser-session epoch of the session-bound
+     * sources. A new session bumps it, so an older in-flight result can never
+     * be published and the next refresh always bypasses the cache.
+     */
+    private val browserSessionGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * Spec-620 (#625) — the listener opened a new browser session for a
+     * session-bound source. Called by the browser-recovery entry point.
+     */
+    fun noteBrowserSessionOpened() {
+        browserSessionGeneration.incrementAndGet()
+    }
 
     /**
      * Spec-15 T1 — the deduplicated «Увесь каталог» union: every verified
@@ -474,29 +481,32 @@ class SourceCatalog(
             }
         }
 
-    /** TTL-cached catalogue enumeration for one adapter (mirrors newFeedFor). */
+    /**
+     * Spec-620 (#625) — the catalogue enumeration now rides the SAME refresh
+     * module as the new arrivals: one clock, the 24-hour catalog TTL, shared
+     * in-flight work and the session generation. Session-bound sources always
+     * bypass the cache, so a fresh challenge session surfaces immediately.
+     *
+     * The limit is part of the fetch identity: a snapshot written for one
+     * limit never answers another request.
+     */
     private suspend fun catalogueFor(adapter: SourceAdapter, limit: Int, forceRefresh: Boolean = false): List<SourceBook> {
-        // Session-bound sources re-enumerate on every refresh: a fresh
-        // challenge session must surface immediately, never a stale cache.
-        if (!adapter.sessionBound && !forceRefresh) {
-            val now = System.currentTimeMillis()
-            adapterCatalogCache[adapter.sourceId]?.let { cached ->
-                if (now - cached.fetchedAt < newFeedTtlMs) return cached.books
-            }
-            // #467: the persisted snapshot answers before any network call —
-            // the source is hit only after the 24-hour catalog TTL.
-            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_CATALOG)?.let { return it }
+        val generation = if (adapter.sessionBound) browserSessionGeneration.get() else 0L
+        return when (
+            val outcome = feedRefresh.refresh(
+                sourceId = adapter.sourceId,
+                feedKey = FeedSnapshotPolicy.FEED_CATALOG,
+                parameters = "limit=$limit",
+                sessionGeneration = generation,
+                forceRefresh = forceRefresh,
+                skipCache = adapter.sessionBound,
+                fetch = { adapter.fetchCatalog(limit) }
+            )
+        ) {
+            is FeedRefreshOutcome.Data -> outcome.books
+            FeedRefreshOutcome.Empty -> emptyList()
+            FeedRefreshOutcome.Failure -> emptyList()
         }
-        val books = try {
-            adapter.fetchCatalog(limit)
-        } catch (e: Exception) {
-            emptyList()
-        }
-        adapterCatalogCache[adapter.sourceId] = CachedFeed(System.currentTimeMillis(), books)
-        // #467: remember what the live fetch served so the next read within
-        // the catalog TTL never touches the network.
-        feedSnapshotStore?.saveBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_CATALOG, books)
-        return books
     }
 
     /**

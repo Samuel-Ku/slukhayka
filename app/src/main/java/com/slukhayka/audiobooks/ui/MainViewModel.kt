@@ -1734,6 +1734,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
+            // Spec-620 (#625) — opening the source's browser surface is a NEW
+            // session: older in-flight enumerations become unpublishable and
+            // the next refresh bypasses the cache.
+            App.instance.sourceCatalog.noteBrowserSessionOpened()
             openBrowserRecoveryInner(bookId, sourceId, chapterIndex, positionMs, automatic)
         }
     }

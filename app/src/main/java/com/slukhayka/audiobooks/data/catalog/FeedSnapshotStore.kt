@@ -73,7 +73,16 @@ class FeedSnapshotStore(
             val fetchedAt = rows.minOfOrNull { it.fetchedAt } ?: return@withContext null
             val cards = rows.flatMap { row -> FeedSnapshotCodec.decodeBooks(row.cardsJson) }
             if (cards.isEmpty()) return@withContext null
-            PersistedFeedSnapshot(sourceId, feedKey, cards, fetchedAt)
+            // #625 — the fetch identity rides the free-text pageCursor slot, so
+            // a snapshot answers only the request that produced it (no schema
+            // migration for a new column).
+            PersistedFeedSnapshot(
+                sourceId = sourceId,
+                feedKey = feedKey,
+                books = cards,
+                observedAt = fetchedAt,
+                parameters = rows.firstOrNull()?.pageCursor.orEmpty()
+            )
         }
 
     /**
@@ -85,12 +94,15 @@ class FeedSnapshotStore(
     suspend fun saveSnapshot(snapshot: PersistedFeedSnapshot): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val storageKey = booksStorageKey(snapshot.sourceId, snapshot.feedKey)
-            dao.clearFeedSnapshots(snapshot.sourceId, storageKey)
-            dao.upsertFeedSnapshot(
+            // #625 — one Room transaction: a reader never sees the gap between
+            // clearing the old rows and inserting the new one.
+            dao.replaceFeedSnapshot(
+                snapshot.sourceId,
+                storageKey,
                 FeedSnapshotEntity(
                     sourceId = snapshot.sourceId,
                     feedKey = storageKey,
-                    pageCursor = "",
+                    pageCursor = snapshot.parameters,
                     fetchedAt = snapshot.observedAt,
                     cardsJson = FeedSnapshotCodec.encodeBooks(snapshot.books)
                 )

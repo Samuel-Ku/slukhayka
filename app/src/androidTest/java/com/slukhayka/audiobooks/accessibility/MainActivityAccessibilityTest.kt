@@ -2,6 +2,10 @@ package com.slukhayka.audiobooks.accessibility
 
 import android.app.Application
 import android.util.Log
+import com.google.android.apps.common.testing.accessibility.framework.AccessibilityViewCheckResult
+import com.google.android.apps.common.testing.accessibility.framework.integrations.espresso.AccessibilityValidator
+import org.hamcrest.BaseMatcher
+import org.hamcrest.Description
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -267,7 +271,33 @@ class MainActivityAccessibilityTest {
         }
         composeTestRule.waitForIdle()
 
-        composeTestRule.enableAccessibilityChecks()
+        // The accessibility framework walks EVERY window, including the
+        // system navigation/status bars, and then reports THEIR touch targets
+        // as the app's. On a gesture-navigation phone that surfaced as
+        // «View with bounds [0,3084][1440,3168]: height is 24dp» — a region
+        // BELOW the app window (mAppBounds ends at 3084), owned by the system,
+        // not by us (the app's own bottom navigation is 92 dp and was never
+        // the target). The same run is green on the CI emulator, where that
+        // window is absent.
+        //
+        // ADR-0044 deliberately set the app's touch-target floor to 24 dp, so
+        // this is not a floor problem either. Suppress results the app does
+        // not own: no backing View, or a View outside the activity's own
+        // decor subtree. Everything inside the app is still checked.
+        val appDecor = composeTestRule.activity.window.decorView
+        val outsideTheApp = object : BaseMatcher<Any>() {
+            override fun matches(item: Any?): Boolean {
+                val view = (item as? AccessibilityViewCheckResult)?.view
+                return view == null || !view.isAttachedToWindow || view.rootView !== appDecor
+            }
+
+            override fun describeTo(description: Description) {
+                description.appendText("a result outside the app's own window")
+            }
+        }
+        composeTestRule.enableAccessibilityChecks(
+            AccessibilityValidator().setSuppressingResultMatcher(outsideTheApp)
+        )
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()

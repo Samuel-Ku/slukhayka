@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.metadata.FacetCursor
 import com.slukhayka.audiobooks.data.metadata.FacetPage
 import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
+import com.slukhayka.audiobooks.data.metadata.RejectedSubmission
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.SharedProfileEntry
 import com.slukhayka.audiobooks.data.metadata.SharedTombstone
@@ -139,6 +140,12 @@ class FakeSharedBookMetaStore(
 
     override suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? =
         candidatePuts.lastOrNull { it.canonicalUrl == canonicalUrl }
+
+    /** #836 — the rejection blocklist the app must consult before queueing. */
+    val rejected = mutableMapOf<String, RejectedSubmission>()
+
+    override suspend fun getRejectedSubmission(canonicalUrl: String): RejectedSubmission? =
+        rejected[canonicalUrl]
 
     override suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage {
         if (throwOnSubmissionPage) throw IllegalStateException("shared base down")

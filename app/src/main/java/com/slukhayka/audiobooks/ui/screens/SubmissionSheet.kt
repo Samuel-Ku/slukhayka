@@ -546,5 +546,6 @@ private fun submissionRefusalRes(reason: ListenerSubmissionFlow.Reason): Int = w
     ListenerSubmissionFlow.Reason.IMPORT_FAILED -> R.string.submission_status_refused_import
     ListenerSubmissionFlow.Reason.ALREADY_PUBLISHED -> R.string.submission_status_refused_duplicate
     ListenerSubmissionFlow.Reason.NOT_VERIFIED -> R.string.submission_status_refused_not_verified
+    ListenerSubmissionFlow.Reason.REJECTED -> R.string.submission_status_refused_rejected
     ListenerSubmissionFlow.Reason.SHARED_BASE_UNAVAILABLE -> R.string.submission_status_refused_unavailable
 }

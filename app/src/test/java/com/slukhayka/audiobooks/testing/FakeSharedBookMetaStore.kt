@@ -116,7 +116,13 @@ class FakeSharedBookMetaStore(
         candidatePuts += candidate
         val projected = SubmissionPublication(
             sourceUrl = candidate.url,
-            accessMode = SubmissionAccessMode.YOUTUBE,
+            // A candidate with no playback verdict can only be the TG
+            // preview lane (the YouTube door always carries a verdict).
+            accessMode = if (candidate.playedAt > 0L) {
+                SubmissionAccessMode.YOUTUBE
+            } else {
+                SubmissionAccessMode.TG_PREVIEW
+            },
             title = candidate.title,
             author = candidate.author,
             narrator = candidate.narrator,

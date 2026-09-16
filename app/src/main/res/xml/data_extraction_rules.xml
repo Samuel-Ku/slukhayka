@@ -3,7 +3,10 @@
     set as backup_rules.xml, for both cloud backups and device transfers.
     The listener identity's generated credentials (`listener_identity`) are
     the point of the exercise: a fresh install restores them and silently
-    signs back into the same account.
+    signs back into the same account. The password in that file is sealed
+    with DeviceBindingCipher under this device's ANDROID_ID — the backup
+    carries ciphertext only, silent on this same phone, opaque elsewhere
+    (the recovery code stays the cross-device path).
 -->
 <data-extraction-rules>
     <cloud-backup>

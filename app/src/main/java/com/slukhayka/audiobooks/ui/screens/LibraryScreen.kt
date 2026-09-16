@@ -1073,7 +1073,8 @@ internal fun LibraryHeaderActionsInner(
 internal fun LibraryContinueCard(
     book: LibraryBook,
     onOpen: () -> Unit,
-    onPlay: () -> Unit
+    onPlay: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val units = stringRemainingTimeUnits()
     val remaining = if (book.totalDurationSeconds > 0L) {
@@ -1117,7 +1118,9 @@ internal fun LibraryContinueCard(
             )
             Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
             Row(
-                modifier = Modifier
+                // The caller may hand in the route-return focus requester: this
+                // row IS the book's card, so focus must be able to land here.
+                modifier = modifier
                     .fillMaxWidth()
                     .focusProperties { canFocus = true }
                     .clickable(onClick = onOpen)
@@ -1268,6 +1271,13 @@ internal fun LazyGridScope.libraryGridContent(
         when (gridEntry) {
             is LibraryGridEntry.Continue -> LibraryContinueCard(
                 book = gridEntry.book,
+                // Same contract as a row: the book being returned to may live
+                // here, and requesting focus on an unattached requester throws.
+                modifier = if (gridEntry.book.book.id == restoreFocusBookId) {
+                    Modifier.focusRequester(bookReturnFocusRequester)
+                } else {
+                    Modifier
+                },
                 onOpen = { onBookClick(gridEntry.book.book.id) },
                 onPlay = { onPlayClick(gridEntry.book.book) }
             )

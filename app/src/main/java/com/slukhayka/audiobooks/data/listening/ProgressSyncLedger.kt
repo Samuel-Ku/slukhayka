@@ -3,7 +3,7 @@ package com.slukhayka.audiobooks.data.listening
 import android.content.Context
 
 /**
- * ADR-0023 (spec-43 T6) — what this device already knows about the cloud's
+ * ADR-0051 (spec-43 T6) — what this device already knows about the cloud's
  * listening_state documents, per Edition: the newest server timestamp it has
  * SEEN (pull-applied or pushed) and the last push attempt's wall-clock mark
  * (pacing only — never arbitration). Small prefs ledger; no schema impact on

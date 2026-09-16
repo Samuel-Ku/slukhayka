@@ -30,7 +30,7 @@ baseline decision, fixed during the 2026-09-06 grilling session
   are recorded as honest platform deltas in the delivery spec's ledger,
   never hidden.
 - **Progress Sync extends to Library Entries + Tombstones** after
-  deliberate linking (the clause ADR-0023 reserved for a later spec);
+  deliberate linking (the clause ADR-0051 reserved for a later spec);
   Metadata Overrides follow later. A Work hidden on Android must not
   resurrect in web's Огляд: tombstones anchor at the Work mergeKey,
   like canonical covers and reviews.

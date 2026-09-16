@@ -754,7 +754,7 @@ class App : Application() {
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
 
     /**
-     * ADR-0023 (spec-43 T6): the visible switch of Progress Sync — on by
+     * ADR-0051 (spec-43 T6): the visible switch of Progress Sync — on by
      * default, off keeps everything local as before.
      */
     val progressSyncSettings: ProgressSyncSettingsStore by lazy {
@@ -762,7 +762,7 @@ class App : Application() {
     }
 
     /**
-     * ADR-0023 (spec-43 T6) — Progress Sync: pull before a resume, throttled
+     * ADR-0051 (spec-43 T6) — Progress Sync: pull before a resume, throttled
      * push at every save point, only under a real cloud profile (`local-…`
      * bootstraps never upload). Null Firestore store inside makes both paths
      * no-ops — degrade-never.
@@ -780,7 +780,7 @@ class App : Application() {
     /**
      * #581 W0.3 (ADR-0034) — the Work-relationship sync writer: Library
      * Entries and tombstones mirror to the `work_relationships` collection
-     * the web reads. Same switch as Progress Sync (on by default, ADR-0023
+     * the web reads. Same switch as Progress Sync (on by default, ADR-0051
      * п.1); null store without Firebase keys makes it a no-op —
      * degrade-never.
      */

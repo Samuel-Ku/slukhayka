@@ -1,7 +1,7 @@
 package com.slukhayka.audiobooks.data.listening
 
 /**
- * ADR-0023 (spec-43 T6) — the server-side mirror of one Edition's Listening
+ * ADR-0051 (spec-43 T6) — the server-side mirror of one Edition's Listening
  * State. Only the fields Progress Sync carries: position, chapter,
  * completion, preferred speed — never Library Entries, Metadata Overrides or
  * Tombstones, and never another listener's rows.
@@ -17,7 +17,7 @@ data class RemoteListeningState(
 )
 
 /**
- * ADR-0023 (spec-43 T6) — the pure rules of Progress Sync.
+ * ADR-0051 (spec-43 T6) — the pure rules of Progress Sync.
  *
  * Last-write-wins by the server timestamp: a remote mirror applies only when
  * it is STRICTLY newer than the newest server state this device has already
@@ -57,7 +57,7 @@ object ProgressSyncPolicy {
 }
 
 /**
- * ADR-0023 (spec-43 T6) — the document codec for the `listening_state` base:
+ * ADR-0051 (spec-43 T6) — the document codec for the `listening_state` base:
  * bounds mirror the security rules so anything the rules accept decodes, and
  * anything corrupt decodes to null (a miss, never a crash).
  *

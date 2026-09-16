@@ -403,6 +403,11 @@ const EVIDENCE = {
   // the shape/limit/auth rows are proven with the gate open.
   M1: "as-is", M7: "as-is",
   M2: "open", M3: "open", M4: "open", M5: "open", M6: "open", M8: "open",
+  // #694/#696 — the rating aggregate, the vote and the report shapes (M9–M17):
+  // allowed/denied shapes are proven with the App Check gate OPEN; the
+  // "no auth" rows (M13, M16) are proven there too, like M6.
+  M9: "open", M10: "open", M11: "open", M12: "open", M13: "open",
+  M14: "open", M15: "open", M16: "open", M17: "open",
   K6: "as-is", K7: "open", K8: "open",
   L1: "as-is", L2: "open", L3: "open", L4: "open", L5: "open",
   L6: "as-is", L7: "open",

@@ -178,7 +178,14 @@ class LibraryModelTest {
         val local = buildLibraryBooks(
             listOf(book("l", "Локальна", sourceUrl = "")), emptyList(), emptyMap()
         ).single()
+        // #850 — a host no source claims must not print its internal id.
+        val unrecognised = buildLibraryBooks(
+            listOf(book("u", "Щось із невідомого хоста", sourceUrl = "https://example.invalid/book.html")),
+            emptyList(),
+            emptyMap()
+        ).single()
 
+        assertEquals("", unrecognised.sourceName)
         assertEquals("Sluhay", sluhay.sourceName)
         assertEquals("Sound-Books", soundbooks.sourceName)
         // #741 — a removed/scam source is not branded at all: no chip.

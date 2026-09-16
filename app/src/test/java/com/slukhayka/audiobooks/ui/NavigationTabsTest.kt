@@ -118,7 +118,7 @@ class NavigationTabsTest {
             .assertIsSelected()
             .assertTextEquals("Слухати")
         composeTestRule.onNodeWithTag("tab_explore").assertTextEquals("Огляд")
-        composeTestRule.onNodeWithTag("tab_library").assertTextEquals("Медіатека")
+        composeTestRule.onNodeWithTag("tab_library").assertTextEquals("Мої книги")
         composeTestRule.onNodeWithTag("tab_settings").assertDoesNotExist()
 
         composeTestRule.onNodeWithContentDescription("Listen", useUnmergedTree = true)
@@ -209,8 +209,8 @@ class NavigationTabsTest {
         composeTestRule.onNodeWithTag("tab_library")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
-            .assertTextEquals("Медіатека")
-        listOf("Слухати", "Огляд", "Медіатека").forEach { label ->
+            .assertTextEquals("Мої книги")
+        listOf("Слухати", "Огляд", "Мої книги").forEach { label ->
             val layouts = mutableListOf<TextLayoutResult>()
             composeTestRule.onNodeWithText(label, useUnmergedTree = true)
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }

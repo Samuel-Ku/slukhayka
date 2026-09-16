@@ -86,7 +86,10 @@ android {
     versionCode = 30
     versionName = "1.4.2"
 
-    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    // Device tests run against their OWN database file (see the runner):
+    // a test that wipes and reseeds the database for determinism must never
+    // wipe the listener's library on a real phone.
+    testInstrumentationRunner = "com.slukhayka.audiobooks.IsolatedDatabaseTestRunner"
   }
 
   signingConfigs {

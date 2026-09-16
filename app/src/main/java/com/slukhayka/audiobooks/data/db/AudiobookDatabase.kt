@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.db
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -61,6 +62,24 @@ abstract class AudiobookDatabase : RoomDatabase() {
     abstract fun listenerCollectionsDao(): ListenerCollectionsDao
 
     companion object {
+        /**
+         * The production file name — the listener's library lives here. A
+         * device test that wiped it once (see [databaseNameOverride]) must
+         * never be able to do so again.
+         */
+        private const val DEFAULT_DATABASE_NAME = "read4_audiobook_database"
+
+        /**
+         * Instrumented tests point the app at their OWN database file. The
+         * test runner sets this before the first open, so a test that seeds
+         * fixtures and calls `clearAllTables()` wipes its own scratch file
+         * and can never touch the listener's library. Null in production;
+         * set-once seam, not a runtime switch.
+         */
+        @Volatile
+        @VisibleForTesting
+        internal var databaseNameOverride: String? = null
+
         @Volatile
         private var INSTANCE: AudiobookDatabase? = null
 
@@ -69,7 +88,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AudiobookDatabase::class.java,
-                    "read4_audiobook_database"
+                    databaseNameOverride ?: DEFAULT_DATABASE_NAME
                 )
                     // Schema v4: indices on every FK column queried via
                     // `WHERE bookId = :bookId` (audit CRITICAL PERF-004 --

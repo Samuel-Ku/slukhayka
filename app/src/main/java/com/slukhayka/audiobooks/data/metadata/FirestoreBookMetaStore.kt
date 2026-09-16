@@ -47,6 +47,33 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    /**
+     * Moderation T1 (#834) — the candidate queue the curator's bot moderates.
+     * The app never writes `catalog_cards`; only the bot (Admin SDK) does.
+     */
+    override suspend fun enqueueCandidate(candidate: SubmissionCandidate): Boolean = runCatching {
+        firestore.collection(SubmissionCandidateCodec.COLLECTION)
+            .document(candidate.documentId)
+            .set(SubmissionCandidateCodec.encode(candidate))
+            .awaitOrNull()
+        true
+    }.getOrDefault(false)
+
+    override suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? {
+        val documentId = SubmissionCandidateCodec.documentId(canonicalUrl)
+        if (documentId.isEmpty()) return null
+        return try {
+            val snapshot = firestore.collection(SubmissionCandidateCodec.COLLECTION)
+                .document(documentId)
+                .get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else snapshot.data?.let { SubmissionCandidateCodec.decode(it) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override suspend fun getFacetPage(after: FacetCursor?, limit: Int): FacetPage {
         val boundedLimit = FacetPageLimits.bounded(limit)
         if (boundedLimit == 0) return FacetPage(emptyList(), null)

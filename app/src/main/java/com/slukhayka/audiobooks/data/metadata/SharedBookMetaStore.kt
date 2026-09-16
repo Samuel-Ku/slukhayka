@@ -129,6 +129,21 @@ interface SharedBookMetaStore {
     suspend fun publishSubmission(publication: SubmissionPublication) = Unit
 
     /**
+     * Moderation T1 (#834) — queues ONE verified candidate in
+     * `pending_submissions` (the queue the curator's bot moderates). Keyed by
+     * `sha256(canonicalUrl)`, so the same link replaces itself instead of
+     * duplicating. Best-effort: false means the write contributed nothing.
+     *
+     * NOTE: the submission door still calls [publishSubmission]; routing that
+     * door here (and dropping the `catalog_cards` write) is the next step of
+     * #834, because it also moves the dedup read onto this queue.
+     */
+    suspend fun enqueueCandidate(candidate: SubmissionCandidate): Boolean = false
+
+    /** Moderation T1 (#834) — the queued candidate for a canonical URL, or null. */
+    suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? = null
+
+    /**
      * ADR-0035 / #605 — bounded ordered remote submission page; applying it
      * into the local projection belongs to the consumption lane
      * (spec-601 T4). A miss or a failure yields an empty page, never a throw.

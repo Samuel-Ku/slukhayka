@@ -28,7 +28,9 @@ data class CollectionWithBookRow(
     val pseudonym: String,
     /** The real average, or null when nobody voted — no stars are drawn. */
     val average: Double?,
-    val ratingCount: Int
+    val ratingCount: Int,
+    /** #693 — opens the curator profile from the rail. */
+    val authorId: String = ""
 )
 
 /**

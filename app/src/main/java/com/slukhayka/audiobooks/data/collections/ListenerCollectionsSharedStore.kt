@@ -67,4 +67,15 @@ interface ListenerCollectionsSharedStore {
      * collection: delete it. Online-only with an honest refusal.
      */
     suspend fun deleteOwnCollection(documentId: String): PublishResult
+
+    /**
+     * Spec-51 (#693) — the public «Добірки слухачів» rail. The implementation
+     * takes a BOUNDED candidate page (most-voted first) and applies the shared
+     * [CollectionRanking], so the rail orders exactly like the book block.
+     * Hidden collections never appear.
+     */
+    suspend fun topPublic(limit: Int): List<PublishedCollection>
+
+    /** Spec-51 (#693) — a curator's VISIBLE collections (hidden excluded). */
+    suspend fun visibleBy(authorId: String): List<PublishedCollection>
 }

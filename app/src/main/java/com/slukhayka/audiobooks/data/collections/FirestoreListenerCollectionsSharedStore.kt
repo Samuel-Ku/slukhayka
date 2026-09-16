@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
@@ -114,6 +115,30 @@ class FirestoreListenerCollectionsSharedStore(
             PublishResult.Refused("vote-failed")
         }
     }
+
+    override suspend fun topPublic(limit: Int): List<PublishedCollection> {
+        if (limit <= 0) return emptyList()
+        // The average is computed (sum/count), which Firestore cannot order by,
+        // so the query takes a BOUNDED candidate page by vote count and the
+        // shared ranking picks the real top. A collection with no votes can
+        // never outrank a voted one, so the candidate rule is sound.
+        val documents = try {
+            firestore.collection(COLLECTION)
+                .orderBy(FIELD_RATING_COUNT, Query.Direction.DESCENDING)
+                .limit(TOP_CANDIDATES)
+                .get()
+                .awaitDocuments()
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
+        return CollectionRanking.top(
+            documents.mapNotNull(PublishedCollectionCodec::decode).filterNot { it.hidden },
+            limit
+        )
+    }
+
+    override suspend fun visibleBy(authorId: String): List<PublishedCollection> =
+        queryByAuthor(authorId).filterNot { it.hidden }
 
     override suspend fun deleteOwnCollection(documentId: String): PublishResult = when {
         documentId.isBlank() -> PublishResult.Refused("bad-collection")
@@ -227,6 +252,9 @@ class FirestoreListenerCollectionsSharedStore(
         private const val FIELD_CREATED_AT = "createdAt"
         private const val FIELD_HIDDEN = "hidden"
         private const val FIELD_REPORT_COUNT = "reportCount"
+
+        /** #693 — the bounded candidate page the rail ranks. */
+        private const val TOP_CANDIDATES = 50L
 
         /**
          * The default Firebase app's Firestore, or null when Firebase is not

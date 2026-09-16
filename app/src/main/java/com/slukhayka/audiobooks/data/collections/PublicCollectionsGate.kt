@@ -59,6 +59,14 @@ class PublicCollectionsGate(
         sharedStore?.deleteOwnCollection(documentId)
             ?: PublishResult.Refused(NO_SHARED_STORE)
 
+    /** #693 — the rail; empty without a shared store (no fake shelf). */
+    suspend fun topPublic(limit: Int): List<PublishedCollection> =
+        sharedStore?.topPublic(limit).orEmpty()
+
+    /** #693 — a curator's visible collections; empty without a shared store. */
+    suspend fun visibleBy(authorId: String): List<PublishedCollection> =
+        sharedStore?.visibleBy(authorId).orEmpty()
+
     companion object {
         const val NO_SHARED_STORE = "no-shared-store"
     }

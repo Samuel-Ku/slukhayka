@@ -90,6 +90,27 @@ class ListenerCollectionsSharedStoreTest {
     }
 
     @Test
+    fun `the rail ranks visible collections and the profile hides reported ones`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "a"), authorId, "Слухач")
+        store.publish(collection("c2", "b"), authorId, "Слухач")
+        val c1 = store.publishedBy(authorId).first { it.collectionId == "c1" }
+        val c2 = store.publishedBy(authorId).first { it.collectionId == "c2" }
+        store.vote(c1.documentId, CollectionIdentity.voterKey("v1", "c1"), 5)
+        store.vote(c2.documentId, CollectionIdentity.voterKey("v1", "c2"), 1)
+
+        assertEquals(listOf("c1", "c2"), store.topPublic(10).map { it.collectionId })
+        assertEquals(1, store.topPublic(1).size)
+
+        // Three unique complaints hide c1: neither shelf shows it again.
+        listOf("r1", "r2", "r3").forEach { uid ->
+            store.report(c1.documentId, CollectionIdentity.voterKey(uid, "c1"))
+        }
+        assertEquals(listOf("c2"), store.topPublic(10).map { it.collectionId })
+        assertEquals(listOf("c2"), store.visibleBy(authorId).map { it.collectionId })
+    }
+
+    @Test
     fun `the author can delete an own published collection`() = runBlocking {
         val store = InMemorySharedCollections()
         store.publish(collection("c1", "book-a"), authorId, "Слухач")

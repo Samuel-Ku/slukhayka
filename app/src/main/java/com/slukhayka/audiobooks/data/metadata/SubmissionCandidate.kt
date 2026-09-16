@@ -138,6 +138,42 @@ object SubmissionCandidateFactory {
     }
 
     /**
+     * Moderation T1 (#834) — a METADATA-ONLY candidate (the TG preview door):
+     * the preview exposes no audio, so no playback verdict is POSSIBLE. The
+     * anti-spam is the daily budget + canonical-URL dedup, and the curator's
+     * moderation is the quality gate; [SubmissionCandidate.playedAt] is
+     * honestly 0 — no verdict moment ever fired.
+     */
+    fun createMetadataOnly(
+        url: String,
+        canonical: String,
+        title: String,
+        uid: String?,
+        createdAt: Long,
+        author: String? = null,
+        narrator: String? = null,
+        coverUrl: String? = null,
+        sourceId: String = "",
+        metadataJson: String? = null
+    ): SubmissionCandidate? {
+        val hash = submitterHash(uid)
+        if (url.isBlank() || canonical.isBlank() || title.isBlank() || hash.isEmpty()) return null
+        return SubmissionCandidate(
+            url = url.trim(),
+            canonicalUrl = canonical.trim(),
+            title = title.trim(),
+            author = author,
+            narrator = narrator,
+            coverUrl = coverUrl,
+            sourceId = sourceId,
+            metadataJson = metadataJson,
+            submitterHash = hash,
+            playedAt = 0L,
+            createdAt = createdAt
+        )
+    }
+
+    /**
      * @param canonical the canonical form of [url] (the caller owns the
      *   source-specific canonicalisation, e.g. `SubmissionUrlCanonicalizer`).
      * @return the queued candidate, or null when identity or verification is

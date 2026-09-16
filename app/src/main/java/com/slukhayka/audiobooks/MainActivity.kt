@@ -242,11 +242,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // #860 — Settings left the bottom bar: the gear opens it from a root, and
     // BACK must return to THAT root, not to the first one.
     var settingsReturnTab by rememberSaveable { mutableStateOf(SelectedTab.EXPLORE) }
-    // #871 — the saved-state holder is what makes «перемикання вкладок не скидає
-    // стан» true: a tab leaves the composition when another is selected, so its
-    // rememberSaveable state (scroll, filters, search) is kept HERE, keyed by
-    // the tab, and restored when the listener comes back.
-    val tabStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    // #871 — every tab renders inside TabSaveableHost (see its KDoc): a tab
+    // leaves the composition when another is selected, so its rememberSaveable
+    // state (scroll, filters, search) is kept keyed by the tab.
     var bookDetailChildOrigin by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildEditionId by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildRouteOpen by rememberSaveable { mutableStateOf(false) }
@@ -1007,7 +1005,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         }
                     )
 
-                    else -> tabStateHolder.SaveableStateProvider(selectedTab.name) { when (selectedTab) {
+                    else -> com.slukhayka.audiobooks.ui.components.TabSaveableHost(
+                        tabKey = selectedTab.name
+                    ) { when (selectedTab) {
                         // Spec-9: first tab is the listening panel, not the storefront.
                         SelectedTab.LISTEN -> ListenScreen(
                             viewModel = viewModel,

@@ -364,6 +364,7 @@
     <string name="submission_badge_pending_moderation">На модерації</string>
     <string name="submission_badge_in_shared_base">У спільній базі</string>
     <string name="submission_badge_rejected">Відхилено</string>
+    <string name="a11y_open_settings">Налаштування</string>
     <string name="submission_status_already_in_library">Уже в медіатеці.</string>
     <string name="submission_open_book">Відкрити книгу</string>
     <string name="submission_status_refused_not_verified">Публікація потребує реального програвання.</string>

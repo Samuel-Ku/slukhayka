@@ -74,7 +74,9 @@ fun ListenScreen(
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
+    onOpenSettings: () -> Unit = {}
 ) {
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
@@ -106,6 +108,17 @@ fun ListenScreen(
         // нею, тож список не додає нічого.
         contentPadding = PaddingValues(bottom = 0.dp)
     ) {
+        // ADR-0049 / #860 — the gear sits in the SAME place on every root, and
+        // it is the FIRST item so a fresh install (the empty state below)
+        // can reach Settings too.
+        item {
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
+            ) {
+                com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
+            }
+        }
         // Fresh install: placeholder hero + clear next actions.
         if (allBooks.isEmpty()) {
             item {

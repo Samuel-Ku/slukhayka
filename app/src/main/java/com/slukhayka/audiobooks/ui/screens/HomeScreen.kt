@@ -137,7 +137,9 @@ fun HomeScreen(
     onPlayClick: (AudiobookEntity) -> Unit,
     // spec-28 (#192): the «Більше книг на Sluhay» exit CTA — wired from the
     // composition root exactly like on Listen (debug-only, spec-13 T3/T2).
-    onOpenWebSource: (() -> Unit)? = null
+    onOpenWebSource: (() -> Unit)? = null,
+    /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
+    onOpenSettings: () -> Unit = {}
 ) {
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
@@ -349,6 +351,7 @@ fun HomeScreen(
         // expand from the header's [🔍] and close via ✕ or the Back gesture.
         item {
             HomeHeader(
+                onOpenSettings = onOpenSettings,
                 searchExpanded = searchExpanded,
                 searchQuery = searchQuery,
                 onToggleSearch = {
@@ -734,7 +737,9 @@ fun HomeHeader(
     onRefresh: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onCloseSearch: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
+    onOpenSettings: () -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
     val searchFieldLabel = stringResource(R.string.a11y_search_books)
@@ -748,6 +753,8 @@ fun HomeHeader(
             title = stringResource(R.string.app_name),
             showBrandMark = true,
             actions = {
+                // #860 — the gear sits in the SAME place on every root.
+                com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
                 IconButton(
                     onClick = onRefresh,
                     modifier = Modifier.size(AppDimens.TouchTarget).testTag("home_refresh")

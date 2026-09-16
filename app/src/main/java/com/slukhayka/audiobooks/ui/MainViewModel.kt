@@ -5576,6 +5576,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         )
+        // #695 — the honest gate lives in the domain: a fork is an offline
+        // copy, so at least one of the original's books must be here.
+        val localBookIds = libraryBooks.value.mapTo(mutableSetOf()) { it.book.id }
+        if (!com.slukhayka.audiobooks.data.collections.ForkPolicy.canFork(
+                published.bookIds,
+                localBookIds
+            )
+        ) {
+            return
+        }
         viewModelScope.launch {
             val outcome = com.slukhayka.audiobooks.data.collections.ForkPolicy.fork(
                 original = original,

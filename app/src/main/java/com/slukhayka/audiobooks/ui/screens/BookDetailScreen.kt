@@ -1672,9 +1672,12 @@ fun BookDetailScreen(
         androidx.compose.material3.ModalBottomSheet(onDismissRequest = { openPublicCollectionId = null }) {
             com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
                 collection = openPublicCollection,
-                originalAvailableLocally = openPublicCollection.bookIds.any { id ->
-                    allBooks.any { it.id == id }
-                },
+                // #695 — one rule for the gate, shared with the domain.
+                originalAvailableLocally = com.slukhayka.audiobooks.data.collections.ForkPolicy
+                    .canFork(
+                        openPublicCollection.bookIds,
+                        allBooks.mapTo(mutableSetOf()) { it.id }
+                    ),
                 onSaveForYou = {
                     viewModel.saveForkOfPublished(openPublicCollection.documentId)
                     openPublicCollectionId = null

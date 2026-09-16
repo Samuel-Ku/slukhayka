@@ -60,6 +60,21 @@ class FirestoreListenerCollectionsSharedStore(
     override suspend fun publishedBy(authorId: String): List<PublishedCollection> =
         queryByAuthor(authorId)
 
+    override suspend fun containing(bookId: String): List<PublishedCollection> {
+        if (bookId.isBlank()) return emptyList()
+        // #692 — the book page asks "who curated this book?"; an array-contains
+        // query answers it in one request (never an N+1 over the collections).
+        val documents = try {
+            firestore.collection(COLLECTION)
+                .whereArrayContains(FIELD_BOOK_IDS, bookId)
+                .get()
+                .awaitDocuments()
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
+        return documents.mapNotNull(PublishedCollectionCodec::decode)
+    }
+
     private suspend fun queryByAuthor(authorId: String): List<PublishedCollection> {
         val documents = try {
             firestore.collection(COLLECTION)
@@ -102,6 +117,7 @@ class FirestoreListenerCollectionsSharedStore(
     companion object {
         private const val COLLECTION = "curator_collections"
         private const val FIELD_AUTHOR_ID = "authorId"
+        private const val FIELD_BOOK_IDS = "bookIds"
 
         /**
          * The default Firebase app's Firestore, or null when Firebase is not

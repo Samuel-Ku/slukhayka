@@ -37,6 +37,10 @@ class PublicCollectionsGate(
     suspend fun publishedBy(authorId: String): List<PublishedCollection> =
         sharedStore?.publishedBy(authorId).orEmpty()
 
+    /** #692 — collections containing one book; empty without a shared store. */
+    suspend fun containing(bookId: String): List<PublishedCollection> =
+        sharedStore?.containing(bookId).orEmpty()
+
     companion object {
         const val NO_SHARED_STORE = "no-shared-store"
     }

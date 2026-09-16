@@ -570,7 +570,7 @@ service cloud.firestore {
     function isWellFormedCuratorCollection(d) {
       return d.keys().hasOnly([
           'authorId', 'collectionId', 'pseudonym', 'title', 'description',
-          'bookIds', 'reasons', 'publishedAt'
+          'bookIds', 'reasons', 'ratingSum', 'ratingCount', 'publishedAt'
         ])
         && d.authorId is string && d.authorId.size() == 64
         && d.collectionId is string && d.collectionId.size() > 0 && d.collectionId.size() <= 128
@@ -579,6 +579,10 @@ service cloud.firestore {
         && d.description is string && d.description.size() <= 600
         && d.bookIds is list && d.bookIds.size() <= 500
         && d.reasons is list && d.reasons.size() <= 500
+        // #694 — the rating aggregate is optional on legacy documents; when
+        // present it is a real number, never a string or a list.
+        && (!d.keys().hasAny(['ratingSum', 'ratingCount'])
+            || (d.ratingSum is int && d.ratingCount is int))
         && d.publishedAt is number;
     }
 

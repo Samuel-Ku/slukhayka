@@ -29,7 +29,9 @@ data class PublishedCollectionRow(
     val pseudonym: String,
     /** #694 — the real average, or null when nobody voted (no stars drawn). */
     val average: Double? = null,
-    val ratingCount: Int = 0
+    val ratingCount: Int = 0,
+    /** #696 — hidden by the community: the author sees the state, nothing else. */
+    val hidden: Boolean = false
 )
 
 /**
@@ -78,6 +80,13 @@ fun PublishedCollectionsBlock(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (row.hidden) {
+                    Text(
+                        text = stringResource(R.string.collection_hidden_by_reports),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 // #694 — the rating summary travels with every collection card.
                 val average = row.average
                 if (average != null) {

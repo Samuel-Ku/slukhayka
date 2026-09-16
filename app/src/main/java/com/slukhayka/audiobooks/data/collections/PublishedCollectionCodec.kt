@@ -26,6 +26,13 @@ data class PublishedCollection(
      */
     val ratingSum: Int = 0,
     val ratingCount: Int = 0,
+    /**
+     * Spec-51 (#696) — moderation state. [hidden] is set by the third unique
+     * complaint and can never be cleared; public surfaces never render a
+     * hidden collection, while its author sees it (and may only delete it).
+     */
+    val hidden: Boolean = false,
+    val reportCount: Int = 0,
     val publishedAt: Long
 ) {
     /** The public document id: the author and the collection, still hashed. */
@@ -53,6 +60,8 @@ object PublishedCollectionCodec {
             .map { ListenerCollectionLimits.cleanReason(it) },
         "ratingSum" to collection.ratingSum.coerceAtLeast(0),
         "ratingCount" to collection.ratingCount.coerceAtLeast(0),
+        "hidden" to collection.hidden,
+        "reportCount" to collection.reportCount.coerceAtLeast(0),
         "publishedAt" to collection.publishedAt
     )
 
@@ -93,6 +102,8 @@ object PublishedCollectionCodec {
             // a negative sum/count decodes to the honest zero.
             ratingSum = ((document["ratingSum"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
             ratingCount = ((document["ratingCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
+            hidden = (document["hidden"] as? Boolean) ?: false,
+            reportCount = ((document["reportCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
             publishedAt = (document["publishedAt"] as? Number)?.toLong() ?: 0L
         )
     }

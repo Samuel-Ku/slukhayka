@@ -570,7 +570,8 @@ service cloud.firestore {
     function isWellFormedCuratorCollection(d) {
       return d.keys().hasOnly([
           'authorId', 'collectionId', 'pseudonym', 'title', 'description',
-          'bookIds', 'reasons', 'ratingSum', 'ratingCount', 'publishedAt'
+          'bookIds', 'reasons', 'ratingSum', 'ratingCount',
+          'hidden', 'reportCount', 'publishedAt'
         ])
         && d.authorId is string && d.authorId.size() == 64
         && d.collectionId is string && d.collectionId.size() > 0 && d.collectionId.size() <= 128
@@ -583,6 +584,10 @@ service cloud.firestore {
         // present it is a real number, never a string or a list.
         && (!d.keys().hasAny(['ratingSum', 'ratingCount'])
             || (d.ratingSum is int && d.ratingCount is int))
+        // #696 — moderation fields are optional on legacy documents; when
+        // present they are a real bool/int.
+        && (!d.keys().hasAny(['hidden', 'reportCount'])
+            || (d.hidden is bool && d.reportCount is int))
         && d.publishedAt is number;
     }
 
@@ -601,10 +606,37 @@ service cloud.firestore {
     // guarantee shape, App Check and an authenticated author, not authorship.
     match /curator_collections/{document} {
       allow read: if true;
-      allow create, update: if isAppCheckValid() && request.auth != null
+      allow create: if isAppCheckValid() && request.auth != null
         && isWellFormedCuratorCollection(request.resource.data);
+      // #696 — hidden is ONE-WAY: once the community hid a collection, no
+      // client call can bring it back (`false -> true` only). A document that
+      // never carried the flag may still be updated normally.
+      allow update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCuratorCollection(request.resource.data)
+        && (!resource.data.keys().hasAny(['hidden'])
+            || resource.data.hidden == false
+            || request.resource.data.hidden == true);
       allow delete: if isAppCheckValid() && request.auth != null
         && isWellFormedCuratorCollection(resource.data);
+    }
+
+    // #696 — one anonymous complaint per (person, collection), addressed by
+    // the same sha256(uid + collectionId) key as a vote. The THIRD unique
+    // complaint sets `hidden` on the collection (client-side, under the
+    // one-way rule above); the rules guarantee shape, App Check and an
+    // authenticated reporter.
+    function isWellFormedCollectionReport(d) {
+      return d.keys().hasOnly(['documentId', 'createdAt'])
+        && d.documentId is string && d.documentId.size() > 0 && d.documentId.size() <= 200
+        && d.createdAt is number;
+    }
+
+    match /curator_collection_reports/{document} {
+      allow read: if isAppCheckValid() && request.auth != null;
+      allow create: if isAppCheckValid() && request.auth != null
+        && isWellFormedCollectionReport(request.resource.data);
+      allow update: if false;
+      allow delete: if false;
     }
 
     // #694 — one anonymous vote per (person, collection): the document id is

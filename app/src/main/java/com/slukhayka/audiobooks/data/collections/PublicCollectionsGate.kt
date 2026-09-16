@@ -49,6 +49,16 @@ class PublicCollectionsGate(
     /** #694 — the listener's own vote; without a shared store there is none. */
     suspend fun myVote(voterKey: String): Int? = sharedStore?.myVote(voterKey)
 
+    /** #696 — reporting is online-only; without a shared store it refuses. */
+    suspend fun report(documentId: String, reporterKey: String): PublishResult =
+        sharedStore?.report(documentId, reporterKey)
+            ?: PublishResult.Refused(NO_SHARED_STORE)
+
+    /** #696 — deleting one's own hidden collection. */
+    suspend fun deleteOwnCollection(documentId: String): PublishResult =
+        sharedStore?.deleteOwnCollection(documentId)
+            ?: PublishResult.Refused(NO_SHARED_STORE)
+
     companion object {
         const val NO_SHARED_STORE = "no-shared-store"
     }

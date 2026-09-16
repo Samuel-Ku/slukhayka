@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.collections
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,6 +57,47 @@ class ListenerCollectionsSharedStoreTest {
         assertEquals(PublishResult.Published, store.deleteAuthorProfile(authorId))
         assertTrue(store.publishedBy(authorId).isEmpty())
         assertEquals("other curators survive", 1, store.publishedBy(otherAuthor).size)
+    }
+
+    @Test
+    fun `three unique complaints hide a collection forever`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+        fun reportKey(uid: String) = CollectionIdentity.voterKey(uid, "c1")
+
+        assertEquals(PublishResult.Published, store.report(document.documentId, reportKey("a")))
+        var current = store.publishedBy(authorId).single()
+        assertEquals(1, current.reportCount)
+        assertFalse(current.hidden)
+
+        // A duplicate is accepted but never counts again.
+        assertEquals(PublishResult.Published, store.report(document.documentId, reportKey("a")))
+        current = store.publishedBy(authorId).single()
+        assertEquals(1, current.reportCount)
+
+        store.report(document.documentId, reportKey("b"))
+        store.report(document.documentId, reportKey("c"))
+        val hidden = store.publishedBy(authorId).single()
+        assertEquals(3, hidden.reportCount)
+        assertTrue(hidden.hidden)
+
+        // A hidden collection is no public surface at all…
+        assertTrue(store.containing("book-a").isEmpty())
+
+        // …while its AUTHOR still sees it (and may only delete it).
+        assertEquals(listOf("c1"), store.publishedBy(authorId).map { it.collectionId })
+    }
+
+    @Test
+    fun `the author can delete an own published collection`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+
+        assertEquals(PublishResult.Published, store.deleteOwnCollection(document.documentId))
+        assertTrue(store.publishedBy(authorId).isEmpty())
+        assertTrue(store.deleteOwnCollection(document.documentId) is PublishResult.Refused)
     }
 
     @Test

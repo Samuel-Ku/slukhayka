@@ -56,6 +56,13 @@ class PublishedCollectionsBlockTest {
         assertEquals("doc-2", opened)
     }
     @Test
+    fun `a hidden collection shows the community verdict`() {
+        setBlock(rows = listOf(PublishedCollectionRow("doc-1", "Магія", 3, "Слухач", hidden = true)))
+
+        composeTestRule.onNodeWithText("Приховано за скаргами").assertIsDisplayed()
+    }
+
+    @Test
     fun `a rated collection shows its real average and vote count`() {
         setBlock(
             rows = listOf(

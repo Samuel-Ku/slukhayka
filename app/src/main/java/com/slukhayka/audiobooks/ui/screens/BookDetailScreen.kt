@@ -277,9 +277,13 @@ fun BookDetailScreen(
     val bookReviews by viewModel.bookReviews.collectAsState()
     // Spec-51 (#692) — the published collections that contain this book.
     val collectionsWithBook by viewModel.collectionsWithBook.collectAsState()
+    // #696 — a collection the listener reported leaves their surfaces at once.
+    val reportedCollectionIds by viewModel.reportedCollectionIds.collectAsState()
     var openPublicCollectionId by remember { mutableStateOf<String?>(null) }
-    val collectionRows = remember(collectionsWithBook) {
-        com.slukhayka.audiobooks.data.collections.CollectionRanking.top(collectionsWithBook).map { published ->
+    val collectionRows = remember(collectionsWithBook, reportedCollectionIds) {
+        com.slukhayka.audiobooks.data.collections.CollectionRanking
+            .top(collectionsWithBook.filterNot { it.documentId in reportedCollectionIds })
+            .map { published ->
             com.slukhayka.audiobooks.ui.screens.collections.CollectionWithBookRow(
                 documentId = published.documentId,
                 title = published.title,
@@ -425,6 +429,9 @@ fun BookDetailScreen(
     val reviewFailureMessage = stringResource(R.string.book_detail_review_save_error)
     val reviewDeleteFailureMessage = stringResource(R.string.book_detail_review_delete_error)
     val collectionVoteErrorMessage = stringResource(R.string.collection_vote_error)
+    val collectionReportedMessage = stringResource(R.string.collection_reported)
+    val collectionReportUndoLabel = stringResource(R.string.collection_report_undo)
+    val collectionReportErrorMessage = stringResource(R.string.collection_report_error)
     val reviewRetryLabel = stringResource(R.string.feedback_retry)
     LaunchedEffect(viewModel, snackbarHostState, reviewsWorkId) {
         viewModel.reviewSaveResults.collect { event ->
@@ -456,6 +463,25 @@ fun BookDetailScreen(
                     editingReview = null
                     snackbarHostState.showSnackbar(reviewQueuedMessage)
                 }
+            }
+        }
+    }
+
+    // Spec-51 (#696) — a report hides the collection for the reporter at once
+    // and offers to cancel only that LOCAL hide; the complaint stands.
+    LaunchedEffect(viewModel, snackbarHostState) {
+        viewModel.collectionReportResults.collect { (documentId, stored) ->
+            if (stored) {
+                openPublicCollectionId = null
+                val action = snackbarHostState.showSnackbar(
+                    message = collectionReportedMessage,
+                    actionLabel = collectionReportUndoLabel
+                )
+                if (action == SnackbarResult.ActionPerformed) {
+                    viewModel.unhideReportedCollection(documentId)
+                }
+            } else {
+                snackbarHostState.showSnackbar(collectionReportErrorMessage)
             }
         }
     }
@@ -1632,7 +1658,9 @@ fun BookDetailScreen(
 
     // Spec-51 (#692) — reading a curated collection straight from the book
     // page. The sheet is read-only plus «Зберегти собі» (#695).
-    val openPublicCollection = collectionsWithBook.firstOrNull { it.documentId == openPublicCollectionId }
+    val openPublicCollection = collectionsWithBook.firstOrNull {
+        it.documentId == openPublicCollectionId && it.documentId !in reportedCollectionIds
+    }
     if (openPublicCollection != null) {
         // #694 — the viewer's own stars for the opened collection; the author
         // never sees the voting control at all.
@@ -1662,6 +1690,19 @@ fun BookDetailScreen(
                         collectionId = openPublicCollection.collectionId,
                         stars = stars
                     )
+                },
+                onReport = if (openPublicCollection.authorId ==
+                    com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(listenerProfile?.uid)
+                ) {
+                    null
+                } else {
+                    {
+                        viewModel.reportCollection(
+                            bookId = currentBook.id,
+                            documentId = openPublicCollection.documentId,
+                            collectionId = openPublicCollection.collectionId
+                        )
+                    }
                 }
             )
         }

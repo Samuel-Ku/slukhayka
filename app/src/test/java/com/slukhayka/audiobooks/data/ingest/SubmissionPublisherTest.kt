@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.ingest
 
+import com.slukhayka.audiobooks.data.metadata.RejectedSubmission
 import com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode
 import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
 import kotlinx.coroutines.runBlocking
@@ -293,5 +294,32 @@ class SubmissionPublisherTest {
 
         assertEquals(SubmissionPublisher.Result.ALREADY_PUBLISHED, result)
         assertEquals("no duplicate document", 1, store.submissionPuts.size)
+    }
+    @Test
+    fun `a rejected canonical link never queues a candidate, in any URL shape`() = runBlocking {
+        verification.record(sourceId, actualPlaybackStarted = true)
+        val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf("https://youtu.be/6XIPkMFZf-0")
+        store.rejected[canonical] =
+            RejectedSubmission(canonical, "неаудіокнига", 1L, "curator-bot")
+        val singleJson = """{"id": "6XIPkMFZf-0", "title": "Стівен Кінг - Острів Дума", "duration": 5400}"""
+
+        for (variant in listOf(
+            "https://youtu.be/6XIPkMFZf-0",
+            "https://m.youtube.com/watch?v=6XIPkMFZf-0&t=10"
+        )) {
+            assertEquals(
+                "«$variant» is the SAME canonical link, so the bot's rejection holds",
+                SubmissionPublisher.Result.REJECTED,
+                publisher.publish(variant, singleJson, "@stivenkingua", sourceId, "device-1")
+            )
+        }
+
+        assertTrue("no candidate was queued", store.candidatePuts.isEmpty())
+        assertTrue("nothing reached the old publication door", store.submissionPuts.isEmpty())
+        assertEquals(
+            "a rejected link spends no daily budget",
+            0L,
+            store.getSubmissionCount("device-1", "0")
+        )
     }
 }

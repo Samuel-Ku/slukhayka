@@ -149,7 +149,9 @@ class ListenerSubmissionFlow(
         IMPORT_FAILED,
         ALREADY_PUBLISHED,
         NOT_VERIFIED,
-        SHARED_BASE_UNAVAILABLE
+        SHARED_BASE_UNAVAILABLE,
+        /** #836 — the curator rejected this link: it can never return. */
+        REJECTED
     }
 
     /** The result of starting one submission. */
@@ -522,6 +524,9 @@ class ListenerSubmissionFlow(
                 )
             }
             SubmissionPublisher.Result.ALREADY_PUBLISHED -> Start.Refused(Reason.ALREADY_PUBLISHED, remaining)
+            // #836 — an honest verdict, not silence: the listener learns the
+            // link was rejected (and the budget is untouched — nothing was queued).
+            SubmissionPublisher.Result.REJECTED -> Start.Refused(Reason.REJECTED, remaining)
             SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
             SubmissionPublisher.Result.METADATA_FAILED -> Start.Refused(Reason.METADATA_FAILED, remaining)
             SubmissionPublisher.Result.NOT_VERIFIED -> Start.Refused(Reason.SHARED_BASE_UNAVAILABLE, remaining)
@@ -594,6 +599,8 @@ class ListenerSubmissionFlow(
                 }
                 SubmissionPublisher.Result.ALREADY_PUBLISHED ->
                     settleRefused(sourceId, Reason.ALREADY_PUBLISHED)
+                SubmissionPublisher.Result.REJECTED ->
+                    settleRefused(sourceId, Reason.REJECTED)
                 SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> {
                     // Spec-53 T12 — the playback really happened, so the
                     // promise is not thrown away: the row moves to

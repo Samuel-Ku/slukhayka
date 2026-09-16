@@ -144,6 +144,12 @@ interface SharedBookMetaStore {
     suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? = null
 
     /**
+     * Moderation T3 (#836) — the rejection blocklist entry for a canonical URL,
+     * or null. Read BEFORE queueing: a rejected link never returns.
+     */
+    suspend fun getRejectedSubmission(canonicalUrl: String): RejectedSubmission? = null
+
+    /**
      * ADR-0035 / #605 — bounded ordered remote submission page; applying it
      * into the local projection belongs to the consumption lane
      * (spec-601 T4). A miss or a failure yields an empty page, never a throw.

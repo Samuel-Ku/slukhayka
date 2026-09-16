@@ -35,7 +35,10 @@ class SubmissionPublisher(
         DAILY_LIMIT_REACHED,
 
         /** The normalized URL is already published — nothing was published. */
-        ALREADY_PUBLISHED
+        ALREADY_PUBLISHED,
+
+        /** #836 — the curator rejected this link: it can never be queued again. */
+        REJECTED
     }
 
     /**
@@ -127,6 +130,9 @@ class SubmissionPublisher(
         val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf(url)
         // The queue is now the dedup source: the same canonical link is one
         // candidate, and a repeat is the friendly ALREADY_PUBLISHED state.
+        // #836 — the blocklist is checked BEFORE the queue: a rejected link
+        // never becomes a candidate again, in any URL shape.
+        if (sharedStore.getRejectedSubmission(canonical) != null) return Result.REJECTED
         if (sharedStore.getCandidate(canonical) != null) return Result.ALREADY_PUBLISHED
         val candidate = SubmissionCandidateFactory.create(
             url = url,
@@ -210,6 +216,9 @@ class SubmissionPublisher(
         // forbid a client update, so an existing candidate is reported
         // honestly instead of being silently rewritten behind the curator.
         val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf(url)
+        // #836 — the blocklist is checked BEFORE the queue: a rejected link
+        // never becomes a candidate again, in any URL shape.
+        if (sharedStore.getRejectedSubmission(canonical) != null) return Result.REJECTED
         if (sharedStore.getCandidate(canonical) != null) return Result.ALREADY_PUBLISHED
         val candidate = SubmissionCandidateFactory.create(
             url = url,
@@ -265,6 +274,9 @@ class SubmissionPublisher(
         // curator decides; the description rides in metadataJson because the
         // queue's shape carries no free-text description.
         val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf(url)
+        // #836 — the blocklist is checked BEFORE the queue: a rejected link
+        // never becomes a candidate again, in any URL shape.
+        if (sharedStore.getRejectedSubmission(canonical) != null) return Result.REJECTED
         if (sharedStore.getCandidate(canonical) != null) return Result.ALREADY_PUBLISHED
         val candidate = SubmissionCandidateFactory.createMetadataOnly(
             url = url,

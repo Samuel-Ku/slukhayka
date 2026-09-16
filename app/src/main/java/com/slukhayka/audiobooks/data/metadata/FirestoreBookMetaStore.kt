@@ -59,6 +59,21 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         true
     }.getOrDefault(false)
 
+    override suspend fun getRejectedSubmission(canonicalUrl: String): RejectedSubmission? {
+        val documentId = RejectedSubmissionCodec.documentId(canonicalUrl)
+        if (documentId.isEmpty()) return null
+        return try {
+            val snapshot = firestore.collection(RejectedSubmissionCodec.COLLECTION)
+                .document(documentId)
+                .get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else snapshot.data?.let { RejectedSubmissionCodec.decode(it) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? {
         val documentId = SubmissionCandidateCodec.documentId(canonicalUrl)
         if (documentId.isEmpty()) return null

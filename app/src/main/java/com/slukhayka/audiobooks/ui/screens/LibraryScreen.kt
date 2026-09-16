@@ -1752,7 +1752,18 @@ fun LibraryBookCard(
             author
         )
     }
-    val state = libraryEntryStateDescription(book, availability)
+    // #837 — the moderation badge is SPOKEN, not just seen: the card clears
+    // its descendants' semantics, so the honest state must ride the card's own
+    // state description next to the offline state.
+    val badgeState = if (submissionBadge != SubmissionBadge.NONE) {
+        stringResource(submissionBadgeRes(submissionBadge))
+    } else {
+        null
+    }
+    val state = listOfNotNull(
+        libraryEntryStateDescription(book, availability).takeIf { it.isNotBlank() },
+        badgeState
+    ).joinToString(", ")
     val openLabel = stringResource(
         com.slukhayka.audiobooks.R.string.a11y_library_open_book,
         book.book.title

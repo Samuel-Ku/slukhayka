@@ -5285,14 +5285,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // one would be a real leak of the listener's curation.
         val target = _listenerCollections.value
             .firstOrNull { it.id == pendingPublishCollectionId } ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            // #692 — freeze the local display facts of every position, so the
+            // published composition renders for a reader who owns none of them.
+            val snapshots = target.items.associate { item ->
+                val row = runCatching { App.instance.audiobookDao.getAudiobookById(item.bookId) }.getOrNull()
+                item.bookId to com.slukhayka.audiobooks.data.collections.PublishedCollectionFactory.ItemSnapshot(
+                    title = row?.title.orEmpty(),
+                    author = row?.author.orEmpty(),
+                    coverUrl = row?.coverImageUrl
+                )
+            }
             App.instance.publicCollectionsGate.publish(
                 collection = target,
                 authorId = authorId,
-                pseudonym = pseudonym
+                pseudonym = pseudonym,
+                itemSnapshots = snapshots
             )
-            _publicationPreview.value = null
-            pendingPublishCollectionId = null
+            withContext(Dispatchers.Main) {
+                _publicationPreview.value = null
+                pendingPublishCollectionId = null
+            }
         }
     }
 

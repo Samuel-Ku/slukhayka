@@ -16,6 +16,13 @@ package com.slukhayka.audiobooks.data.collections
  */
 object PublishedCollectionFactory {
 
+    /** The frozen display facts of one book, resolved at publish time. */
+    data class ItemSnapshot(
+        val title: String = "",
+        val author: String = "",
+        val coverUrl: String? = null
+    )
+
     /**
      * @return the publishable document, or null when this collection can never
      * be published (no real identity, no usable pseudonym).
@@ -24,7 +31,9 @@ object PublishedCollectionFactory {
         collection: ListenerCollection,
         authorId: String,
         pseudonym: String,
-        publishedAt: Long
+        publishedAt: Long,
+        /** bookId -> the local facts known at publish time (best-effort). */
+        itemSnapshots: Map<String, ItemSnapshot> = emptyMap()
     ): PublishedCollection? {
         if (!CuratorIdentity.isPublishable(authorId)) return null
         val cleanPseudonym = pseudonym.trim().take(PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
@@ -43,6 +52,18 @@ object PublishedCollectionFactory {
             ratingCount = 0,
             hidden = false,
             reportCount = 0,
+            // #692 — the composition travels WITH its display snapshots, so the
+            // reader renders titles/covers without owning those books.
+            items = items.map { item ->
+                val snapshot = itemSnapshots[item.bookId]
+                PublishedCollectionItem(
+                    bookId = item.bookId,
+                    title = ListenerCollectionLimits.cleanTitle(snapshot?.title),
+                    author = ListenerCollectionLimits.clean(snapshot?.author, PublishedCollectionCodec.MAX_AUTHOR_LEN),
+                    coverUrl = snapshot?.coverUrl?.takeIf { it.isNotBlank() },
+                    reason = item.reason
+                )
+            },
             publishedAt = publishedAt
         )
     }

@@ -120,6 +120,28 @@ class PublicCollectionContentTest {
     }
 
     @Test
+    fun `the composition renders the curator's order with reasons and honest unknowns`() {
+        setContent(
+            available = true,
+            published = collection.copy(
+                items = listOf(
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionItem(
+                        "book-a", "Магія природи", "Автор", null, "бо атмосферно"
+                    ),
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionItem(
+                        "book-b", "", "", null, "бо друге"
+                    )
+                )
+            )
+        )
+
+        composeTestRule.onNodeWithText("Магія природи").assertIsDisplayed()
+        composeTestRule.onNodeWithText("бо атмосферно").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Книга поза локальною бібліотекою").assertIsDisplayed()
+        composeTestRule.onNodeWithText("бо друге").assertIsDisplayed()
+    }
+
+    @Test
     fun `a reader gets the report action and it fires`() {
         var reported = 0
         setContent(available = true, onReport = { reported++ })

@@ -24,7 +24,9 @@ interface ListenerCollectionsSharedStore {
     suspend fun publish(
         collection: ListenerCollection,
         authorId: String,
-        pseudonym: String
+        pseudonym: String,
+        /** #692 — the display snapshots known at publish time (may be empty). */
+        itemSnapshots: Map<String, PublishedCollectionFactory.ItemSnapshot> = emptyMap()
     ): PublishResult
 
     /** Replaces the pseudonym on the author document AND all their collections. */

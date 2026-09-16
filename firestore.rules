@@ -571,7 +571,7 @@ service cloud.firestore {
       return d.keys().hasOnly([
           'authorId', 'collectionId', 'pseudonym', 'title', 'description',
           'bookIds', 'reasons', 'ratingSum', 'ratingCount',
-          'hidden', 'reportCount', 'publishedAt'
+          'hidden', 'reportCount', 'items', 'publishedAt'
         ])
         && d.authorId is string && d.authorId.size() == 64
         && d.collectionId is string && d.collectionId.size() > 0 && d.collectionId.size() <= 128
@@ -588,6 +588,8 @@ service cloud.firestore {
         // present they are a real bool/int.
         && (!d.keys().hasAny(['hidden', 'reportCount'])
             || (d.hidden is bool && d.reportCount is int))
+        // #692 — the optional display snapshots are a bounded list.
+        && (!d.keys().hasAny(['items']) || (d.items is list && d.items.size() <= 500))
         && d.publishedAt is number;
     }
 

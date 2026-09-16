@@ -25,14 +25,16 @@ class FirestoreListenerCollectionsSharedStore(
     override suspend fun publish(
         collection: ListenerCollection,
         authorId: String,
-        pseudonym: String
+        pseudonym: String,
+        itemSnapshots: Map<String, PublishedCollectionFactory.ItemSnapshot>
     ): PublishResult {
         if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
-        // #695 — the reasons travel with the books: a fork of this collection
-        // rebuilds its composition from them, so dropping them here would
-        // quietly break the fork AC.
-        val document = PublishedCollectionFactory.of(collection, authorId, pseudonym, clock())
-            ?: return PublishResult.Refused("no-pseudonym")
+        // #695/#692 — the reasons AND the display snapshots travel with the
+        // books, so a fork keeps the curation and a reader renders the
+        // composition without owning those books.
+        val document = PublishedCollectionFactory.of(
+            collection, authorId, pseudonym, clock(), itemSnapshots
+        ) ?: return PublishResult.Refused("no-pseudonym")
         return if (write(document.documentId, PublishedCollectionCodec.encode(document))) {
             PublishResult.Published
         } else {

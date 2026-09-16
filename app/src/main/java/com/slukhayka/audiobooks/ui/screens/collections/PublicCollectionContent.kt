@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens.collections
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -9,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.CollectionRating
 import com.slukhayka.audiobooks.data.collections.PublishedCollection
+import com.slukhayka.audiobooks.data.collections.PublishedCollectionItem
 import com.slukhayka.audiobooks.ui.screens.ReviewStarsRow
 import java.util.Locale
 
@@ -86,6 +89,59 @@ fun PublicCollectionContent(
                 .padding(horizontal = 16.dp)
                 .testTag("public_collection_count")
         )
+        // #692 — the composition in the curator's own order: the frozen
+        // display snapshot when present, else the honest book id with the
+        // reason (a legacy document carries no titles).
+        val composition: List<PublishedCollectionItem> = collection.items.ifEmpty {
+            collection.bookIds.mapIndexed { index, bookId ->
+                PublishedCollectionItem(
+                    bookId = bookId,
+                    reason = collection.reasons.getOrElse(index) { "" }
+                )
+            }
+        }
+        if (composition.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            composition.forEachIndexed { index, item ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("public_collection_item_$index"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        if (item.title.isNotBlank()) {
+                            Text(
+                                text = item.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.testTag("public_collection_item_title_$index")
+                            )
+                        } else {
+                            Text(
+                                text = stringResource(R.string.collection_item_unknown),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("public_collection_item_title_$index")
+                            )
+                        }
+                        if (item.author.isNotBlank()) {
+                            Text(
+                                text = item.author,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (item.reason.isNotBlank()) {
+                            Text(
+                                text = item.reason,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+        }
         // #694 — the real average with its vote count, or an honest absence:
         // nobody rated it, so nobody is shown a fabricated zero.
         val average = CollectionRating.average(collection.ratingSum, collection.ratingCount)

@@ -304,6 +304,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val awaitingSubmissionBookIds: StateFlow<Set<String>> = _awaitingSubmissionBookIds.asStateFlow()
 
     /** Spec-53 T5 — books whose card waits for a direct source. */
+    /**
+     * #837 — the honest submission badge per book ("on moderation" / "in the
+     * shared base" / "rejected"), read from the SAME store the delta sync
+     * updates, so a curator's decision arrives without any listener action.
+     */
+    private val _submissionBadges = MutableStateFlow<Map<String, SubmissionBadge>>(emptyMap())
+    val submissionBadges: StateFlow<Map<String, SubmissionBadge>> = _submissionBadges.asStateFlow()
+
     private val _watchingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
     val watchingSubmissionBookIds: StateFlow<Set<String>> = _watchingSubmissionBookIds.asStateFlow()
 
@@ -347,6 +355,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _deferredPublicationBookIds.value =
                 runCatching { listenerSubmissionFlow.deferredPublicationBookIds() }
                     .getOrDefault(emptySet())
+            _submissionBadges.value = runCatching { listenerSubmissionFlow.badgeRows() }
+                .getOrDefault(emptyList())
+                .groupBy { it.bookId }
+                .mapNotNull { (bookId, rows) ->
+                    if (bookId.isBlank()) return@mapNotNull null
+                    val newest = rows.maxByOrNull { it.updatedAt } ?: return@mapNotNull null
+                    val badge = SubmissionBadgePolicy.badgeFor(newest)
+                    if (badge == SubmissionBadge.NONE) null else bookId to badge
+                }
+                .toMap()
         }
     }
 

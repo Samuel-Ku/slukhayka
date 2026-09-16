@@ -654,6 +654,12 @@ class ListenerSubmissionFlow(
         runCatching { store.watching().map { it.bookId }.toSet() }.getOrDefault(emptySet())
 
     /** Spec-53 T12 — the book ids whose publication waits for tomorrow. */
+    /**
+     * #837 — the stored rows a book card's badge derives from. The flow stays
+     * UI-free: it hands out rows, and the caller maps them to a badge.
+     */
+    suspend fun badgeRows(): List<SubmissionState> = store.badgeRows()
+
     suspend fun deferredPublicationBookIds(): Set<String> =
         runCatching { store.deferredPublications().map { it.bookId }.toSet() }.getOrDefault(emptySet())
 

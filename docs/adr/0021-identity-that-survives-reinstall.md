@@ -105,6 +105,32 @@ binding.
   the identity file IS the contract; keeping it separate makes the backup
   rules self-documenting.
 
+## Amendment — sealed local password (pre-release fix)
+
+The first cut stored the generated password as an open string in
+`listener_identity` and deliberately included that file in Android Auto
+Backup — so the password travelled to the Google backup in the clear.
+`DeviceBindingCipher` sealed only the server-side `device_bindings`
+payload. The store now seals the password at rest with the same cipher
+under the same ANDROID_ID-derived key
+(`SharedPreferencesLocalCredentialStore`: `password_sealed`, the `password`
+key kept for one last read-and-migrate of pre-seal installs and their
+restored backups):
+
+- A backup carries ciphertext only. The same phone re-opens it after
+  reinstall (ANDROID_ID survives uninstall for the same signing key) and
+  silently signs back in — the survival property is unchanged.
+- Anywhere else the sealed blob does not open and loads as a null
+  password, which every caller already reads as "no credentials": no
+  silent sign-in on a new phone from a cloud backup, no crash. The
+  user-copied recovery code stays the cross-device path.
+- Silent cloud restore on an arbitrary device and a backup free of usable
+  secrets cannot both hold — this amendment chooses the latter. Email, uid
+  and nickname stay plaintext: without the password they authenticate
+  nothing (the `.local` address delivers nowhere).
+- No device id (or a seal failure) degrades to the old plaintext form so
+  on-device sign-in never breaks for that reason.
+
 ## Follow-ups
 
 - **Nickname across devices** is carried only by the credential pair's

@@ -90,6 +90,27 @@ class ListenerCollectionsSharedStoreTest {
     }
 
     @Test
+    fun `a public read keeps data, empty, hidden and no-store apart`() = runBlocking {
+        val store = InMemorySharedCollections()
+        assertEquals(CollectionReadResult.Empty, store.readContaining("book-a"))
+
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val data = store.readContaining("book-a")
+        assertTrue(data is CollectionReadResult.Data)
+        assertEquals(listOf("c1"), (data as CollectionReadResult.Data).collections.map { it.collectionId })
+
+        // A hidden collection leaves the public read entirely.
+        val document = store.publishedBy(authorId).single()
+        listOf("r1", "r2", "r3").forEach { uid ->
+            store.report(document.documentId, CollectionIdentity.voterKey(uid, "c1"))
+        }
+        assertEquals(CollectionReadResult.Empty, store.readContaining("book-a"))
+
+        // No shared store is an honest FAILURE, not an empty community.
+        assertEquals(CollectionReadResult.Failure, PublicCollectionsGate(null).readContaining("book-a"))
+    }
+
+    @Test
     fun `the rail ranks visible collections and the profile hides reported ones`() = runBlocking {
         val store = InMemorySharedCollections()
         store.publish(collection("c1", "a"), authorId, "Слухач")

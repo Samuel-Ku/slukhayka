@@ -130,6 +130,9 @@ class PublicCollectionContentTest {
                     ),
                     com.slukhayka.audiobooks.data.collections.PublishedCollectionItem(
                         "book-b", "", "", null, "бо друге"
+                    ),
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionItem(
+                        "book-c", "Третя", "Автор", "https://c/3.jpg", ""
                     )
                 )
             )
@@ -139,6 +142,9 @@ class PublicCollectionContentTest {
         composeTestRule.onNodeWithText("бо атмосферно").assertIsDisplayed()
         composeTestRule.onNodeWithText("Книга поза локальною бібліотекою").assertIsDisplayed()
         composeTestRule.onNodeWithText("бо друге").assertIsDisplayed()
+        // #692 — a real cover snapshot draws; a missing one draws nothing.
+        composeTestRule.onNodeWithTag("public_collection_item_cover_2").assertExists()
+        composeTestRule.onNodeWithTag("public_collection_item_cover_0").assertDoesNotExist()
     }
 
     @Test

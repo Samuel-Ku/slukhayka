@@ -1,5 +1,16 @@
 package com.slukhayka.audiobooks.data.collections
 
+/**
+ * Spec-51 (#692) — the honest outcome of a public READ: real data, an honest
+ * empty, or an unreachable shared layer. The reader keeps its last good list on
+ * [Failure] instead of blanking a surface on a transient error.
+ */
+sealed interface CollectionReadResult {
+    data class Data(val collections: List<PublishedCollection>) : CollectionReadResult
+    data object Empty : CollectionReadResult
+    data object Failure : CollectionReadResult
+}
+
 /** Spec-51 (#691) — the honest outcome of an online-only action. */
 sealed interface PublishResult {
     data object Published : PublishResult
@@ -44,6 +55,13 @@ interface ListenerCollectionsSharedStore {
      * caller's ([CollectionRanking]); this is a plain read.
      */
     suspend fun containing(bookId: String): List<PublishedCollection>
+
+    /**
+     * #692 — the same read with the three outcomes kept apart, so a surface
+     * can hold its last good list when the shared layer is unreachable.
+     */
+    suspend fun readContaining(bookId: String): CollectionReadResult =
+        CollectionReadResult.Data(containing(bookId))
 
     /**
      * Spec-51 (#694) — one vote per person, applied TRANSACTIONALLY with the

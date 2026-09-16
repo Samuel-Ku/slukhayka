@@ -5334,8 +5334,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
-            val result = App.instance.publicCollectionsGate.containing(bookId)
-            if (request == collectionsWithBookRequest) _collectionsWithBook.value = result
+            // #692 — a failed read keeps the last good list (stale fallback); a
+            // real empty clears it; data replaces it.
+            when (val result = App.instance.publicCollectionsGate.readContaining(bookId)) {
+                is com.slukhayka.audiobooks.data.collections.CollectionReadResult.Data ->
+                    if (request == collectionsWithBookRequest) {
+                        _collectionsWithBook.value = result.collections
+                    }
+                com.slukhayka.audiobooks.data.collections.CollectionReadResult.Empty ->
+                    if (request == collectionsWithBookRequest) {
+                        _collectionsWithBook.value = emptyList()
+                    }
+                com.slukhayka.audiobooks.data.collections.CollectionReadResult.Failure -> Unit
+            }
         }
     }
 

@@ -118,6 +118,21 @@ class FirestoreListenerCollectionsSharedStore(
         }
     }
 
+    override suspend fun readContaining(bookId: String): CollectionReadResult {
+        if (bookId.isBlank()) return CollectionReadResult.Empty
+        val documents = try {
+            firestore.collection(COLLECTION)
+                .whereArrayContains(FIELD_BOOK_IDS, bookId)
+                .get()
+                .awaitDocuments()
+        } catch (_: Exception) {
+            null
+        } ?: return CollectionReadResult.Failure
+        val visible = documents.mapNotNull(PublishedCollectionCodec::decode).filterNot { it.hidden }
+        return if (visible.isEmpty()) CollectionReadResult.Empty
+        else CollectionReadResult.Data(visible)
+    }
+
     override suspend fun topPublic(limit: Int): List<PublishedCollection> {
         if (limit <= 0) return emptyList()
         // The average is computed (sum/count), which Firestore cannot order by,

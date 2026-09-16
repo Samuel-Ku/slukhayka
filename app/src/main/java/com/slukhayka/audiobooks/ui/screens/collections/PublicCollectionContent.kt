@@ -1,7 +1,11 @@
 package com.slukhayka.audiobooks.ui.screens.collections
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -11,13 +15,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.CollectionRating
 import com.slukhayka.audiobooks.data.collections.PublishedCollection
@@ -110,7 +117,25 @@ fun PublicCollectionContent(
                         .testTag("public_collection_item_$index"),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.fillMaxWidth()) {
+                    // #692 — the frozen cover snapshot, when the curator's book
+                    // had a real one; nothing is drawn otherwise.
+                    item.coverUrl?.let { url ->
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(MaterialTheme.shapes.small)
+                                .testTag("public_collection_item_cover_$index")
+                        ) {
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Column(Modifier.weight(1f)) {
                         if (item.title.isNotBlank()) {
                             Text(
                                 text = item.title,

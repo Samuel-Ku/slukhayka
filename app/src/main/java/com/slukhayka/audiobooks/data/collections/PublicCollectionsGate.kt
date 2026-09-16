@@ -38,6 +38,14 @@ class PublicCollectionsGate(
     suspend fun publishedBy(authorId: String): List<PublishedCollection> =
         sharedStore?.publishedBy(authorId).orEmpty()
 
+    /**
+     * #692 — the honest read behind the book block: without a shared store
+     * there is nothing to show, and an unreachable layer is NOT an empty
+     * community (the caller keeps its last good list).
+     */
+    suspend fun readContaining(bookId: String): CollectionReadResult =
+        sharedStore?.readContaining(bookId) ?: CollectionReadResult.Failure
+
     /** #692 — collections containing one book; empty without a shared store. */
     suspend fun containing(bookId: String): List<PublishedCollection> =
         sharedStore?.containing(bookId).orEmpty()

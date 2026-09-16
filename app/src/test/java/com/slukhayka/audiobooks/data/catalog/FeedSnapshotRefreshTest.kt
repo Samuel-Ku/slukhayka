@@ -2,6 +2,10 @@ package com.slukhayka.audiobooks.data.catalog
 
 import com.slukhayka.audiobooks.data.source.SourceBook
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -228,5 +232,180 @@ class FeedSnapshotRefreshTest {
         val any = book("Той самий")
         val outcome = module(FakePersistence()).refresh("sluhayua", key) { listOf(any) }
         assertSame(any, (outcome as FeedRefreshOutcome.Data).books.single())
+    }
+    // ------------------------------------------------------------------
+    // Spec-620 (#625) — coalescing, fetch parameters and session epochs
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `two equivalent refreshes share one live fetch`() = runBlocking {
+        val module = module(FakePersistence())
+        val calls = AtomicInteger(0)
+        val gate = CompletableDeferred<Unit>()
+        val live = listOf(book("Спільна"))
+
+        val first = async {
+            module.refresh("sluhayua", key, parameters = "limit=20") {
+                calls.incrementAndGet(); gate.await(); live
+            }
+        }
+        while (calls.get() == 0) delay(1)
+        val second = async {
+            module.refresh("sluhayua", key, parameters = "limit=20") {
+                calls.incrementAndGet(); gate.await(); live
+            }
+        }
+        delay(30)
+        assertEquals("equivalent callers share the fetch", 1, calls.get())
+
+        gate.complete(Unit)
+        assertEquals(FeedRefreshOutcome.Data(live, now), first.await())
+        assertEquals(FeedRefreshOutcome.Data(live, now), second.await())
+        assertEquals(1, calls.get())
+    }
+
+    @Test
+    fun `different fetch parameters never share a fetch`() = runBlocking {
+        val module = module(FakePersistence())
+        val calls = AtomicInteger(0)
+        val gate = CompletableDeferred<Unit>()
+        val narrow = listOf(book("Двадцять"))
+        val wide = listOf(book("Шістдесят"))
+
+        val narrowJob = async {
+            module.refresh("sluhayua", key, parameters = "limit=20") {
+                calls.incrementAndGet(); gate.await(); narrow
+            }
+        }
+        while (calls.get() == 0) delay(1)
+        val wideJob = async {
+            module.refresh("sluhayua", key, parameters = "limit=60") {
+                calls.incrementAndGet(); gate.await(); wide
+            }
+        }
+        while (calls.get() < 2) delay(1)
+        gate.complete(Unit)
+        assertEquals(FeedRefreshOutcome.Data(narrow, now), narrowJob.await())
+        assertEquals(FeedRefreshOutcome.Data(wide, now), wideJob.await())
+        assertEquals(2, calls.get())
+    }
+
+    @Test
+    fun `an explicit refresh joins an equivalent active live fetch`() = runBlocking {
+        val module = module(FakePersistence())
+        val calls = AtomicInteger(0)
+        val gate = CompletableDeferred<Unit>()
+        val live = listOf(book("Спільна"))
+
+        val normal = async {
+            module.refresh("sluhayua", key, parameters = "limit=20") {
+                calls.incrementAndGet(); gate.await(); live
+            }
+        }
+        while (calls.get() == 0) delay(1)
+        val forced = async {
+            module.refresh("sluhayua", key, parameters = "limit=20", forceRefresh = true) {
+                calls.incrementAndGet(); gate.await(); live
+            }
+        }
+        delay(30)
+        assertEquals("an explicit refresh joins the live fetch", 1, calls.get())
+        gate.complete(Unit)
+        assertEquals(FeedRefreshOutcome.Data(live, now), forced.await())
+        assertEquals(FeedRefreshOutcome.Data(live, now), normal.await())
+    }
+
+    @Test
+    fun `cancelling one waiter leaves the other waiting and completing`() = runBlocking {
+        val module = module(FakePersistence())
+        val calls = AtomicInteger(0)
+        val gate = CompletableDeferred<Unit>()
+        val live = listOf(book("Жива"))
+
+        val keeper = async {
+            module.refresh("sluhayua", key) { calls.incrementAndGet(); gate.await(); live }
+        }
+        while (calls.get() == 0) delay(1)
+        val leaver = async {
+            module.refresh("sluhayua", key) { calls.incrementAndGet(); gate.await(); live }
+        }
+        delay(30)
+        leaver.cancel()
+        gate.complete(Unit)
+        assertEquals(FeedRefreshOutcome.Data(live, now), keeper.await())
+        assertEquals("the shared fetch ran once and survived the leaver", 1, calls.get())
+    }
+
+    @Test
+    fun `the shared fetch is cancelled when the last waiter leaves`() = runBlocking {
+        val module = module(FakePersistence())
+        val started = CompletableDeferred<Unit>()
+        val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+        val waiter = async {
+            module.refresh("sluhayua", key) {
+                started.complete(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    cancelled.set(true)
+                }
+            }
+        }
+        started.await()
+        waiter.cancel()
+        waiter.join()
+        delay(50)
+        assertTrue("the fetch dies with its last waiter", cancelled.get())
+    }
+
+    @Test
+    fun `a snapshot written for one limit never answers another`() = runBlocking {
+        val persistence = FakePersistence()
+        val module = module(persistence)
+        val calls = AtomicInteger(0)
+
+        module.refresh("sluhayua", key, parameters = "limit=60") {
+            calls.incrementAndGet(); listOf(book("Шістдесят"))
+        }
+        assertEquals(1, calls.get())
+        module.refresh("sluhayua", key, parameters = "limit=60") {
+            calls.incrementAndGet(); listOf(book("Шістдесят"))
+        }
+        assertEquals("the same request is a cache hit", 1, calls.get())
+
+        val narrow = module.refresh("sluhayua", key, parameters = "limit=20") {
+            calls.incrementAndGet(); listOf(book("Двадцять"))
+        }
+        assertEquals("a different limit is a different request", 2, calls.get())
+        assertEquals(FeedRefreshOutcome.Data(listOf(book("Двадцять")), now), narrow)
+    }
+
+    @Test
+    fun `a newer session generation discards an older in-flight success`() = runBlocking {
+        val persistence = FakePersistence()
+        val module = module(persistence)
+        val oldGate = CompletableDeferred<Unit>()
+        val oldStarted = CompletableDeferred<Unit>()
+        val old = async {
+            module.refresh("cloudflare", key, sessionGeneration = 0L, skipCache = true) {
+                oldStarted.complete(Unit)
+                oldGate.await()
+                listOf(book("Стара сесія"))
+            }
+        }
+        oldStarted.await()
+
+        val fresh = module.refresh("cloudflare", key, sessionGeneration = 1L, skipCache = true) {
+            listOf(book("Нова сесія"))
+        }
+        assertEquals(FeedRefreshOutcome.Data(listOf(book("Нова сесія")), now), fresh)
+
+        oldGate.complete(Unit)
+        assertEquals(
+            "an older session's success is not publishable",
+            FeedRefreshOutcome.Failure,
+            old.await()
+        )
+        assertEquals(listOf(book("Нова сесія")), persistence.stored.values.single().books)
     }
 }

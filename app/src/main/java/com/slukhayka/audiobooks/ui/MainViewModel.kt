@@ -4195,7 +4195,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         BookFeedbackController(viewModelScope, bookFeedbackStore,
             App.instance.audiobookDao::getAudiobookById,
             App.instance.audiobookDao::getEditionIdForBook,
-            { listenerIdentityModule.ensure() }, listenerReviews, narrationRatingsStore,
+            { listenerIdentityModule.ensure() },
+            // Spec-620 (#627) — its OWN Work-scoped lifecycle instance: the
+            // completion editor must not clobber the book page's open Work.
+            com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(
+                listenerReviews, scope = viewModelScope
+            ),
+            narrationRatingsStore,
             onAccepted = { workId -> loadReviews(workId); loadNarrationRatings(workId) })
     }
 

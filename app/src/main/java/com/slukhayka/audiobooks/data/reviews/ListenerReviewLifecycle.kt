@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.data.reviews
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -88,7 +90,13 @@ data class ListenerReviewState(
  */
 class ListenerReviewLifecycle(
     private val store: ListenerReviewsStore?,
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    /**
+     * Spec-620 (#627) — needed only by [enqueueSave]: the coroutine that
+     * carries the backend acknowledgement AFTER local acceptance. The book
+     * page's blocking [save] needs no scope of its own.
+     */
+    private val scope: CoroutineScope? = null
 ) {
 
     private val _state = MutableStateFlow(ListenerReviewState())
@@ -172,6 +180,38 @@ class ListenerReviewLifecycle(
         body: String?,
         editionTag: String?,
         editing: ListenerReview?
+    ): ReviewSaveResult = buildAndSend(
+        workId, uid, nickname, rating, body, editionTag, editing, awaitRemote = true
+    )
+
+    /**
+     * Spec-620 (#627) — locally accepts a save and returns at once with
+     * [ReviewSaveResult.QUEUED]; the backend verdict then continues on the
+     * module's [scope] and is announced through [results]. The completion
+     * editor needs local acceptance, never the network round trip, so an
+     * offline review is accepted (and the editor closes) immediately.
+     */
+    suspend fun enqueueSave(
+        workId: String,
+        uid: String,
+        nickname: String,
+        rating: Int,
+        body: String?,
+        editionTag: String?,
+        editing: ListenerReview?
+    ): ReviewSaveResult = buildAndSend(
+        workId, uid, nickname, rating, body, editionTag, editing, awaitRemote = false
+    )
+
+    private suspend fun buildAndSend(
+        workId: String,
+        uid: String,
+        nickname: String,
+        rating: Int,
+        body: String?,
+        editionTag: String?,
+        editing: ListenerReview?,
+        awaitRemote: Boolean
     ): ReviewSaveResult {
         val documentId = ListenerReviewCodec.documentId(workId, uid)
         if (workId != _state.value.workId) {
@@ -195,7 +235,7 @@ class ListenerReviewLifecycle(
             createdAt = createdAt,
             editedAt = if (editing != null) now() else null
         )
-        return sendSave(review, epoch.get())
+        return sendSave(review, epoch.get(), awaitRemote)
     }
 
     /**
@@ -232,7 +272,7 @@ class ListenerReviewLifecycle(
         val epochAtStart = epoch.get()
         state.failedSave.entries.firstOrNull()?.let { (documentId, review) ->
             if (ListenerReviewCodec.documentId(review.workId, review.uid) != documentId) return null
-            sendSave(review, epochAtStart)
+            sendSave(review, epochAtStart, awaitRemote = true)
             return documentId
         }
         val failedDelete = state.failedDelete.firstOrNull() ?: return null
@@ -244,7 +284,11 @@ class ListenerReviewLifecycle(
     // Ordered transports — save/edit/delete of one document share the gate
     // ------------------------------------------------------------------
 
-    private suspend fun sendSave(review: ListenerReview, epochAtStart: Long): ReviewSaveResult {
+    private suspend fun sendSave(
+        review: ListenerReview,
+        epochAtStart: Long,
+        awaitRemote: Boolean
+    ): ReviewSaveResult {
         val seam = store ?: return ReviewSaveResult.FAILED
         val workId = review.workId
         val documentId = ListenerReviewCodec.documentId(workId, review.uid)
@@ -268,46 +312,73 @@ class ListenerReviewLifecycle(
             ReviewWriteReceipt.Rejected
         }
 
-        var outcome = ReviewSaveResult.FAILED
-        followReviewWrite(
-            receipt = receipt,
-            onVisibleResult = { result ->
-                if (!inScope(workId, epochAtStart) || !submissions.isLatest(submission)) {
-                    return@followReviewWrite
+        if (receipt !is ReviewWriteReceipt.Queued) {
+            return finishSave(submission, workId, documentId, review, epochAtStart, ReviewRemoteResult.FAILED)
+        }
+        // The local acceptance is already a real, visible state: announce it
+        // before waiting (or not waiting) for the backend.
+        _results.emit(submission.event(ReviewSaveResult.QUEUED))
+        if (!awaitRemote) {
+            // The caller only needed local acceptance; the verdict continues
+            // on the module scope (a module without one has no async caller).
+            scope?.launch {
+                finishSave(
+                    submission,
+                    workId,
+                    documentId,
+                    review,
+                    epochAtStart,
+                    receipt.awaitRemote()
+                )
+            }
+            return ReviewSaveResult.QUEUED
+        }
+        return finishSave(submission, workId, documentId, review, epochAtStart, receipt.awaitRemote())
+    }
+
+    /**
+     * Applies one backend save verdict. A verdict that lost the ordering race
+     * (a newer mutation, or a switched Work/uid) changes NOTHING.
+     */
+    private suspend fun finishSave(
+        submission: ReviewSubmission,
+        workId: String,
+        documentId: String,
+        review: ListenerReview,
+        epochAtStart: Long,
+        remote: ReviewRemoteResult
+    ): ReviewSaveResult {
+        if (!inScope(workId, epochAtStart) || !submissions.isLatest(submission)) {
+            return ReviewSaveResult.FAILED
+        }
+        return when (remote) {
+            ReviewRemoteResult.PUBLISHED -> {
+                _state.update { current ->
+                    current.copy(
+                        pending = current.pending - documentId,
+                        confirmed = (
+                            current.confirmed.filterNot {
+                                ListenerReviewCodec.documentId(it.workId, it.uid) == documentId
+                            } + review
+                            ).sortedByDescending { it.createdAt },
+                        failedSave = current.failedSave - documentId
+                    )
                 }
-                outcome = result
-                when (result) {
-                    ReviewSaveResult.QUEUED ->
-                        _results.emit(submission.event(result))
-                    ReviewSaveResult.PUBLISHED -> {
-                        _state.update { current ->
-                            current.copy(
-                                pending = current.pending - documentId,
-                                confirmed = (
-                                    current.confirmed.filterNot {
-                                        ListenerReviewCodec.documentId(it.workId, it.uid) == documentId
-                                    } + review
-                                    ).sortedByDescending { it.createdAt },
-                                failedSave = current.failedSave - documentId
-                            )
-                        }
-                        _results.emit(submission.event(result))
-                    }
-                    ReviewSaveResult.FAILED -> {
-                        // The payload is kept verbatim so retry is honest.
-                        _state.update { current ->
-                            current.copy(
-                                pending = current.pending - documentId,
-                                failedSave = current.failedSave + (documentId to review)
-                            )
-                        }
-                        _results.emit(submission.event(result))
-                    }
+                _results.emit(submission.event(ReviewSaveResult.PUBLISHED))
+                ReviewSaveResult.PUBLISHED
+            }
+            ReviewRemoteResult.FAILED -> {
+                // The payload is kept verbatim so retry is honest.
+                _state.update { current ->
+                    current.copy(
+                        pending = current.pending - documentId,
+                        failedSave = current.failedSave + (documentId to review)
+                    )
                 }
-            },
-            onRemoteResult = { /* the verdict arrives again via onVisibleResult */ }
-        )
-        return outcome
+                _results.emit(submission.event(ReviewSaveResult.FAILED))
+                ReviewSaveResult.FAILED
+            }
+        }
     }
 
     private suspend fun sendDelete(

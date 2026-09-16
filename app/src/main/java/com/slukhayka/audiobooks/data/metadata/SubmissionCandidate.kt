@@ -81,7 +81,10 @@ object SubmissionCandidateCodec {
         // The decision fields exist only after the bot decided.
         candidate.decidedAt?.let { put("decidedAt", it) }
         clean(candidate.decidedBy)?.let { put("decidedBy", it) }
-    }
+        // An absent optional fact is OMITTED, not written as null: the bot's
+        // contract (and the rules' optional-field checks) sees the same shape
+        // this codec produces — pinned by SubmissionModerationContractTest.
+    }.filterValues { it != null }
 
     /** @return null when the document is not a well-formed candidate. */
     fun decode(document: Map<String, Any?>?): SubmissionCandidate? {

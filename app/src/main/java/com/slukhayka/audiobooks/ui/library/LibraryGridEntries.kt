@@ -27,6 +27,28 @@ sealed interface LibraryGridEntry {
     /** One book, rendered as a row or a tile depending on the view mode. */
     data class BookEntry(val book: LibraryBook) : LibraryGridEntry
 
+    /**
+     * Whether this entry is where the book's own card lives right now.
+     *
+     * A book in progress is the [Continue] card, not a [BookEntry] — the same
+     * book must still be findable by id, or focus return (and the availability
+     * queue) lose it. CI caught exactly that: after leaving the book page the
+     * focus fell back to the heading because the lookup only knew [BookEntry].
+     */
+    fun showsBook(bookId: String): Boolean = when (this) {
+        is Continue -> book.book.id == bookId
+        is BookEntry -> book.book.id == bookId
+        is Section, is Shelf -> false
+    }
+
+    /** The book this entry stands for, or null for chrome. */
+    val shownBook: LibraryBook?
+        get() = when (this) {
+            is Continue -> book
+            is BookEntry -> book
+            is Section, is Shelf -> null
+        }
+
     /** A stable key for the lazy grid; book ids are unique per screen. */
     val key: String
         get() = when (this) {

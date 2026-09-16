@@ -326,8 +326,8 @@ fun LibraryScreen(
             .collectLatest { indices ->
                 val keys = indices
                     .mapNotNull { index ->
-                        (gridEntries.getOrNull(index) as? LibraryGridEntry.BookEntry)
-                            ?.book?.book?.mergeKey
+                        // The hero card is a book too — it must join the queue.
+                        gridEntries.getOrNull(index)?.shownBook?.book?.mergeKey
                     }
                     .filter { it.isNotBlank() }
                 viewModel.onAvailabilityVisible(keys)
@@ -343,9 +343,8 @@ fun LibraryScreen(
     ) {
         val bookId = restoreFocusBookId ?: return@LaunchedEffect
         if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        val visibleIndex = gridEntries.indexOfFirst {
-            it is LibraryGridEntry.BookEntry && it.book.book.id == bookId
-        }
+        // The book may be the hero card rather than a row — ask the entry.
+        val visibleIndex = gridEntries.indexOfFirst { it.showsBook(bookId) }
         when {
             visibleIndex >= 0 -> {
                 libraryGridState.scrollToItem(visibleIndex)

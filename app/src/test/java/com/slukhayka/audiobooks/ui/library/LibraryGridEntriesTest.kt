@@ -166,6 +166,31 @@ class LibraryGridEntriesTest {
     }
 
     @Test
+    fun `the book in progress is found whether it is the hero or a row`() {
+        val entries = libraryGridEntries(
+            browsing = true,
+            gridMode = false,
+            // alsoListening stays in the section while `listening` becomes the hero.
+            visible = all + alsoListening,
+            continueBook = listening,
+            denseTitle = "Усі"
+        )
+
+        // The hero card holds it…
+        assertTrue(entries.any { it is LibraryGridEntry.Continue && it.showsBook(listening.book.id) })
+        // …and a plain row answers for itself.
+        assertTrue(entries.any { it is LibraryGridEntry.BookEntry && it.showsBook(alsoListening.book.id) })
+        // The shelf holds books, but it is chrome: it never claims one.
+        assertTrue(entries.filterIsInstance<LibraryGridEntry.Shelf>().none { it.showsBook(unstarted.book.id) })
+        // Chrome never claims to be a book.
+        assertTrue(entries.filter { it is LibraryGridEntry.Section }.none { it.showsBook(listening.book.id) })
+        assertEquals(
+            listOf(listening),
+            entries.mapNotNull { it.shownBook }.filter { it.book.id == listening.book.id }
+        )
+    }
+
+    @Test
     fun `grid keys are unique`() {
         val entries = libraryGridEntries(
             browsing = true,

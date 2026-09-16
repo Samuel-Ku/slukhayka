@@ -72,7 +72,7 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.ReviewSaveResult
+import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog

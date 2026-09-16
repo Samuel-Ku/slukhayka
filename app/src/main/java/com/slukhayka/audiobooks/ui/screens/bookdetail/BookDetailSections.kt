@@ -79,7 +79,7 @@ import com.slukhayka.audiobooks.ui.screens.ReviewStarsRow
 import com.slukhayka.audiobooks.ui.screens.PersonBookmarkButton
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.ReviewSaveResult
+import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog

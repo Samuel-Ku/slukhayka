@@ -43,4 +43,7 @@ class InMemorySharedCollections(
 
     override suspend fun publishedBy(authorId: String): List<PublishedCollection> =
         published.values.filter { it.authorId == authorId }
+
+    override suspend fun containing(bookId: String): List<PublishedCollection> =
+        published.values.filter { bookId.isNotBlank() && bookId in it.bookIds }
 }

@@ -38,6 +38,9 @@ object PublishedCollectionFactory {
             description = collection.description,
             bookIds = items.map { it.bookId },
             reasons = items.map { it.reason },
+            // A fresh publication has no votes yet — the honest zero.
+            ratingSum = 0,
+            ratingCount = 0,
             publishedAt = publishedAt
         )
     }

@@ -89,6 +89,23 @@ class PublishedCollectionCodecTest {
     }
 
     @Test
+    fun `the rating aggregate round-trips`() {
+        val rated = sample().copy(ratingSum = 9, ratingCount = 2)
+        val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(rated))!!
+        assertEquals(9, decoded.ratingSum)
+        assertEquals(2, decoded.ratingCount)
+    }
+
+    @Test
+    fun `a hostile aggregate decodes to the honest zero, never a fabricated number`() {
+        val encoded = PublishedCollectionCodec.encode(sample()) +
+            ("ratingSum" to "багато") + ("ratingCount" to -3)
+        val decoded = PublishedCollectionCodec.decode(encoded)!!
+        assertEquals(0, decoded.ratingSum)
+        assertEquals(0, decoded.ratingCount)
+    }
+
+    @Test
     fun `a reason never borrows another book's slot`() {
         val encoded = PublishedCollectionCodec.encode(
             sample().copy(bookIds = listOf("a"), reasons = listOf("перше", "друге", "третє"))

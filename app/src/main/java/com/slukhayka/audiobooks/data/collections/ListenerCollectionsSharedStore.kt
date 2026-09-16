@@ -35,4 +35,11 @@ interface ListenerCollectionsSharedStore {
 
     /** What is publicly visible for this author. */
     suspend fun publishedBy(authorId: String): List<PublishedCollection>
+
+    /**
+     * Spec-51 (#692) — every VISIBLE published collection that carries this
+     * book, for the book page's «Добірки з цією книгою» block. Ordering is the
+     * caller's ([CollectionRanking]); this is a plain read.
+     */
+    suspend fun containing(bookId: String): List<PublishedCollection>
 }

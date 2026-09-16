@@ -19,6 +19,13 @@ data class PublishedCollection(
      * AC requires, so the wire shape must carry them.
      */
     val reasons: List<String> = emptyList(),
+    /**
+     * Spec-51 (#694) — the transactional rating aggregate. Zero votes means
+     * zero here AND no average anywhere: the card shows stars only when
+     * [ratingCount] is real.
+     */
+    val ratingSum: Int = 0,
+    val ratingCount: Int = 0,
     val publishedAt: Long
 ) {
     /** The public document id: the author and the collection, still hashed. */
@@ -44,6 +51,8 @@ object PublishedCollectionCodec {
         "bookIds" to collection.bookIds.take(MAX_BOOKS),
         "reasons" to collection.reasons.take(MAX_BOOKS)
             .map { ListenerCollectionLimits.cleanReason(it) },
+        "ratingSum" to collection.ratingSum.coerceAtLeast(0),
+        "ratingCount" to collection.ratingCount.coerceAtLeast(0),
         "publishedAt" to collection.publishedAt
     )
 
@@ -80,6 +89,10 @@ object PublishedCollectionCodec {
                 .let { cleaned ->
                     List(books.take(MAX_BOOKS).size) { index -> cleaned.getOrElse(index) { "" } }
                 },
+            // #694 — a hostile aggregate is a miss, never a fabricated number:
+            // a negative sum/count decodes to the honest zero.
+            ratingSum = ((document["ratingSum"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
+            ratingCount = ((document["ratingCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
             publishedAt = (document["publishedAt"] as? Number)?.toLong() ?: 0L
         )
     }

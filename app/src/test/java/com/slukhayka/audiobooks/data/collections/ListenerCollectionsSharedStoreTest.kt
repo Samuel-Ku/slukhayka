@@ -59,6 +59,18 @@ class ListenerCollectionsSharedStoreTest {
     }
 
     @Test
+    fun `collections containing one book are found by their book list`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a", "book-b"), authorId, "Слухач")
+        store.publish(collection("c2", "book-c"), authorId, "Слухач")
+
+        assertEquals(listOf("c1"), store.containing("book-a").map { it.collectionId })
+        assertEquals(listOf("c1"), store.containing("book-b").map { it.collectionId })
+        assertTrue(store.containing("nobody").isEmpty())
+        assertTrue("a blank book id is never a query", store.containing("").isEmpty())
+    }
+
+    @Test
     fun `the published document carries each book's reason so a fork can keep it`() = runBlocking {
         val store = InMemorySharedCollections()
         val original = ListenerCollection(

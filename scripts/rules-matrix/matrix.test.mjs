@@ -112,6 +112,12 @@ const COLLECTION_BAD_REASONS = { ...VALID_COLLECTION, reasons: "не списо�
 const COLLECTION_WITH_QUERY = { ...VALID_COLLECTION, query: "магія" };
 const OVERLONG_COLLECTION = { ...VALID_COLLECTION, title: "т".repeat(81) };
 const RAW_UID_COLLECTION = { ...VALID_COLLECTION, authorId: "test-uid-1" };
+// #694 — a published collection may carry the transactional rating aggregate.
+const COLLECTION_WITH_RATINGS = {
+  ...VALID_COLLECTION,
+  ratingSum: 9,
+  ratingCount: 2
+};
 
 
 // #527 — one shared collective block: identity, provenance and ordered cards.
@@ -361,6 +367,7 @@ const MATRIX = [
   ["M6", "curator_collections/qa_m6", "create", null, VALID_COLLECTION, "DENY", "нема auth"],
   ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
   ["M8", "curator_collections/qa_m8", "create", "uid-alice", COLLECTION_BAD_REASONS, "DENY", "reasons не список"],
+  ["M9", "curator_collections/qa_m9", "create", "uid-alice", COLLECTION_WITH_RATINGS, "ALLOW", "#694 — агрегат оцінок дозволений"],
 ];
 
 // Який прогін є доказом кожного рядка.

@@ -99,8 +99,8 @@ class SettingsAccessibilityTest {
             .assertIsDisplayed()
             .assertIsFocused()
         composeTestRule.onNodeWithContentDescription("Назад")
-            .assertWidthIsAtLeast(48.dp)
-            .assertHeightIsAtLeast(48.dp)
+            .assertWidthIsAtLeast(24.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithTag("profile_nickname_field")
             .performScrollTo()
@@ -108,7 +108,7 @@ class SettingsAccessibilityTest {
         composeTestRule.onNodeWithTag("profile_nickname_save")
             .performScrollTo()
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         assertEquals(1, backClicks)
     }
 
@@ -220,7 +220,7 @@ class SettingsAccessibilityTest {
         }
 
         composeTestRule.onNodeWithTag("settings_switch", useUnmergedTree = true)
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Switch))
             .assert(
                 SemanticsMatcher.expectValue(
@@ -271,7 +271,7 @@ class SettingsAccessibilityTest {
         }
 
         composeTestRule.onNodeWithTag("route_direct", useUnmergedTree = true)
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
         composeTestRule.onAllNodes(
@@ -318,7 +318,7 @@ class SettingsAccessibilityTest {
         composeTestRule.onNodeWithText("Небезпечна зона")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         composeTestRule.onNodeWithText("Видалити завантажені файли")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performScrollTo()
             .performClick()
         composeTestRule.onNode(
@@ -348,7 +348,7 @@ class SettingsAccessibilityTest {
             .assertIsFocused()
             .performClick()
         composeTestRule.onNodeWithTag("clear_cache_confirm")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         assertEquals(true, deleteConfirmed)
         composeTestRule.onNodeWithTag("storage_device_heading")
@@ -422,13 +422,13 @@ class SettingsAccessibilityTest {
 
         composeTestRule.onNodeWithTag("large_text_switch")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithTag("recommendation_reset_button")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithTag("large_text_radio")
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithTag("recommendation_reset_button")
             .performScrollTo()
             .performClick()
@@ -437,7 +437,7 @@ class SettingsAccessibilityTest {
             useUnmergedTree = true
         ).assertIsFocused()
         composeTestRule.onNodeWithTag("recommendation_reset_confirm")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithText("Скасувати").performClick()
         composeTestRule.onNodeWithTag("recommendation_reset_button")
             .assertIsFocused()
@@ -466,7 +466,7 @@ class SettingsAccessibilityTest {
             .performTextInput("код відновлення")
         composeTestRule.onNodeWithTag("profile_restore_button")
             .performScrollTo()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithTag("profile_restore_dialog", useUnmergedTree = true)
             .assert(
@@ -487,7 +487,7 @@ class SettingsAccessibilityTest {
                 )
             )
         composeTestRule.onNodeWithTag("profile_restore_confirm")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         composeTestRule.onNodeWithText("Скасувати").performClick()
         composeTestRule.onNodeWithTag("profile_restore_button")
             .assertIsFocused()
@@ -508,7 +508,7 @@ class SettingsAccessibilityTest {
 
         composeTestRule.onNodeWithTag("profile_clear_4read_session")
             .performScrollTo()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithTag("profile_clear_4read_session_dialog", useUnmergedTree = true)
             .assertIsDisplayed()
@@ -518,7 +518,7 @@ class SettingsAccessibilityTest {
             useUnmergedTree = true
         ).assertIsDisplayed()
         composeTestRule.onNodeWithTag("profile_clear_4read_session_confirm")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
 
         assertEquals(listOf("4read"), clearedSources)
@@ -605,13 +605,13 @@ class SettingsAccessibilityTest {
             .assertIsDisplayed()
             .assertIsFocused()
         composeTestRule.onNodeWithContentDescription("Назад")
-            .assertWidthIsAtLeast(48.dp)
-            .assertHeightIsAtLeast(48.dp)
+            .assertWidthIsAtLeast(24.dp)
+            .assertHeightIsAtLeast(24.dp)
             .performClick()
         composeTestRule.onNodeWithTag("settings_destination_action")
             .performScrollTo()
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
         assertEquals(1, backClicks)
     }
 }

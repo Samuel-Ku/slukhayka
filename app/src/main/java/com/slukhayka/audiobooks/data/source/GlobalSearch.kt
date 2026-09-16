@@ -116,12 +116,19 @@ fun catalogCardDownloadAllowed(result: GlobalSearchResult): Boolean =
  * `sluhayknigi.com` before `sluhay.com` (the CDN is shared, the Referer
  * differs).
  */
+/**
+ * The id `sourceIdForUrl` returns for a host no source claims. #850: it is an
+ * internal marker, never a name to show — a card must render no provenance
+ * chip rather than the raw string «unknown».
+ */
+const val UNKNOWN_SOURCE_ID = "unknown"
+
 fun sourceIdForUrl(url: String): String {
     if (url.isBlank()) return "local"
-    val host = hostOfUrl(url) ?: return "unknown"
+    val host = hostOfUrl(url) ?: return UNKNOWN_SOURCE_ID
     return SourceRegistry.entries.firstOrNull { facts ->
         hostsOfFacts(facts).any { fact -> host == fact || host.endsWith(".$fact") }
-    }?.id ?: "unknown"
+    }?.id ?: UNKNOWN_SOURCE_ID
 }
 
 /** The registry hosts of one source: its home host plus every transport host. */

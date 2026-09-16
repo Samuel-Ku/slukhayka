@@ -72,6 +72,8 @@
     <string name="library_availability_refused">Аудіо джерела вимкнено</string>
     <!-- #397: honest partial-offline badge; full offline stays «Офлайн». -->
     <string name="offline_partial_badge">Офлайн (%1$d/%2$d)</string>
+    <!-- v1.5: the same fact as a badge on a 64 dp cover — no room for a word. -->
+    <string name="offline_partial_badge_compact">%1$d/%2$d</string>
     <string name="book_detail_chapter_delete_copy">Видалити копію розділу</string>
     <string name="book_detail_chapter_delete_copy_confirm">Видалити офлайн-копію цього розділу? Решта завантажених розділів лишиться.</string>
     <!-- v1.4 E5: player chrome off hardcoded strings. -->

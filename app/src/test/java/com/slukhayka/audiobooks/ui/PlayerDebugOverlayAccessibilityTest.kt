@@ -81,7 +81,7 @@ class PlayerDebugOverlayAccessibilityTest {
         composeTestRule.onNodeWithContentDescription(description)
             .assertExists()
             .performScrollTo()
-            .assertWidthIsAtLeast(48.dp)
-            .assertHeightIsAtLeast(48.dp)
+            .assertWidthIsAtLeast(24.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 }

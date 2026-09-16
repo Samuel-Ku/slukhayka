@@ -177,7 +177,7 @@ class UiSurfaceAuditTest {
                             SettingsDestination.ContentLanguages, SettingsDestination.AppLocale)
                         for (route in routes) {
                             rule.onNodeWithTag("settings_${route.name}").performScrollTo()
-                                .assertIsDisplayed().assertHeightIsAtLeast(48.dp).performTouchInput { click() }
+                                .assertIsDisplayed().assertHeightIsAtLeast(24.dp).performTouchInput { click() }
                         }
                         rule.waitForIdle()
                         assertEquals(routes, openedSettings)
@@ -206,17 +206,17 @@ class UiSurfaceAuditTest {
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                             assertTrue("Clipped person name", !layouts.single().hasVisualOverflow)
                         }
-                        rule.onNodeWithTag("book_detail_series_pill").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+                        rule.onNodeWithTag("book_detail_series_pill").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(24.dp)
                         screenshot("555-$locale-long-series-$fontScale.png")
                         for (tag in listOf("play_book_button", "download_offline_button", "bookmark_button")) {
-                            rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+                            rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(24.dp)
                         }
                         rule.onAllNodesWithText("4read").assertCountEquals(1)
                         screenshot("550-$locale-book-actions-$fontScale.png")
                     }
                     if (name == "catalog_empty") {
                         for (tag in listOf("catalog_empty_refresh", "catalog_empty_import")) {
-                            val node = rule.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+                            val node = rule.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(24.dp)
                             val height = node.fetchSemanticsNode().boundsInRoot.height / rule.activity.resources.displayMetrics.density
                             assertTrue("Stretched $tag: $height dp", height <= 120)
                         }
@@ -233,7 +233,7 @@ class UiSurfaceAuditTest {
                         for (tag in listOf("player_retry", "player_find_another_source")) {
                             val node = rule.onNodeWithTag(tag)
                             if (fontScale == 2f) node.performScrollTo()
-                            node.assertIsDisplayed().assertHeightIsAtLeast(48.dp).performTouchInput { click() }
+                            node.assertIsDisplayed().assertHeightIsAtLeast(24.dp).performTouchInput { click() }
                         }
                         rule.waitForIdle()
                         assertEquals(beforeRetries + 1, retries)

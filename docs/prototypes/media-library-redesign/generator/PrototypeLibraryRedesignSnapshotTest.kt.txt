@@ -1,0 +1,1404 @@
+package com.slukhayka.audiobooks.ui.snapshots
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import com.github.takahirom.roborazzi.captureRoboImage
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.AppTabHeader
+import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.BookRow
+import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.library.LibraryFilter
+import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
+import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
+import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * ───────────────────────────────────────────────────────────────────────────
+ * PROTOTYPE — «Медіатека» redesign (throwaway; NOT production, no tests, no
+ * ViewModel, no data layer: static fixtures only).
+ *
+ * Question it answers: «what should the Медіатека screen look like?»
+ *
+ * It renders three RADICALLY different full-screen phone states (not colour
+ * tweaks — different information hierarchy and different primary affordance):
+ *
+ *   A. «Продовжити» — action-first: one big resume CTA, one-line status chips,
+ *      then the canonical library rows with a play button on every row.
+ *   B. «Полиці» — browse-first: not a chip on screen; controls collapse into
+ *      two pills and the library becomes horizontal cover shelves.
+ *   C. «Черга» — listening-queue-first: a dense, cover-light timeline with a
+ *      segmented control, treating the library as an ordered queue.
+ *
+ * Run:    ./gradlew testDebugUnitTest --tests "*PrototypeLibraryRedesign*"
+ * Output: app/build/prototype-preview/medialibrary_{a,b,c}.png
+ *
+ * The three files ARE the switcher: this is a rendered design preview, so the
+ * variants ship as separate images instead of a runtime `?variant=` overlay.
+ * ───────────────────────────────────────────────────────────────────────────
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+class PrototypeLibraryRedesignSnapshotTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    /**
+     * The screen as it is TODAY, reproduced with the real production
+     * composables so «було» and «стало» are literally the same engine, the
+     * same fixtures and the same device size.
+     */
+    @Test
+    fun variant_0_before_current() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { VariantBeforeCurrent(previewBooks) }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "build/prototype-preview/medialibrary_0_before.png"
+        )
+    }
+
+    @Test
+    fun variant_d_recommended() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { VariantDRecommended(previewBooks) }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "build/prototype-preview/medialibrary_d_recommended.png"
+        )
+    }
+
+    @Test
+    fun variant_d_filtered_dense() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { VariantDRecommended(previewBooks, filtered = true) }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "build/prototype-preview/medialibrary_d_filtered.png"
+        )
+    }
+
+    @Test
+    fun variant_a_continue_first() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { VariantAContinueFirst(previewBooks) }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "build/prototype-preview/medialibrary_a_continue.png"
+        )
+    }
+
+    @Test
+    fun variant_b_shelves() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { VariantBShelves(previewBooks) }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "build/prototype-preview/medialibrary_b_shelves.png"
+        )
+    }
+
+    @Test
+    fun variant_c_queue() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { VariantCQueue(previewBooks) }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "build/prototype-preview/medialibrary_c_queue.png"
+        )
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Fixtures — static and deterministic. Covers fall back to the app's own
+// typographic covers, so the preview needs no network.
+// ───────────────────────────────────────────────────────────────────────────
+
+private enum class PState { LISTENING, NEW, DONE }
+
+private data class PBook(
+    val id: String,
+    val title: String,
+    val author: String,
+    val genre: String,
+    val state: PState,
+    val percent: Float,
+    /** The book's own total length — drives percent, remaining and finished. */
+    val totalSeconds: Long,
+    val chapter: String,
+    val downloaded: Boolean,
+    val source: String,
+    /** «7 із 12» — a partial offline copy; null when the book is not partial. */
+    val partial: String? = null
+) {
+    val entity: AudiobookEntity
+        get() = AudiobookEntity(
+            id = id,
+            title = title,
+            author = author,
+            narrator = "Фікстура-читець",
+            description = "Прототип-фікстура: $title.",
+            coverDrawableRes = 0,
+            coverImageUrl = null,
+            genre = genre,
+            sourceUrl = if (source == "Локальна") "" else "https://fixtures.4read.org/$id.html",
+            isDownloaded = downloaded,
+            totalDurationSeconds = totalSeconds,
+            totalChapters = 12,
+            rating = 4.5f
+        )
+
+    val percentLabel: String get() = "${(percent * 100).toInt()}%"
+
+    /** Same arithmetic the production [LibraryBook] uses, same wording. */
+    val remainingSeconds: Long get() = ((1f - percent) * totalSeconds).toLong()
+
+    val remainingLabel: String get() = formatDuration(remainingSeconds)
+    val totalLabel: String get() = formatDuration(totalSeconds)
+}
+
+/** «6 год 35 хв» / «48 хв» / «8 год» — the production remaining-time wording. */
+private fun formatDuration(seconds: Long): String {
+    if (seconds <= 0L) return "0 хв"
+    val hours = seconds / 3_600L
+    val minutes = (seconds % 3_600L) / 60L
+    return when {
+        hours > 0L && minutes > 0L -> "$hours год ${minutes.toString().padStart(2, '0')} хв"
+        hours > 0L -> "$hours год"
+        else -> "$minutes хв"
+    }
+}
+
+/** Every book in the library, summed — the header subtitle must be honest. */
+private val libraryTotalLabel: String
+    get() = formatDuration(previewBooks.sumOf { it.totalSeconds })
+
+private val previewBooks: List<PBook> = listOf(
+    PBook("p1", "Сходами вниз", "Дон Куін", "детектив", PState.LISTENING, 0.34f, 36_000L, "Розділ 5 із 14", false, "Sluhay"),
+    PBook("p2", "Нейромант", "Вільям Ґібсон", "кіберпанк", PState.LISTENING, 0.12f, 36_000L, "Розділ 3 із 21", true, "4read"),
+    PBook("p3", "Місто", "Валер'ян Підмогильний", "класика", PState.LISTENING, 0.72f, 36_000L, "Розділ 17 із 24", true, "4read"),
+    PBook("p4", "Дюна", "Френк Герберт", "фантастика", PState.LISTENING, 0.48f, 39_600L, "Розділ 14 із 38", false, "Sound-Books", partial = "7 із 12"),
+    PBook("p5", "1984", "Джордж Орвелл", "антиутопія", PState.NEW, 0f, 28_800L, "18 розділів", false, "Sluhay"),
+    PBook("p6", "451° за Фаренгейтом", "Рей Бредбері", "фантастика", PState.NEW, 0f, 19_800L, "12 розділів", false, "4read"),
+    PBook("p7", "Тіні забутих предків", "Михайло Коцюбинський", "класика", PState.NEW, 0f, 11_520L, "9 розділів", true, "Локальна"),
+    PBook("p8", "Майстер і Маргарита", "Михайло Булгаков", "роман", PState.DONE, 1f, 64_800L, "Прослухано", false, "Sluhay"),
+    PBook("p9", "Кобзар", "Тарас Шевченко", "класика", PState.DONE, 1f, 14_400L, "Прослухано", true, "4read")
+)
+
+private val listening: List<PBook> get() = previewBooks.filter { it.state == PState.LISTENING }
+private val fresh: List<PBook> get() = previewBooks.filter { it.state == PState.NEW }
+private val finished: List<PBook> get() = previewBooks.filter { it.state == PState.DONE }
+private val downloadedCount: Int get() = previewBooks.count { it.downloaded }
+
+/** Ukrainian plural for a book counter: 1 книга / 2 книги / 5 книг. */
+private fun bookCount(n: Int): String = when {
+    n % 10 == 1 && n % 100 != 11 -> "$n книга"
+    n % 10 in 2..4 && n % 100 !in 12..14 -> "$n книги"
+    else -> "$n книг"
+}
+
+/** Same chrome as the real app: four destinations, «Медіатека» selected. */
+@Composable
+private fun PrototypeBottomNav() {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.primary
+    ) {
+        val items = listOf(
+            Triple("Слухати", Icons.Default.Headphones, false),
+            Triple("Огляд", Icons.Default.Explore, false),
+            Triple("Медіатека", Icons.Default.LibraryMusic, true),
+            Triple("Налаштування", Icons.Default.Settings, false)
+        )
+        items.forEach { (label, icon, selected) ->
+            NavigationBarItem(
+                selected = selected,
+                onClick = {},
+                icon = { Icon(imageVector = icon, contentDescription = null) },
+                label = {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp),
+                        textAlign = TextAlign.Center
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
+                )
+            )
+        }
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Shared chrome. Only chrome is shared — each variant owns its own layout.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Phone frame: scheme background, the variant body, then the app's real bottom
+ * navigation. The persistent mini player is deliberately NOT drawn — it is
+ * chrome above the variants, not part of the redesign.
+ */
+@Composable
+private fun PhoneScreen(content: @Composable ColumnScope.() -> Unit) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            content()
+            PrototypeBottomNav()
+        }
+    }
+}
+
+/** The screen title plus whatever actions the variant keeps on the top bar. */
+@Composable
+private fun PrototypeTopBar(
+    title: String,
+    subtitle: String? = null,
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = AppDimens.PageSides,
+                end = AppDimens.SpaceXs,
+                top = AppDimens.SpaceMd,
+                bottom = AppDimens.SpaceSm
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        actions()
+    }
+}
+
+@Composable
+private fun SearchAction() {
+    IconButton(onClick = {}) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = "Пошук",
+            tint = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/**
+ * The offline marker the current screen already has and the redesign must not
+ * lose: a cloud-with-check for a fully downloaded book, «7 із 12» while the
+ * copy is still partial (#397).
+ */
+@Composable
+private fun DownloadBadge(
+    book: PBook,
+    size: Dp = 16.dp,
+    tint: Color = MaterialTheme.colorScheme.secondary
+) {
+    val partial = book.partial
+    when {
+        partial != null -> Text(
+            text = partial,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = tint
+        )
+        book.downloaded -> Icon(
+            imageVector = Icons.Default.CloudDone,
+            contentDescription = "Завантажено",
+            tint = tint,
+            modifier = Modifier.size(size)
+        )
+    }
+}
+
+/** A cover with the listening progress drawn along its bottom edge. */
+@Composable
+private fun CoverWithProgress(book: PBook, width: Dp, height: Dp, radius: Dp) {
+    Box(
+        modifier = Modifier
+            .size(width, height)
+            .clip(RoundedCornerShape(radius))
+    ) {
+        BookCoverImage(
+            book = book.entity,
+            semantics = BookCoverSemantics.Decorative,
+            modifier = Modifier.fillMaxSize()
+        )
+        if (book.state == PState.LISTENING) {
+            LinearProgressIndicator(
+                progress = { book.percent },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(5.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = Color.Black.copy(alpha = 0.35f)
+            )
+        }
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// VARIANT 0 — «Було»: today's screen, rebuilt from the production composables
+// (AppTabHeader + ScrollableTabRow + search field + status chips + filter chip
+// + LibraryBookCard). Not the redesign — the baseline it is measured against.
+// ───────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun VariantBeforeCurrent(books: List<PBook>) {
+    PhoneScreen {
+        AppTabHeader(
+            title = "Медіатека",
+            actions = {
+                IconButton(onClick = {}) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Пошук",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Button(
+                    onClick = {},
+                    shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Додати",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        )
+        ScrollableTabRow(
+            selectedTabIndex = 0,
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.primary,
+            edgePadding = AppDimens.PageSides,
+            divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+        ) {
+            listOf(
+                "Книги (${books.size})" to true,
+                "Закладки (0)" to false,
+                "Статистика" to false,
+                "Люди (0)" to false
+            ).forEach { (label, selected) ->
+                Tab(
+                    selected = selected,
+                    onClick = {},
+                    text = {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                )
+            }
+        }
+        OutlinedTextField(
+            value = "",
+            onValueChange = {},
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
+            placeholder = { Text("Пошук у медіатеці") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            singleLine = true,
+            shape = RoundedCornerShape(AppDimens.RadiusCard)
+        )
+        LibraryStatusRow(selected = LibraryFilter.ALL, onSelect = {})
+        FilterChip(
+            selected = false,
+            onClick = {},
+            label = { Text("Фільтр", style = MaterialTheme.typography.labelMedium) },
+            shape = RoundedCornerShape(AppDimens.RadiusPanel),
+            leadingIcon = {
+                Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                labelColor = MaterialTheme.colorScheme.onSurface
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = false,
+                borderColor = MaterialTheme.colorScheme.outlineVariant,
+                selectedBorderColor = MaterialTheme.colorScheme.primary
+            ),
+            modifier = Modifier
+                .padding(top = AppDimens.SpaceXs)
+                .padding(horizontal = AppDimens.PageSides)
+                .heightIn(min = 48.dp)
+        )
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(
+                start = AppDimens.PageSides,
+                end = AppDimens.PageSides,
+                top = AppDimens.SpaceSm,
+                bottom = AppDimens.SpaceMd
+            ),
+            verticalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd)
+        ) {
+            items(books, key = { it.id }) { book ->
+                LibraryBookCard(book = book.toLibraryBook(), grid = false, onClick = {})
+            }
+        }
+    }
+}
+
+/** The prototype fixture as the production read model the card consumes. */
+private fun PBook.toLibraryBook(): LibraryBook = LibraryBook(
+    book = entity,
+    progress = if (state == PState.NEW) {
+        null
+    } else {
+        PlaybackProgressEntity(
+            editionId = "edition-$id",
+            bookId = id,
+            currentChapterIndex = 4,
+            currentPositionSeconds = 300L,
+            lastListenedAt = 1_700_000_000_000L,
+            isCompleted = state == PState.DONE
+        )
+    },
+    cumulativePositionSeconds = (36_000L * percent).toLong(),
+    totalDurationSeconds = 36_000L
+)
+
+// ───────────────────────────────────────────────────────────────────────────
+// VARIANT D — THE RECOMMENDATION: A as the base, B's «Нові» shelf, C's dense
+// rows once a filter is on.
+//
+// One screen, one job order: resume (hero) → narrow down (one scrolling chip
+// line) → the books, grouped by what they are to you. The four filter tabs are
+// gone: «Закладки / Статистика / Люди» move to the ⋮ overflow, because they
+// are not peers of «Книги» — that duplication was half the clutter.
+//
+// `filtered = true` renders the second half of the recommendation: with a
+// status actively filtering, the screen drops the hero and the covers and
+// becomes C's dense queue — several times more books per screen.
+// ───────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun VariantDRecommended(books: List<PBook>, filtered: Boolean = false) {
+    PhoneScreen {
+        PrototypeTopBar(
+            title = "Медіатека",
+            subtitle = if (filtered) {
+                "Фільтр: Слухаю · ${listening.size}"
+            } else {
+                "${bookCount(books.size)} · $libraryTotalLabel"
+            }
+        ) {
+            SearchAction()
+            IconButton(onClick = {}) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Закладки, статистика, люди",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceSection)
+        ) {
+            if (!filtered) {
+                item(key = "hero") { ContinueHeroCard(books.first { it.state == PState.LISTENING }) }
+            }
+            item(key = "chips") { StatusChipRow(books, selectedIndex = if (filtered) 1 else 0) }
+            if (!filtered) {
+                pSection("Слухаю", listening.drop(1), resume = true)
+                item(key = "h-new") {
+                    AppSectionHeader(title = "Нові", count = bookCount(fresh.size))
+                }
+                item(key = "shelf-new") {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = AppDimens.PageSides),
+                        horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd)
+                    ) {
+                        items(fresh, key = { it.id }) { book -> ShelfTile(book, 116.dp) }
+                    }
+                }
+                pSection("Завершені", finished, resume = false, done = true)
+            } else {
+                item(key = "h-dense") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = AppDimens.PageSides,
+                                end = AppDimens.PageSides,
+                                top = AppDimens.SpaceLg,
+                                bottom = AppDimens.SpaceSm
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "СЛУХАЮ · ${listening.size}",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "разом ${formatDuration(listening.sumOf { it.remainingSeconds })}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                items(listening, key = { it.id }) { book -> QueueRow(book) }
+            }
+        }
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// VARIANT A — «Продовжити» (action-first)
+//
+// The screen answers one question first: what do I press to keep listening?
+// Then it is a plain dense list with a play button on every row, so playing a
+// book is one tap from the library instead of two (open → play).
+// ───────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun VariantAContinueFirst(books: List<PBook>) {
+    PhoneScreen {
+        PrototypeTopBar(title = "Медіатека") {
+            SearchAction()
+            IconButton(onClick = {}) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Ще",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceSection)
+        ) {
+            item(key = "hero") { ContinueHeroCard(books.first { it.state == PState.LISTENING }) }
+            item(key = "chips") { StatusChipRow(books) }
+            pSection("Слухаю", listening.drop(1), resume = true)
+            pSection("Нові", fresh, resume = false)
+            pSection("Завершені", finished, resume = false, done = true)
+        }
+    }
+}
+
+@Composable
+private fun ContinueHeroCard(book: PBook) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
+        shape = RoundedCornerShape(AppDimens.RadiusHero),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+        Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
+            Text(
+                text = "ПРОДОВЖИТИ",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                ),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+            Row {
+                Box(
+                    modifier = Modifier
+                        .size(width = 84.dp, height = 112.dp)
+                        .clip(RoundedCornerShape(AppDimens.RadiusCover))
+                ) {
+                    BookCoverImage(
+                        book = book.entity,
+                        semantics = BookCoverSemantics.Decorative,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Spacer(modifier = Modifier.width(AppDimens.SpaceLg))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = book.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = book.author,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
+                    Text(
+                        text = book.chapter,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+                    LinearProgressIndicator(
+                        progress = { book.percent },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant
+                    )
+                    Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Прослухано ${book.percentLabel}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "Залишилось ${book.remainingLabel}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
+            Button(
+                onClick = {},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp),
+                shape = RoundedCornerShape(AppDimens.RadiusPanel)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+                Text(
+                    text = "Слухати далі · ${book.remainingLabel}",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+    }
+}
+
+/** One horizontally scrolling line of status chips — never wraps, never stacks. */
+@Composable
+private fun StatusChipRow(books: List<PBook>, selectedIndex: Int = 0) {
+    val labels = listOf(
+        "Усі ${books.size}",
+        "Слухаю ${listening.size}",
+        "Нові ${fresh.size}",
+        "Завершені ${finished.size}",
+        "Завантажені $downloadedCount"
+    )
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceSm)
+    ) {
+        items(labels.size) { index ->
+            Chip(label = labels[index], selected = index == selectedIndex)
+        }
+        item { Chip(label = "Фільтр", selected = false, trailingTune = true) }
+    }
+}
+
+@Composable
+private fun Chip(label: String, selected: Boolean, trailingTune: Boolean = false) {
+    FilterChip(
+        selected = selected,
+        onClick = {},
+        label = {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+            )
+        },
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        leadingIcon = if (trailingTune) {
+            {
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        } else null,
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primary,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            labelColor = MaterialTheme.colorScheme.onSurface
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = MaterialTheme.colorScheme.outlineVariant,
+            selectedBorderColor = MaterialTheme.colorScheme.primary
+        )
+    )
+}
+
+private fun LazyListScope.pSection(
+    title: String,
+    books: List<PBook>,
+    resume: Boolean,
+    done: Boolean = false
+) {
+    item(key = "h-$title") {
+        AppSectionHeader(title = title, count = bookCount(books.size))
+    }
+    items(books, key = { it.id }) { book ->
+        PBookRow(book = book, resume = resume, done = done)
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+            modifier = Modifier.padding(start = 96.dp)
+        )
+    }
+}
+
+@Composable
+private fun PBookRow(book: PBook, resume: Boolean, done: Boolean) {
+    BookRow(
+        title = book.title,
+        book = book.entity,
+        author = book.author,
+        stats = if (done) {
+            "Прослухано повністю · ${book.totalLabel}"
+        } else {
+            "${book.chapter} · залишилось ${book.remainingLabel}"
+        },
+        progress = if (done) null else book.percent,
+        badges = {
+            Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+            MetadataChip(source = book.source)
+        },
+        trailing = {
+            Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+            DownloadBadge(book)
+            Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+            when {
+                resume -> FilledIconButton(onClick = {}, modifier = Modifier.size(44.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Продовжити",
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+                done -> Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Завершено",
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(24.dp)
+                )
+                else -> Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Слухати",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        },
+        onClick = {}
+    )
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// VARIANT B — «Полиці» (browse-first)
+//
+// Not a single chip on screen: filters and sort collapse into two pills, and
+// the library becomes cover shelves. Browsing is by eye; the covers carry the
+// state (progress on the artwork, a play badge on what is in progress).
+// ───────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun VariantBShelves(books: List<PBook>) {
+    PhoneScreen {
+        PrototypeTopBar(title = "Медіатека", subtitle = "${bookCount(books.size)} · $libraryTotalLabel") {
+            SearchAction()
+            IconButton(onClick = {}) {
+                Icon(
+                    imageVector = Icons.Default.Tune,
+                    contentDescription = "Фільтри",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceSection)
+        ) {
+            item(key = "pills") { ControlPillRow() }
+            item(key = "h-listen") {
+                AppSectionHeader(title = "Продовжити", count = bookCount(listening.size))
+            }
+            item(key = "shelf-listen") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = AppDimens.PageSides),
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceLg)
+                ) {
+                    items(listening, key = { it.id }) { book -> ShelfTile(book, 146.dp) }
+                }
+            }
+            item(key = "h-new") {
+                AppSectionHeader(title = "Нові", count = bookCount(fresh.size))
+            }
+            item(key = "shelf-new") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = AppDimens.PageSides),
+                    horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd)
+                ) {
+                    items(fresh, key = { it.id }) { book -> ShelfTile(book, 116.dp) }
+                }
+            }
+            item(key = "h-done") {
+                AppSectionHeader(title = "Завершені", count = bookCount(finished.size))
+            }
+            item(key = "grid-done") { FinishedGrid(finished) }
+        }
+    }
+}
+
+/** Sort + filter collapsed into two compact pills on one line. */
+@Composable
+private fun ControlPillRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.PageSides),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ControlPill("Усі")
+        Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+        ControlPill("Нещодавно слухані")
+        Spacer(modifier = Modifier.weight(1f))
+        TextButton(onClick = {}) {
+            Text(
+                text = "Сітка",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun ControlPill(label: String) {
+    Surface(
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier
+            .heightIn(min = 36.dp)
+            .clickable {}
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = AppDimens.SpaceMd),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+/** A big cover tile: artwork, progress on the artwork, title under it. */
+@Composable
+private fun ShelfTile(book: PBook, width: Dp) {
+    Column(modifier = Modifier.width(width)) {
+        Box {
+            CoverWithProgress(
+                book = book,
+                width = width,
+                height = width * 4f / 3f,
+                radius = AppDimens.RadiusCardLg
+            )
+            if (book.state == PState.LISTENING && book.percent > 0f) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(AppDimens.SpaceSm)
+                        .size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Продовжити",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(AppDimens.SpaceSm)
+            ) {
+                DownloadBadge(book, tint = MaterialTheme.colorScheme.onPrimary)
+            }
+        }
+        Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
+        Text(
+            text = book.title,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = book.author,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = if (book.state == PState.LISTENING) "Залишилось ${book.remainingLabel}" else book.remainingLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (book.state == PState.LISTENING) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1
+        )
+    }
+}
+
+/** Finished books as a small, dimmed cover grid — quiet, out of the way. */
+@Composable
+private fun FinishedGrid(books: List<PBook>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.PageSides),
+        horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd)
+    ) {
+        books.take(3).forEach { book ->
+            Column(modifier = Modifier.width(100.dp)) {
+                Box {
+                    CoverWithProgress(
+                        book = book,
+                        width = 100.dp,
+                        height = 133.dp,
+                        radius = AppDimens.RadiusCard
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Завершено",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
+                Text(
+                    text = book.title,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// VARIANT C — «Черга» (listening-queue-first)
+//
+// Treats the library as an ordered queue rather than a catalogue: almost no
+// covers, a timeline rail down the left, tabular counters on the right, and
+// one segmented control instead of a chip row plus a filter sheet. The densest
+// of the three — for a listener with 58 books.
+// ───────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun VariantCQueue(books: List<PBook>) {
+    val queue = listening.drop(1) + fresh
+    PhoneScreen {
+        PrototypeTopBar(
+            title = "Медіатека",
+            subtitle = "${books.size} книг · ${listening.size} у роботі"
+        ) {
+            SearchAction()
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceSection)
+        ) {
+            item(key = "now") { NowBar(listening.first()) }
+            item(key = "segments") { QueueSegments() }
+            item(key = "h-queue") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = AppDimens.PageSides,
+                            end = AppDimens.PageSides,
+                            top = AppDimens.SpaceLg,
+                            bottom = AppDimens.SpaceSm
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "У ЧЕРЗІ · ${queue.size}",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "разом ${formatDuration(queue.sumOf { it.remainingSeconds })}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            items(queue, key = { it.id }) { book -> QueueRow(book) }
+            item(key = "h-done") {
+                AppSectionHeader(title = "Завершені", count = bookCount(finished.size))
+            }
+            items(finished, key = { it.id }) { book -> QueueRow(book, done = true) }
+        }
+    }
+}
+
+/** Slim "now" strip — the queue's head, not a hero card. */
+@Composable
+private fun NowBar(book: PBook) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm)
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(AppDimens.SpaceMd),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 44.dp, height = 58.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCover))
+        ) {
+            BookCoverImage(
+                book = book.entity,
+                semantics = BookCoverSemantics.Decorative,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "ЗАРАЗ · ${book.chapter}",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                ),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            LinearProgressIndicator(
+                progress = { book.percent },
+                modifier = Modifier
+                    .padding(top = AppDimens.SpaceSm)
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
+        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+        FilledIconButton(onClick = {}, modifier = Modifier.size(44.dp)) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Продовжити",
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+    }
+}
+
+/** One segmented control replaces the chip row + the filter-sheet launcher. */
+@Composable
+private fun QueueSegments() {
+    val segments = listOf("Усі" to false, "Слухаю" to true, "Нові" to false, "Завершені" to false)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm)
+            .clip(RoundedCornerShape(AppDimens.RadiusPanel))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(4.dp)
+    ) {
+        segments.forEach { (label, selected) ->
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 36.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusInner))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+                    )
+                    .clickable {},
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** Queue row: rail, title, and a tabular counter on the right. */
+@Composable
+private fun QueueRow(book: PBook, done: Boolean = false) {
+    val accent = if (book.state == PState.LISTENING) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clickable {}
+            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // The timeline rail: one hairline per row plus a fill dot on the
+        // in-progress book. Stacked rows read as one unbroken thread.
+        Box(
+            modifier = Modifier
+                .width(24.dp)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            )
+            Box(
+                modifier = Modifier
+                    .size(if (book.state == PState.LISTENING) 12.dp else 8.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+        }
+        Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = if (done) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = if (done) "${book.author} · прослухано" else "${book.author} · ${book.chapter}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = if (done) book.totalLabel else book.remainingLabel,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                color = if (book.state == PState.LISTENING) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            Text(
+                text = when {
+                    done -> "готово"
+                    book.state == PState.NEW -> "новий"
+                    else -> book.percentLabel
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+        DownloadBadge(book, size = 15.dp)
+        Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+        Icon(
+            imageVector = if (done) Icons.Default.CheckCircle else Icons.Default.PlayArrow,
+            contentDescription = if (done) "Завершено" else "Слухати",
+            tint = if (done) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+        modifier = Modifier.padding(start = 48.dp, end = AppDimens.PageSides)
+    )
+}

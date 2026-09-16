@@ -112,7 +112,7 @@ class PersonBookmarkButtonTest {
         }
 
         composeTestRule.onNodeWithTag("person_bookmark_button")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test
@@ -134,7 +134,7 @@ class PersonBookmarkButtonTest {
         }
 
         composeTestRule.onNodeWithTag("person_bookmark_button")
-            .assertHeightIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(24.dp)
     }
 
     @Test

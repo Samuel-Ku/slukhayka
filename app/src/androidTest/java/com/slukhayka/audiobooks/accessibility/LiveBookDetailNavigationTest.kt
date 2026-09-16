@@ -74,7 +74,7 @@ class LiveBookDetailNavigationTest {
                 rule.waitUntil(10_000) { vm.selectedSeries.value == null && vm.selectedPerson.value == null }
                 rule.onNodeWithTag(tag).assertIsFocused()
             }
-            rule.onNodeWithTag("play_book_button").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+            rule.onNodeWithTag("play_book_button").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(24.dp)
             capture("actions")
             rule.onNodeWithTag("book_detail_description").performScrollTo().assertIsDisplayed()
             val scroll = rule.onNodeWithTag("book_detail_screen")

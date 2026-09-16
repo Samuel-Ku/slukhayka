@@ -153,7 +153,19 @@ jobs:
         run: |
           started_at=$(date +%s)
           mkdir -p app/build/kover/partition
-          ./gradlew ${{ matrix.tasks }} --no-daemon --stacktrace
+          # T3/#848: the snapshot leg can COMPARE against the committed goldens
+          # instead of silently re-rendering them. It is gated by a repository
+          # variable because the committed set currently drifts from a fresh
+          # renderer (0.02–3% on unrelated surfaces), so flipping it on is a
+          # deliberate step: first re-record the baseline on this runner with
+          # the "Record snapshot goldens" workflow, commit it, then set
+          # ROBORAZZI_VERIFY=true.
+          EXTRA_FLAGS=""
+          if [ "${{ matrix.id }}" = "compose-roborazzi" ] && [ "${{ vars.ROBORAZZI_VERIFY }}" = "true" ]; then
+            EXTRA_FLAGS="-Proborazzi.test.verify=true"
+            echo "Snapshot verification: ON (goldens are compared, not recorded)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          ./gradlew ${{ matrix.tasks }} $EXTRA_FLAGS --no-daemon --stacktrace
           cp app/build/kover/bin-reports/testDebugUnitTest.ic "app/build/kover/partition/${{ matrix.ic }}"
           elapsed=$(( $(date +%s) - started_at ))
           echo "${{ matrix.name }}: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"

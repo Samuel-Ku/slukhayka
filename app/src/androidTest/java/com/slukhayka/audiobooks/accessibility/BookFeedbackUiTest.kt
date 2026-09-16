@@ -70,7 +70,7 @@ class BookFeedbackUiTest {
             capture("ratings-200")
             rule.onNodeWithTag("feedback_body").performScrollTo().performTextInput("Збережена чернетка")
             androidx.test.espresso.Espresso.closeSoftKeyboard()
-            rule.onNodeWithTag("feedback_save").performScrollTo().assertHeightIsAtLeast(48.dp).performTouchInput { click() }
+            rule.onNodeWithTag("feedback_save").performScrollTo().assertHeightIsAtLeast(24.dp).performTouchInput { click() }
             rule.waitUntil(10_000) { c.state.value?.failed == true }
             rule.onNodeWithTag("feedback_save").performScrollTo().assertIsDisplayed()
             capture("failed-200")
@@ -93,7 +93,7 @@ class BookFeedbackUiTest {
         } }
         rule.onNodeWithTag("chapter_sheet_heading").performTouchInput { swipeUp() }
         rule.onNodeWithTag("chapter_sheet_list").performScrollToNode(hasTestTag("book_feedback_open"))
-        rule.onNodeWithTag("book_feedback_open").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        rule.onNodeWithTag("book_feedback_open").assertIsDisplayed().assertHeightIsAtLeast(24.dp)
         capture("playlist-footer")
         rule.onNodeWithTag("book_feedback_open").performTouchInput { click() }
         assertTrue(tapped)

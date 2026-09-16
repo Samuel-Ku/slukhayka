@@ -394,7 +394,7 @@ fun LibraryScreen(
                         IconButton(
                             onClick = { activeTab = 0 },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(AppDimens.TouchTarget)
                                 .testTag("library_section_back")
                         ) {
                             Icon(
@@ -958,24 +958,22 @@ internal fun LibraryHeaderActions(
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
-    // ADR-0044: dense chrome keeps the 24 dp floor, so Material's blanket
-    // 48 dp inflation is switched off here — otherwise every 40 dp control
-    // silently grew straight back to 48.
-    androidx.compose.runtime.CompositionLocalProvider(
-        androidx.compose.material3.LocalMinimumInteractiveComponentSize provides AppDimens.MinTouchTarget
-    ) {
-        LibraryHeaderActionsInner(
-            bookmarksCount = bookmarksCount,
-            peopleCount = peopleCount,
-            searchExpanded = searchExpanded,
-            menuOpen = menuOpen,
-            onToggleSearch = onToggleSearch,
-            onMenuOpenChange = onMenuOpenChange,
-            onOpenSection = onOpenSection,
-            onAdd = onAdd,
-            importFocusRequester = importFocusRequester
-        )
-    }
+    // ADR-0044 lowers OUR floor to 24 dp, but the header keeps 48 dp: the
+    // vendor a11y gate that runs on the device (Google ATF, enabled inside
+    // MainActivityAccessibilityTest) still reports a 48 dp touch target, and a
+    // gate nobody can pass is worse than a slightly taller header. The design
+    // win lives in the chip row, which is compact on purpose.
+    LibraryHeaderActionsInner(
+        bookmarksCount = bookmarksCount,
+        peopleCount = peopleCount,
+        searchExpanded = searchExpanded,
+        menuOpen = menuOpen,
+        onToggleSearch = onToggleSearch,
+        onMenuOpenChange = onMenuOpenChange,
+        onOpenSection = onOpenSection,
+        onAdd = onAdd,
+        importFocusRequester = importFocusRequester
+    )
 }
 
 @Composable
@@ -993,7 +991,7 @@ internal fun LibraryHeaderActionsInner(
     IconButton(
         onClick = onToggleSearch,
         modifier = Modifier
-            .size(40.dp)
+            .size(AppDimens.TouchTarget)
             .testTag("library_search_toggle")
     ) {
         Icon(
@@ -1011,7 +1009,7 @@ internal fun LibraryHeaderActionsInner(
         IconButton(
             onClick = { onMenuOpenChange(true) },
             modifier = Modifier
-                .size(40.dp)
+                .size(AppDimens.TouchTarget)
                 .testTag("library_sections_menu")
         ) {
             Icon(
@@ -1055,7 +1053,7 @@ internal fun LibraryHeaderActionsInner(
     IconButton(
         onClick = onAdd,
         modifier = Modifier
-            .size(40.dp)
+            .size(AppDimens.TouchTarget)
             .focusRequester(importFocusRequester)
             .testTag("library_add_button")
     ) {
@@ -1085,11 +1083,26 @@ internal fun LibraryContinueCard(
         null
     }
     val chapter = libraryChapterLabel(book)
+    // The hero keeps the SAME contract as the list card (v1.5 review, found by
+    // the device gate): the book's body is one contextual action tagged
+    // `library_book_item_<id>`, and the resume CTA is a separate node. Merging
+    // the whole card into one node both hid the CTA from TalkBack and removed
+    // the book's only card node from the screen — the book had been lifted out
+    // of its section, so nothing else carried the tag.
+    val description = if (book.book.displayAuthor.isBlank()) {
+        book.book.title
+    } else {
+        stringResource(
+            R.string.a11y_library_entry_description,
+            book.book.title,
+            book.book.displayAuthor
+        )
+    }
+    val state = libraryEntryStateDescription(book, availability = null)
+    val openLabel = stringResource(R.string.a11y_library_open_book, book.book.title)
     Card(
-        onClick = onOpen,
         modifier = Modifier
             .fillMaxWidth()
-            .semantics(mergeDescendants = true) { }
             .testTag("library_continue_card"),
         shape = RoundedCornerShape(AppDimens.RadiusHero),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -1104,7 +1117,22 @@ internal fun LibraryContinueCard(
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
-            Row {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusProperties { canFocus = true }
+                    .clickable(onClick = onOpen)
+                    .testTag("library_book_item_${book.book.id}")
+                    .clearAndSetSemantics {
+                        contentDescription = description
+                        stateDescription = state
+                        role = Role.Button
+                        onClick(label = openLabel) {
+                            onOpen()
+                            true
+                        }
+                    }
+            ) {
                 BookCoverImage(
                     book = book.book,
                     semantics = BookCoverSemantics.Decorative,

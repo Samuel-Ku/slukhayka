@@ -319,15 +319,67 @@ _Avoid_: fatal crash or ANR, user-requested stop, raw trace, exit description, m
 ## Listener relationship
 
 **Library Entry**:
-A listener's relationship to one Work, including library status and Metadata Overrides. Removing a Library Entry does not erase the underlying Work, Editions, or Sources.
-_Avoid_: Book, collection item
+A listener's personal relationship to one Work — the one place a book becomes
+"mine". It carries how the relationship began (the listener's own explicit act
+or an automatic pass — ADR-0047), the favourite flag, and Metadata Overrides.
+It carries no position: audio position stays in the Listening State, reading
+progress in a Readthrough. Removing a Library Entry does not erase the
+underlying Work, Editions, or Sources.
+_Avoid_: Book, collection item, a relationship created by opening a card or by a catalogue sync
+
+**Reading Format**:
+Побутова форма, у якій людина читає чи слухає один твір: папір, електронна
+книга або аудіо. Це властивість одного Readthrough, ніколи не Work і ніколи
+не Reading State: той самий твір можна одночасно читати на папері й слухати,
+і кожен формат веде власний прогрес. Аудіо — єдиний формат, чия позиція
+живе в Listening State, бо єдиний має Edition.
+_Avoid_: media type, content type, формат як стан, Edition як формат
+
+**Readthrough**:
+Один прохід людини одним Work в одному Reading Format, який належить
+Library Entry цього Work. Несе власний Reading State, дати, журнал записів
+прогресу й власні одиниці — сторінки, відсотки та час ніколи не
+перераховуються між собою. Завершення одного Readthrough не завершує інший;
+повторне читання починає новий Readthrough, зберігаючи попередній в історії.
+Аудіо-Readthrough посилається на наявний Edition і не має другої правди про
+позицію.
+_Avoid_: session, attempt, progress, reading (без означення), Listening State
+
+**Reading State**:
+Стан одного Readthrough: «Хочу прочитати», «Читаю», «Прочитано», а також
+«Відкладено» і «Не завершено». Обирається явно й ніколи не рухається сам —
+пропущений день чи довга пауза не змінюють стану. Незалежний від Reading
+Format, доступності аудіо, завантаження й членства в добірках. Для аудіо та
+сама поверхня підписується «Слухаю» / «Прослухано», не заводячи другої
+правди.
+_Avoid_: прогрес як стан, автозавершення паузою, окремий стан на формат
+
+**«Мої книги»** (Personal Library):
+Поверхня особистого вибору: усі формати, полиці Reading State, власні
+добірки, обране, збережене й «Мій рік». Будується на Library Entries,
+початих явною дією слухача (ADR-0047); твір, який лише перелічено з
+каталогу, лишається доступним для відкриття, але не вдає особистий вибір.
+_Avoid_: Медіатека як синонім локальної бази, автосід як особиста книжка
+
+**Personal Intent** (особистий намір):
+Явна дія слухача, яка починає Library Entry: збереження книжки, вибір стану
+«Хочу прочитати», власний імпорт файлу чи папки. Саме вона, а не поява рядка
+в локальній базі, робить твір особистим (ADR-0047).
+_Avoid_: імпорт як намір, автосід, технічне відкриття картки
+
+**«Імпортоване»** (Unclassified Import):
+Тимчасовий підрозділ «Моїх книг» для Library Entries, чиє походження не
+відновлюється з наявних даних. Записи тут видимі з поясненням і не вдають
+особистий вибір; людина підтверджує їх як особисті або прибирає. Це не друга
+бібліотека: підрозділ має спорожніти, а не стати постійним домом.
+_Avoid_: друга бібліотека, автосід як пояснення походження, безмовне приховування старих рядків
 
 **Listening State**:
 A listener's progress, bookmarks, completion state, and playback preferences for one Edition. It is independent of the Source currently used to play that Edition — its row is keyed by Edition alone, so a Source switch never forks progress.
 _Avoid_: Library Entry, playback progress
 
 **«Прослухано» (Listened)**:
-Стан завершення одного Listening State, який слухач може виставити й прибрати вручну, а не лише автоматично дійти до кінця. Ручна позначка виставляє той самий прапорець завершення, а не другу правду поруч: окремої сутності «прослухане» немає. Поверхня «Прослухано» — це Медіатека, відфільтрована за завершенням; це не «Добірка слухача» й не кураторська колекція.
+Стан завершення одного Listening State, який слухач може виставити й прибрати вручну, а не лише автоматично дійти до кінця. Це аудіо-обличчя Reading State «Прочитано» для аудіо-Readthrough цього Work, а не друга правда й не окремий стан: ручна позначка виставляє той самий прапорець завершення, а не другий маркер поруч. Поверхня «Прослухано» — це «Мої книги», відфільтровані за завершенням; це не «Добірка слухача» й не кураторська колекція.
 _Avoid_: окремий ручний маркер прослуханого, `listened` поруч із `isCompleted`, друга правда завершення, плутання з «Добіркою слухача»
 
 **Smart Rewind**:

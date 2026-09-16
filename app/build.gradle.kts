@@ -660,3 +660,41 @@ val verifyE5ModelAssets = tasks.register("verifyE5ModelAssets") {
 tasks.matching { it.name == "preReleaseBuild" }.configureEach {
     dependsOn(verifyE5ModelAssets)
 }
+
+// #829 — the Telegram MTProto engine (TDLib) as a PINNED prebuilt AAR.
+// Maven Central's only artifact is `ca.denisab85:tdlib` 1.8.8 (2022-11-12), so
+// the maintained prebuilt release is the source. The AAR is never committed
+// (40 MB); the version AND its sha256 are pinned here, and a mismatch fails the
+// download instead of silently building against a different binary — the same
+// discipline as downloadE5Model.
+val downloadTdlib by tasks.registering(Exec::class) {
+  group = "verification"
+  description = "Downloads the pinned TDLib 1.8.67-d1085f9 AAR (sha256-verified) into app/libs"
+  val libsDir = file("libs")
+  val aarFile = libsDir.resolve("tdlib-1.8.67-d1085f9.aar")
+  doFirst {
+    libsDir.mkdirs()
+    if (aarFile.exists()) logger.lifecycle("tdlib AAR already present — skipping download")
+  }
+  commandLine(
+    "bash", "-c",
+    """
+      set -euo pipefail
+      mkdir -p "${'$'}(pwd)/libs"
+      target="libs/tdlib-1.8.67-d1085f9.aar"
+      if [ -f "${'$'}target" ]; then exit 0; fi
+      url="https://github.com/FaiBah/TDLibAndroidPrebuilt/releases/download/v1.8.67-d1085f9-Java/tdlib.aar"
+      expected="d54097da1ff2d8ed32cbf2dbe42ef4ce59b14d0bb7d4561d267a968d63135c91"
+      tmp="${'$'}(mktemp)"
+      curl -sL --max-time 1200 -o "${'$'}tmp" "${'$'}url"
+      actual="${'$'}(sha256sum "${'$'}tmp" | awk '{print ${'$'}1}')"
+      if [ "${'$'}actual" != "${'$'}expected" ]; then
+        echo "TDLib AAR sha256 mismatch: got ${'$'}actual, expected ${'$'}expected" >&2
+        rm -f "${'$'}tmp"
+        exit 1
+      fi
+      mv "${'$'}tmp" "${'$'}target"
+      echo "TDLib AAR verified (${'$'}expected)"
+    """.trimIndent()
+  )
+}

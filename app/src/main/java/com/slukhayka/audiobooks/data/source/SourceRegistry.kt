@@ -46,6 +46,15 @@ data class BrowserProfileFacts(
     val releaseBrowserDoor: Boolean = false
 )
 
+/**
+ * ADR-0050 — the registered community Telegram group: the public group URL
+ * (never an invite token) and the parser key its channel posts are read under.
+ */
+data class TelegramProfileFacts(
+    val groupUrl: String = "",
+    val channelId: String = ""
+)
+
 /** One declarative row of the Source Registry (ADR-0038). */
 data class SourceFacts(
     /** The stable, persisted (Room `sources.type`) domain id. */
@@ -83,7 +92,9 @@ data class SourceFacts(
     val catalogUrl: String? = null,
     /** All hosts the platform transports may fetch for this source (web SSRF allowlist, cookie/audio boundaries). */
     val transportHosts: Set<String> = emptySet(),
-    val browserProfile: BrowserProfileFacts? = null
+    val browserProfile: BrowserProfileFacts? = null,
+    /** ADR-0050 — present only on the registered community Telegram group. */
+    val telegramProfile: TelegramProfileFacts? = null
 )
 
 /**
@@ -237,11 +248,19 @@ object SourceRegistry {
         ),
         SourceFacts(
             id = "telegram",
-            displayName = "Telegram",
+            // ADR-0050 — the registered community group, not a generic source.
+            displayName = "Спільна бібліотека",
+            homeUrl = "https://t.me/s/slukhayka_shared",
             contentLanguage = "uk",
-            accessMode = SourceAccessMode.UNKNOWN,
+            accessMode = SourceAccessMode.TELEGRAM,
             order = 10,
-            transportHosts = emptySet()
+            // No HTTP transport: audio comes over MTProto under the listener's
+            // own account, never through the shared HTTP lane.
+            transportHosts = emptySet(),
+            telegramProfile = TelegramProfileFacts(
+                groupUrl = "https://t.me/s/slukhayka_shared",
+                channelId = "slukhayka_shared"
+            )
         ),
         SourceFacts(
             id = "sluhayknigi",

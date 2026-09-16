@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.data.source
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SourceAccessPolicyTest {
@@ -118,5 +120,23 @@ class SourceAccessPolicyTest {
         assertEquals(false, direct)
         assertEquals(false, unknown)
         assertEquals(false, empty)
+    }
+    @Test
+    fun `telegram is the last resort, after browser, and only on an explicit action`() {
+        val ordered = SourceAccessPolicy.order(
+            listOf(
+                SourceAccessCandidate("telegram", url = "https://t.me/s/slukhayka_shared"),
+                SourceAccessCandidate("4read", url = "https://4read.org/book"),
+                SourceAccessCandidate("soundbooks", url = "https://sound-books.net/book"),
+                SourceAccessCandidate("legacy", url = "https://legacy/book")
+            )
+        )
+
+        // 4read is a scam source (#812): it never survives the ordering.
+        assertEquals(listOf("soundbooks", "legacy", "telegram"), ordered.map { it.sourceId })
+        assertEquals(4, SourceAccessPolicy.priority(SourceAccessCandidate("telegram")))
+        assertTrue(SourceAccessPolicy.requiresExplicitAction("telegram"))
+        assertTrue(SourceAccessPolicy.requiresExplicitAction("4read"))
+        assertFalse(SourceAccessPolicy.requiresExplicitAction("soundbooks"))
     }
 }

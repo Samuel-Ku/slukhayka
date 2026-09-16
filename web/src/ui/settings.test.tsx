@@ -88,7 +88,7 @@ describe('Settings', () => {
     expect(screen.getByText('Профіль прив’язано — ваш нік і відгуки тепер тут.')).toBeTruthy()
     const syncToggle = screen.getByRole('checkbox', { name: 'Синхронізація прогресу' }) as HTMLInputElement
     expect(syncToggle.checked).toBe(true)
-    // The sync switch persists its own honest preference (ADR-0023).
+    // The sync switch persists its own honest preference (ADR-0051).
     await user.click(syncToggle)
     expect(window.localStorage.getItem('slukhayka.progress_sync_enabled')).toBe('0')
   })

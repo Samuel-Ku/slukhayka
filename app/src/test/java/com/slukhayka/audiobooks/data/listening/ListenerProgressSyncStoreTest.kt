@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ADR-0023 (spec-43 T6) — the seam test of [ListenerProgressSyncStore] over
+ * ADR-0051 (spec-43 T6) — the seam test of [ListenerProgressSyncStore] over
  * an in-memory transport (prior art: ListenerReviewsStoreTest): the policy
  * lives in the seam's default methods, the transport only moves documents.
  */

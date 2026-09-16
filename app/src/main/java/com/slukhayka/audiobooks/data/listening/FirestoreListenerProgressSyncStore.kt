@@ -10,7 +10,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
- * ADR-0023 (spec-43 T6) — the Firestore implementation of
+ * ADR-0051 (spec-43 T6) — the Firestore implementation of
  * [ListenerProgressSyncStore] over the `listening_state` collection:
  * `{uid}_{editionId}` documents whose `updatedAt` is written by the SERVER.
  *
@@ -51,7 +51,7 @@ class FirestoreListenerProgressSyncStore(private val firestore: FirebaseFirestor
     private suspend fun Task<Void>.awaitUnit(): Void? = awaitTask()
 
     companion object {
-        /** ADR-0023 (spec-43 T6) — the Progress Sync collection. */
+        /** ADR-0051 (spec-43 T6) — the Progress Sync collection. */
         private const val COLLECTION = "listening_state"
         private const val FIELD_UPDATED_AT = ProgressSyncCodec.FIELD_UPDATED_AT
 

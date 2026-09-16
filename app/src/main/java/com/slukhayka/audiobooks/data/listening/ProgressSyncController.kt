@@ -7,7 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * ADR-0023 (spec-43 T6) — the narrow view of the Listening State Store that
+ * ADR-0051 (spec-43 T6) — the narrow view of the Listening State Store that
  * Progress Sync needs. [ListeningStateStore] implements it directly; tests
  * supply an in-memory fake, so the controller stays JVM-pure.
  */
@@ -31,7 +31,7 @@ interface ProgressMirror {
 }
 
 /**
- * ADR-0023 (spec-43 T6) — the orchestrator of Progress Sync: pull before a
+ * ADR-0051 (spec-43 T6) — the orchestrator of Progress Sync: pull before a
  * resume, throttled push at every save point. Every path degrades silently —
  * no Firebase config, a switched-off toggle or a failing transport leaves the
  * app exactly as it was, never an exception into playback.

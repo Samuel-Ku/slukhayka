@@ -13,7 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ADR-0023 (spec-43 T6) — the controller over pure fakes: pull-before-resume,
+ * ADR-0051 (spec-43 T6) — the controller over pure fakes: pull-before-resume,
  * throttled push-after-save, the local-profile guard and the toggle. No
  * Android, no Firebase, no Room (prior art: the identity seam's JVM fakes).
  */

@@ -18,7 +18,7 @@ import {
 
 /**
  * #581 W0.3 — the store seam of the `work_relationships` collection, shaped
- * exactly like `ListenerProgressSyncStore` (ADR-0023 house pattern): the
+ * exactly like `ListenerProgressSyncStore` (ADR-0051 house pattern): the
  * policy lives in pure modules (`workRelationships.ts`), the transport only
  * moves documents, and every failure degrades to null / an empty list —
  * never an exception. Documents live under the deterministic key

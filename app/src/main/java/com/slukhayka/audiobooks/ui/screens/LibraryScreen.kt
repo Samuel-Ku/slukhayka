@@ -1178,7 +1178,10 @@ internal fun LibraryContinueCard(
                             .height(6.dp)
                             .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
                         color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant
+                        trackColor = MaterialTheme.colorScheme.outlineVariant,
+                        // #292: the M3 stop dot sat at the track's end like a
+                        // second, unexplained marker (device review, 2026-09-16).
+                        drawStopIndicator = {}
                     )
                     Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
                     // The remaining time lives in the CTA right below — repeating
@@ -1970,9 +1973,15 @@ private fun LibraryBookGridContent(
                     .clip(RoundedCornerShape(AppDimens.RadiusProgress))
                     .clearAndSetSemantics { },
                 color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant
+                trackColor = MaterialTheme.colorScheme.outlineVariant,
+                // #292 carried to the shelf: the M3 stop dot read as a stray
+                // amber marker crowding the provenance chip right below it
+                // (device review, 2026-09-16).
+                drawStopIndicator = {}
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            // The provenance chip sits directly under this bar. 4 dp merged
+            // the two amber elements into one smudge; the chip needs air.
+            Spacer(modifier = Modifier.height(10.dp))
             // One reserved line: the verdict of a problem Work, or the source.
             // The remaining time lives in the list rows — on a 124 dp tile it
             // only ellipsised into noise.

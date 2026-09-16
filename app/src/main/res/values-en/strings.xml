@@ -191,6 +191,12 @@
     <string name="collection_no_ratings">No ratings yet</string>
     <string name="collection_your_rating">Your rating</string>
     <string name="collection_vote_error">Couldn\'t save your rating. Try again.</string>
+    <string name="collection_report">Report</string>
+    <string name="collection_reported">The collection is hidden for you</string>
+    <string name="collection_report_undo">Show again</string>
+    <string name="collection_report_error">Couldn\'t send the report. Try again.</string>
+    <string name="collection_hidden_by_reports">Hidden after reports</string>
+    <string name="collection_delete">Delete collection</string>
     <string name="listen_shelves_restore_all">Restore all hidden</string>
     <string name="listen_remaining_h">%1$d h left</string>
     <string name="listen_remaining_m">%1$d min left</string>

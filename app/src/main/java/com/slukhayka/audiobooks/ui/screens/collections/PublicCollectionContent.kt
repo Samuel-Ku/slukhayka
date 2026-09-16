@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -41,7 +42,11 @@ fun PublicCollectionContent(
     myStars: Int? = null,
     /** The viewer IS the curator: no self-rating, only the read surface. */
     isOwn: Boolean = false,
-    onVote: (Int) -> Unit = {}
+    onVote: (Int) -> Unit = {},
+    /** #696 — complain about someone else's collection; null hides the action. */
+    onReport: (() -> Unit)? = null,
+    /** #696 — the author's only action on a HIDDEN own collection. */
+    onDelete: (() -> Unit)? = null
 ) {
     Column(
         modifier = modifier
@@ -107,6 +112,28 @@ fun PublicCollectionContent(
                     .testTag("public_collection_no_ratings")
             )
         }
+        if (isOwn && collection.hidden) {
+            // #696 — the author sees WHY their collection is gone and gets no
+            // save/fork action on it; the community verdict is final.
+            Text(
+                text = stringResource(R.string.collection_hidden_by_reports),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .testTag("public_collection_hidden_notice")
+            )
+            if (onDelete != null) {
+                TextButton(
+                    onClick = onDelete,
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp)
+                        .testTag("public_collection_delete")
+                ) {
+                    Text(stringResource(R.string.collection_delete))
+                }
+            }
+        }
         if (!isOwn) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -121,13 +148,25 @@ fun PublicCollectionContent(
                 interactive = true,
                 onRatingChange = onVote
             )
+            if (onReport != null) {
+                TextButton(
+                    onClick = onReport,
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp)
+                        .testTag("public_collection_report")
+                ) {
+                    Text(stringResource(R.string.collection_report))
+                }
+            }
         }
-        Spacer(Modifier.height(12.dp))
-        SaveCollectionForYouButton(
-            originalAvailableLocally = originalAvailableLocally,
-            onSave = onSaveForYou,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
+        if (!(isOwn && collection.hidden)) {
+            Spacer(Modifier.height(12.dp))
+            SaveCollectionForYouButton(
+                originalAvailableLocally = originalAvailableLocally,
+                onSave = onSaveForYou,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+        }
         Spacer(Modifier.height(12.dp))
     }
 }

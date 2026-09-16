@@ -73,7 +73,9 @@ class FirestoreListenerCollectionsSharedStore(
         } catch (_: Exception) {
             null
         } ?: return emptyList()
-        return documents.mapNotNull(PublishedCollectionCodec::decode)
+        // #696 — a hidden collection is not a public surface: it never appears
+        // in a book's block, the rail or a curator profile.
+        return documents.mapNotNull(PublishedCollectionCodec::decode).filterNot { it.hidden }
     }
 
     override suspend fun vote(documentId: String, voterKey: String, stars: Int): PublishResult {
@@ -110,6 +112,47 @@ class FirestoreListenerCollectionsSharedStore(
             throw e
         } catch (_: Exception) {
             PublishResult.Refused("vote-failed")
+        }
+    }
+
+    override suspend fun deleteOwnCollection(documentId: String): PublishResult = when {
+        documentId.isBlank() -> PublishResult.Refused("bad-collection")
+        delete(documentId) -> PublishResult.Published
+        else -> PublishResult.Refused("delete-failed")
+    }
+
+    override suspend fun report(documentId: String, reporterKey: String): PublishResult {
+        if (documentId.isBlank() || reporterKey.isBlank()) return PublishResult.Refused("bad-report")
+        return try {
+            // One complaint per person and the threshold travel in ONE
+            // transaction: a duplicate never counts, and hidden can only be
+            // turned ON (the rules enforce the same one-way transition).
+            firestore.runTransaction<Void> { transaction ->
+                val reportRef = firestore.collection(REPORTS).document(reporterKey)
+                if (!transaction.get(reportRef).exists()) {
+                    val collectionRef = firestore.collection(COLLECTION).document(documentId)
+                    val snapshot = transaction.get(collectionRef)
+                    val count = snapshot.getLong(FIELD_REPORT_COUNT)?.toInt() ?: 0
+                    val hidden = snapshot.getBoolean(FIELD_HIDDEN) ?: false
+                    transaction.set(
+                        reportRef,
+                        mapOf(FIELD_DOCUMENT_ID to documentId, FIELD_CREATED_AT to clock())
+                    )
+                    transaction.update(
+                        collectionRef,
+                        mapOf(
+                            FIELD_REPORT_COUNT to count + 1,
+                            FIELD_HIDDEN to CollectionModeration.nextHidden(hidden, count)
+                        )
+                    )
+                }
+                null
+            }.awaitWrite()
+            PublishResult.Published
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            PublishResult.Refused("report-failed")
         }
     }
 
@@ -173,6 +216,8 @@ class FirestoreListenerCollectionsSharedStore(
         private const val COLLECTION = "curator_collections"
         /** #694 — anonymous votes: one document per (person, collection) key. */
         private const val VOTES = "curator_collection_votes"
+        /** #696 — anonymous complaints, same key shape as a vote. */
+        private const val REPORTS = "curator_collection_reports"
         private const val FIELD_AUTHOR_ID = "authorId"
         private const val FIELD_BOOK_IDS = "bookIds"
         private const val FIELD_RATING_SUM = "ratingSum"
@@ -180,6 +225,8 @@ class FirestoreListenerCollectionsSharedStore(
         private const val FIELD_DOCUMENT_ID = "documentId"
         private const val FIELD_STARS = "stars"
         private const val FIELD_CREATED_AT = "createdAt"
+        private const val FIELD_HIDDEN = "hidden"
+        private const val FIELD_REPORT_COUNT = "reportCount"
 
         /**
          * The default Firebase app's Firestore, or null when Firebase is not

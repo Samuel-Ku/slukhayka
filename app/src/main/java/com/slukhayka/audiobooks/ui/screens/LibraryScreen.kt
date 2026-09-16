@@ -555,7 +555,8 @@ fun LibraryScreen(
                                 published.ratingSum,
                                 published.ratingCount
                             ),
-                            ratingCount = published.ratingCount
+                            ratingCount = published.ratingCount,
+                            hidden = published.hidden
                         )
                     },
                     onOpen = { openPublishedDocumentId = it }
@@ -580,6 +581,14 @@ fun LibraryScreen(
                                 },
                                 onSaveForYou = {
                                     viewModel.saveForkOfPublished(open.documentId)
+                                    openPublishedDocumentId = null
+                                },
+                                // The listener's own published collection: no
+                                // self-rating (#694) and the community verdict
+                                // is shown as-is (#696).
+                                isOwn = true,
+                                onDelete = {
+                                    viewModel.deleteOwnPublishedCollection(open.documentId)
                                     openPublishedDocumentId = null
                                 }
                             )

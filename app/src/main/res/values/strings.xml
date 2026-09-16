@@ -196,6 +196,12 @@
     <string name="collection_no_ratings">Ще без оцінок</string>
     <string name="collection_your_rating">Ваша оцінка</string>
     <string name="collection_vote_error">Не вдалося зберегти оцінку. Спробуйте ще раз.</string>
+    <string name="collection_report">Поскаржитись</string>
+    <string name="collection_reported">Добірку приховано для вас</string>
+    <string name="collection_report_undo">Показати знову</string>
+    <string name="collection_report_error">Не вдалося надіслати скаргу. Спробуйте ще раз.</string>
+    <string name="collection_hidden_by_reports">Приховано за скаргами</string>
+    <string name="collection_delete">Видалити добірку</string>
     <string name="listen_shelves_restore_all">Відновити всі приховані</string>
     <string name="listen_remaining_h">Залишилося %1$d год</string>
     <string name="listen_remaining_m">Залишилося %1$d хв</string>

@@ -53,4 +53,18 @@ interface ListenerCollectionsSharedStore {
 
     /** The listener's own stars for one collection, or null when not voted. */
     suspend fun myVote(voterKey: String): Int?
+
+    /**
+     * Spec-51 (#696) — one complaint per person. Three UNIQUE complaints hide
+     * the collection forever, transactionally with `reportCount`/`hidden`.
+     * [reporterKey] is [CollectionIdentity.voterKey]; a duplicate is an
+     * idempotent acceptance that never counts again.
+     */
+    suspend fun report(documentId: String, reporterKey: String): PublishResult
+
+    /**
+     * Spec-51 (#696) — the author's ONLY remaining action on a hidden
+     * collection: delete it. Online-only with an honest refusal.
+     */
+    suspend fun deleteOwnCollection(documentId: String): PublishResult
 }

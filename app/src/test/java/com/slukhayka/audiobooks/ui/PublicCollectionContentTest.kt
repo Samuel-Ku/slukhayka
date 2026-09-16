@@ -40,17 +40,22 @@ class PublicCollectionContentTest {
         onSave: () -> Unit = {},
         isOwn: Boolean = false,
         myStars: Int? = null,
-        onVote: (Int) -> Unit = {}
+        onVote: (Int) -> Unit = {},
+        onReport: (() -> Unit)? = null,
+        onDelete: (() -> Unit)? = null,
+        published: PublishedCollection = collection
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 PublicCollectionContent(
-                    collection = collection,
+                    collection = published,
                     originalAvailableLocally = available,
                     onSaveForYou = onSave,
                     myStars = myStars,
                     isOwn = isOwn,
-                    onVote = onVote
+                    onVote = onVote,
+                    onReport = onReport,
+                    onDelete = onDelete
                 )
             }
         }
@@ -112,6 +117,38 @@ class PublicCollectionContentTest {
 
         composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
         composeTestRule.onNodeWithTag("public_collection_no_ratings").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a reader gets the report action and it fires`() {
+        var reported = 0
+        setContent(available = true, onReport = { reported++ })
+
+        composeTestRule.onNodeWithTag("public_collection_report").assertIsDisplayed().performClick()
+
+        assertEquals(1, reported)
+    }
+
+    @Test
+    fun `the author never sees the report action`() {
+        setContent(available = true, isOwn = true, onReport = {})
+        composeTestRule.onNodeWithTag("public_collection_report").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the author of a hidden collection sees the state and only delete`() {
+        var deleted = 0
+        setContent(
+            available = true,
+            isOwn = true,
+            onDelete = { deleted++ },
+            published = collection.copy(hidden = true, reportCount = 3)
+        )
+
+        composeTestRule.onNodeWithTag("public_collection_hidden_notice").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("save_collection_for_you").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("public_collection_delete").assertIsDisplayed().performClick()
+        assertEquals(1, deleted)
     }
 
     @Test

@@ -5371,6 +5371,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Spec-51 (#696) — the reporter's LOCAL «приховано вами» set: a reported
+    // collection leaves their surfaces at once, and the local hide can be
+    // cancelled while the report itself stands.
+    private val _reportedCollectionIds = MutableStateFlow<Set<String>>(emptySet())
+    val reportedCollectionIds: StateFlow<Set<String>> = _reportedCollectionIds.asStateFlow()
+    private val _collectionReportResults = MutableSharedFlow<Pair<String, Boolean>>(extraBufferCapacity = 8)
+
+    /** documentId -> stored; false is an honest refusal (offline / no identity). */
+    val collectionReportResults: SharedFlow<Pair<String, Boolean>> = _collectionReportResults.asSharedFlow()
+
+    fun reportCollection(bookId: String, documentId: String, collectionId: String) {
+        val key = com.slukhayka.audiobooks.data.collections.CollectionIdentity
+            .voterKey(_listenerIdentity.value?.uid, collectionId)
+        if (!publicCollectionsAvailable || key.isEmpty()) {
+            viewModelScope.launch { _collectionReportResults.emit(documentId to false) }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val stored = App.instance.publicCollectionsGate.report(documentId, key) ==
+                com.slukhayka.audiobooks.data.collections.PublishResult.Published
+            if (stored) {
+                _reportedCollectionIds.update { it + documentId }
+                loadCollectionsWithBook(bookId)
+            }
+            _collectionReportResults.emit(documentId to stored)
+        }
+    }
+
+    /** Cancels only the LOCAL hide; the complaint itself is not withdrawn. */
+    fun unhideReportedCollection(documentId: String) {
+        _reportedCollectionIds.update { it - documentId }
+    }
+
+    /** #696 — the author removes a hidden (or any own) published collection. */
+    fun deleteOwnPublishedCollection(documentId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            App.instance.publicCollectionsGate.deleteOwnCollection(documentId)
+            refreshMyPublishedCollections()
+        }
+    }
+
     /**
      * Reads the signed-in listener's own published collections. The uid comes
      * from the identity module and is hashed immediately — it never travels.

@@ -45,7 +45,7 @@ class InMemorySharedCollections(
         published.values.filter { it.authorId == authorId }
 
     override suspend fun containing(bookId: String): List<PublishedCollection> =
-        published.values.filter { bookId.isNotBlank() && bookId in it.bookIds }
+        published.values.filter { bookId.isNotBlank() && bookId in it.bookIds && !it.hidden }
 
     private val votes = linkedMapOf<String, Int>()
 
@@ -67,4 +67,28 @@ class InMemorySharedCollections(
     }
 
     override suspend fun myVote(voterKey: String): Int? = votes[voterKey]
+
+    override suspend fun deleteOwnCollection(documentId: String): PublishResult {
+        if (!online) return PublishResult.Refused("offline")
+        return if (published.remove(documentId) != null) {
+            PublishResult.Published
+        } else {
+            PublishResult.Refused("unknown-collection")
+        }
+    }
+
+    private val reports = linkedSetOf<String>()
+
+    override suspend fun report(documentId: String, reporterKey: String): PublishResult {
+        if (!online) return PublishResult.Refused("offline")
+        if (reporterKey.isBlank()) return PublishResult.Refused("bad-report")
+        val document = published[documentId] ?: return PublishResult.Refused("unknown-collection")
+        // One complaint per person: a duplicate is accepted but never counts.
+        if (!reports.add(reporterKey)) return PublishResult.Published
+        published[documentId] = document.copy(
+            reportCount = document.reportCount + 1,
+            hidden = CollectionModeration.nextHidden(document.hidden, document.reportCount)
+        )
+        return PublishResult.Published
+    }
 }

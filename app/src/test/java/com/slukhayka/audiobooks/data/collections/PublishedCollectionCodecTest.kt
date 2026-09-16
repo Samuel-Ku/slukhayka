@@ -97,6 +97,14 @@ class PublishedCollectionCodecTest {
     }
 
     @Test
+    fun `the moderation state round-trips`() {
+        val moderated = sample().copy(hidden = true, reportCount = 3)
+        val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(moderated))!!
+        assertTrue(decoded.hidden)
+        assertEquals(3, decoded.reportCount)
+    }
+
+    @Test
     fun `a hostile aggregate decodes to the honest zero, never a fabricated number`() {
         val encoded = PublishedCollectionCodec.encode(sample()) +
             ("ratingSum" to "багато") + ("ratingCount" to -3)

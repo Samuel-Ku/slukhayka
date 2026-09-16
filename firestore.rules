@@ -281,6 +281,34 @@ service cloud.firestore {
         && d.observedAt is number;
     }
 
+    // #835 — one moderation CANDIDATE as the app writes it. The field set is
+    // pinned to the codec (SubmissionCandidateCodec): identity present, bounded
+    // text/JSON, and a fresh candidate is ALWAYS `pending` — `decidedAt` /
+    // `decidedBy` are not in the set at all, because only the curator's bot
+    // (Admin SDK) records a decision.
+    function isWellFormedSubmissionCandidate(d) {
+      return d.keys().hasOnly([
+          'url', 'canonicalUrl', 'title', 'author', 'narrator', 'coverUrl',
+          'uploader', 'durationSeconds', 'chaptersCount', 'sourceId',
+          'metadataJson', 'submitterHash', 'playedAt', 'createdAt', 'state'
+        ])
+        && d.url is string && d.url.size() > 0 && d.url.size() <= 2000
+        && d.canonicalUrl is string && d.canonicalUrl.size() > 0 && d.canonicalUrl.size() <= 2000
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 300
+        && (!('author' in d) || (d.author is string && d.author.size() <= 300))
+        && (!('narrator' in d) || (d.narrator is string && d.narrator.size() <= 300))
+        && (!('coverUrl' in d) || (d.coverUrl is string && d.coverUrl.size() <= 2000))
+        && (!('uploader' in d) || (d.uploader is string && d.uploader.size() <= 300))
+        && (!('durationSeconds' in d) || (d.durationSeconds is int && d.durationSeconds > 0))
+        && d.chaptersCount is int && d.chaptersCount >= 0 && d.chaptersCount <= 10000
+        && d.sourceId is string && d.sourceId.size() <= 300
+        && (!('metadataJson' in d) || (d.metadataJson is string && d.metadataJson.size() <= 20000))
+        && d.submitterHash is string && d.submitterHash.size() > 0 && d.submitterHash.size() <= 128
+        && d.playedAt is int && d.playedAt >= 0
+        && d.createdAt is int
+        && d.state == 'pending';
+    }
+
     // #527 — one SHARED collective block: the Source-scoped identity, the
     // provenance URL, the honest window/version and the cards in the source's
     // own order. The allowed-field set is the gate: a query, a cookie/session
@@ -593,11 +621,30 @@ service cloud.firestore {
         && d.publishedAt is number;
     }
 
+    // #835 — the shared catalogue is written ONLY by the curator's bot (Admin
+    // SDK, which rules do not constrain). A client that used to publish a card
+    // now queues a candidate instead; the card's read stays a public fact.
     match /catalog_cards/{document} {
       allow read: if true;
-      allow create, update: if isAppCheckValid() && request.auth != null
-        && isWellFormedCatalogCard(request.resource.data);
-      allow delete: if false;
+      allow create, update, delete: if false;
+    }
+
+    // #835 — the moderation queue. A client may ONLY create a fresh, well-formed
+    // candidate; the state is the bot's alone, so update and delete are closed.
+    // Read is open like the catalogue: the document carries a HASHED identity,
+    // never the raw uid, and the listener must see its own honest state.
+    match /pending_submissions/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid() && request.auth != null
+        && isWellFormedSubmissionCandidate(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // #835 — the rejection blocklist: the app reads it to refuse honestly
+    // BEFORE queueing, and no client may ever write it.
+    match /rejected_submissions/{document} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // #691 — published listener collections: an anonymous PUBLIC fact (read is

@@ -46,6 +46,8 @@ import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import com.slukhayka.audiobooks.data.reviews.ReviewDeleteEvent
+import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveEvent
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
@@ -4309,6 +4311,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // screen uses it to keep failed input open and to retire successful forms.
     val reviewSaveResults: SharedFlow<ReviewSaveEvent> = listenerReviewLifecycle.results
 
+    /** Spec-620 (#626) — the ordered delete outcomes of the open Work. */
+    val reviewDeleteResults: SharedFlow<ReviewDeleteEvent> = listenerReviewLifecycle.deleteResults
+
     // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
     private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
     val hiddenAuthors: StateFlow<List<String>> = _hiddenAuthors
@@ -4378,7 +4383,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * confirmed snapshot instead of showing an empty community (#280/#623).
      */
     fun loadReviews(workId: String) {
-        listenerReviewLifecycle.open(workId)
+        // The uid is the lifecycle's private epoch: a different signed-in
+        // listener never inherits the previous listener's pending overlays.
+        listenerReviewLifecycle.open(workId, _listenerIdentity.value?.uid.orEmpty())
         viewModelScope.launch(Dispatchers.IO) { listenerReviewLifecycle.refresh(workId) }
     }
 
@@ -4410,18 +4417,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Best-effort delete of the listener's own review; the list re-reads the truth. */
+    /**
+     * Spec-620 (#626) — deletes the listener's own review through the lifecycle:
+     * the card is gone locally at once, the backend verdict arrives separately,
+     * and a failure restores the confirmed card and stays retryable.
+     */
     fun deleteOwnReview(workId: String, uid: String) {
-        val store = listenerReviews ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                store.deleteReview(workId, uid)
-            } catch (e: Exception) {
-                // Silent — the refresh below restores whatever is real.
-            }
-            listenerReviewLifecycle.dropPending(workId, uid)
-            loadReviews(workId)
+            val result = listenerReviewLifecycle.delete(workId, uid)
+            // A confirmed deletion re-reads the truth; a failure already put the
+            // last confirmed card back inside the lifecycle.
+            if (result == ReviewDeleteResult.DELETED) listenerReviewLifecycle.refresh(workId)
         }
+    }
+
+    /** Spec-620 (#626) — resends the exact failed payload of the open Work. */
+    fun retryReview(workId: String) {
+        viewModelScope.launch(Dispatchers.IO) { listenerReviewLifecycle.retry(workId) }
     }
 
     // Spec-15 T5: the labelled per-source detail blocks of the selected book.

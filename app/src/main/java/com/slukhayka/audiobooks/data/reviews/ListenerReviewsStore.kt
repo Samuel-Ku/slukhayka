@@ -3,6 +3,28 @@ package com.slukhayka.audiobooks.data.reviews
 import kotlinx.coroutines.CancellationException
 
 /**
+ * Spec-620 (#626) — separates the immediate LOCAL acceptance of a delete from
+ * its backend verdict, exactly as [ReviewWriteReceipt] does for a save. A
+ * missing/failing transport is [Rejected]; a queued delete owns the separate,
+ * cancellable acknowledgement.
+ */
+sealed interface ReviewDeleteReceipt {
+    data object Rejected : ReviewDeleteReceipt
+
+    class Queued internal constructor(
+        private val acknowledgement: suspend () -> Boolean
+    ) : ReviewDeleteReceipt {
+        suspend fun awaitRemote(): Boolean = try {
+            acknowledgement()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+    }
+}
+
+/**
  * Spec-620 (#623) — the honest outcome of READING one Work's reviews. The
  * existing [ListenerReviewsStore.getReviews] keeps its degrade-to-empty
  * convenience for non-UI callers; the lifecycle module needs the three states
@@ -123,6 +145,21 @@ interface ListenerReviewsStore {
         throw e
     } catch (_: Exception) {
         false
+    }
+
+    /**
+     * Spec-620 (#626) — locally accepts one delete and returns its separate
+     * backend verdict. The default keeps the old blocking contract for
+     * implementations that cannot split the two; the Firestore store overrides
+     * it so the call returns as soon as the delete is in the local queue.
+     */
+    suspend fun enqueueDelete(documentId: String): ReviewDeleteReceipt = try {
+        val removed = removeDocument(documentId)
+        ReviewDeleteReceipt.Queued { removed }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        ReviewDeleteReceipt.Rejected
     }
 
     // ---------------------------------------------------------------------

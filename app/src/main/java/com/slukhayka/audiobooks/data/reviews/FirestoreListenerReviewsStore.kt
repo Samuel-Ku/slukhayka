@@ -93,6 +93,21 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
         false
     }
 
+    /**
+     * Spec-620 (#626) — `delete()` synchronously enters Firestore's local
+     * persistence queue; its Task is the later backend acknowledgement and may
+     * stay pending for the whole offline period. The local acceptance is
+     * therefore immediate, and the caller never waits for the network.
+     */
+    override suspend fun enqueueDelete(documentId: String): ReviewDeleteReceipt = try {
+        val acknowledgement = firestore.collection(COLLECTION).document(documentId).delete()
+        ReviewDeleteReceipt.Queued { acknowledgement.awaitReviewWriteResult() }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        ReviewDeleteReceipt.Rejected
+    }
+
     /** Bridges the Play Services [Task] onto a coroutine: documents or null on failure. */
     private suspend fun Task<com.google.firebase.firestore.QuerySnapshot>.awaitDocuments(): List<Map<String, Any>>? =
         suspendCancellableCoroutine { cont ->

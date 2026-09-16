@@ -72,6 +72,7 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.reviewWorkIdFor
@@ -402,6 +403,8 @@ fun BookDetailScreen(
     }
     val reviewQueuedMessage = stringResource(R.string.book_detail_review_save_queued)
     val reviewFailureMessage = stringResource(R.string.book_detail_review_save_error)
+    val reviewDeleteFailureMessage = stringResource(R.string.book_detail_review_delete_error)
+    val reviewRetryLabel = stringResource(R.string.feedback_retry)
     LaunchedEffect(viewModel, snackbarHostState, reviewsWorkId) {
         viewModel.reviewSaveResults.collect { event ->
             if (event.workId != reviewsWorkId) return@collect
@@ -410,7 +413,14 @@ fun BookDetailScreen(
                 ReviewSaveResult.FAILED -> {
                     reviewSaveError = reviewFailureMessage
                     if (reviewFailureNeedsSnackbar(showReviewForm)) {
-                        snackbarHostState.showSnackbar(reviewFailureMessage)
+                        // #626 — retry resends the EXACT failed payload.
+                        val action = snackbarHostState.showSnackbar(
+                            message = reviewFailureMessage,
+                            actionLabel = reviewRetryLabel
+                        )
+                        if (action == SnackbarResult.ActionPerformed) {
+                            viewModel.retryReview(reviewsWorkId)
+                        }
                     }
                 }
                 ReviewSaveResult.PUBLISHED -> {
@@ -424,6 +434,23 @@ fun BookDetailScreen(
                     showReviewForm = false
                     editingReview = null
                     snackbarHostState.showSnackbar(reviewQueuedMessage)
+                }
+            }
+        }
+    }
+
+    // Spec-620 (#626) — a failed delete is honest and retryable: the confirmed
+    // card is back on screen, and the snackbar carries the retry action.
+    LaunchedEffect(viewModel, snackbarHostState, reviewsWorkId) {
+        viewModel.reviewDeleteResults.collect { event ->
+            if (event.workId != reviewsWorkId) return@collect
+            if (event.result == ReviewDeleteResult.FAILED) {
+                val action = snackbarHostState.showSnackbar(
+                    message = reviewDeleteFailureMessage,
+                    actionLabel = reviewRetryLabel
+                )
+                if (action == SnackbarResult.ActionPerformed) {
+                    viewModel.retryReview(reviewsWorkId)
                 }
             }
         }

@@ -37,6 +37,14 @@ internal data class ReviewSubmission(
         generation = generation,
         result = result
     )
+
+    /** Spec-620 (#626) — the same ordering identity, for a delete outcome. */
+    fun deleteEvent(result: ReviewDeleteResult): ReviewDeleteEvent = ReviewDeleteEvent(
+        workId = workId,
+        documentId = documentId,
+        generation = generation,
+        result = result
+    )
 }
 
 /** Rejects acknowledgements superseded by a newer write to the same review document. */

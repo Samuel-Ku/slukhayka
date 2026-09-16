@@ -86,6 +86,7 @@
     <string name="book_detail_review_save_published">Review published.</string>
     <string name="book_detail_review_save_queued">Review saved on the device. We\'ll send it once the network is available.</string>
     <string name="book_detail_review_save_error">Couldn\'t save the review. Try again.</string>
+    <string name="book_detail_review_delete_error">Couldn\'t delete the review. Try again.</string>
     <string name="book_detail_review_delete_pane">Deleting a review</string>
     <string name="book_detail_review_delete_title">Delete the review?</string>
     <string name="book_detail_review_delete_consequence_with_text">Your review of “%1$s” will be deleted: rating %2$d out of 5 and the review text. This cannot be undone.</string>

@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,6 +47,18 @@ class ListenerReviewLifecycleTest {
 
         override suspend fun removeDocument(documentId: String): Boolean =
             documents.remove(documentId) != null
+
+        /** #626 — the separate backend verdict of one delete. */
+        val deleteAcknowledgements = ArrayDeque<CompletableDeferred<Boolean>>()
+        var failDeletes = false
+
+        override suspend fun enqueueDelete(documentId: String): ReviewDeleteReceipt {
+            if (failDeletes) return ReviewDeleteReceipt.Rejected
+            documents.remove(documentId)
+            val acknowledgement = deleteAcknowledgements.removeFirstOrNull()
+                ?: CompletableDeferred(true)
+            return ReviewDeleteReceipt.Queued { acknowledgement.await() }
+        }
     }
 
     private fun review(uid: String, createdAt: Long, rating: Int = 5, workId: String = "w1") = ListenerReview(
@@ -266,5 +279,224 @@ class ListenerReviewLifecycleTest {
         collecting.cancel()
 
         assertEquals(listOf(ReviewSaveResult.QUEUED, ReviewSaveResult.PUBLISHED), seen)
+    }
+    // ------------------------------------------------------------------
+    // Spec-620 (#626) — delete ordering, retry and identity epochs
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `delete accepts locally, then reports the backend verdict`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L))
+        val acknowledgement = CompletableDeferred<Boolean>()
+        store.deleteAcknowledgements.add(acknowledgement)
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+        val seen = mutableListOf<ReviewDeleteResult>()
+        val collecting = launch { lifecycle.deleteResults.collect { seen += it.result } }
+        runCurrent()
+
+        val deleting = launch { lifecycle.delete("w1", "u1") }
+        runCurrent()
+
+        // Local acceptance: gone from every surface BEFORE the network verdict.
+        assertTrue(lifecycle.state.value.confirmed.isEmpty())
+        assertTrue(lifecycle.state.value.visible.isEmpty())
+        assertEquals(setOf(documentId), lifecycle.state.value.deleting)
+
+        acknowledgement.complete(true)
+        deleting.join()
+        runCurrent()
+        collecting.cancel()
+
+        assertEquals(listOf(ReviewDeleteResult.QUEUED, ReviewDeleteResult.DELETED), seen)
+        assertTrue(lifecycle.state.value.deleting.isEmpty())
+    }
+
+    @Test
+    fun `a late save acknowledgement cannot return a deleted review`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L))
+        val saveAck = CompletableDeferred<ReviewRemoteResult>()
+        store.acknowledgements.add(saveAck)
+        val deleteAck = CompletableDeferred<Boolean>()
+        store.deleteAcknowledgements.add(deleteAck)
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+
+        val saving = launch { lifecycle.save("w1", "u1", "Читач", 5, null, null, null) }
+        runCurrent()
+        val deleting = launch { lifecycle.delete("w1", "u1") }
+        runCurrent()
+
+        saveAck.complete(ReviewRemoteResult.PUBLISHED)
+        saving.join()
+        assertTrue("a stale save ack must not resurrect the card", lifecycle.state.value.confirmed.isEmpty())
+        assertTrue(lifecycle.state.value.pending.isEmpty())
+
+        deleteAck.complete(true)
+        deleting.join()
+        assertTrue(lifecycle.state.value.confirmed.isEmpty())
+    }
+
+    @Test
+    fun `a failed delete restores the confirmed card and stays retryable`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L))
+        store.deleteAcknowledgements.add(CompletableDeferred(false))
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+
+        assertEquals(ReviewDeleteResult.FAILED, lifecycle.delete("w1", "u1"))
+        assertEquals("the review is back after a failed delete", 1, lifecycle.state.value.confirmed.size)
+        assertTrue(lifecycle.state.value.hasFailedMutation)
+
+        store.deleteAcknowledgements.add(CompletableDeferred(true))
+        assertEquals(documentId, lifecycle.retry("w1"))
+        assertTrue(lifecycle.state.value.confirmed.isEmpty())
+        assertFalse(lifecycle.state.value.hasFailedMutation)
+    }
+
+    @Test
+    fun `a save after a delete is allowed and creates no tombstone`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L))
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+        assertEquals(ReviewDeleteResult.DELETED, lifecycle.delete("w1", "u1"))
+        assertTrue(lifecycle.state.value.confirmed.isEmpty())
+
+        assertEquals(ReviewSaveResult.PUBLISHED, lifecycle.save("w1", "u1", "Читач", 4, null, null, null))
+        assertEquals(listOf(4), lifecycle.state.value.confirmed.map { it.rating })
+        assertFalse(lifecycle.state.value.deleting.contains(documentId))
+    }
+
+    @Test
+    fun `retry resends the exact failed save payload`() = runTest {
+        val store = FakeStore()
+        store.acknowledgements.add(CompletableDeferred(ReviewRemoteResult.FAILED))
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.save("w1", "u1", "Читач", 3, "перша", null, null)
+        assertTrue(lifecycle.state.value.hasFailedMutation)
+
+        store.acknowledgements.add(CompletableDeferred(ReviewRemoteResult.PUBLISHED))
+        assertEquals(documentId, lifecycle.retry("w1"))
+
+        assertEquals(3, (store.documents[documentId]?.get("rating") as Number).toInt())
+        assertEquals("перша", store.documents[documentId]?.get("body"))
+        assertFalse(lifecycle.state.value.hasFailedMutation)
+    }
+
+    @Test
+    fun `a newer local draft supersedes the failed payload so retry never rewrites it`() = runTest {
+        val store = FakeStore()
+        store.acknowledgements.add(CompletableDeferred(ReviewRemoteResult.FAILED))
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.save("w1", "u1", "Читач", 3, null, null, null)
+        assertTrue(lifecycle.state.value.hasFailedMutation)
+
+        val newerAck = CompletableDeferred<ReviewRemoteResult>()
+        store.acknowledgements.add(newerAck)
+        val saving = launch { lifecycle.save("w1", "u1", "Читач", 5, null, null, null) }
+        runCurrent()
+
+        assertFalse("the newer draft superseded the failure", lifecycle.state.value.hasFailedMutation)
+        assertNull(lifecycle.retry("w1"))
+        assertEquals(listOf(5), lifecycle.state.value.pending.values.map { it.rating })
+        newerAck.complete(ReviewRemoteResult.PUBLISHED)
+        saving.join()
+    }
+
+    @Test
+    fun `a different listener uid is a new epoch that drops private overlays`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L, rating = 5))
+        val saveAck = CompletableDeferred<ReviewRemoteResult>()
+        store.acknowledgements.add(saveAck)
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+        val saving = launch { lifecycle.save("w1", "u1", "Читач", 3, null, null, null) }
+        runCurrent()
+        assertEquals(setOf(documentId), lifecycle.state.value.pending.keys)
+
+        // A different listener: public truth stays, private overlays are gone.
+        lifecycle.open("w1", "u2")
+        assertTrue(lifecycle.state.value.pending.isEmpty())
+        assertEquals(1, lifecycle.state.value.confirmed.size)
+
+        // The OLD uid's late acknowledgement cannot touch the new epoch.
+        saveAck.complete(ReviewRemoteResult.PUBLISHED)
+        saving.join()
+        assertEquals(listOf(5), lifecycle.state.value.confirmed.map { it.rating })
+    }
+
+    @Test
+    fun `a Work switch drops failures and refuses a retry of the old Work`() = runTest {
+        val store = FakeStore()
+        store.acknowledgements.add(CompletableDeferred(ReviewRemoteResult.FAILED))
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.save("w1", "u1", "Читач", 3, null, null, null)
+        assertTrue(lifecycle.state.value.hasFailedMutation)
+
+        lifecycle.open("w2", "u1")
+        assertFalse(lifecycle.state.value.hasFailedMutation)
+        assertNull(lifecycle.retry("w1"))
+    }
+
+    @Test
+    fun `cancelling the awaiting coroutine does not revoke a locally accepted save`() = runTest {
+        val store = FakeStore()
+        store.acknowledgements.add(CompletableDeferred())
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+
+        val saving = launch { lifecycle.save("w1", "u1", "Читач", 5, null, null, null) }
+        runCurrent()
+        assertEquals(setOf(documentId), lifecycle.state.value.pending.keys)
+
+        saving.cancel()
+        saving.join()
+        assertEquals(
+            "cancellation never revokes a write the local queue already accepted",
+            setOf(documentId),
+            lifecycle.state.value.pending.keys
+        )
+    }
+
+    @Test
+    fun `cancelling the awaiting coroutine does not restore a locally accepted delete`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L))
+        store.deleteAcknowledgements.add(CompletableDeferred())
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+
+        val deleting = launch { lifecycle.delete("w1", "u1") }
+        runCurrent()
+        assertTrue(lifecycle.state.value.confirmed.isEmpty())
+
+        deleting.cancel()
+        deleting.join()
+        assertTrue(
+            "cancellation never restores a delete the local queue already accepted",
+            lifecycle.state.value.confirmed.isEmpty()
+        )
+    }
+
+    @Test
+    fun `a missing store refuses a delete honestly`() = runTest {
+        val lifecycle = ListenerReviewLifecycle(null, now = { 100L })
+        lifecycle.open("w1", "u1")
+        assertEquals(ReviewDeleteResult.FAILED, lifecycle.delete("w1", "u1"))
+        assertTrue(lifecycle.state.value.confirmed.isEmpty())
     }
 }

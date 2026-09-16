@@ -280,9 +280,12 @@ _Avoid_: автозлепка за топологією, вигаданий на
 Локальне, несинхронізоване спостереження за Твором, чиє аудіо зараз ніде не
 грає: перевіряється безкоштовно на вже наявних оновленнях union/фідів і
 вердиктах мапування, без власного циклу опитування. Поява джерела
-(збіг за MergeKey) — локальне повідомлення; тап імпортує звичайними дверима.
-Мовчазного авто-імпорту не буває.
-_Avoid_: мовчазний авто-імпорт, власний опитувальний цикл, спільна вимога
+(збіг за MergeKey) — подієве сповіщення; тап імпортує звичайними дверима.
+Мовчазного авто-імпорту не буває. Канал цього сповіщення зветься «Чекає на
+джерело» і не має нічого спільного зі станом надсилання «Шукаємо джерело»,
+який сам нічого не постить.
+_Avoid_: мовчазний авто-імпорт, власний опитувальний цикл, спільна вимога,
+плутання каналу «Чекає на джерело» зі станом надсилання
 
 ## Metadata
 
@@ -315,6 +318,21 @@ _Avoid_: analytics consent, implicit opt-in, user identity, listening history
 **Unexpected Playback Exit**:
 A controlled nonfatal diagnostic created on the next launch when Android 11+ records an actionable OS/resource/signal process exit and the last bounded process summary says playback was `PLAYING` or `BUFFERING`. It follows Crash Reporting Consent and carries only the exit reason enum, status, process importance, RSS/PSS, app/Android versions and the same five bounded context facts. A timestamp plus a stable hash is a local deduplication watermark, not report content (ADR-0025).
 _Avoid_: fatal crash or ANR, user-requested stop, raw trace, exit description, media identity
+
+**Подієве сповіщення** (Alert Notification):
+Локальне сповіщення про те, що сталося й варте уваги слухача: поява джерела
+для відстежуваного Твору, новинки від збережених людей. Слухач може заглушити
+його в застосунку — але заглушення зупиняє сповіщення, ніколи не саму фічу:
+спостереження й збереження працюють далі, а стан у застосунку оновлюється.
+Тап веде туди, про що сповіщення сказало (сторінка Твору, новинки названої
+людини), і ніколи не в загальну стрічку.
+_Avoid_: сповіщення як дозвіл на фічу, тихе зняття спостереження, тап у нікуди
+
+**Службове сповіщення** (Service Notification):
+Сповіщення, що супроводжує вже запущену роботу — завантаження або програвання.
+Його вимагає Android, поки робота триває, тож слухач не може вимкнути його в
+застосунку: застосунок показує його лише для читання і чесно пояснює, чому.
+_Avoid_: попередження, вимикальне службове сповіщення
 
 ## Listener relationship
 

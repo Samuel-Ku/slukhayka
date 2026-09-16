@@ -11,6 +11,8 @@ data class CommunityPostRef(
     val link: String,
     val title: String,
     val author: String? = null,
+    /** The OBSERVED narrator line of the post, or null when it names none. */
+    val narrator: String? = null,
     /** The observed part marker of this post (1-based), or null. */
     val partIndex: Int? = null,
     val tracks: List<TelegramTrack> = emptyList()

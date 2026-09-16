@@ -5363,9 +5363,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.slukhayka.audiobooks.data.collections.PublishResult.Published
             if (stored) {
                 _publicCollectionMyVote.value = stars
-                // The server aggregate is the truth: re-read the surface
+                // The server aggregate is the truth: re-read the surfaces
                 // instead of inventing the new average locally.
                 loadCollectionsWithBook(bookId)
+                loadPublicCollectionsRail()
             }
             _publicCollectionVoteResults.emit(stored)
         }
@@ -5394,6 +5395,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (stored) {
                 _reportedCollectionIds.update { it + documentId }
                 loadCollectionsWithBook(bookId)
+                loadPublicCollectionsRail()
             }
             _collectionReportResults.emit(documentId to stored)
         }
@@ -5420,6 +5422,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             _publicCollectionsRail.value = App.instance.publicCollectionsGate.topPublic(limit)
         }
+    }
+
+    // #693 — the shared "open a public collection" surface any screen raises.
+    private val _publicCollectionSheetId = MutableStateFlow<String?>(null)
+    val publicCollectionSheetId: StateFlow<String?> = _publicCollectionSheetId.asStateFlow()
+
+    fun openPublicCollection(documentId: String) {
+        _publicCollectionSheetId.value = documentId
+        val collection = (_publicCollectionsRail.value + _collectionsWithBook.value +
+            _curatorProfileCollections.value).firstOrNull { it.documentId == documentId }
+        if (collection != null) loadMyCollectionVote(collection.collectionId)
+    }
+
+    fun closePublicCollection() {
+        _publicCollectionSheetId.value = null
     }
 
     /** Pseudonym of the open curator profile (null = closed). */
@@ -5449,6 +5466,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _curatorProfilePseudonym.value = null
         _curatorProfileCollections.value = emptyList()
     }
+
+    /** Resolves the shared sheet's collection from every loaded list. */
+    val openedPublicCollection:
+        StateFlow<com.slukhayka.audiobooks.data.collections.PublishedCollection?> = combine(
+            _publicCollectionSheetId,
+            _publicCollectionsRail,
+            _collectionsWithBook,
+            _curatorProfileCollections
+        ) { id, rail, withBook, profile ->
+            if (id == null) null else (rail + withBook + profile).firstOrNull { it.documentId == id }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
 
     /** #696 — the author removes a hidden (or any own) published collection. */
     fun deleteOwnPublishedCollection(documentId: String) {

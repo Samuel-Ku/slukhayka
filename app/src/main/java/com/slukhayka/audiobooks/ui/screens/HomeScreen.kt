@@ -218,6 +218,20 @@ fun HomeScreen(
     // #523 — the collective Огляд blocks, read from the persisted snapshot
     // (one lease owner refreshes a stale block through ONE source page).
     val collectiveBlocks by viewModel.collectiveBlocks.collectAsState()
+    // Spec-51 (#693) — the public «Добірки слухачів» rail and the curator
+    // profile. Both are honest absences without a shared store.
+    val publicCollectionsRail by viewModel.publicCollectionsRail.collectAsState()
+    val openedPublicCollection by viewModel.openedPublicCollection.collectAsState()
+    val publicCollectionMyVote by viewModel.publicCollectionMyVote.collectAsState()
+    val curatorProfilePseudonym by viewModel.curatorProfilePseudonym.collectAsState()
+    val curatorProfileCollections by viewModel.curatorProfileCollections.collectAsState()
+    val publicCollectionRailRows = remember(publicCollectionsRail) {
+        publicCollectionsRail.map { published -> published.toRailRow() }
+    }
+    val curatorProfileRows = remember(curatorProfileCollections) {
+        curatorProfileCollections.map { published -> published.toRailRow() }
+    }
+    LaunchedEffect(Unit) { viewModel.loadPublicCollectionsRail() }
 
     // Spec-36 T1 (#244): an available app release, resolved by the module's
     // own throttled check — null means everything is current.
@@ -498,6 +512,20 @@ fun HomeScreen(
                     .testTag("recommendation_disclosure_trigger")
             )
 
+            // Spec-51 (#693) — «Добірки слухачів»: the top public collections,
+            // ranked by the same rule as the book-page block.
+            item(key = "public_collections_rail") {
+                com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionsRail(
+                    rows = publicCollectionRailRows,
+                    onOpen = { viewModel.openPublicCollection(it) },
+                    onOpenCurator = { authorId ->
+                        val pseudonym = publicCollectionRailRows
+                            .firstOrNull { it.authorId == authorId }?.pseudonym.orEmpty()
+                        viewModel.openCuratorProfile(authorId, pseudonym)
+                    }
+                )
+            }
+
             // Spec-9: the full library list lives in Медіатека (Library tab),
             // not at the bottom of Огляд.
         }
@@ -506,6 +534,49 @@ fun HomeScreen(
             hostState = recommendationSnackbar,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)
         )
+    }
+    // Spec-51 (#693) — reading a collection / a curator straight from Слухати.
+    openedPublicCollection?.let { open ->
+        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { viewModel.closePublicCollection() }) {
+            com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
+                collection = open,
+                originalAvailableLocally = allBooks.any { it.id in open.bookIds },
+                onSaveForYou = {
+                    viewModel.saveForkOfPublished(open.documentId)
+                    viewModel.closePublicCollection()
+                },
+                myStars = publicCollectionMyVote,
+                onVote = { stars ->
+                    viewModel.voteCollection(
+                        open.bookIds.firstOrNull().orEmpty(),
+                        open.documentId,
+                        open.collectionId,
+                        stars
+                    )
+                },
+                onReport = {
+                    viewModel.reportCollection(
+                        open.bookIds.firstOrNull().orEmpty(),
+                        open.documentId,
+                        open.collectionId
+                    )
+                }
+            )
+        }
+    }
+    curatorProfilePseudonym?.let { pseudonym ->
+        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { viewModel.closeCuratorProfile() }) {
+            com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent(
+                pseudonym = pseudonym,
+                rows = curatorProfileRows,
+                onOpen = { documentId ->
+                    viewModel.closeCuratorProfile()
+                    viewModel.openPublicCollection(documentId)
+                }
+            )
+        }
     }
     if (showWorkFeedFilters) {
         WorkFeedFilterSheet(
@@ -1524,3 +1595,16 @@ private fun AudiobookEntity.asCatalogBook() = CatalogBook(
     mergeKey = mergeKey,
     narrator = narrator
 )
+
+/** #693 — one loaded published collection as a shelf row. */
+private fun com.slukhayka.audiobooks.data.collections.PublishedCollection.toRailRow():
+    com.slukhayka.audiobooks.ui.screens.collections.CollectionWithBookRow =
+    com.slukhayka.audiobooks.ui.screens.collections.CollectionWithBookRow(
+        documentId = documentId,
+        title = title,
+        pseudonym = pseudonym,
+        average = com.slukhayka.audiobooks.data.collections.CollectionRating
+            .average(ratingSum, ratingCount),
+        ratingCount = ratingCount,
+        authorId = authorId
+    )

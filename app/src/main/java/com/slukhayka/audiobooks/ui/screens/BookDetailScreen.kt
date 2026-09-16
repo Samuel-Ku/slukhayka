@@ -279,6 +279,7 @@ fun BookDetailScreen(
     // pending card is not yet a vote, and a pending EDIT keeps the previous
     // confirmed rating instead of moving the number before acceptance.
     val confirmedReviewRatings by viewModel.confirmedReviewRatings.collectAsState()
+    val hiddenConfirmedReviewCount by viewModel.hiddenConfirmedReviewCount.collectAsState()
 
     // ADR-0023 (#348): narration ratings of this Work + THIS card's Edition id.
     val narrationRatings by viewModel.narrationRatings.collectAsState()
@@ -1271,6 +1272,23 @@ fun BookDetailScreen(
                             null
                         }
                     )
+                }
+
+                if (hiddenConfirmedReviewCount > 0) {
+                    item(key = "reviews_hidden_note") {
+                        Text(
+                            text = pluralStringResource(
+                                R.plurals.book_detail_reviews_hidden_note,
+                                hiddenConfirmedReviewCount,
+                                hiddenConfirmedReviewCount
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
                 }
 
                 // Spec-40 #279 — the honest headline average: flat mean over

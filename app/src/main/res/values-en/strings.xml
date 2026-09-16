@@ -210,6 +210,12 @@
         <item quantity="one">%1$d review</item>
         <item quantity="other">%1$d reviews</item>
     </plurals>
+    <!-- Spec-620 (#623): locally muted authors change card VISIBILITY only —
+         their confirmed votes still stand behind the headline average. -->
+    <plurals name="book_detail_reviews_hidden_note">
+        <item quantity="one">%1$d more review is hidden by you — it still counts</item>
+        <item quantity="other">%1$d more reviews are hidden by you — they still count</item>
+    </plurals>
 
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Authors</string>

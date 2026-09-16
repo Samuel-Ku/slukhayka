@@ -225,9 +225,13 @@ fun LibraryScreen(
     // The plan is pure data; confirming calls apply, dismissing leaves zero
     // trace. Merge suggestions render as review rows, never silent merges.
     val importPreview by viewModel.importPreview.collectAsState()
-    var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика, 3 = Люди
-    var filter by remember { mutableStateOf(LibraryFilter.ALL) }
-    var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
+    // spec-54 T06 (#873) — the subsection, its filters and the sorting are the
+    // listener's PLACE in the library: they must survive switching the list to
+    // the grid, leaving the tab and coming back. `remember` alone lost them the
+    // moment the tab left the composition (see TabSaveableHost, #871).
+    var activeTab by rememberSaveable { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика, 3 = Люди
+    var filter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
+    var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
     var query by rememberSaveable { mutableStateOf("") }
     // v1.4 C5 (ADR-0033): the collapsible search — 🔍 in the tab header,
     // ✕/Back clears (US-2, the same gesture as Огляд); the always-visible
@@ -242,7 +246,9 @@ fun LibraryScreen(
         searchRequested = false
         if (query.isNotBlank()) query = ""
     }
-    var gridMode by remember { mutableStateOf(false) }
+    // The list/grid choice is a VIEW of the same set: it must not reset the
+    // filters or the sorting, and it must survive the same way they do.
+    var gridMode by rememberSaveable { mutableStateOf(false) }
     // UI (v1.5 review): the ⋮ section menu replaced the four sub-tabs.
     var sectionMenuOpen by remember { mutableStateOf(false) }
     // The pinned status row scrolls itself to a rare filter the listener just

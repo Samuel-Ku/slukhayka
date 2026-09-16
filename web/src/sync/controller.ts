@@ -15,7 +15,7 @@ export interface SyncMirror {
 }
 
 /**
- * ADR-0023 (spec-43 T6) — orchestrator of Progress Sync for web.
+ * ADR-0051 (spec-43 T6) — orchestrator of Progress Sync for web.
  * Mirrors app/src/main/java/com/slukhayka/audiobooks/data/listening/ProgressSyncController.kt
  */
 export class ProgressSyncController {

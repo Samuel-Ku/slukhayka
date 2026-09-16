@@ -472,7 +472,7 @@ service cloud.firestore {
         && request.resource.data.uid is string;
     }
 
-    // ADR-0023 (spec-43 T6) — Progress Sync: one Listening State mirror per
+    // ADR-0051 (spec-43 T6) — Progress Sync: one Listening State mirror per
     // listener per Edition (`{uid}_{editionId}`), readable and writable ONLY
     // by its own listener under App Check. The FIELD uid is the ownership
     // anchor (the rules language cannot see the document id). The shape gate

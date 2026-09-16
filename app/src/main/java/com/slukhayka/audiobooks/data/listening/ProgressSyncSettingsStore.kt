@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * ADR-0023 (spec-43 T6) — the visible Progress Sync switch (⚙️ Профіль):
+ * ADR-0051 (spec-43 T6) — the visible Progress Sync switch (⚙️ Профіль):
  * on by default, because the sync carries nothing until the listener's own
  * devices share one profile — and the switch turns it off for good, keeping
  * the local Listening State untouched.

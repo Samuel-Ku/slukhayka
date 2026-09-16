@@ -1,5 +1,5 @@
 /**
- * ADR-0023 (spec-43 T6) — the visible Progress Sync switch (⚙️ Профіль on
+ * ADR-0051 (spec-43 T6) — the visible Progress Sync switch (⚙️ Профіль on
  * web): on by default, because the sync carries nothing until the listener's
  * own devices share one profile — and the switch turns it off for good,
  * keeping the local Listening State untouched.

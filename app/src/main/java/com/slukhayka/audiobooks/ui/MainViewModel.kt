@@ -275,7 +275,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // deep modules directly.
     val listeningState: ListeningStateStore = App.instance.listeningState
 
-    /** ADR-0023 (spec-43 T6): pull-before-resume and push-after-save. */
+    /** ADR-0051 (spec-43 T6): pull-before-resume and push-after-save. */
     private val progressSync = App.instance.progressSync
     val libraryImport: LibraryImport = App.instance.libraryImport
     val sourceCatalog: SourceCatalog = App.instance.sourceCatalog
@@ -2294,7 +2294,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ADR-0023 (spec-43 T6): ⚙️ Профіль reads the settings store directly
+    // ADR-0051 (spec-43 T6): ⚙️ Профіль reads the settings store directly
     // (ADR-0008) — no forwarding state here.
     val progressSyncSettingsModule get() = App.instance.progressSyncSettings
 
@@ -4701,7 +4701,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             val chapters = playable.map { it.chapter }
-            // ADR-0023 (spec-43 T6): the cloud mirror lands BEFORE the resume
+            // ADR-0051 (spec-43 T6): the cloud mirror lands BEFORE the resume
             // decision — «почав на телефоні — продовж тут». A forced
             // re-listen skips it: the explicit restart intent wins.
             if (!forceRelisten) {

@@ -2,6 +2,12 @@
 status: accepted
 ---
 
+> Номер змінено з `0023` на `0051`: `0023` належить
+> [ADR-0023](0023-narration-rating-is-a-second-concept-beside-listener-review.md)
+> (оцінка начитки) — саме її означає решта посилань за номером. Цей ADR
+> додано наступного дня, і всі 42 його посилання (переважно `spec-43 T6`)
+> перенесено на `0051`.
+
 # Web mirrors Listening State only, after deliberate linking (spec-43)
 
 The Web Client (ADR-0024's surface) made cross-device progress possible — an

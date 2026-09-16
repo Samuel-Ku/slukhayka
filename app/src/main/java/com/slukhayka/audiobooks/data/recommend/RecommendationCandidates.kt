@@ -34,5 +34,21 @@ fun recommendationCandidates(
         )
     }
 
+/**
+ * #484 — the warm-up queue order: library Works first, then the Works an
+ * active feed already showed, then the rest; ties break by id so the batch is
+ * deterministic. Pure, so the priority is pinned without a ViewModel.
+ */
+fun orderedForWarmUp(
+    candidates: List<RecommendationEngine.Candidate>,
+    libraryKeys: Set<String>,
+    activeFeedKeys: Set<String>
+): List<RecommendationEngine.Candidate> =
+    candidates.sortedWith(
+        compareByDescending<RecommendationEngine.Candidate> { it.id in libraryKeys }
+            .thenByDescending { it.id in activeFeedKeys }
+            .thenBy { it.id }
+    )
+
 /** The stable Work identity the recommendation row keys on. */
 fun recommendationWorkKey(work: WorkEntity): String = work.mergeKey.ifBlank { work.id }

@@ -3418,12 +3418,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _catalogVectors.value = emptyMap()
                     return@launch
                 }
-                val candidates = com.slukhayka.audiobooks.data.recommend
-                    .recommendationCandidates(works, recommendationFacts.value)
-                    .sortedWith(
-                    compareByDescending<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate> {
-                        it.id in libraryKeys
-                    }.thenByDescending { it.id in unionKeys }.thenBy { it.id }
+                val candidates = com.slukhayka.audiobooks.data.recommend.orderedForWarmUp(
+                    com.slukhayka.audiobooks.data.recommend
+                        .recommendationCandidates(works, recommendationFacts.value),
+                    libraryKeys = libraryKeys,
+                    activeFeedKeys = unionKeys
                 )
                 // Catalogue vectors warm gradually (a bounded batch per pass);
                 // the few library signal vectors embed right here on IO too

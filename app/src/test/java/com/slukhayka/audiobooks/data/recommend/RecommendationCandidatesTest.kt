@@ -89,4 +89,18 @@ class RecommendationCandidatesTest {
         assertEquals("", mirror.genre)
         assertEquals("", mirror.description)
     }
+    @Test
+    fun `warm-up prioritises the library, then active feeds, then the rest`() {
+        val candidates = listOf("zzz", "bbb", "ccc", "aaa").map {
+            RecommendationEngine.Candidate(id = it, title = it)
+        }
+
+        val ordered = orderedForWarmUp(
+            candidates,
+            libraryKeys = setOf("ccc"),
+            activeFeedKeys = setOf("bbb", "zzz")
+        )
+
+        assertEquals(listOf("ccc", "bbb", "zzz", "aaa"), ordered.map { it.id })
+    }
 }

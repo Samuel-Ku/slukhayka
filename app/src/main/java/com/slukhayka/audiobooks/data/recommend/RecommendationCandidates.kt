@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.recommend
 
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.db.WorkFacts
 
 /**
  * #732 / ADR-0041 — the recommendation row's candidate pool is the Mirror:
@@ -11,13 +12,24 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
  *
  * Pure JVM so the pool composition is unit-testable without a ViewModel.
  */
-fun recommendationCandidates(works: List<WorkEntity>): List<RecommendationEngine.Candidate> =
+fun recommendationCandidates(
+    works: List<WorkEntity>,
+    /**
+     * #484 — the genre/description already known per Work (one bulk read).
+     * A missing fact is honestly absent, never fetched per candidate.
+     */
+    facts: Map<String, WorkFacts> = emptyMap()
+): List<RecommendationEngine.Candidate> =
     works.map { work ->
+        val key = recommendationWorkKey(work)
+        val fact = facts[key]
         RecommendationEngine.Candidate(
-            id = recommendationWorkKey(work),
+            id = key,
             title = work.title,
             author = work.author,
+            genre = fact?.genre.orEmpty(),
             series = work.seriesTitle.orEmpty(),
+            description = fact?.description.orEmpty(),
             coverImageUrl = work.coverImageUrl
         )
     }

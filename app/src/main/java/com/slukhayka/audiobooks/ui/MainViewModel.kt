@@ -3418,14 +3418,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _catalogVectors.value = emptyMap()
                     return@launch
                 }
-                val candidates = works.map { work ->
-                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
-                        id = work.mergeKey.ifBlank { work.id },
-                        title = work.title,
-                        author = work.author,
-                        series = work.seriesTitle.orEmpty()
-                    )
-                }.sortedWith(
+                val candidates = com.slukhayka.audiobooks.data.recommend
+                    .recommendationCandidates(works, recommendationFacts.value)
+                    .sortedWith(
                     compareByDescending<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate> {
                         it.id in libraryKeys
                     }.thenByDescending { it.id in unionKeys }.thenBy { it.id }
@@ -3620,6 +3615,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { it.first }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), libraryBooks.value)
 
+    /**
+     * #484 — genre/description already known per Work, read ONCE and shared by
+     * the warm-up and the row builder; no per-candidate catalogue scan.
+     */
+    private val recommendationFacts:
+        StateFlow<Map<String, com.slukhayka.audiobooks.data.db.WorkFacts>> =
+        App.instance.audiobookDao.observeWorkFacts()
+            .map { facts -> facts.associateBy { it.mergeKey } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
         recommendationLibrarySignals,
@@ -3652,7 +3657,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // ones the listener has not imported yet: the row needs no union
         // refresh and survives a dead network. The card id is the Work key, so
         // tapping resolves through the same local identity as any other row.
-        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works)
+        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works, recommendationFacts.value)
         val knownIds = library.flatMap { lb ->
             listOfNotNull(lb.book.id, lb.book.workId, lb.book.mergeKey.takeIf { it.isNotBlank() })
         }.toMutableSet().apply {

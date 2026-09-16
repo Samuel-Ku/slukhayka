@@ -477,6 +477,17 @@ data class EditionSettingsEntity(
 )
 
 /**
+ * #484 — the genre/description the app already KNOWS for one Work, projected
+ * from the entry rows that carry it. One bulk read feeds the recommendation
+ * embedding text; nothing is fetched just to fill it.
+ */
+data class WorkFacts(
+    val mergeKey: String,
+    val genre: String? = null,
+    val description: String? = null
+)
+
+/**
  * A persisted catalogue Work (spec-23 T1): one row per book identity, keyed
  * by the normalized title+author [MergeKey]. This is the browse layer —
  * distinct from [AudiobookEntity], which stays the listening/library row and

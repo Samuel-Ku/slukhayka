@@ -5304,6 +5304,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
         _publishedListenerCollections.asStateFlow()
 
+    // Spec-51 (#692) — «Добірки з цією книгою» on the book page: one query per
+    // open book, with a stale answer for a previous book dropped.
+    private val _collectionsWithBook =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val collectionsWithBook:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _collectionsWithBook.asStateFlow()
+    private var collectionsWithBookRequest = 0L
+
+    /** Reads the VISIBLE published collections that contain this book. */
+    fun loadCollectionsWithBook(bookId: String) {
+        val request = ++collectionsWithBookRequest
+        if (!publicCollectionsAvailable || bookId.isBlank()) {
+            _collectionsWithBook.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = App.instance.publicCollectionsGate.containing(bookId)
+            if (request == collectionsWithBookRequest) _collectionsWithBook.value = result
+        }
+    }
+
     /**
      * Reads the signed-in listener's own published collections. The uid comes
      * from the identity module and is hashed immediately — it never travels.
@@ -5346,7 +5368,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * copy is purely LOCAL: no network is needed to save it.
      */
     fun saveForkOfPublished(documentId: String) {
-        val published = _publishedListenerCollections.value
+        // A fork target may be someone ELSE's collection (the book-page block)
+        // as well as one of the listener's own published collections (#695).
+        val published = (_publishedListenerCollections.value + _collectionsWithBook.value)
             .firstOrNull { it.documentId == documentId } ?: return
         // The published shape carries no local reasons, so rebuild the
         // composition with them positionally — that is what a fork copies.

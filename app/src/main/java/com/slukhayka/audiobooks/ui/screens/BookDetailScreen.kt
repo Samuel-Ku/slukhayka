@@ -275,6 +275,23 @@ fun BookDetailScreen(
     // itself rides MainViewModel (null without Firebase keys → no block).
     val listenerProfile by viewModel.listenerIdentity.collectAsState()
     val bookReviews by viewModel.bookReviews.collectAsState()
+    // Spec-51 (#692) — the published collections that contain this book.
+    val collectionsWithBook by viewModel.collectionsWithBook.collectAsState()
+    var openPublicCollectionId by remember { mutableStateOf<String?>(null) }
+    val collectionRows = remember(collectionsWithBook) {
+        com.slukhayka.audiobooks.data.collections.CollectionRanking.top(collectionsWithBook).map { published ->
+            com.slukhayka.audiobooks.ui.screens.collections.CollectionWithBookRow(
+                documentId = published.documentId,
+                title = published.title,
+                pseudonym = published.pseudonym,
+                average = com.slukhayka.audiobooks.data.collections.CollectionRating.average(
+                    published.ratingSum,
+                    published.ratingCount
+                ),
+                ratingCount = published.ratingCount
+            )
+        }
+    }
     val pendingReviewKeys by viewModel.pendingReviewKeys.collectAsState()
     // Spec-620 (#623) — the headline average counts only CONFIRMED reviews: a
     // pending card is not yet a vote, and a pending EDIT keeps the previous
@@ -308,6 +325,9 @@ fun BookDetailScreen(
             playableSources = bookSources,
             listenerRatings = confirmedReviewRatings
         )
+    }
+    LaunchedEffect(currentBook.id) {
+        viewModel.loadCollectionsWithBook(currentBook.id)
     }
     LaunchedEffect(reviewsWorkId) {
         viewModel.loadReviews(reviewsWorkId)
@@ -1268,6 +1288,15 @@ fun BookDetailScreen(
             // narrations); without the store (no Firebase keys) the block
             // degrades to absent — never a fake state.
             if (viewModel.listenerReviews != null) {
+                // Spec-51 (#692) — «Добірки з цією книгою»: the ranked public
+                // collections containing this book. No rows → no block at all.
+                item(key = "collections_with_book") {
+                    com.slukhayka.audiobooks.ui.screens.collections.CollectionsWithBookBlock(
+                        rows = collectionRows,
+                        onOpen = { documentId -> openPublicCollectionId = documentId }
+                    )
+                }
+
                 item(key = "reviews_header") {
                     // v1.4 C1 (ADR-0033): the canonical section header — the
                     // review count rides the header's count slot (R10), the
@@ -1592,6 +1621,25 @@ fun BookDetailScreen(
         },
         onDismiss = { reviewToDelete = null }
     )
+
+    // Spec-51 (#692) — reading a curated collection straight from the book
+    // page. The sheet is read-only plus «Зберегти собі» (#695).
+    val openPublicCollection = collectionsWithBook.firstOrNull { it.documentId == openPublicCollectionId }
+    if (openPublicCollection != null) {
+        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { openPublicCollectionId = null }) {
+            com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
+                collection = openPublicCollection,
+                originalAvailableLocally = openPublicCollection.bookIds.any { id ->
+                    allBooks.any { it.id == id }
+                },
+                onSaveForYou = {
+                    viewModel.saveForkOfPublished(openPublicCollection.documentId)
+                    openPublicCollectionId = null
+                }
+            )
+        }
+    }
 }
 
 internal fun reviewFailureNeedsSnackbar(formVisible: Boolean): Boolean = !formVisible

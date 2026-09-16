@@ -18,17 +18,8 @@ class InMemorySharedCollections(
     ): PublishResult {
         if (!online) return PublishResult.Refused("offline")
         if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
-        val cleanPseudonym = pseudonym.trim().take(PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
-        if (cleanPseudonym.isEmpty()) return PublishResult.Refused("no-pseudonym")
-        val document = PublishedCollection(
-            authorId = authorId,
-            collectionId = collection.id,
-            pseudonym = cleanPseudonym,
-            title = collection.title,
-            description = collection.description,
-            bookIds = collection.items.map { it.bookId },
-            publishedAt = clock()
-        )
+        val document = PublishedCollectionFactory.of(collection, authorId, pseudonym, clock())
+            ?: return PublishResult.Refused("no-pseudonym")
         published[document.documentId] = document
         return PublishResult.Published
     }

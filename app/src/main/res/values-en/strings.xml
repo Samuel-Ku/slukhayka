@@ -186,6 +186,9 @@
     <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
     <string name="listen_manage_shelves">Manage shelves</string>
     <string name="listen_shelves_hidden">Hidden</string>
+    <string name="collection_with_book_title">Collections with this book</string>
+    <string name="collection_by_pseudonym">a listener collection by %1$s</string>
+    <string name="collection_no_ratings">No ratings yet</string>
     <string name="listen_shelves_restore_all">Restore all hidden</string>
     <string name="listen_remaining_h">%1$d h left</string>
     <string name="listen_remaining_m">%1$d min left</string>

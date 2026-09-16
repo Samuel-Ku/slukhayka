@@ -191,6 +191,9 @@
     <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
     <string name="listen_manage_shelves">Керувати полицями</string>
     <string name="listen_shelves_hidden">Приховано</string>
+    <string name="collection_with_book_title">Добірки з цією книгою</string>
+    <string name="collection_by_pseudonym">добірка слухача %1$s</string>
+    <string name="collection_no_ratings">Ще без оцінок</string>
     <string name="listen_shelves_restore_all">Відновити всі приховані</string>
     <string name="listen_remaining_h">Залишилося %1$d год</string>
     <string name="listen_remaining_m">Залишилося %1$d хв</string>

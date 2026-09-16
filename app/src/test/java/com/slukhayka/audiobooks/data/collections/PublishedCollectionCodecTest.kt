@@ -97,6 +97,20 @@ class PublishedCollectionCodecTest {
     }
 
     @Test
+    fun `the composition snapshots round-trip`() {
+        val withItems = sample().copy(
+            items = listOf(
+                PublishedCollectionItem("book-a", "Магія", "Автор", "https://c/1.jpg", "бо раз"),
+                PublishedCollectionItem("book-b", "Зорі", "Інший", null, "")
+            )
+        )
+
+        val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(withItems))!!
+
+        assertEquals(withItems.items, decoded.items)
+    }
+
+    @Test
     fun `the moderation state round-trips`() {
         val moderated = sample().copy(hidden = true, reportCount = 3)
         val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(moderated))!!

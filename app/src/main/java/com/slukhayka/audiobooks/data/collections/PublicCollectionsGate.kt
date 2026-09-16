@@ -20,9 +20,10 @@ class PublicCollectionsGate(
     suspend fun publish(
         collection: ListenerCollection,
         authorId: String,
-        pseudonym: String
+        pseudonym: String,
+        itemSnapshots: Map<String, PublishedCollectionFactory.ItemSnapshot> = emptyMap()
     ): PublishResult =
-        sharedStore?.publish(collection, authorId, pseudonym)
+        sharedStore?.publish(collection, authorId, pseudonym, itemSnapshots)
             ?: PublishResult.Refused(NO_SHARED_STORE)
 
     suspend fun renameAuthor(authorId: String, pseudonym: String): PublishResult =

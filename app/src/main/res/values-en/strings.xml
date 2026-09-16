@@ -199,6 +199,7 @@
     <string name="collection_delete">Delete collection</string>
     <string name="collections_rail_title">Listener collections</string>
     <string name="curator_profile_empty">This curator has no visible collections yet</string>
+    <string name="collection_item_unknown">Book outside the local library</string>
     <string name="listen_shelves_restore_all">Restore all hidden</string>
     <string name="listen_remaining_h">%1$d h left</string>
     <string name="listen_remaining_m">%1$d min left</string>

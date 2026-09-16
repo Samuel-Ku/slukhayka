@@ -1,6 +1,19 @@
 package com.slukhayka.audiobooks.data.collections
 
 /**
+ * Spec-51 (#692) — one published position: the frozen display snapshot of a
+ * book at publish time, so someone else's collection renders its composition
+ * without owning those books. [reason] is the curator's own line.
+ */
+data class PublishedCollectionItem(
+    val bookId: String,
+    val title: String = "",
+    val author: String = "",
+    val coverUrl: String? = null,
+    val reason: String = ""
+)
+
+/**
  * Spec-51 (#691) — a collection as it exists OUTSIDE the device.
  *
  * [authorId] is `sha256(uid)` (see [CuratorIdentity]): the raw uid is never a
@@ -33,6 +46,12 @@ data class PublishedCollection(
      */
     val hidden: Boolean = false,
     val reportCount: Int = 0,
+    /**
+     * #692 — the composition with display snapshots, positionally parallel to
+     * [bookIds]. Legacy documents carry none; the reader then shows the honest
+     * count instead of inventing titles.
+     */
+    val items: List<PublishedCollectionItem> = emptyList(),
     val publishedAt: Long
 ) {
     /** The public document id: the author and the collection, still hashed. */
@@ -49,6 +68,9 @@ object PublishedCollectionCodec {
     const val MAX_PSEUDONYM_LEN = 40
     const val MAX_BOOKS = 500
 
+    /** A book's author in a display snapshot — real names are short. */
+    const val MAX_AUTHOR_LEN = 200
+
     fun encode(collection: PublishedCollection): Map<String, Any?> = mapOf(
         "authorId" to collection.authorId,
         "collectionId" to collection.collectionId,
@@ -62,8 +84,30 @@ object PublishedCollectionCodec {
         "ratingCount" to collection.ratingCount.coerceAtLeast(0),
         "hidden" to collection.hidden,
         "reportCount" to collection.reportCount.coerceAtLeast(0),
+        "items" to collection.items.take(MAX_BOOKS).map { item -> item.toMap() },
         "publishedAt" to collection.publishedAt
     )
+
+    private fun PublishedCollectionItem.toMap(): Map<String, Any?> = mapOf(
+        "bookId" to bookId,
+        "title" to ListenerCollectionLimits.cleanTitle(title),
+        "author" to ListenerCollectionLimits.clean(author, MAX_AUTHOR_LEN),
+        "coverUrl" to coverUrl?.takeIf { it.isNotBlank() },
+        "reason" to ListenerCollectionLimits.cleanReason(reason)
+    )
+
+    /** A display snapshot; a malformed entry is dropped, never half-shown. */
+    private fun decodeItem(entry: Any?): PublishedCollectionItem? {
+        val map = entry as? Map<*, *> ?: return null
+        val bookId = (map["bookId"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        return PublishedCollectionItem(
+            bookId = bookId,
+            title = ListenerCollectionLimits.cleanTitle(map["title"] as? String),
+            author = ListenerCollectionLimits.clean(map["author"] as? String, MAX_AUTHOR_LEN),
+            coverUrl = (map["coverUrl"] as? String)?.takeIf { it.isNotBlank() },
+            reason = ListenerCollectionLimits.cleanReason(map["reason"] as? String)
+        )
+    }
 
     /** @return null when the document is not a well-formed published collection. */
     fun decode(document: Map<String, Any?>?): PublishedCollection? {
@@ -102,6 +146,10 @@ object PublishedCollectionCodec {
             // a negative sum/count decodes to the honest zero.
             ratingSum = ((document["ratingSum"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
             ratingCount = ((document["ratingCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
+            items = (document["items"] as? List<*>)
+                ?.mapNotNull { entry -> decodeItem(entry) }
+                ?.take(MAX_BOOKS)
+                .orEmpty(),
             hidden = (document["hidden"] as? Boolean) ?: false,
             reportCount = ((document["reportCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
             publishedAt = (document["publishedAt"] as? Number)?.toLong() ?: 0L

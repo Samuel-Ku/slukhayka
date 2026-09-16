@@ -14,12 +14,14 @@ class InMemorySharedCollections(
     override suspend fun publish(
         collection: ListenerCollection,
         authorId: String,
-        pseudonym: String
+        pseudonym: String,
+        itemSnapshots: Map<String, PublishedCollectionFactory.ItemSnapshot>
     ): PublishResult {
         if (!online) return PublishResult.Refused("offline")
         if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
-        val document = PublishedCollectionFactory.of(collection, authorId, pseudonym, clock())
-            ?: return PublishResult.Refused("no-pseudonym")
+        val document = PublishedCollectionFactory.of(
+            collection, authorId, pseudonym, clock(), itemSnapshots
+        ) ?: return PublishResult.Refused("no-pseudonym")
         published[document.documentId] = document
         return PublishResult.Published
     }

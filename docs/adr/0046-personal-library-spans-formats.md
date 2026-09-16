@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Особиста бібліотека охоплює всі формати: один Work, один Library Entry, кілька Readthrough

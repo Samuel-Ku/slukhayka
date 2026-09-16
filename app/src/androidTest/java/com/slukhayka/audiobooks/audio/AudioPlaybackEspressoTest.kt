@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -257,14 +258,18 @@ class AudioPlaybackEspressoTest {
         // 3. Tap the chapter row; this fires `playAudiobook(...)` AND
         //    `setShowFullPlayer(true)` in `BookDetailScreen.kt`, which opens
         //    the PlayerScreen overlay (animated).
+        // #765 follow-up — the chapter row is a LazyColumn item, and an item
+        // below the fold is NEVER composed: waiting for its tag to "exist"
+        // times out no matter how long you wait (the book page grew with the
+        // v1.5 redesign and pushed the list further down). Scroll the page
+        // until the row is composed, exactly as the accessibility journey
+        // does; only then is it real and clickable.
         composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("book_detail_chapter_$fixtureChapterId"),
+            hasTestTag("book_detail_screen"),
             timeoutMillis = NAV_TIMEOUT_MS
         )
-        // #765 — the node EXISTING in the semantics tree is not the same as it
-        // being on screen: the book page is a long scroll, and a click on an
-        // off-screen node dispatches nothing (which is exactly the measured
-        // `showFullPlayer=false` after the tap). Bring it into view first.
+        composeTestRule.onNodeWithTag("book_detail_screen")
+            .performScrollToNode(hasTestTag("book_detail_chapter_$fixtureChapterId"))
         composeTestRule
             .onNodeWithTag("book_detail_chapter_$fixtureChapterId")
             .performScrollTo()

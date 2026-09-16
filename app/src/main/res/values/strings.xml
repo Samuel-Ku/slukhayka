@@ -360,6 +360,7 @@
     <string name="submission_status_refused_import">Не вдалося додати книгу з цього посилання.</string>
     <string name="submission_status_refused_duplicate">Уже в спільній базі.</string>
     <string name="submission_status_refused_rejected">Це посилання відхилено куратором — воно не повернеться в чергу.</string>
+    <string name="submission_status_pending_moderation">На модерації: куратор ще не ухвалив рішення.</string>
     <string name="submission_status_already_in_library">Уже в медіатеці.</string>
     <string name="submission_open_book">Відкрити книгу</string>
     <string name="submission_status_refused_not_verified">Публікація потребує реального програвання.</string>

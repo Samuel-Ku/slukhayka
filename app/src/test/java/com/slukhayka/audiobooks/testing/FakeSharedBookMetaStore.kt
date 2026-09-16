@@ -127,8 +127,17 @@ class FakeSharedBookMetaStore(
             title = candidate.title,
             author = candidate.author,
             narrator = candidate.narrator,
+            coverUrl = candidate.coverUrl,
             durationSeconds = candidate.durationSeconds,
-            chapters = List(candidate.chaptersCount) { SubmissionChapter("", "") },
+            // The queue carries the CHAPTER COUNT; the projection gives the
+            // door's own assertions the same number without fabricating blank
+            // URLs (which the publication shape forbids).
+            chapters = List(candidate.chaptersCount) { index ->
+                SubmissionChapter(
+                    "Розділ ${index + 1}",
+                    "https://www.youtube.com/watch?v=chapter$index"
+                )
+            },
             verifiedAt = candidate.playedAt,
             submittedAt = candidate.createdAt,
             submitterId = candidate.submitterHash

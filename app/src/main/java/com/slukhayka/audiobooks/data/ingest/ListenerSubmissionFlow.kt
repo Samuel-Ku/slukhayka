@@ -204,6 +204,12 @@ class ListenerSubmissionFlow(
     /** The result of a real playback event against the pending submission. */
     sealed interface Verdict {
         data object Published : Verdict
+
+        /**
+         * Moderation T4 (#837) — the candidate is QUEUED and waits for the
+         * curator: the honest verdict, never "already in the shared base".
+         */
+        data object PendingModeration : Verdict
         data class Refused(val reason: Reason) : Verdict
 
         /**
@@ -594,6 +600,9 @@ class ListenerSubmissionFlow(
                 )
             ) {
                 SubmissionPublisher.Result.PUBLISHED -> {
+                    // #837 (next step) — this becomes PENDING_MODERATION once
+                    // the card surfaces are updated together with the verdict;
+                    // the additive state and verdict already exist.
                     store.updateState(sourceId, SubmissionState.State.PUBLISHED, null, System.currentTimeMillis())
                     Verdict.Published
                 }

@@ -20,7 +20,21 @@ data class SubmissionState(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED, WATCHING, DEFERRED, DEFERRED_PUBLICATION }
+    enum class State {
+        AWAITING_PLAY,
+        PUBLISHED,
+        REFUSED,
+        WATCHING,
+        DEFERRED,
+        DEFERRED_PUBLICATION,
+
+        /**
+         * Moderation T4 (#837) — the verified submission is a QUEUED candidate:
+         * the curator has not decided yet, so the honest state is "waiting",
+         * never a promise that it is already in the shared base.
+         */
+        PENDING_MODERATION
+    }
 }
 
 interface SubmissionStateStore {

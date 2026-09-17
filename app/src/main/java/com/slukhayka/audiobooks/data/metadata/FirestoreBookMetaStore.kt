@@ -278,16 +278,6 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
-    override suspend fun publishSubmission(publication: SubmissionPublication) {
-        val document = SubmissionPublicationCodec.toMap(publication) ?: return
-        // Best-effort fire-and-forget; the document key is the normalized
-        // URL's hash — the same link re-published REPLACE-no-ops (URL dedup).
-        runCatching {
-            firestore.collection(SUBMISSION_COLLECTION)
-                .document(SubmissionPublicationCodec.documentId(publication.sourceUrl))
-                .set(document)
-        }
-    }
 
     override suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage {
         val boundedLimit = SubmissionPageLimits.bounded(limit)

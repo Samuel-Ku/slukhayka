@@ -221,7 +221,7 @@ class SubmissionPublisherTest {
     @Test
     fun `the tg url dedups against a youtube publication of the same link`() = runBlocking {
         // One shared base: the URL hash is the key regardless of mode.
-        store.publishSubmission(
+        store.seedSubmission(
             com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
                 sourceUrl = tgPostUrl,
                 accessMode = SubmissionAccessMode.YOUTUBE,

@@ -96,7 +96,7 @@ class SubmissionSeederTest {
     }
 
     private suspend fun prePublish(url: String) {
-        store.publishSubmission(
+        store.seedSubmission(
             SubmissionPublication(
                 sourceUrl = url,
                 accessMode = "youtube",

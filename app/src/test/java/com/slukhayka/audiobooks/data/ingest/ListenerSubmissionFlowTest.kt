@@ -181,7 +181,7 @@ class ListenerSubmissionFlowTest {
     @Test
     fun `a publish after the same url was already published is refused honestly`() = runTest {
         val harness = Harness()
-        harness.store.publishSubmission(
+        harness.store.seedSubmission(
             com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
                 sourceUrl = youtube,
                 accessMode = SubmissionAccessMode.YOUTUBE,
@@ -906,7 +906,7 @@ class ListenerSubmissionFlowTest {
         harness.flow.onPlaybackStarted("source-1")
 
         // Another device got there first while this one waited.
-        harness.store.publishSubmission(
+        harness.store.seedSubmission(
             com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
                 sourceUrl = youtube,
                 accessMode = com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode.YOUTUBE,

@@ -96,7 +96,7 @@ class SubmissionPolicyTest {
     @Test
     fun `an already published url is refused without consuming a slot`() = runBlocking {
         verification.record(sourceId, actualPlaybackStarted = true)
-        store.publishSubmission(publish("device-1"))
+        store.seedSubmission(publish("device-1"))
 
         val decision = policy.decide(sourceId, url, "device-2")
         assertFalse(decision.allowed)
@@ -130,7 +130,7 @@ class SubmissionPolicyTest {
     fun `metadata-only duplicate url refuses without consuming`() = runBlocking {
         // The dedup is URL-based and mode-agnostic: a YOUTUBE publication of
         // the same link blocks the metadata-only publish too (one shared base).
-        store.publishSubmission(publish("device-1"))
+        store.seedSubmission(publish("device-1"))
         val decision = policy.decideMetadataOnly(url, "device-2")
         assertFalse(decision.allowed)
         assertEquals(SubmissionPolicy.Reason.ALREADY_PUBLISHED, decision.reason)
@@ -158,7 +158,7 @@ class SubmissionPolicyTest {
     fun `curator passes with a verdict and refuses duplicates`() = runBlocking {
         verification.record(sourceId, actualPlaybackStarted = true)
         assertTrue(policy.decideCurator(sourceId, url).allowed)
-        store.publishSubmission(publish("device-1"))
+        store.seedSubmission(publish("device-1"))
         val decision = policy.decideCurator(sourceId, url)
         assertFalse(decision.allowed)
         assertEquals(SubmissionPolicy.Reason.ALREADY_PUBLISHED, decision.reason)

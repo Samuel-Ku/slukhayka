@@ -2151,6 +2151,8 @@ private fun LibraryBookRowContent(
                 Text(
                     text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    softWrap = false,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .clickable(onClick = onListenNow)
@@ -2164,6 +2166,8 @@ private fun LibraryBookRowContent(
                 Text(
                     text = stringResource(R.string.submission_watching_source),
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    softWrap = false,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
                 )
@@ -2176,6 +2180,8 @@ private fun LibraryBookRowContent(
                 Text(
                     text = stringResource(R.string.submission_deferred_publication_badge),
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    softWrap = false,
                     color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
                 )
@@ -2193,9 +2199,13 @@ private fun LibraryBookRowContent(
                         SubmissionBadge.IN_SHARED_BASE -> MaterialTheme.colorScheme.tertiary
                         else -> MaterialTheme.colorScheme.secondary
                     },
-                    modifier = Modifier.testTag(
-                        "submission_badge_${submissionBadge.name.lowercase()}_${book.book.id}"
-                    )
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .wrapContentWidth()
+                        .testTag(
+                            "submission_badge_${submissionBadge.name.lowercase()}_${book.book.id}"
+                        )
                 )
             }
             // #397 — the offline state (cloud / «7 із 12») is not a title

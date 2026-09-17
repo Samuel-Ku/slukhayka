@@ -685,8 +685,8 @@ fun LibraryScreen(
                     if (allBookmarks.isEmpty()) {
                         EmptyState(
                             icon = Icons.Default.BookmarkBorder,
-                            title = "Закладок немає",
-                            body = "Додавайте закладки під час прослуховування в плеєрі."
+                            title = stringResource(R.string.lib_saved_empty_bookmarks_title),
+                            body = stringResource(R.string.lib_saved_empty_bookmarks_body)
                         )
                     } else {
                         LazyColumn(
@@ -725,8 +725,8 @@ fun LibraryScreen(
                     if (bookmarkedPeople.isEmpty()) {
                         EmptyState(
                             icon = Icons.Default.People,
-                            title = "Закладок на людей немає",
-                            body = "Додавайте закладки на авторів або виконавців зі сторінки книги."
+                            title = stringResource(R.string.lib_saved_empty_people_title),
+                            body = stringResource(R.string.lib_saved_empty_people_body)
                         )
                     } else {
                         LazyColumn(

@@ -342,6 +342,10 @@
     <string name="library_empty_title">Your books are empty</string>
     <string name="lib_section_bookmarks">Bookmarks</string>
     <string name="lib_section_people">People</string>
+    <string name="lib_saved_empty_bookmarks_title">No bookmarks yet</string>
+    <string name="lib_saved_empty_bookmarks_body">Add bookmarks while listening in the player.</string>
+    <string name="lib_saved_empty_people_title">No bookmarked people yet</string>
+    <string name="lib_saved_empty_people_body">Bookmark authors or narrators from a book page.</string>
     <string name="library_empty_body">Add your own audiobooks from the device, or find new ones in the catalogue.</string>
     <string name="submission_status_already_in_library">Already in your library.</string>
     <string name="submission_open_book">Open the book</string>

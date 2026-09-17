@@ -554,7 +554,10 @@ class MainActivityAccessibilityTest {
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
-        composeTestRule.onNodeWithTag("tab_settings")
+        // v1.8 (#865/#860): Settings is no longer a bottom-bar tab — the bar is
+        // «Слухати / Огляд / Мої книги» and every root header carries the gear.
+        // The journey still looked for the removed `tab_settings` tag.
+        composeTestRule.onNodeWithTag("settings_gear")
             .performClick()
         composeTestRule.onNodeWithTag("settings_Profile")
             .performClick()

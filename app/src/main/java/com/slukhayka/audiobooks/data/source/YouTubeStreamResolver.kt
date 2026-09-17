@@ -2,7 +2,6 @@ package com.slukhayka.audiobooks.data.source
 
 import android.util.Log
 import com.slukhayka.audiobooks.data.collections.MiniJson
-import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import java.util.Locale
@@ -166,13 +165,18 @@ object NewPipeYouTubeExtractor {
                 builder.post(okhttp3.RequestBody.create(null, body))
             } ?: builder.get()
             // NewPipe's own headers (Accept-Language, the localization set)
-            // win where present; the device browser identity fills the gap.
+            // win where present.
             request.headers().forEach { (name, values) ->
                 values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
             }
-            if (request.headers()["User-Agent"].isNullOrEmpty()) {
-                builder.header("User-Agent", BrowserIdentity.currentUserAgent())
-            }
+            // #772 — do NOT substitute a browser User-Agent here. Measured on a
+            // live run: with the spoofed identity the same extractor either
+            // gets an `m.youtube.com` page it cannot parse (`Could not get
+            // ytInitialData`) or chases redirects forever (`Too many follow-up
+            // requests: 21`), while the plain transport — NewPipe's own headers,
+            // nothing added — resolves the very same video. YouTube is asked for
+            // the page NewPipe actually understands; the privacy relay still
+            // carries the request, and the media bytes keep riding it too.
             return TransportClients.okHttp.newCall(builder.build()).execute().use { response ->
                 Response(
                     response.code,

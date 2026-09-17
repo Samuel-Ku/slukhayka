@@ -3178,6 +3178,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * ADR-0052 §7 — the source-watch tap for a Work the listener has not added
+     * to the library yet: the appearance announced a Source that now carries the
+     * Work, so the tap goes through the ORDINARY import door and the imported
+     * book's page opens. Nothing is fabricated: a failed, timed-out or refused
+     * import selects nothing and crashes nothing.
+     */
+    fun importWatchedSourceAndOpen(
+        sourceId: String,
+        url: String,
+        known: KnownBookIdentity? = null
+    ) {
+        if (sourceId.isBlank() || url.isBlank()) return
+        viewModelScope.launch {
+            val book = withContext(Dispatchers.IO) {
+                runCatching {
+                    withTimeoutOrNull(smartRetryResolveTimeoutMs) {
+                        libraryImport.importFromSourceUrl(sourceId, url, known)
+                    }
+                }.getOrNull()
+            } ?: return@launch
+            selectBook(book.id)
+        }
+    }
+
     // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
     // Works/Editions catalogue — one card per Work, dedup inherited from
     // merge-on-write (never re-implemented at read time). Filters live at the

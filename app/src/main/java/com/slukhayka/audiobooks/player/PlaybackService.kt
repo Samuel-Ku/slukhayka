@@ -44,6 +44,9 @@ class PlaybackService : MediaSessionService() {
             /* requestCode = */ 0,
             Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+                // ADR-0052 §6 — the service (playback) notification's tap
+                // opens the full player, not merely the app.
+                putExtra(MainActivity.EXTRA_OPEN_PLAYER, true)
             },
             PendingIntent.FLAG_IMMUTABLE
         )

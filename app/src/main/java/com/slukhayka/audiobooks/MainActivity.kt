@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -44,8 +47,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.diagnostics.AppVisibility
 import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
+import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -142,13 +147,49 @@ private val SecondaryBookRouteFrameSaver = listSaver<SecondaryBookRouteFrame, St
     }
 )
 
+/** ADR-0052 §7 — a source-watch tap on a Work that has no Library Entry yet. */
+internal data class PendingSourceImport(
+    val sourceId: String,
+    val sourceUrl: String,
+    val identity: KnownBookIdentity?
+)
+
+/** The person-page path segment for a bookmark role (the BookDetailScreen idiom). */
+internal fun personRoleSegment(role: PersonRole): String = when (role) {
+    PersonRole.AUTHOR -> "avtor"
+    PersonRole.NARRATOR -> "chitaet"
+}
+
 // FragmentActivity (not plain ComponentActivity): spec-40 #276 (t2) —
 // androidx.biometric's BiometricPrompt attaches to a FragmentActivity, and
 // the recovery-code gate in ⚙️ Профіль needs it. Compose is unaffected.
 class MainActivity : FragmentActivity() {
-    companion object { const val EXTRA_OPEN_PEOPLE_NEW = "openPeopleNew" }
-    internal var pendingBookId: String? = null
-    internal var pendingPeopleNew: Boolean = false
+    companion object {
+        const val EXTRA_OPEN_PEOPLE_NEW = "openPeopleNew"
+        /** Carried with [EXTRA_OPEN_PEOPLE_NEW] so the tap lands on the named person (ADR-0052 §6). */
+        const val EXTRA_PEOPLE_NEW_NAME = "peopleNewName"
+        const val EXTRA_PEOPLE_NEW_ROLE = "peopleNewRole"
+        /** ADR-0052 §7 — the ordinary import door for a Work with no Library Entry. */
+        const val EXTRA_OPEN_SOURCE_WORK = "openSourceWork"
+        const val EXTRA_SOURCE_ID = "sourceId"
+        const val EXTRA_SOURCE_URL = "sourceUrl"
+        const val EXTRA_SOURCE_WORK_TITLE = "sourceWorkTitle"
+        const val EXTRA_SOURCE_WORK_AUTHOR = "sourceWorkAuthor"
+        const val EXTRA_SOURCE_WORK_NARRATOR = "sourceWorkNarrator"
+        /** ADR-0052 §6 — the service (playback) notification opens the full player. */
+        const val EXTRA_OPEN_PLAYER = "openPlayer"
+    }
+
+    // Compose state, not plain vars (#393 + ADR-0052 §6): the notification tap
+    // must navigate on a WARM start too, and a `LaunchedEffect(Unit)` never
+    // re-runs on `onNewIntent` (singleTop). Keying each effect on its field
+    // makes the warm delivery visible to composition.
+    internal var pendingBookId by mutableStateOf<String?>(null)
+    internal var pendingPeopleNew by mutableStateOf(false)
+    internal var pendingPeopleNewName by mutableStateOf<String?>(null)
+    internal var pendingPeopleNewRole by mutableStateOf<PersonRole?>(null)
+    internal var pendingSourceImport by mutableStateOf<PendingSourceImport?>(null)
+    internal var pendingOpenPlayer by mutableStateOf(false)
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
@@ -157,9 +198,39 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleDownloadIntent(intent: android.content.Intent) {
-        if (intent.getBooleanExtra(EXTRA_OPEN_PEOPLE_NEW, false)) pendingPeopleNew = true
+        if (intent.getBooleanExtra(EXTRA_OPEN_PEOPLE_NEW, false)) {
+            pendingPeopleNew = true
+            // ADR-0052 §6 — the notification names a person; carry that identity
+            // so the tap opens their page instead of the general feed. An absent
+            // or malformed role degrades to the EXPLORE fallback, never a crash.
+            pendingPeopleNewName = intent.getStringExtra(EXTRA_PEOPLE_NEW_NAME)
+                ?.takeIf { it.isNotBlank() }
+            pendingPeopleNewRole = intent.getStringExtra(EXTRA_PEOPLE_NEW_ROLE)
+                ?.let { raw -> runCatching { PersonRole.valueOf(raw) }.getOrNull() }
+        }
+        if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) pendingOpenPlayer = true
         if (intent.getBooleanExtra("openBookDetail", false)) {
             intent.getStringExtra("bookId")?.let { pendingBookId = it }
+        }
+        if (intent.getBooleanExtra(EXTRA_OPEN_SOURCE_WORK, false)) {
+            // ADR-0052 §7 — a watched Work with no Library Entry imports through
+            // the ordinary door. A target missing its URL is dropped silently.
+            val sourceId = intent.getStringExtra(EXTRA_SOURCE_ID).orEmpty()
+            val sourceUrl = intent.getStringExtra(EXTRA_SOURCE_URL).orEmpty()
+            if (sourceId.isNotBlank() && sourceUrl.isNotBlank()) {
+                val title = intent.getStringExtra(EXTRA_SOURCE_WORK_TITLE).orEmpty()
+                pendingSourceImport = PendingSourceImport(
+                    sourceId = sourceId,
+                    sourceUrl = sourceUrl,
+                    identity = title.takeIf { it.isNotBlank() }?.let {
+                        KnownBookIdentity(
+                            title = it,
+                            author = intent.getStringExtra(EXTRA_SOURCE_WORK_AUTHOR).orEmpty(),
+                            narrator = intent.getStringExtra(EXTRA_SOURCE_WORK_NARRATOR).orEmpty()
+                        )
+                    }
+                )
+            }
         }
         // Spec-53 T4 — a system share ("Поділитися → Слухайка") or a VIEW of
         // a supported link opens the submission door with the link prefilled.
@@ -336,21 +407,48 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
-    // #393: consume notification tap to open book detail
-    LaunchedEffect(Unit) {
-        val activity = context as? MainActivity
-        val bookId = activity?.pendingBookId
-        if (bookId != null) {
-            activity.pendingBookId = null
-            viewModel.selectBook(bookId)
-        }
+    // #393 + ADR-0052 §6: consume the notification tap to open book detail.
+    // Keyed on the pending field (not Unit) so a WARM onNewIntent under
+    // launchMode="singleTop" also navigates; the field is cleared on consume,
+    // which is exactly the cold-start behaviour as before.
+    val mainActivity = context as? MainActivity
+    LaunchedEffect(mainActivity?.pendingBookId) {
+        val activity = mainActivity ?: return@LaunchedEffect
+        val bookId = activity.pendingBookId ?: return@LaunchedEffect
+        activity.pendingBookId = null
+        viewModel.selectBook(bookId)
     }
-    LaunchedEffect(Unit) {
-        val activity = context as? MainActivity
-        if (activity?.pendingPeopleNew == true) {
-            activity.pendingPeopleNew = false
+    LaunchedEffect(mainActivity?.pendingPeopleNew) {
+        val activity = mainActivity ?: return@LaunchedEffect
+        if (!activity.pendingPeopleNew) return@LaunchedEffect
+        // ADR-0052 §6 — the alert names a person, so its tap opens THAT page;
+        // the EXPLORE feed stays the fallback when no person can be resolved.
+        val name = activity.pendingPeopleNewName
+        val role = activity.pendingPeopleNewRole
+        activity.pendingPeopleNew = false
+        activity.pendingPeopleNewName = null
+        activity.pendingPeopleNewRole = null
+        if (!name.isNullOrBlank() && role != null) {
+            viewModel.openPersonBooks(
+                CatalogPerson(name, bookPersonPath(personRoleSegment(role), name), 0, role)
+            )
+        } else {
             viewModel.selectTab(SelectedTab.EXPLORE)
         }
+    }
+    LaunchedEffect(mainActivity?.pendingSourceImport) {
+        val activity = mainActivity ?: return@LaunchedEffect
+        val request = activity.pendingSourceImport ?: return@LaunchedEffect
+        activity.pendingSourceImport = null
+        viewModel.importWatchedSourceAndOpen(
+            request.sourceId, request.sourceUrl, request.identity
+        )
+    }
+    LaunchedEffect(mainActivity?.pendingOpenPlayer) {
+        val activity = mainActivity ?: return@LaunchedEffect
+        if (!activity.pendingOpenPlayer) return@LaunchedEffect
+        activity.pendingOpenPlayer = false
+        viewModel.setShowFullPlayer(true)
     }
 
     val selectedWebSource by viewModel.selectedWebSource.collectAsState()

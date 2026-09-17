@@ -502,6 +502,17 @@ jobs:
           chmod 600 "${{ runner.temp }}/upload.jks"
           python3 -m json.tool app/google-services.json >/dev/null
 
+      # Same trap the Kover gate had: a release build reaches
+      # :app:verifyE5ModelAssets, and this job never prepared the assets.
+      - name: Cache e5 model
+        uses: actions/cache@v6
+        with:
+          path: app/src/main/assets/models/e5
+          key: e5-model-v1
+
+      - name: Download e5 model
+        run: ./gradlew :app:downloadE5Model --no-daemon
+
       - name: Build signed release APK
         env:
           KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"

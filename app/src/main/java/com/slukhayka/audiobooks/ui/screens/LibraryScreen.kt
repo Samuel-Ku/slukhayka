@@ -256,9 +256,8 @@ fun LibraryScreen(
     val statusRowScrollState = rememberScrollState()
     BackHandler(enabled = activeTab != 0) { activeTab = 0 }
     val sectionTitle = when (activeTab) {
-        1 -> stringResource(R.string.lib_section_bookmarks)
-        2 -> stringResource(R.string.lib_statistics)
-        else -> stringResource(R.string.lib_section_people)
+        1 -> stringResource(R.string.lib_section_saved)
+        else -> stringResource(R.string.lib_statistics)
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
     // Browsing the whole library vs narrowing it down: the sections (and the
@@ -430,6 +429,9 @@ fun LibraryScreen(
                             },
                             onMenuOpenChange = { sectionMenuOpen = it },
                             onOpenSection = { activeTab = it },
+                            // spec-54 T06 (#873) — «Полиці» are the listener's
+                            // existing collections, opened where they live.
+                            onOpenShelves = { viewModel.openCollectionsIndex() },
                             onAdd = { showImportSheet = true },
                             importFocusRequester = importFocusRequester
                         )
@@ -682,57 +684,49 @@ fun LibraryScreen(
                 }
 
                 1 -> {
-                    if (allBookmarks.isEmpty()) {
-                        EmptyState(
-                            icon = Icons.Default.BookmarkBorder,
-                            title = stringResource(R.string.lib_saved_empty_bookmarks_title),
-                            body = stringResource(R.string.lib_saved_empty_bookmarks_body)
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 12.dp)
-                        ) {
-                            items(allBookmarks, key = { it.id }) { bookmark ->
-                                val book = allBooks.find { it.id == bookmark.bookId }
-                                GlobalBookmarkItem(
-                                    bookmark = bookmark,
-                                    bookTitle = book?.title ?: "Аудіокнига",
-                                    onJumpClick = { viewModel.jumpToBookmark(bookmark) },
-                                    onDeleteClick = {
-                                        scope.launch { listeningState.deleteBookmark(bookmark.id) }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                2 -> {
+                    // spec-54 T06 (#873) — «Збережене»: the people the listener
+                    // follows AND the bookmarks they left, in ONE place, on the
+                    // data that already exists (no new schema).
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
+                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                     ) {
                         item {
-                            ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
+                            Text(
+                                text = stringResource(R.string.lib_section_people),
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .testTag("library_saved_people_header")
+                            )
                         }
-                    }
-                }
-
-                // #401: bookmarked people tab — authors and narrators the
-                // listener follows. Each row opens the person's books page.
-                3 -> {
-                    if (bookmarkedPeople.isEmpty()) {
-                        EmptyState(
-                            icon = Icons.Default.People,
-                            title = stringResource(R.string.lib_saved_empty_people_title),
-                            body = stringResource(R.string.lib_saved_empty_people_body)
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
-                        ) {
+                        if (bookmarkedPeople.isEmpty()) {
+                            // #873 — an empty state carries a clear ACTION, not
+                            // just an explanation.
+                            item {
+                                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_people_title),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_people_body),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedButton(
+                                        onClick = onBrowseClick,
+                                        modifier = Modifier
+                                            .padding(top = 8.dp)
+                                            .heightIn(min = 48.dp)
+                                            .testTag("library_saved_people_browse")
+                                    ) {
+                                        Text(stringResource(R.string.lib_find_book))
+                                    }
+                                }
+                            }
+                        } else {
                             items(
                                 bookmarkedPeople,
                                 key = { "${it.second.storageValue}_${it.first.id}" }
@@ -763,7 +757,65 @@ fun LibraryScreen(
                                 )
                             }
                         }
+                        item {
+                            Text(
+                                text = stringResource(R.string.lib_section_bookmarks),
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .testTag("library_saved_bookmarks_header")
+                            )
+                        }
+                        if (allBookmarks.isEmpty()) {
+                            item {
+                                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_bookmarks_title),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_bookmarks_body),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedButton(
+                                        onClick = onBrowseClick,
+                                        modifier = Modifier
+                                            .padding(top = 8.dp)
+                                            .heightIn(min = 48.dp)
+                                            .testTag("library_saved_bookmarks_browse")
+                                    ) {
+                                        Text(stringResource(R.string.lib_find_book))
+                                    }
+                                }
+                            }
+                        } else {
+                            items(allBookmarks, key = { it.id }) { bookmark ->
+                                val book = allBooks.find { it.id == bookmark.bookId }
+                                GlobalBookmarkItem(
+                                    bookmark = bookmark,
+                                    bookTitle = book?.title ?: "Аудіокнига",
+                                    onJumpClick = { viewModel.jumpToBookmark(bookmark) },
+                                    onDeleteClick = {
+                                        scope.launch { listeningState.deleteBookmark(bookmark.id) }
+                                    }
+                                )
+                            }
+                        }
                     }
+                }
+
+                2 -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
+                    ) {
+                        item {
+                            ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
+                        }
+                    }
+                }
                 }
             }
         }
@@ -888,7 +940,6 @@ fun LibraryScreen(
             )
         }
     }
-}
 
 /**
  * Owns the complete non-modal library layer, including transient snackbar
@@ -984,6 +1035,8 @@ internal fun LibraryHeaderActions(
     onToggleSearch: () -> Unit,
     onMenuOpenChange: (Boolean) -> Unit,
     onOpenSection: (Int) -> Unit,
+    /** spec-54 T06 (#873) — opens the listener's own collections (Полиці). */
+    onOpenShelves: () -> Unit = {},
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
@@ -1000,6 +1053,7 @@ internal fun LibraryHeaderActions(
         onToggleSearch = onToggleSearch,
         onMenuOpenChange = onMenuOpenChange,
         onOpenSection = onOpenSection,
+        onOpenShelves = onOpenShelves,
         onAdd = onAdd,
         importFocusRequester = importFocusRequester
     )
@@ -1014,6 +1068,7 @@ internal fun LibraryHeaderActionsInner(
     onToggleSearch: () -> Unit,
     onMenuOpenChange: (Boolean) -> Unit,
     onOpenSection: (Int) -> Unit,
+    onOpenShelves: () -> Unit = {},
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
@@ -1050,13 +1105,26 @@ internal fun LibraryHeaderActionsInner(
             expanded = menuOpen,
             onDismissRequest = { onMenuOpenChange(false) }
         ) {
+            // spec-54 T06 (#873) — три підрозділи: Полиці (добірки живуть
+            // там, де й жили), Збережене (люди + закладки на наявних даних)
+            // і Статистика.
             DropdownMenuItem(
-                text = { Text(stringResource(R.string.lib_bookmarks_count, bookmarksCount)) },
+                text = { Text(stringResource(R.string.lib_section_shelves)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenShelves()
+                },
+                modifier = Modifier.testTag("library_section_shelves")
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(stringResource(R.string.lib_saved_count, bookmarksCount + peopleCount))
+                },
                 onClick = {
                     onMenuOpenChange(false)
                     onOpenSection(1)
                 },
-                modifier = Modifier.testTag("library_section_bookmarks")
+                modifier = Modifier.testTag("library_section_saved")
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.lib_statistics)) },
@@ -1066,14 +1134,9 @@ internal fun LibraryHeaderActionsInner(
                 },
                 modifier = Modifier.testTag("library_section_stats")
             )
-            DropdownMenuItem(
-                text = { Text("Люди ($peopleCount)") },
-                onClick = {
-                    onMenuOpenChange(false)
-                    onOpenSection(3)
-                },
-                modifier = Modifier.testTag("library_section_people")
-            )
+            // The separate «Люди» entry is gone: people and bookmarks are ONE
+            // subsection now («Збережене», вище).
+
         }
     }
     // UI (v1.5 review): the import action is the compact «+» icon in the

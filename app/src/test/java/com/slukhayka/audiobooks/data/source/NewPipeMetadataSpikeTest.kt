@@ -40,6 +40,10 @@ class NewPipeMetadataSpikeTest {
             }
             val stream = if (conn.responseCode < 400) conn.inputStream else conn.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }
+            // #772 — WHERE did the control end up? okhttp lands on m.youtube.com;
+            // if the control lands on www.youtube.com, the host is the whole
+            // difference and nothing about our headers matters.
+            println("SPIKE plain-url code=${conn.responseCode} url=${conn.url}")
             val headers = conn.headerFields
                 .filterKeys { it != null }
                 .mapValues { entry -> entry.value ?: emptyList() }

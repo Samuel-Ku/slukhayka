@@ -301,3 +301,56 @@ fun siblingNarrations(
 ): List<AudiobookEntity> =
     books.filter { it.mergeKey.isNotBlank() && it.mergeKey == mergeKey && it.id != selfId }
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.narrator })
+
+/**
+ * spec-54 T14 (#869) — ONE personal card per Work.
+ *
+ * [siblingNarrations] still answers "which OTHER renditions exist", but the
+ * library no longer renders one card per rendition: the listener owns a WORK,
+ * and its narrations, sources and readthroughs live in the card's details.
+ *
+ * The narrations themselves are untouched: each keeps its own progress,
+ * bookmarks, downloads and speed, because they stay the very same rows. Only
+ * the CARD is shared. A row without a Work key (a local import) is its own
+ * card and is never merged by guesswork.
+ *
+ * The [primary] narration is the card's voice, chosen DETERMINISTICALLY: the
+ * first by narrator. Which rendition is actually being listened to is a fact of
+ * the progress projection (these rows carry no listening fields by design), so
+ * the caller may promote that one — the choice here never depends on chance.
+ */
+data class WorkCard(
+    /** The Work merge key, or "" for a row that has no Work. */
+    val workKey: String,
+    val primary: AudiobookEntity,
+    /** Every narration of the Work, the primary included, in stable order. */
+    val narrations: List<AudiobookEntity>
+) {
+    val hasSeveralNarrations: Boolean get() = narrations.size > 1
+}
+
+/** Groups the library rows into Work-level cards, in the listener's order. */
+fun workCards(books: List<AudiobookEntity>): List<WorkCard> {
+    val order = mutableListOf<String>()
+    val groups = linkedMapOf<String, MutableList<AudiobookEntity>>()
+    books.forEach { book ->
+        // A row without a Work is its OWN card: an unmergeable row can never
+        // share a card with another one.
+        val key = book.mergeKey.ifBlank { "row:${book.id}" }
+        if (key !in groups) {
+            groups[key] = mutableListOf()
+            order += key
+        }
+        groups.getValue(key) += book
+    }
+    return order.map { key ->
+        val members = groups.getValue(key).sortedWith(
+            compareBy(String.CASE_INSENSITIVE_ORDER) { it.narrator }
+        )
+        WorkCard(
+            workKey = members.first().mergeKey,
+            primary = members.first(),
+            narrations = members
+        )
+    }
+}

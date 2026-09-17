@@ -466,6 +466,19 @@ fun LibraryScreen(
                 }
             )
 
+            // #885 — the prototype («Нічна бібліотека») switches between
+            // «Книги / Полиці / Збережене» with a visible control at the top,
+            // instead of hiding two of the three behind the overflow menu.
+            if (activeTab == 0 || activeTab == 1) {
+                LibrarySectionTabs(
+                    booksSelected = activeTab == 0,
+                    savedSelected = activeTab == 1,
+                    onBooks = { activeTab = 0 },
+                    onShelves = { viewModel.openCollectionsIndex() },
+                    onSaved = { activeTab = 1 }
+                )
+            }
+
             if (activeTab == 0) {
                 // Library chrome (wayfinder #39): the collapsible search (v1.4
                 // C5 — the same gesture as Огляд), quick filters, sort + view
@@ -2950,6 +2963,58 @@ private fun LibraryYearHero(goal: com.slukhayka.audiobooks.data.entries.YearlyRe
                 text = stringResource(R.string.lib_year_hero_units),
                 style = MaterialTheme.typography.bodyMedium
             )
+        }
+    }
+}
+
+/** #885 — Книги | Полиці | Збережене, the prototype's top-level switch. */
+@Composable
+private fun LibrarySectionTabs(
+    booksSelected: Boolean,
+    savedSelected: Boolean,
+    onBooks: () -> Unit,
+    onShelves: () -> Unit,
+    onSaved: () -> Unit,
+) {
+    val items = listOf(
+        Triple(stringResource(R.string.lib_section_books), booksSelected, "library_tab_books" to onBooks),
+        Triple(stringResource(R.string.lib_section_shelves), false, "library_tab_shelves" to onShelves),
+        Triple(stringResource(R.string.lib_section_saved), savedSelected, "library_tab_saved" to onSaved),
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEach { (label, selected, action) ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .padding(end = 20.dp)
+                    .testTag(action.first)
+                    .clickable(onClick = action.second)
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .height(3.dp)
+                        .width(if (selected) 24.dp else 0.dp)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary
+                            else Color.Transparent
+                        )
+                )
+            }
         }
     }
 }

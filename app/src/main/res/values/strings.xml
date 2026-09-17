@@ -365,6 +365,11 @@
     <string name="submission_badge_in_shared_base">У спільній базі</string>
     <string name="submission_badge_rejected">Відхилено</string>
     <string name="a11y_open_settings">Налаштування</string>
+    <string name="settings_group_profile">Профіль</string>
+    <string name="settings_group_data">Дані та памʼять</string>
+    <string name="settings_group_network">Мережа й приватність</string>
+    <string name="settings_group_recommendations">Рекомендації</string>
+    <string name="settings_group_language">Мова й доступність</string>
     <string name="library_empty_title">Мої книги порожні</string>
     <string name="lib_section_bookmarks">Закладки</string>
     <string name="lib_section_saved">Збережене</string>

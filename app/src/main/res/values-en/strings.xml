@@ -339,6 +339,11 @@
     <string name="submission_badge_in_shared_base">In the shared base</string>
     <string name="submission_badge_rejected">Rejected</string>
     <string name="a11y_open_settings">Settings</string>
+    <string name="settings_group_profile">Profile</string>
+    <string name="settings_group_data">Data and storage</string>
+    <string name="settings_group_network">Network and privacy</string>
+    <string name="settings_group_recommendations">Recommendations</string>
+    <string name="settings_group_language">Language and accessibility</string>
     <string name="library_empty_title">Your books are empty</string>
     <string name="lib_section_bookmarks">Bookmarks</string>
     <string name="lib_section_saved">Saved</string>

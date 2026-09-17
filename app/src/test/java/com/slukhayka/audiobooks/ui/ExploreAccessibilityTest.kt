@@ -121,7 +121,7 @@ class ExploreAccessibilityTest {
             }
         }
 
-        compose.onNodeWithText("НОВИНКИ")
+        compose.onNodeWithText("Новинки")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
     }
 

@@ -140,7 +140,18 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      all {
+        // Robolectric's NATIVE graphics runtime (the roborazzi snapshots) loads
+        // a JNI library; on a modern JDK the load fails unless native access is
+        // granted explicitly. Without this the snapshot tests die in
+        // DefaultNativeRuntimeLoader instead of comparing images.
+        it.jvmArgs("--enable-native-access=ALL-UNNAMED")
+      }
+    }
+  }
   lint {
     // #386 — the inherited lint debt is accepted as a checked-in baseline so
     // `lintDebug` passes and CI can adopt it. The app UI is intentionally

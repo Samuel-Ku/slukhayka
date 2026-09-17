@@ -59,6 +59,7 @@ class LibrarySectionsMenuTest {
 
         composeTestRule.onNodeWithTag("library_section_shelves").assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_section_saved").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("library_section_imported").assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_section_stats").assertIsDisplayed()
         // The counts are the listener's own facts, summed for the merged section.
         composeTestRule.onNodeWithText("Збережене (5)").assertIsDisplayed()
@@ -73,6 +74,10 @@ class LibrarySectionsMenuTest {
 
         composeTestRule.onNodeWithTag("library_section_saved").performClick()
         assertEquals("Збережене is section 1", 1, openedSection)
+
+        // #867 — «Імпортоване» is the triage queue's own place.
+        composeTestRule.onNodeWithTag("library_section_imported").performClick()
+        assertEquals(3, openedSection)
 
         composeTestRule.onNodeWithTag("library_section_stats").performClick()
         assertEquals(

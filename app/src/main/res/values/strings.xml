@@ -370,6 +370,12 @@
     <string name="lib_section_saved">Збережене</string>
     <string name="lib_saved_count">Збережене (%1$d)</string>
     <string name="lib_section_shelves">Полиці</string>
+    <string name="lib_section_imported">Імпортоване</string>
+    <string name="lib_imported_explain">Походження цих записів не відновлюється з наявних даних. Підтвердьте їх як особисті або приберіть зв\'язок.</string>
+    <string name="lib_imported_empty_title">Імпортоване порожнє</string>
+    <string name="lib_imported_empty_body">Усі записи розібрані — тут немає нічого невизначеного.</string>
+    <string name="lib_imported_confirm">Це моя книга</string>
+    <string name="lib_imported_remove">Прибрати зв\'язок</string>
     <string name="lib_section_people">Люди</string>
     <string name="lib_saved_empty_bookmarks_title">Закладок немає</string>
     <string name="lib_saved_empty_bookmarks_body">Додавайте закладки під час прослуховування в плеєрі.</string>

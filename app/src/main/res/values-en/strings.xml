@@ -344,6 +344,12 @@
     <string name="lib_section_saved">Saved</string>
     <string name="lib_saved_count">Saved (%1$d)</string>
     <string name="lib_section_shelves">Shelves</string>
+    <string name="lib_section_imported">Imported</string>
+    <string name="lib_imported_explain">The origin of these entries cannot be recovered from the data. Confirm them as yours, or remove the link.</string>
+    <string name="lib_imported_empty_title">Nothing to triage</string>
+    <string name="lib_imported_empty_body">Every entry has been decided — nothing here is unknown.</string>
+    <string name="lib_imported_confirm">This is mine</string>
+    <string name="lib_imported_remove">Remove link</string>
     <string name="lib_section_people">People</string>
     <string name="lib_saved_empty_bookmarks_title">No bookmarks yet</string>
     <string name="lib_saved_empty_bookmarks_body">Add bookmarks while listening in the player.</string>

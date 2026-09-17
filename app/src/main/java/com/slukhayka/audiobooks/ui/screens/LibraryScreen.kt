@@ -255,8 +255,14 @@ fun LibraryScreen(
     // picked, so an active «Локальні» is never selected off-screen.
     val statusRowScrollState = rememberScrollState()
     BackHandler(enabled = activeTab != 0) { activeTab = 0 }
+    // #867 — the triage queue is read when its subsection opens (and re-read
+    // after every action), so the list is never a stale promise.
+    LaunchedEffect(activeTab) {
+        if (activeTab == 3) viewModel.refreshImportedEntries()
+    }
     val sectionTitle = when (activeTab) {
         1 -> stringResource(R.string.lib_section_saved)
+        3 -> stringResource(R.string.lib_section_imported)
         else -> stringResource(R.string.lib_statistics)
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
@@ -816,6 +822,72 @@ fun LibraryScreen(
                         }
                     }
                 }
+
+                3 -> {
+                    // ADR-0047 / #867 — «Імпортоване»: a TEMPORARY home for the
+                    // links whose origin the data does not recover, not a second
+                    // library. Two explicit actions per row, and the subsection
+                    // empties once every row is decided.
+                    val importedEntries by viewModel.importedEntries.collectAsState()
+                    if (importedEntries.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.Inbox,
+                            title = stringResource(R.string.lib_imported_empty_title),
+                            body = stringResource(R.string.lib_imported_empty_body)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("library_imported_list"),
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
+                        ) {
+                            item {
+                                Text(
+                                    text = stringResource(R.string.lib_imported_explain),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                            }
+                            items(importedEntries, key = { it.id }) { entry ->
+                                val title = allBooks.firstOrNull { it.id == entry.id }?.title ?: entry.id
+                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    Text(text = title, style = MaterialTheme.typography.titleSmall)
+                                    Row {
+                                        OutlinedButton(
+                                            onClick = {
+                                                viewModel.triageImported(
+                                                    entry.id,
+                                                    com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.CONFIRM_PERSONAL
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .heightIn(min = 48.dp)
+                                                .testTag("library_imported_confirm_${entry.id}")
+                                        ) {
+                                            Text(stringResource(R.string.lib_imported_confirm))
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        OutlinedButton(
+                                            onClick = {
+                                                viewModel.triageImported(
+                                                    entry.id,
+                                                    com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.REMOVE_LINK
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .heightIn(min = 48.dp)
+                                                .testTag("library_imported_remove_${entry.id}")
+                                        ) {
+                                            Text(stringResource(R.string.lib_imported_remove))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 }
             }
         }
@@ -1125,6 +1197,14 @@ internal fun LibraryHeaderActionsInner(
                     onOpenSection(1)
                 },
                 modifier = Modifier.testTag("library_section_saved")
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.lib_section_imported)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenSection(3)
+                },
+                modifier = Modifier.testTag("library_section_imported")
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.lib_statistics)) },

@@ -106,7 +106,8 @@ class IntegratedPeopleMigrationTest {
                 // too. Without them Room refuses the whole path ("A migration
                 // from 26 to 47 was required but not found").
                 AudiobookDatabase.MIGRATION_45_46,
-                AudiobookDatabase.MIGRATION_46_47
+                AudiobookDatabase.MIGRATION_46_47,
+                AudiobookDatabase.MIGRATION_47_48
             )
             .allowMainThreadQueries().build()
         try {

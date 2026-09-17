@@ -81,7 +81,11 @@ class NewPipeMetadataSpikeTest {
         override fun execute(request: Request): Response {
             println("SPIKE our-url ${request.httpMethod()} ${request.url()}")
             val response = NewPipeYouTubeExtractor.SharedClientDownloader.execute(request)
-            println("SPIKE our-url answered")
+            val body = response.responseBody().orEmpty()
+            println(
+                "SPIKE our-url code=${response.responseCode()} len=${body.length} " +
+                    "final=${response.latestUrl()} head=${body.take(120).replace('\n', ' ')}"
+            )
             return response
         }
     }

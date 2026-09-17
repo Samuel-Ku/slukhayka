@@ -354,3 +354,62 @@ fun workCards(books: List<AudiobookEntity>): List<WorkCard> {
         )
     }
 }
+
+/**
+ * spec-54 T14 (#869) — the library's Work-level card, built from the UI rows.
+ *
+ * This is the step the pure [workCards] projection could not take on its own:
+ * here the listening facts ARE present ([LibraryBook.progress]), so the card's
+ * [primary] is the rendition the listener is actually in — the one being
+ * furthest along, else the first by narrator (several narrations may be "in
+ * progress" at once, so "listening" alone cannot name one voice).
+ * The OTHER narrations are the card's siblings, each keeping its own progress,
+ * bookmarks, downloads and speed: they are the same rows, not copies.
+ */
+data class WorkBookCard(
+    val workKey: String,
+    val primary: LibraryBook,
+    /** Every narration of the Work, the primary included, by narrator. */
+    val narrations: List<LibraryBook>
+) {
+    val hasSeveralNarrations: Boolean get() = narrations.size > 1
+}
+
+/** Groups the library's rows into Work-level cards, in the listener's order. */
+fun workBookCards(books: List<LibraryBook>): List<WorkBookCard> {
+    val order = mutableListOf<String>()
+    val groups = linkedMapOf<String, MutableList<LibraryBook>>()
+    books.forEach { entry ->
+        // A row without a Work key is its OWN card: an unmergeable import never
+        // shares a card with another row.
+        val key = entry.book.mergeKey.ifBlank { "row:${entry.book.id}" }
+        if (key !in groups) {
+            groups[key] = mutableListOf()
+            order += key
+        }
+        groups.getValue(key) += entry
+    }
+    return order.map { key ->
+        val members = groups.getValue(key)
+        val narrations = members.sortedWith(
+            compareBy(String.CASE_INSENSITIVE_ORDER) { it.book.narrator }
+        )
+        WorkBookCard(
+            workKey = members.first().book.mergeKey,
+            primary = primaryBook(narrations),
+            narrations = narrations
+        )
+    }
+}
+
+/**
+ * The card's voice: the narration the listener is FURTHEST along in, else the
+ * first by narrator. `isListening` deliberately does not decide this — several
+ * narrations can be "in progress" at once, so it cannot name a single voice;
+ * the amount of progress can, and does so deterministically.
+ */
+private fun primaryBook(members: List<LibraryBook>): LibraryBook =
+    members.filter { it.progress != null }.maxByOrNull { it.percent }
+        // No progress anywhere: the card still needs ONE voice, and it must not
+        // depend on the order the rows happened to arrive in — the id decides.
+        ?: members.minByOrNull { it.book.id }!!

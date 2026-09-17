@@ -165,7 +165,33 @@ jobs:
             EXTRA_FLAGS="-Proborazzi.test.verify=true"
             echo "Snapshot verification: ON (goldens are compared, not recorded)" >> "$GITHUB_STEP_SUMMARY"
           fi
-          ./gradlew ${{ matrix.tasks }} $EXTRA_FLAGS --no-daemon --stacktrace
+          # #804 — Robolectric unpacks its native runtimes under
+          # /tmp/robolectric-*. On a runner whose /tmp is small or quota-limited
+          # those directories ACCUMULATE between runs until an unpack dies
+          # mid-write; the JVM then crashes inside native code and Gradle reports
+          # a task failure with NO test name at all — indistinguishable from a
+          # real regression. Clearing them first removes that class of crash, and
+          # the one retry keeps a single flake from failing the release gate.
+          if [ "${{ matrix.needs-robolectric }}" = "true" ]; then
+            {
+              echo "--- /tmp before the native leg ---"
+              df -h /tmp || true
+              echo "leftover Robolectric dirs: $(ls -d /tmp/robolectric-* 2>/dev/null | wc -l)"
+            } >> "$GITHUB_STEP_SUMMARY"
+            rm -rf /tmp/robolectric-*
+          fi
+
+          attempt=1
+          max_attempts=2
+          until ./gradlew ${{ matrix.tasks }} $EXTRA_FLAGS --no-daemon --stacktrace; do
+            status=$?
+            if [ "$attempt" -ge "$max_attempts" ] || [ "${{ matrix.needs-robolectric }}" != "true" ]; then
+              exit $status
+            fi
+            attempt=$((attempt + 1))
+            echo "${{ matrix.name }}: attempt $((attempt - 1)) crashed in native code (no test name) — retrying after clearing /tmp/robolectric-* (#804)" >> "$GITHUB_STEP_SUMMARY"
+            rm -rf /tmp/robolectric-*
+          done
           cp app/build/kover/bin-reports/testDebugUnitTest.ic "app/build/kover/partition/${{ matrix.ic }}"
           elapsed=$(( $(date +%s) - started_at ))
           echo "${{ matrix.name }}: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"

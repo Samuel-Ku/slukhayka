@@ -253,15 +253,24 @@ fun MiniPlayerBar(
                         )
                     }
                 }
-                LinearProgressIndicator(
-                    progress = { progress },
+                // #885 — the tag lives on a wrapper Box: the indicator itself uses
+                // clearAndSetSemantics (it is decoration), and that call would wash
+                // the tag away, leaving the geometry test with nothing to measure.
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp)
-                        .clearAndSetSemantics { },
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                )
+                        .testTag("mini_player_progress")
+                ) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clearAndSetSemantics { },
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    )
+                }
             }
         }
     }

@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.db
 import androidx.room.Entity
 import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
+import androidx.room.Fts4
 import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -590,6 +591,35 @@ data class WorkSourceEntity(
     val coverImageUrl: String? = null,
     val durationSeconds: Long? = null,
     val addedAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * Пошуковий індекс (#822, #823): the FTS4 projection of the Catalog Mirror
+ * that answers listener search without any network request.
+ *
+ * One row per mergeable Work (`works` row with a non-blank mergeKey),
+ * carrying the already-folded ([SearchIndexNormalize]) title, author, series
+ * and narrator. The fold lives in the row — FTS4's bundled tokenizer cannot
+ * be trusted with Ukrainian case/confusables, and Robolectric's SQLite has
+ * no FTS5/unicode61 — so both write and read normalize in Kotlin first and
+ * the MATCH expression only ever sees folded prefix tokens.
+ *
+ * A projection, never a source of truth: every field is rewritten from
+ * `works`/`editions`/`edition_facets` by [AudiobookDao.refreshWorkSearchIndex]
+ * on the same transactional write doors that own those rows. Rows without a
+ * Work identity (blank mergeKey) are never indexed.
+ *
+ * FTS4, not FTS5: FTS5/unicode61 is unavailable in Robolectric's bundled
+ * SQLite, while FTS4 runs on real Android and under test.
+ */
+@Fts4
+@Entity(tableName = "works_fts")
+data class WorkSearchFtsEntity(
+    @ColumnInfo(name = "workId") val workId: String,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "author") val author: String,
+    @ColumnInfo(name = "series") val series: String,
+    @ColumnInfo(name = "narrator") val narrator: String
 )
 
 /**

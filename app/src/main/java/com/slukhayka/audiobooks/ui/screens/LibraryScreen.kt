@@ -1627,7 +1627,17 @@ internal fun LazyGridScope.libraryGridContent(
                         onRecheck = { onRecheck(gridEntry.book.book.id) },
                         downloadCount = downloadCounts[gridEntry.book.book.id],
                         onOpen = { onBookClick(gridEntry.book.book.id) },
-                        bookReturnFocusRequester = bookReturnFocusRequester
+                        // Same contract as the card above: one requester, ONE
+                        // node — the book we are returning to. Attaching it to
+                        // every row made focus unresolvable, and the a11y
+                        // journey timed out waiting for `Focused`.
+                        bookReturnFocusRequester = if (
+                            gridEntry.book.book.id == restoreFocusBookId
+                        ) {
+                            bookReturnFocusRequester
+                        } else {
+                            null
+                        }
                     )
                 } else {
                     card(gridEntry.book, gridMode)
@@ -1821,11 +1831,7 @@ internal fun LibraryDenseRow(
                         // long-standing contract tag the journeys click, so the
                         // accessibility and playback tests keep their anchor.
                         .testTag("library_book_item_${book.book.id}")
-                // #885 — NOT clearAndSetSemantics: that call also wipes the
-                // Focused property clickable sets, so the a11y journey could
-                // never see the returning focus. Merging descendants keeps one
-                // node for the row AND leaves focus observable.
-                .semantics(mergeDescendants = true) {
+                .clearAndSetSemantics {
                     contentDescription = description
                     stateDescription = state
                     role = Role.Button

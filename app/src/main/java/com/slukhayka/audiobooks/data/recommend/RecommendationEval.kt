@@ -13,6 +13,11 @@ import kotlin.math.ln
  * and NDCG@K. The same sample and signals feed both the candidate
  * [semanticEmbedder] and the [baselineEmbedder], so the comparison is fair.
  *
+ * #487: recall@K is the FRACTION of the relevant set found in the top K
+ * (hits / |relevant|), averaged over folds, so it is always in [0, 1]. The
+ * earlier version divided the hit count only by the number of folds and
+ * could report values above 1 — numbers that could not be read as recall.
+ *
  * Pure JVM, deterministic under a seeded RNG — a regression corpus pins it.
  */
 object RecommendationEval {
@@ -111,10 +116,12 @@ object RecommendationEval {
         }
 
         val folds = completions.size
+        // #487 — a true recall: hits over the whole relevant set, averaged.
+        val relevantPerFold = (completionSet.size - 1).coerceAtLeast(1)
         return Report(
-            semanticRecallAtK = semanticHits.toDouble() / folds,
+            semanticRecallAtK = semanticHits.toDouble() / (folds * relevantPerFold),
             semanticNdcgAtK = if (folds > 0) semanticDcg / (folds * idealDcg) else 0.0,
-            baselineRecallAtK = baselineHits.toDouble() / folds,
+            baselineRecallAtK = baselineHits.toDouble() / (folds * relevantPerFold),
             baselineNdcgAtK = if (folds > 0) baselineDcg / (folds * idealDcg) else 0.0
         )
     }

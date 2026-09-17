@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.ingest
 
+import com.slukhayka.audiobooks.data.metadata.RejectedSubmission
 import com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode
 import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
 import kotlinx.coroutines.runBlocking
@@ -56,14 +57,20 @@ class SubmissionPublisherTest {
         assertEquals(SubmissionAccessMode.YOUTUBE, publication.accessMode)
         assertEquals("Стівен Кінг", publication.author)
         assertEquals("Острів Дума", publication.title)
-        assertEquals(2, publication.chapters.size)
+        // Moderation T1 (#834) — the CANDIDATE carries the observed chapter
+        // COUNT; per-chapter watch URLs ride inside metadataJson, so the queue
+        // document itself can never carry a signed or fabricated URL.
+        val candidate = store.candidatePuts.single()
+        assertEquals(2, candidate.chaptersCount)
         assertTrue(
-            "chapters carry canonical watch URLs, never signed URLs",
-            publication.chapters.all { it.watchUrl.startsWith("https://www.youtube.com/watch?v=") }
+            "the queued link is canonical, never a signed one",
+            candidate.canonicalUrl.startsWith("https://") && !candidate.canonicalUrl.contains("signature=")
         )
         assertEquals("the verdict moment rides the document", 10_000L, publication.verifiedAt)
         assertEquals("the write moment is the clock", 10_000L, publication.submittedAt)
-        assertEquals("device-1", publication.submitterId)
+        val queued = store.candidatePuts.single()
+        assertEquals("the queue carries the submitter HASH", 64, queued.submitterHash.length)
+        assertTrue("the raw device id never reaches the queue", queued.submitterHash != "device-1")
         assertEquals("the publish consumed one daily slot", 1L, store.getSubmissionCount("device-1", "0"))
     }
 
@@ -214,7 +221,7 @@ class SubmissionPublisherTest {
     @Test
     fun `the tg url dedups against a youtube publication of the same link`() = runBlocking {
         // One shared base: the URL hash is the key regardless of mode.
-        store.publishSubmission(
+        store.seedSubmission(
             com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
                 sourceUrl = tgPostUrl,
                 accessMode = SubmissionAccessMode.YOUTUBE,
@@ -287,5 +294,32 @@ class SubmissionPublisherTest {
 
         assertEquals(SubmissionPublisher.Result.ALREADY_PUBLISHED, result)
         assertEquals("no duplicate document", 1, store.submissionPuts.size)
+    }
+    @Test
+    fun `a rejected canonical link never queues a candidate, in any URL shape`() = runBlocking {
+        verification.record(sourceId, actualPlaybackStarted = true)
+        val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf("https://youtu.be/6XIPkMFZf-0")
+        store.rejected[canonical] =
+            RejectedSubmission(canonical, "неаудіокнига", 1L, "curator-bot")
+        val singleJson = """{"id": "6XIPkMFZf-0", "title": "Стівен Кінг - Острів Дума", "duration": 5400}"""
+
+        for (variant in listOf(
+            "https://youtu.be/6XIPkMFZf-0",
+            "https://m.youtube.com/watch?v=6XIPkMFZf-0&t=10"
+        )) {
+            assertEquals(
+                "«$variant» is the SAME canonical link, so the bot's rejection holds",
+                SubmissionPublisher.Result.REJECTED,
+                publisher.publish(variant, singleJson, "@stivenkingua", sourceId, "device-1")
+            )
+        }
+
+        assertTrue("no candidate was queued", store.candidatePuts.isEmpty())
+        assertTrue("nothing reached the old publication door", store.submissionPuts.isEmpty())
+        assertEquals(
+            "a rejected link spends no daily budget",
+            0L,
+            store.getSubmissionCount("device-1", "0")
+        )
     }
 }

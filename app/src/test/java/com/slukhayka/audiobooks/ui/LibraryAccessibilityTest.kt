@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -355,7 +356,7 @@ class LibraryAccessibilityTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Медіатека порожня").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Мої книги порожні").assertIsDisplayed()
         composeTestRule.onNodeWithText("Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі.")
             .assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_empty_import")
@@ -417,5 +418,28 @@ class LibraryAccessibilityTest {
         composeTestRule.onNodeWithContentDescription("Нейромант, Вільям Гібсон")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
+    }
+    @Test
+    fun theModerationBadgeIsSpokenThroughTheCardState() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibraryBookCard(
+                    book = fixtureBook,
+                    grid = false,
+                    onClick = {},
+                    submissionBadge = SubmissionBadge.PENDING_MODERATION
+                )
+            }
+        }
+
+        val label = androidx.test.core.app.ApplicationProvider
+            .getApplicationContext<android.content.Context>()
+            .getString(com.slukhayka.audiobooks.R.string.submission_badge_pending_moderation)
+        composeTestRule.onNodeWithTag("library_book_item_${fixtureBook.book.id}")
+            .assert(
+                SemanticsMatcher("state description carries the moderation badge") { node ->
+                    node.config.getOrNull(SemanticsProperties.StateDescription)?.contains(label) == true
+                }
+            )
     }
 }

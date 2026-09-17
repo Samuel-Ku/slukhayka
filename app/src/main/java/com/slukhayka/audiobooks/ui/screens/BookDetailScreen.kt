@@ -72,7 +72,8 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.ReviewSaveResult
+import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
+import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
@@ -274,7 +275,33 @@ fun BookDetailScreen(
     // itself rides MainViewModel (null without Firebase keys → no block).
     val listenerProfile by viewModel.listenerIdentity.collectAsState()
     val bookReviews by viewModel.bookReviews.collectAsState()
+    // Spec-51 (#692) — the published collections that contain this book.
+    val collectionsWithBook by viewModel.collectionsWithBook.collectAsState()
+    // #696 — a collection the listener reported leaves their surfaces at once.
+    val reportedCollectionIds by viewModel.reportedCollectionIds.collectAsState()
+    var openPublicCollectionId by remember { mutableStateOf<String?>(null) }
+    val collectionRows = remember(collectionsWithBook, reportedCollectionIds) {
+        com.slukhayka.audiobooks.data.collections.CollectionRanking
+            .top(collectionsWithBook.filterNot { it.documentId in reportedCollectionIds })
+            .map { published ->
+            com.slukhayka.audiobooks.ui.screens.collections.CollectionWithBookRow(
+                documentId = published.documentId,
+                title = published.title,
+                pseudonym = published.pseudonym,
+                average = com.slukhayka.audiobooks.data.collections.CollectionRating.average(
+                    published.ratingSum,
+                    published.ratingCount
+                ),
+                ratingCount = published.ratingCount
+            )
+        }
+    }
     val pendingReviewKeys by viewModel.pendingReviewKeys.collectAsState()
+    // Spec-620 (#623) — the headline average counts only CONFIRMED reviews: a
+    // pending card is not yet a vote, and a pending EDIT keeps the previous
+    // confirmed rating instead of moving the number before acceptance.
+    val confirmedReviewRatings by viewModel.confirmedReviewRatings.collectAsState()
+    val hiddenConfirmedReviewCount by viewModel.hiddenConfirmedReviewCount.collectAsState()
 
     // ADR-0023 (#348): narration ratings of this Work + THIS card's Edition id.
     val narrationRatings by viewModel.narrationRatings.collectAsState()
@@ -295,13 +322,16 @@ fun BookDetailScreen(
     // #358 — the delete confirmation lives here (destructive action never
     // looks neutral, spec-27); the row only raises the request.
     var showNarrationRatingDeleteConfirm by remember { mutableStateOf(false) }
-    val detailPresentation = remember(currentBook, sourceProfiles, bookSources, bookReviews) {
+    val detailPresentation = remember(currentBook, sourceProfiles, bookSources, confirmedReviewRatings) {
         bookDetailPresentation(
             book = currentBook,
             sourceProfiles = sourceProfiles,
             playableSources = bookSources,
-            listenerRatings = bookReviews.map { it.rating }
+            listenerRatings = confirmedReviewRatings
         )
+    }
+    LaunchedEffect(currentBook.id) {
+        viewModel.loadCollectionsWithBook(currentBook.id)
     }
     LaunchedEffect(reviewsWorkId) {
         viewModel.loadReviews(reviewsWorkId)
@@ -397,6 +427,12 @@ fun BookDetailScreen(
     }
     val reviewQueuedMessage = stringResource(R.string.book_detail_review_save_queued)
     val reviewFailureMessage = stringResource(R.string.book_detail_review_save_error)
+    val reviewDeleteFailureMessage = stringResource(R.string.book_detail_review_delete_error)
+    val collectionVoteErrorMessage = stringResource(R.string.collection_vote_error)
+    val collectionReportedMessage = stringResource(R.string.collection_reported)
+    val collectionReportUndoLabel = stringResource(R.string.collection_report_undo)
+    val collectionReportErrorMessage = stringResource(R.string.collection_report_error)
+    val reviewRetryLabel = stringResource(R.string.feedback_retry)
     LaunchedEffect(viewModel, snackbarHostState, reviewsWorkId) {
         viewModel.reviewSaveResults.collect { event ->
             if (event.workId != reviewsWorkId) return@collect
@@ -405,7 +441,14 @@ fun BookDetailScreen(
                 ReviewSaveResult.FAILED -> {
                     reviewSaveError = reviewFailureMessage
                     if (reviewFailureNeedsSnackbar(showReviewForm)) {
-                        snackbarHostState.showSnackbar(reviewFailureMessage)
+                        // #626 — retry resends the EXACT failed payload.
+                        val action = snackbarHostState.showSnackbar(
+                            message = reviewFailureMessage,
+                            actionLabel = reviewRetryLabel
+                        )
+                        if (action == SnackbarResult.ActionPerformed) {
+                            viewModel.retryReview(reviewsWorkId)
+                        }
                     }
                 }
                 ReviewSaveResult.PUBLISHED -> {
@@ -419,6 +462,49 @@ fun BookDetailScreen(
                     showReviewForm = false
                     editingReview = null
                     snackbarHostState.showSnackbar(reviewQueuedMessage)
+                }
+            }
+        }
+    }
+
+    // Spec-51 (#696) — a report hides the collection for the reporter at once
+    // and offers to cancel only that LOCAL hide; the complaint stands.
+    LaunchedEffect(viewModel, snackbarHostState) {
+        viewModel.collectionReportResults.collect { (documentId, stored) ->
+            if (stored) {
+                openPublicCollectionId = null
+                val action = snackbarHostState.showSnackbar(
+                    message = collectionReportedMessage,
+                    actionLabel = collectionReportUndoLabel
+                )
+                if (action == SnackbarResult.ActionPerformed) {
+                    viewModel.unhideReportedCollection(documentId)
+                }
+            } else {
+                snackbarHostState.showSnackbar(collectionReportErrorMessage)
+            }
+        }
+    }
+
+    // Spec-51 (#694) — a refused vote is honest: nothing was stored.
+    LaunchedEffect(viewModel, snackbarHostState) {
+        viewModel.publicCollectionVoteResults.collect { stored ->
+            if (!stored) snackbarHostState.showSnackbar(collectionVoteErrorMessage)
+        }
+    }
+
+    // Spec-620 (#626) — a failed delete is honest and retryable: the confirmed
+    // card is back on screen, and the snackbar carries the retry action.
+    LaunchedEffect(viewModel, snackbarHostState, reviewsWorkId) {
+        viewModel.reviewDeleteResults.collect { event ->
+            if (event.workId != reviewsWorkId) return@collect
+            if (event.result == ReviewDeleteResult.FAILED) {
+                val action = snackbarHostState.showSnackbar(
+                    message = reviewDeleteFailureMessage,
+                    actionLabel = reviewRetryLabel
+                )
+                if (action == SnackbarResult.ActionPerformed) {
+                    viewModel.retryReview(reviewsWorkId)
                 }
             }
         }
@@ -1236,6 +1322,15 @@ fun BookDetailScreen(
             // narrations); without the store (no Firebase keys) the block
             // degrades to absent — never a fake state.
             if (viewModel.listenerReviews != null) {
+                // Spec-51 (#692) — «Добірки з цією книгою»: the ranked public
+                // collections containing this book. No rows → no block at all.
+                item(key = "collections_with_book") {
+                    com.slukhayka.audiobooks.ui.screens.collections.CollectionsWithBookBlock(
+                        rows = collectionRows,
+                        onOpen = { documentId -> openPublicCollectionId = documentId }
+                    )
+                }
+
                 item(key = "reviews_header") {
                     // v1.4 C1 (ADR-0033): the canonical section header — the
                     // review count rides the header's count slot (R10), the
@@ -1267,6 +1362,23 @@ fun BookDetailScreen(
                             null
                         }
                     )
+                }
+
+                if (hiddenConfirmedReviewCount > 0) {
+                    item(key = "reviews_hidden_note") {
+                        Text(
+                            text = pluralStringResource(
+                                R.plurals.book_detail_reviews_hidden_note,
+                                hiddenConfirmedReviewCount,
+                                hiddenConfirmedReviewCount
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
                 }
 
                 // Spec-40 #279 — the honest headline average: flat mean over
@@ -1543,6 +1655,61 @@ fun BookDetailScreen(
         },
         onDismiss = { reviewToDelete = null }
     )
+
+    // Spec-51 (#692) — reading a curated collection straight from the book
+    // page. The sheet is read-only plus «Зберегти собі» (#695).
+    val openPublicCollection = collectionsWithBook.firstOrNull {
+        it.documentId == openPublicCollectionId && it.documentId !in reportedCollectionIds
+    }
+    if (openPublicCollection != null) {
+        // #694 — the viewer's own stars for the opened collection; the author
+        // never sees the voting control at all.
+        val myCollectionVote by viewModel.publicCollectionMyVote.collectAsState()
+        LaunchedEffect(openPublicCollection.collectionId) {
+            viewModel.loadMyCollectionVote(openPublicCollection.collectionId)
+        }
+        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { openPublicCollectionId = null }) {
+            com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
+                collection = openPublicCollection,
+                // #695 — one rule for the gate, shared with the domain.
+                originalAvailableLocally = com.slukhayka.audiobooks.data.collections.ForkPolicy
+                    .canFork(
+                        openPublicCollection.bookIds,
+                        allBooks.mapTo(mutableSetOf()) { it.id }
+                    ),
+                onSaveForYou = {
+                    viewModel.saveForkOfPublished(openPublicCollection.documentId)
+                    openPublicCollectionId = null
+                },
+                myStars = myCollectionVote,
+                isOwn = openPublicCollection.authorId ==
+                    com.slukhayka.audiobooks.data.collections.CuratorIdentity
+                        .authorId(listenerProfile?.uid),
+                onVote = { stars ->
+                    viewModel.voteCollection(
+                        bookId = currentBook.id,
+                        documentId = openPublicCollection.documentId,
+                        collectionId = openPublicCollection.collectionId,
+                        stars = stars
+                    )
+                },
+                onReport = if (openPublicCollection.authorId ==
+                    com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(listenerProfile?.uid)
+                ) {
+                    null
+                } else {
+                    {
+                        viewModel.reportCollection(
+                            bookId = currentBook.id,
+                            documentId = openPublicCollection.documentId,
+                            collectionId = openPublicCollection.collectionId
+                        )
+                    }
+                }
+            )
+        }
+    }
 }
 
 internal fun reviewFailureNeedsSnackbar(formVisible: Boolean): Boolean = !formVisible

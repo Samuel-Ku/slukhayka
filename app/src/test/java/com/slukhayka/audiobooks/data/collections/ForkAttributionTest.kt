@@ -54,6 +54,13 @@ class ForkAttributionTest {
     }
 
     @Test
+    fun `the fork gate demands a locally renderable composition`() {
+        assertFalse(ForkPolicy.canFork(emptyList(), setOf("a")))
+        assertFalse("no owned book means nothing to render offline", ForkPolicy.canFork(listOf("a", "b"), setOf("z")))
+        assertTrue(ForkPolicy.canFork(listOf("a", "b"), setOf("b", "z")))
+    }
+
+    @Test
     fun `forking an original that is not here refuses honestly`() {
         val outcome = ForkPolicy.fork(null, "Слухач", "doc-1", now = 100L)
         assertTrue(outcome is ForkOutcome.Refused)

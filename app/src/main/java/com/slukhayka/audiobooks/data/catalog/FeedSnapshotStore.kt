@@ -60,6 +60,56 @@ class FeedSnapshotStore(
         cards.ifEmpty { null }
     }
 
+    /**
+     * #622 — the persisted snapshot of one feed AS STORED: the cards plus
+     * their own observed-at, with freshness left to the caller
+     * ([FeedSnapshotRefresh] owns the one clock). Null when there is no usable
+     * snapshot — including a stored-but-empty/corrupt one, which is a cache
+     * miss and never an answer.
+     */
+    suspend fun snapshot(sourceId: String, feedKey: String): PersistedFeedSnapshot? =
+        withContext(Dispatchers.IO) {
+            val rows = dao.getFeedSnapshots(sourceId, booksStorageKey(sourceId, feedKey))
+            val fetchedAt = rows.minOfOrNull { it.fetchedAt } ?: return@withContext null
+            val cards = rows.flatMap { row -> FeedSnapshotCodec.decodeBooks(row.cardsJson) }
+            if (cards.isEmpty()) return@withContext null
+            // #625 — the fetch identity rides the free-text pageCursor slot, so
+            // a snapshot answers only the request that produced it (no schema
+            // migration for a new column).
+            PersistedFeedSnapshot(
+                sourceId = sourceId,
+                feedKey = feedKey,
+                books = cards,
+                observedAt = fetchedAt,
+                parameters = rows.firstOrNull()?.pageCursor.orEmpty()
+            )
+        }
+
+    /**
+     * #622 — persists one successful live snapshot under the stamp the refresh
+     * module decided ([PersistedFeedSnapshot.observedAt]), so memory and Room
+     * age from the SAME clock. @return false when the write failed; the caller
+     * still publishes the live result.
+     */
+    suspend fun saveSnapshot(snapshot: PersistedFeedSnapshot): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val storageKey = booksStorageKey(snapshot.sourceId, snapshot.feedKey)
+            // #625 — one Room transaction: a reader never sees the gap between
+            // clearing the old rows and inserting the new one.
+            dao.replaceFeedSnapshot(
+                snapshot.sourceId,
+                storageKey,
+                FeedSnapshotEntity(
+                    sourceId = snapshot.sourceId,
+                    feedKey = storageKey,
+                    pageCursor = snapshot.parameters,
+                    fetchedAt = snapshot.observedAt,
+                    cardsJson = FeedSnapshotCodec.encodeBooks(snapshot.books)
+                )
+            )
+        }.isSuccess
+    }
+
     /** Remembers what a live fetch just served, under the feed's page/cursor. */
     suspend fun saveBooks(
         sourceId: String,

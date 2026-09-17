@@ -99,6 +99,28 @@ class RecommendationEvalTest {
     }
 
     @Test
+    fun `recall is a fraction of the relevant set, never a raw hit count`() {
+        val report = RecommendationEval.evaluate(
+            completions = listOf("a1", "a2", "a3", "a4", "a5"),
+            candidates = catalogue,
+            semanticEmbedder = topic,
+            baselineEmbedder = keyword,
+            distractorCount = 20,
+            k = 20,
+            seed = 1L
+        )
+
+        assertTrue(
+            "semantic recall ${report.semanticRecallAtK} must be a fraction",
+            report.semanticRecallAtK in 0.0..1.0
+        )
+        assertTrue(
+            "baseline recall ${report.baselineRecallAtK} must be a fraction",
+            report.baselineRecallAtK in 0.0..1.0
+        )
+    }
+
+    @Test
     fun `fewer than two completions cannot be evaluated`() {
         val report = RecommendationEval.evaluate(
             completions = listOf("a1"),

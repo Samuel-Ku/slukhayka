@@ -635,6 +635,25 @@ interface AudiobookDao {
     )
     fun observeDiscoverableWorks(): Flow<List<WorkEntity>>
 
+    /**
+     * #484 — the genre/description already known per Work, in ONE bulk read:
+     * the recommendation embedding text gains them without a per-candidate
+     * lookup. A Work without an owned entry simply has no facts row.
+     */
+    @Query(
+        """
+        SELECT w.mergeKey AS mergeKey,
+               MAX(a.genre) AS genre,
+               MAX(a.description) AS description
+        FROM works w
+        JOIN library_entries le ON le.workId = w.id
+        JOIN audiobooks a ON a.id = le.id
+        WHERE w.mergeKey != ''
+        GROUP BY w.mergeKey
+        """
+    )
+    fun observeWorkFacts(): Flow<List<WorkFacts>>
+
     @Query("SELECT COUNT(*) FROM works")
     suspend fun countWorks(): Int
 
@@ -963,6 +982,32 @@ interface AudiobookDao {
 
     @Query("DELETE FROM library_entries WHERE id = :bookId")
     suspend fun deleteLibraryEntry(bookId: String)
+
+    // ADR-0047 / #867 — the «Імпортоване» queue: the links whose origin the
+    // data does not recover, newest first.
+    @Query("SELECT * FROM library_entries WHERE origin = :origin ORDER BY createdAt DESC")
+    suspend fun libraryEntriesWithOrigin(origin: String): List<LibraryEntryEntity>
+
+    @Query("UPDATE library_entries SET origin = :origin WHERE id = :bookId")
+    suspend fun updateLibraryEntryOrigin(bookId: String, origin: String)
+
+    @Query("SELECT * FROM library_entries WHERE id = :bookId LIMIT 1")
+    suspend fun libraryEntryById(bookId: String): LibraryEntryEntity?
+
+    // ADR-0047 / #870 — the origin MUST be recorded by the write that creates
+    // the link (a manual add is an explicit action), so it cannot fall back to
+    // the column's UNKNOWN default.
+    @Query(
+        "INSERT OR REPLACE INTO library_entries " +
+            "(id, workId, isFavorite, createdAt, downloadProgress, origin) " +
+            "VALUES (:id, :workId, 0, :createdAt, 0, :origin)"
+    )
+    suspend fun insertLibraryEntryWithOrigin(
+        id: String,
+        workId: String,
+        origin: String,
+        createdAt: Long
+    )
 
     @Query("SELECT * FROM library_entries")
     fun observeLibraryEntries(): Flow<List<LibraryEntryEntity>>
@@ -1349,6 +1394,29 @@ interface AudiobookDao {
     suspend fun worksForAuthor(authorId: String): List<WorkEntity>
 
     /**
+     * #874 — the NARRATOR twin of [worksForAuthor]: every Work this person
+     * narrates. An Edition carries the narrator as written and there is no
+     * canonical narrator id, so the match is case-insensitive on the stored
+     * string — the same real fact, not an invented identity. DISTINCT because
+     * a Work may carry several Editions by the same narrator.
+     */
+    @Query(
+        "SELECT DISTINCT w.* FROM works w JOIN editions e ON e.workId = w.id " +
+            "WHERE e.narrator = :narrator COLLATE NOCASE " +
+            "ORDER BY w.title COLLATE NOCASE ASC, w.id ASC"
+    )
+    suspend fun worksForNarrator(narrator: String): List<WorkEntity>
+
+    /**
+     * #874 — the narrations of ONE Work, as the playable cards the person page
+     * shows inside a Work's row. The author branch of that page needs them: a
+     * Work it knows about (`worksForAuthor`) may have several renditions, and
+     * each keeps its own progress, bookmarks, downloads and speed.
+     */
+    @Query(BOOK_SELECT + " WHERE w.id = :workId ORDER BY a.title COLLATE NOCASE ASC, a.id ASC")
+    suspend fun narrationsForWork(workId: String): List<AudiobookEntity>
+
+    /**
      * #736 — which of an author's Works the listener owns. The person page
      * shows every known Work (Медіатека + Дзеркало neighbours) and uses this
      * set to mark the owned ones first and the mirror neighbours as finds.
@@ -1359,6 +1427,19 @@ interface AudiobookDao {
             "WHERE wf.canonicalAuthorId=:authorId"
     )
     suspend fun ownedWorkIdsForAuthor(authorId: String): List<String>
+
+    /**
+     * #874 — the NARRATOR twin of [ownedWorkIdsForAuthor]: which of the Works
+     * this person narrates the listener already owns. Without it the merged
+     * person page could mark ownership for authors only, which is exactly the
+     * asymmetry the single page must remove.
+     */
+    @Query(
+        "SELECT DISTINCT w.id FROM works w JOIN editions e ON e.workId=w.id " +
+            "JOIN library_entries le ON le.workId=w.id " +
+            "WHERE e.narrator = :narrator COLLATE NOCASE"
+    )
+    suspend fun ownedWorkIdsForNarrator(narrator: String): List<String>
 
     /**
      * #736 / ADR-0041 — the narrators the listener actually has: only the
@@ -1525,6 +1606,17 @@ interface AudiobookDao {
     @Query("DELETE FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey")
     suspend fun clearFeedSnapshots(sourceId: String, feedKey: String)
 
+    /**
+     * Spec-620 (#625) — atomically replaces one feed's snapshot rows: the clear
+     * and the insert land in ONE Room transaction, so no reader ever observes a
+     * half-replaced (momentarily empty) snapshot.
+     */
+    @Transaction
+    suspend fun replaceFeedSnapshot(sourceId: String, feedKey: String, snapshot: FeedSnapshotEntity) {
+        clearFeedSnapshots(sourceId, feedKey)
+        upsertFeedSnapshot(snapshot)
+    }
+
     // --- Popularity assertions (#485) ---------------------------------------
 
     /** Upserts source-signal assertions (REPLACE by id — a re-observation refreshes its row, never accumulates). */
@@ -1569,6 +1661,34 @@ interface AudiobookDao {
     /** Every row in one state — the watching cards (spec-53 T5) read it. */
     @Query("SELECT * FROM submission_states WHERE state = :state ORDER BY createdAt")
     suspend fun submissionStatesByState(state: String): List<SubmissionStateEntity>
+
+    /** #837 — the rows a book card's honest submission badge derives from. */
+    @Query(
+        "SELECT * FROM submission_states " +
+            "WHERE state IN ('PENDING_MODERATION', 'PUBLISHED', 'REFUSED')"
+    )
+    suspend fun badgeSubmissionStates(): List<SubmissionStateEntity>
+
+    // ADR-0046 / spec-54 T13 (#863) — the Readthrough carrier. The APPEND-ONLY
+    // journal lives inside the row (journalJson), so a pass is one write.
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertReadthrough(entity: ReadthroughEntity)
+
+    @Query("SELECT * FROM readthroughs WHERE workId = :workId ORDER BY startedAt DESC")
+    suspend fun readthroughsForWork(workId: String): List<ReadthroughEntity>
+
+    @Query("SELECT * FROM readthroughs WHERE libraryEntryId = :libraryEntryId ORDER BY startedAt DESC")
+    suspend fun readthroughsForEntry(libraryEntryId: String): List<ReadthroughEntity>
+
+    @Query("SELECT * FROM readthroughs WHERE id = :id LIMIT 1")
+    suspend fun readthroughById(id: String): ReadthroughEntity?
+
+    /** #876 — every pass, for the reading journal and the yearly goal. */
+    @Query("SELECT * FROM readthroughs")
+    suspend fun allReadthroughs(): List<ReadthroughEntity>
+
+    @Query("DELETE FROM readthroughs WHERE id = :id")
+    suspend fun deleteReadthrough(id: String)
 
     /** Spec-53 T8 — drops one submission row (processed or discarded). */
     @Query("DELETE FROM submission_states WHERE sourceId = :sourceId")

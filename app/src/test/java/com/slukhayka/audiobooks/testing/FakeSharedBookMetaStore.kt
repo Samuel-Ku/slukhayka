@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.metadata.FacetCursor
 import com.slukhayka.audiobooks.data.metadata.FacetPage
 import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
+import com.slukhayka.audiobooks.data.metadata.RejectedSubmission
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.SharedProfileEntry
 import com.slukhayka.audiobooks.data.metadata.SharedTombstone
@@ -18,6 +19,9 @@ import com.slukhayka.audiobooks.data.metadata.SharedTombstoneCursor
 import com.slukhayka.audiobooks.data.metadata.SharedTombstonePage
 import com.slukhayka.audiobooks.data.metadata.SharedTombstonePageLimits
 import com.slukhayka.audiobooks.data.metadata.SourceRefusalVoteCodec
+import com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode
+import com.slukhayka.audiobooks.data.metadata.SubmissionCandidate
+import com.slukhayka.audiobooks.data.metadata.SubmissionChapter
 import com.slukhayka.audiobooks.data.metadata.SubmissionCursor
 import com.slukhayka.audiobooks.data.metadata.SubmissionPage
 import com.slukhayka.audiobooks.data.metadata.SubmissionPageLimits
@@ -89,7 +93,12 @@ class FakeSharedBookMetaStore(
     /** Simulates an unreachable shared base on the publication write. */
     var throwOnPublishSubmission: Boolean = false
 
-    override suspend fun publishSubmission(publication: SubmissionPublication) {
+    /**
+     * Test SEEDING, not a store write: the app has no client path into
+     * `catalog_cards` any more (#834), so the fake exposes a plain helper the
+     * consumption-lane tests use to place a shared document.
+     */
+    fun seedSubmission(publication: SubmissionPublication) {
         if (throwOnPublishSubmission) throw IllegalStateException("shared base down")
         if (SubmissionPublicationCodec.toMap(publication) == null) return
         submissionPuts += publication
@@ -98,6 +107,59 @@ class FakeSharedBookMetaStore(
 
     override suspend fun getSubmission(sourceUrl: String): SubmissionPublication? =
         submissions[SubmissionPublicationCodec.documentId(sourceUrl)]
+
+    /**
+     * Moderation T1 (#834) — the raw candidates the door queued. The fake also
+     * PROJECTS each candidate into [submissionPuts], so the door's existing
+     * payload assertions keep observing what the listener assembled.
+     */
+    val candidatePuts = mutableListOf<SubmissionCandidate>()
+
+    var enqueueCandidateResult: Boolean = true
+
+    override suspend fun enqueueCandidate(candidate: SubmissionCandidate): Boolean {
+        if (!enqueueCandidateResult) return false
+        candidatePuts += candidate
+        val projected = SubmissionPublication(
+            sourceUrl = candidate.url,
+            // A candidate with no playback verdict can only be the TG
+            // preview lane (the YouTube door always carries a verdict).
+            accessMode = if (candidate.playedAt > 0L) {
+                SubmissionAccessMode.YOUTUBE
+            } else {
+                SubmissionAccessMode.TG_PREVIEW
+            },
+            title = candidate.title,
+            author = candidate.author,
+            narrator = candidate.narrator,
+            coverUrl = candidate.coverUrl,
+            durationSeconds = candidate.durationSeconds,
+            // The queue carries the CHAPTER COUNT; the projection gives the
+            // door's own assertions the same number without fabricating blank
+            // URLs (which the publication shape forbids).
+            chapters = List(candidate.chaptersCount) { index ->
+                SubmissionChapter(
+                    "Розділ ${index + 1}",
+                    "https://www.youtube.com/watch?v=chapter$index"
+                )
+            },
+            verifiedAt = candidate.playedAt,
+            submittedAt = candidate.createdAt,
+            submitterId = candidate.submitterHash
+        )
+        submissionPuts += projected
+        submissions[SubmissionPublicationCodec.documentId(candidate.url)] = projected
+        return true
+    }
+
+    override suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? =
+        candidatePuts.lastOrNull { it.canonicalUrl == canonicalUrl }
+
+    /** #836 — the rejection blocklist the app must consult before queueing. */
+    val rejected = mutableMapOf<String, RejectedSubmission>()
+
+    override suspend fun getRejectedSubmission(canonicalUrl: String): RejectedSubmission? =
+        rejected[canonicalUrl]
 
     override suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage {
         if (throwOnSubmissionPage) throw IllegalStateException("shared base down")

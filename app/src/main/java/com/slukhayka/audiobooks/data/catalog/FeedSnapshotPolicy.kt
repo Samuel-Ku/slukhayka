@@ -37,9 +37,14 @@ object FeedSnapshotPolicy {
     fun ttlMillisFor(feedKey: String): Long =
         if (feedKey == FEED_NEW_ARRIVALS) NEW_ARRIVALS_TTL_MS else CATALOG_TTL_MS
 
-    /** Fresh strictly INSIDE the TTL — stale at the exact expiry boundary. */
+    /**
+     * Fresh strictly INSIDE the TTL — stale at the exact expiry boundary — and
+     * NEVER fresh when the stamp lies in the future (#622): a clock that ran
+     * ahead must not freeze a feed until it catches up, so a future stamp is
+     * treated exactly like an expired one and the network is hit again.
+     */
     fun isFresh(fetchedAt: Long, nowMillis: Long, ttlMillis: Long): Boolean =
-        nowMillis - fetchedAt < ttlMillis
+        nowMillis >= fetchedAt && nowMillis - fetchedAt < ttlMillis
 
     /**
      * Whether the network must be hit: an explicit user refresh always

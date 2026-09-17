@@ -44,8 +44,8 @@ class SubmissionDeltaSyncTest {
 
     @Test
     fun `one chain applies every published document and advances the cursor`() = runBlocking {
-        store.publishSubmission(publication("https://youtu.be/a", submittedAt = 100))
-        store.publishSubmission(publication("https://youtu.be/b", submittedAt = 200))
+        store.seedSubmission(publication("https://youtu.be/a", submittedAt = 100))
+        store.seedSubmission(publication("https://youtu.be/b", submittedAt = 200))
 
         val result = sync.syncAvailablePages()
 
@@ -57,8 +57,8 @@ class SubmissionDeltaSyncTest {
 
     @Test
     fun `two pages chain to the end`() = runBlocking {
-        store.publishSubmission(publication("https://youtu.be/a", submittedAt = 100))
-        store.publishSubmission(publication("https://youtu.be/b", submittedAt = 200))
+        store.seedSubmission(publication("https://youtu.be/a", submittedAt = 100))
+        store.seedSubmission(publication("https://youtu.be/b", submittedAt = 200))
 
         val result = sync.syncAvailablePages(pageSize = 1)
 
@@ -83,7 +83,7 @@ class SubmissionDeltaSyncTest {
 
     @Test
     fun `a failing writer does not advance the cursor`() = runBlocking {
-        store.publishSubmission(publication("https://youtu.be/a", submittedAt = 100))
+        store.seedSubmission(publication("https://youtu.be/a", submittedAt = 100))
         val broken = object : SubmissionProjectionWriter {
             override suspend fun apply(publications: List<SubmissionPublication>) {
                 throw IllegalStateException("projection full")

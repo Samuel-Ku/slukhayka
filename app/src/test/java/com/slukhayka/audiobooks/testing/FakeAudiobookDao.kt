@@ -1065,6 +1065,10 @@ class FakeAudiobookDao(
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
+    /** #484 — the fake owns no entry facts; the pool honestly has none. */
+    override fun observeWorkFacts(): Flow<List<com.slukhayka.audiobooks.data.db.WorkFacts>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
+
     /** ADR-0041 — the discovery pool: only Works with at least one claim. */
     override fun observeDiscoverableWorks(): Flow<List<WorkEntity>> =
         combine(worksState, workSourcesState) { works, claims ->
@@ -1337,6 +1341,30 @@ class FakeAudiobookDao(
         }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id)).take(limit)
     }
 
+    /** Test seeding: one Work plus the Edition that names its narrator. */
+    fun seedNarratedWork(work: WorkEntity, narrator: String) {
+        worksState.update { current -> current.filterNot { it.id == work.id } + work }
+        editionsState.update { current ->
+            current.filterNot { it.id == "edition-${work.id}" } +
+                EditionEntity(id = "edition-${work.id}", workId = work.id, narrator = narrator)
+        }
+    }
+
+    override suspend fun narrationsForWork(workId: String): List<AudiobookEntity> {
+        val ids = libraryEntriesState.value.filter { it.workId == workId }.map { it.id }.toSet()
+        return booksState.value.filter { it.id in ids }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
+    }
+
+    override suspend fun worksForNarrator(narrator: String): List<WorkEntity> {
+        val ids = editionsState.value
+            .filter { it.narrator.equals(narrator, ignoreCase = true) }
+            .map { it.workId }
+            .toSet()
+        return worksState.value.filter { it.id in ids }
+            .sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
+    }
+
     override suspend fun worksForAuthor(authorId: String): List<WorkEntity> {
         val ids = workFacetsState.value.filter { it.canonicalAuthorId == authorId }.map { it.workId }.toSet()
         return worksState.value.filter { it.id in ids }.sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
@@ -1347,6 +1375,15 @@ class FakeAudiobookDao(
         val owned = libraryEntriesState.value.map { it.workId }.toSet()
         return workFacetsState.value
             .filter { it.canonicalAuthorId == authorId && it.workId in owned }
+            .map { it.workId }
+            .distinct()
+    }
+
+    /** #874 — the fake's owned-work ids for a narrator mirrors the SQL join. */
+    override suspend fun ownedWorkIdsForNarrator(narrator: String): List<String> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        return editionsState.value
+            .filter { it.narrator.equals(narrator, ignoreCase = true) && it.workId in owned }
             .map { it.workId }
             .distinct()
     }
@@ -1521,6 +1558,74 @@ class FakeAudiobookDao(
         state: String
     ): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
         submissionStates.values.filter { it.state == state }
+
+    /** #837 — the rows a book card's honest submission badge derives from. */
+    override suspend fun badgeSubmissionStates(): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
+        submissionStates.values.filter {
+            it.state in setOf("PENDING_MODERATION", "PUBLISHED", "REFUSED")
+        }
+
+    // ADR-0046 / #863 — the Readthrough carrier.
+    private val readthroughs = linkedMapOf<String, com.slukhayka.audiobooks.data.db.ReadthroughEntity>()
+
+    override suspend fun upsertReadthrough(entity: com.slukhayka.audiobooks.data.db.ReadthroughEntity) {
+        readthroughs[entity.id] = entity
+    }
+
+    override suspend fun readthroughsForWork(
+        workId: String
+    ): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
+        readthroughs.values.filter { it.workId == workId }.sortedByDescending { it.startedAt }
+
+    override suspend fun readthroughsForEntry(
+        libraryEntryId: String
+    ): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
+        readthroughs.values.filter { it.libraryEntryId == libraryEntryId }.sortedByDescending { it.startedAt }
+
+    override suspend fun readthroughById(
+        id: String
+    ): com.slukhayka.audiobooks.data.db.ReadthroughEntity? = readthroughs[id]
+
+    override suspend fun allReadthroughs(): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
+        readthroughs.values.toList()
+
+    override suspend fun deleteReadthrough(id: String) {
+        readthroughs.remove(id)
+    }
+
+    override suspend fun insertLibraryEntryWithOrigin(
+        id: String,
+        workId: String,
+        origin: String,
+        createdAt: Long
+    ) {
+        val entry = com.slukhayka.audiobooks.data.db.LibraryEntryEntity(
+            id = id, workId = workId, createdAt = createdAt, origin = origin
+        )
+        libraryEntriesState.update { current -> current.filterNot { it.id == id } + entry }
+    }
+
+    /** Test seeding for the «Імпортоване» queue (#867). */
+    fun seedLibraryEntry(entry: com.slukhayka.audiobooks.data.db.LibraryEntryEntity) {
+        libraryEntriesState.update { current -> current.filterNot { it.id == entry.id } + entry }
+    }
+
+    // ADR-0047 / #867 — the «Імпортоване» queue over the fake's REAL entry state.
+    override suspend fun libraryEntriesWithOrigin(
+        origin: String
+    ): List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity> =
+        libraryEntriesState.value.filter { it.origin == origin }.sortedByDescending { it.createdAt }
+
+    override suspend fun updateLibraryEntryOrigin(bookId: String, origin: String) {
+        libraryEntriesState.update { current ->
+            current.map { if (it.id == bookId) it.copy(origin = origin) else it }
+        }
+    }
+
+    override suspend fun libraryEntryById(
+        bookId: String
+    ): com.slukhayka.audiobooks.data.db.LibraryEntryEntity? =
+        libraryEntriesState.value.firstOrNull { it.id == bookId }
 
     // Spec-53 T8 (#715) — drops one deferred row.
     override suspend fun deleteSubmissionState(sourceId: String) {

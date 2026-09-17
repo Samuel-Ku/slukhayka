@@ -94,8 +94,9 @@ class NavigationTabsTest {
         composeTestRule.onNodeWithTag("tab_listen").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("tab_explore").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("tab_library").assertExists().assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tab_settings").assertIsDisplayed().performClick()
-        assertEquals(SelectedTab.SETTINGS, selected)
+        // #860 / ADR-0049 — «Налаштування» left the bar: the gear in a root
+        // header opens them instead, so the bar keeps only working sections.
+        composeTestRule.onNodeWithTag("tab_settings").assertDoesNotExist()
         // Removed tabs: the WebView and the standalone Bookmarks tab.
         composeTestRule.onNodeWithTag("tab_4read_web").assertDoesNotExist()
         composeTestRule.onNodeWithTag("tab_bookmarks").assertDoesNotExist()
@@ -117,8 +118,8 @@ class NavigationTabsTest {
             .assertIsSelected()
             .assertTextEquals("Слухати")
         composeTestRule.onNodeWithTag("tab_explore").assertTextEquals("Огляд")
-        composeTestRule.onNodeWithTag("tab_library").assertTextEquals("Медіатека")
-        composeTestRule.onNodeWithTag("tab_settings").assertTextEquals("Налаштування")
+        composeTestRule.onNodeWithTag("tab_library").assertTextEquals("Мої книги")
+        composeTestRule.onNodeWithTag("tab_settings").assertDoesNotExist()
 
         composeTestRule.onNodeWithContentDescription("Listen", useUnmergedTree = true)
             .assertDoesNotExist()
@@ -208,12 +209,8 @@ class NavigationTabsTest {
         composeTestRule.onNodeWithTag("tab_library")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
-            .assertTextEquals("Медіатека")
-        composeTestRule.onNodeWithTag("tab_settings")
-            .assertIsDisplayed()
-            .assertHeightIsAtLeast(24.dp)
-            .assertTextEquals("Налаштування")
-        listOf("Слухати", "Огляд", "Медіатека", "Налаштування").forEach { label ->
+            .assertTextEquals("Мої книги")
+        listOf("Слухати", "Огляд", "Мої книги").forEach { label ->
             val layouts = mutableListOf<TextLayoutResult>()
             composeTestRule.onNodeWithText(label, useUnmergedTree = true)
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }

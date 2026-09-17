@@ -12,18 +12,35 @@ internal data class BookFeedbackState(
     val narrator: String, val draft: BookFeedbackDraft, val automatic: Boolean,
     val loading: Boolean = true, val saving: Boolean = false,
     val failed: Boolean = false, val accepted: Boolean = false,
+    /**
+     * Spec-620 (#627) — per-verdict acceptance. A retry sends ONLY the part
+     * that was not accepted, so an accepted Listener Review is never created a
+     * second time (and never with a different date).
+     */
+    val reviewAccepted: Boolean = false, val narrationAccepted: Boolean = false,
     val reviewCreatedAt: Long? = null, val narrationCreatedAt: Long? = null,
     val stored: BookFeedbackDraft = BookFeedbackDraft()
 )
 
-/** One editor for both entry points. Each verdict retains its Work/Edition identity. */
+/**
+ * One editor for both entry points. Each verdict retains its Work/Edition identity.
+ *
+ * Spec-620 (#627) — the LISTENER REVIEW half now goes through the same
+ * [ListenerReviewLifecycle] module the book page uses, so both editors share
+ * one lifecycle interface; the Narration Rating stays a separate domain
+ * verdict sent directly to its own store. Draft, the automatic completion
+ * prompt, dismiss and the partial-result bookkeeping stay here by decision.
+ *
+ * The controller owns its OWN lifecycle instance: it is Work-scoped state, and
+ * the completion editor must not clobber the book page's open Work.
+ */
 internal class BookFeedbackController(
     private val scope: CoroutineScope,
     private val local: BookFeedbackStore,
     private val findBook: suspend (String) -> BookRow?,
     private val findEdition: suspend (String) -> String?,
     private val identity: suspend () -> ListenerProfile?,
-    private val reviews: ListenerReviewsStore?,
+    private val reviewLifecycle: ListenerReviewLifecycle?,
     private val narrations: NarrationRatingsStore?,
     private val onAccepted: (String) -> Unit = {}
 ) {
@@ -48,7 +65,12 @@ internal class BookFeedbackController(
                 try { withTimeoutOrNull(5_000) {
                     withContext(Dispatchers.IO) {
                         val uid = identity()?.uid ?: return@withContext
-                        ownReview = reviews?.getReviews(workId)?.firstOrNull { it.uid == uid }
+                        // The review is read through the ONE lifecycle module.
+                        reviewLifecycle?.let { lifecycle ->
+                            lifecycle.open(workId, uid)
+                            lifecycle.refresh(workId)
+                            ownReview = lifecycle.state.value.confirmed.firstOrNull { it.uid == uid }
+                        }
                         ownNarration = narrations?.getForWork(workId)?.firstOrNull { it.uid == uid && it.editionId == editionId }
                     }
                 }
@@ -99,30 +121,31 @@ internal class BookFeedbackController(
         local.saveDraft(current.bookId, draft)
         _state.value = current.copy(saving = true, failed = false)
         scope.launch {
-            val accepted = try {
+            var reviewAccepted = current.reviewAccepted
+            var narrationAccepted = current.narrationAccepted
+            try {
                 withTimeoutOrNull(15_000) {
                     withContext(Dispatchers.IO) {
-                        val profile = identity() ?: return@withContext false
+                        val profile = identity() ?: return@withContext
                         val now = System.currentTimeMillis()
-                        val bookAccepted = if (draft.bookRating in 1..5 &&
-                            (draft.bookRating != current.stored.bookRating || draft.body.trim() != current.stored.body.trim())) {
-                            reviews?.enqueueReview(ListenerReview(current.workId, profile.uid,
-                                profile.nickname.ifBlank { profile.uid }, draft.bookRating,
-                                draft.body.trim().takeIf { it.isNotEmpty() }, current.narrator.takeIf { it.isNotBlank() },
-                                current.reviewCreatedAt ?: now, if (current.reviewCreatedAt != null) now else null)) is ReviewWriteReceipt.Queued
-                        } else true
-                        val narrationAccepted = if (draft.narrationRating in 1..5 && draft.narrationRating != current.stored.narrationRating) {
-                            current.editionId?.let { edition -> narrations?.putRating(NarrationRating(
-                                current.workId, profile.uid, edition, draft.narrationRating,
-                                current.narrationCreatedAt ?: now, if (current.narrationCreatedAt != null) now else null)) } == true
-                        } else true
-                        bookAccepted && narrationAccepted
+                        reviewAccepted = sendReviewIfDue(current, draft, profile, now, reviewAccepted)
+                        narrationAccepted = sendNarrationIfDue(current, draft, profile, now, narrationAccepted)
                     }
-                } == true
+                }
             } catch (e: CancellationException) { throw e
-            } catch (_: Exception) { false }
-            if (_state.value?.bookId == current.bookId) {
-                _state.value = current.copy(saving = false, failed = !accepted, accepted = accepted)
+            } catch (_: Exception) { }
+            val accepted = reviewAccepted && narrationAccepted
+            // Merge into the LATEST state: a late completion never overwrites a
+            // newer local draft and never reopens a closed editor.
+            val latest = _state.value
+            if (latest?.bookId == current.bookId) {
+                _state.value = latest.copy(
+                    saving = false,
+                    failed = !accepted,
+                    accepted = accepted,
+                    reviewAccepted = reviewAccepted,
+                    narrationAccepted = narrationAccepted
+                )
                 if (accepted) {
                     local.clearDraft(current.bookId)
                     local.dismiss(current.bookId)
@@ -130,5 +153,82 @@ internal class BookFeedbackController(
                 }
             }
         }
+    }
+
+    /**
+     * Spec-620 (#627) — the review half of the feedback rides the ONE lifecycle
+     * module. An already-accepted review is never re-sent, so a retry cannot
+     * create it again with a different date; a genuine edit keeps its
+     * [BookFeedbackState.reviewCreatedAt] through the `editing` payload.
+     *
+     * @return true when this part is accepted (or was nothing to send).
+     */
+    private suspend fun sendReviewIfDue(
+        current: BookFeedbackState,
+        draft: BookFeedbackDraft,
+        profile: ListenerProfile,
+        now: Long,
+        alreadyAccepted: Boolean
+    ): Boolean {
+        val due = draft.bookRating in 1..5 &&
+            (draft.bookRating != current.stored.bookRating || draft.body.trim() != current.stored.body.trim())
+        if (alreadyAccepted || !due) return true
+        val lifecycle = reviewLifecycle ?: return false
+        lifecycle.open(current.workId, profile.uid)
+        val body = draft.body.trim().takeIf { it.isNotEmpty() }
+        val editionTag = current.narrator.takeIf { it.isNotBlank() }
+        val editing = current.reviewCreatedAt?.let { createdAt ->
+            ListenerReview(
+                workId = current.workId,
+                uid = profile.uid,
+                authorName = profile.nickname.ifBlank { profile.uid },
+                rating = draft.bookRating,
+                body = body,
+                editionTag = editionTag,
+                createdAt = createdAt,
+                editedAt = now
+            )
+        }
+        // Local acceptance only: an offline review is accepted at once and the
+        // backend verdict continues on the module scope (a LATE failure must
+        // never reopen this closed editor).
+        val outcome = lifecycle.enqueueSave(
+            workId = current.workId,
+            uid = profile.uid,
+            nickname = profile.nickname,
+            rating = draft.bookRating,
+            body = body,
+            editionTag = editionTag,
+            editing = editing
+        )
+        return outcome != ReviewSaveResult.FAILED
+    }
+
+    /**
+     * The Narration Rating is a SEPARATE verdict: it never rides the review
+     * lifecycle, and its acceptance does not depend on the review's.
+     *
+     * @return true when this part is accepted (or was nothing to send).
+     */
+    private suspend fun sendNarrationIfDue(
+        current: BookFeedbackState,
+        draft: BookFeedbackDraft,
+        profile: ListenerProfile,
+        now: Long,
+        alreadyAccepted: Boolean
+    ): Boolean {
+        val due = draft.narrationRating in 1..5 && draft.narrationRating != current.stored.narrationRating
+        if (alreadyAccepted || !due) return true
+        val edition = current.editionId ?: return false
+        return narrations?.putRating(
+            NarrationRating(
+                current.workId,
+                profile.uid,
+                edition,
+                draft.narrationRating,
+                current.narrationCreatedAt ?: now,
+                if (current.narrationCreatedAt != null) now else null
+            )
+        ) == true
     }
 }

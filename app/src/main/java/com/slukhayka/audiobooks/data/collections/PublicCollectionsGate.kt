@@ -20,9 +20,10 @@ class PublicCollectionsGate(
     suspend fun publish(
         collection: ListenerCollection,
         authorId: String,
-        pseudonym: String
+        pseudonym: String,
+        itemSnapshots: Map<String, PublishedCollectionFactory.ItemSnapshot> = emptyMap()
     ): PublishResult =
-        sharedStore?.publish(collection, authorId, pseudonym)
+        sharedStore?.publish(collection, authorId, pseudonym, itemSnapshots)
             ?: PublishResult.Refused(NO_SHARED_STORE)
 
     suspend fun renameAuthor(authorId: String, pseudonym: String): PublishResult =
@@ -36,6 +37,44 @@ class PublicCollectionsGate(
     /** Without a shared store there is nothing public to show — not an error. */
     suspend fun publishedBy(authorId: String): List<PublishedCollection> =
         sharedStore?.publishedBy(authorId).orEmpty()
+
+    /**
+     * #692 — the honest read behind the book block: without a shared store
+     * there is nothing to show, and an unreachable layer is NOT an empty
+     * community (the caller keeps its last good list).
+     */
+    suspend fun readContaining(bookId: String): CollectionReadResult =
+        sharedStore?.readContaining(bookId) ?: CollectionReadResult.Failure
+
+    /** #692 — collections containing one book; empty without a shared store. */
+    suspend fun containing(bookId: String): List<PublishedCollection> =
+        sharedStore?.containing(bookId).orEmpty()
+
+    /** #694 — voting is online-only; without a shared store it refuses honestly. */
+    suspend fun vote(documentId: String, voterKey: String, stars: Int): PublishResult =
+        sharedStore?.vote(documentId, voterKey, stars)
+            ?: PublishResult.Refused(NO_SHARED_STORE)
+
+    /** #694 — the listener's own vote; without a shared store there is none. */
+    suspend fun myVote(voterKey: String): Int? = sharedStore?.myVote(voterKey)
+
+    /** #696 — reporting is online-only; without a shared store it refuses. */
+    suspend fun report(documentId: String, reporterKey: String): PublishResult =
+        sharedStore?.report(documentId, reporterKey)
+            ?: PublishResult.Refused(NO_SHARED_STORE)
+
+    /** #696 — deleting one's own hidden collection. */
+    suspend fun deleteOwnCollection(documentId: String): PublishResult =
+        sharedStore?.deleteOwnCollection(documentId)
+            ?: PublishResult.Refused(NO_SHARED_STORE)
+
+    /** #693 — the rail; empty without a shared store (no fake shelf). */
+    suspend fun topPublic(limit: Int): List<PublishedCollection> =
+        sharedStore?.topPublic(limit).orEmpty()
+
+    /** #693 — a curator's visible collections; empty without a shared store. */
+    suspend fun visibleBy(authorId: String): List<PublishedCollection> =
+        sharedStore?.visibleBy(authorId).orEmpty()
 
     companion object {
         const val NO_SHARED_STORE = "no-shared-store"

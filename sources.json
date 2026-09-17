@@ -134,12 +134,19 @@
     },
     {
       "id": "telegram",
-      "displayName": "Telegram",
+      "displayName": "Слухайка",
+      "homeUrl": "https://t.me/slukhayka",
       "contentLanguage": "uk",
-      "accessMode": "UNKNOWN",
+      "accessMode": "TELEGRAM",
       "order": 10,
       "streamOnly": false,
-      "transportHosts": []
+      "transportHosts": [],
+      "telegramProfile": {
+        "groupUrl": "https://t.me/slukhayka",
+        "chatId": -1004476157917,
+        "threadId": 573,
+        "isForum": true
+      }
     },
     {
       "id": "sluhayknigi",

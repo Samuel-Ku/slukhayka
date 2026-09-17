@@ -35,13 +35,27 @@ class PublicCollectionContentTest {
         publishedAt = 1L
     )
 
-    private fun setContent(available: Boolean, onSave: () -> Unit = {}) {
+    private fun setContent(
+        available: Boolean,
+        onSave: () -> Unit = {},
+        isOwn: Boolean = false,
+        myStars: Int? = null,
+        onVote: (Int) -> Unit = {},
+        onReport: (() -> Unit)? = null,
+        onDelete: (() -> Unit)? = null,
+        published: PublishedCollection = collection
+    ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 PublicCollectionContent(
-                    collection = collection,
+                    collection = published,
                     originalAvailableLocally = available,
-                    onSaveForYou = onSave
+                    onSaveForYou = onSave,
+                    myStars = myStars,
+                    isOwn = isOwn,
+                    onVote = onVote,
+                    onReport = onReport,
+                    onDelete = onDelete
                 )
             }
         }
@@ -80,5 +94,106 @@ class PublicCollectionContentTest {
             .assertIsEnabled()
             .performClick()
         assertEquals(1, saved)
+    }
+    @Test
+    fun `a collection without votes shows the honest empty line and no stars`() {
+        setContent(available = true)
+
+        composeTestRule.onNodeWithTag("public_collection_no_ratings").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("public_collection_average").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the real average and its vote count are shown once people vote`() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                PublicCollectionContent(
+                    collection = collection.copy(ratingSum = 9, ratingCount = 2),
+                    originalAvailableLocally = true,
+                    onSaveForYou = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("public_collection_no_ratings").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the composition renders the curator's order with reasons and honest unknowns`() {
+        setContent(
+            available = true,
+            published = collection.copy(
+                items = listOf(
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionItem(
+                        "book-a", "Магія природи", "Автор", null, "бо атмосферно"
+                    ),
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionItem(
+                        "book-b", "", "", null, "бо друге"
+                    ),
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionItem(
+                        "book-c", "Третя", "Автор", "https://c/3.jpg", ""
+                    )
+                )
+            )
+        )
+
+        composeTestRule.onNodeWithText("Магія природи").assertIsDisplayed()
+        composeTestRule.onNodeWithText("бо атмосферно").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Книга поза локальною бібліотекою").assertIsDisplayed()
+        composeTestRule.onNodeWithText("бо друге").assertIsDisplayed()
+        // #692 — a real cover snapshot draws; a missing one draws nothing.
+        composeTestRule.onNodeWithTag("public_collection_item_cover_2").assertExists()
+        composeTestRule.onNodeWithTag("public_collection_item_cover_0").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a reader gets the report action and it fires`() {
+        var reported = 0
+        setContent(available = true, onReport = { reported++ })
+
+        composeTestRule.onNodeWithTag("public_collection_report").assertIsDisplayed().performClick()
+
+        assertEquals(1, reported)
+    }
+
+    @Test
+    fun `the author never sees the report action`() {
+        setContent(available = true, isOwn = true, onReport = {})
+        composeTestRule.onNodeWithTag("public_collection_report").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the author of a hidden collection sees the state and only delete`() {
+        var deleted = 0
+        setContent(
+            available = true,
+            isOwn = true,
+            onDelete = { deleted++ },
+            published = collection.copy(hidden = true, reportCount = 3)
+        )
+
+        composeTestRule.onNodeWithTag("public_collection_hidden_notice").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("save_collection_for_you").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("public_collection_delete").assertIsDisplayed().performClick()
+        assertEquals(1, deleted)
+    }
+
+    @Test
+    fun `the author never sees the self-rating control`() {
+        setContent(available = true, isOwn = true)
+
+        composeTestRule.onNodeWithTag("public_collection_your_rating").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("rating_star_1").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a reader can rate the collection and the choice is reported`() {
+        var voted = 0
+        setContent(available = true, isOwn = false, onVote = { voted = it })
+
+        composeTestRule.onNodeWithTag("rating_star_4").performClick()
+
+        assertEquals(4, voted)
     }
 }

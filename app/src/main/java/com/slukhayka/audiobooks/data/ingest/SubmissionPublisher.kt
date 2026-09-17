@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.ingest
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode
 import com.slukhayka.audiobooks.data.metadata.SubmissionChapter
+import com.slukhayka.audiobooks.data.metadata.SubmissionCandidateFactory
 import com.slukhayka.audiobooks.data.metadata.SubmissionPublication
 
 /**
@@ -34,7 +35,10 @@ class SubmissionPublisher(
         DAILY_LIMIT_REACHED,
 
         /** The normalized URL is already published — nothing was published. */
-        ALREADY_PUBLISHED
+        ALREADY_PUBLISHED,
+
+        /** #836 — the curator rejected this link: it can never be queued again. */
+        REJECTED
     }
 
     /**
@@ -77,6 +81,28 @@ class SubmissionPublisher(
         return assembleAndPublish(url, metadataJson, channelId, sourceId, submitterId)
     }
 
+    /**
+     * The TG preview door's Source is the registered community source: the
+     * queue document must name where the link came from, and the TG lane has
+     * exactly one source.
+     */
+    private val TELEGRAM_SOURCE_ID = "telegram"
+
+    /**
+     * The queue's shape carries no free-text description, so the TG preview's
+     * captured description rides inside [SubmissionCandidate.metadataJson]
+     * (the same field the YouTube door uses for its raw metadata).
+     */
+    private fun descriptionJson(description: String): String? =
+        description.trim().takeIf { it.isNotBlank() }?.let { text ->
+            val escaped = text
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+            "{\"description\":\"$escaped\"}"
+        }
+
     private fun refusedResult(reason: SubmissionPolicy.Reason?): Result = when (reason) {
         SubmissionPolicy.Reason.NOT_VERIFIED -> Result.NOT_VERIFIED
         SubmissionPolicy.Reason.DAILY_LIMIT_REACHED -> Result.DAILY_LIMIT_REACHED
@@ -96,22 +122,33 @@ class SubmissionPublisher(
         val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
         if (plan.title.isBlank()) return Result.METADATA_FAILED
 
-        val publication = SubmissionPublication(
-            sourceUrl = url.trim(),
-            accessMode = SubmissionAccessMode.YOUTUBE,
+        // Moderation T1 (#834) — a verified submission becomes a CANDIDATE in
+        // pending_submissions; only the curator's bot writes catalog_cards.
+        val verifiedAt = verifiedAtOverride
+            ?: policy.verifiedAt(sourceId)
+            ?: return Result.NOT_VERIFIED
+        val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf(url)
+        // The queue is now the dedup source: the same canonical link is one
+        // candidate, and a repeat is the friendly ALREADY_PUBLISHED state.
+        // #836 — the blocklist is checked BEFORE the queue: a rejected link
+        // never becomes a candidate again, in any URL shape.
+        if (sharedStore.getRejectedSubmission(canonical) != null) return Result.REJECTED
+        if (sharedStore.getCandidate(canonical) != null) return Result.ALREADY_PUBLISHED
+        val candidate = SubmissionCandidateFactory.create(
+            url = url,
+            canonical = canonical,
             title = plan.title,
+            uid = submitterId,
+            playedAt = verifiedAt,
+            createdAt = clock(),
             author = plan.author,
             narrator = plan.narrator,
             durationSeconds = metadata.durationSeconds,
-            chapters = plan.chapters.map { SubmissionChapter(it.title, it.watchUrl) },
-            verifiedAt = verifiedAtOverride
-                ?: policy.verifiedAt(sourceId)
-                ?: return Result.NOT_VERIFIED,
-            submittedAt = clock(),
-            submitterId = submitterId
-        )
-        sharedStore.publishSubmission(publication)
-        return Result.PUBLISHED
+            chaptersCount = plan.chapters.size,
+            sourceId = sourceId,
+            metadataJson = metadataJson
+        ) ?: return Result.METADATA_FAILED
+        return if (sharedStore.enqueueCandidate(candidate)) Result.PUBLISHED else Result.METADATA_FAILED
     }
 
     /**
@@ -174,21 +211,30 @@ class SubmissionPublisher(
         val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return Result.METADATA_FAILED
         val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
 
-        sharedStore.publishSubmission(
-            SubmissionPublication(
-                sourceUrl = url.trim(),
-                accessMode = SubmissionAccessMode.YOUTUBE,
-                title = title.trim(),
-                author = author?.trim()?.takeIf { it.isNotBlank() },
-                narrator = narrator?.trim()?.takeIf { it.isNotBlank() },
-                durationSeconds = metadata.durationSeconds,
-                chapters = plan.chapters.map { SubmissionChapter(it.title, it.watchUrl) },
-                verifiedAt = verifiedAt,
-                submittedAt = clock(),
-                submitterId = submitterId
-            )
-        )
-        return Result.PUBLISHED
+        // Moderation T1 (#834) — a correction is a CANDIDATE too, and the
+        // queue belongs to the curator once the document exists: the rules
+        // forbid a client update, so an existing candidate is reported
+        // honestly instead of being silently rewritten behind the curator.
+        val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf(url)
+        // #836 — the blocklist is checked BEFORE the queue: a rejected link
+        // never becomes a candidate again, in any URL shape.
+        if (sharedStore.getRejectedSubmission(canonical) != null) return Result.REJECTED
+        if (sharedStore.getCandidate(canonical) != null) return Result.ALREADY_PUBLISHED
+        val candidate = SubmissionCandidateFactory.create(
+            url = url,
+            canonical = canonical,
+            title = title,
+            uid = submitterId,
+            playedAt = verifiedAt,
+            createdAt = clock(),
+            author = author?.trim()?.takeIf { it.isNotBlank() },
+            narrator = narrator?.trim()?.takeIf { it.isNotBlank() },
+            durationSeconds = metadata.durationSeconds,
+            chaptersCount = plan.chapters.size,
+            sourceId = sourceId,
+            metadataJson = metadataJson
+        ) ?: return Result.METADATA_FAILED
+        return if (sharedStore.enqueueCandidate(candidate)) Result.PUBLISHED else Result.METADATA_FAILED
     }
 
     /**
@@ -222,22 +268,29 @@ class SubmissionPublisher(
         }
         if (title.isBlank()) return Result.METADATA_FAILED
 
-        sharedStore.publishSubmission(
-            SubmissionPublication(
-                sourceUrl = url.trim(),
-                accessMode = SubmissionAccessMode.TG_PREVIEW,
-                title = title.trim(),
-                author = author,
-                narrator = narrator,
-                description = description,
-                coverUrl = coverUrl,
-                durationSeconds = null,
-                chapters = emptyList(),
-                verifiedAt = 0L,
-                submittedAt = clock(),
-                submitterId = submitterId
-            )
-        )
+        // Moderation T1 (#834) — the TG preview also becomes a CANDIDATE; the
+        // app never writes catalog_cards. There is no playback to verify, so
+        // the candidate is honestly metadata-only (playedAt = 0) and the
+        // curator decides; the description rides in metadataJson because the
+        // queue's shape carries no free-text description.
+        val canonical = SubmissionUrlCanonicalizer.canonicalOrSelf(url)
+        // #836 — the blocklist is checked BEFORE the queue: a rejected link
+        // never becomes a candidate again, in any URL shape.
+        if (sharedStore.getRejectedSubmission(canonical) != null) return Result.REJECTED
+        if (sharedStore.getCandidate(canonical) != null) return Result.ALREADY_PUBLISHED
+        val candidate = SubmissionCandidateFactory.createMetadataOnly(
+            url = url,
+            canonical = canonical,
+            title = title,
+            uid = submitterId,
+            createdAt = clock(),
+            author = author,
+            narrator = narrator,
+            coverUrl = coverUrl,
+            sourceId = TELEGRAM_SOURCE_ID,
+            metadataJson = description?.let(::descriptionJson)
+        ) ?: return Result.METADATA_FAILED
+        if (!sharedStore.enqueueCandidate(candidate)) return Result.METADATA_FAILED
         policy.consume(submitterId)
         return Result.PUBLISHED
     }

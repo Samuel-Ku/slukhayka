@@ -52,7 +52,6 @@ import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
 import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SourceAudioRefusalScreen
-import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.CrashReportingConsentDialog
@@ -239,6 +238,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsReturnDestination by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
+    // #860 — Settings left the bottom bar: the gear opens it from a root, and
+    // BACK must return to THAT root, not to the first one.
+    var settingsReturnTab by rememberSaveable { mutableStateOf(SelectedTab.EXPLORE) }
+    // #871 — every tab renders inside TabSaveableHost (see its KDoc): a tab
+    // leaves the composition when another is selected, so its rememberSaveable
+    // state (scroll, filters, search) is kept keyed by the tab.
     var bookDetailChildOrigin by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildEditionId by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildRouteOpen by rememberSaveable { mutableStateOf(false) }
@@ -370,11 +375,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedPerson by viewModel.selectedPerson.collectAsState()
     val authorsIndexOpen by viewModel.authorsIndexOpen.collectAsState()
     val authorsIndexResults by viewModel.authorsIndexResults.collectAsState()
-    val selectedCanonicalAuthor by viewModel.selectedCanonicalAuthor.collectAsState()
-    val canonicalAuthorWorks by viewModel.canonicalAuthorWorks.collectAsState()
-    val canonicalAuthorOwnedWorkIds by viewModel.canonicalAuthorOwnedWorkIds.collectAsState()
-    val isCanonicalAuthorLoading by viewModel.isCanonicalAuthorLoading.collectAsState()
-    val canonicalAuthorLoadFailed by viewModel.canonicalAuthorLoadFailed.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
         SecondaryBookParent.SERIES -> selectedSeries != null
         SecondaryBookParent.GENRE -> selectedGenre != null
@@ -446,13 +446,20 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    // #860 — from Settings, BACK returns to the root the gear was tapped on.
+    // It is enabled only while Settings is the visible root, so it never
+    // competes with the detail/player handler below.
+    BackHandler(enabled = selectedTab == SelectedTab.SETTINGS && selectedBookId == null) {
+        viewModel.selectTab(settingsReturnTab)
+    }
+
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || contentLanguagesOpen ||
         sourceAudioRefusalOpen || appLocaleOpen || profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
-        authorsIndexOpen || selectedCanonicalAuthor != null) {
+        authorsIndexOpen) {
         if (showFullPlayer) {
             if (hiddenAutomaticRecovery) viewModel.closeWebSource()
             viewModel.setShowFullPlayer(false)
@@ -494,8 +501,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (selectedTop100) {
             secondaryBookRoute = SecondaryBookRouteFrame()
             viewModel.closeTop100()
-        } else if (selectedCanonicalAuthor != null) {
-            viewModel.closeCanonicalAuthor()
         } else if (authorsIndexOpen) {
             viewModel.closeAuthorsIndex()
         } else if (selectedPerson != null) {
@@ -879,17 +884,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listState = top100BookListState
                     )
 
-                    selectedCanonicalAuthor != null -> CanonicalAuthorScreen(
-                        author = selectedCanonicalAuthor!!,
-                        works = canonicalAuthorWorks,
-                        ownedWorkIds = canonicalAuthorOwnedWorkIds,
-                        isLoading = isCanonicalAuthorLoading,
-                        loadFailed = canonicalAuthorLoadFailed,
-                        onBackClick = { viewModel.closeCanonicalAuthor() },
-                        onWorkClick = viewModel::openCanonicalAuthorWork,
-                        personBookmarks = viewModel.personBookmarks
-                    )
-
                     authorsIndexOpen -> {
                         // The full 10k-capable alphabetical projection is cold:
                         // collect it only while its destination is visible.
@@ -903,7 +897,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             onAuthorClick = { author ->
                                 val idx = authorList.indexOfFirst { it.id == author.id }
                                     .coerceAtLeast(0)
-                                viewModel.openCanonicalAuthor(author, idx)
+                                viewModel.openAuthorPage(author, idx)
                             },
                             initialScrollIndex = viewModel.authorsIndexScrollIndex.collectAsState().value
                         )
@@ -992,7 +986,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         }
                     )
 
-                    else -> when (selectedTab) {
+                    else -> com.slukhayka.audiobooks.ui.components.TabSaveableHost(
+                        tabKey = selectedTab.name
+                    ) { when (selectedTab) {
                         // Spec-9: first tab is the listening panel, not the storefront.
                         SelectedTab.LISTEN -> ListenScreen(
                             viewModel = viewModel,
@@ -1010,6 +1006,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
                         )
                         SelectedTab.EXPLORE ->                        HomeScreen(
+                            // #860 — the gear opens Settings from THIS root.
+                            onOpenSettings = {
+                                settingsReturnTab = SelectedTab.EXPLORE
+                                viewModel.selectTab(SelectedTab.SETTINGS)
+                            },
                             durationEnrichment = viewModel.durationEnrichment,
                             chapterDurationProbe = viewModel.chapterDurationProbe,
                             updateChecker = viewModel.updateChecker,
@@ -1044,6 +1045,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             }
                         )
                         SelectedTab.LIBRARY -> LibraryScreen(
+                            // #860 — the gear opens Settings from THIS root.
+                            onOpenSettings = {
+                                settingsReturnTab = SelectedTab.LIBRARY
+                                viewModel.selectTab(SelectedTab.SETTINGS)
+                            },
                             viewModel = viewModel,
                             // ADR-0008 batch 1 (#154): the screen receives the
                             // modules it reads from as parameters, wired here
@@ -1088,6 +1094,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 }
                             }
                         )
+                    }
                     }
                 }
             }
@@ -1263,18 +1270,8 @@ fun AppBottomBar(
                 modifier = Modifier.testTag("tab_library")
             )
 
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.SETTINGS && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.SETTINGS) },
-                icon = { Icon(imageVector = Icons.Default.Settings, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_settings), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_settings")
-            )
+            // #860 / ADR-0049 — «Налаштування» left the bar: the gear in every
+            // root header opens them, so the bar keeps only working sections.
         }
     }
 }

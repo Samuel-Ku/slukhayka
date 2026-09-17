@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.collections
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,5 +57,189 @@ class ListenerCollectionsSharedStoreTest {
         assertEquals(PublishResult.Published, store.deleteAuthorProfile(authorId))
         assertTrue(store.publishedBy(authorId).isEmpty())
         assertEquals("other curators survive", 1, store.publishedBy(otherAuthor).size)
+    }
+
+    @Test
+    fun `three unique complaints hide a collection forever`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+        fun reportKey(uid: String) = CollectionIdentity.voterKey(uid, "c1")
+
+        assertEquals(PublishResult.Published, store.report(document.documentId, reportKey("a")))
+        var current = store.publishedBy(authorId).single()
+        assertEquals(1, current.reportCount)
+        assertFalse(current.hidden)
+
+        // A duplicate is accepted but never counts again.
+        assertEquals(PublishResult.Published, store.report(document.documentId, reportKey("a")))
+        current = store.publishedBy(authorId).single()
+        assertEquals(1, current.reportCount)
+
+        store.report(document.documentId, reportKey("b"))
+        store.report(document.documentId, reportKey("c"))
+        val hidden = store.publishedBy(authorId).single()
+        assertEquals(3, hidden.reportCount)
+        assertTrue(hidden.hidden)
+
+        // A hidden collection is no public surface at all…
+        assertTrue(store.containing("book-a").isEmpty())
+
+        // …while its AUTHOR still sees it (and may only delete it).
+        assertEquals(listOf("c1"), store.publishedBy(authorId).map { it.collectionId })
+    }
+
+    @Test
+    fun `a public read keeps data, empty, hidden and no-store apart`() = runBlocking {
+        val store = InMemorySharedCollections()
+        assertEquals(CollectionReadResult.Empty, store.readContaining("book-a"))
+
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val data = store.readContaining("book-a")
+        assertTrue(data is CollectionReadResult.Data)
+        assertEquals(listOf("c1"), (data as CollectionReadResult.Data).collections.map { it.collectionId })
+
+        // A hidden collection leaves the public read entirely.
+        val document = store.publishedBy(authorId).single()
+        listOf("r1", "r2", "r3").forEach { uid ->
+            store.report(document.documentId, CollectionIdentity.voterKey(uid, "c1"))
+        }
+        assertEquals(CollectionReadResult.Empty, store.readContaining("book-a"))
+
+        // No shared store is an honest FAILURE, not an empty community.
+        assertEquals(CollectionReadResult.Failure, PublicCollectionsGate(null).readContaining("book-a"))
+    }
+
+    @Test
+    fun `the rail ranks visible collections and the profile hides reported ones`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "a"), authorId, "Слухач")
+        store.publish(collection("c2", "b"), authorId, "Слухач")
+        val c1 = store.publishedBy(authorId).first { it.collectionId == "c1" }
+        val c2 = store.publishedBy(authorId).first { it.collectionId == "c2" }
+        store.vote(c1.documentId, CollectionIdentity.voterKey("v1", "c1"), 5)
+        store.vote(c2.documentId, CollectionIdentity.voterKey("v1", "c2"), 1)
+
+        assertEquals(listOf("c1", "c2"), store.topPublic(10).map { it.collectionId })
+        assertEquals(1, store.topPublic(1).size)
+
+        // Three unique complaints hide c1: neither shelf shows it again.
+        listOf("r1", "r2", "r3").forEach { uid ->
+            store.report(c1.documentId, CollectionIdentity.voterKey(uid, "c1"))
+        }
+        assertEquals(listOf("c2"), store.topPublic(10).map { it.collectionId })
+        assertEquals(listOf("c2"), store.visibleBy(authorId).map { it.collectionId })
+    }
+
+    @Test
+    fun `the author can delete an own published collection`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+
+        assertEquals(PublishResult.Published, store.deleteOwnCollection(document.documentId))
+        assertTrue(store.publishedBy(authorId).isEmpty())
+        assertTrue(store.deleteOwnCollection(document.documentId) is PublishResult.Refused)
+    }
+
+    @Test
+    fun `one vote per person updates the aggregate transactionally`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+        val voter = CollectionIdentity.voterKey("voter-uid", document.collectionId)
+
+        assertEquals(PublishResult.Published, store.vote(document.documentId, voter, 5))
+        val rated = store.publishedBy(authorId).single()
+        assertEquals(5, rated.ratingSum)
+        assertEquals(1, rated.ratingCount)
+        assertEquals(5, store.myVote(voter))
+
+        // A re-vote REPLACES the person's stars: still one voter.
+        assertEquals(PublishResult.Published, store.vote(document.documentId, voter, 2))
+        val reRated = store.publishedBy(authorId).single()
+        assertEquals(2, reRated.ratingSum)
+        assertEquals(1, reRated.ratingCount)
+    }
+
+    @Test
+    fun `two people are two independent votes`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+
+        store.vote(document.documentId, CollectionIdentity.voterKey("a", "c1"), 4)
+        store.vote(document.documentId, CollectionIdentity.voterKey("b", "c1"), 5)
+
+        val rated = store.publishedBy(authorId).single()
+        assertEquals(9, rated.ratingSum)
+        assertEquals(2, rated.ratingCount)
+    }
+
+    @Test
+    fun `a bad vote is refused and never touches the aggregate`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        val document = store.publishedBy(authorId).single()
+
+        assertTrue(store.vote(document.documentId, "", 5) is PublishResult.Refused)
+        assertTrue(store.vote(document.documentId, "key", 0) is PublishResult.Refused)
+        assertTrue(store.vote(document.documentId, "key", 6) is PublishResult.Refused)
+        assertTrue(store.vote("missing", "key", 5) is PublishResult.Refused)
+
+        val untouched = store.publishedBy(authorId).single()
+        assertEquals(0, untouched.ratingSum)
+        assertEquals(0, untouched.ratingCount)
+
+        val offline = InMemorySharedCollections(online = false)
+        assertTrue(offline.vote(document.documentId, "key", 5) is PublishResult.Refused)
+    }
+
+    @Test
+    fun `collections containing one book are found by their book list`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a", "book-b"), authorId, "Слухач")
+        store.publish(collection("c2", "book-c"), authorId, "Слухач")
+
+        assertEquals(listOf("c1"), store.containing("book-a").map { it.collectionId })
+        assertEquals(listOf("c1"), store.containing("book-b").map { it.collectionId })
+        assertTrue(store.containing("nobody").isEmpty())
+        assertTrue("a blank book id is never a query", store.containing("").isEmpty())
+    }
+
+    @Test
+    fun `the published document carries each book's reason so a fork can keep it`() = runBlocking {
+        val store = InMemorySharedCollections()
+        val original = ListenerCollection(
+            id = "c1",
+            title = "Магія",
+            description = "про зорі",
+            createdAt = 1L,
+            items = listOf(
+                ListenerCollectionItem("a", "бо атмосферно", 1L),
+                ListenerCollectionItem("b", "", 2L)
+            )
+        )
+        store.publish(original, authorId, "Слухач")
+        val published = store.publishedBy(authorId).single()
+        assertEquals(listOf("бо атмосферно", ""), published.reasons)
+
+        // What Firestore really stores and reads back is the ENCODED shape.
+        val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(published))!!
+        assertEquals(listOf("бо атмосферно", ""), decoded.reasons)
+
+        // And that is exactly what «Зберегти собі» rebuilds the fork from.
+        val rebuilt = ListenerCollection(
+            id = decoded.collectionId,
+            title = decoded.title,
+            description = decoded.description,
+            createdAt = decoded.publishedAt,
+            items = decoded.bookIds.mapIndexed { index, bookId ->
+                ListenerCollectionItem(bookId, decoded.reasons.getOrElse(index) { "" }, decoded.publishedAt)
+            }
+        )
+        val (forked, _) = ForkPolicy.forkOf(rebuilt, decoded.pseudonym, decoded.documentId, now = 100L)
+        assertEquals(listOf("a", "b"), forked.items.map { it.bookId })
+        assertEquals("бо атмосферно", forked.items.first().reason)
     }
 }

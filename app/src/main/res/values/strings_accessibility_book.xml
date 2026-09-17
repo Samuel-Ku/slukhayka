@@ -86,6 +86,7 @@
     <string name="book_detail_review_save_published">Відгук опубліковано.</string>
     <string name="book_detail_review_save_queued">Відгук збережено на пристрої. Надішлемо при появі мережі.</string>
     <string name="book_detail_review_save_error">Не вдалося зберегти відгук. Спробуйте ще раз.</string>
+    <string name="book_detail_review_delete_error">Не вдалося видалити відгук. Спробуйте ще раз.</string>
     <string name="book_detail_review_delete_pane">Видалення відгуку</string>
     <string name="book_detail_review_delete_title">Видалити відгук?</string>
     <string name="book_detail_review_delete_consequence_with_text">Буде видалено ваш відгук про «%1$s»: оцінка %2$d із 5 і текст відгуку. Дію не можна скасувати.</string>

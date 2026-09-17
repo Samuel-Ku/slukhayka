@@ -158,6 +158,14 @@ class SourceRegistryConformanceTest {
                 searchDoor = it.string("searchDoor").takeIf(String::isNotBlank),
                 releaseBrowserDoor = it.bool("releaseBrowserDoor")
             )
+        },
+        telegramProfile = raw.map("telegramProfile")?.let {
+            TelegramProfileFacts(
+                groupUrl = it.string("groupUrl"),
+                chatId = (it["chatId"] as? Number)?.toLong() ?: 0L,
+                threadId = (it["threadId"] as? Number)?.toLong(),
+                isForum = it.bool("isForum")
+            )
         }
     )
 
@@ -185,4 +193,20 @@ class SourceRegistryConformanceTest {
         ((this[key] as? List<*>) ?: emptyList<Any?>())
             .mapNotNull { it as? String }
             .toSet()
+    @Test
+    fun `the registered community group carries its real Telegram facts`() {
+        val telegram = requireNotNull(SourceRegistry.facts("telegram"))
+        assertEquals(SourceAccessMode.TELEGRAM, telegram.accessMode)
+        assertEquals("https://t.me/slukhayka", telegram.homeUrl)
+
+        val profile = requireNotNull(telegram.telegramProfile)
+        assertEquals("https://t.me/slukhayka", profile.groupUrl)
+        assertEquals(-1004476157917L, profile.chatId)
+        assertEquals(573L, profile.threadId)
+        assertTrue("the shared library lives in a forum topic", profile.isForum)
+        assertTrue(
+            "a TELEGRAM source carries no HTTP transport: audio is MTProto-only",
+            telegram.transportHosts.isEmpty()
+        )
+    }
 }

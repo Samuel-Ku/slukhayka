@@ -228,6 +228,24 @@ class ListenerReviewsStoreTest {
         assertCancellationPropagates { store.deleteReview("work-1", "u1") }
     }
 
+    @Test
+    fun `a read keeps data, empty and failure apart`() = runBlocking {
+        val fake = FakeDocuments()
+        val store = FakeStore(fake)
+
+        // An honest empty answer is NOT a failure.
+        assertEquals(ReviewReadResult.Empty, store.readReviews("work-1"))
+
+        fake.seed(review("u1", createdAt = 10L))
+        val data = store.readReviews("work-1")
+        assertTrue(data is ReviewReadResult.Data)
+        assertEquals(listOf(10L), (data as ReviewReadResult.Data).reviews.map { it.createdAt })
+
+        // A transport failure is NOT an empty community.
+        fake.failReads = true
+        assertEquals(ReviewReadResult.Failure, store.readReviews("work-1"))
+    }
+
     private suspend fun assertCancellationPropagates(block: suspend () -> Unit) {
         try {
             block()

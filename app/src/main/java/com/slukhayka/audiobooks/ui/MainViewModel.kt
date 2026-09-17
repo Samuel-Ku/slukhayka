@@ -196,6 +196,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val sourceCatalog: SourceCatalog = App.instance.sourceCatalog
     val offlineDownloads: OfflineDownloads = App.instance.offlineDownloads
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
+
+    /**
+     * ADR-0047 / #867 — the «Імпортоване» queue: rows whose origin the data does
+     * not recover. It is a TEMPORARY home, not a second library: the listener
+     * either confirms a row as personal or removes the link.
+     */
+    private val _importedEntries =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>>(emptyList())
+    val importedEntries: StateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>> =
+        _importedEntries.asStateFlow()
+
+    fun refreshImportedEntries() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _importedEntries.value = runCatching {
+                App.instance.importedLibraryEntries.pending()
+            }.getOrDefault(emptyList())
+        }
+    }
+
+    /**
+     * One explicit triage action; the queue is re-read afterwards, so the
+     * subsection reflects what the listener actually decided.
+     */
+    fun triageImported(
+        bookId: String,
+        action: com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { App.instance.importedLibraryEntries.triage(bookId, action) }
+            refreshImportedEntries()
+        }
+    }
     val durationEnrichment: DurationEnrichment = App.instance.durationEnrichment
     // spec-24 T8 (#169): the throttled chapter-duration probing pass — the
     // same detached-window idiom as the duration enrichment above.

@@ -36,11 +36,36 @@ class TelegramLoginSpikeTest {
     private val code = args.getString("code")
     private val password = args.getString("password")
 
+    /** Every state goes to a FILE too: logcat rotates and loses the early steps. */
+    private fun log(line: String) {
+        println(line)
+        runCatching {
+            java.io.File(context.filesDir, "tdlib-spike.log").appendText(line + "\n")
+        }
+    }
+
+    private lateinit var context: android.content.Context
+
+    /**
+     * Sends a request and REPORTS a refusal: TDLib answers errors as
+     * `TdApi.Error`, and a silent rejection (an expired code, a wrong password)
+     * otherwise looks exactly like "still waiting".
+     */
+    private fun send(label: String, function: TdApi.Function<*>) {
+        client.send(function) { result ->
+            if (result is TdApi.Error) {
+                log("SPIKE tdlib: $label REFUSED — ${result.code}: ${result.message}")
+            } else {
+                log("SPIKE tdlib: $label accepted")
+            }
+        }
+    }
+
     @Test
     fun the_device_can_log_in_with_the_listeners_own_account() {
         assumeTrue("needs api_id/api_hash/phone", apiId != null && !apiHash.isNullOrBlank() && !phone.isNullOrBlank())
 
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context = InstrumentationRegistry.getInstrumentation().targetContext
         System.setProperty("tdlib.files", context.filesDir.absolutePath)
         runCatching { System.loadLibrary("tdjni") }
 
@@ -67,8 +92,8 @@ class TelegramLoginSpikeTest {
                     parameters.deviceModel = android.os.Build.MODEL
                     parameters.systemVersion = android.os.Build.VERSION.RELEASE
                     parameters.applicationVersion = "1.0"
-                    client.send(parameters) { println("SPIKE tdlib: parameters accepted") }
-                    println("SPIKE tdlib: WaitTdlibParameters → parameters sent")
+                    send("parameters", parameters)
+                    log("SPIKE tdlib: WaitTdlibParameters → parameters sent")
                 }
 
                 is TdApi.AuthorizationStateWaitPhoneNumber -> {
@@ -77,57 +102,54 @@ class TelegramLoginSpikeTest {
                     settings.allowMissedCall = false
                     settings.isCurrentPhoneNumber = false
                     settings.allowSmsRetrieverApi = false
-                    client.send(TdApi.SetAuthenticationPhoneNumber(phone, settings)) {
-                        println("SPIKE tdlib: phone sent — Telegram is sending the code")
-                    }
+                    send("phone", TdApi.SetAuthenticationPhoneNumber(phone, settings))
                 }
 
                 is TdApi.AuthorizationStateWaitCode -> {
                     if (code.isNullOrBlank()) {
-                        println("SPIKE tdlib: WAIT_CODE — rerun with …arguments.code=<code from Telegram>")
+                        log("SPIKE tdlib: WAIT_CODE — rerun with …arguments.code=<code from Telegram>")
                     } else {
-                        client.send(TdApi.CheckAuthenticationCode(code)) {
-                            println("SPIKE tdlib: code accepted")
-                        }
+                        send("code", TdApi.CheckAuthenticationCode(code))
                     }
                 }
 
                 is TdApi.AuthorizationStateWaitPassword -> {
                     if (password.isNullOrBlank()) {
-                        println("SPIKE tdlib: WAIT_PASSWORD — rerun with …arguments.password=<2FA password>")
+                        log("SPIKE tdlib: WAIT_PASSWORD — rerun with …arguments.password=<2FA password>")
                     } else {
-                        client.send(TdApi.CheckAuthenticationPassword(password)) {
-                            println("SPIKE tdlib: password accepted")
-                        }
+                        send("password", TdApi.CheckAuthenticationPassword(password))
                     }
                 }
 
                 is TdApi.AuthorizationStateReady -> {
-                    println("SPIKE tdlib: READY — the session is local to this device")
+                    log("SPIKE tdlib: READY — the session is local to this device")
                     // AC: the listener can always leave. Proven here, not promised.
-                    client.send(TdApi.LogOut()) { println("SPIKE tdlib: logout acknowledged") }
+                    send("logout", TdApi.LogOut())
                 }
 
                 is TdApi.AuthorizationStateClosed -> {
-                    println("SPIKE tdlib: CLOSED — the local session is gone")
+                    log("SPIKE tdlib: CLOSED — the local session is gone")
                     ready.countDown()
                 }
 
-                else -> println("SPIKE tdlib: state=${state.javaClass.simpleName}")
+                else -> log("SPIKE tdlib: state=${state.javaClass.simpleName}")
             }
         }
 
         client = Client.create(handler, { e ->
             failure = e.message
-            println("SPIKE tdlib: handler exception ${e.message}")
+            log("SPIKE tdlib: handler exception ${e.message}")
         }, { e ->
             failure = e.message
-            println("SPIKE tdlib: exception ${e.message}")
+            log("SPIKE tdlib: exception ${e.message}")
         })
 
-        val finished = ready.await(3, TimeUnit.MINUTES)
+        val finished = ready.await(5, TimeUnit.MINUTES)
         runCatching { client.send(TdApi.Close(), Client.ResultHandler { }) }
-        assertTrue("the spike must reach a terminal state (failure=$failure)", finished || failure == null)
+        assertTrue(
+            "the spike must reach a terminal state; see files/tdlib-spike.log (failure=$failure)",
+            finished
+        )
     }
 
     private companion object {

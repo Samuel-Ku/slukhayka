@@ -1394,6 +1394,20 @@ interface AudiobookDao {
     suspend fun worksForAuthor(authorId: String): List<WorkEntity>
 
     /**
+     * #874 — the NARRATOR twin of [worksForAuthor]: every Work this person
+     * narrates. An Edition carries the narrator as written and there is no
+     * canonical narrator id, so the match is case-insensitive on the stored
+     * string — the same real fact, not an invented identity. DISTINCT because
+     * a Work may carry several Editions by the same narrator.
+     */
+    @Query(
+        "SELECT DISTINCT w.* FROM works w JOIN editions e ON e.workId = w.id " +
+            "WHERE e.narrator = :narrator COLLATE NOCASE " +
+            "ORDER BY w.title COLLATE NOCASE ASC, w.id ASC"
+    )
+    suspend fun worksForNarrator(narrator: String): List<WorkEntity>
+
+    /**
      * #736 — which of an author's Works the listener owns. The person page
      * shows every known Work (Медіатека + Дзеркало neighbours) and uses this
      * set to mark the owned ones first and the mirror neighbours as finds.

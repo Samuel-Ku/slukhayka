@@ -1341,6 +1341,24 @@ class FakeAudiobookDao(
         }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id)).take(limit)
     }
 
+    /** Test seeding: one Work plus the Edition that names its narrator. */
+    fun seedNarratedWork(work: WorkEntity, narrator: String) {
+        worksState.update { current -> current.filterNot { it.id == work.id } + work }
+        editionsState.update { current ->
+            current.filterNot { it.id == "edition-${work.id}" } +
+                EditionEntity(id = "edition-${work.id}", workId = work.id, narrator = narrator)
+        }
+    }
+
+    override suspend fun worksForNarrator(narrator: String): List<WorkEntity> {
+        val ids = editionsState.value
+            .filter { it.narrator.equals(narrator, ignoreCase = true) }
+            .map { it.workId }
+            .toSet()
+        return worksState.value.filter { it.id in ids }
+            .sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
+    }
+
     override suspend fun worksForAuthor(authorId: String): List<WorkEntity> {
         val ids = workFacetsState.value.filter { it.canonicalAuthorId == authorId }.map { it.workId }.toSet()
         return worksState.value.filter { it.id in ids }.sortedWith(compareBy(WorkEntity::title, WorkEntity::id))

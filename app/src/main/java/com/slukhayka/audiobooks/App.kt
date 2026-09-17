@@ -198,6 +198,10 @@ class App : Application() {
     val manualBookAdder: com.slukhayka.audiobooks.data.entries.ManualBookAdder
         by lazy { com.slukhayka.audiobooks.data.entries.ManualBookAdder(audiobookDao) }
 
+    /** #876 — the write path of reading progress (journal, finish, re-read). */
+    val readingProgressRecorder: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder
+        by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }
+
     /**
      * Spec-51 (#689) — a listener's own collections, local-first: the store is
      * backed by the same Room database, never by a network round trip.

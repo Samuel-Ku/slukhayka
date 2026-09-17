@@ -353,6 +353,9 @@
     <string name="lib_year_empty_title">No finished passes yet</string>
     <string name="lib_year_empty_body">Finish a pass through a book and it will appear here.</string>
     <string name="lib_format_audio">Audio</string>
+    <string name="lib_year_record_hint">Pages or percent</string>
+    <string name="lib_year_record">Record</string>
+    <string name="lib_year_finish">Finish</string>
     <string name="manual_add_menu">Add a book by hand</string>
     <string name="manual_add_title">Add a book</string>
     <string name="manual_add_name">Title</string>

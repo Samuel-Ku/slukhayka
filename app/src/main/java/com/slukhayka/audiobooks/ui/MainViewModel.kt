@@ -231,6 +231,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val readingYear: StateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?> =
         _readingYear.asStateFlow()
 
+    /**
+     * #876 — the passes the listener can still move: the progress-entry surface
+     * shows exactly these, and every action goes through the policy.
+     */
+    private val _activeReadings =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>>(emptyList())
+    val activeReadings: StateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>> =
+        _activeReadings.asStateFlow()
+
+    fun refreshActiveReadings() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _activeReadings.value = runCatching {
+                with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
+                    App.instance.audiobookDao.allReadthroughs()
+                        .mapNotNull { it.toModelOrNull() }
+                        .filter {
+                            it.state == com.slukhayka.audiobooks.data.entries.ReadingState.IN_PROGRESS ||
+                                it.state == com.slukhayka.audiobooks.data.entries.ReadingState.PLANNED
+                        }
+                        .sortedByDescending { it.startedAt }
+                }
+            }.getOrDefault(emptyList())
+        }
+    }
+
+    /** One journal record; the queue is re-read so the surface shows the truth. */
+    fun recordReadingProgress(readthroughId: String, value: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                App.instance.readingProgressRecorder.record(
+                    readthroughId,
+                    at = System.currentTimeMillis(),
+                    value = value
+                )
+            }
+            refreshActiveReadings()
+            refreshReadingYear()
+        }
+    }
+
+    fun finishReading(readthroughId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                App.instance.readingProgressRecorder.finish(
+                    readthroughId,
+                    at = System.currentTimeMillis()
+                )
+            }
+            refreshActiveReadings()
+            refreshReadingYear()
+        }
+    }
+
     fun refreshReadingYear(year: Int = java.time.LocalDate.now().year) {
         viewModelScope.launch(Dispatchers.IO) {
             _readingYear.value = runCatching {

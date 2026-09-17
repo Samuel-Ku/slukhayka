@@ -256,9 +256,9 @@ fun LibraryScreen(
     val statusRowScrollState = rememberScrollState()
     BackHandler(enabled = activeTab != 0) { activeTab = 0 }
     val sectionTitle = when (activeTab) {
-        1 -> "Закладки"
+        1 -> stringResource(R.string.lib_section_bookmarks)
         2 -> stringResource(R.string.lib_statistics)
-        else -> "Люди"
+        else -> stringResource(R.string.lib_section_people)
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
     // Browsing the whole library vs narrowing it down: the sections (and the

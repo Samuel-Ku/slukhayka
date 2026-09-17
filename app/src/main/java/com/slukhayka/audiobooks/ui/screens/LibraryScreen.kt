@@ -1803,9 +1803,9 @@ internal fun LibraryDenseRow(
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
         Column(
             modifier = Modifier
-                .weight(1f)
-                .padding(vertical = AppDimens.SpaceMd)
-                .focusProperties { canFocus = true }
+                // #885 — the card attaches the return-focus requester FIRST in
+                // the chain; the row must do the same, otherwise the focus never
+                // lands and the a11y journey times out waiting for `Focused`.
                 .then(
                     if (bookReturnFocusRequester != null) {
                         Modifier.focusRequester(bookReturnFocusRequester)
@@ -1813,6 +1813,9 @@ internal fun LibraryDenseRow(
                         Modifier
                     }
                 )
+                .weight(1f)
+                .padding(vertical = AppDimens.SpaceMd)
+                .focusProperties { canFocus = true }
                 .clickable(onClick = onOpen)
                 // #885 — the dense row IS the library book item: keep the
                         // long-standing contract tag the journeys click, so the

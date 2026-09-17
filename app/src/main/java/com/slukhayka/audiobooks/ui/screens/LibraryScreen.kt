@@ -282,6 +282,9 @@ fun LibraryScreen(
     // Browsing the whole library vs narrowing it down: the sections (and the
     // «Продовжити» card) only make sense while nothing is filtering.
     val browsing = filter == LibraryFilter.ALL && query.isBlank()
+    // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
+    // block of the screen, so the state is read here and not inside the tab body.
+    val yearGoal by viewModel.readingYear.collectAsState()
     val continueBook = remember(libraryBooks) {
         libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
     }
@@ -473,6 +476,14 @@ fun LibraryScreen(
             // #885 — the prototype («Нічна бібліотека») switches between
             // «Книги / Полиці / Збережене» with a visible control at the top,
             // instead of hiding two of the three behind the overflow menu.
+            if (activeTab == 0) {
+                yearGoal?.let { goal ->
+                    Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
+                        LibraryYearHero(goal = goal)
+                    }
+                }
+            }
+
             if (activeTab == 0 || activeTab == 1) {
                 LibrarySectionTabs(
                     booksSelected = activeTab == 0,
@@ -683,10 +694,6 @@ fun LibraryScreen(
 
             when (activeTab) {
                 0 -> {
-                    // #885 — the yearly goal rides at the TOP of the books list,
-                    // the way the «Нічна бібліотека» prototype shows it, instead
-                    // of living behind its own view.
-                    val yearGoal by viewModel.readingYear.collectAsState()
                     when {
                         libraryBooks.isEmpty() -> {
                             LibraryEmptyState(
@@ -713,11 +720,6 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            yearGoal?.let { goal ->
-                                item(span = { GridItemSpan(maxLineSpan) }) {
-                                    LibraryYearHero(goal = goal)
-                                }
-                            }
                             libraryGridContent(
                                 entries = gridEntries,
                                 browsing = browsing,

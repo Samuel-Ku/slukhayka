@@ -1532,6 +1532,31 @@ class FakeAudiobookDao(
             it.state in setOf("PENDING_MODERATION", "PUBLISHED", "REFUSED")
         }
 
+    // ADR-0046 / #863 — the Readthrough carrier.
+    private val readthroughs = linkedMapOf<String, com.slukhayka.audiobooks.data.db.ReadthroughEntity>()
+
+    override suspend fun upsertReadthrough(entity: com.slukhayka.audiobooks.data.db.ReadthroughEntity) {
+        readthroughs[entity.id] = entity
+    }
+
+    override suspend fun readthroughsForWork(
+        workId: String
+    ): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
+        readthroughs.values.filter { it.workId == workId }.sortedByDescending { it.startedAt }
+
+    override suspend fun readthroughsForEntry(
+        libraryEntryId: String
+    ): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
+        readthroughs.values.filter { it.libraryEntryId == libraryEntryId }.sortedByDescending { it.startedAt }
+
+    override suspend fun readthroughById(
+        id: String
+    ): com.slukhayka.audiobooks.data.db.ReadthroughEntity? = readthroughs[id]
+
+    override suspend fun deleteReadthrough(id: String) {
+        readthroughs.remove(id)
+    }
+
     // Spec-53 T8 (#715) — drops one deferred row.
     override suspend fun deleteSubmissionState(sourceId: String) {
         submissionStates.remove(sourceId)

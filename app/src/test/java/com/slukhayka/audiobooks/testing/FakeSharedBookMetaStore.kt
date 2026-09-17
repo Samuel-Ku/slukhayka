@@ -93,7 +93,12 @@ class FakeSharedBookMetaStore(
     /** Simulates an unreachable shared base on the publication write. */
     var throwOnPublishSubmission: Boolean = false
 
-    override suspend fun publishSubmission(publication: SubmissionPublication) {
+    /**
+     * Test SEEDING, not a store write: the app has no client path into
+     * `catalog_cards` any more (#834), so the fake exposes a plain helper the
+     * consumption-lane tests use to place a shared document.
+     */
+    fun seedSubmission(publication: SubmissionPublication) {
         if (throwOnPublishSubmission) throw IllegalStateException("shared base down")
         if (SubmissionPublicationCodec.toMap(publication) == null) return
         submissionPuts += publication

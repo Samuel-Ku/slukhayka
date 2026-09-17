@@ -44,6 +44,10 @@ class NewPipeMetadataSpikeTest {
             // if the control lands on www.youtube.com, the host is the whole
             // difference and nothing about our headers matters.
             println("SPIKE plain-url code=${conn.responseCode} url=${conn.url}")
+            println(
+                "SPIKE plain-markers clientVersion=${body?.contains("clientVersion")} " +
+                    "visitorData=${body?.contains("visitorData")} ytInitialData=${body?.contains("ytInitialData")}"
+            )
             val headers = conn.headerFields
                 .filterKeys { it != null }
                 .mapValues { entry -> entry.value ?: emptyList() }
@@ -84,7 +88,8 @@ class NewPipeMetadataSpikeTest {
             val body = response.responseBody().orEmpty()
             println(
                 "SPIKE our-url code=${response.responseCode()} len=${body.length} " +
-                    "final=${response.latestUrl()} head=${body.take(120).replace('\n', ' ')}"
+                    "final=${response.latestUrl()} clientVersion=${body.contains("clientVersion")} " +
+                    "visitorData=${body.contains("visitorData")} ytInitialData=${body.contains("ytInitialData")}"
             )
             return response
         }

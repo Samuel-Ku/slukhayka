@@ -722,7 +722,11 @@ fun LibraryScreen(
                         ) {
                             libraryGridContent(
                                 entries = gridEntries,
-                                browsing = browsing,
+                                // #885 — must match the shape `libraryGridEntries`
+                                // built above (always the dense rows on «Книги»),
+                                // otherwise the renderer falls back to the wall of
+                                // cards and none of the row work shows up.
+                                browsing = false,
                                 gridMode = gridMode,
                                 availability = libraryAvailability,
                                 downloadCounts = bookDownloadCounts,
@@ -1841,6 +1845,26 @@ internal fun LibraryDenseRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck() }
                 )
+            }
+            // #885 — the prototype shows a thin progress line under every row, so
+            // the queue reads at a glance without opening the book.
+            if (book.totalDurationSeconds > 0L && !book.isNew) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        .testTag("library_row_progress_${book.book.id}")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(book.percent.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))

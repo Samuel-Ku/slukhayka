@@ -96,6 +96,7 @@ import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
+import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
@@ -321,16 +322,23 @@ fun LibraryScreen(
         filterAndSortLibrary(libraryBooks, filter, sort, query)
     }
 
+    // spec-54 T14 (#869) — the listener owns a WORK: the list renders ONE card
+    // per Work, fronted by the narration they are furthest along in, and the
+    // other narrations (with their own progress, bookmarks, downloads and
+    // speed) stay reachable from the card's details.
+    val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
+    val shownCards = remember(workCards) { workCards.map { it.primary } }
+
     // The grid as data (v1.5 review): the structure carries the resume card,
     // the section headers and the shelf, so a lazy-grid index must be mapped
     // back to a book through these entries — never through `visibleBooks`
     // (the two stopped aligning the moment the hero and the headers appeared).
-    val denseTrailing = if (browsing) "" else libraryRemainingTotal(visibleBooks)
+    val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing) {
         libraryGridEntries(
             browsing = browsing,
             gridMode = gridMode,
-            visible = visibleBooks,
+            visible = shownCards,
             continueBook = continueBook,
             denseTitle = if (query.isNotBlank()) "Пошук" else filter.label,
             denseTrailing = denseTrailing

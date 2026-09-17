@@ -99,7 +99,6 @@ import com.slukhayka.audiobooks.ui.components.UpdateBanner
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
-import com.slukhayka.audiobooks.ui.components.genreAccentColor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction

@@ -1350,6 +1350,12 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun narrationsForWork(workId: String): List<AudiobookEntity> {
+        val ids = libraryEntriesState.value.filter { it.workId == workId }.map { it.id }.toSet()
+        return booksState.value.filter { it.id in ids }
+            .sortedWith(compareBy({ it.title.lowercase() }, { it.id }))
+    }
+
     override suspend fun worksForNarrator(narrator: String): List<WorkEntity> {
         val ids = editionsState.value
             .filter { it.narrator.equals(narrator, ignoreCase = true) }

@@ -1557,6 +1557,18 @@ class FakeAudiobookDao(
         readthroughs.remove(id)
     }
 
+    // ADR-0047 / #867 — the «Імпортоване» queue over the fake's REAL entry state.
+    override suspend fun libraryEntriesWithOrigin(
+        origin: String
+    ): List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity> =
+        libraryEntriesState.value.filter { it.origin == origin }.sortedByDescending { it.createdAt }
+
+    override suspend fun updateLibraryEntryOrigin(bookId: String, origin: String) {
+        libraryEntriesState.update { current ->
+            current.map { if (it.id == bookId) it.copy(origin = origin) else it }
+        }
+    }
+
     // Spec-53 T8 (#715) — drops one deferred row.
     override suspend fun deleteSubmissionState(sourceId: String) {
         submissionStates.remove(sourceId)

@@ -983,6 +983,14 @@ interface AudiobookDao {
     @Query("DELETE FROM library_entries WHERE id = :bookId")
     suspend fun deleteLibraryEntry(bookId: String)
 
+    // ADR-0047 / #867 — the «Імпортоване» queue: the links whose origin the
+    // data does not recover, newest first.
+    @Query("SELECT * FROM library_entries WHERE origin = :origin ORDER BY createdAt DESC")
+    suspend fun libraryEntriesWithOrigin(origin: String): List<LibraryEntryEntity>
+
+    @Query("UPDATE library_entries SET origin = :origin WHERE id = :bookId")
+    suspend fun updateLibraryEntryOrigin(bookId: String, origin: String)
+
     @Query("SELECT * FROM library_entries")
     fun observeLibraryEntries(): Flow<List<LibraryEntryEntity>>
 

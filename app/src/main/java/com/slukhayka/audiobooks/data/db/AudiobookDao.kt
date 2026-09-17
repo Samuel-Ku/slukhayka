@@ -991,6 +991,9 @@ interface AudiobookDao {
     @Query("UPDATE library_entries SET origin = :origin WHERE id = :bookId")
     suspend fun updateLibraryEntryOrigin(bookId: String, origin: String)
 
+    @Query("SELECT * FROM library_entries WHERE id = :bookId LIMIT 1")
+    suspend fun libraryEntryById(bookId: String): LibraryEntryEntity?
+
     @Query("SELECT * FROM library_entries")
     fun observeLibraryEntries(): Flow<List<LibraryEntryEntity>>
 

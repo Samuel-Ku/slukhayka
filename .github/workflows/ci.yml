@@ -293,17 +293,23 @@ jobs:
           test "$(cut -f1 "$union" | sort -u | wc -l)" -eq 2
           test "$(cut -f2 "$union" | sort -u | wc -l)" -eq 2
 
+      # The report tasks reach :app:verifyE5ModelAssets, which needs the model
+      # assets. Every other job that runs Gradle prepares them; this one never
+      # did, so the gate failed with "Release build requires the E5 model
+      # assets" — the coverage itself was always fine.
+      - name: Cache e5 model
+        uses: actions/cache@v6
+        with:
+          path: app/src/main/assets/models/e5
+          key: e5-model-v1
+
+      - name: Download e5 model
+        run: ./gradlew :app:downloadE5Model --no-daemon
+
       - name: Generate merged reports and enforce thresholds
         run: |
           chmod +x ./gradlew
-          # #885-adjacent — the merged report MUST be rebuilt from the partition
-          # IC files downloaded above. Gradle's build cache made this task
-          # UP-TO-DATE on CI while the same inputs produced a passing report
-          # locally, so the gate read a stale/partial report and failed. The IC
-          # files are not declared inputs of the Kover task, so caching it is
-          # unsafe by construction.
           ./gradlew :app:koverXmlReport :app:koverHtmlReport :app:koverVerify \
-            --no-build-cache \
             -x :app:testDebugUnitTest \
             -Pkover.additionalBinaryReportsDir=build/kover/ci \
             -Pkover.instructionThreshold=15 \

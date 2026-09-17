@@ -371,6 +371,14 @@
     <string name="lib_saved_count">Збережене (%1$d)</string>
     <string name="lib_section_shelves">Полиці</string>
     <string name="lib_section_imported">Імпортоване</string>
+    <string name="lib_section_year">Мій рік</string>
+    <string name="lib_year_heading">%1$d рік</string>
+    <string name="lib_year_total">Завершено проходів: %1$d</string>
+    <string name="lib_year_format">%1$s: %2$d</string>
+    <string name="lib_year_rule">Мета рахує ЗАВЕРШЕНІ проходи; формати звітуються окремо, бо сторінки, відсотки й час не додаються.</string>
+    <string name="lib_year_empty_title">Ще немає завершених проходів</string>
+    <string name="lib_year_empty_body">Завершіть проходження книжки — і воно зʼявиться тут.</string>
+    <string name="lib_format_audio">Аудіо</string>
     <string name="manual_add_menu">Додати книгу вручну</string>
     <string name="manual_add_title">Додати книгу</string>
     <string name="manual_add_name">Назва</string>

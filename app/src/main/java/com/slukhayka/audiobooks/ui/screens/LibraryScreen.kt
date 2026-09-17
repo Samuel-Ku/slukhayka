@@ -263,10 +263,12 @@ fun LibraryScreen(
     // after every action), so the list is never a stale promise.
     LaunchedEffect(activeTab) {
         if (activeTab == 3) viewModel.refreshImportedEntries()
+        if (activeTab == 4) viewModel.refreshReadingYear()
     }
     val sectionTitle = when (activeTab) {
         1 -> stringResource(R.string.lib_section_saved)
         3 -> stringResource(R.string.lib_section_imported)
+        4 -> stringResource(R.string.lib_section_year)
         else -> stringResource(R.string.lib_statistics)
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
@@ -835,6 +837,57 @@ fun LibraryScreen(
                     }
                 }
 
+                4 -> {
+                    // #876 — «Мій рік»: the yearly goal, counted in PASSES and
+                    // reported per format, because pages, percent and seconds
+                    // cannot be summed into one number (ADR-0046 §5).
+                    val goal by viewModel.readingYear.collectAsState()
+                    val current = goal
+                    if (current == null) {
+                        EmptyState(
+                            icon = Icons.Default.CalendarMonth,
+                            title = stringResource(R.string.lib_year_empty_title),
+                            body = stringResource(R.string.lib_year_empty_body)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("library_year"),
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
+                        ) {
+                            item {
+                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.lib_year_heading, current.year),
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.lib_year_total, current.totalFinished),
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    current.finishedByFormat.toSortedMap().forEach { (format, count) ->
+                                        Text(
+                                            text = stringResource(
+                                                R.string.lib_year_format,
+                                                readingFormatLabel(format),
+                                                count
+                                            ),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        text = stringResource(R.string.lib_year_rule),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 3 -> {
                     // ADR-0047 / #867 — «Імпортоване»: a TEMPORARY home for the
                     // links whose origin the data does not recover, not a second
@@ -1223,6 +1276,14 @@ internal fun LibraryHeaderActionsInner(
                     onOpenSection(1)
                 },
                 modifier = Modifier.testTag("library_section_saved")
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.lib_section_year)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenSection(4)
+                },
+                modifier = Modifier.testTag("library_section_year")
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.lib_section_imported)) },
@@ -2747,4 +2808,17 @@ private fun submissionBadgeRes(badge: SubmissionBadge): Int = when (badge) {
     SubmissionBadge.IN_SHARED_BASE -> R.string.submission_badge_in_shared_base
     SubmissionBadge.REJECTED -> R.string.submission_badge_rejected
     SubmissionBadge.NONE -> R.string.submission_badge_pending_moderation
+}
+
+/** #876 — the per-format label of the reading year. */
+@androidx.compose.runtime.Composable
+private fun readingFormatLabel(
+    format: com.slukhayka.audiobooks.data.entries.ReadingFormat
+): String = when (format) {
+    com.slukhayka.audiobooks.data.entries.ReadingFormat.AUDIO ->
+        stringResource(R.string.lib_format_audio)
+    com.slukhayka.audiobooks.data.entries.ReadingFormat.PAPER ->
+        stringResource(R.string.manual_add_format_paper)
+    com.slukhayka.audiobooks.data.entries.ReadingFormat.EBOOK ->
+        stringResource(R.string.manual_add_format_ebook)
 }

@@ -222,6 +222,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
+    /**
+     * #876 — «Мій рік»: the yearly reading goal, computed by the pure policy
+     * from every pass. Formats are reported separately: their units cannot be
+     * summed, and the goal counts PASSES, not pages or minutes.
+     */
+    private val _readingYear = MutableStateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?>(null)
+    val readingYear: StateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?> =
+        _readingYear.asStateFlow()
+
+    fun refreshReadingYear(year: Int = java.time.LocalDate.now().year) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _readingYear.value = runCatching {
+                val passes = with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
+                    App.instance.audiobookDao.allReadthroughs().mapNotNull { it.toModelOrNull() }
+                }
+                com.slukhayka.audiobooks.data.entries.ReadingProgressPolicy.yearlyGoal(passes, year)
+            }.getOrNull()
+        }
+    }
+
     fun refreshImportedEntries() {
         viewModelScope.launch(Dispatchers.IO) {
             _importedEntries.value = runCatching {

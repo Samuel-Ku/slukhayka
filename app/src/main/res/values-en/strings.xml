@@ -345,6 +345,14 @@
     <string name="lib_saved_count">Saved (%1$d)</string>
     <string name="lib_section_shelves">Shelves</string>
     <string name="lib_section_imported">Imported</string>
+    <string name="lib_section_year">My year</string>
+    <string name="lib_year_heading">%1$d</string>
+    <string name="lib_year_total">Finished passes: %1$d</string>
+    <string name="lib_year_format">%1$s: %2$d</string>
+    <string name="lib_year_rule">The goal counts FINISHED passes; formats are reported separately, because pages, percent and time cannot be summed.</string>
+    <string name="lib_year_empty_title">No finished passes yet</string>
+    <string name="lib_year_empty_body">Finish a pass through a book and it will appear here.</string>
+    <string name="lib_format_audio">Audio</string>
     <string name="manual_add_menu">Add a book by hand</string>
     <string name="manual_add_title">Add a book</string>
     <string name="manual_add_name">Title</string>

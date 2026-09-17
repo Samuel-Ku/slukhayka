@@ -438,4 +438,5 @@
     <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
     <string name="lib_year_hero_title">Мій рік у книжках, %1$d</string>
     <string name="lib_year_hero_units">завершених проходів</string>
+    <string name="lib_section_books">Книги</string>
 </resources>

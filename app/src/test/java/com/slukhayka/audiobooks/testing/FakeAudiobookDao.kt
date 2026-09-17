@@ -1557,6 +1557,18 @@ class FakeAudiobookDao(
         readthroughs.remove(id)
     }
 
+    override suspend fun insertLibraryEntryWithOrigin(
+        id: String,
+        workId: String,
+        origin: String,
+        createdAt: Long
+    ) {
+        val entry = com.slukhayka.audiobooks.data.db.LibraryEntryEntity(
+            id = id, workId = workId, createdAt = createdAt, origin = origin
+        )
+        libraryEntriesState.update { current -> current.filterNot { it.id == id } + entry }
+    }
+
     /** Test seeding for the «Імпортоване» queue (#867). */
     fun seedLibraryEntry(entry: com.slukhayka.audiobooks.data.db.LibraryEntryEntity) {
         libraryEntriesState.update { current -> current.filterNot { it.id == entry.id } + entry }

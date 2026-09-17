@@ -184,6 +184,13 @@ class App : Application() {
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
 
     /**
+     * ADR-0047 / #867 — the «Імпортоване» queue: the links whose origin the
+     * data does not recover, plus the two explicit actions on them.
+     */
+    val importedLibraryEntries: com.slukhayka.audiobooks.data.entries.ImportedLibraryEntries
+        by lazy { com.slukhayka.audiobooks.data.entries.ImportedLibraryEntries(audiobookDao) }
+
+    /**
      * Spec-51 (#689) — a listener's own collections, local-first: the store is
      * backed by the same Room database, never by a network round trip.
      */

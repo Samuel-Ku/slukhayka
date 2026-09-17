@@ -173,8 +173,27 @@ data class PeopleKind(
 data class SelectedPerson(
     val name: String,
     val path: String,
-    val role: PersonRole
+    val role: PersonRole,
+    /**
+     * #874 — for a canonical AUTHOR the page reads Works by this id
+     * (`worksForAuthor`); a narrator is identified by the name their editions
+     * carry. Null for narrators and for source-page people.
+     */
+    val authorId: String? = null
 )
+
+/**
+ * #874 — the adapter that lets the authors index use the SAME person route an
+ * author and a narrator share. The canonical id rides along; the address is the
+ * person's, never the role's.
+ */
+fun com.slukhayka.audiobooks.data.authors.AuthorSummary.asSelectedPerson(): SelectedPerson =
+    SelectedPerson(
+        name = displayName,
+        path = "",
+        role = PersonRole.AUTHOR,
+        authorId = id
+    )
 
 /** Listener reviews belong to a Work; legacy Editions fall back to their own id. */
 internal fun reviewWorkIdFor(editionId: String, workId: String?): String =

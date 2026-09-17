@@ -51,9 +51,10 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         FeedSnapshotEntity::class,
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class,
-        SubmissionStateEntity::class
+        SubmissionStateEntity::class,
+        ReadthroughEntity::class,
     ],
-    version = 45,
+    version = 46,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -97,7 +98,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46
                     )
                     .build()
                 INSTANCE = instance
@@ -1416,6 +1417,36 @@ abstract class AudiobookDatabase : RoomDatabase() {
                          "`updatedAt` INTEGER NOT NULL, " +
                          "PRIMARY KEY(`sourceId`))"
                  )
+             }
+         }
+
+         /**
+          * ADR-0046 / spec-54 T13 (#863) — v45 -> v46: the `readthroughs` table.
+          *
+          * This step is ADDITIVE and conservative: it creates the table and
+          * touches no existing row, so nothing is lost and nothing is guessed.
+          * Backfilling the existing audio rows into audio Readthroughs is the
+          * NEXT step, and it may only classify what the data proves.
+          */
+         internal val MIGRATION_45_46 = object : Migration(45, 46) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "CREATE TABLE IF NOT EXISTS `readthroughs` (" +
+                         "`id` TEXT NOT NULL, " +
+                         "`libraryEntryId` TEXT NOT NULL, " +
+                         "`workId` TEXT NOT NULL, " +
+                         "`format` TEXT NOT NULL, " +
+                         "`state` TEXT NOT NULL, " +
+                         "`startedAt` INTEGER NOT NULL, " +
+                         "`finishedAt` INTEGER, " +
+                         "`editionId` TEXT, " +
+                         "`unit` TEXT NOT NULL, " +
+                         "`unitValue` INTEGER NOT NULL, " +
+                         "`journalJson` TEXT NOT NULL DEFAULT '[]', " +
+                         "PRIMARY KEY(`id`))"
+                 )
+                 db.execSQL("CREATE INDEX IF NOT EXISTS index_readthroughs_libraryEntryId ON `readthroughs`(`libraryEntryId`)")
+                 db.execSQL("CREATE INDEX IF NOT EXISTS index_readthroughs_workId ON `readthroughs`(`workId`)")
              }
          }
 

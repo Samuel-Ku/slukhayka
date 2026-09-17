@@ -84,6 +84,11 @@ class NewPipeMetadataSpikeTest {
     private object LoggingShared : Downloader() {
         override fun execute(request: Request): Response {
             println("SPIKE our-url ${request.httpMethod()} ${request.url()}")
+            if (request.url().contains("results?search_query")) {
+                // #772 — which headers does NewPipe ASK us to send for the page
+                // that gets redirected? (okhttp adds its own on top.)
+                println("SPIKE our-headers " + request.headers().entries.joinToString("; ") { (k, v) -> "$k=${v.joinToString(",")}" })
+            }
             val response = NewPipeYouTubeExtractor.SharedClientDownloader.execute(request)
             val body = response.responseBody().orEmpty()
             println(

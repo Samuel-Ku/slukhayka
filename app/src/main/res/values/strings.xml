@@ -367,6 +367,9 @@
     <string name="a11y_open_settings">Налаштування</string>
     <string name="library_empty_title">Мої книги порожні</string>
     <string name="lib_section_bookmarks">Закладки</string>
+    <string name="lib_section_saved">Збережене</string>
+    <string name="lib_saved_count">Збережене (%1$d)</string>
+    <string name="lib_section_shelves">Полиці</string>
     <string name="lib_section_people">Люди</string>
     <string name="lib_saved_empty_bookmarks_title">Закладок немає</string>
     <string name="lib_saved_empty_bookmarks_body">Додавайте закладки під час прослуховування в плеєрі.</string>

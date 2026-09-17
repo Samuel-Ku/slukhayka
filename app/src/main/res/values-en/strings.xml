@@ -341,6 +341,9 @@
     <string name="a11y_open_settings">Settings</string>
     <string name="library_empty_title">Your books are empty</string>
     <string name="lib_section_bookmarks">Bookmarks</string>
+    <string name="lib_section_saved">Saved</string>
+    <string name="lib_saved_count">Saved (%1$d)</string>
+    <string name="lib_section_shelves">Shelves</string>
     <string name="lib_section_people">People</string>
     <string name="lib_saved_empty_bookmarks_title">No bookmarks yet</string>
     <string name="lib_saved_empty_bookmarks_body">Add bookmarks while listening in the player.</string>

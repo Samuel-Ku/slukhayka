@@ -93,4 +93,45 @@ class MiniPlayerBarSnapshotTest {
             filePath = "src/test/snapshots/mini_player_bar_close.png"
         )
     }
+
+    /**
+     * #885 — the prototype draws the progress line along the BOTTOM edge of the
+     * bar. A screenshot cannot prove that at 2 % progress (the filled part is a
+     * few pixels), so the position is checked geometrically instead.
+     */
+    @Test
+    fun mini_player_progress_line_sits_in_the_lower_half() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                NarrowBar {
+                    MiniPlayerBar(
+                        playerState = PlayerState(
+                            currentBook = book,
+                            chapters = chapters,
+                            currentChapterIndex = 1,
+                            isPlaying = true,
+                            isOfflineMode = true,
+                            durationMs = 1_000L,
+                            currentPositionMs = 500L
+                        ),
+                        onPlayPauseClick = {},
+                        onSkipNextClick = {},
+                        onCloseClick = {},
+                        onBarClick = {}
+                    )
+                }
+            }
+        }
+
+        val bar = composeTestRule.onNodeWithTag("mini_player_bar", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val line = composeTestRule.onNodeWithTag("mini_player_progress", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+
+        assertTrue(
+            "progress line must sit in the lower half of the bar " +
+                "(bar ${bar.top}..${bar.bottom}, line ${line.top}..${line.bottom})",
+            line.top > bar.top + bar.height / 2
+        )
+    }
 }

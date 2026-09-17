@@ -379,6 +379,9 @@
     <string name="lib_year_empty_title">Ще немає завершених проходів</string>
     <string name="lib_year_empty_body">Завершіть проходження книжки — і воно зʼявиться тут.</string>
     <string name="lib_format_audio">Аудіо</string>
+    <string name="lib_year_record_hint">Сторінки або відсоток</string>
+    <string name="lib_year_record">Записати</string>
+    <string name="lib_year_finish">Завершити</string>
     <string name="manual_add_menu">Додати книгу вручну</string>
     <string name="manual_add_title">Додати книгу</string>
     <string name="manual_add_name">Назва</string>

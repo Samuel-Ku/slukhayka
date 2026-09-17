@@ -263,7 +263,10 @@ fun LibraryScreen(
     // after every action), so the list is never a stale promise.
     LaunchedEffect(activeTab) {
         if (activeTab == 3) viewModel.refreshImportedEntries()
-        if (activeTab == 4) viewModel.refreshReadingYear()
+        if (activeTab == 4) {
+            viewModel.refreshReadingYear()
+            viewModel.refreshActiveReadings()
+        }
     }
     val sectionTitle = when (activeTab) {
         1 -> stringResource(R.string.lib_section_saved)
@@ -842,6 +845,7 @@ fun LibraryScreen(
                     // reported per format, because pages, percent and seconds
                     // cannot be summed into one number (ADR-0046 §5).
                     val goal by viewModel.readingYear.collectAsState()
+                    val activeReadings by viewModel.activeReadings.collectAsState()
                     val current = goal
                     if (current == null) {
                         EmptyState(
@@ -883,6 +887,18 @@ fun LibraryScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                            }
+                            // #876 — the passes still in the listener's hands:
+                            // ONE journal record per action, in the format's own
+                            // unit, and finishing belongs to that pass alone.
+                            items(activeReadings, key = { it.id }) { pass ->
+                                ReadingProgressRow(
+                                    pass = pass,
+                                    onRecord = { value ->
+                                        viewModel.recordReadingProgress(pass.id, value)
+                                    },
+                                    onFinish = { viewModel.finishReading(pass.id) }
+                                )
                             }
                         }
                     }
@@ -2821,4 +2837,58 @@ private fun readingFormatLabel(
         stringResource(R.string.manual_add_format_paper)
     com.slukhayka.audiobooks.data.entries.ReadingFormat.EBOOK ->
         stringResource(R.string.manual_add_format_ebook)
+}
+
+/** #876 — one active pass with its own value field and two honest actions. */
+@androidx.compose.runtime.Composable
+private fun ReadingProgressRow(
+    pass: com.slukhayka.audiobooks.data.entries.Readthrough,
+    onRecord: (Int) -> Unit,
+    onFinish: () -> Unit
+) {
+    var raw by androidx.compose.runtime.saveable.rememberSaveable(pass.id) {
+        androidx.compose.runtime.mutableStateOf("")
+    }
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = stringResource(
+                R.string.lib_year_format,
+                readingFormatLabel(pass.format),
+                pass.units.value
+            ),
+            style = MaterialTheme.typography.titleSmall
+        )
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = raw,
+                onValueChange = { input -> raw = input.filter { it.isDigit() } },
+                label = { Text(stringResource(R.string.lib_year_record_hint)) },
+                singleLine = true,
+                modifier = Modifier
+                    .width(160.dp)
+                    .testTag("reading_value_${pass.id}")
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = { raw.toIntOrNull()?.let(onRecord) },
+                enabled = raw.toIntOrNull() != null,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("reading_record_${pass.id}")
+            ) {
+                Text(stringResource(R.string.lib_year_record))
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onFinish,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("reading_finish_${pass.id}")
+            ) {
+                Text(stringResource(R.string.lib_year_finish))
+            }
+        }
+    }
 }

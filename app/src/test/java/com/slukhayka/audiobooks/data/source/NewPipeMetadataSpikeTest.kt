@@ -25,6 +25,7 @@ import org.schabi.newpipe.extractor.stream.StreamInfo
  */
 class NewPipeMetadataSpikeTest {
 
+
     private fun gate(): Boolean = System.getProperty("newpipe.spike") != null
 
     /** A plain transport: no privacy relay, no header substitution. */
@@ -66,6 +67,26 @@ class NewPipeMetadataSpikeTest {
                     response.body?.string().orEmpty(), response.request.url.toString())
             }
         }
+    }
+
+    /**
+     * #772 attribution, variant 1: OUR browser identity, but NO privacy relay.
+     * If this fails while [PlainDownloader] works, the header substitution is
+     * what YouTube answers differently.
+     */
+    private object HeadersNoRelayDownloader : Downloader() {
+        override fun execute(request: Request): Response =
+            attributed(request, useRelay = false, useBrowserUserAgent = true)
+    }
+
+    /**
+     * #772 attribution, variant 2: the privacy relay, but WITHOUT our browser
+     * identity. If THIS fails while variant 1 works, the relay is the culprit
+     * and YouTube needs its own transport plus an honest privacy-policy line.
+     */
+    private object RelayNoHeadersDownloader : Downloader() {
+        override fun execute(request: Request): Response =
+            attributed(request, useRelay = true, useBrowserUserAgent = false)
     }
 
     @Test
@@ -166,6 +187,24 @@ class NewPipeMetadataSpikeTest {
     }
 
     @Test
+    fun `our headers without the relay still resolve`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(HeadersNoRelayDownloader)
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE headers-no-relay name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
+    fun `the relay without our headers still resolves`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(RelayNoHeadersDownloader)
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE relay-no-headers name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
     fun `single video exposes a real duration`() {
         assumeTrue(gate())
         val url = System.getProperty("spike.video") ?: return
@@ -231,3 +270,49 @@ class NewPipeMetadataSpikeTest {
         println("SPIKE ua-desktop=" + finalUrl("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"))
     }
 }
+
+/**
+ * The production transport (`YouTubeStreamResolver.SharedClientDownloader`)
+ * with ONE ingredient switched off at a time, so the live run attributes
+ * the failure instead of blaming the pinned extractor version (#772).
+ */
+private fun attributed(
+    request: Request,
+    useRelay: Boolean,
+    useBrowserUserAgent: Boolean
+): Response {
+    val target = if (useRelay) {
+        TransportPrivacy.rewriteThroughRelay(request.url())
+    } else {
+        request.url()
+    }
+    val builder = okhttp3.Request.Builder().url(target)
+    request.dataToSend()?.let { body ->
+        builder.post(okhttp3.RequestBody.create(null, body))
+    } ?: builder.get()
+    request.headers().forEach { (name, values) ->
+        values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
+    }
+    if (useBrowserUserAgent && request.headers()["User-Agent"].isNullOrEmpty()) {
+        // The same identity the production downloader fills in.
+        builder.header("User-Agent", BROWSER_USER_AGENT)
+    }
+    return TransportClients.okHttp.newCall(builder.build()).execute().use { response ->
+        Response(
+            response.code,
+            response.message,
+            response.headers.toMultimap(),
+            response.body?.string().orEmpty(),
+            response.request.url.toString()
+        )
+    }
+}
+
+/**
+ * The browser identity the production downloader fills in when NewPipe sends no
+ * User-Agent of its own (#772). A literal on purpose: this spike stays a
+ * plain-JVM test with no Android dependency.
+ */
+private const val BROWSER_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/122.0.0.0 Mobile Safari/537.36"

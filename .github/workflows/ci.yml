@@ -296,7 +296,14 @@ jobs:
       - name: Generate merged reports and enforce thresholds
         run: |
           chmod +x ./gradlew
+          # #885-adjacent — the merged report MUST be rebuilt from the partition
+          # IC files downloaded above. Gradle's build cache made this task
+          # UP-TO-DATE on CI while the same inputs produced a passing report
+          # locally, so the gate read a stale/partial report and failed. The IC
+          # files are not declared inputs of the Kover task, so caching it is
+          # unsafe by construction.
           ./gradlew :app:koverXmlReport :app:koverHtmlReport :app:koverVerify \
+            --no-build-cache \
             -x :app:testDebugUnitTest \
             -Pkover.additionalBinaryReportsDir=build/kover/ci \
             -Pkover.instructionThreshold=15 \

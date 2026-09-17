@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -182,7 +183,24 @@ class SearchGenreAssertionTest {
 
         catalog.searchAllSources("кобзар")
 
-        assertNull(dao.findWorkByMergeKey(MergeKey.keyFor("Кобзар", "Тарас Шевченко")))
+        // #824 — the search gap-fill mirrors the hit (the next identical
+        // query answers locally, like the genre door already anchored its
+        // own hits), but a blank genre still writes no genre rows.
+        assertNotNull(dao.findWorkByMergeKey(MergeKey.keyFor("Кобзар", "Тарас Шевченко")))
         assertTrue(dao.observeGenreFacetOptions().first().isEmpty())
+    }
+
+    @Test
+    fun `the gap-fill mirrors no genre document at any rank`() = runBlocking {
+        val catalog = catalog(FakeSearchAdapter(listOf(kobzarBook("  "))))
+
+        catalog.searchAllSources("кобзар")
+
+        // The mirror row exists (gap-fill), but no genre document was
+        // started — neither SEARCH (no claim to carry) nor ENUMERATION
+        // (search never promotes by persistence, ADR-0040).
+        val workId = MergeKey.keyFor("Кобзар", "Тарас Шевченко")
+        assertNotNull(dao.findWorkByMergeKey(workId))
+        assertNull(dao.genreSourceState(workId, "sluhay"))
     }
 }

@@ -25,6 +25,7 @@ import org.schabi.newpipe.extractor.stream.StreamInfo
  */
 class NewPipeMetadataSpikeTest {
 
+
     private fun gate(): Boolean = System.getProperty("newpipe.spike") != null
 
     /** A plain transport: no privacy relay, no header substitution. */
@@ -39,6 +40,14 @@ class NewPipeMetadataSpikeTest {
             }
             val stream = if (conn.responseCode < 400) conn.inputStream else conn.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }
+            // #772 — WHERE did the control end up? okhttp lands on m.youtube.com;
+            // if the control lands on www.youtube.com, the host is the whole
+            // difference and nothing about our headers matters.
+            println("SPIKE plain-url code=${conn.responseCode} url=${conn.url}")
+            println(
+                "SPIKE plain-markers clientVersion=${body?.contains("clientVersion")} " +
+                    "visitorData=${body?.contains("visitorData")} ytInitialData=${body?.contains("ytInitialData")}"
+            )
             val headers = conn.headerFields
                 .filterKeys { it != null }
                 .mapValues { entry -> entry.value ?: emptyList() }
@@ -66,6 +75,52 @@ class NewPipeMetadataSpikeTest {
                     response.body?.string().orEmpty(), response.request.url.toString())
             }
         }
+    }
+
+    /**
+     * #772 — OUR transport, narrated: prints every request it makes and the
+     * answer it gets, so the divergence from the working control is visible.
+     */
+    private object LoggingShared : Downloader() {
+        override fun execute(request: Request): Response {
+            println("SPIKE our-url ${request.httpMethod()} ${request.url()}")
+            if (request.url().contains("results?search_query")) {
+                // #772 — the SAME request through two clients, same headers.
+                // Who gets redirected to m.youtube.com: okhttp or the JVM client?
+                probeBothClients(request)
+                // #772 — which headers does NewPipe ASK us to send for the page
+                // that gets redirected? (okhttp adds its own on top.)
+                println("SPIKE our-headers " + request.headers().entries.joinToString("; ") { (k, v) -> "$k=${v.joinToString(",")}" })
+            }
+            val response = NewPipeYouTubeExtractor.SharedClientDownloader.execute(request)
+            val body = response.responseBody().orEmpty()
+            println(
+                "SPIKE our-url code=${response.responseCode()} len=${body.length} " +
+                    "final=${response.latestUrl()} clientVersion=${body.contains("clientVersion")} " +
+                    "visitorData=${body.contains("visitorData")} ytInitialData=${body.contains("ytInitialData")}"
+            )
+            return response
+        }
+    }
+
+    /**
+     * #772 attribution, variant 1: OUR browser identity, but NO privacy relay.
+     * If this fails while [PlainDownloader] works, the header substitution is
+     * what YouTube answers differently.
+     */
+    private object HeadersNoRelayDownloader : Downloader() {
+        override fun execute(request: Request): Response =
+            attributed(request, useRelay = false, useBrowserUserAgent = true)
+    }
+
+    /**
+     * #772 attribution, variant 2: the privacy relay, but WITHOUT our browser
+     * identity. If THIS fails while variant 1 works, the relay is the culprit
+     * and YouTube needs its own transport plus an honest privacy-policy line.
+     */
+    private object RelayNoHeadersDownloader : Downloader() {
+        override fun execute(request: Request): Response =
+            attributed(request, useRelay = true, useBrowserUserAgent = false)
     }
 
     @Test
@@ -166,6 +221,33 @@ class NewPipeMetadataSpikeTest {
     }
 
     @Test
+    fun `our transport narrates its requests`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(LoggingShared)
+        runCatching { StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url)) }
+            .onFailure { println("SPIKE our-url failed=${it.javaClass.simpleName}: ${it.message}") }
+    }
+
+    @Test
+    fun `our headers without the relay still resolve`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(HeadersNoRelayDownloader)
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE headers-no-relay name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
+    fun `the relay without our headers still resolves`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(RelayNoHeadersDownloader)
+        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        println("SPIKE relay-no-headers name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
     fun `single video exposes a real duration`() {
         assumeTrue(gate())
         val url = System.getProperty("spike.video") ?: return
@@ -231,3 +313,103 @@ class NewPipeMetadataSpikeTest {
         println("SPIKE ua-desktop=" + finalUrl("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"))
     }
 }
+
+/**
+ * The production transport (`YouTubeStreamResolver.SharedClientDownloader`)
+ * with ONE ingredient switched off at a time, so the live run attributes
+ * the failure instead of blaming the pinned extractor version (#772).
+ */
+private fun attributed(
+    request: Request,
+    useRelay: Boolean,
+    useBrowserUserAgent: Boolean
+): Response {
+    val target = if (useRelay) {
+        TransportPrivacy.rewriteThroughRelay(request.url())
+    } else {
+        request.url()
+    }
+    val builder = okhttp3.Request.Builder().url(target)
+    request.dataToSend()?.let { body ->
+        builder.post(okhttp3.RequestBody.create(null, body))
+    } ?: builder.get()
+    request.headers().forEach { (name, values) ->
+        values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
+    }
+    if (useBrowserUserAgent && request.headers()["User-Agent"].isNullOrEmpty()) {
+        // The same identity the production downloader fills in.
+        builder.header("User-Agent", BROWSER_USER_AGENT)
+    }
+    return TransportClients.okHttp.newCall(builder.build()).execute().use { response ->
+        Response(
+            response.code,
+            response.message,
+            response.headers.toMultimap(),
+            response.body?.string().orEmpty(),
+            response.request.url.toString()
+        )
+    }
+}
+
+/**
+ * The browser identity the production downloader fills in when NewPipe sends no
+ * User-Agent of its own (#772). A literal on purpose: this spike stays a
+ * plain-JVM test with no Android dependency.
+ */
+private const val BROWSER_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/122.0.0.0 Mobile Safari/537.36"
+
+/**
+ * #772 — send the very same request through okhttp and HttpURLConnection and
+ * print where each one ends up. The control (HttpURLConnection) stays on
+ * `www.youtube.com`; if okhttp ends on `m.youtube.com`, the client — not
+ * NewPipe's headers — is what triggers the mobile page.
+ */
+private fun probeBothClients(request: Request) {
+    val headers = request.headers()
+    // okhttp
+    runCatching {
+        val b = okhttp3.Request.Builder().url(request.url())
+        headers.forEach { (k, v) -> v.filter { it.isNotBlank() }.forEach { b.header(k, it) } }
+        com.slukhayka.audiobooks.data.privacy.TransportClients.okHttp
+            .newCall(b.build()).execute().use { r ->
+                println("SPIKE probe-okhttp code=${r.code} final=${r.request.url}")
+            }
+    }.onFailure { println("SPIKE probe-okhttp failed=${it.javaClass.simpleName}: ${it.message}") }
+    // okhttp WITH a desktop identity (NewPipe sends none of its own)
+    runCatching {
+        val b = okhttp3.Request.Builder().url(request.url())
+        headers.forEach { (k, v) -> v.filter { it.isNotBlank() }.forEach { bb -> b.header(k, bb) } }
+        b.header("User-Agent", DESKTOP_USER_AGENT)
+        com.slukhayka.audiobooks.data.privacy.TransportClients.okHttp
+            .newCall(b.build()).execute().use { r ->
+                println("SPIKE probe-okhttp-desktop code=${r.code} final=${r.request.url}")
+            }
+    }.onFailure { println("SPIKE probe-okhttp-desktop failed=${it.javaClass.simpleName}: ${it.message}") }
+    // okhttp FORCED to HTTP/1.1 — the one difference the JVM client still has
+    runCatching {
+        val b = okhttp3.Request.Builder().url(request.url())
+        headers.forEach { (k, v) -> v.filter { it.isNotBlank() }.forEach { bb -> b.header(k, bb) } }
+        http11().newCall(b.build()).execute().use { r ->
+            println("SPIKE probe-okhttp-http1 code=${r.code} final=${r.request.url}")
+        }
+    }.onFailure { println("SPIKE probe-okhttp-http1 failed=${it.javaClass.simpleName}: ${it.message}") }
+    // plain JVM client
+    runCatching {
+        val conn = URL(request.url()).openConnection() as HttpURLConnection
+        headers.forEach { (k, v) -> conn.setRequestProperty(k, v.joinToString(", ")) }
+        println("SPIKE probe-jvm code=${conn.responseCode} final=${conn.url}")
+        conn.disconnect()
+    }.onFailure { println("SPIKE probe-jvm failed=${it.javaClass.simpleName}: ${it.message}") }
+}
+
+private const val DESKTOP_USER_AGENT =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/122.0.0.0 Safari/537.36"
+
+/** #772 — okhttp pinned to HTTP/1.1, the only transport difference left. */
+private fun http11(): okhttp3.OkHttpClient =
+    okhttp3.OkHttpClient.Builder()
+        .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+        .build()

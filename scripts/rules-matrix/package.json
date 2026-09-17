@@ -5,10 +5,12 @@
   "description": "Spec-40 #283 + spec-42 #303/#311 — контрольна матриця правил Firestore на емуляторі",
   "type": "module",
   "scripts": {
-    "matrix": "node matrix.test.mjs"
+    "matrix": "node matrix.test.mjs",
+    "emulator": "firebase emulators:start --only firestore --project slukhayka"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
-    "firebase": "^12.0.0"
+    "firebase": "^12.0.0",
+    "firebase-tools": "^15.30.1"
   }
 }

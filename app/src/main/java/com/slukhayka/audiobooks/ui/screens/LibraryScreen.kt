@@ -393,11 +393,9 @@ fun LibraryScreen(
             // now (one tap, just as discoverable) and the screen became a
             // single scroll of books.
             com.slukhayka.audiobooks.ui.components.AppTabHeader(
-                // TODO(#873) — this literal must become R.string.nav_library
-                // once the snapshot baseline is regenerated: switching it to
-                // the resource changes the rendered header and the roborazzi
-                // baseline (recordRoborazziDebug does not run in this env).
-                title = if (activeTab == 0) "Медіатека" else sectionTitle,
+                // spec-54 T06 (#873) — the root's name is the ONE resource the
+                // bottom bar also uses; a hardcoded literal could drift from it.
+                title = if (activeTab == 0) stringResource(R.string.nav_library) else sectionTitle,
                 subtitle = if (activeTab == 0) librarySubtitle else null,
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,

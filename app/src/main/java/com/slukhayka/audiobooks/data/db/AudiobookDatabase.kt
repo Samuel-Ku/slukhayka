@@ -1447,6 +1447,40 @@ abstract class AudiobookDatabase : RoomDatabase() {
                  )
                  db.execSQL("CREATE INDEX IF NOT EXISTS index_readthroughs_libraryEntryId ON `readthroughs`(`libraryEntryId`)")
                  db.execSQL("CREATE INDEX IF NOT EXISTS index_readthroughs_workId ON `readthroughs`(`workId`)")
+
+                 // ADR-0046 §7 — the CONSERVATIVE backfill: every existing
+                 // library row becomes an AUDIO Readthrough of its Work, and
+                 // nothing is deleted, hidden or guessed. The state comes from
+                 // evidence only: a completed playback row PROVES "finished",
+                 // a progress row proves "in progress", and its position is the
+                 // observed seconds. No row at all means PLANNED with zero —
+                 // never an invented progress (ADR-0014).
+                 //
+                 // The id is deterministic (`rt-audio-<entryId>`), so running
+                 // the migration twice cannot duplicate a pass, and the journal
+                 // starts empty: the old data never journaled, and inventing
+                 // records for it would be a lie.
+                 db.execSQL(
+                     "INSERT OR IGNORE INTO `readthroughs` (" +
+                         "`id`, `libraryEntryId`, `workId`, `format`, `state`, `startedAt`, " +
+                         "`finishedAt`, `editionId`, `unit`, `unitValue`, `journalJson`) " +
+                         "SELECT " +
+                         "'rt-audio-' || e.`id`, e.`id`, e.`workId`, 'AUDIO', " +
+                         "CASE " +
+                         "WHEN p.`isCompleted` = 1 THEN 'FINISHED' " +
+                         "WHEN p.`editionId` IS NOT NULL THEN 'IN_PROGRESS' " +
+                         "ELSE 'PLANNED' END, " +
+                         "e.`createdAt`, " +
+                         "CASE WHEN p.`isCompleted` = 1 THEN p.`lastListenedAt` ELSE NULL END, " +
+                         "e.`id`, 'SECONDS', " +
+                         // ADR-0046 §3 — the live position stays in Listening
+                         // State: the pass stores NO second copy of it, so its
+                         // unit value starts at zero and the player remains the
+                         // one truth about where the listener is.
+                         "0, '[]' " +
+                         "FROM `library_entries` e " +
+                         "LEFT JOIN `playback_progress` p ON p.`editionId` = e.`id`"
+                 )
              }
          }
 

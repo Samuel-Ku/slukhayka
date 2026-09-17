@@ -85,6 +85,9 @@ class NewPipeMetadataSpikeTest {
         override fun execute(request: Request): Response {
             println("SPIKE our-url ${request.httpMethod()} ${request.url()}")
             if (request.url().contains("results?search_query")) {
+                // #772 — the SAME request through two clients, same headers.
+                // Who gets redirected to m.youtube.com: okhttp or the JVM client?
+                probeBothClients(request)
                 // #772 — which headers does NewPipe ASK us to send for the page
                 // that gets redirected? (okhttp adds its own on top.)
                 println("SPIKE our-headers " + request.headers().entries.joinToString("; ") { (k, v) -> "$k=${v.joinToString(",")}" })
@@ -356,3 +359,43 @@ private fun attributed(
 private const val BROWSER_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/122.0.0.0 Mobile Safari/537.36"
+
+/**
+ * #772 — send the very same request through okhttp and HttpURLConnection and
+ * print where each one ends up. The control (HttpURLConnection) stays on
+ * `www.youtube.com`; if okhttp ends on `m.youtube.com`, the client — not
+ * NewPipe's headers — is what triggers the mobile page.
+ */
+private fun probeBothClients(request: Request) {
+    val headers = request.headers()
+    // okhttp
+    runCatching {
+        val b = okhttp3.Request.Builder().url(request.url())
+        headers.forEach { (k, v) -> v.filter { it.isNotBlank() }.forEach { b.header(k, it) } }
+        com.slukhayka.audiobooks.data.privacy.TransportClients.okHttp
+            .newCall(b.build()).execute().use { r ->
+                println("SPIKE probe-okhttp code=${r.code} final=${r.request.url}")
+            }
+    }.onFailure { println("SPIKE probe-okhttp failed=${it.javaClass.simpleName}: ${it.message}") }
+    // okhttp WITH a desktop identity (NewPipe sends none of its own)
+    runCatching {
+        val b = okhttp3.Request.Builder().url(request.url())
+        headers.forEach { (k, v) -> v.filter { it.isNotBlank() }.forEach { bb -> b.header(k, bb) } }
+        b.header("User-Agent", DESKTOP_USER_AGENT)
+        com.slukhayka.audiobooks.data.privacy.TransportClients.okHttp
+            .newCall(b.build()).execute().use { r ->
+                println("SPIKE probe-okhttp-desktop code=${r.code} final=${r.request.url}")
+            }
+    }.onFailure { println("SPIKE probe-okhttp-desktop failed=${it.javaClass.simpleName}: ${it.message}") }
+    // plain JVM client
+    runCatching {
+        val conn = URL(request.url()).openConnection() as HttpURLConnection
+        headers.forEach { (k, v) -> conn.setRequestProperty(k, v.joinToString(", ")) }
+        println("SPIKE probe-jvm code=${conn.responseCode} final=${conn.url}")
+        conn.disconnect()
+    }.onFailure { println("SPIKE probe-jvm failed=${it.javaClass.simpleName}: ${it.message}") }
+}
+
+private const val DESKTOP_USER_AGENT =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/122.0.0.0 Safari/537.36"

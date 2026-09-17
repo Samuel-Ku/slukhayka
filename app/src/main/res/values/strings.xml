@@ -366,6 +366,8 @@
     <string name="submission_badge_rejected">Відхилено</string>
     <string name="a11y_open_settings">Налаштування</string>
     <string name="library_empty_title">Мої книги порожні</string>
+    <string name="lib_section_bookmarks">Закладки</string>
+    <string name="lib_section_people">Люди</string>
     <string name="library_empty_body">Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі.</string>
     <string name="submission_status_already_in_library">Уже в медіатеці.</string>
     <string name="submission_open_book">Відкрити книгу</string>

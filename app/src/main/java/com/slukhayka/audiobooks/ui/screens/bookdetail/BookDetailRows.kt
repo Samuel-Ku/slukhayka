@@ -159,6 +159,11 @@ fun ChapterRowItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // #766 — the row's content is only 40dp tall on a compact
+                // chapter (measured on API 35: [261,955][694,1060]), which the
+                // accessibility check rejects: a touch target must be at least
+                // 48dp. The MINIMUM is what was missing, not the icons.
+                .heightIn(min = 48.dp)
                 // One stable node owns touch, semantics and focus. Splitting
                 // these responsibilities between Card and Row exposes two
                 // clickable accessibility nodes with identical bounds.
@@ -235,7 +240,12 @@ fun ChapterRowItem(
                     Checkbox(
                         checked = isSelected,
                         onCheckedChange = { onToggleSelect?.invoke() },
-                        modifier = Modifier.testTag("chapter_select_${chapter.id}")
+                        modifier = Modifier
+                            // #766 — the other flagged node was 48dp WIDE and
+                            // 40dp tall ([694,955][820,1060]): the selection
+                            // control needs the same 48dp floor.
+                            .heightIn(min = 48.dp)
+                            .testTag("chapter_select_${chapter.id}")
                     )
                 }
             } else {

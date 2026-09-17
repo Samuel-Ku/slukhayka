@@ -387,6 +387,14 @@ private fun probeBothClients(request: Request) {
                 println("SPIKE probe-okhttp-desktop code=${r.code} final=${r.request.url}")
             }
     }.onFailure { println("SPIKE probe-okhttp-desktop failed=${it.javaClass.simpleName}: ${it.message}") }
+    // okhttp FORCED to HTTP/1.1 — the one difference the JVM client still has
+    runCatching {
+        val b = okhttp3.Request.Builder().url(request.url())
+        headers.forEach { (k, v) -> v.filter { it.isNotBlank() }.forEach { bb -> b.header(k, bb) } }
+        http11().newCall(b.build()).execute().use { r ->
+            println("SPIKE probe-okhttp-http1 code=${r.code} final=${r.request.url}")
+        }
+    }.onFailure { println("SPIKE probe-okhttp-http1 failed=${it.javaClass.simpleName}: ${it.message}") }
     // plain JVM client
     runCatching {
         val conn = URL(request.url()).openConnection() as HttpURLConnection
@@ -399,3 +407,9 @@ private fun probeBothClients(request: Request) {
 private const val DESKTOP_USER_AGENT =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/122.0.0.0 Safari/537.36"
+
+/** #772 — okhttp pinned to HTTP/1.1, the only transport difference left. */
+private fun http11(): okhttp3.OkHttpClient =
+    okhttp3.OkHttpClient.Builder()
+        .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+        .build()

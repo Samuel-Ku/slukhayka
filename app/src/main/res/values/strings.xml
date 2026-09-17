@@ -436,4 +436,6 @@
     <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>
     <string name="source_audio_refusal_publish_description">Коли ввімкнено, застосунок додає один анонімний голос до спільного лічильника кожного позначеного джерела — лише кількість, без імені, книг чи посилань. Вимкнення зупиняє нові голоси.</string>
     <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
+    <string name="lib_year_hero_title">Мій рік у книжках, %1$d</string>
+    <string name="lib_year_hero_units">завершених проходів</string>
 </resources>

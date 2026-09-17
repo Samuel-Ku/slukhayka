@@ -345,7 +345,11 @@ fun LibraryScreen(
     val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing) {
         libraryGridEntries(
-            browsing = browsing,
+            // #885 — the prototype's «Книги» is a VERTICAL list of rows with a
+            // progress line, not a wall of shelves: shelves belong to «Полиці»
+            // (their own tab above). So the books tab always builds the dense
+            // section+rows shape.
+            browsing = false,
             gridMode = gridMode,
             visible = shownCards,
             continueBook = continueBook,

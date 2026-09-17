@@ -1408,6 +1408,15 @@ interface AudiobookDao {
     suspend fun worksForNarrator(narrator: String): List<WorkEntity>
 
     /**
+     * #874 — the narrations of ONE Work, as the playable cards the person page
+     * shows inside a Work's row. The author branch of that page needs them: a
+     * Work it knows about (`worksForAuthor`) may have several renditions, and
+     * each keeps its own progress, bookmarks, downloads and speed.
+     */
+    @Query(BOOK_SELECT + " WHERE w.id = :workId ORDER BY a.title COLLATE NOCASE ASC, a.id ASC")
+    suspend fun narrationsForWork(workId: String): List<AudiobookEntity>
+
+    /**
      * #736 — which of an author's Works the listener owns. The person page
      * shows every known Work (Медіатека + Дзеркало neighbours) and uses this
      * set to mark the owned ones first and the mirror neighbours as finds.

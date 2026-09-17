@@ -539,8 +539,11 @@ fun HomeScreen(
     }
     // Spec-51 (#693) — reading a collection / a curator straight from Слухати.
     openedPublicCollection?.let { open ->
-        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { viewModel.closePublicCollection() }) {
+        com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+            title = open.title,
+            onClose = { viewModel.closePublicCollection() },
+            testTag = "public_collection_page"
+        ) {
             com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
                 collection = open,
                 originalAvailableLocally = allBooks.any { it.id in open.bookIds },
@@ -568,8 +571,11 @@ fun HomeScreen(
         }
     }
     curatorProfilePseudonym?.let { pseudonym ->
-        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { viewModel.closeCuratorProfile() }) {
+        com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+            title = pseudonym,
+            onClose = { viewModel.closeCuratorProfile() },
+            testTag = "curator_profile_page"
+        ) {
             com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent(
                 pseudonym = pseudonym,
                 rows = curatorProfileRows,

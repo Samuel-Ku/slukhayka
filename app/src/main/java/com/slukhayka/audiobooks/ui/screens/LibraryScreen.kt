@@ -1683,10 +1683,12 @@ internal fun LibrarySectionHeader(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = title.uppercase(),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
+                // #885 — the prototype writes section titles as a sentence
+                // («Читаю та слухаю зараз»), not as shouted caps: sentence case,
+                // a step larger, no tracking.
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() }

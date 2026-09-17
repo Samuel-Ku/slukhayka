@@ -1647,6 +1647,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM readthroughs WHERE id = :id LIMIT 1")
     suspend fun readthroughById(id: String): ReadthroughEntity?
 
+    /** #876 — every pass, for the reading journal and the yearly goal. */
+    @Query("SELECT * FROM readthroughs")
+    suspend fun allReadthroughs(): List<ReadthroughEntity>
+
     @Query("DELETE FROM readthroughs WHERE id = :id")
     suspend fun deleteReadthrough(id: String)
 

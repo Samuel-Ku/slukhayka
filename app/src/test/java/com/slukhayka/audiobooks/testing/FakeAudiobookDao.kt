@@ -1553,6 +1553,9 @@ class FakeAudiobookDao(
         id: String
     ): com.slukhayka.audiobooks.data.db.ReadthroughEntity? = readthroughs[id]
 
+    override suspend fun allReadthroughs(): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
+        readthroughs.values.toList()
+
     override suspend fun deleteReadthrough(id: String) {
         readthroughs.remove(id)
     }

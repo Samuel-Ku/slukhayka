@@ -20,6 +20,8 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
+import com.google.android.apps.common.testing.accessibility.framework.checks.TouchTargetSizeCheck
+import com.google.android.apps.common.testing.accessibility.framework.integrations.espresso.AccessibilityValidator
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription

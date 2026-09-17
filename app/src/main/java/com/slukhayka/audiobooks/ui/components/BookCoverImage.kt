@@ -119,46 +119,52 @@ fun BookCoverImage(
         // NOT a full-height wash: on a shelf tile the old vertical gradient
         // pooled into a brown band across the bottom third and read as dirt
         // rather than as "that genre's book" (device review, 2026-09-16).
-        val fallbackAccent = genreAccentColor(book.genre)
+        // spec-54 T11 (#862) — a FLAT fill with large typography, not a wash.
+        // A known genre carries its own colour; an unknown one gets the brand
+        // accent rather than a dead grey rectangle.
+        val fallbackAccent = genreAccentColor(book.genre) ?: MaterialTheme.colorScheme.primary
+        // The text colour is PICKED BY MEASUREMENT, not by taste: white while it
+        // clears the 4.5:1 floor on this fill, otherwise near-black. Both
+        // candidates are checked, so no genre can produce unreadable type.
+        val onAccent = if (
+            com.slukhayka.audiobooks.ui.theme.ColorContrast.meetsTextFloor(Color.White, fallbackAccent)
+        ) {
+            Color.White
+        } else {
+            Color(0xFF101418)
+        }
+        val initials = book.title.trim()
+            .split(' ')
+            .filter { it.isNotBlank() }
+            .take(2)
+            .map { it.first().uppercaseChar() }
+            .joinToString("")
         Box(
             modifier = modifier
                 .clearAndSetSemantics {
                     resolvedContentDescription?.let { contentDescription = it }
                 }
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .background(fallbackAccent),
             contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                // A known genre shows its own colour; an unknown
-                                // one still gets the faintest brand presence
-                                // instead of a dead grey rectangle.
-                                (fallbackAccent ?: MaterialTheme.colorScheme.primary)
-                                    .copy(alpha = if (fallbackAccent != null) 0.22f else 0.10f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
             Column(
                 modifier = Modifier.padding(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Headphones,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
+                if (initials.isNotBlank()) {
+                    Text(
+                        text = initials,
+                        color = onAccent,
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = book.title,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = onAccent,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
@@ -168,7 +174,9 @@ fun BookCoverImage(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = book.displayAuthor,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // No alpha: the floor is measured against the FULL text
+                        // colour, so a faded line could silently fail it.
+                        color = onAccent,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

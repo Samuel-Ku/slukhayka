@@ -662,6 +662,10 @@ fun LibraryScreen(
 
             when (activeTab) {
                 0 -> {
+                    // #885 — the yearly goal rides at the TOP of the books list,
+                    // the way the «Нічна бібліотека» prototype shows it, instead
+                    // of living behind its own view.
+                    val yearGoal by viewModel.readingYear.collectAsState()
                     when {
                         libraryBooks.isEmpty() -> {
                             LibraryEmptyState(
@@ -688,6 +692,11 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            yearGoal?.let { goal ->
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    LibraryYearHero(goal = goal)
+                                }
+                            }
                             libraryGridContent(
                                 entries = gridEntries,
                                 browsing = browsing,
@@ -2901,6 +2910,35 @@ private fun ReadingProgressRow(
             ) {
                 Text(stringResource(R.string.lib_year_finish))
             }
+        }
+    }
+}
+
+/**
+ * #885 — «Мій рік» as a hero card on top of «Мої книги» (prototype:
+ * docs/prototypes/slukhayka-expressive.html). Reuses the SAME year data the
+ * separate year view shows, so the two can never disagree.
+ */
+@Composable
+private fun LibraryYearHero(goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("library_year_hero")
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(R.string.lib_year_heading, goal.year),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = stringResource(R.string.lib_year_total, goal.totalFinished),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }

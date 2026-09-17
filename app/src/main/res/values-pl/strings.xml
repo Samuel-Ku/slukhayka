@@ -8,4 +8,6 @@
     <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
     <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
+    <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
+    <string name="lib_year_hero_units">ukończonych podejść</string>
 </resources>

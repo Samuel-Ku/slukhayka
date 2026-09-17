@@ -30,14 +30,28 @@ internal fun SettingsScreen(
     onOpen: (SettingsDestination) -> Unit
 ) {
     val title = stringResource(R.string.nav_settings)
-    val destinations = remember {
+    // spec-54 T05 (#866) — the SAME seven destinations, grouped so the listener
+    // knows WHERE to look: the group name answers "where", and every row stays
+    // one tap from here (so never more than two from anywhere).
+    val groups = remember {
         listOf(
-            SettingsDestination.Profile, SettingsDestination.Storage,
-            SettingsDestination.NetworkPrivacy, SettingsDestination.Recommendations,
-            SettingsDestination.ContentLanguages, SettingsDestination.AppLocale,
-            SettingsDestination.SourceAudioRefusal
+            SettingsGroup(R.string.settings_group_profile, listOf(SettingsDestination.Profile)),
+            SettingsGroup(R.string.settings_group_data, listOf(SettingsDestination.Storage)),
+            SettingsGroup(
+                R.string.settings_group_network,
+                listOf(SettingsDestination.NetworkPrivacy, SettingsDestination.SourceAudioRefusal)
+            ),
+            SettingsGroup(
+                R.string.settings_group_recommendations,
+                listOf(SettingsDestination.Recommendations)
+            ),
+            SettingsGroup(
+                R.string.settings_group_language,
+                listOf(SettingsDestination.ContentLanguages, SettingsDestination.AppLocale)
+            )
         )
     }
+    val destinations = remember(groups) { groups.flatMap { it.destinations } }
     val headingFocus = remember { FocusRequester() }
     val rowFocus = remember { destinations.associateWith { FocusRequester() } }
     LaunchedEffect(returnDestination) {
@@ -56,19 +70,36 @@ internal fun SettingsScreen(
             returnFocusRequester = headingFocus
         )
         Column(Modifier.padding(horizontal = 16.dp)) {
-            destinations.forEach { destination ->
-            ListItem(
-                headlineContent = { Text(stringResource(destination.titleRes)) },
-                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
-                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                    .testTag("settings_${destination.name}")
-                    .focusRequester(rowFocus.getValue(destination))
-                    .focusProperties { canFocus = true }
-                    .clickable(role = Role.Button) { onOpen(destination) }
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            groups.forEach { group ->
+                Text(
+                    text = stringResource(group.titleRes),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(top = 16.dp, bottom = 4.dp)
+                        .testTag("settings_group_${group.titleRes}")
+                        .semantics { heading() }
+                )
+                group.destinations.forEach { destination ->
+                    ListItem(
+                        headlineContent = { Text(stringResource(destination.titleRes)) },
+                        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                            .testTag("settings_${destination.name}")
+                            .focusRequester(rowFocus.getValue(destination))
+                            .focusProperties { canFocus = true }
+                            .clickable(role = Role.Button) { onOpen(destination) }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
             }
         }
     }
 }
+
+/** #866 — one labelled group of settings rows: the name answers "where to look". */
+private data class SettingsGroup(
+    val titleRes: Int,
+    val destinations: List<SettingsDestination>
+)

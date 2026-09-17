@@ -1821,7 +1821,11 @@ internal fun LibraryDenseRow(
                         // long-standing contract tag the journeys click, so the
                         // accessibility and playback tests keep their anchor.
                         .testTag("library_book_item_${book.book.id}")
-                .clearAndSetSemantics {
+                // #885 — NOT clearAndSetSemantics: that call also wipes the
+                // Focused property clickable sets, so the a11y journey could
+                // never see the returning focus. Merging descendants keeps one
+                // node for the row AND leaves focus observable.
+                .semantics(mergeDescendants = true) {
                     contentDescription = description
                     stateDescription = state
                     role = Role.Button

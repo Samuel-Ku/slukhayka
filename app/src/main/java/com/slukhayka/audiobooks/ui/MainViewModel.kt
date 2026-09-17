@@ -2842,6 +2842,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * changes what the page SAYS about the person, never the data model, and a
      * row without a Work key stays its own card.
      */
+    /**
+     * #874 — the person's page as WORKS, for BOTH roles. The role is an input
+     * here, never a different address: an author is read by canonical id
+     * (`worksForAuthor`), a narrator by the name their editions carry, and a
+     * source-page person from the cards that page returned. Ownership is marked
+     * for both, and a Work keeps its own narrations.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val personWorks: StateFlow<List<com.slukhayka.audiobooks.ui.library.PersonWorkRow>> =
+        combine(_selectedPerson, personLoader.items) { person, cards -> person to cards }
+            .mapLatest { (person, cards) -> personWorksFor(person, cards) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private suspend fun personWorksFor(
+        person: SelectedPerson?,
+        cards: List<AudiobookEntity>
+    ): List<com.slukhayka.audiobooks.ui.library.PersonWorkRow> {
+        if (person == null) return emptyList()
+        val dao = App.instance.audiobookDao
+        return if (person.role == PersonRole.AUTHOR && person.authorId != null) {
+            val works = dao.worksForAuthor(person.authorId)
+            com.slukhayka.audiobooks.ui.library.personWorkRows(
+                works = works,
+                ownedWorkIds = dao.ownedWorkIdsForAuthor(person.authorId).toSet(),
+                narrationsByWork = works.associate { work -> work.id to dao.narrationsForWork(work.id) }
+            )
+        } else {
+            com.slukhayka.audiobooks.ui.library.personWorkRowsFromCards(
+                cards,
+                dao.ownedWorkIdsForNarrator(person.name).toSet()
+            )
+        }
+    }
+
     val personBooks: StateFlow<List<AudiobookEntity>> =
         personLoader.items
             .map { books ->

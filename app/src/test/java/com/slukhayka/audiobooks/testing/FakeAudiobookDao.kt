@@ -1373,6 +1373,15 @@ class FakeAudiobookDao(
             .distinct()
     }
 
+    /** #874 — the fake's owned-work ids for a narrator mirrors the SQL join. */
+    override suspend fun ownedWorkIdsForNarrator(narrator: String): List<String> {
+        val owned = libraryEntriesState.value.map { it.workId }.toSet()
+        return editionsState.value
+            .filter { it.narrator.equals(narrator, ignoreCase = true) && it.workId in owned }
+            .map { it.workId }
+            .distinct()
+    }
+
     /** #736 — the fake's owned-only narrator index mirrors the SQL join. */
     override fun observeLibraryNarrators(): Flow<List<NarratorSummary>> =
         combine(editionsState, libraryEntriesState) { editions, entries ->

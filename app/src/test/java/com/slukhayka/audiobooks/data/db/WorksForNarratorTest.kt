@@ -44,6 +44,26 @@ class WorksForNarratorTest {
     }
 
     @Test
+    fun `ownership is marked for a narrator exactly as for an author`() = runBlocking {
+        dao.seedNarratedWork(work("w1", "Кобзар"), "Іван")
+        dao.seedNarratedWork(work("w2", "Гайдамаки"), "Іван")
+        dao.seedLibraryEntry(
+            LibraryEntryEntity(id = "entry-1", workId = "w1", createdAt = 1L)
+        )
+
+        assertEquals(
+            "only the owned Work is marked, and only through this narrator",
+            listOf("w1"),
+            dao.ownedWorkIdsForNarrator("Іван").sorted()
+        )
+        assertEquals(
+            "another narrator owns nothing of ours",
+            emptyList<String>(),
+            dao.ownedWorkIdsForNarrator("Петро")
+        )
+    }
+
+    @Test
     fun `the projection is ordered by title, not by insertion`() = runBlocking {
         dao.seedNarratedWork(work("w2", "Явір"), "Іван")
         dao.seedNarratedWork(work("w1", "Барвінок"), "Іван")

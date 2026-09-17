@@ -1420,6 +1420,19 @@ interface AudiobookDao {
     suspend fun ownedWorkIdsForAuthor(authorId: String): List<String>
 
     /**
+     * #874 — the NARRATOR twin of [ownedWorkIdsForAuthor]: which of the Works
+     * this person narrates the listener already owns. Without it the merged
+     * person page could mark ownership for authors only, which is exactly the
+     * asymmetry the single page must remove.
+     */
+    @Query(
+        "SELECT DISTINCT w.id FROM works w JOIN editions e ON e.workId=w.id " +
+            "JOIN library_entries le ON le.workId=w.id " +
+            "WHERE e.narrator = :narrator COLLATE NOCASE"
+    )
+    suspend fun ownedWorkIdsForNarrator(narrator: String): List<String>
+
+    /**
      * #736 / ADR-0041 — the narrators the listener actually has: only the
      * narration of an owned Edition, counted over owned Works. The «Виконавці»
      * index reads this instead of a provider page.

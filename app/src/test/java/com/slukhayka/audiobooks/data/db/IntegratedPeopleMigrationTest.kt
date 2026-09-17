@@ -99,7 +99,14 @@ class IntegratedPeopleMigrationTest {
                 AudiobookDatabase.MIGRATION_41_42,
                 AudiobookDatabase.MIGRATION_42_43,
                 AudiobookDatabase.MIGRATION_43_44,
-                AudiobookDatabase.MIGRATION_44_45
+                AudiobookDatabase.MIGRATION_44_45,
+                // #883 — the database is at 47 now: a path from an OLD schema
+                // must reach the CURRENT version, so the two v1.8 steps that
+                // added `readthroughs` and `library_entries.origin` belong here
+                // too. Without them Room refuses the whole path ("A migration
+                // from 26 to 47 was required but not found").
+                AudiobookDatabase.MIGRATION_45_46,
+                AudiobookDatabase.MIGRATION_46_47
             )
             .allowMainThreadQueries().build()
         try {

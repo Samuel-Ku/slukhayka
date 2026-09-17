@@ -154,7 +154,7 @@ class ListenerSubmissionFlowTest {
 
         val verdict = harness.flow.onPlaybackStarted("source-1")
 
-        assertEquals(ListenerSubmissionFlow.Verdict.Published, verdict)
+        assertEquals(ListenerSubmissionFlow.Verdict.PendingModeration, verdict)
         val publication = harness.store.submissionPuts.single()
         assertEquals(youtube, publication.sourceUrl)
         assertEquals(SubmissionAccessMode.YOUTUBE, publication.accessMode)
@@ -181,7 +181,7 @@ class ListenerSubmissionFlowTest {
     @Test
     fun `a publish after the same url was already published is refused honestly`() = runTest {
         val harness = Harness()
-        harness.store.publishSubmission(
+        harness.store.seedSubmission(
             com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
                 sourceUrl = youtube,
                 accessMode = SubmissionAccessMode.YOUTUBE,
@@ -262,12 +262,20 @@ class ListenerSubmissionFlowTest {
     }
 
     @Test
-    fun `a published submission can be corrected in the shared base`() = runTest {
+    fun `a queued candidate is not a published card, so there is nothing to correct`() = runTest {
         val harness = Harness()
         harness.flow.submit(youtube)
-        assertEquals(ListenerSubmissionFlow.Verdict.Published, harness.flow.onPlaybackStarted("source-1"))
-        val before = harness.store.submissionPuts.size
+        assertEquals(
+            ListenerSubmissionFlow.Verdict.PendingModeration,
+            harness.flow.onPlaybackStarted("source-1")
+        )
+        val queued = harness.store.candidatePuts.size
+        assertEquals("the verified submission is a queued candidate", 1, queued)
 
+        // Moderation T1/T4 (#834/#837) — the queue belongs to the curator once
+        // the document exists, and the local row is NOT published: there is no
+        // client correction route, so the honest answer is "nothing pending to
+        // update" instead of a silent rewrite of the queue document.
         val verdict = harness.flow.updatePublishedMetadata(
             bookId = "book-1",
             title = "Виправлена назва",
@@ -275,14 +283,8 @@ class ListenerSubmissionFlowTest {
             narrator = null
         )
 
-        assertEquals(ListenerSubmissionFlow.Verdict.Published, verdict)
-        assertEquals(before + 1, harness.store.submissionPuts.size)
-        // The document identity never moves: the correction lands under the
-        // SAME normalized url the publication used.
-        assertEquals(youtube, harness.store.submissionPuts.last().sourceUrl)
-        val stored = harness.store.getSubmission(youtube)
-        assertEquals("Виправлена назва", stored?.title)
-        assertEquals("Справжній автор", stored?.author)
+        assertEquals(ListenerSubmissionFlow.Verdict.NoPending, verdict)
+        assertEquals("no second document appeared", queued, harness.store.candidatePuts.size)
     }
 
     @Test
@@ -299,19 +301,22 @@ class ListenerSubmissionFlowTest {
     }
 
     @Test
-    fun `a shared-base failure keeps the publication published`() = runTest {
+    fun `a queued candidate stays queued when nothing can be corrected`() = runTest {
         val harness = Harness()
         harness.flow.submit(youtube)
-        harness.flow.onPlaybackStarted("source-1")
+        assertEquals(
+            ListenerSubmissionFlow.Verdict.PendingModeration,
+            harness.flow.onPlaybackStarted("source-1")
+        )
         harness.store.throwOnPublishSubmission = true
 
+        // #834/#837 — there is no published card yet (the candidate waits), so
+        // the correction door honestly reports "nothing to update" and the
+        // queued candidate is untouched by a failing write.
         val verdict = harness.flow.updatePublishedMetadata("book-1", "Нова назва", null, null)
 
-        assertEquals(
-            ListenerSubmissionFlow.Verdict.Refused(ListenerSubmissionFlow.Reason.SHARED_BASE_UNAVAILABLE),
-            verdict
-        )
-        assertNotNull("the row stays published", harness.flow.publishedSubmission("book-1"))
+        assertEquals(ListenerSubmissionFlow.Verdict.NoPending, verdict)
+        assertEquals("the candidate is still queued", 1, harness.store.candidatePuts.size)
     }
 
     @Test
@@ -553,10 +558,10 @@ class ListenerSubmissionFlowTest {
 
         assertEquals(setOf("book-1", "book-2"), flow.awaitingBookIds())
 
-        assertEquals(ListenerSubmissionFlow.Verdict.Published, flow.onPlaybackStarted("source-1"))
+        assertEquals(ListenerSubmissionFlow.Verdict.PendingModeration, flow.onPlaybackStarted("source-1"))
         assertEquals(setOf("book-2"), flow.awaitingBookIds())
 
-        assertEquals(ListenerSubmissionFlow.Verdict.Published, flow.onPlaybackStarted("source-2"))
+        assertEquals(ListenerSubmissionFlow.Verdict.PendingModeration, flow.onPlaybackStarted("source-2"))
         assertTrue(flow.awaitingBookIds().isEmpty())
         assertEquals(2, harnessStore.submissionPuts.size)
     }
@@ -585,7 +590,7 @@ class ListenerSubmissionFlowTest {
         flow().submit(youtube)
 
         // The process restarted: a fresh flow over the same store.
-        assertEquals(ListenerSubmissionFlow.Verdict.Published, flow().onPlaybackStarted("source-1"))
+        assertEquals(ListenerSubmissionFlow.Verdict.PendingModeration, flow().onPlaybackStarted("source-1"))
         assertEquals(1, harnessStore.submissionPuts.size)
     }
 
@@ -885,7 +890,7 @@ class ListenerSubmissionFlowTest {
         harness.now += 86_400_000L
         val verdicts = harness.flow.publishDeferredPublications()
 
-        assertEquals(listOf(ListenerSubmissionFlow.Verdict.Published), verdicts)
+        assertEquals(listOf(ListenerSubmissionFlow.Verdict.PendingModeration), verdicts)
         val publication = harness.store.submissionPuts.single()
         assertEquals(youtube, publication.sourceUrl)
         assertEquals("Гаррі Поттер 1", publication.title)
@@ -901,7 +906,7 @@ class ListenerSubmissionFlowTest {
         harness.flow.onPlaybackStarted("source-1")
 
         // Another device got there first while this one waited.
-        harness.store.publishSubmission(
+        harness.store.seedSubmission(
             com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
                 sourceUrl = youtube,
                 accessMode = com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode.YOUTUBE,
@@ -915,7 +920,7 @@ class ListenerSubmissionFlowTest {
         harness.now += 86_400_000L
         val verdicts = harness.flow.publishDeferredPublications()
 
-        assertEquals(listOf(ListenerSubmissionFlow.Verdict.Published), verdicts)
+        assertEquals(listOf(ListenerSubmissionFlow.Verdict.PendingModeration), verdicts)
         assertEquals("no duplicate document", 1, harness.store.submissionPuts.size)
         assertTrue(harness.flow.deferredPublicationBookIds().isEmpty())
     }

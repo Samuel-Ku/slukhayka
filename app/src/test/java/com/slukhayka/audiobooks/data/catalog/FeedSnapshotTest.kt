@@ -13,6 +13,9 @@ import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -143,12 +146,38 @@ class FeedSnapshotTest {
         val fetchNewCalls = AtomicInteger(0)
         var page: List<SourceBook> = emptyList()
 
+        /** #622 — makes the next fetch fail like a real transport error. */
+        var failNext: Boolean = false
+
+        /** #625 — holds the enumeration in flight so coalescing is observable. */
+        var gate: CompletableDeferred<Unit>? = null
+
         override val sourceId: String = "sluhayua"
         override suspend fun search(query: String): List<SourceBook> = emptyList()
         override suspend fun fetchBookPage(url: String): SourceBookDetail =
             SourceBookDetail(title = "", author = "", url = url, chapters = emptyList())
         override suspend fun fetchNew(limit: Int): List<SourceBook> {
             fetchNewCalls.incrementAndGet()
+            gate?.await()
+            if (failNext) throw java.io.IOException("network down")
+            return page
+        }
+    }
+
+    /** #625 — a session-bound source (browser session) whose feed always re-enumerates. */
+    private class SessionBoundAdapter : SourceAdapter {
+        val fetchNewCalls = AtomicInteger(0)
+        var page: List<SourceBook> = emptyList()
+        var gate: CompletableDeferred<Unit>? = null
+
+        override val sourceId: String = "cloudflare"
+        override val sessionBound: Boolean = true
+        override suspend fun search(query: String): List<SourceBook> = emptyList()
+        override suspend fun fetchBookPage(url: String): SourceBookDetail =
+            SourceBookDetail(title = "", author = "", url = url, chapters = emptyList())
+        override suspend fun fetchNew(limit: Int): List<SourceBook> {
+            fetchNewCalls.incrementAndGet()
+            gate?.await()
             return page
         }
     }
@@ -192,7 +221,8 @@ class FeedSnapshotTest {
             db.audiobookDao(),
             listOf(adapter),
             LibraryImport(db.audiobookDao(), context, emptyList()),
-            feedSnapshotStore = store
+            feedSnapshotStore = store,
+            feedNowMillis = clock
         )
 
         // First refresh: no snapshot — the network IS hit and what it served
@@ -234,7 +264,8 @@ class FeedSnapshotTest {
             db.audiobookDao(),
             listOf(adapter),
             LibraryImport(db.audiobookDao(), context, emptyList()),
-            feedSnapshotStore = store
+            feedSnapshotStore = store,
+            feedNowMillis = clock
         )
 
         catalog.refreshUnifiedCatalog()
@@ -246,7 +277,8 @@ class FeedSnapshotTest {
             db.audiobookDao(),
             listOf(adapter),
             LibraryImport(db.audiobookDao(), context, emptyList()),
-            feedSnapshotStore = store
+            feedSnapshotStore = store,
+            feedNowMillis = clock
         ).refreshUnifiedCatalog()
         assertEquals(1, adapter.fetchNewCalls.get())
         assertEquals("Каталожна книга", fromSnapshot.single().title)
@@ -258,7 +290,8 @@ class FeedSnapshotTest {
             db.audiobookDao(),
             listOf(adapter),
             LibraryImport(db.audiobookDao(), context, emptyList()),
-            feedSnapshotStore = store
+            feedSnapshotStore = store,
+            feedNowMillis = clock
         ).refreshUnifiedCatalog()
         assertEquals(2, adapter.fetchNewCalls.get())
     }
@@ -287,7 +320,8 @@ class FeedSnapshotTest {
             db.audiobookDao(),
             emptyList(),
             LibraryImport(db.audiobookDao(), context, emptyList()),
-            feedSnapshotStore = store
+            feedSnapshotStore = store,
+            feedNowMillis = clock
         )
         val published = catalog.fetchCatalogSections()
 
@@ -310,5 +344,161 @@ class FeedSnapshotTest {
             )
         )
         assertNull(store.freshBooks("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS))
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Spec-620 (#622) — a failure is not a fresh empty snapshot, and the
+    //    SAME live catalog can retry and publish success.
+    // ------------------------------------------------------------------
+
+    // ------------------------------------------------------------------
+    // 6. Spec-620 (#625) — the catalogue rides the same refresh module
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `two equivalent catalogue refreshes share one enumeration`() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val adapter = CountingAdapter().apply {
+            this.gate = gate
+            page = listOf(book("Каталожна", "https://sluhay.com.ua/cat-share"))
+        }
+        val catalog = SourceCatalog(
+            db.audiobookDao(),
+            listOf(adapter),
+            LibraryImport(db.audiobookDao(), context, emptyList()),
+            feedSnapshotStore = store,
+            feedNowMillis = clock
+        )
+
+        val first = async { catalog.refreshUnifiedCatalog() }
+        while (adapter.fetchNewCalls.get() == 0) delay(1)
+        val second = async { catalog.refreshUnifiedCatalog() }
+        delay(40)
+
+        assertEquals("equivalent concurrent refreshes share one fetch", 1, adapter.fetchNewCalls.get())
+        gate.complete(Unit)
+        assertEquals(1, first.await().size)
+        assertEquals(1, second.await().size)
+        assertEquals(1, adapter.fetchNewCalls.get())
+    }
+
+    @Test
+    fun `a new browser session discards an older in-flight catalogue result`() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val adapter = SessionBoundAdapter().apply {
+            this.gate = gate
+            page = listOf(book("Стара сесія", "https://cloudflare.example/old"))
+        }
+        val catalog = SourceCatalog(
+            db.audiobookDao(),
+            listOf(adapter),
+            LibraryImport(db.audiobookDao(), context, emptyList()),
+            feedSnapshotStore = store,
+            feedNowMillis = clock
+        )
+
+        val old = async { catalog.refreshUnifiedCatalog() }
+        while (adapter.fetchNewCalls.get() == 0) delay(1)
+
+        // The listener opens a new browser session while the old attempt is
+        // still in flight.
+        catalog.noteBrowserSessionOpened()
+        adapter.page = listOf(book("Нова сесія", "https://cloudflare.example/new"))
+        adapter.gate = null
+        val fresh = async { catalog.refreshUnifiedCatalog() }
+        assertEquals(listOf("Нова сесія"), fresh.await().map { it.title })
+
+        // Releasing the OLD attempt must not overwrite the new session's snapshot.
+        gate.complete(Unit)
+        old.await()
+        assertEquals(
+            listOf("Нова сесія"),
+            store.snapshot("cloudflare", FeedSnapshotPolicy.FEED_CATALOG)?.books?.map { it.title }
+        )
+    }
+
+    @Test
+    fun `cancelling one catalogue caller does not stop the other`() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val adapter = CountingAdapter().apply {
+            this.gate = gate
+            page = listOf(book("Спільна", "https://sluhay.com.ua/cat-cancel"))
+        }
+        val catalog = SourceCatalog(
+            db.audiobookDao(),
+            listOf(adapter),
+            LibraryImport(db.audiobookDao(), context, emptyList()),
+            feedSnapshotStore = store,
+            feedNowMillis = clock
+        )
+
+        val keeper = async { catalog.refreshUnifiedCatalog() }
+        while (adapter.fetchNewCalls.get() == 0) delay(1)
+        val leaver = async { catalog.refreshUnifiedCatalog() }
+        delay(40)
+        leaver.cancel()
+        gate.complete(Unit)
+
+        assertEquals(1, keeper.await().size)
+        assertEquals("the surviving caller used the one shared fetch", 1, adapter.fetchNewCalls.get())
+    }
+
+    @Test
+    fun `saving a snapshot atomically replaces the previous rows`() = runBlocking {
+        store.saveSnapshot(
+            PersistedFeedSnapshot(
+                "sluhayua",
+                FeedSnapshotPolicy.FEED_NEW_ARRIVALS,
+                listOf(book("Стара", "https://sluhay.com.ua/old")),
+                now,
+                parameters = "limit=20"
+            )
+        )
+        store.saveSnapshot(
+            PersistedFeedSnapshot(
+                "sluhayua",
+                FeedSnapshotPolicy.FEED_NEW_ARRIVALS,
+                listOf(book("Нова", "https://sluhay.com.ua/new")),
+                now + 1,
+                parameters = "limit=20"
+            )
+        )
+
+        val snapshot = store.snapshot("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS)
+        assertEquals("no rows survive the replace", listOf("Нова"), snapshot?.books?.map { it.title })
+        assertEquals("limit=20", snapshot?.parameters)
+        assertEquals(now + 1, snapshot?.observedAt)
+    }
+
+    @Test
+    fun `a failed fetch is not a fresh empty snapshot - the same catalog retries and succeeds`() = runBlocking {
+        val adapter = CountingAdapter().apply {
+            failNext = true
+            page = listOf(book("Після відмови", "https://sluhay.com.ua/retry-1"))
+        }
+        val catalog = SourceCatalog(
+            db.audiobookDao(),
+            listOf(adapter),
+            LibraryImport(db.audiobookDao(), context, emptyList()),
+            feedSnapshotStore = store,
+            feedNowMillis = clock
+        )
+
+        // Failure: this refresh honestly carries no row for the source, and
+        // nothing was written to memory or Room.
+        val failed = catalog.refreshSourceFeeds()
+        assertEquals(emptyList<SourceCatalog.SourceNewFeed>(), failed)
+        assertNull(store.snapshot("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS))
+
+        // The very next refresh in the SAME process really hits the source
+        // again and publishes the success — no restart, no blocked retry.
+        adapter.failNext = false
+        val retried = catalog.refreshSourceFeeds()
+        assertEquals(2, adapter.fetchNewCalls.get())
+        assertEquals("Після відмови", retried.single().books.single().title)
+        assertEquals(
+            "Після відмови",
+            store.snapshot("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS)?.books?.single()?.title
+        )
     }
 }

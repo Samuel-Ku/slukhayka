@@ -110,3 +110,11 @@ fun AudiobookTheme(
         content = content
     )
 }
+
+/**
+ * #861 — the ONE pair of schemes, exposed to the tests that hold the palette to
+ * the same hierarchy and the same contrast floors in light and dark.
+ */
+internal fun appLightColorScheme() = LightColorScheme
+
+internal fun appDarkColorScheme() = DarkColorScheme

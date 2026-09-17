@@ -1,20 +1,46 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.runtime.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.library.PersonWorkRow
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import kotlinx.coroutines.launch
 
 /**
- * Full-screen list of every book narrated (or written) by one person —
- * `/xfsearch/chitaet|<avtor>/<name>/`. Opened from the Виконавці/Автори index;
- * the person's page is a poster grid, so it feeds the shared [BookListScreen].
+ * spec-54 T07 (#874) — the ONE page for a person, whatever role they play here.
+ *
+ * It shows **Works**, not books: an author and a narrator are the same entity
+ * seen in different roles, and the role changes what the page SAYS about them,
+ * never the address it lives at nor the shape of its list. A Work keeps its own
+ * narrations inside the row, and «у Медіатеці» is marked for both roles.
  */
 @Composable
 fun PersonBooksScreen(
@@ -27,7 +53,7 @@ fun PersonBooksScreen(
     listState: LazyListState = rememberLazyListState()
 ) {
     val person by viewModel.selectedPerson.collectAsState()
-    val books by viewModel.personBooks.collectAsState()
+    val works by viewModel.personWorks.collectAsState()
     val isLoading by viewModel.isPersonLoading.collectAsState()
     val loadFailed by viewModel.personLoadFailed.collectAsState()
 
@@ -41,9 +67,12 @@ fun PersonBooksScreen(
     val bookmark by bookmarkFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
 
-    BookListScreen(
+    IndexScreenScaffold(
         title = currentPerson.name,
-        headerAction = {
+        // Spec-27 (#204) BUG-006: правильна множина — «1 твір», «2 твори».
+        subtitle = "${works.size} ${ukPlural(works.size, "твір", "твори", "творів")}",
+        onBackClick = onBackClick,
+        actions = {
             PersonBookmarkButton(
                 isBookmarked = bookmark != null,
                 notifyEnabled = bookmark?.notifyEnabled ?: true,
@@ -60,27 +89,103 @@ fun PersonBooksScreen(
                     }
                 }
             )
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .testTag("person_books_screen")
+        ) {
+            when {
+                isLoading && works.isEmpty() -> CircularProgressIndicator(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .testTag("person_books_loading")
+                )
+
+                works.isEmpty() -> Text(
+                    text = stringResource(
+                        if (loadFailed) {
+                            R.string.secondary_person_books_error
+                        } else {
+                            R.string.secondary_person_books_empty
+                        }
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp)
+                        .testTag("person_books_empty")
+                )
+
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(works, key = { row -> row.workId.ifBlank { row.title } }) { row ->
+                        PersonWorkRowItem(
+                            row = row,
+                            // Tapping the row opens the rendition the row speaks
+                            // for; a Work with no narration of ours stays honest
+                            // and simply is not tappable.
+                            onClick = row.narrations.firstOrNull()?.let { narration ->
+                                { onBookClick(narration.id) }
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One Work on the person's page: its own narrations, its own ownership mark. */
+@Composable
+private fun PersonWorkRowItem(
+    row: PersonWorkRow,
+    onClick: (() -> Unit)?
+) {
+    val people = listOfNotNull(row.author, row.narrator)
+        .filter { it.isNotBlank() }
+        .distinct()
+        .joinToString(" · ")
+    val narrations = if (row.hasSeveralNarrations) {
+        " · ${row.narrations.size} ${ukPlural(row.narrations.size, "начитка", "начитки", "начиток")}"
+    } else {
+        ""
+    }
+    ListItem(
+        headlineContent = { Text(row.title) },
+        supportingContent = {
+            Column {
+                if (people.isNotEmpty() || narrations.isNotEmpty()) {
+                    Text(
+                        text = people + narrations,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (row.ownedInLibrary) {
+                    Text(
+                        text = stringResource(R.string.person_work_in_library),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         },
-        // Spec-27 (#204) BUG-006: правильна множина — «1 книга», «2 книги»,
-        // «5 книг».
-        countLabel = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")}",
-        emptyMessage = stringResource(R.string.secondary_person_books_empty),
-        errorMessage = if (loadFailed) {
-            stringResource(R.string.secondary_person_books_error)
-        } else {
-            null
-        },
-        isLoading = isLoading,
-        books = books,
-        onBackClick = onBackClick,
-        onBookClick = onBookClick,
-        onPlayClick = { book ->
-            viewModel.playAudiobook(book)
-            viewModel.setShowFullPlayer(true)
-        },
-        testTag = "person_books_screen",
-        restoreFocusBookId = restoreFocusBookId,
-        onBookFocusRestored = onBookFocusRestored,
-        listState = listState
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("person_work_${row.workId}")
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
     )
 }

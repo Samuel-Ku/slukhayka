@@ -155,7 +155,7 @@ private fun LibraryRedesignScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             // The real header, including the «+ Додати» corner and the ⋮ menu.
             AppTabHeader(
-                title = "Медіатека",
+                title = "Мої книги",
                 subtitle = subtitle,
                 headingTestTag = "library_heading",
                 actions = {

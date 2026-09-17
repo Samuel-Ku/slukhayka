@@ -62,6 +62,17 @@ object ForkPolicy {
 
     const val ORIGINAL_NOT_LOCAL = "original-not-local"
 
+    /**
+     * Spec-51 (#695) — the PRECISE gate of «Зберегти собі»: a fork is an
+     * OFFLINE copy into the reader's own collections, so it is offered only
+     * when the reader already has at least one of the original's books locally
+     * (the copy then has something to render offline). An empty composition or
+     * a collection of books the reader does not own refuses honestly — the
+     * action is never a silent fetch that might complete later.
+     */
+    fun canFork(originalBookIds: Collection<String>, localBookIds: Set<String>): Boolean =
+        originalBookIds.isNotEmpty() && originalBookIds.any { it in localBookIds }
+
 
     /**
      * A fork is a LOCAL COPY of the composition (books and their reasons), not

@@ -281,6 +281,34 @@ service cloud.firestore {
         && d.observedAt is number;
     }
 
+    // #835 — one moderation CANDIDATE as the app writes it. The field set is
+    // pinned to the codec (SubmissionCandidateCodec): identity present, bounded
+    // text/JSON, and a fresh candidate is ALWAYS `pending` — `decidedAt` /
+    // `decidedBy` are not in the set at all, because only the curator's bot
+    // (Admin SDK) records a decision.
+    function isWellFormedSubmissionCandidate(d) {
+      return d.keys().hasOnly([
+          'url', 'canonicalUrl', 'title', 'author', 'narrator', 'coverUrl',
+          'uploader', 'durationSeconds', 'chaptersCount', 'sourceId',
+          'metadataJson', 'submitterHash', 'playedAt', 'createdAt', 'state'
+        ])
+        && d.url is string && d.url.size() > 0 && d.url.size() <= 2000
+        && d.canonicalUrl is string && d.canonicalUrl.size() > 0 && d.canonicalUrl.size() <= 2000
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 300
+        && (!('author' in d) || (d.author is string && d.author.size() <= 300))
+        && (!('narrator' in d) || (d.narrator is string && d.narrator.size() <= 300))
+        && (!('coverUrl' in d) || (d.coverUrl is string && d.coverUrl.size() <= 2000))
+        && (!('uploader' in d) || (d.uploader is string && d.uploader.size() <= 300))
+        && (!('durationSeconds' in d) || (d.durationSeconds is int && d.durationSeconds > 0))
+        && d.chaptersCount is int && d.chaptersCount >= 0 && d.chaptersCount <= 10000
+        && d.sourceId is string && d.sourceId.size() <= 300
+        && (!('metadataJson' in d) || (d.metadataJson is string && d.metadataJson.size() <= 20000))
+        && d.submitterHash is string && d.submitterHash.size() > 0 && d.submitterHash.size() <= 128
+        && d.playedAt is int && d.playedAt >= 0
+        && d.createdAt is int
+        && d.state == 'pending';
+    }
+
     // #527 — one SHARED collective block: the Source-scoped identity, the
     // provenance URL, the honest window/version and the cards in the source's
     // own order. The allowed-field set is the gate: a query, a cookie/session
@@ -570,7 +598,8 @@ service cloud.firestore {
     function isWellFormedCuratorCollection(d) {
       return d.keys().hasOnly([
           'authorId', 'collectionId', 'pseudonym', 'title', 'description',
-          'bookIds', 'reasons', 'publishedAt'
+          'bookIds', 'reasons', 'ratingSum', 'ratingCount',
+          'hidden', 'reportCount', 'items', 'publishedAt'
         ])
         && d.authorId is string && d.authorId.size() == 64
         && d.collectionId is string && d.collectionId.size() > 0 && d.collectionId.size() <= 128
@@ -579,14 +608,43 @@ service cloud.firestore {
         && d.description is string && d.description.size() <= 600
         && d.bookIds is list && d.bookIds.size() <= 500
         && d.reasons is list && d.reasons.size() <= 500
+        // #694 — the rating aggregate is optional on legacy documents; when
+        // present it is a real number, never a string or a list.
+        && (!d.keys().hasAny(['ratingSum', 'ratingCount'])
+            || (d.ratingSum is int && d.ratingCount is int))
+        // #696 — moderation fields are optional on legacy documents; when
+        // present they are a real bool/int.
+        && (!d.keys().hasAny(['hidden', 'reportCount'])
+            || (d.hidden is bool && d.reportCount is int))
+        // #692 — the optional display snapshots are a bounded list.
+        && (!d.keys().hasAny(['items']) || (d.items is list && d.items.size() <= 500))
         && d.publishedAt is number;
     }
 
+    // #835 — the shared catalogue is written ONLY by the curator's bot (Admin
+    // SDK, which rules do not constrain). A client that used to publish a card
+    // now queues a candidate instead; the card's read stays a public fact.
     match /catalog_cards/{document} {
       allow read: if true;
-      allow create, update: if isAppCheckValid() && request.auth != null
-        && isWellFormedCatalogCard(request.resource.data);
-      allow delete: if false;
+      allow create, update, delete: if false;
+    }
+
+    // #835 — the moderation queue. A client may ONLY create a fresh, well-formed
+    // candidate; the state is the bot's alone, so update and delete are closed.
+    // Read is open like the catalogue: the document carries a HASHED identity,
+    // never the raw uid, and the listener must see its own honest state.
+    match /pending_submissions/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid() && request.auth != null
+        && isWellFormedSubmissionCandidate(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // #835 — the rejection blocklist: the app reads it to refuse honestly
+    // BEFORE queueing, and no client may ever write it.
+    match /rejected_submissions/{document} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // #691 — published listener collections: an anonymous PUBLIC fact (read is
@@ -597,10 +655,58 @@ service cloud.firestore {
     // guarantee shape, App Check and an authenticated author, not authorship.
     match /curator_collections/{document} {
       allow read: if true;
-      allow create, update: if isAppCheckValid() && request.auth != null
+      allow create: if isAppCheckValid() && request.auth != null
         && isWellFormedCuratorCollection(request.resource.data);
+      // #696 — hidden is ONE-WAY: once the community hid a collection, no
+      // client call can bring it back (`false -> true` only). A document that
+      // never carried the flag may still be updated normally.
+      allow update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCuratorCollection(request.resource.data)
+        && (!resource.data.keys().hasAny(['hidden'])
+            || resource.data.hidden == false
+            || request.resource.data.hidden == true);
       allow delete: if isAppCheckValid() && request.auth != null
         && isWellFormedCuratorCollection(resource.data);
+    }
+
+    // #696 — one anonymous complaint per (person, collection), addressed by
+    // the same sha256(uid + collectionId) key as a vote. The THIRD unique
+    // complaint sets `hidden` on the collection (client-side, under the
+    // one-way rule above); the rules guarantee shape, App Check and an
+    // authenticated reporter.
+    function isWellFormedCollectionReport(d) {
+      return d.keys().hasOnly(['documentId', 'createdAt'])
+        && d.documentId is string && d.documentId.size() > 0 && d.documentId.size() <= 200
+        && d.createdAt is number;
+    }
+
+    match /curator_collection_reports/{document} {
+      allow read: if isAppCheckValid() && request.auth != null;
+      allow create: if isAppCheckValid() && request.auth != null
+        && isWellFormedCollectionReport(request.resource.data);
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // #694 — one anonymous vote per (person, collection): the document id is
+    // sha256(uid + collectionId), so a raw uid never appears. Reading requires
+    // auth + App Check (a vote is a private fact, unlike a published
+    // collection); the aggregate on the collection document is updated by the
+    // client's transaction under the shape rule above. App Check + auth, not
+    // authorship, is what the rules can guarantee (the same client-trust
+    // decision as publishing).
+    function isWellFormedCollectionVote(d) {
+      return d.keys().hasOnly(['documentId', 'stars', 'createdAt'])
+        && d.documentId is string && d.documentId.size() > 0 && d.documentId.size() <= 200
+        && d.stars is int && d.stars >= 1 && d.stars <= 5
+        && d.createdAt is number;
+    }
+
+    match /curator_collection_votes/{document} {
+      allow read: if isAppCheckValid() && request.auth != null;
+      allow create, update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCollectionVote(request.resource.data);
+      allow delete: if false;
     }
   }
 }

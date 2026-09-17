@@ -94,6 +94,11 @@ data class LibraryEntryEntity(
     // The Work id this entry belongs to: `works.id` when the book has a
     // mergeable identity, else the book's own id (no works row exists).
     val workId: String,
+    // ADR-0047 / #867 — HOW this personal link began. Existing rows predate the
+    // fact, so the migration marks them UNKNOWN instead of guessing; the row
+    // then waits in «Імпортоване» until the listener decides.
+    @ColumnInfo(defaultValue = "UNKNOWN")
+    val origin: String = "UNKNOWN",
     val isFavorite: Boolean = false,
     // When the entry entered the library (wayfinder #39): drives the
     // "recently added" sort. Migration 14->15 backfills existing rows with
@@ -474,6 +479,17 @@ data class EditionSettingsEntity(
     val volumeBoostEnabled: Boolean = false,
     val silenceSkipEnabled: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * #484 — the genre/description the app already KNOWS for one Work, projected
+ * from the entry rows that carry it. One bulk read feeds the recommendation
+ * embedding text; nothing is fetched just to fill it.
+ */
+data class WorkFacts(
+    val mergeKey: String,
+    val genre: String? = null,
+    val description: String? = null
 )
 
 /**

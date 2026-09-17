@@ -2,7 +2,7 @@
     <string name="app_name">Слухайка</string>
     <string name="nav_listen">Слухати</string>
     <string name="nav_explore">Огляд</string>
-    <string name="nav_library">Медіатека</string>
+    <string name="nav_library">Мої книги</string>
     <string name="pane_player">Програвач</string>
     <string name="empty_tag"></string>
     <!-- fix(accessibility): #371 — override Material3 strings so TalkBack voices
@@ -191,6 +191,20 @@
     <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
     <string name="listen_manage_shelves">Керувати полицями</string>
     <string name="listen_shelves_hidden">Приховано</string>
+    <string name="collection_with_book_title">Добірки з цією книгою</string>
+    <string name="collection_by_pseudonym">добірка слухача %1$s</string>
+    <string name="collection_no_ratings">Ще без оцінок</string>
+    <string name="collection_your_rating">Ваша оцінка</string>
+    <string name="collection_vote_error">Не вдалося зберегти оцінку. Спробуйте ще раз.</string>
+    <string name="collection_report">Поскаржитись</string>
+    <string name="collection_reported">Добірку приховано для вас</string>
+    <string name="collection_report_undo">Показати знову</string>
+    <string name="collection_report_error">Не вдалося надіслати скаргу. Спробуйте ще раз.</string>
+    <string name="collection_hidden_by_reports">Приховано за скаргами</string>
+    <string name="collection_delete">Видалити добірку</string>
+    <string name="collections_rail_title">Добірки слухачів</string>
+    <string name="curator_profile_empty">У цього куратора ще немає видимих добірок</string>
+    <string name="collection_item_unknown">Книга поза локальною бібліотекою</string>
     <string name="listen_shelves_restore_all">Відновити всі приховані</string>
     <string name="listen_remaining_h">Залишилося %1$d год</string>
     <string name="listen_remaining_m">Залишилося %1$d хв</string>
@@ -216,6 +230,15 @@
         <item quantity="few">%1$d відгуки</item>
         <item quantity="many">%1$d відгуків</item>
         <item quantity="other">%1$d відгуків</item>
+    </plurals>
+    <!-- Spec-620 (#623): locally muted authors change card VISIBILITY only —
+         their confirmed votes still stand behind the headline average, and the
+         surface says so instead of leaving the two numbers unexplained. -->
+    <plurals name="book_detail_reviews_hidden_note">
+        <item quantity="one">Ще %1$d відгук приховано вами — він урахований у середній</item>
+        <item quantity="few">Ще %1$d відгуки приховано вами — вони ураховані в середній</item>
+        <item quantity="many">Ще %1$d відгуків приховано вами — вони ураховані в середній</item>
+        <item quantity="other">Ще %1$d відгуків приховано вами — вони ураховані в середній</item>
     </plurals>
 
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
@@ -336,6 +359,59 @@
     <string name="submission_status_refused_no_tracks">У посиланні немає жодного розділу для прослуховування.</string>
     <string name="submission_status_refused_import">Не вдалося додати книгу з цього посилання.</string>
     <string name="submission_status_refused_duplicate">Уже в спільній базі.</string>
+    <string name="submission_status_refused_rejected">Це посилання відхилено куратором — воно не повернеться в чергу.</string>
+    <string name="submission_status_pending_moderation">На модерації: куратор ще не ухвалив рішення.</string>
+    <string name="submission_badge_pending_moderation">На модерації</string>
+    <string name="submission_badge_in_shared_base">У спільній базі</string>
+    <string name="submission_badge_rejected">Відхилено</string>
+    <string name="a11y_open_settings">Налаштування</string>
+    <string name="a11y_close_page">Закрити сторінку</string>
+    <string name="person_work_in_library">У Медіатеці</string>
+    <string name="settings_group_profile">Профіль</string>
+    <string name="settings_group_data">Дані та памʼять</string>
+    <string name="settings_group_network">Мережа й приватність</string>
+    <string name="settings_group_recommendations">Рекомендації</string>
+    <string name="settings_group_language">Мова й доступність</string>
+    <string name="library_empty_title">Мої книги порожні</string>
+    <string name="lib_section_bookmarks">Закладки</string>
+    <string name="lib_section_saved">Збережене</string>
+    <string name="lib_saved_count">Збережене (%1$d)</string>
+    <string name="lib_section_shelves">Полиці</string>
+    <string name="lib_section_imported">Імпортоване</string>
+    <string name="lib_section_year">Мій рік</string>
+    <string name="lib_year_heading">%1$d рік</string>
+    <string name="lib_year_total">Завершено проходів: %1$d</string>
+    <string name="lib_year_format">%1$s: %2$d</string>
+    <string name="lib_year_rule">Мета рахує ЗАВЕРШЕНІ проходи; формати звітуються окремо, бо сторінки, відсотки й час не додаються.</string>
+    <string name="lib_year_empty_title">Ще немає завершених проходів</string>
+    <string name="lib_year_empty_body">Завершіть проходження книжки — і воно зʼявиться тут.</string>
+    <string name="lib_format_audio">Аудіо</string>
+    <string name="lib_year_record_hint">Сторінки або відсоток</string>
+    <string name="lib_year_record">Записати</string>
+    <string name="lib_year_finish">Завершити</string>
+    <string name="manual_add_menu">Додати книгу вручну</string>
+    <string name="manual_add_title">Додати книгу</string>
+    <string name="manual_add_name">Назва</string>
+    <string name="manual_add_author">Автор</string>
+    <string name="manual_add_format">Формат</string>
+    <string name="manual_add_format_paper">Паперова</string>
+    <string name="manual_add_format_ebook">Електронна</string>
+    <string name="manual_add_wants_to_read">Хочу прочитати</string>
+    <string name="manual_add_own_file">Я імпортував власний файл</string>
+    <string name="manual_add_note">Формат — не начитка: паперовий чи електронний запис не створює ані Edition, ані джерела.</string>
+    <string name="manual_add_confirm">Додати</string>
+    <string name="manual_add_cancel">Скасувати</string>
+    <string name="lib_imported_explain">Походження цих записів не відновлюється з наявних даних. Підтвердьте їх як особисті або приберіть зв\'язок.</string>
+    <string name="lib_imported_empty_title">Імпортоване порожнє</string>
+    <string name="lib_imported_empty_body">Усі записи розібрані — тут немає нічого невизначеного.</string>
+    <string name="lib_imported_confirm">Це моя книга</string>
+    <string name="lib_imported_remove">Прибрати зв\'язок</string>
+    <string name="lib_section_people">Люди</string>
+    <string name="lib_saved_empty_bookmarks_title">Закладок немає</string>
+    <string name="lib_saved_empty_bookmarks_body">Додавайте закладки під час прослуховування в плеєрі.</string>
+    <string name="lib_saved_empty_people_title">Закладок на людей немає</string>
+    <string name="lib_saved_empty_people_body">Додавайте закладки на авторів або виконавців зі сторінки книги.</string>
+    <string name="library_empty_body">Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі.</string>
     <string name="submission_status_already_in_library">Уже в медіатеці.</string>
     <string name="submission_open_book">Відкрити книгу</string>
     <string name="submission_status_refused_not_verified">Публікація потребує реального програвання.</string>

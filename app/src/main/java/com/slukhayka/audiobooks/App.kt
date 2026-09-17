@@ -184,6 +184,25 @@ class App : Application() {
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
 
     /**
+     * ADR-0047 / #867 — the «Імпортоване» queue: the links whose origin the
+     * data does not recover, plus the two explicit actions on them.
+     */
+    val importedLibraryEntries: com.slukhayka.audiobooks.data.entries.ImportedLibraryEntries
+        by lazy { com.slukhayka.audiobooks.data.entries.ImportedLibraryEntries(audiobookDao) }
+
+    /**
+     * ADR-0046 §3–4 / #870 — adding a book of ANY format by hand. The policy
+     * refuses a fictitious Edition and an invented «want to read», so the UI
+     * cannot write either.
+     */
+    val manualBookAdder: com.slukhayka.audiobooks.data.entries.ManualBookAdder
+        by lazy { com.slukhayka.audiobooks.data.entries.ManualBookAdder(audiobookDao) }
+
+    /** #876 — the write path of reading progress (journal, finish, re-read). */
+    val readingProgressRecorder: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder
+        by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }
+
+    /**
      * Spec-51 (#689) — a listener's own collections, local-first: the store is
      * backed by the same Room database, never by a network round trip.
      */

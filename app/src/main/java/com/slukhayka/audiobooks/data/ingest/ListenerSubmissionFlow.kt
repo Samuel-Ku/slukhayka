@@ -149,7 +149,9 @@ class ListenerSubmissionFlow(
         IMPORT_FAILED,
         ALREADY_PUBLISHED,
         NOT_VERIFIED,
-        SHARED_BASE_UNAVAILABLE
+        SHARED_BASE_UNAVAILABLE,
+        /** #836 — the curator rejected this link: it can never return. */
+        REJECTED
     }
 
     /** The result of starting one submission. */
@@ -202,6 +204,12 @@ class ListenerSubmissionFlow(
     /** The result of a real playback event against the pending submission. */
     sealed interface Verdict {
         data object Published : Verdict
+
+        /**
+         * Moderation T4 (#837) — the candidate is QUEUED and waits for the
+         * curator: the honest verdict, never "already in the shared base".
+         */
+        data object PendingModeration : Verdict
         data class Refused(val reason: Reason) : Verdict
 
         /**
@@ -522,6 +530,9 @@ class ListenerSubmissionFlow(
                 )
             }
             SubmissionPublisher.Result.ALREADY_PUBLISHED -> Start.Refused(Reason.ALREADY_PUBLISHED, remaining)
+            // #836 — an honest verdict, not silence: the listener learns the
+            // link was rejected (and the budget is untouched — nothing was queued).
+            SubmissionPublisher.Result.REJECTED -> Start.Refused(Reason.REJECTED, remaining)
             SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> Start.Refused(Reason.DAILY_LIMIT_REACHED, 0)
             SubmissionPublisher.Result.METADATA_FAILED -> Start.Refused(Reason.METADATA_FAILED, remaining)
             SubmissionPublisher.Result.NOT_VERIFIED -> Start.Refused(Reason.SHARED_BASE_UNAVAILABLE, remaining)
@@ -589,11 +600,21 @@ class ListenerSubmissionFlow(
                 )
             ) {
                 SubmissionPublisher.Result.PUBLISHED -> {
-                    store.updateState(sourceId, SubmissionState.State.PUBLISHED, null, System.currentTimeMillis())
-                    Verdict.Published
+                    // #837 — the verified submission is a QUEUED candidate, not
+                    // a published card: the honest state is "on moderation"
+                    // until the curator decides.
+                    store.updateState(
+                        sourceId,
+                        SubmissionState.State.PENDING_MODERATION,
+                        null,
+                        System.currentTimeMillis()
+                    )
+                    Verdict.PendingModeration
                 }
                 SubmissionPublisher.Result.ALREADY_PUBLISHED ->
                     settleRefused(sourceId, Reason.ALREADY_PUBLISHED)
+                SubmissionPublisher.Result.REJECTED ->
+                    settleRefused(sourceId, Reason.REJECTED)
                 SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> {
                     // Spec-53 T12 — the playback really happened, so the
                     // promise is not thrown away: the row moves to
@@ -633,6 +654,12 @@ class ListenerSubmissionFlow(
         runCatching { store.watching().map { it.bookId }.toSet() }.getOrDefault(emptySet())
 
     /** Spec-53 T12 — the book ids whose publication waits for tomorrow. */
+    /**
+     * #837 — the stored rows a book card's badge derives from. The flow stays
+     * UI-free: it hands out rows, and the caller maps them to a badge.
+     */
+    suspend fun badgeRows(): List<SubmissionState> = store.badgeRows()
+
     suspend fun deferredPublicationBookIds(): Set<String> =
         runCatching { store.deferredPublications().map { it.bookId }.toSet() }.getOrDefault(emptySet())
 
@@ -665,15 +692,16 @@ class ListenerSubmissionFlow(
                 ) {
                     SubmissionPublisher.Result.PUBLISHED,
                     SubmissionPublisher.Result.ALREADY_PUBLISHED -> {
-                        // Already in the shared base (another device may have
-                        // won the race): the promise is settled either way.
+                        // #837 — queued (or already queued by another device):
+                        // the promise is settled, and the honest state is
+                        // "on moderation" until the curator decides.
                         store.updateState(
                             row.sourceId,
-                            SubmissionState.State.PUBLISHED,
+                            SubmissionState.State.PENDING_MODERATION,
                             null,
                             System.currentTimeMillis()
                         )
-                        Verdict.Published
+                        Verdict.PendingModeration
                     }
                     SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> Verdict.DeferredPublication
                     else -> Verdict.Refused(Reason.METADATA_FAILED)
@@ -736,6 +764,10 @@ class ListenerSubmissionFlow(
             ) {
                 SubmissionPublisher.Result.PUBLISHED -> Verdict.Published
                 SubmissionPublisher.Result.METADATA_FAILED -> Verdict.Refused(Reason.METADATA_FAILED)
+                // #834 — the queue belongs to the curator once the document
+                // exists; the refusal says so instead of blaming the network.
+                SubmissionPublisher.Result.ALREADY_PUBLISHED -> Verdict.Refused(Reason.ALREADY_PUBLISHED)
+                SubmissionPublisher.Result.REJECTED -> Verdict.Refused(Reason.REJECTED)
                 else -> Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
             }
         } catch (cancelled: CancellationException) {

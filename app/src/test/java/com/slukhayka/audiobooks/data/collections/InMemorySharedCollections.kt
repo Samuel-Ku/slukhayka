@@ -14,21 +14,14 @@ class InMemorySharedCollections(
     override suspend fun publish(
         collection: ListenerCollection,
         authorId: String,
-        pseudonym: String
+        pseudonym: String,
+        itemSnapshots: Map<String, PublishedCollectionFactory.ItemSnapshot>
     ): PublishResult {
         if (!online) return PublishResult.Refused("offline")
         if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
-        val cleanPseudonym = pseudonym.trim().take(PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
-        if (cleanPseudonym.isEmpty()) return PublishResult.Refused("no-pseudonym")
-        val document = PublishedCollection(
-            authorId = authorId,
-            collectionId = collection.id,
-            pseudonym = cleanPseudonym,
-            title = collection.title,
-            description = collection.description,
-            bookIds = collection.items.map { it.bookId },
-            publishedAt = clock()
-        )
+        val document = PublishedCollectionFactory.of(
+            collection, authorId, pseudonym, clock(), itemSnapshots
+        ) ?: return PublishResult.Refused("no-pseudonym")
         published[document.documentId] = document
         return PublishResult.Published
     }
@@ -52,4 +45,65 @@ class InMemorySharedCollections(
 
     override suspend fun publishedBy(authorId: String): List<PublishedCollection> =
         published.values.filter { it.authorId == authorId }
+
+    override suspend fun containing(bookId: String): List<PublishedCollection> =
+        published.values.filter { bookId.isNotBlank() && bookId in it.bookIds && !it.hidden }
+
+    private val votes = linkedMapOf<String, Int>()
+
+    override suspend fun vote(documentId: String, voterKey: String, stars: Int): PublishResult {
+        if (!online) return PublishResult.Refused("offline")
+        if (voterKey.isBlank() || !CollectionRating.isValidStars(stars)) {
+            return PublishResult.Refused("bad-vote")
+        }
+        val document = published[documentId] ?: return PublishResult.Refused("unknown-collection")
+        val (sum, count) = CollectionRating.applyVote(
+            document.ratingSum,
+            document.ratingCount,
+            votes[voterKey],
+            stars
+        )
+        votes[voterKey] = stars
+        published[documentId] = document.copy(ratingSum = sum, ratingCount = count)
+        return PublishResult.Published
+    }
+
+    override suspend fun myVote(voterKey: String): Int? = votes[voterKey]
+
+    override suspend fun readContaining(bookId: String): CollectionReadResult {
+        if (bookId.isBlank()) return CollectionReadResult.Empty
+        val visible = published.values.filter { bookId in it.bookIds && !it.hidden }
+        return if (visible.isEmpty()) CollectionReadResult.Empty
+        else CollectionReadResult.Data(visible)
+    }
+
+    override suspend fun topPublic(limit: Int): List<PublishedCollection> =
+        CollectionRanking.top(published.values.filterNot { it.hidden }, limit)
+
+    override suspend fun visibleBy(authorId: String): List<PublishedCollection> =
+        published.values.filter { it.authorId == authorId && !it.hidden }
+
+    override suspend fun deleteOwnCollection(documentId: String): PublishResult {
+        if (!online) return PublishResult.Refused("offline")
+        return if (published.remove(documentId) != null) {
+            PublishResult.Published
+        } else {
+            PublishResult.Refused("unknown-collection")
+        }
+    }
+
+    private val reports = linkedSetOf<String>()
+
+    override suspend fun report(documentId: String, reporterKey: String): PublishResult {
+        if (!online) return PublishResult.Refused("offline")
+        if (reporterKey.isBlank()) return PublishResult.Refused("bad-report")
+        val document = published[documentId] ?: return PublishResult.Refused("unknown-collection")
+        // One complaint per person: a duplicate is accepted but never counts.
+        if (!reports.add(reporterKey)) return PublishResult.Published
+        published[documentId] = document.copy(
+            reportCount = document.reportCount + 1,
+            hidden = CollectionModeration.nextHidden(document.hidden, document.reportCount)
+        )
+        return PublishResult.Published
+    }
 }

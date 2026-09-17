@@ -80,6 +80,7 @@ import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.SubmissionBadge
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.MetadataChip
@@ -95,6 +96,7 @@ import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
+import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
@@ -131,7 +133,9 @@ fun LibraryScreen(
     onBrowseClick: () -> Unit,
     onPersonClick: (CatalogPerson) -> Unit = {},
     restoreFocusBookId: String? = null,
-    onBookFocusRestored: (String) -> Unit = {}
+    onBookFocusRestored: (String) -> Unit = {},
+    /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
+    onOpenSettings: () -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     val libraryAvailability by viewModel.libraryAvailability.collectAsState()
@@ -193,6 +197,8 @@ fun LibraryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
+    // #837 — the honest per-book submission badge (state, not a promise).
+    val submissionBadges by viewModel.submissionBadges.collectAsState()
     val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
     val deferredPublicationBookIds by viewModel.deferredPublicationBookIds.collectAsState()
     LaunchedEffect(Unit) {
@@ -220,9 +226,13 @@ fun LibraryScreen(
     // The plan is pure data; confirming calls apply, dismissing leaves zero
     // trace. Merge suggestions render as review rows, never silent merges.
     val importPreview by viewModel.importPreview.collectAsState()
-    var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика, 3 = Люди
-    var filter by remember { mutableStateOf(LibraryFilter.ALL) }
-    var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
+    // spec-54 T06 (#873) — the subsection, its filters and the sorting are the
+    // listener's PLACE in the library: they must survive switching the list to
+    // the grid, leaving the tab and coming back. `remember` alone lost them the
+    // moment the tab left the composition (see TabSaveableHost, #871).
+    var activeTab by rememberSaveable { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика, 3 = Люди
+    var filter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
+    var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
     var query by rememberSaveable { mutableStateOf("") }
     // v1.4 C5 (ADR-0033): the collapsible search — 🔍 in the tab header,
     // ✕/Back clears (US-2, the same gesture as Огляд); the always-visible
@@ -237,17 +247,32 @@ fun LibraryScreen(
         searchRequested = false
         if (query.isNotBlank()) query = ""
     }
-    var gridMode by remember { mutableStateOf(false) }
+    // The list/grid choice is a VIEW of the same set: it must not reset the
+    // filters or the sorting, and it must survive the same way they do.
+    var gridMode by rememberSaveable { mutableStateOf(false) }
     // UI (v1.5 review): the ⋮ section menu replaced the four sub-tabs.
     var sectionMenuOpen by remember { mutableStateOf(false) }
+    // #870 — the manual-add sheet: a format is not an Edition, and the policy
+    // (not the sheet) refuses anything fiction-like.
+    var manualAddOpen by rememberSaveable { mutableStateOf(false) }
     // The pinned status row scrolls itself to a rare filter the listener just
     // picked, so an active «Локальні» is never selected off-screen.
     val statusRowScrollState = rememberScrollState()
     BackHandler(enabled = activeTab != 0) { activeTab = 0 }
+    // #867 — the triage queue is read when its subsection opens (and re-read
+    // after every action), so the list is never a stale promise.
+    LaunchedEffect(activeTab) {
+        if (activeTab == 3) viewModel.refreshImportedEntries()
+        if (activeTab == 4) {
+            viewModel.refreshReadingYear()
+            viewModel.refreshActiveReadings()
+        }
+    }
     val sectionTitle = when (activeTab) {
-        1 -> "Закладки"
-        2 -> stringResource(R.string.lib_statistics)
-        else -> "Люди"
+        1 -> stringResource(R.string.lib_section_saved)
+        3 -> stringResource(R.string.lib_section_imported)
+        4 -> stringResource(R.string.lib_section_year)
+        else -> stringResource(R.string.lib_statistics)
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
     // Browsing the whole library vs narrowing it down: the sections (and the
@@ -302,16 +327,23 @@ fun LibraryScreen(
         filterAndSortLibrary(libraryBooks, filter, sort, query)
     }
 
+    // spec-54 T14 (#869) — the listener owns a WORK: the list renders ONE card
+    // per Work, fronted by the narration they are furthest along in, and the
+    // other narrations (with their own progress, bookmarks, downloads and
+    // speed) stay reachable from the card's details.
+    val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
+    val shownCards = remember(workCards) { workCards.map { it.primary } }
+
     // The grid as data (v1.5 review): the structure carries the resume card,
     // the section headers and the shelf, so a lazy-grid index must be mapped
     // back to a book through these entries — never through `visibleBooks`
     // (the two stopped aligning the moment the hero and the headers appeared).
-    val denseTrailing = if (browsing) "" else libraryRemainingTotal(visibleBooks)
+    val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing) {
         libraryGridEntries(
             browsing = browsing,
             gridMode = gridMode,
-            visible = visibleBooks,
+            visible = shownCards,
             continueBook = continueBook,
             denseTitle = if (query.isNotBlank()) "Пошук" else filter.label,
             denseTrailing = denseTrailing
@@ -382,11 +414,15 @@ fun LibraryScreen(
             // now (one tap, just as discoverable) and the screen became a
             // single scroll of books.
             com.slukhayka.audiobooks.ui.components.AppTabHeader(
-                title = if (activeTab == 0) "Медіатека" else sectionTitle,
+                // spec-54 T06 (#873) — the root's name is the ONE resource the
+                // bottom bar also uses; a hardcoded literal could drift from it.
+                title = if (activeTab == 0) stringResource(R.string.nav_library) else sectionTitle,
                 subtitle = if (activeTab == 0) librarySubtitle else null,
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 actions = {
+                    // #860 — the gear sits in the SAME place on every root.
+                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
                     if (activeTab != 0) {
                         // A section is open: one explicit way back to the books
                         // (system back does the same).
@@ -415,6 +451,10 @@ fun LibraryScreen(
                             },
                             onMenuOpenChange = { sectionMenuOpen = it },
                             onOpenSection = { activeTab = it },
+                            // spec-54 T06 (#873) — «Полиці» are the listener's
+                            // existing collections, opened where they live.
+                            onOpenShelves = { viewModel.openCollectionsIndex() },
+                            onOpenManualAdd = { manualAddOpen = true },
                             onAdd = { showImportSheet = true },
                             importFocusRequester = importFocusRequester
                         )
@@ -550,7 +590,13 @@ fun LibraryScreen(
                             documentId = published.documentId,
                             title = published.title,
                             bookCount = published.bookIds.size,
-                            pseudonym = published.pseudonym
+                            pseudonym = published.pseudonym,
+                            average = com.slukhayka.audiobooks.data.collections.CollectionRating.average(
+                                published.ratingSum,
+                                published.ratingCount
+                            ),
+                            ratingCount = published.ratingCount,
+                            hidden = published.hidden
                         )
                     },
                     onOpen = { openPublishedDocumentId = it }
@@ -558,9 +604,10 @@ fun LibraryScreen(
                 publishedCollections
                     .firstOrNull { it.documentId == openPublishedDocumentId }
                     ?.let { open ->
-                        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-                        androidx.compose.material3.ModalBottomSheet(
-                            onDismissRequest = { openPublishedDocumentId = null }
+                        com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+                            title = open.title,
+                            onClose = { openPublishedDocumentId = null },
+                            testTag = "published_collection_page"
                         ) {
                             com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
                                 collection = open,
@@ -576,14 +623,23 @@ fun LibraryScreen(
                                 onSaveForYou = {
                                     viewModel.saveForkOfPublished(open.documentId)
                                     openPublishedDocumentId = null
+                                },
+                                // The listener's own published collection: no
+                                // self-rating (#694) and the community verdict
+                                // is shown as-is (#696).
+                                isOwn = true,
+                                onDelete = {
+                                    viewModel.deleteOwnPublishedCollection(open.documentId)
+                                    openPublishedDocumentId = null
                                 }
                             )
                         }
                     }
                 listenerCollections.firstOrNull { it.id == openCollectionId }?.let { open ->
-                    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-                    androidx.compose.material3.ModalBottomSheet(
-                        onDismissRequest = { openCollectionId = null }
+                    com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+                        title = open.title,
+                        onClose = { openCollectionId = null },
+                        testTag = "own_collection_page"
                     ) {
                         com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent(
                             collection = open,
@@ -641,6 +697,7 @@ fun LibraryScreen(
                                 restoreFocusBookId = restoreFocusBookId,
                                 bookReturnFocusRequester = bookReturnFocusRequester,
                                 awaitingSubmissionBookIds = awaitingSubmissionBookIds,
+                                submissionBadges = submissionBadges,
                                 watchingSubmissionBookIds = watchingSubmissionBookIds,
                                 deferredPublicationBookIds = deferredPublicationBookIds,
                                 onBookClick = onBookClick,
@@ -652,57 +709,49 @@ fun LibraryScreen(
                 }
 
                 1 -> {
-                    if (allBookmarks.isEmpty()) {
-                        EmptyState(
-                            icon = Icons.Default.BookmarkBorder,
-                            title = "Закладок немає",
-                            body = "Додавайте закладки під час прослуховування в плеєрі."
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 12.dp)
-                        ) {
-                            items(allBookmarks, key = { it.id }) { bookmark ->
-                                val book = allBooks.find { it.id == bookmark.bookId }
-                                GlobalBookmarkItem(
-                                    bookmark = bookmark,
-                                    bookTitle = book?.title ?: "Аудіокнига",
-                                    onJumpClick = { viewModel.jumpToBookmark(bookmark) },
-                                    onDeleteClick = {
-                                        scope.launch { listeningState.deleteBookmark(bookmark.id) }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                2 -> {
+                    // spec-54 T06 (#873) — «Збережене»: the people the listener
+                    // follows AND the bookmarks they left, in ONE place, on the
+                    // data that already exists (no new schema).
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
+                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                     ) {
                         item {
-                            ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
+                            Text(
+                                text = stringResource(R.string.lib_section_people),
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .testTag("library_saved_people_header")
+                            )
                         }
-                    }
-                }
-
-                // #401: bookmarked people tab — authors and narrators the
-                // listener follows. Each row opens the person's books page.
-                3 -> {
-                    if (bookmarkedPeople.isEmpty()) {
-                        EmptyState(
-                            icon = Icons.Default.People,
-                            title = "Закладок на людей немає",
-                            body = "Додавайте закладки на авторів або виконавців зі сторінки книги."
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
-                        ) {
+                        if (bookmarkedPeople.isEmpty()) {
+                            // #873 — an empty state carries a clear ACTION, not
+                            // just an explanation.
+                            item {
+                                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_people_title),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_people_body),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedButton(
+                                        onClick = onBrowseClick,
+                                        modifier = Modifier
+                                            .padding(top = 8.dp)
+                                            .heightIn(min = 48.dp)
+                                            .testTag("library_saved_people_browse")
+                                    ) {
+                                        Text(stringResource(R.string.lib_find_book))
+                                    }
+                                }
+                            }
+                        } else {
                             items(
                                 bookmarkedPeople,
                                 key = { "${it.second.storageValue}_${it.first.id}" }
@@ -733,7 +782,195 @@ fun LibraryScreen(
                                 )
                             }
                         }
+                        item {
+                            Text(
+                                text = stringResource(R.string.lib_section_bookmarks),
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .testTag("library_saved_bookmarks_header")
+                            )
+                        }
+                        if (allBookmarks.isEmpty()) {
+                            item {
+                                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_bookmarks_title),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.lib_saved_empty_bookmarks_body),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    OutlinedButton(
+                                        onClick = onBrowseClick,
+                                        modifier = Modifier
+                                            .padding(top = 8.dp)
+                                            .heightIn(min = 48.dp)
+                                            .testTag("library_saved_bookmarks_browse")
+                                    ) {
+                                        Text(stringResource(R.string.lib_find_book))
+                                    }
+                                }
+                            }
+                        } else {
+                            items(allBookmarks, key = { it.id }) { bookmark ->
+                                val book = allBooks.find { it.id == bookmark.bookId }
+                                GlobalBookmarkItem(
+                                    bookmark = bookmark,
+                                    bookTitle = book?.title ?: "Аудіокнига",
+                                    onJumpClick = { viewModel.jumpToBookmark(bookmark) },
+                                    onDeleteClick = {
+                                        scope.launch { listeningState.deleteBookmark(bookmark.id) }
+                                    }
+                                )
+                            }
+                        }
                     }
+                }
+
+                2 -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
+                    ) {
+                        item {
+                            ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
+                        }
+                    }
+                }
+
+                4 -> {
+                    // #876 — «Мій рік»: the yearly goal, counted in PASSES and
+                    // reported per format, because pages, percent and seconds
+                    // cannot be summed into one number (ADR-0046 §5).
+                    val goal by viewModel.readingYear.collectAsState()
+                    val activeReadings by viewModel.activeReadings.collectAsState()
+                    val current = goal
+                    if (current == null) {
+                        EmptyState(
+                            icon = Icons.Default.CalendarMonth,
+                            title = stringResource(R.string.lib_year_empty_title),
+                            body = stringResource(R.string.lib_year_empty_body)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("library_year"),
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
+                        ) {
+                            item {
+                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.lib_year_heading, current.year),
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.lib_year_total, current.totalFinished),
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    current.finishedByFormat.toSortedMap().forEach { (format, count) ->
+                                        Text(
+                                            text = stringResource(
+                                                R.string.lib_year_format,
+                                                readingFormatLabel(format),
+                                                count
+                                            ),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        text = stringResource(R.string.lib_year_rule),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            // #876 — the passes still in the listener's hands:
+                            // ONE journal record per action, in the format's own
+                            // unit, and finishing belongs to that pass alone.
+                            items(activeReadings, key = { it.id }) { pass ->
+                                ReadingProgressRow(
+                                    pass = pass,
+                                    onRecord = { value ->
+                                        viewModel.recordReadingProgress(pass.id, value)
+                                    },
+                                    onFinish = { viewModel.finishReading(pass.id) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                3 -> {
+                    // ADR-0047 / #867 — «Імпортоване»: a TEMPORARY home for the
+                    // links whose origin the data does not recover, not a second
+                    // library. Two explicit actions per row, and the subsection
+                    // empties once every row is decided.
+                    val importedEntries by viewModel.importedEntries.collectAsState()
+                    if (importedEntries.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.Inbox,
+                            title = stringResource(R.string.lib_imported_empty_title),
+                            body = stringResource(R.string.lib_imported_empty_body)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("library_imported_list"),
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
+                        ) {
+                            item {
+                                Text(
+                                    text = stringResource(R.string.lib_imported_explain),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                            }
+                            items(importedEntries, key = { it.id }) { entry ->
+                                val title = allBooks.firstOrNull { it.id == entry.id }?.title ?: entry.id
+                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    Text(text = title, style = MaterialTheme.typography.titleSmall)
+                                    Row {
+                                        OutlinedButton(
+                                            onClick = {
+                                                viewModel.triageImported(
+                                                    entry.id,
+                                                    com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.CONFIRM_PERSONAL
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .heightIn(min = 48.dp)
+                                                .testTag("library_imported_confirm_${entry.id}")
+                                        ) {
+                                            Text(stringResource(R.string.lib_imported_confirm))
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        OutlinedButton(
+                                            onClick = {
+                                                viewModel.triageImported(
+                                                    entry.id,
+                                                    com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.REMOVE_LINK
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .heightIn(min = 48.dp)
+                                                .testTag("library_imported_remove_${entry.id}")
+                                        ) {
+                                            Text(stringResource(R.string.lib_imported_remove))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 }
             }
         }
@@ -756,6 +993,16 @@ fun LibraryScreen(
                 onSortChange = { sort = it },
                 onGridModeChange = { gridMode = it },
                 onDismiss = { showFilterSheet = false }
+            )
+        }
+
+        if (manualAddOpen) {
+            ManualBookAddSheet(
+                onAdd = { request ->
+                    manualAddOpen = false
+                    scope.launch { viewModel.addManualBook(request) }
+                },
+                onDismiss = { manualAddOpen = false }
             )
         }
 
@@ -858,7 +1105,6 @@ fun LibraryScreen(
             )
         }
     }
-}
 
 /**
  * Owns the complete non-modal library layer, including transient snackbar
@@ -885,8 +1131,8 @@ fun LibraryEmptyState(
 ) {
     EmptyState(
         icon = Icons.Default.MenuBook,
-        title = "Медіатека порожня",
-        body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
+        title = stringResource(R.string.library_empty_title),
+        body = stringResource(R.string.library_empty_body)
     ) {
         Button(
             onClick = onImportClick,
@@ -954,6 +1200,10 @@ internal fun LibraryHeaderActions(
     onToggleSearch: () -> Unit,
     onMenuOpenChange: (Boolean) -> Unit,
     onOpenSection: (Int) -> Unit,
+    /** spec-54 T06 (#873) — opens the listener's own collections (Полиці). */
+    onOpenShelves: () -> Unit = {},
+    /** #870 — «Додати книгу вручну»: any format, no fictitious Edition. */
+    onOpenManualAdd: () -> Unit = {},
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
@@ -970,6 +1220,8 @@ internal fun LibraryHeaderActions(
         onToggleSearch = onToggleSearch,
         onMenuOpenChange = onMenuOpenChange,
         onOpenSection = onOpenSection,
+        onOpenShelves = onOpenShelves,
+        onOpenManualAdd = onOpenManualAdd,
         onAdd = onAdd,
         importFocusRequester = importFocusRequester
     )
@@ -984,6 +1236,8 @@ internal fun LibraryHeaderActionsInner(
     onToggleSearch: () -> Unit,
     onMenuOpenChange: (Boolean) -> Unit,
     onOpenSection: (Int) -> Unit,
+    onOpenShelves: () -> Unit = {},
+    onOpenManualAdd: () -> Unit = {},
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
@@ -1020,13 +1274,50 @@ internal fun LibraryHeaderActionsInner(
             expanded = menuOpen,
             onDismissRequest = { onMenuOpenChange(false) }
         ) {
+            // spec-54 T06 (#873) — три підрозділи: Полиці (добірки живуть
+            // там, де й жили), Збережене (люди + закладки на наявних даних)
+            // і Статистика.
             DropdownMenuItem(
-                text = { Text(stringResource(R.string.lib_bookmarks_count, bookmarksCount)) },
+                text = { Text(stringResource(R.string.lib_section_shelves)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenShelves()
+                },
+                modifier = Modifier.testTag("library_section_shelves")
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(stringResource(R.string.lib_saved_count, bookmarksCount + peopleCount))
+                },
                 onClick = {
                     onMenuOpenChange(false)
                     onOpenSection(1)
                 },
-                modifier = Modifier.testTag("library_section_bookmarks")
+                modifier = Modifier.testTag("library_section_saved")
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.lib_section_year)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenSection(4)
+                },
+                modifier = Modifier.testTag("library_section_year")
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.lib_section_imported)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenSection(3)
+                },
+                modifier = Modifier.testTag("library_section_imported")
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.manual_add_menu)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenManualAdd()
+                },
+                modifier = Modifier.testTag("library_manual_add")
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.lib_statistics)) },
@@ -1036,14 +1327,9 @@ internal fun LibraryHeaderActionsInner(
                 },
                 modifier = Modifier.testTag("library_section_stats")
             )
-            DropdownMenuItem(
-                text = { Text("Люди ($peopleCount)") },
-                onClick = {
-                    onMenuOpenChange(false)
-                    onOpenSection(3)
-                },
-                modifier = Modifier.testTag("library_section_people")
-            )
+            // The separate «Люди» entry is gone: people and bookmarks are ONE
+            // subsection now («Збережене», вище).
+
         }
     }
     // UI (v1.5 review): the import action is the compact «+» icon in the
@@ -1240,6 +1526,7 @@ internal fun LazyGridScope.libraryGridContent(
     awaitingSubmissionBookIds: Set<String>,
     watchingSubmissionBookIds: Set<String>,
     deferredPublicationBookIds: Set<String>,
+    submissionBadges: Map<String, SubmissionBadge> = emptyMap(),
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onRecheck: (String) -> Unit
@@ -1251,6 +1538,7 @@ internal fun LazyGridScope.libraryGridContent(
             awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
             watchingSource = entry.book.id in watchingSubmissionBookIds,
             deferredPublication = entry.book.id in deferredPublicationBookIds,
+            submissionBadge = submissionBadges[entry.book.id] ?: SubmissionBadge.NONE,
             onListenNow = { onPlayClick(entry.book) },
             onClick = { onBookClick(entry.book.id) },
             modifier = if (entry.book.id == restoreFocusBookId) {
@@ -1717,6 +2005,8 @@ fun LibraryBookCard(
     watchingSource: Boolean = false,
     /** Spec-53 T12 — the real verdict landed, the day's budget had not. */
     deferredPublication: Boolean = false,
+    /** #837 — the honest moderation badge of MY submission of this book. */
+    submissionBadge: SubmissionBadge = SubmissionBadge.NONE,
     /** Spec-53 T3 — badge tap: open the book and start playing it. */
     onListenNow: (() -> Unit)? = null
 ) {
@@ -1730,7 +2020,18 @@ fun LibraryBookCard(
             author
         )
     }
-    val state = libraryEntryStateDescription(book, availability)
+    // #837 — the moderation badge is SPOKEN, not just seen: the card clears
+    // its descendants' semantics, so the honest state must ride the card's own
+    // state description next to the offline state.
+    val badgeState = if (submissionBadge != SubmissionBadge.NONE) {
+        stringResource(submissionBadgeRes(submissionBadge))
+    } else {
+        null
+    }
+    val state = listOfNotNull(
+        libraryEntryStateDescription(book, availability).takeIf { it.isNotBlank() },
+        badgeState
+    ).joinToString(", ")
     val openLabel = stringResource(
         com.slukhayka.audiobooks.R.string.a11y_library_open_book,
         book.book.title
@@ -1790,6 +2091,7 @@ fun LibraryBookCard(
                         onRecheck,
                         downloadCount = downloadCount,
                         awaitingPlayback = awaitingPlayback,
+                        submissionBadge = submissionBadge,
                         watchingSource = watchingSource,
                         deferredPublication = deferredPublication,
                         onListenNow = onListenNow
@@ -1815,6 +2117,7 @@ private fun LibraryBookRowContent(
     awaitingPlayback: Boolean = false,
     watchingSource: Boolean = false,
     deferredPublication: Boolean = false,
+    submissionBadge: SubmissionBadge = SubmissionBadge.NONE,
     onListenNow: (() -> Unit)? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
@@ -1848,6 +2151,8 @@ private fun LibraryBookRowContent(
                 Text(
                     text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    softWrap = false,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .clickable(onClick = onListenNow)
@@ -1861,6 +2166,8 @@ private fun LibraryBookRowContent(
                 Text(
                     text = stringResource(R.string.submission_watching_source),
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    softWrap = false,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
                 )
@@ -1873,8 +2180,32 @@ private fun LibraryBookRowContent(
                 Text(
                     text = stringResource(R.string.submission_deferred_publication_badge),
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    softWrap = false,
                     color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
+                )
+            }
+            if (submissionBadge != SubmissionBadge.NONE) {
+                // #837 — the honest state of MY submission of this book: a
+                // queued candidate, an approved publication, or the curator's
+                // rejection. Never a promise, never before the fact.
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(submissionBadgeRes(submissionBadge)),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = when (submissionBadge) {
+                        SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
+                        SubmissionBadge.IN_SHARED_BASE -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.secondary
+                    },
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .wrapContentWidth()
+                        .testTag(
+                            "submission_badge_${submissionBadge.name.lowercase()}_${book.book.id}"
+                        )
                 )
             }
             // #397 — the offline state (cloud / «7 із 12») is not a title
@@ -2495,6 +2826,81 @@ fun BookmarkedPersonRow(
                     showContextMenu = false
                 }
             )
+        }
+    }
+}
+
+/** #837 — the card badge's honest label. */
+private fun submissionBadgeRes(badge: SubmissionBadge): Int = when (badge) {
+    SubmissionBadge.PENDING_MODERATION -> R.string.submission_badge_pending_moderation
+    SubmissionBadge.IN_SHARED_BASE -> R.string.submission_badge_in_shared_base
+    SubmissionBadge.REJECTED -> R.string.submission_badge_rejected
+    SubmissionBadge.NONE -> R.string.submission_badge_pending_moderation
+}
+
+/** #876 — the per-format label of the reading year. */
+@androidx.compose.runtime.Composable
+private fun readingFormatLabel(
+    format: com.slukhayka.audiobooks.data.entries.ReadingFormat
+): String = when (format) {
+    com.slukhayka.audiobooks.data.entries.ReadingFormat.AUDIO ->
+        stringResource(R.string.lib_format_audio)
+    com.slukhayka.audiobooks.data.entries.ReadingFormat.PAPER ->
+        stringResource(R.string.manual_add_format_paper)
+    com.slukhayka.audiobooks.data.entries.ReadingFormat.EBOOK ->
+        stringResource(R.string.manual_add_format_ebook)
+}
+
+/** #876 — one active pass with its own value field and two honest actions. */
+@androidx.compose.runtime.Composable
+private fun ReadingProgressRow(
+    pass: com.slukhayka.audiobooks.data.entries.Readthrough,
+    onRecord: (Int) -> Unit,
+    onFinish: () -> Unit
+) {
+    var raw by androidx.compose.runtime.saveable.rememberSaveable(pass.id) {
+        androidx.compose.runtime.mutableStateOf("")
+    }
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = stringResource(
+                R.string.lib_year_format,
+                readingFormatLabel(pass.format),
+                pass.units.value
+            ),
+            style = MaterialTheme.typography.titleSmall
+        )
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = raw,
+                onValueChange = { input -> raw = input.filter { it.isDigit() } },
+                label = { Text(stringResource(R.string.lib_year_record_hint)) },
+                singleLine = true,
+                modifier = Modifier
+                    .width(160.dp)
+                    .testTag("reading_value_${pass.id}")
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = { raw.toIntOrNull()?.let(onRecord) },
+                enabled = raw.toIntOrNull() != null,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("reading_record_${pass.id}")
+            ) {
+                Text(stringResource(R.string.lib_year_record))
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onFinish,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("reading_finish_${pass.id}")
+            ) {
+                Text(stringResource(R.string.lib_year_finish))
+            }
         }
     }
 }

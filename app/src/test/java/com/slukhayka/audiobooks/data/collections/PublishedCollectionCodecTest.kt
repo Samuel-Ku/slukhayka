@@ -89,6 +89,45 @@ class PublishedCollectionCodecTest {
     }
 
     @Test
+    fun `the rating aggregate round-trips`() {
+        val rated = sample().copy(ratingSum = 9, ratingCount = 2)
+        val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(rated))!!
+        assertEquals(9, decoded.ratingSum)
+        assertEquals(2, decoded.ratingCount)
+    }
+
+    @Test
+    fun `the composition snapshots round-trip`() {
+        val withItems = sample().copy(
+            items = listOf(
+                PublishedCollectionItem("book-a", "Магія", "Автор", "https://c/1.jpg", "бо раз"),
+                PublishedCollectionItem("book-b", "Зорі", "Інший", null, "")
+            )
+        )
+
+        val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(withItems))!!
+
+        assertEquals(withItems.items, decoded.items)
+    }
+
+    @Test
+    fun `the moderation state round-trips`() {
+        val moderated = sample().copy(hidden = true, reportCount = 3)
+        val decoded = PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(moderated))!!
+        assertTrue(decoded.hidden)
+        assertEquals(3, decoded.reportCount)
+    }
+
+    @Test
+    fun `a hostile aggregate decodes to the honest zero, never a fabricated number`() {
+        val encoded = PublishedCollectionCodec.encode(sample()) +
+            ("ratingSum" to "багато") + ("ratingCount" to -3)
+        val decoded = PublishedCollectionCodec.decode(encoded)!!
+        assertEquals(0, decoded.ratingSum)
+        assertEquals(0, decoded.ratingCount)
+    }
+
+    @Test
     fun `a reason never borrows another book's slot`() {
         val encoded = PublishedCollectionCodec.encode(
             sample().copy(bookIds = listOf("a"), reasons = listOf("перше", "друге", "третє"))

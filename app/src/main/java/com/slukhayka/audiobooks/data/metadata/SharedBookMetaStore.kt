@@ -126,7 +126,26 @@ interface SharedBookMetaStore {
      * the payload is pure JVM (ADR-0028 p. 3). Best-effort by contract: a
      * failing write contributes nothing.
      */
-    suspend fun publishSubmission(publication: SubmissionPublication) = Unit
+    /**
+     * Moderation T1 (#834) — queues ONE verified candidate in
+     * `pending_submissions` (the queue the curator's bot moderates). Keyed by
+     * `sha256(canonicalUrl)`, so the same link replaces itself instead of
+     * duplicating. Best-effort: false means the write contributed nothing.
+     *
+     * The submission doors write HERE and nowhere else: the client has no path
+     * into `catalog_cards` any more (#834) — only the curator's bot creates a
+     * card, and only after approving one of these candidates.
+     */
+    suspend fun enqueueCandidate(candidate: SubmissionCandidate): Boolean = false
+
+    /** Moderation T1 (#834) — the queued candidate for a canonical URL, or null. */
+    suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? = null
+
+    /**
+     * Moderation T3 (#836) — the rejection blocklist entry for a canonical URL,
+     * or null. Read BEFORE queueing: a rejected link never returns.
+     */
+    suspend fun getRejectedSubmission(canonicalUrl: String): RejectedSubmission? = null
 
     /**
      * ADR-0035 / #605 — bounded ordered remote submission page; applying it

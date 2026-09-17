@@ -47,6 +47,48 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    /**
+     * Moderation T1 (#834) — the candidate queue the curator's bot moderates.
+     * The app never writes `catalog_cards`; only the bot (Admin SDK) does.
+     */
+    override suspend fun enqueueCandidate(candidate: SubmissionCandidate): Boolean = runCatching {
+        firestore.collection(SubmissionCandidateCodec.COLLECTION)
+            .document(candidate.documentId)
+            .set(SubmissionCandidateCodec.encode(candidate))
+            .awaitOrNull()
+        true
+    }.getOrDefault(false)
+
+    override suspend fun getRejectedSubmission(canonicalUrl: String): RejectedSubmission? {
+        val documentId = RejectedSubmissionCodec.documentId(canonicalUrl)
+        if (documentId.isEmpty()) return null
+        return try {
+            val snapshot = firestore.collection(RejectedSubmissionCodec.COLLECTION)
+                .document(documentId)
+                .get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else snapshot.data?.let { RejectedSubmissionCodec.decode(it) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override suspend fun getCandidate(canonicalUrl: String): SubmissionCandidate? {
+        val documentId = SubmissionCandidateCodec.documentId(canonicalUrl)
+        if (documentId.isEmpty()) return null
+        return try {
+            val snapshot = firestore.collection(SubmissionCandidateCodec.COLLECTION)
+                .document(documentId)
+                .get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else snapshot.data?.let { SubmissionCandidateCodec.decode(it) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override suspend fun getFacetPage(after: FacetCursor?, limit: Int): FacetPage {
         val boundedLimit = FacetPageLimits.bounded(limit)
         if (boundedLimit == 0) return FacetPage(emptyList(), null)
@@ -236,16 +278,6 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
-    override suspend fun publishSubmission(publication: SubmissionPublication) {
-        val document = SubmissionPublicationCodec.toMap(publication) ?: return
-        // Best-effort fire-and-forget; the document key is the normalized
-        // URL's hash — the same link re-published REPLACE-no-ops (URL dedup).
-        runCatching {
-            firestore.collection(SUBMISSION_COLLECTION)
-                .document(SubmissionPublicationCodec.documentId(publication.sourceUrl))
-                .set(document)
-        }
-    }
 
     override suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage {
         val boundedLimit = SubmissionPageLimits.bounded(limit)

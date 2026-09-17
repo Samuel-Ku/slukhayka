@@ -140,7 +140,18 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      all {
+        // Robolectric's NATIVE graphics runtime (the roborazzi snapshots) loads
+        // a JNI library; on a modern JDK the load fails unless native access is
+        // granted explicitly. Without this the snapshot tests die in
+        // DefaultNativeRuntimeLoader instead of comparing images.
+        it.jvmArgs("--enable-native-access=ALL-UNNAMED")
+      }
+    }
+  }
   lint {
     // #386 — the inherited lint debt is accepted as a checked-in baseline so
     // `lintDebug` passes and CI can adopt it. The app UI is intentionally
@@ -314,6 +325,10 @@ dependencies {
   // duplicate on the unit-test classpath would be ambiguous. The eval gate
   // script gets the desktop jar via its own configuration below.
   implementation(libs.onnxruntime.android)
+  // ADR-0050 / #829 — the Telegram MTProto engine (TDLib), a PINNED prebuilt
+  // AAR. It is fetched by downloadTdlib (version + sha256 pinned there) and
+  // never committed; preBuild depends on that task so a clean checkout builds.
+  implementation(files("libs/tdlib-1.8.67-d1085f9.aar"))
 
 // spec-19 T3: the reproducible eval gate — runRecommendationEval. A host
 // JVM script (test sources, so it reuses the fixtures + RecommendationEval)
@@ -639,3 +654,66 @@ tasks.matching { it.javaClass.name.startsWith("com.chaquo.python") }
             "Chaquopy 17 starts an external Python process and is not configuration-cache serializable"
         )
     }
+
+// #487 — a RELEASE build must never ship without the E5 model: a missing asset
+// is a build failure, not a silent keyword-only APK. `downloadE5Model` is the
+// only supported way to produce the assets, and this task is wired into the
+// release pipeline so the failure is mechanical instead of invisible.
+val verifyE5ModelAssets = tasks.register("verifyE5ModelAssets") {
+    group = "verification"
+    description = "Fails when a release build lacks the E5 model + tokenizer assets (#487)"
+    val modelFile = file("src/main/assets/models/e5/model.onnx")
+    val tokenizerFile = file("src/main/assets/models/e5/tokenizer.json")
+    inputs.files(modelFile, tokenizerFile).optional()
+    doLast {
+        val missing = listOf(modelFile, tokenizerFile).filterNot { it.isFile }
+        check(missing.isEmpty()) {
+            "Release build requires the E5 model assets; run ./gradlew downloadE5Model. Missing: $missing"
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyE5ModelAssets)
+}
+
+// #829 — the Telegram MTProto engine (TDLib) as a PINNED prebuilt AAR.
+// Maven Central's only artifact is `ca.denisab85:tdlib` 1.8.8 (2022-11-12), so
+// the maintained prebuilt release is the source. The AAR is never committed
+// (40 MB); the version AND its sha256 are pinned here, and a mismatch fails the
+// download instead of silently building against a different binary — the same
+// discipline as downloadE5Model.
+val downloadTdlib by tasks.registering(Exec::class) {
+  group = "verification"
+  description = "Downloads the pinned TDLib 1.8.67-d1085f9 AAR (sha256-verified) into app/libs"
+  val libsDir = file("libs")
+  val aarFile = libsDir.resolve("tdlib-1.8.67-d1085f9.aar")
+  doFirst {
+    libsDir.mkdirs()
+    if (aarFile.exists()) logger.lifecycle("tdlib AAR already present — skipping download")
+  }
+  commandLine(
+    "bash", "-c",
+    """
+      set -euo pipefail
+      mkdir -p "${'$'}(pwd)/libs"
+      target="libs/tdlib-1.8.67-d1085f9.aar"
+      if [ -f "${'$'}target" ]; then exit 0; fi
+      url="https://github.com/FaiBah/TDLibAndroidPrebuilt/releases/download/v1.8.67-d1085f9-Java/tdlib.aar"
+      expected="d54097da1ff2d8ed32cbf2dbe42ef4ce59b14d0bb7d4561d267a968d63135c91"
+      tmp="${'$'}(mktemp)"
+      curl -sL --max-time 1200 -o "${'$'}tmp" "${'$'}url"
+      actual="${'$'}(sha256sum "${'$'}tmp" | awk '{print ${'$'}1}')"
+      if [ "${'$'}actual" != "${'$'}expected" ]; then
+        echo "TDLib AAR sha256 mismatch: got ${'$'}actual, expected ${'$'}expected" >&2
+        rm -f "${'$'}tmp"
+        exit 1
+      fi
+      mv "${'$'}tmp" "${'$'}target"
+      echo "TDLib AAR verified (${'$'}expected)"
+    """.trimIndent()
+  )
+}
+
+// #829 — the AAR is a compile dependency, so the pinned artifact must exist
+// before any build; the download task is the only supported producer.
+tasks.named("preBuild") { dependsOn(downloadTdlib) }

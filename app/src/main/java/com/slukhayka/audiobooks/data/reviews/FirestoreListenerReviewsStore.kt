@@ -27,7 +27,17 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  */
 class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : ListenerReviewsStore {
 
-    override suspend fun queryWorkDocuments(workId: String): List<Map<String, Any>> {
+    override suspend fun queryWorkDocuments(workId: String): List<Map<String, Any>> =
+        queryWorkDocumentsOrNull(workId).orEmpty()
+
+    /**
+     * Spec-620 (#623) — the read keeps a transport failure apart from a real
+     * empty: the ordered query falling back to the plain one is normal (no
+     * composite index yet), but a FAILING plain query is null, so the screen
+     * can keep its last confirmed snapshot instead of showing an empty
+     * community.
+     */
+    override suspend fun queryWorkDocumentsOrNull(workId: String): List<Map<String, Any>>? {
         // The ordered query needs a (workId ASC, createdAt DESC) composite
         // index; until it exists (or on any other transport hiccup) the
         // plain equality query serves — decode() enforces newest-first.
@@ -43,7 +53,6 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
             .whereEqualTo(FIELD_WORK_ID, workId)
             .get()
             .awaitDocuments()
-            ?: emptyList()
     }
 
     override suspend fun queryWorksDocuments(workIds: List<String>): List<Map<String, Any>> {
@@ -82,6 +91,21 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
         throw e
     } catch (_: Exception) {
         false
+    }
+
+    /**
+     * Spec-620 (#626) — `delete()` synchronously enters Firestore's local
+     * persistence queue; its Task is the later backend acknowledgement and may
+     * stay pending for the whole offline period. The local acceptance is
+     * therefore immediate, and the caller never waits for the network.
+     */
+    override suspend fun enqueueDelete(documentId: String): ReviewDeleteReceipt = try {
+        val acknowledgement = firestore.collection(COLLECTION).document(documentId).delete()
+        ReviewDeleteReceipt.Queued { acknowledgement.awaitReviewWriteResult() }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        ReviewDeleteReceipt.Rejected
     }
 
     /** Bridges the Play Services [Task] onto a coroutine: documents or null on failure. */

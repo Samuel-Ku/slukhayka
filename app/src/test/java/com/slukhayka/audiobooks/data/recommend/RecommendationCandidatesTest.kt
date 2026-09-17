@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.recommend
 
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.db.WorkFacts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -62,5 +63,44 @@ class RecommendationCandidatesTest {
 
         assertNull(candidate.coverImageUrl)
         assertEquals("", candidate.series)
+    }
+    @Test
+    fun `known genre and description enter the embedding text, missing ones stay absent`() {
+        val candidates = recommendationCandidates(
+            listOf(
+                work("w1", "кобзар|шевченко", "Кобзар"),
+                work("w2", "гіперіон|сімонс", "Гіперіон")
+            ),
+            facts = mapOf(
+                "кобзар|шевченко" to WorkFacts(
+                    mergeKey = "кобзар|шевченко",
+                    genre = "Поезія",
+                    description = "Збірка віршів"
+                )
+            )
+        )
+
+        val owned = candidates.first { it.id == "кобзар|шевченко" }
+        assertEquals("Поезія", owned.genre)
+        assertEquals("Збірка віршів", owned.description)
+        assertEquals(true, owned.text.contains("Поезія"))
+
+        val mirror = candidates.first { it.id == "гіперіон|сімонс" }
+        assertEquals("", mirror.genre)
+        assertEquals("", mirror.description)
+    }
+    @Test
+    fun `warm-up prioritises the library, then active feeds, then the rest`() {
+        val candidates = listOf("zzz", "bbb", "ccc", "aaa").map {
+            RecommendationEngine.Candidate(id = it, title = it)
+        }
+
+        val ordered = orderedForWarmUp(
+            candidates,
+            libraryKeys = setOf("ccc"),
+            activeFeedKeys = setOf("bbb", "zzz")
+        )
+
+        assertEquals(listOf("ccc", "bbb", "zzz", "aaa"), ordered.map { it.id })
     }
 }

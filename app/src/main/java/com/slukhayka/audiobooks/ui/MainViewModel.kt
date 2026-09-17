@@ -46,8 +46,9 @@ import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
-import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
-import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
+import com.slukhayka.audiobooks.data.reviews.ReviewDeleteEvent
+import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
+import com.slukhayka.audiobooks.data.reviews.ReviewSaveEvent
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
@@ -172,94 +173,27 @@ data class PeopleKind(
 data class SelectedPerson(
     val name: String,
     val path: String,
-    val role: PersonRole
+    val role: PersonRole,
+    /**
+     * #874 — for a canonical AUTHOR the page reads Works by this id
+     * (`worksForAuthor`); a narrator is identified by the name their editions
+     * carry. Null for narrators and for source-page people.
+     */
+    val authorId: String? = null
 )
-
-/** One-shot visible outcome of submitting a listener review. */
-enum class ReviewSaveResult {
-    PUBLISHED,
-    QUEUED,
-    FAILED
-}
-
-/** One submission outcome, scoped to both its Work and deterministic review document. */
-data class ReviewSaveEvent(
-    val workId: String,
-    val documentId: String,
-    val generation: Long,
-    val result: ReviewSaveResult
-)
-
-internal data class ReviewSubmission(
-    val workId: String,
-    val documentId: String,
-    val generation: Long
-) {
-    fun event(result: ReviewSaveResult): ReviewSaveEvent = ReviewSaveEvent(
-        workId = workId,
-        documentId = documentId,
-        generation = generation,
-        result = result
-    )
-}
-
-/** Rejects acknowledgements superseded by a newer write to the same review document. */
-internal class ReviewSubmissionGate {
-    private val generations = ConcurrentHashMap<String, AtomicLong>()
-
-    fun begin(workId: String, documentId: String): ReviewSubmission = ReviewSubmission(
-        workId = workId,
-        documentId = documentId,
-        generation = generations.computeIfAbsent(documentId) { AtomicLong() }.incrementAndGet()
-    )
-
-    fun isLatest(submission: ReviewSubmission): Boolean =
-        generations[submission.documentId]?.get() == submission.generation
-}
-
-internal data class ReviewLoadRequest(
-    val workId: String,
-    val generation: Long
-)
-
-/** Prevents an older fetch of one Work from replacing a newer server snapshot. */
-internal class ReviewLoadGate {
-    private val generations = ConcurrentHashMap<String, AtomicLong>()
-
-    fun begin(workId: String): ReviewLoadRequest = ReviewLoadRequest(
-        workId = workId,
-        generation = generations.computeIfAbsent(workId) { AtomicLong() }.incrementAndGet()
-    )
-
-    fun isLatest(request: ReviewLoadRequest): Boolean =
-        generations[request.workId]?.get() == request.generation
-}
 
 /**
- * Delivers the local queue result before waiting for Firestore's backend Task.
- * Remote failure remains a visible event; caller cancellation still escapes.
+ * #874 — the adapter that lets the authors index use the SAME person route an
+ * author and a narrator share. The canonical id rides along; the address is the
+ * person's, never the role's.
  */
-internal suspend fun followReviewWrite(
-    receipt: ReviewWriteReceipt,
-    onVisibleResult: suspend (ReviewSaveResult) -> Unit,
-    onRemoteResult: suspend (ReviewRemoteResult) -> Unit
-) {
-    when (receipt) {
-        ReviewWriteReceipt.Rejected -> onVisibleResult(ReviewSaveResult.FAILED)
-        is ReviewWriteReceipt.Queued -> {
-            onVisibleResult(ReviewSaveResult.QUEUED)
-            val remoteResult = receipt.awaitRemote()
-            onRemoteResult(remoteResult)
-            onVisibleResult(
-                if (remoteResult == ReviewRemoteResult.PUBLISHED) {
-                    ReviewSaveResult.PUBLISHED
-                } else {
-                    ReviewSaveResult.FAILED
-                }
-            )
-        }
-    }
-}
+fun com.slukhayka.audiobooks.data.authors.AuthorSummary.asSelectedPerson(): SelectedPerson =
+    SelectedPerson(
+        name = displayName,
+        path = "",
+        role = PersonRole.AUTHOR,
+        authorId = id
+    )
 
 /** Listener reviews belong to a Work; legacy Editions fall back to their own id. */
 internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
@@ -281,6 +215,126 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val sourceCatalog: SourceCatalog = App.instance.sourceCatalog
     val offlineDownloads: OfflineDownloads = App.instance.offlineDownloads
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
+
+    /**
+     * ADR-0047 / #867 — the «Імпортоване» queue: rows whose origin the data does
+     * not recover. It is a TEMPORARY home, not a second library: the listener
+     * either confirms a row as personal or removes the link.
+     */
+    private val _importedEntries =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>>(emptyList())
+    val importedEntries: StateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>> =
+        _importedEntries.asStateFlow()
+
+    /**
+     * #870 — one manual add. The result is handed back so the surface can say
+     * WHY it refused (no identity, an Edition where none belongs, …) instead of
+     * failing silently.
+     */
+    suspend fun addManualBook(
+        request: com.slukhayka.audiobooks.data.entries.ManualBookAddRequest
+    ): com.slukhayka.audiobooks.data.entries.ManualBookAdder.Result =
+        runCatching { App.instance.manualBookAdder.add(request) }
+            .getOrElse {
+                com.slukhayka.audiobooks.data.entries.ManualBookAdder.Result.Refused(
+                    com.slukhayka.audiobooks.data.entries.ManualBookAddPolicy.REASON_NO_IDENTITY
+                )
+            }
+
+    /**
+     * #876 — «Мій рік»: the yearly reading goal, computed by the pure policy
+     * from every pass. Formats are reported separately: their units cannot be
+     * summed, and the goal counts PASSES, not pages or minutes.
+     */
+    private val _readingYear = MutableStateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?>(null)
+    val readingYear: StateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?> =
+        _readingYear.asStateFlow()
+
+    /**
+     * #876 — the passes the listener can still move: the progress-entry surface
+     * shows exactly these, and every action goes through the policy.
+     */
+    private val _activeReadings =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>>(emptyList())
+    val activeReadings: StateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>> =
+        _activeReadings.asStateFlow()
+
+    fun refreshActiveReadings() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _activeReadings.value = runCatching {
+                with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
+                    App.instance.audiobookDao.allReadthroughs()
+                        .mapNotNull { it.toModelOrNull() }
+                        .filter {
+                            it.state == com.slukhayka.audiobooks.data.entries.ReadingState.IN_PROGRESS ||
+                                it.state == com.slukhayka.audiobooks.data.entries.ReadingState.PLANNED
+                        }
+                        .sortedByDescending { it.startedAt }
+                }
+            }.getOrDefault(emptyList())
+        }
+    }
+
+    /** One journal record; the queue is re-read so the surface shows the truth. */
+    fun recordReadingProgress(readthroughId: String, value: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                App.instance.readingProgressRecorder.record(
+                    readthroughId,
+                    at = System.currentTimeMillis(),
+                    value = value
+                )
+            }
+            refreshActiveReadings()
+            refreshReadingYear()
+        }
+    }
+
+    fun finishReading(readthroughId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                App.instance.readingProgressRecorder.finish(
+                    readthroughId,
+                    at = System.currentTimeMillis()
+                )
+            }
+            refreshActiveReadings()
+            refreshReadingYear()
+        }
+    }
+
+    fun refreshReadingYear(year: Int = java.time.LocalDate.now().year) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _readingYear.value = runCatching {
+                val passes = with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
+                    App.instance.audiobookDao.allReadthroughs().mapNotNull { it.toModelOrNull() }
+                }
+                com.slukhayka.audiobooks.data.entries.ReadingProgressPolicy.yearlyGoal(passes, year)
+            }.getOrNull()
+        }
+    }
+
+    fun refreshImportedEntries() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _importedEntries.value = runCatching {
+                App.instance.importedLibraryEntries.pending()
+            }.getOrDefault(emptyList())
+        }
+    }
+
+    /**
+     * One explicit triage action; the queue is re-read afterwards, so the
+     * subsection reflects what the listener actually decided.
+     */
+    fun triageImported(
+        bookId: String,
+        action: com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { App.instance.importedLibraryEntries.triage(bookId, action) }
+            refreshImportedEntries()
+        }
+    }
     val durationEnrichment: DurationEnrichment = App.instance.durationEnrichment
     // spec-24 T8 (#169): the throttled chapter-duration probing pass — the
     // same detached-window idiom as the duration enrichment above.
@@ -389,6 +443,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val awaitingSubmissionBookIds: StateFlow<Set<String>> = _awaitingSubmissionBookIds.asStateFlow()
 
     /** Spec-53 T5 — books whose card waits for a direct source. */
+    /**
+     * #837 — the honest submission badge per book ("on moderation" / "in the
+     * shared base" / "rejected"), read from the SAME store the delta sync
+     * updates, so a curator's decision arrives without any listener action.
+     */
+    private val _submissionBadges = MutableStateFlow<Map<String, SubmissionBadge>>(emptyMap())
+    val submissionBadges: StateFlow<Map<String, SubmissionBadge>> = _submissionBadges.asStateFlow()
+
     private val _watchingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
     val watchingSubmissionBookIds: StateFlow<Set<String>> = _watchingSubmissionBookIds.asStateFlow()
 
@@ -432,6 +494,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _deferredPublicationBookIds.value =
                 runCatching { listenerSubmissionFlow.deferredPublicationBookIds() }
                     .getOrDefault(emptySet())
+            _submissionBadges.value = runCatching { listenerSubmissionFlow.badgeRows() }
+                .getOrDefault(emptyList())
+                .groupBy { it.bookId }
+                .mapNotNull { (bookId, rows) ->
+                    if (bookId.isBlank()) return@mapNotNull null
+                    val newest = rows.maxByOrNull { it.updatedAt } ?: return@mapNotNull null
+                    val badge = SubmissionBadgePolicy.badgeFor(newest)
+                    if (badge == SubmissionBadge.NONE) null else bookId to badge
+                }
+                .toMap()
         }
     }
 
@@ -718,7 +790,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val verdicts = runCatching { listenerSubmissionFlow.publishDeferredPublications() }
                 .getOrDefault(emptyList())
-            if (verdicts.any { it is ListenerSubmissionFlow.Verdict.Published }) {
+            if (verdicts.any {
+                    it is ListenerSubmissionFlow.Verdict.Published ||
+                        it is ListenerSubmissionFlow.Verdict.PendingModeration
+                }
+            ) {
                 _submissionPublished.tryEmit(Unit)
             }
             refreshAwaitingSubmissions()
@@ -1143,6 +1219,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     when (val submissionVerdict = listenerSubmissionFlow.onPlaybackStarted(submissionSourceId)) {
                         ListenerSubmissionFlow.Verdict.Published -> {
                             _submissionState.value = SubmissionUiState.Published
+                            _submissionPublished.tryEmit(Unit)
+                            refreshAwaitingSubmissions()
+                        }
+                        // #837 — the queue accepted the candidate; the curator
+                        // has not decided, so the honest state is "on moderation".
+                        ListenerSubmissionFlow.Verdict.PendingModeration -> {
+                            _submissionState.value = SubmissionUiState.PendingModeration
                             _submissionPublished.tryEmit(Unit)
                             refreshAwaitingSubmissions()
                         }
@@ -1819,6 +1902,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
+            // Spec-620 (#625) — opening the source's browser surface is a NEW
+            // session: older in-flight enumerations become unpublishable and
+            // the next refresh bypasses the cache.
+            App.instance.sourceCatalog.noteBrowserSessionOpened()
             openBrowserRecoveryInner(bookId, sourceId, chapterIndex, positionMs, automatic)
         }
     }
@@ -2748,7 +2835,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sourceCatalog.fetchPersonBooksResult(it.path)
         }
     }
-    val personBooks: StateFlow<List<AudiobookEntity>> = personLoader.items
+    /**
+     * #874 (+ #869) — the person's page is WORK-level for BOTH roles: several
+     * narrations of one Work are ONE card, fronted by the rendition the
+     * listener is furthest along in — the same rule the library uses. The role
+     * changes what the page SAYS about the person, never the data model, and a
+     * row without a Work key stays its own card.
+     */
+    /**
+     * #874 — the person's page as WORKS, for BOTH roles. The role is an input
+     * here, never a different address: an author is read by canonical id
+     * (`worksForAuthor`), a narrator by the name their editions carry, and a
+     * source-page person from the cards that page returned. Ownership is marked
+     * for both, and a Work keeps its own narrations.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val personWorks: StateFlow<List<com.slukhayka.audiobooks.ui.library.PersonWorkRow>> =
+        combine(_selectedPerson, personLoader.items) { person, cards -> person to cards }
+            .mapLatest { (person, cards) -> personWorksFor(person, cards) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private suspend fun personWorksFor(
+        person: SelectedPerson?,
+        cards: List<AudiobookEntity>
+    ): List<com.slukhayka.audiobooks.ui.library.PersonWorkRow> {
+        if (person == null) return emptyList()
+        val dao = App.instance.audiobookDao
+        return if (person.role == PersonRole.AUTHOR && person.authorId != null) {
+            val works = dao.worksForAuthor(person.authorId)
+            com.slukhayka.audiobooks.ui.library.personWorkRows(
+                works = works,
+                ownedWorkIds = dao.ownedWorkIdsForAuthor(person.authorId).toSet(),
+                narrationsByWork = works.associate { work -> work.id to dao.narrationsForWork(work.id) }
+            )
+        } else {
+            com.slukhayka.audiobooks.ui.library.personWorkRowsFromCards(
+                cards,
+                dao.ownedWorkIdsForNarrator(person.name).toSet()
+            )
+        }
+    }
+
+    val personBooks: StateFlow<List<AudiobookEntity>> =
+        personLoader.items
+            .map { books ->
+                com.slukhayka.audiobooks.ui.library.workCards(books).map { it.primary }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val isPersonLoading: StateFlow<Boolean> = personLoader.isLoading
     val personLoadFailed: StateFlow<Boolean> = personLoader.failed
 
@@ -2756,6 +2889,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val authorIndexBackfillPending: StateFlow<Boolean> =
         sourceCatalog.authorIndexBackfillPending
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /**
+     * #874 — the authors index uses the SAME person route a narrator does. The
+     * index's own scroll position rides along, so going back still lands on the
+     * letter the listener left.
+     */
+    fun openAuthorPage(
+        author: com.slukhayka.audiobooks.data.authors.AuthorSummary,
+        authorIndex: Int = 0
+    ) {
+        _authorsIndexScrollIndex.value = authorIndex
+        val person = author.asSelectedPerson()
+        _selectedPerson.value = person
+        personLoader.open(person)
+    }
 
     fun openPersonBooks(person: CatalogPerson) {
         val selected = SelectedPerson(person.name, person.path, person.role)
@@ -3499,17 +3647,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _catalogVectors.value = emptyMap()
                     return@launch
                 }
-                val candidates = works.map { work ->
-                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
-                        id = work.mergeKey.ifBlank { work.id },
-                        title = work.title,
-                        author = work.author,
-                        series = work.seriesTitle.orEmpty()
-                    )
-                }.sortedWith(
-                    compareByDescending<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate> {
-                        it.id in libraryKeys
-                    }.thenByDescending { it.id in unionKeys }.thenBy { it.id }
+                val candidates = com.slukhayka.audiobooks.data.recommend.orderedForWarmUp(
+                    com.slukhayka.audiobooks.data.recommend
+                        .recommendationCandidates(works, recommendationFacts.value),
+                    libraryKeys = libraryKeys,
+                    activeFeedKeys = unionKeys
                 )
                 // Catalogue vectors warm gradually (a bounded batch per pass);
                 // the few library signal vectors embed right here on IO too
@@ -3701,6 +3843,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { it.first }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), libraryBooks.value)
 
+    /**
+     * #484 — genre/description already known per Work, read ONCE and shared by
+     * the warm-up and the row builder; no per-candidate catalogue scan.
+     */
+    private val recommendationFacts:
+        StateFlow<Map<String, com.slukhayka.audiobooks.data.db.WorkFacts>> =
+        App.instance.audiobookDao.observeWorkFacts()
+            .map { facts -> facts.associateBy { it.mergeKey } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
         recommendationLibrarySignals,
@@ -3733,7 +3885,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // ones the listener has not imported yet: the row needs no union
         // refresh and survives a dead network. The card id is the Work key, so
         // tapping resolves through the same local identity as any other row.
-        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works)
+        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works, recommendationFacts.value)
         val knownIds = library.flatMap { lb ->
             listOfNotNull(lb.book.id, lb.book.workId, lb.book.mergeKey.takeIf { it.isNotBlank() })
         }.toMutableSet().apply {
@@ -4280,7 +4432,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         BookFeedbackController(viewModelScope, bookFeedbackStore,
             App.instance.audiobookDao::getAudiobookById,
             App.instance.audiobookDao::getEditionIdForBook,
-            { listenerIdentityModule.ensure() }, listenerReviews, narrationRatingsStore,
+            { listenerIdentityModule.ensure() },
+            // Spec-620 (#627) — its OWN Work-scoped lifecycle instance: the
+            // completion editor must not clobber the book page's open Work.
+            com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(
+                listenerReviews, scope = viewModelScope
+            ),
+            narrationRatingsStore,
             onAccepted = { workId -> loadReviews(workId); loadNarrationRatings(workId) })
     }
 
@@ -4370,20 +4528,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val _serverBookReviews = MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>>(emptyList())
+    // Spec-620 (#623) — ONE Work-scoped review lifecycle module. Read, local
+    // acceptance, the pending overlay and the backend acknowledgement all live
+    // there now; MainViewModel only composes it with the local mute list and
+    // feeds the screens.
+    private val listenerReviewLifecycle =
+        com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(listenerReviews)
 
     /** Optimistically submitted reviews not yet confirmed online (#280). */
-    private val _pendingReviews =
-        MutableStateFlow<Map<String, com.slukhayka.audiobooks.data.reviews.ListenerReview>>(emptyMap())
-    val pendingReviewKeys: StateFlow<Set<String>> = _pendingReviews
-        .map { it.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    val pendingReviewKeys: StateFlow<Set<String>> = listenerReviewLifecycle.state
+        .map { it.pending.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    /**
+     * Spec-620 (#623) — the CONFIRMED listener ratings the headline average is
+     * built from. A pending card is not a vote yet, and a pending EDIT keeps
+     * the previous confirmed rating; a locally hidden author changes card
+     * visibility only, never this number (#281).
+     */
+    val confirmedReviewRatings: StateFlow<List<Int>> = listenerReviewLifecycle.state
+        .map { state -> state.confirmed.map { it.rating } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
 
     // A submission result is an event, not accessibility-specific state: the
     // screen uses it to keep failed input open and to retire successful forms.
-    private val reviewSubmissionGate = ReviewSubmissionGate()
-    private val reviewLoadGate = ReviewLoadGate()
-    private val _reviewSaveResults = MutableSharedFlow<ReviewSaveEvent>(extraBufferCapacity = 16)
-    val reviewSaveResults: SharedFlow<ReviewSaveEvent> = _reviewSaveResults.asSharedFlow()
+    val reviewSaveResults: SharedFlow<ReviewSaveEvent> = listenerReviewLifecycle.results
+
+    /** Spec-620 (#626) — the ordered delete outcomes of the open Work. */
+    val reviewDeleteResults: SharedFlow<ReviewDeleteEvent> = listenerReviewLifecycle.deleteResults
 
     // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
     private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
@@ -4428,42 +4600,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Spec-620 (#623) — how many CONFIRMED reviews of the open Work the local
+     * mute list hides. They still stand behind the headline average, so the
+     * surface explains the gap instead of leaving two numbers disagreeing.
+     */
+    val hiddenConfirmedReviewCount: StateFlow<Int> = combine(
+        listenerReviewLifecycle.state,
+        _hiddenAuthors
+    ) { reviewState, hidden -> reviewState.confirmed.count { it.authorName in hidden } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     /** Server truth overlaid with the honest pending cards, newest first. */
     val bookReviews: StateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>> = combine(
-        _serverBookReviews,
-        _pendingReviews,
+        listenerReviewLifecycle.state,
         _hiddenAuthors
-    ) { server, pending, hidden ->
-        ((server.filterNot { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) in pending.keys } +
-            pending.values)
-            .sortedByDescending { it.createdAt })
-            .filterNot { it.authorName in hidden }
+    ) { reviewState, hidden ->
+        // Local mute changes VISIBILITY only — the confirmed votes behind the
+        // headline average are untouched (#281).
+        reviewState.visible.filterNot { it.authorName in hidden }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** Best-effort refresh of one Work's reviews; offline serves the cache silently (#280). */
+    /**
+     * Best-effort refresh of one Work's reviews; a failed read keeps the last
+     * confirmed snapshot instead of showing an empty community (#280/#623).
+     */
     fun loadReviews(workId: String) {
-        val store = listenerReviews ?: return
-        val request = reviewLoadGate.begin(workId)
-        viewModelScope.launch(Dispatchers.IO) {
-            val fresh = try {
-                store.getReviews(workId)
-            } catch (e: Exception) {
-                emptyList()
-            }
-            val selectedEdition = selectedBook.value
-            val stillSelected = selectedEdition?.id == _selectedBookId.value &&
-                selectedEdition?.let { reviewWorkIdFor(it.id, it.workId) } == workId
-            if (stillSelected && reviewLoadGate.isLatest(request)) {
-                _serverBookReviews.value = fresh
-            }
-        }
+        // The uid is the lifecycle's private epoch: a different signed-in
+        // listener never inherits the previous listener's pending overlays.
+        listenerReviewLifecycle.open(workId, _listenerIdentity.value?.uid.orEmpty())
+        viewModelScope.launch(Dispatchers.IO) { listenerReviewLifecycle.refresh(workId) }
     }
 
     /**
      * #277/#278 — create or EDIT one review (idempotent `set()` under the
-     * same `${workId}_${uid}` key). The card appears optimistically with the
-     * honest pending state; the Firestore persistence queue does the actual
-     * sending (survives kill-and-restart, #280).
+     * same `${workId}_${uid}` key). The lifecycle module owns the optimistic
+     * card, the honest pending state and the later backend acknowledgement;
+     * the Firestore persistence queue does the actual sending (survives
+     * kill-and-restart, #280).
      */
     fun saveReview(
         workId: String,
@@ -4472,78 +4646,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         editionTag: String?,
         editing: com.slukhayka.audiobooks.data.reviews.ListenerReview?
     ) {
-        val store = listenerReviews
         val profile = _listenerIdentity.value
-        val documentId = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(
-            workId,
-            profile?.uid.orEmpty()
-        )
-        if (
-            store == null || profile == null ||
-            rating !in com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MIN_RATING..
-                com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MAX_RATING
-        ) {
-            val rejected = reviewSubmissionGate.begin(workId, documentId)
-            _reviewSaveResults.tryEmit(rejected.event(ReviewSaveResult.FAILED))
-            return
-        }
-        val now = System.currentTimeMillis()
-        val review = com.slukhayka.audiobooks.data.reviews.ListenerReview(
-            workId = workId,
-            uid = profile.uid,
-            authorName = profile.nickname.ifBlank { profile.uid },
-            rating = rating,
-            body = body?.trim()?.takeIf { it.isNotEmpty() },
-            editionTag = editionTag?.trim()?.takeIf { it.isNotEmpty() },
-            createdAt = editing?.createdAt ?: now,
-            editedAt = if (editing != null) now else null
-        )
-        val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(review.workId, review.uid)
-        val submission = reviewSubmissionGate.begin(review.workId, key)
-        // Optimistic insert FIRST — the user sees their card instantly.
-        _pendingReviews.update { it + (key to review) }
         viewModelScope.launch(Dispatchers.IO) {
-            val receipt = try {
-                store.enqueueReview(review)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ReviewWriteReceipt.Rejected
-            }
-            followReviewWrite(
-                receipt = receipt,
-                onVisibleResult = { result ->
-                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
-                    if (result == ReviewSaveResult.FAILED) {
-                        _pendingReviews.update { it - key }
-                    }
-                    _reviewSaveResults.emit(submission.event(result))
-                },
-                onRemoteResult = {
-                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
-                    // Either backend verdict ends the local pending badge. A
-                    // failure is announced by followReviewWrite immediately
-                    // after this callback; publication needs no second toast.
-                    _pendingReviews.update { it - key }
-                }
+            listenerReviewLifecycle.save(
+                workId = workId,
+                uid = profile?.uid.orEmpty(),
+                nickname = profile?.nickname.orEmpty(),
+                rating = rating,
+                body = body,
+                editionTag = editionTag,
+                editing = editing
             )
-            if (reviewSubmissionGate.isLatest(submission)) loadReviews(workId)
         }
     }
 
-    /** Best-effort delete of the listener's own review; the list re-reads the truth. */
+    /**
+     * Spec-620 (#626) — deletes the listener's own review through the lifecycle:
+     * the card is gone locally at once, the backend verdict arrives separately,
+     * and a failure restores the confirmed card and stays retryable.
+     */
     fun deleteOwnReview(workId: String, uid: String) {
-        val store = listenerReviews ?: return
-        val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(workId, uid)
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                store.deleteReview(workId, uid)
-            } catch (e: Exception) {
-                // Silent — the refresh below restores whatever is real.
-            }
-            _pendingReviews.update { it - key }
-            loadReviews(workId)
+            val result = listenerReviewLifecycle.delete(workId, uid)
+            // A confirmed deletion re-reads the truth; a failure already put the
+            // last confirmed card back inside the lifecycle.
+            if (result == ReviewDeleteResult.DELETED) listenerReviewLifecycle.refresh(workId)
         }
+    }
+
+    /** Spec-620 (#626) — resends the exact failed payload of the open Work. */
+    fun retryReview(workId: String) {
+        viewModelScope.launch(Dispatchers.IO) { listenerReviewLifecycle.retry(workId) }
     }
 
     // Spec-15 T5: the labelled per-source detail blocks of the selected book.
@@ -5385,14 +5518,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // one would be a real leak of the listener's curation.
         val target = _listenerCollections.value
             .firstOrNull { it.id == pendingPublishCollectionId } ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            // #692 — freeze the local display facts of every position, so the
+            // published composition renders for a reader who owns none of them.
+            val snapshots = target.items.associate { item ->
+                val row = runCatching { App.instance.audiobookDao.getAudiobookById(item.bookId) }.getOrNull()
+                item.bookId to com.slukhayka.audiobooks.data.collections.PublishedCollectionFactory.ItemSnapshot(
+                    title = row?.title.orEmpty(),
+                    author = row?.author.orEmpty(),
+                    coverUrl = row?.coverImageUrl
+                )
+            }
             App.instance.publicCollectionsGate.publish(
                 collection = target,
                 authorId = authorId,
-                pseudonym = pseudonym
+                pseudonym = pseudonym,
+                itemSnapshots = snapshots
             )
-            _publicationPreview.value = null
-            pendingPublishCollectionId = null
+            withContext(Dispatchers.Main) {
+                _publicationPreview.value = null
+                pendingPublishCollectionId = null
+            }
         }
     }
 
@@ -5403,6 +5549,200 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val publishedListenerCollections:
         StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
         _publishedListenerCollections.asStateFlow()
+
+    // Spec-51 (#692) — «Добірки з цією книгою» on the book page: one query per
+    // open book, with a stale answer for a previous book dropped.
+    private val _collectionsWithBook =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val collectionsWithBook:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _collectionsWithBook.asStateFlow()
+    private var collectionsWithBookRequest = 0L
+
+    /** Reads the VISIBLE published collections that contain this book. */
+    fun loadCollectionsWithBook(bookId: String) {
+        val request = ++collectionsWithBookRequest
+        if (!publicCollectionsAvailable || bookId.isBlank()) {
+            _collectionsWithBook.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            // #692 — a failed read keeps the last good list (stale fallback); a
+            // real empty clears it; data replaces it.
+            when (val result = App.instance.publicCollectionsGate.readContaining(bookId)) {
+                is com.slukhayka.audiobooks.data.collections.CollectionReadResult.Data ->
+                    if (request == collectionsWithBookRequest) {
+                        _collectionsWithBook.value = result.collections
+                    }
+                com.slukhayka.audiobooks.data.collections.CollectionReadResult.Empty ->
+                    if (request == collectionsWithBookRequest) {
+                        _collectionsWithBook.value = emptyList()
+                    }
+                com.slukhayka.audiobooks.data.collections.CollectionReadResult.Failure -> Unit
+            }
+        }
+    }
+
+    // Spec-51 (#694) — the viewer's own vote on the collection they opened.
+    private val _publicCollectionMyVote = MutableStateFlow<Int?>(null)
+    val publicCollectionMyVote: StateFlow<Int?> = _publicCollectionMyVote.asStateFlow()
+    private val _publicCollectionVoteResults = MutableSharedFlow<Boolean>(extraBufferCapacity = 8)
+
+    /** true = stored, false = an honest refusal (offline / no identity). */
+    val publicCollectionVoteResults: SharedFlow<Boolean> = _publicCollectionVoteResults.asSharedFlow()
+
+    /** Reads the listener's own stars for one collection (voterKey = sha256(uid+id)). */
+    fun loadMyCollectionVote(collectionId: String) {
+        val key = com.slukhayka.audiobooks.data.collections.CollectionIdentity
+            .voterKey(_listenerIdentity.value?.uid, collectionId)
+        if (!publicCollectionsAvailable || key.isEmpty()) {
+            _publicCollectionMyVote.value = null
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _publicCollectionMyVote.value = App.instance.publicCollectionsGate.myVote(key)
+        }
+    }
+
+    /**
+     * One vote per person; a re-vote replaces it. Online-only: a refusal is
+     * announced and nothing is queued or faked.
+     */
+    fun voteCollection(bookId: String, documentId: String, collectionId: String, stars: Int) {
+        val key = com.slukhayka.audiobooks.data.collections.CollectionIdentity
+            .voterKey(_listenerIdentity.value?.uid, collectionId)
+        if (!publicCollectionsAvailable || key.isEmpty()) {
+            viewModelScope.launch { _publicCollectionVoteResults.emit(false) }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val stored = App.instance.publicCollectionsGate.vote(documentId, key, stars) ==
+                com.slukhayka.audiobooks.data.collections.PublishResult.Published
+            if (stored) {
+                _publicCollectionMyVote.value = stars
+                // The server aggregate is the truth: re-read the surfaces
+                // instead of inventing the new average locally.
+                loadCollectionsWithBook(bookId)
+                loadPublicCollectionsRail()
+            }
+            _publicCollectionVoteResults.emit(stored)
+        }
+    }
+
+    // Spec-51 (#696) — the reporter's LOCAL «приховано вами» set: a reported
+    // collection leaves their surfaces at once, and the local hide can be
+    // cancelled while the report itself stands.
+    private val _reportedCollectionIds = MutableStateFlow<Set<String>>(emptySet())
+    val reportedCollectionIds: StateFlow<Set<String>> = _reportedCollectionIds.asStateFlow()
+    private val _collectionReportResults = MutableSharedFlow<Pair<String, Boolean>>(extraBufferCapacity = 8)
+
+    /** documentId -> stored; false is an honest refusal (offline / no identity). */
+    val collectionReportResults: SharedFlow<Pair<String, Boolean>> = _collectionReportResults.asSharedFlow()
+
+    fun reportCollection(bookId: String, documentId: String, collectionId: String) {
+        val key = com.slukhayka.audiobooks.data.collections.CollectionIdentity
+            .voterKey(_listenerIdentity.value?.uid, collectionId)
+        if (!publicCollectionsAvailable || key.isEmpty()) {
+            viewModelScope.launch { _collectionReportResults.emit(documentId to false) }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val stored = App.instance.publicCollectionsGate.report(documentId, key) ==
+                com.slukhayka.audiobooks.data.collections.PublishResult.Published
+            if (stored) {
+                _reportedCollectionIds.update { it + documentId }
+                loadCollectionsWithBook(bookId)
+                loadPublicCollectionsRail()
+            }
+            _collectionReportResults.emit(documentId to stored)
+        }
+    }
+
+    /** Cancels only the LOCAL hide; the complaint itself is not withdrawn. */
+    fun unhideReportedCollection(documentId: String) {
+        _reportedCollectionIds.update { it - documentId }
+    }
+
+    // Spec-51 (#693) — the public «Добірки слухачів» rail and the curator
+    // profile. Both are honest absences without a shared store.
+    private val _publicCollectionsRail =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val publicCollectionsRail:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _publicCollectionsRail.asStateFlow()
+
+    fun loadPublicCollectionsRail(limit: Int = 10) {
+        if (!publicCollectionsAvailable) {
+            _publicCollectionsRail.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _publicCollectionsRail.value = App.instance.publicCollectionsGate.topPublic(limit)
+        }
+    }
+
+    // #693 — the shared "open a public collection" surface any screen raises.
+    private val _publicCollectionSheetId = MutableStateFlow<String?>(null)
+    val publicCollectionSheetId: StateFlow<String?> = _publicCollectionSheetId.asStateFlow()
+
+    fun openPublicCollection(documentId: String) {
+        _publicCollectionSheetId.value = documentId
+        val collection = (_publicCollectionsRail.value + _collectionsWithBook.value +
+            _curatorProfileCollections.value).firstOrNull { it.documentId == documentId }
+        if (collection != null) loadMyCollectionVote(collection.collectionId)
+    }
+
+    fun closePublicCollection() {
+        _publicCollectionSheetId.value = null
+    }
+
+    /** Pseudonym of the open curator profile (null = closed). */
+    private val _curatorProfilePseudonym = MutableStateFlow<String?>(null)
+    val curatorProfilePseudonym: StateFlow<String?> = _curatorProfilePseudonym.asStateFlow()
+    private val _curatorProfileCollections =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>>(emptyList())
+    val curatorProfileCollections:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
+        _curatorProfileCollections.asStateFlow()
+    private var curatorProfileRequest = 0L
+
+    /** Opens a curator by pseudonym; only VISIBLE collections are read. */
+    fun openCuratorProfile(authorId: String, pseudonym: String) {
+        val request = ++curatorProfileRequest
+        _curatorProfilePseudonym.value = pseudonym
+        _curatorProfileCollections.value = emptyList()
+        if (!publicCollectionsAvailable || authorId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val visible = App.instance.publicCollectionsGate.visibleBy(authorId)
+            if (request == curatorProfileRequest) _curatorProfileCollections.value = visible
+        }
+    }
+
+    fun closeCuratorProfile() {
+        curatorProfileRequest++
+        _curatorProfilePseudonym.value = null
+        _curatorProfileCollections.value = emptyList()
+    }
+
+    /** Resolves the shared sheet's collection from every loaded list. */
+    val openedPublicCollection:
+        StateFlow<com.slukhayka.audiobooks.data.collections.PublishedCollection?> = combine(
+            _publicCollectionSheetId,
+            _publicCollectionsRail,
+            _collectionsWithBook,
+            _curatorProfileCollections
+        ) { id, rail, withBook, profile ->
+            if (id == null) null else (rail + withBook + profile).firstOrNull { it.documentId == id }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+
+    /** #696 — the author removes a hidden (or any own) published collection. */
+    fun deleteOwnPublishedCollection(documentId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            App.instance.publicCollectionsGate.deleteOwnCollection(documentId)
+            refreshMyPublishedCollections()
+        }
+    }
 
     /**
      * Reads the signed-in listener's own published collections. The uid comes
@@ -5446,7 +5786,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * copy is purely LOCAL: no network is needed to save it.
      */
     fun saveForkOfPublished(documentId: String) {
-        val published = _publishedListenerCollections.value
+        // A fork target may be someone ELSE's collection (the book-page block)
+        // as well as one of the listener's own published collections (#695).
+        val published = (_publishedListenerCollections.value + _collectionsWithBook.value)
             .firstOrNull { it.documentId == documentId } ?: return
         // The published shape carries no local reasons, so rebuild the
         // composition with them positionally — that is what a fork copies.
@@ -5463,6 +5805,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         )
+        // #695 — the honest gate lives in the domain: a fork is an offline
+        // copy, so at least one of the original's books must be here.
+        val localBookIds = libraryBooks.value.mapTo(mutableSetOf()) { it.book.id }
+        if (!com.slukhayka.audiobooks.data.collections.ForkPolicy.canFork(
+                published.bookIds,
+                localBookIds
+            )
+        ) {
+            return
+        }
         viewModelScope.launch {
             val outcome = com.slukhayka.audiobooks.data.collections.ForkPolicy.fork(
                 original = original,

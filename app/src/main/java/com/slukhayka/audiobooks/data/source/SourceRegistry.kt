@@ -46,6 +46,24 @@ data class BrowserProfileFacts(
     val releaseBrowserDoor: Boolean = false
 )
 
+/**
+ * ADR-0050 — the registered community Telegram group: the public group URL
+ * (never an invite token) and the parser key its channel posts are read under.
+ */
+data class TelegramProfileFacts(
+    /** The registered community group's public URL. */
+    val groupUrl: String = "",
+    /** The group's numeric chat id (negative for a supergroup) — the MTProto peer. */
+    val chatId: Long = 0L,
+    /**
+     * The forum topic that carries the shared library, when the group is a
+     * forum; null for a plain group.
+     */
+    val threadId: Long? = null,
+    /** True when the group is a forum: posts live in topics, not in the main feed. */
+    val isForum: Boolean = false
+)
+
 /** One declarative row of the Source Registry (ADR-0038). */
 data class SourceFacts(
     /** The stable, persisted (Room `sources.type`) domain id. */
@@ -83,7 +101,9 @@ data class SourceFacts(
     val catalogUrl: String? = null,
     /** All hosts the platform transports may fetch for this source (web SSRF allowlist, cookie/audio boundaries). */
     val transportHosts: Set<String> = emptySet(),
-    val browserProfile: BrowserProfileFacts? = null
+    val browserProfile: BrowserProfileFacts? = null,
+    /** ADR-0050 — present only on the registered community Telegram group. */
+    val telegramProfile: TelegramProfileFacts? = null
 )
 
 /**
@@ -237,11 +257,22 @@ object SourceRegistry {
         ),
         SourceFacts(
             id = "telegram",
-            displayName = "Telegram",
+            // ADR-0050 — the registered community group, not a generic source.
+            displayName = "Слухайка",
+            homeUrl = "https://t.me/slukhayka",
             contentLanguage = "uk",
-            accessMode = SourceAccessMode.UNKNOWN,
+            accessMode = SourceAccessMode.TELEGRAM,
             order = 10,
-            transportHosts = emptySet()
+            // No HTTP transport: audio comes over MTProto under the listener's
+            // own account, never through the shared HTTP lane.
+            transportHosts = emptySet(),
+            // The registered community group and its shared-library topic.
+            telegramProfile = TelegramProfileFacts(
+                groupUrl = "https://t.me/slukhayka",
+                chatId = -1004476157917L,
+                threadId = 573L,
+                isForum = true
+            )
         ),
         SourceFacts(
             id = "sluhayknigi",

@@ -20,7 +20,21 @@ data class SubmissionState(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    enum class State { AWAITING_PLAY, PUBLISHED, REFUSED, WATCHING, DEFERRED, DEFERRED_PUBLICATION }
+    enum class State {
+        AWAITING_PLAY,
+        PUBLISHED,
+        REFUSED,
+        WATCHING,
+        DEFERRED,
+        DEFERRED_PUBLICATION,
+
+        /**
+         * Moderation T4 (#837) — the verified submission is a QUEUED candidate:
+         * the curator has not decided yet, so the honest state is "waiting",
+         * never a promise that it is already in the shared base.
+         */
+        PENDING_MODERATION
+    }
 }
 
 interface SubmissionStateStore {
@@ -45,6 +59,12 @@ interface SubmissionStateStore {
      * verdict's proof (no second playback is ever needed).
      */
     suspend fun deferredPublications(): List<SubmissionState>
+
+    /**
+     * #837 — the rows a book card derives its honest submission badge from:
+     * a queued candidate, an approved publication and a curator rejection.
+     */
+    suspend fun badgeRows(): List<SubmissionState> = emptyList()
 
     /** Spec-53 T8 — drops one row (a processed or discarded deferred link). */
     suspend fun remove(sourceId: String)
@@ -75,6 +95,12 @@ class InMemorySubmissionStateStore : SubmissionStateStore {
             .filter { it.state == SubmissionState.State.DEFERRED_PUBLICATION }
             .sortedBy { it.createdAt }
 
+    override suspend fun badgeRows(): List<SubmissionState> = rows.values.filter {
+        it.state == SubmissionState.State.PENDING_MODERATION ||
+            it.state == SubmissionState.State.PUBLISHED ||
+            it.state == SubmissionState.State.REFUSED
+    }
+
     override suspend fun remove(sourceId: String) {
         rows.remove(sourceId)
     }
@@ -97,6 +123,9 @@ class RoomSubmissionStateStore(private val dao: AudiobookDao) : SubmissionStateS
         dao.submissionStateBySourceId(sourceId)?.toModel()
     override suspend fun byBookId(bookId: String): SubmissionState? =
         dao.submissionStateByBookId(bookId)?.toModel()
+
+    override suspend fun badgeRows(): List<SubmissionState> =
+        dao.badgeSubmissionStates().map { it.toModel() }
     override suspend fun awaiting(): List<SubmissionState> =
         dao.awaitingSubmissionStates().map { it.toModel() }
 

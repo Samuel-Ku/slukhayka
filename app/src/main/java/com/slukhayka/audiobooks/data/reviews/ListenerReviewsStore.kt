@@ -2,6 +2,41 @@ package com.slukhayka.audiobooks.data.reviews
 
 import kotlinx.coroutines.CancellationException
 
+/**
+ * Spec-620 (#626) — separates the immediate LOCAL acceptance of a delete from
+ * its backend verdict, exactly as [ReviewWriteReceipt] does for a save. A
+ * missing/failing transport is [Rejected]; a queued delete owns the separate,
+ * cancellable acknowledgement.
+ */
+sealed interface ReviewDeleteReceipt {
+    data object Rejected : ReviewDeleteReceipt
+
+    class Queued internal constructor(
+        private val acknowledgement: suspend () -> Boolean
+    ) : ReviewDeleteReceipt {
+        suspend fun awaitRemote(): Boolean = try {
+            acknowledgement()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+    }
+}
+
+/**
+ * Spec-620 (#623) — the honest outcome of READING one Work's reviews. The
+ * existing [ListenerReviewsStore.getReviews] keeps its degrade-to-empty
+ * convenience for non-UI callers; the lifecycle module needs the three states
+ * apart, because a failed read must keep the last confirmed snapshot while a
+ * genuine empty must clear it.
+ */
+sealed interface ReviewReadResult {
+    data class Data(val reviews: List<ListenerReview>) : ReviewReadResult
+    data object Empty : ReviewReadResult
+    data object Failure : ReviewReadResult
+}
+
 /** The backend's eventual verdict after a review was accepted by the local queue. */
 enum class ReviewRemoteResult {
     PUBLISHED,
@@ -66,6 +101,18 @@ interface ListenerReviewsStore {
     }
 
     /**
+     * Spec-620 (#623) — reads one Work's reviews with the three outcomes kept
+     * apart. A transport failure is [ReviewReadResult.Failure] (NOT an empty
+     * community), a successful empty answer is [ReviewReadResult.Empty], and
+     * real documents are [ReviewReadResult.Data] newest-first.
+     */
+    suspend fun readReviews(workId: String): ReviewReadResult {
+        val documents = queryWorkDocumentsOrNull(workId) ?: return ReviewReadResult.Failure
+        val reviews = decode(documents)
+        return if (reviews.isEmpty()) ReviewReadResult.Empty else ReviewReadResult.Data(reviews)
+    }
+
+    /**
      * Enqueues one idempotent review write without waiting for the backend.
      * Invalid input or a synchronous local rejection returns [ReviewWriteReceipt.Rejected]
      * before the UI can claim it was queued. A queued receipt owns the separate,
@@ -100,6 +147,21 @@ interface ListenerReviewsStore {
         false
     }
 
+    /**
+     * Spec-620 (#626) — locally accepts one delete and returns its separate
+     * backend verdict. The default keeps the old blocking contract for
+     * implementations that cannot split the two; the Firestore store overrides
+     * it so the call returns as soon as the delete is in the local queue.
+     */
+    suspend fun enqueueDelete(documentId: String): ReviewDeleteReceipt = try {
+        val removed = removeDocument(documentId)
+        ReviewDeleteReceipt.Queued { removed }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        ReviewDeleteReceipt.Rejected
+    }
+
     // ---------------------------------------------------------------------
     // Transport — the ONLY part an implementation supplies. May throw; the
     // seam's policy methods fail closed around every call.
@@ -107,6 +169,19 @@ interface ListenerReviewsStore {
 
     /** Raw documents of one Work's reviews (any order; the seam sorts). */
     suspend fun queryWorkDocuments(workId: String): List<Map<String, Any>>
+
+    /**
+     * Spec-620 (#623) — the same read, but a transport failure is null rather
+     * than an empty list. Implementations that can tell the two apart override
+     * this; the default keeps the old degrade-to-empty contract.
+     */
+    suspend fun queryWorkDocumentsOrNull(workId: String): List<Map<String, Any>>? = try {
+        queryWorkDocuments(workId)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
 
     /** Raw documents across several Works — chunked internally by the impl. */
     suspend fun queryWorksDocuments(workIds: List<String>): List<Map<String, Any>>

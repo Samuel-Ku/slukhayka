@@ -51,9 +51,10 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         FeedSnapshotEntity::class,
         PopularityAssertionEntity::class,
         EmbeddingVectorEntity::class,
-        SubmissionStateEntity::class
+        SubmissionStateEntity::class,
+        ReadthroughEntity::class,
     ],
-    version = 45,
+    version = 47,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -97,7 +98,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47
                     )
                     .build()
                 INSTANCE = instance
@@ -1415,6 +1416,87 @@ abstract class AudiobookDatabase : RoomDatabase() {
                          "`createdAt` INTEGER NOT NULL, " +
                          "`updatedAt` INTEGER NOT NULL, " +
                          "PRIMARY KEY(`sourceId`))"
+                 )
+             }
+         }
+
+         /**
+          * ADR-0046 / spec-54 T13 (#863) — v45 -> v46: the `readthroughs` table.
+          *
+          * This step is ADDITIVE and conservative: it creates the table and
+          * touches no existing row, so nothing is lost and nothing is guessed.
+          * Backfilling the existing audio rows into audio Readthroughs is the
+          * NEXT step, and it may only classify what the data proves.
+          */
+         internal val MIGRATION_45_46 = object : Migration(45, 46) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "CREATE TABLE IF NOT EXISTS `readthroughs` (" +
+                         "`id` TEXT NOT NULL, " +
+                         "`libraryEntryId` TEXT NOT NULL, " +
+                         "`workId` TEXT NOT NULL, " +
+                         "`format` TEXT NOT NULL, " +
+                         "`state` TEXT NOT NULL, " +
+                         "`startedAt` INTEGER NOT NULL, " +
+                         "`finishedAt` INTEGER, " +
+                         "`editionId` TEXT, " +
+                         "`unit` TEXT NOT NULL, " +
+                         "`unitValue` INTEGER NOT NULL, " +
+                         "`journalJson` TEXT NOT NULL DEFAULT '[]', " +
+                         "PRIMARY KEY(`id`))"
+                 )
+                 db.execSQL("CREATE INDEX IF NOT EXISTS index_readthroughs_libraryEntryId ON `readthroughs`(`libraryEntryId`)")
+                 db.execSQL("CREATE INDEX IF NOT EXISTS index_readthroughs_workId ON `readthroughs`(`workId`)")
+
+                 // ADR-0046 §7 — the CONSERVATIVE backfill: every existing
+                 // library row becomes an AUDIO Readthrough of its Work, and
+                 // nothing is deleted, hidden or guessed. The state comes from
+                 // evidence only: a completed playback row PROVES "finished",
+                 // a progress row proves "in progress", and its position is the
+                 // observed seconds. No row at all means PLANNED with zero —
+                 // never an invented progress (ADR-0014).
+                 //
+                 // The id is deterministic (`rt-audio-<entryId>`), so running
+                 // the migration twice cannot duplicate a pass, and the journal
+                 // starts empty: the old data never journaled, and inventing
+                 // records for it would be a lie.
+                 db.execSQL(
+                     "INSERT OR IGNORE INTO `readthroughs` (" +
+                         "`id`, `libraryEntryId`, `workId`, `format`, `state`, `startedAt`, " +
+                         "`finishedAt`, `editionId`, `unit`, `unitValue`, `journalJson`) " +
+                         "SELECT " +
+                         "'rt-audio-' || e.`id`, e.`id`, e.`workId`, 'AUDIO', " +
+                         "CASE " +
+                         "WHEN p.`isCompleted` = 1 THEN 'FINISHED' " +
+                         "WHEN p.`editionId` IS NOT NULL THEN 'IN_PROGRESS' " +
+                         "ELSE 'PLANNED' END, " +
+                         "e.`createdAt`, " +
+                         "CASE WHEN p.`isCompleted` = 1 THEN p.`lastListenedAt` ELSE NULL END, " +
+                         "e.`id`, 'SECONDS', " +
+                         // ADR-0046 §3 — the live position stays in Listening
+                         // State: the pass stores NO second copy of it, so its
+                         // unit value starts at zero and the player remains the
+                         // one truth about where the listener is.
+                         "0, '[]' " +
+                         "FROM `library_entries` e " +
+                         "LEFT JOIN `playback_progress` p ON p.`editionId` = e.`id`"
+                 )
+             }
+         }
+
+         /**
+          * ADR-0047 / spec-54 T09 (#867) — v46 -> v47: `library_entries.origin`.
+          *
+          * Every EXISTING row gets UNKNOWN: the fact was never recorded, and
+          * nothing in the data proves how those links began. Marking them
+          * AUTO_SEED would be exactly the guesswork the ADR forbids. UNKNOWN
+          * rows are visible in «Імпортоване» with two explicit actions, so
+          * nothing disappears and nothing is hidden without explanation.
+          */
+         internal val MIGRATION_46_47 = object : Migration(46, 47) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "ALTER TABLE `library_entries` ADD COLUMN `origin` TEXT NOT NULL DEFAULT 'UNKNOWN'"
                  )
              }
          }

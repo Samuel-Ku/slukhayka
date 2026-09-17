@@ -49,6 +49,9 @@ object ManualBookAddPolicy {
         if (request.title.isBlank() || request.author.isBlank()) {
             return ManualBookAddPlan.Refused(REASON_NO_IDENTITY)
         }
+        // No Work identity means no Work to attach the entry to: refuse rather
+        // than create an unmergeable orphan.
+        if (workKey(request).isBlank()) return ManualBookAddPlan.Refused(REASON_NO_IDENTITY)
         if (request.now <= 0L) return ManualBookAddPlan.Refused(REASON_NO_MOMENT)
 
         return when {
@@ -97,20 +100,24 @@ object ManualBookAddPolicy {
         if (!request.wantsToRead) return null
         return ReadthroughPolicy.start(
             id = readthroughId(request),
-            // The entry id is derived by the caller; the pass only needs to be
-            // tied to the same Work, which start() requires explicitly.
             libraryEntryId = libraryEntryId(request),
-            workId = libraryEntryId(request),
+            workId = workKey(request),
             format = request.format,
             startedAt = request.now,
             editionId = editionId
         )
     }
 
+    /**
+     * The Work identity the rest of the app merges on (`MergeKey`), so a manual
+     * add joins the existing Work instead of forking a private one.
+     */
+    fun workKey(request: ManualBookAddRequest): String =
+        com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(request.title, request.author)
+
     /** Deterministic, derived from the identity: an idempotent manual add. */
     fun libraryEntryId(request: ManualBookAddRequest): String =
-        "manual:" + request.format.name.lowercase() + ":" +
-            request.title.trim().lowercase() + "|" + request.author.trim().lowercase()
+        "manual:" + request.format.name.lowercase() + ":" + workKey(request)
 
     fun readthroughId(request: ManualBookAddRequest): String = "rt-" + libraryEntryId(request)
 }

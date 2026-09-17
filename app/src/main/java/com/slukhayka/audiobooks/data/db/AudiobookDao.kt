@@ -994,6 +994,21 @@ interface AudiobookDao {
     @Query("SELECT * FROM library_entries WHERE id = :bookId LIMIT 1")
     suspend fun libraryEntryById(bookId: String): LibraryEntryEntity?
 
+    // ADR-0047 / #870 — the origin MUST be recorded by the write that creates
+    // the link (a manual add is an explicit action), so it cannot fall back to
+    // the column's UNKNOWN default.
+    @Query(
+        "INSERT OR REPLACE INTO library_entries " +
+            "(id, workId, isFavorite, createdAt, downloadProgress, origin) " +
+            "VALUES (:id, :workId, 0, :createdAt, 0, :origin)"
+    )
+    suspend fun insertLibraryEntryWithOrigin(
+        id: String,
+        workId: String,
+        origin: String,
+        createdAt: Long
+    )
+
     @Query("SELECT * FROM library_entries")
     fun observeLibraryEntries(): Flow<List<LibraryEntryEntity>>
 

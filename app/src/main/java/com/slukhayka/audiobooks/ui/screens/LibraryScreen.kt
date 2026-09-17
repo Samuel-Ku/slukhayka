@@ -263,6 +263,10 @@ fun LibraryScreen(
     // after every action), so the list is never a stale promise.
     LaunchedEffect(activeTab) {
         if (activeTab == 3) viewModel.refreshImportedEntries()
+        // #885 — the books tab shows the «Мій рік» hero, so the year must be
+        // loaded for it too; otherwise the card stays hidden until the listener
+        // happens to open the separate year view.
+        if (activeTab == 0) viewModel.refreshReadingYear()
         if (activeTab == 4) {
             viewModel.refreshReadingYear()
             viewModel.refreshActiveReadings()
@@ -278,6 +282,9 @@ fun LibraryScreen(
     // Browsing the whole library vs narrowing it down: the sections (and the
     // «Продовжити» card) only make sense while nothing is filtering.
     val browsing = filter == LibraryFilter.ALL && query.isBlank()
+    // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
+    // block of the screen, so the state is read here and not inside the tab body.
+    val yearGoal by viewModel.readingYear.collectAsState()
     val continueBook = remember(libraryBooks) {
         libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
     }
@@ -341,7 +348,11 @@ fun LibraryScreen(
     val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing) {
         libraryGridEntries(
-            browsing = browsing,
+            // #885 — the prototype's «Книги» is a VERTICAL list of rows with a
+            // progress line, not a wall of shelves: shelves belong to «Полиці»
+            // (their own tab above). So the books tab always builds the dense
+            // section+rows shape.
+            browsing = false,
             gridMode = gridMode,
             visible = shownCards,
             continueBook = continueBook,
@@ -461,6 +472,27 @@ fun LibraryScreen(
                     }
                 }
             )
+
+            // #885 — the prototype («Нічна бібліотека») switches between
+            // «Книги / Полиці / Збережене» with a visible control at the top,
+            // instead of hiding two of the three behind the overflow menu.
+            if (activeTab == 0) {
+                yearGoal?.let { goal ->
+                    Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
+                        LibraryYearHero(goal = goal)
+                    }
+                }
+            }
+
+            if (activeTab == 0 || activeTab == 1) {
+                LibrarySectionTabs(
+                    booksSelected = activeTab == 0,
+                    savedSelected = activeTab == 1,
+                    onBooks = { activeTab = 0 },
+                    onShelves = { viewModel.openCollectionsIndex() },
+                    onSaved = { activeTab = 1 }
+                )
+            }
 
             if (activeTab == 0) {
                 // Library chrome (wayfinder #39): the collapsible search (v1.4
@@ -690,7 +722,11 @@ fun LibraryScreen(
                         ) {
                             libraryGridContent(
                                 entries = gridEntries,
-                                browsing = browsing,
+                                // #885 — must match the shape `libraryGridEntries`
+                                // built above (always the dense rows on «Книги»),
+                                // otherwise the renderer falls back to the wall of
+                                // cards and none of the row work shows up.
+                                browsing = false,
                                 gridMode = gridMode,
                                 availability = libraryAvailability,
                                 downloadCounts = bookDownloadCounts,
@@ -1590,7 +1626,18 @@ internal fun LazyGridScope.libraryGridContent(
                         availability = availability[gridEntry.book.book.mergeKey],
                         onRecheck = { onRecheck(gridEntry.book.book.id) },
                         downloadCount = downloadCounts[gridEntry.book.book.id],
-                        onOpen = { onBookClick(gridEntry.book.book.id) }
+                        onOpen = { onBookClick(gridEntry.book.book.id) },
+                        // Same contract as the card above: one requester, ONE
+                        // node — the book we are returning to. Attaching it to
+                        // every row made focus unresolvable, and the a11y
+                        // journey timed out waiting for `Focused`.
+                        bookReturnFocusRequester = if (
+                            gridEntry.book.book.id == restoreFocusBookId
+                        ) {
+                            bookReturnFocusRequester
+                        } else {
+                            null
+                        }
                     )
                 } else {
                     card(gridEntry.book, gridMode)
@@ -1647,10 +1694,12 @@ internal fun LibrarySectionHeader(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = title.uppercase(),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
+                // #885 — the prototype writes section titles as a sentence
+                // («Читаю та слухаю зараз»), not as shouted caps: sentence case,
+                // a step larger, no tracking.
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() }
@@ -1699,7 +1748,12 @@ internal fun LibraryDenseRow(
     availability: AvailabilityView?,
     onRecheck: () -> Unit,
     downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    // #885 — the books tab renders EVERY book as this row now, so the row must
+    // carry the return-focus contract the card used to own; without it the
+    // "come back from the book" logic requested focus on an unattached
+    // requester and the a11y journey crashed.
+    bookReturnFocusRequester: FocusRequester? = null
 ) {
     val units = stringRemainingTimeUnits()
     val remaining = if (book.totalDurationSeconds > 0L) {
@@ -1759,11 +1813,24 @@ internal fun LibraryDenseRow(
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
         Column(
             modifier = Modifier
+                // #885 — the card attaches the return-focus requester FIRST in
+                // the chain; the row must do the same, otherwise the focus never
+                // lands and the a11y journey times out waiting for `Focused`.
+                .then(
+                    if (bookReturnFocusRequester != null) {
+                        Modifier.focusRequester(bookReturnFocusRequester)
+                    } else {
+                        Modifier
+                    }
+                )
                 .weight(1f)
                 .padding(vertical = AppDimens.SpaceMd)
                 .focusProperties { canFocus = true }
                 .clickable(onClick = onOpen)
-                .testTag("library_dense_item_${book.book.id}")
+                // #885 — the dense row IS the library book item: keep the
+                        // long-standing contract tag the journeys click, so the
+                        // accessibility and playback tests keep their anchor.
+                        .testTag("library_book_item_${book.book.id}")
                 .clearAndSetSemantics {
                     contentDescription = description
                     stateDescription = state
@@ -1809,6 +1876,26 @@ internal fun LibraryDenseRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck() }
                 )
+            }
+            // #885 — the prototype shows a thin progress line under every row, so
+            // the queue reads at a glance without opening the book.
+            if (book.totalDurationSeconds > 0L && !book.isNew) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        .testTag("library_row_progress_${book.book.id}")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(book.percent.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
@@ -2900,6 +2987,94 @@ private fun ReadingProgressRow(
                     .testTag("reading_finish_${pass.id}")
             ) {
                 Text(stringResource(R.string.lib_year_finish))
+            }
+        }
+    }
+}
+
+/**
+ * #885 — «Мій рік» as a hero card on top of «Мої книги» (prototype:
+ * docs/prototypes/slukhayka-expressive.html). Reuses the SAME year data the
+ * separate year view shows, so the two can never disagree.
+ */
+@Composable
+private fun LibraryYearHero(goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal) {
+    // Prototype («Нічна бібліотека») shows the year as a TONAL hero card: the
+    // amber container, the year as a small label, the finished count big.
+    // A progress bar would need a yearly TARGET, which the domain does not have
+    // (YearlyReadingGoal carries only what was finished) — so no invented "12".
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = MaterialTheme.shapes.extraLarge,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("library_year_hero")
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+            Text(
+                text = stringResource(R.string.lib_year_hero_title, goal.year),
+                style = MaterialTheme.typography.labelLarge
+            )
+            Text(
+                text = goal.totalFinished.toString(),
+                style = MaterialTheme.typography.displaySmall
+            )
+            Text(
+                text = stringResource(R.string.lib_year_hero_units),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+
+/** #885 — Книги | Полиці | Збережене, the prototype's top-level switch. */
+@Composable
+private fun LibrarySectionTabs(
+    booksSelected: Boolean,
+    savedSelected: Boolean,
+    onBooks: () -> Unit,
+    onShelves: () -> Unit,
+    onSaved: () -> Unit,
+) {
+    val items = listOf(
+        Triple(stringResource(R.string.lib_section_books), booksSelected, "library_tab_books" to onBooks),
+        Triple(stringResource(R.string.lib_section_shelves), false, "library_tab_shelves" to onShelves),
+        Triple(stringResource(R.string.lib_section_saved), savedSelected, "library_tab_saved" to onSaved),
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEach { (label, selected, action) ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .padding(end = 20.dp)
+                    .testTag(action.first)
+                    .clickable(onClick = action.second)
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .height(3.dp)
+                        .width(if (selected) 24.dp else 0.dp)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary
+                            else Color.Transparent
+                        )
+                )
             }
         }
     }

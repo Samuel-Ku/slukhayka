@@ -83,7 +83,7 @@ class AccessibilityComponentsTest {
             }
         }
 
-        composeTestRule.onNodeWithText("НЕЩОДАВНО СЛУХАЛИ")
+        composeTestRule.onNodeWithText("Нещодавно слухали")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
     }
 

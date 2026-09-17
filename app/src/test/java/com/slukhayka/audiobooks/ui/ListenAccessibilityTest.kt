@@ -162,7 +162,7 @@ class ListenAccessibilityTest {
         }
 
         compose.onNodeWithTag("listen_block_heading_SHORT").assertExists()
-        compose.onNodeWithText("ЩОСЬ КОРОТКЕ")
+        compose.onNodeWithText("Щось коротке")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
     }
 

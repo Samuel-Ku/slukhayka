@@ -123,21 +123,11 @@ fun MiniPlayerBar(
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
                     .testTag("mini_player_bar")
             ) {
-                // Linear Progress Bar at the very top of Mini Player
+                // #885 — the prototype draws the progress line along the BOTTOM
+                // edge of the bar, right under the title row.
                 val progress = if (playerState.durationMs > 0) {
                     (playerState.currentPositionMs.toFloat() / playerState.durationMs.toFloat()).coerceIn(0f, 1f)
                 } else 0f
-
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clearAndSetSemantics { },
-                    color = MaterialTheme.colorScheme.primary,
-                    // Theme-aware track (MD3: never a raw white on the tonal bar).
-                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                )
 
                 Row(
                     modifier = Modifier
@@ -262,6 +252,24 @@ fun MiniPlayerBar(
                             modifier = Modifier.size(22.dp)
                         )
                     }
+                }
+                // #885 — the tag lives on a wrapper Box: the indicator itself uses
+                // clearAndSetSemantics (it is decoration), and that call would wash
+                // the tag away, leaving the geometry test with nothing to measure.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .testTag("mini_player_progress")
+                ) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clearAndSetSemantics { },
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    )
                 }
             }
         }

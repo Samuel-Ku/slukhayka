@@ -69,7 +69,10 @@ fun AppSectionHeader(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (level == SectionHeaderLevel.SECTION) title.uppercase() else title,
+                // #885 — the prototype writes section titles as a sentence, not
+                // as shouted caps («Читаю та слухаю зараз»), so the shared header
+                // stops forcing upper case on every screen at once.
+                text = title,
                 style = titleStyle,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() }

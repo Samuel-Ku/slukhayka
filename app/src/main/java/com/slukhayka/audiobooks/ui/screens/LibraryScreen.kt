@@ -604,9 +604,10 @@ fun LibraryScreen(
                 publishedCollections
                     .firstOrNull { it.documentId == openPublishedDocumentId }
                     ?.let { open ->
-                        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-                        androidx.compose.material3.ModalBottomSheet(
-                            onDismissRequest = { openPublishedDocumentId = null }
+                        com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+                            title = open.title,
+                            onClose = { openPublishedDocumentId = null },
+                            testTag = "published_collection_page"
                         ) {
                             com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
                                 collection = open,
@@ -635,9 +636,10 @@ fun LibraryScreen(
                         }
                     }
                 listenerCollections.firstOrNull { it.id == openCollectionId }?.let { open ->
-                    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-                    androidx.compose.material3.ModalBottomSheet(
-                        onDismissRequest = { openCollectionId = null }
+                    com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+                        title = open.title,
+                        onClose = { openCollectionId = null },
+                        testTag = "own_collection_page"
                     ) {
                         com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent(
                             collection = open,

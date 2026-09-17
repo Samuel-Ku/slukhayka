@@ -207,6 +207,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val importedEntries: StateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>> =
         _importedEntries.asStateFlow()
 
+    /**
+     * #870 — one manual add. The result is handed back so the surface can say
+     * WHY it refused (no identity, an Edition where none belongs, …) instead of
+     * failing silently.
+     */
+    suspend fun addManualBook(
+        request: com.slukhayka.audiobooks.data.entries.ManualBookAddRequest
+    ): com.slukhayka.audiobooks.data.entries.ManualBookAdder.Result =
+        runCatching { App.instance.manualBookAdder.add(request) }
+            .getOrElse {
+                com.slukhayka.audiobooks.data.entries.ManualBookAdder.Result.Refused(
+                    com.slukhayka.audiobooks.data.entries.ManualBookAddPolicy.REASON_NO_IDENTITY
+                )
+            }
+
     fun refreshImportedEntries() {
         viewModelScope.launch(Dispatchers.IO) {
             _importedEntries.value = runCatching {

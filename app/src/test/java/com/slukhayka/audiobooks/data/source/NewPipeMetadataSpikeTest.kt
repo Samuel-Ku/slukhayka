@@ -74,6 +74,19 @@ class NewPipeMetadataSpikeTest {
     }
 
     /**
+     * #772 — OUR transport, narrated: prints every request it makes and the
+     * answer it gets, so the divergence from the working control is visible.
+     */
+    private object LoggingShared : Downloader() {
+        override fun execute(request: Request): Response {
+            println("SPIKE our-url ${request.httpMethod()} ${request.url()}")
+            val response = NewPipeYouTubeExtractor.SharedClientDownloader.execute(request)
+            println("SPIKE our-url answered")
+            return response
+        }
+    }
+
+    /**
      * #772 attribution, variant 1: OUR browser identity, but NO privacy relay.
      * If this fails while [PlainDownloader] works, the header substitution is
      * what YouTube answers differently.
@@ -188,6 +201,15 @@ class NewPipeMetadataSpikeTest {
         NewPipe.init(PlainDownloader)
         val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
         println("SPIKE plain-transport name=${info.name} durationSec=${info.duration}")
+    }
+
+    @Test
+    fun `our transport narrates its requests`() {
+        assumeTrue(gate())
+        val url = System.getProperty("spike.video") ?: return
+        NewPipe.init(LoggingShared)
+        runCatching { StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url)) }
+            .onFailure { println("SPIKE our-url failed=${it.javaClass.simpleName}: ${it.message}") }
     }
 
     @Test

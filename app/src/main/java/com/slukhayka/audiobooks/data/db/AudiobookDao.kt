@@ -1607,6 +1607,23 @@ interface AudiobookDao {
     )
     suspend fun badgeSubmissionStates(): List<SubmissionStateEntity>
 
+    // ADR-0046 / spec-54 T13 (#863) — the Readthrough carrier. The APPEND-ONLY
+    // journal lives inside the row (journalJson), so a pass is one write.
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertReadthrough(entity: ReadthroughEntity)
+
+    @Query("SELECT * FROM readthroughs WHERE workId = :workId ORDER BY startedAt DESC")
+    suspend fun readthroughsForWork(workId: String): List<ReadthroughEntity>
+
+    @Query("SELECT * FROM readthroughs WHERE libraryEntryId = :libraryEntryId ORDER BY startedAt DESC")
+    suspend fun readthroughsForEntry(libraryEntryId: String): List<ReadthroughEntity>
+
+    @Query("SELECT * FROM readthroughs WHERE id = :id LIMIT 1")
+    suspend fun readthroughById(id: String): ReadthroughEntity?
+
+    @Query("DELETE FROM readthroughs WHERE id = :id")
+    suspend fun deleteReadthrough(id: String)
+
     /** Spec-53 T8 — drops one submission row (processed or discarded). */
     @Query("DELETE FROM submission_states WHERE sourceId = :sourceId")
     suspend fun deleteSubmissionState(sourceId: String)

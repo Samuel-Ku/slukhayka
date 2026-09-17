@@ -1801,7 +1801,10 @@ internal fun LibraryDenseRow(
                 .padding(vertical = AppDimens.SpaceMd)
                 .focusProperties { canFocus = true }
                 .clickable(onClick = onOpen)
-                .testTag("library_dense_item_${book.book.id}")
+                // #885 — the dense row IS the library book item: keep the
+                        // long-standing contract tag the journeys click, so the
+                        // accessibility and playback tests keep their anchor.
+                        .testTag("library_book_item_${book.book.id}")
                 .clearAndSetSemantics {
                     contentDescription = description
                     stateDescription = state

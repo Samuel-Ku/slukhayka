@@ -1626,7 +1626,8 @@ internal fun LazyGridScope.libraryGridContent(
                         availability = availability[gridEntry.book.book.mergeKey],
                         onRecheck = { onRecheck(gridEntry.book.book.id) },
                         downloadCount = downloadCounts[gridEntry.book.book.id],
-                        onOpen = { onBookClick(gridEntry.book.book.id) }
+                        onOpen = { onBookClick(gridEntry.book.book.id) },
+                        bookReturnFocusRequester = bookReturnFocusRequester
                     )
                 } else {
                     card(gridEntry.book, gridMode)
@@ -1737,7 +1738,12 @@ internal fun LibraryDenseRow(
     availability: AvailabilityView?,
     onRecheck: () -> Unit,
     downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    // #885 — the books tab renders EVERY book as this row now, so the row must
+    // carry the return-focus contract the card used to own; without it the
+    // "come back from the book" logic requested focus on an unattached
+    // requester and the a11y journey crashed.
+    bookReturnFocusRequester: FocusRequester? = null
 ) {
     val units = stringRemainingTimeUnits()
     val remaining = if (book.totalDurationSeconds > 0L) {
@@ -1800,6 +1806,13 @@ internal fun LibraryDenseRow(
                 .weight(1f)
                 .padding(vertical = AppDimens.SpaceMd)
                 .focusProperties { canFocus = true }
+                .then(
+                    if (bookReturnFocusRequester != null) {
+                        Modifier.focusRequester(bookReturnFocusRequester)
+                    } else {
+                        Modifier
+                    }
+                )
                 .clickable(onClick = onOpen)
                 // #885 — the dense row IS the library book item: keep the
                         // long-standing contract tag the journeys click, so the

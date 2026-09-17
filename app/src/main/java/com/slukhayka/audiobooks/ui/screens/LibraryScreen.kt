@@ -251,6 +251,9 @@ fun LibraryScreen(
     var gridMode by rememberSaveable { mutableStateOf(false) }
     // UI (v1.5 review): the ⋮ section menu replaced the four sub-tabs.
     var sectionMenuOpen by remember { mutableStateOf(false) }
+    // #870 — the manual-add sheet: a format is not an Edition, and the policy
+    // (not the sheet) refuses anything fiction-like.
+    var manualAddOpen by rememberSaveable { mutableStateOf(false) }
     // The pinned status row scrolls itself to a rare filter the listener just
     // picked, so an active «Локальні» is never selected off-screen.
     val statusRowScrollState = rememberScrollState()
@@ -438,6 +441,7 @@ fun LibraryScreen(
                             // spec-54 T06 (#873) — «Полиці» are the listener's
                             // existing collections, opened where they live.
                             onOpenShelves = { viewModel.openCollectionsIndex() },
+                            onOpenManualAdd = { manualAddOpen = true },
                             onAdd = { showImportSheet = true },
                             importFocusRequester = importFocusRequester
                         )
@@ -913,6 +917,16 @@ fun LibraryScreen(
             )
         }
 
+        if (manualAddOpen) {
+            ManualBookAddSheet(
+                onAdd = { request ->
+                    manualAddOpen = false
+                    scope.launch { viewModel.addManualBook(request) }
+                },
+                onDismiss = { manualAddOpen = false }
+            )
+        }
+
         if (showImportSheet) {
             LibraryImportSheet(
                 onImportFile = {
@@ -1109,6 +1123,8 @@ internal fun LibraryHeaderActions(
     onOpenSection: (Int) -> Unit,
     /** spec-54 T06 (#873) — opens the listener's own collections (Полиці). */
     onOpenShelves: () -> Unit = {},
+    /** #870 — «Додати книгу вручну»: any format, no fictitious Edition. */
+    onOpenManualAdd: () -> Unit = {},
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
@@ -1126,6 +1142,7 @@ internal fun LibraryHeaderActions(
         onMenuOpenChange = onMenuOpenChange,
         onOpenSection = onOpenSection,
         onOpenShelves = onOpenShelves,
+        onOpenManualAdd = onOpenManualAdd,
         onAdd = onAdd,
         importFocusRequester = importFocusRequester
     )
@@ -1141,6 +1158,7 @@ internal fun LibraryHeaderActionsInner(
     onMenuOpenChange: (Boolean) -> Unit,
     onOpenSection: (Int) -> Unit,
     onOpenShelves: () -> Unit = {},
+    onOpenManualAdd: () -> Unit = {},
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
@@ -1205,6 +1223,14 @@ internal fun LibraryHeaderActionsInner(
                     onOpenSection(3)
                 },
                 modifier = Modifier.testTag("library_section_imported")
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.manual_add_menu)) },
+                onClick = {
+                    onMenuOpenChange(false)
+                    onOpenManualAdd()
+                },
+                modifier = Modifier.testTag("library_manual_add")
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.lib_statistics)) },

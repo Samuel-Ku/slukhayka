@@ -191,6 +191,14 @@ class App : Application() {
         by lazy { com.slukhayka.audiobooks.data.entries.ImportedLibraryEntries(audiobookDao) }
 
     /**
+     * ADR-0046 §3–4 / #870 — adding a book of ANY format by hand. The policy
+     * refuses a fictitious Edition and an invented «want to read», so the UI
+     * cannot write either.
+     */
+    val manualBookAdder: com.slukhayka.audiobooks.data.entries.ManualBookAdder
+        by lazy { com.slukhayka.audiobooks.data.entries.ManualBookAdder(audiobookDao) }
+
+    /**
      * Spec-51 (#689) — a listener's own collections, local-first: the store is
      * backed by the same Room database, never by a network round trip.
      */

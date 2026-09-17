@@ -2816,7 +2816,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sourceCatalog.fetchPersonBooksResult(it.path)
         }
     }
-    val personBooks: StateFlow<List<AudiobookEntity>> = personLoader.items
+    /**
+     * #874 (+ #869) — the person's page is WORK-level for BOTH roles: several
+     * narrations of one Work are ONE card, fronted by the rendition the
+     * listener is furthest along in — the same rule the library uses. The role
+     * changes what the page SAYS about the person, never the data model, and a
+     * row without a Work key stays its own card.
+     */
+    val personBooks: StateFlow<List<AudiobookEntity>> =
+        personLoader.items
+            .map { books ->
+                com.slukhayka.audiobooks.ui.library.workCards(books).map { it.primary }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val isPersonLoading: StateFlow<Boolean> = personLoader.isLoading
     val personLoadFailed: StateFlow<Boolean> = personLoader.failed
 

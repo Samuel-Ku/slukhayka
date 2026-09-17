@@ -9,6 +9,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import kotlinx.coroutines.flow.first
@@ -111,18 +113,37 @@ object SourceWatchNotifier {
             ))
         }
 
-        val workTitles = workTitles(app, appearance.workIds)
+        val worksById = worksById(app)
         val entryIdByWorkId = entryIdsByWorkId(app)
+        // The union card is the app's canonical Work identity (the same one
+        // `importPreferredSource` passes to the import); it is what makes the
+        // 4read verified-profile read land on the right Edition, so an absent
+        // card means "no identity" and a plain live fetch, never a guessed one.
+        val cardByMergeKey = app.sourceCatalog.unifiedCatalog.value.associateBy { it.mergeKey }
         appearance.appearedByMergeKey.forEach { (mergeKey, sourceIds) ->
             val workId = state_workId(app, mergeKey) ?: return@forEach
+            // ADR-0052 §7 — a notification whose tap leads nowhere is not
+            // posted. A Work with no Library Entry resolves the appeared
+            // Source URL from its persisted Work Sources; when nothing
+            // usable resolves, this Work is silently skipped while the
+            // others still post.
+            val target = openTarget(app, workId, sourceIds, entryIdByWorkId[workId])
+                ?: return@forEach
             val sources = sourceIds.joinToString(", ") { sourceDisplayName(it) }
-            val title = workTitles[workId] ?: context.getString(
+            val title = worksById[workId]?.title ?: context.getString(
                 com.slukhayka.audiobooks.R.string.source_watch_notification_title
             )
             val text = context.getString(
                 com.slukhayka.audiobooks.R.string.source_watch_notification_text, sources
             )
-            val pending = openWorkIntent(context, workId, entryIdByWorkId[workId])
+            val pending = openWorkIntent(
+                context = context,
+                workId = workId,
+                target = target,
+                identity = cardByMergeKey[mergeKey]?.let {
+                    KnownBookIdentity(it.title, it.author, it.narrator, it.coverImageUrl)
+                }
+            )
             NotificationManagerCompat.from(context).notify(
                 notificationIdFor(mergeKey),
                 NotificationCompat.Builder(context, CHANNEL_ID)
@@ -139,24 +160,64 @@ object SourceWatchNotifier {
     private fun state_workId(app: App, mergeKey: String): String? =
         app.sourceWatchStore.watched.value[mergeKey]
 
-    private suspend fun workTitles(
+    /** Where one Work's tap leads: an existing Library Entry or an importable Source. */
+    private data class OpenTarget(
+        val entryId: String? = null,
+        val sourceId: String? = null,
+        val sourceUrl: String? = null
+    )
+
+    /**
+     * ADR-0052 §7 — the ordinary-door target for a Work. A Library Entry wins;
+     * otherwise the appeared Source must be one the Work already persists a
+     * usable URL for. Null means "no target" and the caller posts nothing.
+     */
+    private suspend fun openTarget(
         app: App,
-        workIds: List<String>
-    ): Map<String, String> = buildMap {
-        val works = app.sourceCatalog.allWorks.first()
-        val byId = works.associateBy { it.id }
-        workIds.forEach { id -> byId[id]?.let { put(id, it.title) } }
+        workId: String,
+        appearedSourceIds: Set<String>,
+        entryId: String?
+    ): OpenTarget? {
+        if (entryId != null) return OpenTarget(entryId = entryId)
+        val workSources = runCatching { app.audiobookDao.getWorkSourcesForWorkSync(workId) }
+            .getOrDefault(emptyList())
+        val match = workSources.firstOrNull {
+            it.sourceId in appearedSourceIds && it.sourceUrl.isNotBlank()
+        } ?: return null
+        return OpenTarget(sourceId = match.sourceId, sourceUrl = match.sourceUrl)
     }
+
+    private suspend fun worksById(app: App): Map<String, WorkEntity> =
+        app.sourceCatalog.allWorks.first().associateBy { it.id }
 
     private suspend fun entryIdsByWorkId(app: App): Map<String, String> =
         app.sourceCatalog.allLibraryEntries.first().associate { it.workId to it.id }
 
-    private fun openWorkIntent(context: Context, workId: String, entryId: String?): PendingIntent {
+    private fun openWorkIntent(
+        context: Context,
+        workId: String,
+        target: OpenTarget,
+        identity: KnownBookIdentity?
+    ): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
-        if (entryId != null) {
+        if (target.entryId != null) {
             // The ordinary book-detail door (the same extras the download
             // notification uses) — the tap imports/opens like any other.
-            intent.putExtra("openBookDetail", true).putExtra("bookId", entryId)
+            intent.putExtra("openBookDetail", true).putExtra("bookId", target.entryId)
+        } else {
+            // ADR-0052 §7 — no Library Entry yet: the tap imports the Source
+            // that just appeared through the ordinary import door (the extras
+            // MainActivity parses and hands to MainViewModel) and then opens
+            // the imported book. The identity only enables the shared-profile
+            // read-skip; an absent one still imports by live fetch.
+            intent.putExtra(MainActivity.EXTRA_OPEN_SOURCE_WORK, true)
+                .putExtra(MainActivity.EXTRA_SOURCE_ID, target.sourceId)
+                .putExtra(MainActivity.EXTRA_SOURCE_URL, target.sourceUrl)
+            if (identity != null) {
+                intent.putExtra(MainActivity.EXTRA_SOURCE_WORK_TITLE, identity.title)
+                    .putExtra(MainActivity.EXTRA_SOURCE_WORK_AUTHOR, identity.author)
+                    .putExtra(MainActivity.EXTRA_SOURCE_WORK_NARRATOR, identity.narrator)
+            }
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         return PendingIntent.getActivity(

@@ -168,4 +168,27 @@ class PersonNewArrivalsTest {
         assertEquals(1, decision.count)
         assertEquals(setOf(author.displayName, narrator.displayName), decision.people.toSet())
     }
+
+    @Test
+    fun `the first named person pairs a display name with the role of the same key`() {
+        // ADR-0052 §6 — the «Новинки від людей» tap carries the FIRST named
+        // person. `people` and `notifiedCounts` project the same eligible list
+        // in the same order, so the first display name pairs with the first
+        // key's role (here a NARRATOR first, to prove the role is not assumed).
+        val author = PersonIdentity.from(PersonRole.AUTHOR, "Леся Українка")
+        val narrator = PersonIdentity.from(PersonRole.NARRATOR, "Ігор Петренко")
+        val work = WorkEntity("work", "key", "Книга", author.displayName, addedAt = 11)
+        val edition = EditionEntity("edition", "4read-card", narrator = narrator.displayName, addedAt = 11)
+        val bookmarks = listOf(
+            PersonBookmarkEntity(narrator.role.storageValue, narrator.id, narrator.displayName, narrator.normalizedName, lastSeenAt = 10),
+            PersonBookmarkEntity(author.role.storageValue, author.id, author.displayName, author.normalizedName, lastSeenAt = 10)
+        )
+
+        val decision = PeopleNewArrivalNotification.decide(
+            bookmarks, listOf(work), listOf(edition), listOf(LibraryEntryEntity("4read-card", work.id))
+        )!!
+
+        assertEquals(narrator.displayName, decision.people.first())
+        assertEquals(PersonRole.NARRATOR, decision.notifiedCounts.keys.first().role)
+    }
 }

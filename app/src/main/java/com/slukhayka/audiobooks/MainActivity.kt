@@ -52,7 +52,6 @@ import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
 import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SourceAudioRefusalScreen
-import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.CrashReportingConsentDialog
@@ -376,11 +375,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedPerson by viewModel.selectedPerson.collectAsState()
     val authorsIndexOpen by viewModel.authorsIndexOpen.collectAsState()
     val authorsIndexResults by viewModel.authorsIndexResults.collectAsState()
-    val selectedCanonicalAuthor by viewModel.selectedCanonicalAuthor.collectAsState()
-    val canonicalAuthorWorks by viewModel.canonicalAuthorWorks.collectAsState()
-    val canonicalAuthorOwnedWorkIds by viewModel.canonicalAuthorOwnedWorkIds.collectAsState()
-    val isCanonicalAuthorLoading by viewModel.isCanonicalAuthorLoading.collectAsState()
-    val canonicalAuthorLoadFailed by viewModel.canonicalAuthorLoadFailed.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
         SecondaryBookParent.SERIES -> selectedSeries != null
         SecondaryBookParent.GENRE -> selectedGenre != null
@@ -465,7 +459,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || contentLanguagesOpen ||
         sourceAudioRefusalOpen || appLocaleOpen || profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
-        authorsIndexOpen || selectedCanonicalAuthor != null) {
+        authorsIndexOpen) {
         if (showFullPlayer) {
             if (hiddenAutomaticRecovery) viewModel.closeWebSource()
             viewModel.setShowFullPlayer(false)
@@ -507,8 +501,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (selectedTop100) {
             secondaryBookRoute = SecondaryBookRouteFrame()
             viewModel.closeTop100()
-        } else if (selectedCanonicalAuthor != null) {
-            viewModel.closeCanonicalAuthor()
         } else if (authorsIndexOpen) {
             viewModel.closeAuthorsIndex()
         } else if (selectedPerson != null) {
@@ -892,17 +884,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listState = top100BookListState
                     )
 
-                    selectedCanonicalAuthor != null -> CanonicalAuthorScreen(
-                        author = selectedCanonicalAuthor!!,
-                        works = canonicalAuthorWorks,
-                        ownedWorkIds = canonicalAuthorOwnedWorkIds,
-                        isLoading = isCanonicalAuthorLoading,
-                        loadFailed = canonicalAuthorLoadFailed,
-                        onBackClick = { viewModel.closeCanonicalAuthor() },
-                        onWorkClick = viewModel::openCanonicalAuthorWork,
-                        personBookmarks = viewModel.personBookmarks
-                    )
-
                     authorsIndexOpen -> {
                         // The full 10k-capable alphabetical projection is cold:
                         // collect it only while its destination is visible.
@@ -916,7 +897,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             onAuthorClick = { author ->
                                 val idx = authorList.indexOfFirst { it.id == author.id }
                                     .coerceAtLeast(0)
-                                viewModel.openCanonicalAuthor(author, idx)
+                                viewModel.openAuthorPage(author, idx)
                             },
                             initialScrollIndex = viewModel.authorsIndexScrollIndex.collectAsState().value
                         )

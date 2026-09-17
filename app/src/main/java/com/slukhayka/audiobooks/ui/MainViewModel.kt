@@ -2890,6 +2890,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sourceCatalog.authorIndexBackfillPending
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /**
+     * #874 — the authors index uses the SAME person route a narrator does. The
+     * index's own scroll position rides along, so going back still lands on the
+     * letter the listener left.
+     */
+    fun openAuthorPage(
+        author: com.slukhayka.audiobooks.data.authors.AuthorSummary,
+        authorIndex: Int = 0
+    ) {
+        _authorsIndexScrollIndex.value = authorIndex
+        val person = author.asSelectedPerson()
+        _selectedPerson.value = person
+        personLoader.open(person)
+    }
+
     fun openPersonBooks(person: CatalogPerson) {
         val selected = SelectedPerson(person.name, person.path, person.role)
         _selectedPerson.value = selected

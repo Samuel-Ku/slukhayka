@@ -380,7 +380,7 @@ fun HomeScreen(
                 item(key = "author_search_results") {
                     AuthorSearchResults(
                         authors = authorResults,
-                        onAuthorClick = viewModel::openCanonicalAuthor,
+                        onAuthorClick = { author -> viewModel.openAuthorPage(author) },
                         onShowAll = viewModel::openAllAuthorSearchResults
                     )
                 }

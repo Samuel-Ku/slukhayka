@@ -5,11 +5,6 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -234,19 +229,11 @@ fun LibraryScreen(
     var filter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
     var query by rememberSaveable { mutableStateOf("") }
-    // v1.4 C5 (ADR-0033): the collapsible search — 🔍 in the tab header,
-    // ✕/Back clears (US-2, the same gesture as Огляд); the always-visible
-    // field is gone.
-    var searchRequested by rememberSaveable { mutableStateOf(false) }
-    val searchExpanded = searchRequested || query.isNotBlank()
-    val librarySearchFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(searchExpanded) {
-        if (searchExpanded) librarySearchFocusRequester.requestFocus()
-    }
-    BackHandler(enabled = searchExpanded) {
-        searchRequested = false
-        if (query.isNotBlank()) query = ""
-    }
+    // ADR-0033 (amended 2026-09-18): one search pattern on every root screen —
+    // Бібліотека keeps the same permanently visible field as Огляд, with no
+    // 🔍 toggle and no auto-focus (opening the root must not raise the IME).
+    // ✕ empties the query in place; Back clears a typed query (see
+    // [LibrarySearchField]).
     // The list/grid choice is a VIEW of the same set: it must not reset the
     // filters or the sorting, and it must survive the same way they do.
     var gridMode by rememberSaveable { mutableStateOf(false) }
@@ -415,8 +402,9 @@ fun LibraryScreen(
                 .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
         ) {
             // Top Header — the canonical tab header (v1.4 C5, ADR-0033):
-            // title + honest subtitle, the 🔍 collapsible search, «+ Додати»
-            // and the ⋮ section menu.
+            // title + honest subtitle, «+ Додати» and the ⋮ section menu. The
+            // search no longer lives behind a 🔍 action: it is permanently
+            // visible under this header (ADR-0033 amended 2026-09-18).
             //
             // UI (v1.5 review): the four sub-tabs are gone. «Закладки /
             // Статистика / Люди» are not peers of «Книги» — a tab row stacked
@@ -454,12 +442,7 @@ fun LibraryScreen(
                         LibraryHeaderActions(
                             bookmarksCount = allBookmarks.size,
                             peopleCount = bookmarkedPeople.size,
-                            searchExpanded = searchExpanded,
                             menuOpen = sectionMenuOpen,
-                            onToggleSearch = {
-                                searchRequested = !searchExpanded
-                                if (!searchRequested && query.isNotBlank()) query = ""
-                            },
                             onMenuOpenChange = { sectionMenuOpen = it },
                             onOpenSection = { activeTab = it },
                             // spec-54 T06 (#873) — «Полиці» are the listener's
@@ -495,39 +478,13 @@ fun LibraryScreen(
             }
 
             if (activeTab == 0) {
-                // Library chrome (wayfinder #39): the collapsible search (v1.4
-                // C5 — the same gesture as Огляд), quick filters, sort + view
-                // toggle.
-                AnimatedVisibility(
-                    visible = searchExpanded,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .focusRequester(librarySearchFocusRequester)
-                            .testTag("library_search"),
-                        label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
-                        placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
-                        leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
-                        trailingIcon = if (query.isNotEmpty()) {
-                            {
-                                IconButton(onClick = { query = "" }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Clear,
-                                        contentDescription = stringResource(R.string.a11y_library_clear_search)
-                                    )
-                                }
-                            }
-                        } else null,
-                        singleLine = true,
-                        shape = RoundedCornerShape(AppDimens.RadiusCard)
-                    )
-                }
+                // Library chrome (wayfinder #39): the permanently visible search
+                // (ADR-0033 amended 2026-09-18 — the same pattern as Огляд),
+                // quick filters, sort + view toggle.
+                LibrarySearchField(
+                    query = query,
+                    onQueryChange = { query = it }
+                )
 
                 // Spec-28 #193 + design guide §6.3: the five one-tap statuses
                 // on ONE horizontally scrolled line — never wrapped onto a
@@ -1222,18 +1179,17 @@ private fun formatCheckedAt(observedAtMs: Long): String =
     }
 
 /**
- * The Медіатека top-bar actions (v1.5 review): the 🔍 collapsible search, the
- * ⋮ section menu that replaced the four sub-tabs, and the single «+ Додати»
- * import action in the top-end corner. Extracted so the screen and the
- * snapshot goldens render the very same corner instead of two lookalikes.
+ * The Медіатека top-bar actions (v1.5 review): the ⋮ section menu that replaced
+ * the four sub-tabs, and the single «+ Додати» import action in the top-end
+ * corner. Extracted so the screen and the snapshot goldens render the very same
+ * corner instead of two lookalikes. The 🔍 search toggle is gone — the field is
+ * permanently visible below the header (ADR-0033 amended 2026-09-18).
  */
 @Composable
 internal fun LibraryHeaderActions(
     bookmarksCount: Int,
     peopleCount: Int,
-    searchExpanded: Boolean,
     menuOpen: Boolean,
-    onToggleSearch: () -> Unit,
     onMenuOpenChange: (Boolean) -> Unit,
     onOpenSection: (Int) -> Unit,
     /** spec-54 T06 (#873) — opens the listener's own collections (Полиці). */
@@ -1251,9 +1207,7 @@ internal fun LibraryHeaderActions(
     LibraryHeaderActionsInner(
         bookmarksCount = bookmarksCount,
         peopleCount = peopleCount,
-        searchExpanded = searchExpanded,
         menuOpen = menuOpen,
-        onToggleSearch = onToggleSearch,
         onMenuOpenChange = onMenuOpenChange,
         onOpenSection = onOpenSection,
         onOpenShelves = onOpenShelves,
@@ -1267,9 +1221,7 @@ internal fun LibraryHeaderActions(
 internal fun LibraryHeaderActionsInner(
     bookmarksCount: Int,
     peopleCount: Int,
-    searchExpanded: Boolean,
     menuOpen: Boolean,
-    onToggleSearch: () -> Unit,
     onMenuOpenChange: (Boolean) -> Unit,
     onOpenSection: (Int) -> Unit,
     onOpenShelves: () -> Unit = {},
@@ -1277,23 +1229,6 @@ internal fun LibraryHeaderActionsInner(
     onAdd: () -> Unit,
     importFocusRequester: FocusRequester
 ) {
-    IconButton(
-        onClick = onToggleSearch,
-        modifier = Modifier
-            .size(AppDimens.TouchTarget)
-            .testTag("library_search_toggle")
-    ) {
-        Icon(
-            imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
-            contentDescription = stringResource(
-                if (searchExpanded) {
-                    R.string.a11y_close_search
-                } else {
-                    R.string.a11y_open_search
-                }
-            )
-        )
-    }
     Box {
         IconButton(
             onClick = { onMenuOpenChange(true) },
@@ -1384,6 +1319,54 @@ internal fun LibraryHeaderActionsInner(
             tint = MaterialTheme.colorScheme.primary
         )
     }
+}
+
+/**
+ * Бібліотека's local search field (ADR-0033 amended 2026-09-18 / IA §4): it is
+ * permanently visible — no 🔍 toggle reveals it and no state hides it. ✕ only
+ * empties the query in place, and the system Back clears a typed query while an
+ * empty field leaves Back to the navigation contract. There is deliberately no
+ * auto-focus: opening the root must not raise the keyboard.
+ */
+@Composable
+internal fun LibrarySearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BackHandler(enabled = query.isNotEmpty()) { onQueryChange("") }
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm)
+            .testTag("library_search"),
+        label = { Text(stringResource(R.string.a11y_library_search)) },
+        placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        trailingIcon = if (query.isNotEmpty()) {
+            {
+                IconButton(
+                    onClick = { onQueryChange("") },
+                    modifier = Modifier.testTag("library_search_clear")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = stringResource(R.string.a11y_library_clear_search)
+                    )
+                }
+            }
+        } else null,
+        singleLine = true,
+        shape = RoundedCornerShape(AppDimens.RadiusCard)
+    )
 }
 
 /**

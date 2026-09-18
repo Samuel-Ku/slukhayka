@@ -51,7 +51,10 @@ import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
+import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
+import com.slukhayka.audiobooks.ui.adaptive.rememberWindowLayout
 import com.slukhayka.audiobooks.ui.bookPersonPath
+import com.slukhayka.audiobooks.ui.components.AppNavigationRail
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -308,6 +311,9 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
+    // #900 — the window's own width decides the navigation surface and (from
+    // here on) which screens show a list with its detail beside it.
+    val windowLayout = rememberWindowLayout()
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -659,7 +665,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     }
 
                     // Four primary destinations, including the settings home (#547).
-                    AppBottomBar(
+                    // #900 — on a wide window the rail leads instead, so this
+                    // slot draws nothing (see AdaptiveNavigationLayout).
+                    AppBottomBarSlot(
+                        layout = windowLayout,
                         selectedTab = selectedTab,
                         bookDetailOpen = selectedBookId != null,
                         onSelect = { tab ->
@@ -673,6 +682,18 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 }
             }
         ) { innerPadding ->
+            AdaptiveNavigationLayout(
+                layout = windowLayout,
+                selectedTab = selectedTab,
+                bookDetailOpen = selectedBookId != null,
+                onSelect = { tab ->
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                    bookDetailChildRouteOpen = false
+                    bookDetailChildOrigin = null
+                    bookDetailChildEditionId = null
+                    viewModel.selectTab(tab)
+                }
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1227,6 +1248,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     }
                 }
             }
+            }
         }
 
     // Full Screen Player Overlay
@@ -1420,3 +1442,62 @@ fun AppBottomBar(
         }
     }
 }
+
+/**
+ * #900 — the bottom-navigation SLOT for a window's width.
+ *
+ * On a wide window the rail replaces the bar, so this deliberately renders
+ * nothing: [AdaptiveNavigationLayout] draws the rail instead. Extracted (like
+ * [AppBottomBar] itself) so the decision "rail INSTEAD of the bottom bar" is a
+ * test over the two real surfaces, not a line of prose in the composition root.
+ */
+@Composable
+fun AppBottomBarSlot(
+    layout: WindowLayout,
+    selectedTab: SelectedTab,
+    bookDetailOpen: Boolean = false,
+    onSelect: (SelectedTab) -> Unit
+) {
+    if (layout == WindowLayout.COMPACT) {
+        AppBottomBar(
+            selectedTab = selectedTab,
+            bookDetailOpen = bookDetailOpen,
+            onSelect = onSelect
+        )
+    }
+}
+
+/**
+ * #900 — the navigation surface PLUS the content it leads.
+ *
+ * A phone window gets the content alone (its navigation lives in the
+ * Scaffold's `bottomBar`). A wide window gets the rail leading, sharing the
+ * same [SelectedTab] state and the same [onSelect] callback as the bar, so
+ * switching surfaces never changes what a destination means.
+ *
+ * This is a different LAYOUT of the same screens, never a second set of them
+ * (issue #900).
+ */
+@Composable
+fun AdaptiveNavigationLayout(
+    layout: WindowLayout,
+    selectedTab: SelectedTab,
+    bookDetailOpen: Boolean,
+    onSelect: (SelectedTab) -> Unit,
+    content: @Composable () -> Unit
+) {
+    Row(modifier = Modifier.fillMaxSize()) {
+        if (layout == WindowLayout.EXPANDED) {
+            AppNavigationRail(
+                selectedTab = selectedTab,
+                bookDetailOpen = bookDetailOpen,
+                onSelect = onSelect,
+                modifier = Modifier.fillMaxHeight()
+            )
+        }
+        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            content()
+        }
+    }
+}
+

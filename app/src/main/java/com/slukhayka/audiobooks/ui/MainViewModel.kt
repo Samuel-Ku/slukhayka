@@ -49,6 +49,7 @@ import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.reviews.ReviewDeleteEvent
 import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveEvent
+import com.slukhayka.audiobooks.data.social.SocialSnapshot
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
@@ -1209,8 +1210,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val listenerIdentity: StateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?> =
         _listenerIdentity.asStateFlow()
 
+    /**
+     * #916 — the social layer's locally stored state: the accepted friends at
+     * this moment and both block directions (§2, §3). Collected from
+     * [com.slukhayka.audiobooks.data.social.SocialStore] rather than refreshed
+     * by hand, so a write is reflected without the screen asking again. An empty
+     * store stays empty — the «Друзі» screen keeps its honest empty state
+     * (§6.4), it is not padded.
+     */
+    private val _socialSnapshot = MutableStateFlow(SocialSnapshot())
+    val socialSnapshot: StateFlow<SocialSnapshot> = _socialSnapshot.asStateFlow()
+
     init {
         refreshCacheSize()
+        // #916 — the local social facts feed the «Друзі» screen directly. The
+        // collector starts here, before any screen exists, so the feed is
+        // populated on the first show instead of flashing an empty state.
+        viewModelScope.launch(Dispatchers.IO) {
+            App.instance.socialStore.snapshot().collect { _socialSnapshot.value = it }
+        }
         // A real engine start, not an optimistic prepare, permits one future
         // automatic recovery if this playing session later loses its media.
         viewModelScope.launch {

@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -26,7 +27,8 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * - [AppSectionHeader] `SectionHeaderLevel.GROUP` — top-level feed groups
  *   («Для вас», «Відкрити нове»): headlineSmall bold, sentence case.
  * - [AppSectionHeader] `SectionHeaderLevel.SECTION` — shelves, rails and
- *   blocks: uppercase titleSmall, optionally with a [count] subtitle
+ *   blocks: titleSmall bold, sentence case (the forced caps died in #885),
+ *   optionally with a [count] subtitle
  *   (R10: «12 книг у жанрі» — the counter lives in the header, never as a
  *   free-standing row) and/or an [action] slot (a 48 dp control; the
  *   Listen blocks used one for their ⋮ menu until v1.4 E1 replaced the
@@ -35,8 +37,29 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * The [subtitle] slot carries a small secondary line under the title (the
  * Listen block reason, «чому це тут»); [count] and [subtitle] are mutually
  * exclusive in practice — a header shows one secondary line.
+ *
+ * Each title also carries [SectionHeaderTags.of] as a test tag, so a surface
+ * can be proven free of ad-hoc headings (#562) and each level can be pinned
+ * by name.
  */
 enum class SectionHeaderLevel { GROUP, SECTION }
+
+/**
+ * Stable test seam for the canonical header: every title carries the tag of
+ * its own [SectionHeaderLevel] right next to the [heading] semantics. A
+ * surface test can therefore prove «no ad-hoc headers left» by requiring
+ * every heading on the surface to carry one of these tags (#562 AC), and a
+ * component pin can address each level by name.
+ */
+object SectionHeaderTags {
+    const val GROUP = "app_section_header_group"
+    const val SECTION = "app_section_header_section"
+
+    fun of(level: SectionHeaderLevel): String = when (level) {
+        SectionHeaderLevel.GROUP -> GROUP
+        SectionHeaderLevel.SECTION -> SECTION
+    }
+}
 
 @Composable
 fun AppSectionHeader(
@@ -75,7 +98,9 @@ fun AppSectionHeader(
                 text = title,
                 style = titleStyle,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { heading() }
+                modifier = Modifier
+                    .testTag(SectionHeaderTags.of(level))
+                    .semantics { heading() }
             )
             val secondary = count ?: subtitle
             if (secondary != null) {

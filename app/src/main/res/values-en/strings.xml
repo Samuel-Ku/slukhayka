@@ -208,7 +208,11 @@
 
     <!-- v1.4 (ADR-0033): Overview rails and search states. -->
     <string name="home_people_new_arrivals">New from your authors/narrators</string>
-    <string name="home_people_new_count">• %1$d new</string>
+    <plurals name="home_people_new_count">
+        <item quantity="one">%1$d new</item>
+        <item quantity="other">%1$d new</item>
+    </plurals>
+    <string name="a11y_people_new_mark_seen">Mark new arrivals as seen</string>
     <string name="home_search_no_results">Nothing found</string>
     <string name="home_search_no_results_hint">Try a different query or filter.</string>
     <string name="home_no_personal_picks">No personal picks yet.</string>

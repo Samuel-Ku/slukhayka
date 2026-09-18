@@ -55,14 +55,19 @@ import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
         EmbeddingVectorEntity::class,
         SubmissionStateEntity::class,
         ReadthroughEntity::class,
+        FriendshipStateEntity::class,
+        BlockEntity::class,
     ],
-    version = 48,
+    version = 49,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
     abstract fun audiobookDao(): AudiobookDao
 
     abstract fun listenerCollectionsDao(): ListenerCollectionsDao
+
+    /** #916 — the social layer's local facts (friendship state, blocks). */
+    abstract fun socialDao(): SocialDao
 
     companion object {
         /**
@@ -100,7 +105,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49
                     )
                     .build()
                 INSTANCE = instance
@@ -1524,6 +1529,43 @@ abstract class AudiobookDatabase : RoomDatabase() {
                          "`narrator` TEXT NOT NULL)"
                  )
                  backfillWorkSearchIndex(db)
+             }
+         }
+
+/**
+          * #916 — v48 -> v49: the local facts of the social layer,
+          * `docs/specs/2026-09-16-social-layer.md` §5. Additive only — two new
+          * tables, no existing table is touched, so every v48 row (library,
+          * progress, collections, readthroughs, the search index) survives
+          * untouched.
+          *
+          * `friendship_states` holds the listener's own side of a friendship as
+          * the state of the request, keyed by the peer's PSEUDONYM (never a
+          * uid); `social_blocks` holds one row per block DIRECTION — the action
+          * is one-sided, and only the pair makes the consequence two-sided.
+          * Both start EMPTY, which is the truth for a fresh install and for an
+          * upgrade: no friendship or block was recorded before this version,
+          * and none is invented (§6.4).
+          *
+          * Internal (not private) so the JVM test suite can verify the upgrade
+          * path against a real v48 database.
+          */
+         internal val MIGRATION_48_49 = object : Migration(48, 49) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "CREATE TABLE IF NOT EXISTS `friendship_states` (" +
+                         "`pseudonym` TEXT NOT NULL, " +
+                         "`state` TEXT NOT NULL, " +
+                         "`updatedAt` INTEGER NOT NULL, " +
+                         "PRIMARY KEY(`pseudonym`))"
+                 )
+                 db.execSQL(
+                     "CREATE TABLE IF NOT EXISTS `social_blocks` (" +
+                         "`pseudonym` TEXT NOT NULL, " +
+                         "`direction` TEXT NOT NULL, " +
+                         "`blockedAt` INTEGER NOT NULL, " +
+                         "PRIMARY KEY(`pseudonym`, `direction`))"
+                 )
              }
          }
 

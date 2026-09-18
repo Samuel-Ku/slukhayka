@@ -88,6 +88,67 @@ class DownloadQueueTest {
     }
 
     @Test
+    fun `a leftover recovery flag on an idle entry is not an error row`() {
+        // removeOfflineDownload / clearAllAudioCache reset the Entry to IDLE
+        // but leave the 4read recovery prefs behind. Reading that leftover as
+        // an error would strand a phantom «Помилка» row with nothing on disk.
+        assertNull(
+            DownloadQueue.statusOf(
+                facts(downloadState = DownloadState.IDLE, requiresBrowserRefresh = true),
+                anotherDownloadActive = false
+            )
+        )
+        // The live case — the failed loop parks the Entry at PAUSED — stays.
+        assertEquals(
+            DownloadQueueStatus.ERROR,
+            DownloadQueue.statusOf(
+                facts(downloadState = DownloadState.PAUSED, requiresBrowserRefresh = true),
+                anotherDownloadActive = false
+            )
+        )
+    }
+
+    // --- the action matrix --------------------------------------------------
+
+    @Test
+    fun `cancel is offered for every unfinished queue and never for a finished or failed one`() {
+        assertTrue(DownloadQueueStatus.DOWNLOADING.canCancel)
+        assertTrue(DownloadQueueStatus.QUEUED.canCancel)
+        assertTrue(DownloadQueueStatus.PAUSED.canCancel)
+        // Nothing is running on a failed queue: «Скасувати» would be dead.
+        assertTrue(!DownloadQueueStatus.ERROR.canCancel)
+        // A finished copy has no partial files to keep.
+        assertTrue(!DownloadQueueStatus.DONE.canCancel)
+    }
+
+    @Test
+    fun `pause and continue stay on their own statuses only`() {
+        assertTrue(DownloadQueueStatus.DOWNLOADING.canPause)
+        listOf(
+            DownloadQueueStatus.QUEUED,
+            DownloadQueueStatus.PAUSED,
+            DownloadQueueStatus.DONE,
+            DownloadQueueStatus.ERROR
+        ).forEach { assertTrue("$it must not pause", !it.canPause) }
+
+        assertTrue(DownloadQueueStatus.QUEUED.canContinue)
+        assertTrue(DownloadQueueStatus.PAUSED.canContinue)
+        listOf(
+            DownloadQueueStatus.DOWNLOADING,
+            DownloadQueueStatus.DONE,
+            DownloadQueueStatus.ERROR
+        ).forEach { assertTrue("$it must not continue", !it.canContinue) }
+    }
+
+    @Test
+    fun `only done is finished`() {
+        assertTrue(DownloadQueueStatus.DONE.isFinished)
+        DownloadQueueStatus.entries
+            .filter { it != DownloadQueueStatus.DONE }
+            .forEach { assertTrue("$it has partial files", !it.isFinished) }
+    }
+
+    @Test
     fun `a live loop is downloading`() {
         assertEquals(
             DownloadQueueStatus.DOWNLOADING,

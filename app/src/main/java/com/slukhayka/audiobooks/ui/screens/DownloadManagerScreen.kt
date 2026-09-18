@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +102,7 @@ fun DownloadManagerScreen(
             bytes = cacheSizeBytes,
             onPause = viewModel::pauseDownload,
             onContinue = viewModel::continueDownload,
+            onCancel = viewModel::cancelDownload,
             onRemove = viewModel::removeDownload,
             onRemoveCompleted = viewModel::removeCompletedDownloads,
             onRescan = { viewModel.rescanLocalFolders() },
@@ -117,6 +119,10 @@ fun DownloadManagerScreen(
  * The stateful manager body, shared by production and Compose behaviour
  * tests: pure inputs, no `MainViewModel`. The queue owns the flexible space;
  * the existing storage pane keeps its fixed tools at the bottom.
+ *
+ * Two different stopping actions, deliberately (owner follow-up on #899):
+ * [onCancel] stops a queue and KEEPS every file on disk, [onRemove] destroys
+ * the copy and therefore always asks first.
  */
 @Composable
 fun DownloadManagerPane(
@@ -128,6 +134,7 @@ fun DownloadManagerPane(
     bytes: Long,
     onPause: (String) -> Unit,
     onContinue: (String) -> Unit,
+    onCancel: (String) -> Unit,
     onRemove: (String) -> Unit,
     onRemoveCompleted: () -> Unit,
     onRescan: () -> Unit,
@@ -154,6 +161,7 @@ fun DownloadManagerPane(
                     completedCount = completedIds.size,
                     onPause = onPause,
                     onContinue = onContinue,
+                    onCancel = onCancel,
                     onRemove = { pendingRemoval = it },
                     onRemoveCompleted = { removeCompletedVisible = true }
                 )
@@ -211,6 +219,7 @@ private fun DownloadQueueList(
     completedCount: Int,
     onPause: (String) -> Unit,
     onContinue: (String) -> Unit,
+    onCancel: (String) -> Unit,
     onRemove: (DownloadQueueItem) -> Unit,
     onRemoveCompleted: () -> Unit
 ) {
@@ -248,18 +257,26 @@ private fun DownloadQueueList(
                 item = item,
                 onPause = { onPause(item.bookId) },
                 onContinue = { onContinue(item.bookId) },
+                onCancel = { onCancel(item.bookId) },
                 onRemove = { onRemove(item) }
             )
         }
     }
 }
 
-/** One queue row: the book, its chapter/size detail, its state and controls. */
+/**
+ * One queue row: the book, its chapter/size detail, its state and controls.
+ * The controls follow the status's own action matrix
+ * ([DownloadQueueStatus.canPause] / [DownloadQueueStatus.canContinue] /
+ * [DownloadQueueStatus.canCancel]), so no row offers a button that would do
+ * nothing.
+ */
 @Composable
 private fun DownloadQueueRow(
     item: DownloadQueueItem,
     onPause: () -> Unit,
     onContinue: () -> Unit,
+    onCancel: () -> Unit,
     onRemove: () -> Unit
 ) {
     Column(
@@ -318,8 +335,8 @@ private fun DownloadQueueRow(
                     .weight(1f)
                     .testTag("download_queue_status_${item.bookId}")
             )
-            when (item.status) {
-                DownloadQueueStatus.DOWNLOADING -> TextButton(
+            if (item.status.canPause) {
+                TextButton(
                     onClick = onPause,
                     modifier = Modifier
                         .heightIn(min = 48.dp)
@@ -327,7 +344,9 @@ private fun DownloadQueueRow(
                 ) {
                     Text(stringResource(R.string.download_manager_pause))
                 }
-                DownloadQueueStatus.QUEUED, DownloadQueueStatus.PAUSED -> TextButton(
+            }
+            if (item.status.canContinue) {
+                TextButton(
                     onClick = onContinue,
                     modifier = Modifier
                         .heightIn(min = 48.dp)
@@ -335,10 +354,26 @@ private fun DownloadQueueRow(
                 ) {
                     Text(stringResource(R.string.download_manager_continue))
                 }
-                // A failed queue waits for a source session it cannot renew
-                // from here; the honest plan and the removal are the book's
-                // own page and this list.
-                DownloadQueueStatus.DONE, DownloadQueueStatus.ERROR -> Unit
+            }
+        }
+        // The two stopping actions live on their own line so neither is
+        // crowded: «Скасувати» keeps the files, the delete asks first.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (item.status.canCancel) {
+                val cancelDescription = stringResource(R.string.download_manager_cancel_description)
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("download_cancel_${item.bookId}")
+                        .semantics { contentDescription = cancelDescription }
+                ) {
+                    Text(stringResource(R.string.download_manager_cancel))
+                }
             }
             TextButton(
                 onClick = onRemove,
@@ -346,7 +381,15 @@ private fun DownloadQueueRow(
                     .heightIn(min = 48.dp)
                     .testTag("download_remove_${item.bookId}")
             ) {
-                Text(stringResource(R.string.download_manager_remove))
+                // A finished copy has no partial files, so its single action
+                // stays «Прибрати»; an unfinished one says exactly what the
+                // confirmation will destroy.
+                Text(
+                    stringResource(
+                        if (item.status.isFinished) R.string.download_manager_remove
+                        else R.string.download_manager_delete_files
+                    )
+                )
             }
         }
     }
@@ -378,13 +421,25 @@ fun DownloadQueueEmptyState(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * The confirmation that guards destroying files. Its title and its confirm
+ * button repeat the action the listener just pressed — «Прибрати» only for a
+ * finished copy, «Видалити файли» for an unfinished one — so the dialog never
+ * renames the action under the finger. The dismiss is «Не видаляти», not the
+ * generic «Скасувати»: on this screen «Скасувати» already means «stop the
+ * download and keep the files».
+ */
 @Composable
 private fun RemoveDownloadDialog(
     item: DownloadQueueItem,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val title = stringResource(R.string.download_manager_remove_title)
+    val finished = item.status.isFinished
+    val title = stringResource(
+        if (finished) R.string.download_manager_remove_title
+        else R.string.download_manager_delete_title
+    )
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
@@ -404,7 +459,12 @@ private fun RemoveDownloadDialog(
                 onClick = onConfirm,
                 modifier = Modifier.testTag("remove_download_confirm")
             ) {
-                Text(stringResource(R.string.download_manager_remove))
+                Text(
+                    stringResource(
+                        if (finished) R.string.download_manager_remove
+                        else R.string.download_manager_delete_files
+                    )
+                )
             }
         },
         dismissButton = {
@@ -412,7 +472,7 @@ private fun RemoveDownloadDialog(
                 onClick = onDismiss,
                 modifier = Modifier.testTag("remove_download_cancel")
             ) {
-                Text(stringResource(R.string.action_cancel))
+                Text(stringResource(R.string.download_manager_keep))
             }
         }
     )

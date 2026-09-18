@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_friends_pane">Friends</string>
+    <string name="friends_empty_no_friends_title">No friends yet</string>
+    <string name="friends_empty_no_friends_body">Posts from people you become friends with will appear here. Adding friends by name and your own reader profile are not ready yet — the screen invents no acquaintances just to fill the space.</string>
+    <string name="friends_empty_no_posts_title">You have friends, but no posts</string>
+    <string name="friends_empty_no_posts_body">As soon as a friend shares an impression of a book with the «Friends» audience, the post appears here. Posts set to «Only me» are never shown to anyone.</string>
+</resources>

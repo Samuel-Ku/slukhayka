@@ -6,7 +6,6 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -914,24 +913,24 @@ fun PeopleNewArrivalsRail(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.testTag("people_new_arrivals_rail")) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onMarkSeen)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = stringResource(R.string.home_people_new_arrivals),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            TextButton(
-                onClick = onMarkSeen,
-                modifier = Modifier.testTag("people_new_arrivals_badge")
-            ) { Text(stringResource(R.string.home_people_new_count, newCount)) }
-        }
+        // #562 C1 (ADR-0033): the rail now renders through the canonical
+        // header — the count is the header's subtitle, not a free-standing
+        // badge row (R10), and marking seen rides the header's action slot.
+        AppSectionHeader(
+            title = stringResource(R.string.home_people_new_arrivals),
+            count = pluralStringResource(R.plurals.home_people_new_count, newCount, newCount),
+            action = {
+                IconButton(
+                    onClick = onMarkSeen,
+                    modifier = Modifier.testTag("people_new_arrivals_badge")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Done,
+                        contentDescription = stringResource(R.string.a11y_people_new_mark_seen)
+                    )
+                }
+            }
+        )
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)

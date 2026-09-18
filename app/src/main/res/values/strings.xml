@@ -212,7 +212,15 @@
 
     <!-- v1.4 (ADR-0033): Огляд rails and search states. -->
     <string name="home_people_new_arrivals">Нове від ваших авторів/виконавців</string>
-    <string name="home_people_new_count">• %1$d нові</string>
+    <!-- #562 AC: the counter is the header's subtitle, never a free-standing
+         badge row — it declines honestly (1 нова / 2 нові / 5 нових). -->
+    <plurals name="home_people_new_count">
+        <item quantity="one">%1$d нова</item>
+        <item quantity="few">%1$d нові</item>
+        <item quantity="many">%1$d нових</item>
+        <item quantity="other">%1$d нових</item>
+    </plurals>
+    <string name="a11y_people_new_mark_seen">Позначити новинки переглянутими</string>
     <string name="home_search_no_results">Нічого не знайдено</string>
     <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>
     <string name="home_no_personal_picks">Персональних добірок поки немає.</string>

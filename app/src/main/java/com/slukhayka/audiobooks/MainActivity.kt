@@ -77,7 +77,7 @@ import com.slukhayka.audiobooks.ui.screens.ProfileScreen
 import com.slukhayka.audiobooks.ui.screens.RecommendationSettingsScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesScreen
-import com.slukhayka.audiobooks.ui.screens.StorageDestinationScreen
+import com.slukhayka.audiobooks.ui.screens.DownloadManagerScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryRatingScreen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
@@ -841,10 +841,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         onBookClick = { result -> viewModel.openGlobalSearchResult(result) }
                     )
 
-                    // spec-28 (#194): the «Завантаження та пам'ять»
-                    // destination — the storage line and the destructive
-                    // delete, reached from Settings.
-                    storageDestinationOpen -> StorageDestinationScreen(
+                    // spec-28 (#194) destination, extended by #899: the
+                    // settings row «Завантаження та пам'ять» opens the
+                    // download manager (the queue and its controls) and keeps
+                    // the storage tools (summary, rescan, destructive delete)
+                    // beneath it.
+                    storageDestinationOpen -> DownloadManagerScreen(
                         viewModel = viewModel,
                         onBackClick = {
                             viewModel.closeStorageDestination()

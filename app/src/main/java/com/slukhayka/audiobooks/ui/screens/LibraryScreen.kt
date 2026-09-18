@@ -263,10 +263,6 @@ fun LibraryScreen(
     // after every action), so the list is never a stale promise.
     LaunchedEffect(activeTab) {
         if (activeTab == 3) viewModel.refreshImportedEntries()
-        // #885 — the books tab shows the «Мій рік» hero, so the year must be
-        // loaded for it too; otherwise the card stays hidden until the listener
-        // happens to open the separate year view.
-        if (activeTab == 0) viewModel.refreshReadingYear()
         if (activeTab == 4) {
             viewModel.refreshReadingYear()
             viewModel.refreshActiveReadings()
@@ -282,9 +278,6 @@ fun LibraryScreen(
     // Browsing the whole library vs narrowing it down: the sections (and the
     // «Продовжити» card) only make sense while nothing is filtering.
     val browsing = filter == LibraryFilter.ALL && query.isBlank()
-    // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
-    // block of the screen, so the state is read here and not inside the tab body.
-    val yearGoal by viewModel.readingYear.collectAsState()
     val continueBook = remember(libraryBooks) {
         libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
     }
@@ -476,10 +469,16 @@ fun LibraryScreen(
             // #885 — the prototype («Нічна бібліотека») switches between
             // «Книги / Полиці / Збережене» with a visible control at the top,
             // instead of hiding two of the three behind the overflow menu.
+            // «Мій рік» має окремий вид, тож на «Моїх книгах» його картка не
+            // дублюється; цей слот займає найактуальніше — книга, яку слухають.
             if (activeTab == 0) {
-                yearGoal?.let { goal ->
+                continueBook?.let { book ->
                     Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
-                        LibraryYearHero(goal = goal)
+                        LibraryContinueCard(
+                            book = book,
+                            onOpen = { onBookClick(book.book.id) },
+                            onPlay = { onPlayClick(book.book) }
+                        )
                     }
                 }
             }
@@ -2992,41 +2991,6 @@ private fun ReadingProgressRow(
     }
 }
 
-/**
- * #885 — «Мій рік» as a hero card on top of «Мої книги» (prototype:
- * docs/prototypes/slukhayka-expressive.html). Reuses the SAME year data the
- * separate year view shows, so the two can never disagree.
- */
-@Composable
-private fun LibraryYearHero(goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal) {
-    // Prototype («Нічна бібліотека») shows the year as a TONAL hero card: the
-    // amber container, the year as a small label, the finished count big.
-    // A progress bar would need a yearly TARGET, which the domain does not have
-    // (YearlyReadingGoal carries only what was finished) — so no invented "12".
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = MaterialTheme.shapes.extraLarge,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("library_year_hero")
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-            Text(
-                text = stringResource(R.string.lib_year_hero_title, goal.year),
-                style = MaterialTheme.typography.labelLarge
-            )
-            Text(
-                text = goal.totalFinished.toString(),
-                style = MaterialTheme.typography.displaySmall
-            )
-            Text(
-                text = stringResource(R.string.lib_year_hero_units),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-}
 
 /** #885 — Книги | Полиці | Збережене, the prototype's top-level switch. */
 @Composable

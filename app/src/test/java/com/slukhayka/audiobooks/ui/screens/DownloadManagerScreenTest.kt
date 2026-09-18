@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -33,10 +34,16 @@ import org.robolectric.annotation.Config
  * #899 — the download manager's body: the honest empty state, the statuses
  * each queue item shows, and that every control forwards exactly the book it
  * names. The destructive removals always ask first (wayfinder #28: removing
- * an offline copy never silently destroys files).
+ * an offline copy never silently destroys files), while «Скасувати» stops the
+ * queue and keeps the files.
+ *
+ * The window is pinned to a phone shape: the manager is a two-region screen
+ * (a scrollable queue over the fixed storage tools) whose rows are taller
+ * than Robolectric's tiny default surface, and the merged layout is the
+ * production one — only the test viewport was too small.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36], qualifiers = "uk-rUA")
+@Config(sdk = [36], qualifiers = "uk-rUA-w411dp-h891dp")
 class DownloadManagerScreenTest {
 
     @get:Rule
@@ -76,6 +83,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = {},
                         onContinue = {},
+                        onCancel = {},
                         onRemove = {},
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -113,6 +121,7 @@ class DownloadManagerScreenTest {
                         bytes = 350L * 1024 * 1024,
                         onPause = {},
                         onContinue = {},
+                        onCancel = {},
                         onRemove = {},
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -156,6 +165,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = { paused += it },
                         onContinue = {},
+                        onCancel = {},
                         onRemove = {},
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -192,6 +202,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = {},
                         onContinue = { continued += it },
+                        onCancel = {},
                         onRemove = {},
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -234,6 +245,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = {},
                         onContinue = {},
+                        onCancel = {},
                         onRemove = {},
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -247,7 +259,10 @@ class DownloadManagerScreenTest {
         compose.onNodeWithTag("download_continue_done").assertDoesNotExist()
         compose.onNodeWithTag("download_pause_error").assertDoesNotExist()
         compose.onNodeWithTag("download_continue_error").assertDoesNotExist()
-        // Removal stays available for both.
+        // There is nothing left to stop: «Скасувати» would be a dead button,
+        // so only the (confirmed) removal stays available for both.
+        compose.onNodeWithTag("download_cancel_done").assertDoesNotExist()
+        compose.onNodeWithTag("download_cancel_error").assertDoesNotExist()
         compose.onNodeWithTag("download_remove_done").assertExists()
         compose.onNodeWithTag("download_remove_error").assertExists()
     }
@@ -267,6 +282,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = {},
                         onContinue = {},
+                        onCancel = {},
                         onRemove = { removed += it },
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -276,12 +292,19 @@ class DownloadManagerScreenTest {
             }
         }
 
-        compose.onNodeWithTag("download_remove_b1").performClick()
+        // An unfinished queue names the destructive action exactly.
+        compose.onNodeWithTag("download_remove_b1")
+            .assertIsDisplayed()
+            .assertTextEquals("Видалити файли")
+            .performClick()
         compose.onNodeWithTag("remove_download_dialog").assertIsDisplayed()
+        compose.onNodeWithText("Видалити завантажені файли?").assertIsDisplayed()
         assertEquals(0, removed.size)
         compose.onNodeWithText("Завантажені файли «Тіні забутих предків» буде видалено з пристрою. Цю дію не можна скасувати.")
             .assertIsDisplayed()
-        compose.onNodeWithTag("remove_download_confirm").performClick()
+        compose.onNodeWithTag("remove_download_confirm")
+            .assertTextEquals("Видалити файли")
+            .performClick()
         assertEquals(listOf("b1"), removed)
     }
 
@@ -300,6 +323,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = {},
                         onContinue = {},
+                        onCancel = {},
                         onRemove = { removed = it },
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -334,6 +358,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = {},
                         onContinue = {},
+                        onCancel = {},
                         onRemove = {},
                         onRemoveCompleted = { removeCompletedCalls += 1 },
                         onRescan = {},
@@ -367,6 +392,7 @@ class DownloadManagerScreenTest {
                         bytes = 0L,
                         onPause = {},
                         onContinue = {},
+                        onCancel = {},
                         onRemove = {},
                         onRemoveCompleted = {},
                         onRescan = {},
@@ -377,6 +403,167 @@ class DownloadManagerScreenTest {
         }
 
         compose.onNodeWithTag("remove_completed_button").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a running download offers pause, cancel and delete side by side`() {
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                TestSurface {
+                    DownloadManagerPane(
+                        items = listOf(item("b1", status = DownloadQueueStatus.DOWNLOADING)),
+                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        hasLocalBooks = false,
+                        showDelete = false,
+                        bookCount = 0,
+                        bytes = 0L,
+                        onPause = {},
+                        onContinue = {},
+                        onCancel = {},
+                        onRemove = {},
+                        onRemoveCompleted = {},
+                        onRescan = {},
+                        onDeleteAllConfirmed = {}
+                    )
+                }
+            }
+        }
+
+        compose.onNodeWithTag("download_pause_b1").assertIsDisplayed()
+        compose.onNodeWithTag("download_cancel_b1")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .assertTextEquals("Скасувати")
+            // The one-word label must not hide which of the two it is.
+            .assertContentDescriptionEquals(
+                "Скасувати завантаження. Завантажені файли лишаться на пристрої."
+            )
+        compose.onNodeWithTag("download_remove_b1")
+            .assertIsDisplayed()
+            .assertTextEquals("Видалити файли")
+    }
+
+    @Test
+    fun `cancel stops the download without asking and never deletes`() {
+        val cancelled = mutableListOf<String>()
+        val removed = mutableListOf<String>()
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                TestSurface {
+                    DownloadManagerPane(
+                        items = listOf(
+                            item("running", status = DownloadQueueStatus.DOWNLOADING),
+                            item("queued", status = DownloadQueueStatus.QUEUED),
+                            item("paused", status = DownloadQueueStatus.PAUSED)
+                        ),
+                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        hasLocalBooks = false,
+                        showDelete = false,
+                        bookCount = 0,
+                        bytes = 0L,
+                        onPause = {},
+                        onContinue = {},
+                        onCancel = { cancelled += it },
+                        onRemove = { removed += it },
+                        onRemoveCompleted = {},
+                        onRescan = {},
+                        onDeleteAllConfirmed = {}
+                    )
+                }
+            }
+        }
+
+        val list = compose.onNodeWithTag("download_queue_list")
+        listOf("running", "queued", "paused").forEach { bookId ->
+            list.performScrollToNode(hasTestTag("download_cancel_$bookId"))
+            compose.onNodeWithTag("download_cancel_$bookId")
+                .assertIsDisplayed()
+                .performClick()
+        }
+
+        // Every unfinished queue can be stopped, and stopping is NOT a
+        // destructive action: no confirmation, no delete callback.
+        assertEquals(listOf("running", "queued", "paused"), cancelled)
+        assertEquals(emptyList<String>(), removed)
+        compose.onNodeWithTag("remove_download_dialog").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a finished download keeps the single remove action`() {
+        val removed = mutableListOf<String>()
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                TestSurface {
+                    DownloadManagerPane(
+                        items = listOf(
+                            item("done", status = DownloadQueueStatus.DONE, downloadedChapters = 10, progress = 1f)
+                        ),
+                        storageText = "0 МБ зайнято · 0 МБ вільно · 1 аудіокнига офлайн",
+                        hasLocalBooks = false,
+                        showDelete = true,
+                        bookCount = 1,
+                        bytes = 350L * 1024 * 1024,
+                        onPause = {},
+                        onContinue = {},
+                        onCancel = {},
+                        onRemove = { removed += it },
+                        onRemoveCompleted = {},
+                        onRescan = {},
+                        onDeleteAllConfirmed = {}
+                    )
+                }
+            }
+        }
+
+        // No partial files exist, so there is nothing to «Скасувати».
+        compose.onNodeWithTag("download_cancel_done").assertDoesNotExist()
+        compose.onNodeWithTag("download_remove_done")
+            .assertIsDisplayed()
+            .assertTextEquals("Прибрати")
+            .performClick()
+        // Deletion still asks first, and the dialog keeps the label the
+        // listener just pressed.
+        compose.onNodeWithText("Прибрати завантаження?").assertIsDisplayed()
+        assertEquals(0, removed.size)
+        compose.onNodeWithTag("remove_download_confirm")
+            .assertTextEquals("Прибрати")
+            .performClick()
+        assertEquals(listOf("done"), removed)
+    }
+
+    @Test
+    fun `the delete confirmation can be refused with a label that does not read as cancel`() {
+        val removed = mutableListOf<String>()
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                TestSurface {
+                    DownloadManagerPane(
+                        items = listOf(item("b1", status = DownloadQueueStatus.PAUSED)),
+                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        hasLocalBooks = false,
+                        showDelete = false,
+                        bookCount = 0,
+                        bytes = 0L,
+                        onPause = {},
+                        onContinue = {},
+                        onCancel = {},
+                        onRemove = { removed += it },
+                        onRemoveCompleted = {},
+                        onRescan = {},
+                        onDeleteAllConfirmed = {}
+                    )
+                }
+            }
+        }
+
+        compose.onNodeWithTag("download_remove_b1").performClick()
+        // «Скасувати» on the row stops a download; the dialog's refusal must
+        // not reuse that word for "do not delete my files".
+        compose.onNodeWithTag("remove_download_cancel")
+            .assertTextEquals("Не видаляти")
+            .performClick()
+        compose.onNodeWithTag("remove_download_dialog").assertDoesNotExist()
+        assertEquals(emptyList<String>(), removed)
     }
 }
 

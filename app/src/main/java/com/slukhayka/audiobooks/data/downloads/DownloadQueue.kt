@@ -13,6 +13,10 @@ import com.slukhayka.audiobooks.data.db.DownloadState
  * only failure fact the app writes down. The manager therefore invents no
  * state — it maps what is already persisted onto the listener-visible
  * statuses.
+ *
+ * The action matrix lives here too, so the screen cannot offer a control the
+ * status does not support: a stopped queue is CANCELLED (keep the files) and
+ * only a confirmed delete destroys them.
  */
 enum class DownloadQueueStatus {
     /** Paused while ANOTHER download runs: the one-at-a-time queue holds it. */
@@ -28,7 +32,24 @@ enum class DownloadQueueStatus {
     DONE,
 
     /** Stopped by a source refusal (403/404): a browser session must be renewed. */
-    ERROR
+    ERROR;
+
+    /** Every copy is on disk — there are no partial files left to keep. */
+    val isFinished: Boolean get() = this == DONE
+
+    /**
+     * A running or parked queue can be stopped without losing what is
+     * already on disk. A failed queue already stopped, so «Скасувати» would
+     * be a button that does nothing.
+     */
+    val canCancel: Boolean
+        get() = this == QUEUED || this == DOWNLOADING || this == PAUSED
+
+    /** Only a running queue can be paused. */
+    val canPause: Boolean get() = this == DOWNLOADING
+
+    /** A stopped queue (waiting its turn or parked) can be continued. */
+    val canContinue: Boolean get() = this == QUEUED || this == PAUSED
 }
 
 /**
@@ -86,6 +107,13 @@ object DownloadQueue {
      * book whose tracks are all ready is «Готово» even if the aggregate
      * `isDownloaded` flag lags behind (#397 reads the tracks).
      *
+     * The recovery flag is the app's only persisted failure fact, and it is
+     * live only while the queue is actually PARKED (PAUSED) — the state the
+     * failed loop writes. Removing the copy or clearing every download resets
+     * the Entry to IDLE but leaves the 4read recovery prefs behind; treating
+     * that leftover as an error would strand a phantom «Помилка» row with
+     * nothing on disk forever.
+     *
      * A [DownloadQueueFacts.isLocal] book is never a queue item.
      *
      * [anotherDownloadActive] is the app's one-download-at-a-time contract:
@@ -98,13 +126,13 @@ object DownloadQueue {
         if (facts.isLocal) return null
         val complete = facts.isDownloaded ||
             (facts.totalChapters > 0 && facts.downloadedChapters >= facts.totalChapters)
+        val parked = facts.downloadState == DownloadState.PAUSED
         return when {
             complete -> DownloadQueueStatus.DONE
-            facts.requiresBrowserRefresh -> DownloadQueueStatus.ERROR
+            facts.requiresBrowserRefresh && parked -> DownloadQueueStatus.ERROR
             facts.downloadState == DownloadState.DOWNLOADING -> DownloadQueueStatus.DOWNLOADING
-            facts.downloadState == DownloadState.PAUSED && anotherDownloadActive ->
-                DownloadQueueStatus.QUEUED
-            facts.downloadState == DownloadState.PAUSED -> DownloadQueueStatus.PAUSED
+            parked && anotherDownloadActive -> DownloadQueueStatus.QUEUED
+            parked -> DownloadQueueStatus.PAUSED
             else -> null
         }
     }

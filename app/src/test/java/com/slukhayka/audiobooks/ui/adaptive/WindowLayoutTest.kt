@@ -1,6 +1,9 @@
 package com.slukhayka.audiobooks.ui.adaptive
 
+import com.slukhayka.audiobooks.ui.SelectedTab
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -40,5 +43,61 @@ class WindowLayoutTest {
         listOf(600, 601, 840, 1024, 2560).forEach { widthDp ->
             assertEquals("width=$widthDp", WindowLayout.EXPANDED, windowLayoutFor(widthDp))
         }
+    }
+
+    @Test
+    fun libraryOpensTheDetailPaneOnlyOnAWideWindowWithABookOpen() {
+        assertTrue(
+            showsWideDetailPane(
+                layout = WindowLayout.EXPANDED,
+                tab = SelectedTab.LIBRARY,
+                detailOpen = true
+            )
+        )
+        // Phone: the book page replaces the list, exactly as before.
+        assertFalse(
+            showsWideDetailPane(
+                layout = WindowLayout.COMPACT,
+                tab = SelectedTab.LIBRARY,
+                detailOpen = true
+            )
+        )
+        // Nothing open: there is no page to put beside the list.
+        assertFalse(
+            showsWideDetailPane(
+                layout = WindowLayout.EXPANDED,
+                tab = SelectedTab.LIBRARY,
+                detailOpen = false
+            )
+        )
+        // The other roots keep the one-screen-at-a-time route in this slice.
+        listOf(SelectedTab.LISTEN, SelectedTab.EXPLORE, SelectedTab.SETTINGS).forEach { tab ->
+            assertFalse(
+                "tab=$tab",
+                showsWideDetailPane(
+                    layout = WindowLayout.EXPANDED,
+                    tab = tab,
+                    detailOpen = true
+                )
+            )
+        }
+    }
+
+    @Test
+    fun theDetailPaneFollowsTheSameFiveHundredNinetyNineSixHundredBoundary() {
+        assertFalse(
+            showsWideDetailPane(
+                layout = windowLayoutFor(599),
+                tab = SelectedTab.LIBRARY,
+                detailOpen = true
+            )
+        )
+        assertTrue(
+            showsWideDetailPane(
+                layout = windowLayoutFor(600),
+                tab = SelectedTab.LIBRARY,
+                detailOpen = true
+            )
+        )
     }
 }

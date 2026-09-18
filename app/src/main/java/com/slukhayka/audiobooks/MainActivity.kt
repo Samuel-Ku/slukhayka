@@ -53,9 +53,11 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
 import com.slukhayka.audiobooks.ui.adaptive.rememberWindowLayout
+import com.slukhayka.audiobooks.ui.adaptive.showsWideDetailPane
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.AppNavigationRail
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
@@ -624,6 +626,94 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    // #900 — the wide library layout: the list keeps its place and the page
+    // opens beside it.
+    val wideDetailPaneOpen = showsWideDetailPane(
+        layout = windowLayout,
+        tab = selectedTab,
+        detailOpen = selectedBookId != null
+    )
+
+    // #900 — the Бібліотека list and the book page, wired ONCE so the wide
+    // layout and the phone layout cannot drift into two different libraries
+    // («лише інша розкладка тих самих», issue #900). These are values, not
+    // screens: the wide branch places them side by side, the phone branches
+    // place them one at a time, and both get the identical callbacks.
+    val libraryRootContent: @Composable () -> Unit = {
+        LibraryScreen(
+            // #860 — the gear opens Settings from THIS root.
+            onOpenSettings = {
+                settingsReturnTab = SelectedTab.LIBRARY
+                viewModel.selectTab(SelectedTab.SETTINGS)
+            },
+            viewModel = viewModel,
+            // ADR-0008 batch 1 (#154): the screen receives the
+            // modules it reads from as parameters, wired here
+            // from the single adapter (the ViewModel's public
+            // module fields — the playerManager precedent).
+            libraryEntries = viewModel.libraryEntries,
+            listeningState = viewModel.listeningState,
+            // #401: person bookmarks module (ADR-0008).
+            personBookmarks = App.instance.personBookmarks,
+            onBookClick = { id ->
+                libraryBookFocusReturnId = id
+                viewModel.selectBook(id)
+            },
+            onPlayClick = { book ->
+                viewModel.playAudiobook(book)
+                viewModel.setShowFullPlayer(true)
+            },
+            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
+            onPersonClick = { person ->
+                viewModel.openPersonBooks(person)
+            },
+            // #900 — while the page sits BESIDE the list, focus belongs to the
+            // page: the return-focus marker is held back (not consumed) so the
+            // list can still restore the originating card when the pane closes.
+            restoreFocusBookId = libraryBookFocusReturnId.takeIf { !wideDetailPaneOpen },
+            onBookFocusRestored = { restoredId ->
+                if (libraryBookFocusReturnId == restoredId) {
+                    libraryBookFocusReturnId = null
+                }
+            }
+        )
+    }
+
+    val bookDetailContent: @Composable () -> Unit = {
+        BookDetailScreen(
+            viewModel = viewModel,
+            // ADR-0008 batch 4 (#159): the modules come in as
+            // parameters from the composition root.
+            listeningState = viewModel.listeningState,
+            offlineDownloads = viewModel.offlineDownloads,
+            // ADR-0011: the «Інші начитки» block reads the Work's
+            // other rendition cards from the module.
+            libraryEntries = viewModel.libraryEntries,
+            personBookmarks = viewModel.personBookmarks,
+            playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
+            onBackClick = {
+                bookDetailChildRouteOpen = false
+                bookDetailChildOrigin = null
+                bookDetailChildEditionId = null
+                viewModel.selectBook(null)
+            },
+            returnFocusOrigin = bookDetailChildFocusOrigin
+                ?.takeIf { bookDetailChildEditionId == selectedBookId },
+            fullPlayerModalActive = fullPlayerModalActive,
+            onChildRouteOpened = { origin ->
+                bookDetailChildRouteOpen = true
+                bookDetailChildOrigin = origin.name
+                bookDetailChildEditionId = selectedBookId
+            },
+            onReturnFocusRestored = { origin ->
+                if (bookDetailChildOrigin == origin.name) {
+                    bookDetailChildOrigin = null
+                    bookDetailChildEditionId = null
+                }
+            }
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier
@@ -782,34 +872,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // A book opened from a pushed catalogue list overlays
                     // that retained parent route. Closing details reveals the
                     // same list and lets it restore the originating card.
-                    secondaryBookDetailOpen -> BookDetailScreen(
-                        viewModel = viewModel,
-                        listeningState = viewModel.listeningState,
-                        offlineDownloads = viewModel.offlineDownloads,
-                        libraryEntries = viewModel.libraryEntries,
-                        personBookmarks = viewModel.personBookmarks,
-                        playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
-                        onBackClick = {
-                            bookDetailChildRouteOpen = false
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            viewModel.selectBook(null)
-                        },
-                        returnFocusOrigin = bookDetailChildFocusOrigin
-                            ?.takeIf { bookDetailChildEditionId == selectedBookId },
-                        fullPlayerModalActive = fullPlayerModalActive,
-                        onChildRouteOpened = { origin ->
-                            bookDetailChildRouteOpen = true
-                            bookDetailChildOrigin = origin.name
-                            bookDetailChildEditionId = selectedBookId
-                        },
-                        onReturnFocusRestored = { origin ->
-                            if (bookDetailChildOrigin == origin.name) {
-                                bookDetailChildOrigin = null
-                                bookDetailChildEditionId = null
-                            }
-                        }
-                    )
+                    secondaryBookDetailOpen -> bookDetailContent()
 
                     // Series (cycle) page (spec #8 ticket T8).
                     selectedSeries != null -> SeriesScreen(
@@ -1081,38 +1144,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listState = peopleListState
                     )
 
-                    selectedBookId != null -> BookDetailScreen(
-                        viewModel = viewModel,
-                        // ADR-0008 batch 4 (#159): the modules come in as
-                        // parameters from the composition root.
-                        listeningState = viewModel.listeningState,
-                        offlineDownloads = viewModel.offlineDownloads,
-                        // ADR-0011: the «Інші начитки» block reads the Work's
-                        // other rendition cards from the module.
-                        libraryEntries = viewModel.libraryEntries,
-                        personBookmarks = viewModel.personBookmarks,
-                        playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
-                        onBackClick = {
-                            bookDetailChildRouteOpen = false
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            viewModel.selectBook(null)
-                        },
-                        returnFocusOrigin = bookDetailChildFocusOrigin
-                            ?.takeIf { bookDetailChildEditionId == selectedBookId },
-                        fullPlayerModalActive = fullPlayerModalActive,
-                        onChildRouteOpened = { origin ->
-                            bookDetailChildRouteOpen = true
-                            bookDetailChildOrigin = origin.name
-                            bookDetailChildEditionId = selectedBookId
-                        },
-                        onReturnFocusRestored = { origin ->
-                            if (bookDetailChildOrigin == origin.name) {
-                                bookDetailChildOrigin = null
-                                bookDetailChildEditionId = null
-                            }
-                        }
+                    // #900 — a wide window keeps the Бібліотека list beside the
+                    // opened book's page instead of replacing it: the SAME two
+                    // screens, one click still, no second library to keep in
+                    // sync. The phone path below is untouched.
+                    wideDetailPaneOpen -> WideDetailPane(
+                        list = libraryRootContent,
+                        detail = bookDetailContent
                     )
+
+                    selectedBookId != null -> bookDetailContent()
 
                     else -> com.slukhayka.audiobooks.ui.components.TabSaveableHost(
                         tabKey = selectedTab.name
@@ -1172,41 +1213,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 null
                             }
                         )
-                        SelectedTab.LIBRARY -> LibraryScreen(
-                            // #860 — the gear opens Settings from THIS root.
-                            onOpenSettings = {
-                                settingsReturnTab = SelectedTab.LIBRARY
-                                viewModel.selectTab(SelectedTab.SETTINGS)
-                            },
-                            viewModel = viewModel,
-                            // ADR-0008 batch 1 (#154): the screen receives the
-                            // modules it reads from as parameters, wired here
-                            // from the single adapter (the ViewModel's public
-                            // module fields — the playerManager precedent).
-                            libraryEntries = viewModel.libraryEntries,
-                            listeningState = viewModel.listeningState,
-                            // #401: person bookmarks module (ADR-0008).
-                            personBookmarks = App.instance.personBookmarks,
-                            onBookClick = { id ->
-                                libraryBookFocusReturnId = id
-                                viewModel.selectBook(id)
-                            },
-                            onPlayClick = { book ->
-                                viewModel.playAudiobook(book)
-                                viewModel.setShowFullPlayer(true)
-                            },
-                            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                            onPersonClick = { person ->
-                                viewModel.openPersonBooks(person)
-                            },
-                            restoreFocusBookId = libraryBookFocusReturnId,
-                            onBookFocusRestored = { restoredId ->
-                                if (libraryBookFocusReturnId == restoredId) {
-                                    libraryBookFocusReturnId = null
-                                }
-                            },
-
-                        )
+                        SelectedTab.LIBRARY -> libraryRootContent()
                         SelectedTab.FRIENDS -> FriendsScreen(
                             // #898 — the feed renders the state that EXISTS today.
                             // The listener's own pseudonym is real (spec-40

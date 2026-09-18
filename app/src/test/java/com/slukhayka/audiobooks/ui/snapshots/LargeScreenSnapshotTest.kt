@@ -20,6 +20,7 @@ import com.slukhayka.audiobooks.AppBottomBarSlot
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,13 +29,14 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * #900 — the frame evidence for slice 1 (foundation: the ≥600 dp breakpoint
- * and the rail that replaces the bottom bar).
+ * #900 — the frame evidence for the two finished slices: the ≥600 dp breakpoint
+ * with the rail that replaces the bottom bar, and the Бібліотека list with the
+ * opened book's page beside it.
  *
  * These are JVM Roborazzi renders, NOT device screenshots: `adb devices` had
  * no device attached when this was written, and ADR-0017's on-device check is
- * still owed for the slice. They pin the two navigation surfaces side by side
- * so a review can see the difference the width makes.
+ * still owed for both slices. They pin the two navigation surfaces side by
+ * side, and the two-pane split, so a review can see what the width changes.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -76,6 +78,48 @@ class LargeScreenSnapshotTest {
         composeTestRule.onRoot().captureRoboImage(
             filePath = "$frameDir/large-navigation-rail.png"
         )
+    }
+
+    @Test
+    @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
+    fun large_library_two_pane() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    WideDetailPane(
+                        list = { PanePlaceholder("Список книг", "заглушка") },
+                        detail = { PanePlaceholder("Сторінка книги", "заглушка") }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "$frameDir/large-library-two-pane.png"
+        )
+    }
+
+    /**
+     * The two-pane split as a FRAME, with both panes deliberately labelled as
+     * placeholders: the real [com.slukhayka.audiobooks.ui.screens.LibraryScreen]
+     * and `BookDetailScreen` need a ViewModel, so this pins the SPLIT (list
+     * 0.4 left, page right, hairline between) and nothing about their content.
+     */
+    @Composable
+    private fun PanePlaceholder(title: String, subtitle: String) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = title, style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 
     /**

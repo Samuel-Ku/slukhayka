@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.adaptive
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
+import com.slukhayka.audiobooks.ui.SelectedTab
 
 /**
  * #900 — how the app lays out for the window it is given.
@@ -53,3 +54,23 @@ fun windowLayoutFor(widthDp: Int): WindowLayout =
 @Composable
 fun rememberWindowLayout(): WindowLayout =
     windowLayoutFor(LocalConfiguration.current.screenWidthDp)
+
+/**
+ * #900 — should this root render its list with the opened item's page BESIDE
+ * it, instead of the phone's one-screen-at-a-time push?
+ *
+ * Three inputs, one answer, no composition: the window is wide, the open book
+ * belongs to a root that has a page to keep beside its list, and there IS an
+ * open book. The phone path is untouched — a false here means the existing
+ * full-screen route renders exactly as before.
+ *
+ * Бібліотека is the root the owner named for this slice. Огляд's collection +
+ * work card is the next one and joins this function — deliberately one place,
+ * so «which roots are two-pane» cannot drift between screens.
+ */
+fun showsWideDetailPane(
+    layout: WindowLayout,
+    tab: SelectedTab,
+    detailOpen: Boolean
+): Boolean = layout == WindowLayout.EXPANDED && detailOpen && tab == SelectedTab.LIBRARY
+

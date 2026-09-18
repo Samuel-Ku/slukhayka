@@ -1431,11 +1431,18 @@ internal fun LibraryContinueCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("library_continue_card"),
+            // The card IS the library entry for this book: it carries the same
+            // contract tag as a row, so the book stays reachable exactly once
+            // (the list no longer repeats it).
+            .testTag("library_book_item_${book.book.id}"),
         shape = RoundedCornerShape(AppDimens.RadiusHero),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
+        Column(
+            modifier = Modifier
+                .padding(AppDimens.SpaceLg)
+                .testTag("library_continue_card")
+        ) {
             Text(
                 text = "ПРОДОВЖИТИ",
                 style = MaterialTheme.typography.labelSmall.copy(

@@ -1249,10 +1249,42 @@ class OfflineDownloads(
         // otherwise a later re-import of the same files would be skipped as
         // "duplicate" and the book would stay unplayable (wayfinder #48+#50).
         dao.clearTrackContentHashesForBook(bookId)
+        // #899 — the destructive action must leave NO file behind. A kept
+        // Range-resume partial (#387) is keyed by chapter + track url and is
+        // referenced by no track row, so the reference-counted sweep above
+        // never sees it; without this, «Видалити файли» would contradict its
+        // own confirmation and the manager's «зайнято» figure would keep
+        // counting hidden bytes.
+        deleteScratchFilesForBook(bookId)
         // #394: use updateDownloadStateWithState to also reset downloadState
         // to IDLE. Without this, a PAUSED download that gets its files
         // removed would stay stuck in PAUSED state with no files on disk.
         dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
+    }
+
+    /**
+     * #899 — deletes the book's scratch files: the stable Range-resume
+     * partials (`<chapterId>.<urlKey>.mp3.resume`, #387) and any stale session
+     * `*.tmp`. This is the DESTRUCTIVE path — unlike
+     * [deleteTemporaryFilesForBook], which pause and cancel use and which must
+     * KEEP the resume partials, the offline copy is already gone here, so its
+     * scratch has nothing left to resume.
+     */
+    private suspend fun deleteScratchFilesForBook(bookId: String) {
+        val chapterIds = dao.getChaptersListForBook(bookId).map { it.id }
+        if (chapterIds.isEmpty()) return
+        val baseDir = resolveBaseDir() ?: return
+        val audioDir = File(baseDir, OFFLINE_AUDIO_DIR)
+        if (!audioDir.exists()) return
+        try {
+            audioDir.listFiles()?.forEach { file ->
+                val name = file.name
+                val scratch = name.endsWith(".mp3.resume") || name.endsWith(".tmp")
+                if (scratch && chapterIds.any { name.startsWith("$it.") }) {
+                    try { file.delete() } catch (_: Exception) {}
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     /**

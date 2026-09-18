@@ -3,11 +3,6 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,10 +30,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -320,16 +313,11 @@ fun HomeScreen(
         )
     }
 
-    // Spec-22 T3: the search bar and filter chips are collapsible — the
-    // header shows brand + [🔍] + [🔄], and the field + chips expand on
-    // demand with auto-focus. Closing (✕ or Back) clears the query and
-    // resets the filter to «Усі».
-    val haptic = LocalHapticFeedback.current
+    // IA §4 «Огляд» / expressive «Основні екрани»: the search is permanently
+    // visible — finding new content belongs to this tab — so there is no
+    // collapsed/expanded state and no toggle to hide it. ✕ and Back only clear
+    // the query.
     val context = androidx.compose.ui.platform.LocalContext.current
-    // A query always keeps its field visible, including when Android restores
-    // an older collapsed header state. The flag only opens an empty field.
-    var searchRequested by rememberSaveable { mutableStateOf(false) }
-    val searchExpanded = searchRequested || searchQuery.isNotBlank()
 
     val filteredBooks = allBooks.matchingLibraryQuery(searchQuery)
 
@@ -346,29 +334,13 @@ fun HomeScreen(
                 .testTag("home_screen"),
             contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
         ) {
-        // Header & collapsible search (spec-22 T3) — the field and chips
-        // expand from the header's [🔍] and close via ✕ or the Back gesture.
+        // Header with the always-visible search field.
         item {
             HomeHeader(
                 onOpenSettings = onOpenSettings,
-                searchExpanded = searchExpanded,
                 searchQuery = searchQuery,
-                onToggleSearch = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    searchRequested = !searchExpanded
-                    if (!searchRequested) {
-                        if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
-                    }
-                },
                 onRefresh = { scope.launch { sourceCatalog.fetchCatalogSections(forceRefresh = true) } },
-                onSearchQueryChange = { query ->
-                    searchRequested = true
-                    viewModel.updateSearchQuery(query)
-                },
-                onCloseSearch = {
-                    searchRequested = false
-                    if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
-                }
+                onSearchQueryChange = { query -> viewModel.updateSearchQuery(query) }
             )
         }
 
@@ -725,10 +697,13 @@ fun GlobalSearchStatus(
 }
 
 /**
- * Explore header (spec-22 T3): brand row with [🔍] search toggle + [🔄]
- * refresh, and an expandable text-search field. State is hoisted so snapshot
- * tests can pin both collapsed and expanded without a ViewModel. ✕ or the
- * system Back collapses the search, clears the query and resets the filters.
+ * Огляд header (IA §4 «Огляд»; expressive «Основні екрани»): brand row with
+ * the gear + [🔄] refresh, and the permanently visible search field the tab
+ * owns. Finding new content belongs to «Огляд», so the field is never hidden
+ * behind an action: it renders above every shelf, and ✕ clears the query in
+ * place — the field itself never leaves the screen («Постійно видимий
+ * пошук»). State is hoisted so snapshot tests pin the empty and the typed
+ * field without a ViewModel; the system Back clears a typed query too.
  * Genre filtering lives only in the feed sheet.
  *
  * v1.4 C5 (ADR-0033): the brand lockup renders through the canonical
@@ -736,22 +711,17 @@ fun GlobalSearchStatus(
  */
 @Composable
 fun HomeHeader(
-    searchExpanded: Boolean,
     searchQuery: String,
-    onToggleSearch: () -> Unit,
     onRefresh: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
-    onCloseSearch: () -> Unit,
     modifier: Modifier = Modifier,
     /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
     onOpenSettings: () -> Unit = {}
 ) {
-    val focusRequester = remember { FocusRequester() }
     val searchFieldLabel = stringResource(R.string.a11y_search_books)
-    BackHandler(enabled = searchExpanded) { onCloseSearch() }
-    LaunchedEffect(searchExpanded) {
-        if (searchExpanded) focusRequester.requestFocus()
-    }
+    // The field is not collapsible anymore: Back clears a typed query, while an
+    // empty field leaves Back to the navigation contract.
+    BackHandler(enabled = searchQuery.isNotEmpty()) { onSearchQueryChange("") }
 
     Column(modifier = modifier.fillMaxWidth()) {
         AppTabHeader(
@@ -769,65 +739,51 @@ fun HomeHeader(
                         contentDescription = stringResource(R.string.a11y_refresh_catalogue)
                     )
                 }
-                IconButton(
-                    onClick = onToggleSearch,
-                    modifier = Modifier.size(AppDimens.TouchTarget).testTag("home_search_toggle")
-                ) {
-                    Icon(
-                        imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = stringResource(
-                            if (searchExpanded) R.string.a11y_close_search else R.string.a11y_open_search
-                        )
-                    )
-                }
             }
         )
 
-        AnimatedVisibility(
-            visible = searchExpanded,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Column {
-                Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
 
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchQueryChange,
-                    label = { Text(searchFieldLabel) },
-                    placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingIcon = {
-                        // ✕ collapses search and resets the filters (US-2).
-                        IconButton(onClick = onCloseSearch, modifier = Modifier.testTag("home_search_close")) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = stringResource(R.string.a11y_clear_close_search)
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .testTag("home_search_input"),
-                    shape = RoundedCornerShape(AppDimens.RadiusPanel),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        // MD3: input fills sit on the highest tonal container.
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    singleLine = true
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChange,
+            label = { Text(searchFieldLabel) },
+            placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
                 )
-            }
-        }
+            },
+            trailingIcon = {
+                // The field stays; ✕ only empties it (US-2).
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(
+                        onClick = { onSearchQueryChange("") },
+                        modifier = Modifier.testTag("home_search_clear")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = stringResource(R.string.a11y_clear_search)
+                        )
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppDimens.PageSides)
+                .testTag("home_search_input"),
+            shape = RoundedCornerShape(AppDimens.RadiusPanel),
+            colors = OutlinedTextFieldDefaults.colors(
+                // MD3: input fills sit on the highest tonal container.
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+            ),
+            singleLine = true
+        )
     }
 }
 

@@ -91,17 +91,19 @@ class ExploreAccessibilityTest {
         )
     )
 
+    /**
+     * IA §4 «Огляд» / expressive «Основні екрани»: «Постійно видимий пошук».
+     * The field renders with no prior action — the old magnifier toggle that
+     * revealed it is gone.
+     */
     @Test
-    fun searchFieldHasAStableUkrainianLabelAndFilterExposesSelection() {
+    fun searchFieldIsPermanentlyVisibleWithoutAnyRevealingAction() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
                 HomeHeader(
-                    searchExpanded = true,
                     searchQuery = "",
-                    onToggleSearch = {},
                     onRefresh = {},
-                    onSearchQueryChange = {},
-                    onCloseSearch = {}
+                    onSearchQueryChange = {}
                 )
             }
         }
@@ -109,8 +111,31 @@ class ExploreAccessibilityTest {
         compose.onNodeWithTag("home_search_input")
             .assertTextContains("Пошук книги або автора")
             .assertIsDisplayed()
-        compose.onNodeWithContentDescription("Закрити пошук")
+        compose.onNodeWithTag("home_search_toggle").assertDoesNotExist()
+    }
+
+    /** ✕ empties the query; the field itself never leaves the screen. */
+    @Test
+    fun typedQueryKeepsTheFieldAndClearOnlyEmptiesIt() {
+        var query by mutableStateOf("Шевченко")
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                HomeHeader(
+                    searchQuery = query,
+                    onRefresh = {},
+                    onSearchQueryChange = { query = it }
+                )
+            }
+        }
+
+        compose.onNodeWithTag("home_search_input").assertTextContains("Шевченко")
+        compose.onNodeWithContentDescription("Очистити пошук")
+            .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
+            .performClick()
+        compose.onNodeWithTag("home_search_input").assertIsDisplayed()
+        compose.onNodeWithTag("home_search_input")
+            .assertTextContains("Пошук книги або автора")
     }
 
     @Test
@@ -493,19 +518,16 @@ class ExploreAccessibilityTest {
             ) {
                 AudiobookTheme(darkTheme = true) {
                     HomeHeader(
-                        searchExpanded = true,
-                        searchQuery = "",
-                        onToggleSearch = {},
+                        searchQuery = "Шевченко",
                         onRefresh = {},
-                        onSearchQueryChange = {},
-                        onCloseSearch = {}
+                        onSearchQueryChange = {}
                     )
                 }
             }
         }
 
         compose.onNodeWithTag("home_search_input").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Закрити пошук")
+        compose.onNodeWithContentDescription("Очистити пошук")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
     }

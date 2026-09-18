@@ -111,6 +111,15 @@
     <string name="download_manager_pause">Пауза</string>
     <string name="download_manager_continue">Продовжити</string>
     <string name="download_manager_remove">Прибрати</string>
+    <!-- #899 (owner follow-up): «Скасувати» stops the queue and KEEPS the
+         partial files; only the separately confirmed «Видалити файли»
+         destroys them. The visible label is one word, so the accessibility
+         description spells out which of the two it is. -->
+    <string name="download_manager_cancel">Скасувати</string>
+    <string name="download_manager_cancel_description">Скасувати завантаження. Завантажені файли лишаться на пристрої.</string>
+    <string name="download_manager_delete_files">Видалити файли</string>
+    <string name="download_manager_delete_title">Видалити завантажені файли?</string>
+    <string name="download_manager_keep">Не видаляти</string>
     <string name="download_manager_remove_completed">Прибрати завершені</string>
     <string name="download_manager_remove_title">Прибрати завантаження?</string>
     <string name="download_manager_remove_message">Завантажені файли «%1$s» буде видалено з пристрою. Цю дію не можна скасувати.</string>

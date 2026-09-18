@@ -354,4 +354,42 @@ class CancelDownloadTest {
         assertFalse(targetTemp.exists())
         assertTrue(otherBookTemp.exists())
     }
+
+    /**
+     * #899 (owner follow-up) — the two stopping actions are opposites:
+     * «Скасувати» keeps everything a resume needs, «Видалити файли» is the
+     * confirmed action that must leave NO file behind. The kept Range-resume
+     * partial is the interesting half: no track row references it, so only an
+     * explicit sweep can delete it.
+     */
+    @Test
+    fun `cancel keeps the files that removeOfflineDownload destroys`() = runTest {
+        val dao = FakeAudiobookDao()
+        seedBook(dao, "b7", 2, "https://sound-books.net/b7")
+        val downloads = downloader(
+            dao,
+            CountingFetcher(emptyMap()),
+            CompletableDeferred(),
+            mutableListOf()
+        )
+        audioDir().mkdirs()
+        val ready = File(audioDir(), "b7-ch0.mp3").apply { writeBytes(ByteArray(2048) { 7 }) }
+        dao.updateTrackDownloadState("sb-b7-tr0", true, ready.absolutePath)
+        val partial = File(
+            audioDir(),
+            DownloadResumePolicy.resumeTempName("b7-ch1", "https://sound-books.net/b7/1.mp3")
+        ).apply { writeBytes(ByteArray(512) { 3 }) }
+
+        // «Скасувати» — the download stops, both files stay for a resume.
+        downloads.cancelDownload("b7")
+        assertTrue("completed chapter must survive", ready.exists())
+        assertTrue("resume partial must survive a cancel", partial.exists())
+        assertEquals(DownloadState.PAUSED, dao.getAudiobookById("b7")?.downloadState)
+
+        // «Видалити файли» — the separate, confirmed destructive action.
+        downloads.removeOfflineDownload("b7")
+        assertFalse("completed chapter must be deleted", ready.exists())
+        assertFalse("a deleted download must not leave hidden scratch", partial.exists())
+        assertEquals(DownloadState.IDLE, dao.getAudiobookById("b7")?.downloadState)
+    }
 }

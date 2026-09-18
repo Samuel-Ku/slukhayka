@@ -5195,6 +5195,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         offlineDownloads.registerDownloadJob(bookId, job)
     }
 
+    /**
+     * #899 (owner follow-up) — «Скасувати»: stops the queue and KEEPS every
+     * file on disk. This is exactly what the module's own
+     * [com.slukhayka.audiobooks.data.downloads.OfflineDownloads.cancelDownload]
+     * does: it cancels the loop, drops only the run's `*.tmp` scratch, keeps
+     * the completed chapters and the `.resume` partials, and parks the Entry
+     * at PAUSED so [continueDownload] resumes from the next missing chapter.
+     * Destroying the copy is a SEPARATE, confirmed action ([removeDownload]).
+     */
     fun cancelDownload(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             offlineDownloads.cancelDownload(bookId)
@@ -5203,6 +5212,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 stopDownloadNotification()
             }
             refreshCacheSize()
+            refreshDownloadQueue()
         }
     }
 
@@ -5304,10 +5314,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * #899 — «Прибрати одне»: removes ONE download's files. A running queue
-     * owns the book's files, so it is stopped first (the existing bounded
-     * cancel) and only then deleted — the deletion itself is the existing,
+     * #899 — «Прибрати» (finished) / «Видалити файли» (unfinished): the ONE
+     * confirmed destructive action. A running queue owns the book's files, so
+     * it is stopped first (the existing bounded cancel, which keeps the
+     * partials) and only then deleted — the deletion itself is the existing,
      * reference-counted [com.slukhayka.audiobooks.data.downloads.OfflineDownloads.removeOfflineDownload].
+     *
+     * Callers must confirm before invoking this: it destroys files.
      */
     fun removeDownload(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {

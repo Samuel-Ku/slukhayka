@@ -333,6 +333,13 @@ fun LibraryScreen(
     // speed) stay reachable from the card's details.
     val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
     val shownCards = remember(workCards) { workCards.map { it.primary } }
+    // #885 — the book shown in the «Продовжити» card must appear ONCE on the
+    // screen: the a11y contract is one node per book, and the journey asserts
+    // exactly one `library_book_item_<id>`. So the continue book is not repeated
+    // as a row right under the very card that already offers it.
+    val listedCards = remember(shownCards, continueBook) {
+        shownCards.filterNot { it.book.id == continueBook?.book?.id }
+    }
 
     // The grid as data (v1.5 review): the structure carries the resume card,
     // the section headers and the shelf, so a lazy-grid index must be mapped
@@ -347,7 +354,7 @@ fun LibraryScreen(
             // section+rows shape.
             browsing = false,
             gridMode = gridMode,
-            visible = shownCards,
+            visible = listedCards,
             continueBook = continueBook,
             denseTitle = if (query.isNotBlank()) "Пошук" else filter.label,
             denseTrailing = denseTrailing

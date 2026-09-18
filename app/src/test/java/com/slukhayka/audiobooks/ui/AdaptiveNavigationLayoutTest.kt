@@ -77,7 +77,11 @@ class AdaptiveNavigationLayoutTest {
         composeTestRule.setContent { Harness(WindowLayout.COMPACT) }
 
         composeTestRule.onNodeWithTag("bottom_navigation_bar").assertExists().assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tab_listen").assertExists()
+        // The phone contract is the four `tab_*` destinations, «Друзі» included
+        // (ADR-0049 / #898) — the rail must not have changed that surface.
+        listOf("listen", "explore", "library", "friends").forEach { section ->
+            composeTestRule.onNodeWithTag("tab_$section").assertExists()
+        }
         composeTestRule.onNodeWithTag("navigation_rail").assertDoesNotExist()
         composeTestRule.onNodeWithTag("rail_tab_listen").assertDoesNotExist()
         composeTestRule.onNodeWithTag("pane_content").assertExists()
@@ -91,10 +95,24 @@ class AdaptiveNavigationLayoutTest {
         composeTestRule.onNodeWithTag("rail_tab_listen").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("rail_tab_explore").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("rail_tab_library").assertExists().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("rail_tab_friends").assertExists().assertIsDisplayed()
         // «Бічна навігація ЗАМІСТЬ нижньої»: the bar is not merely hidden.
         composeTestRule.onNodeWithTag("bottom_navigation_bar").assertDoesNotExist()
         composeTestRule.onNodeWithTag("tab_listen").assertDoesNotExist()
         composeTestRule.onNodeWithTag("pane_content").assertExists()
+    }
+
+    @Test
+    fun theRailCarriesAllFourWorkingSectionsOfAdr0049() {
+        // ADR-0049 / #898 fix the map at four sections; the rail must not drop
+        // one just because it is a different surface than the bar.
+        composeTestRule.setContent { Harness(WindowLayout.EXPANDED) }
+
+        listOf("listen", "explore", "library", "friends").forEach { section ->
+            composeTestRule.onNodeWithTag("rail_tab_$section")
+                .assertExists()
+                .assertIsDisplayed()
+        }
     }
 
     @Test
@@ -124,6 +142,7 @@ class AdaptiveNavigationLayoutTest {
             .assertIsSelected()
             .assertTextEquals("Огляд")
         composeTestRule.onNodeWithTag("rail_tab_library").assertTextEquals("Мої книги")
+        composeTestRule.onNodeWithTag("rail_tab_friends").assertTextEquals("Друзі")
         // ADR-0049 stands on both surfaces: settings stay behind the gear.
         composeTestRule.onNodeWithTag("rail_tab_settings").assertDoesNotExist()
     }
@@ -136,8 +155,10 @@ class AdaptiveNavigationLayoutTest {
         }
 
         composeTestRule.onNodeWithTag("rail_tab_library").performClick()
-
         assertEquals(SelectedTab.LIBRARY, selected)
+
+        composeTestRule.onNodeWithTag("rail_tab_friends").performClick()
+        assertEquals(SelectedTab.FRIENDS, selected)
     }
 
     @Test
@@ -151,14 +172,10 @@ class AdaptiveNavigationLayoutTest {
             }
         }
 
-        composeTestRule.onNodeWithTag("rail_tab_listen")
-            .assertIsDisplayed()
-            .assertHeightIsAtLeast(24.dp)
-        composeTestRule.onNodeWithTag("rail_tab_explore")
-            .assertIsDisplayed()
-            .assertHeightIsAtLeast(24.dp)
-        composeTestRule.onNodeWithTag("rail_tab_library")
-            .assertIsDisplayed()
-            .assertHeightIsAtLeast(24.dp)
+        listOf("listen", "explore", "library", "friends").forEach { section ->
+            composeTestRule.onNodeWithTag("rail_tab_$section")
+                .assertIsDisplayed()
+                .assertHeightIsAtLeast(24.dp)
+        }
     }
 }

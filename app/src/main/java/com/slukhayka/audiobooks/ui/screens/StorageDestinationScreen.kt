@@ -3,7 +3,6 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -22,7 +21,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +28,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,58 +43,21 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
-import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
- * spec-28 (#194) — the «Завантаження та пам'ять» destination: the storage
- * line and the destructive delete, moved off the main Медіатека screen into
- * a pushed screen reached from the ⋮ overflow menu. Deleting every download
- * stays behind the [ClearCacheConfirmDialog] quoting the exact count and
- * size (BUG-001) — the button is named by its consequence and only appears
- * when there IS something to delete.
+ * spec-28 (#194) — the «Завантаження та пам'ять» destination's body: the
+ * storage summary line, the local-folder rescan and the destructive delete,
+ * which stays behind the [ClearCacheConfirmDialog] quoting the exact count
+ * and size (BUG-001) — the button is named by its consequence and only
+ * appears when there IS something to delete.
+ *
+ * #899 — the destination itself is now [DownloadManagerScreen]: the queue
+ * sits above this body, and these tools are reused unchanged as its bottom
+ * section (docs/specs §9 «Зберегти інструменти»). The pane owns the confirm
+ * dialog's focus contract; the manager passes the memory summary line in.
  */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun StorageDestinationScreen(
-    viewModel: MainViewModel,
-    onBackClick: () -> Unit
-) {
-    val libraryBooks by viewModel.libraryBooks.collectAsState()
-    val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
-    // The raw bytes back the confirm dialog's exact scope, and gate the
-    // delete button (nothing to delete → no button).
-    val cacheSizeBytes by viewModel.cacheSizeBytes.collectAsState()
-    var storageDialogVisible by remember { mutableStateOf(false) }
-
-    val offlineCount = libraryBooks.count { it.book.isDownloaded }
-    val hasLocalBooks = libraryBooks.any { it.isLocal }
-
-    SettingsDestinationScaffold(
-        destination = SettingsDestination.Storage,
-        onBackClick = onBackClick,
-        modalVisible = storageDialogVisible
-    ) { padding ->
-        StorageDestinationPane(
-            storageText = "$cacheSizeFormatted · $offlineCount " +
-                ukPlural(offlineCount, "аудіокнига", "аудіокниги", "аудіокниг") + " офлайн",
-            hasLocalBooks = hasLocalBooks,
-            showDelete = offlineCount > 0 || cacheSizeBytes > 0L,
-            bookCount = offlineCount,
-            bytes = cacheSizeBytes,
-            onRescan = { viewModel.rescanLocalFolders() },
-            onDeleteConfirmed = viewModel::clearAllAudioCache,
-            onDialogVisibilityChange = { storageDialogVisible = it },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        )
-    }
-}
-
-/** Stateful storage confirmation seam shared by production and Compose behavior tests. */
 @Composable
 fun StorageDestinationPane(
     storageText: String,

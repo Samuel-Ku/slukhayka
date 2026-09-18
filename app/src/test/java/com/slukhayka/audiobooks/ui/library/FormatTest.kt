@@ -71,4 +71,61 @@ class FormatTest {
         assertEquals("Видалити 21 завантажену книгу, 350 МБ?$tail", clearCacheConfirmText(21, 350L * 1024 * 1024))
         assertEquals("Видалити 11 завантажених книг, 350 МБ?$tail", clearCacheConfirmText(11, 350L * 1024 * 1024))
     }
+
+    // --- #899 download manager copy -----------------------------------------
+
+    @Test
+    fun `memory summary quotes occupied, free and the offline count`() {
+        assertEquals(
+            "1,0 ГБ зайнято · 8,0 ГБ вільно · 5 аудіокниг офлайн",
+            downloadMemorySummaryText(
+                occupiedBytes = 1024L * 1024 * 1024,
+                freeBytes = 8L * 1024 * 1024 * 1024,
+                offlineBookCount = 5
+            )
+        )
+    }
+
+    @Test
+    fun `memory summary takes the proper plural and an honest zero`() {
+        assertEquals(
+            "0 МБ зайнято · 0 МБ вільно · 1 аудіокнига офлайн",
+            downloadMemorySummaryText(0L, 0L, 1)
+        )
+        assertEquals(
+            "0 МБ зайнято · 0 МБ вільно · 3 аудіокниги офлайн",
+            downloadMemorySummaryText(0L, 0L, 3)
+        )
+    }
+
+    @Test
+    fun `queue detail quotes size and chapter progress`() {
+        assertEquals(
+            "350 МБ · 4 з 10 розділів",
+            downloadQueueDetailText(4, 10, 350L * 1024 * 1024)
+        )
+        // After «з» the noun is genitive: 1 → «розділу».
+        assertEquals("350 МБ · 0 з 1 розділу", downloadQueueDetailText(0, 1, 350L * 1024 * 1024))
+    }
+
+    @Test
+    fun `queue detail shows only the size when the source exposes no tracks`() {
+        assertEquals("0 МБ", downloadQueueDetailText(0, 0, 0L))
+    }
+
+    @Test
+    fun `remove-completed copy quotes the plural of the removed count`() {
+        assertEquals(
+            "Прибрати 1 завершене завантаження? Завантажені файли буде видалено з пристрою.",
+            removeCompletedConfirmText(1)
+        )
+        assertEquals(
+            "Прибрати 3 завершені завантаження? Завантажені файли буде видалено з пристрою.",
+            removeCompletedConfirmText(3)
+        )
+        assertEquals(
+            "Прибрати 5 завершених завантажень? Завантажені файли буде видалено з пристрою.",
+            removeCompletedConfirmText(5)
+        )
+    }
 }

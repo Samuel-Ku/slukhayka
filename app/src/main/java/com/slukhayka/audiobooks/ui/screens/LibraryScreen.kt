@@ -38,6 +38,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -1889,11 +1891,20 @@ internal fun LibraryDenseRow(
                         .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         .testTag("library_row_progress_${book.book.id}")
                 ) {
+                    // #885 — the fill is drawn at WHOLE-PIXEL width: the
+                    // sub-pixel edge of `fillMaxWidth(fraction)` landed on a
+                    // different pixel when the snapshot was verified than when
+                    // it was recorded, which is what made the dense-rows diff.
+                    val fillColor = MaterialTheme.colorScheme.primary
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(book.percent.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary)
+                            .drawBehind {
+                                val filled =
+                                    (size.width * book.percent.coerceIn(0f, 1f)).roundToInt().toFloat()
+                                if (filled > 0f) {
+                                    drawRect(color = fillColor, size = Size(filled, size.height))
+                                }
+                            }
                     )
                 }
             }

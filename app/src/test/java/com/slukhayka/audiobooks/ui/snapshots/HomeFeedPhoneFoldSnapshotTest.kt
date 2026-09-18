@@ -245,7 +245,7 @@ class HomeFeedPhoneFoldSnapshotTest {
         )
     }
 
-    /** The real Огляд first screen: collapsed header + the feed body. */
+    /** The real Огляд first screen: the permanent search header + feed body. */
     @Composable
     private fun renderHomeFeed(
         recommendedBooks: List<RecommendationEngine.Recommendation> = recommendations,
@@ -258,12 +258,9 @@ class HomeFeedPhoneFoldSnapshotTest {
                 LazyColumn(modifier = Modifier.fillMaxSize().testTag("home_feed")) {
                     item {
                         HomeHeader(
-                            searchExpanded = false,
                             searchQuery = "",
-                            onToggleSearch = {},
                             onRefresh = {},
-                            onSearchQueryChange = {},
-                            onCloseSearch = {}
+                            onSearchQueryChange = {}
                         )
                     }
                     homeFeedContent(

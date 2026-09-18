@@ -333,13 +333,6 @@ fun LibraryScreen(
     // speed) stay reachable from the card's details.
     val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
     val shownCards = remember(workCards) { workCards.map { it.primary } }
-    // #885 — the book shown in the «Продовжити» card must appear ONCE on the
-    // screen: the a11y contract is one node per book, and the journey asserts
-    // exactly one `library_book_item_<id>`. So the continue book is not repeated
-    // as a row right under the very card that already offers it.
-    val listedCards = remember(shownCards, continueBook) {
-        shownCards.filterNot { it.book.id == continueBook?.book?.id }
-    }
 
     // The grid as data (v1.5 review): the structure carries the resume card,
     // the section headers and the shelf, so a lazy-grid index must be mapped
@@ -354,7 +347,7 @@ fun LibraryScreen(
             // section+rows shape.
             browsing = false,
             gridMode = gridMode,
-            visible = listedCards,
+            visible = shownCards,
             continueBook = continueBook,
             denseTitle = if (query.isNotBlank()) "Пошук" else filter.label,
             denseTrailing = denseTrailing
@@ -1443,18 +1436,11 @@ internal fun LibraryContinueCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            // The card IS the library entry for this book: it carries the same
-            // contract tag as a row, so the book stays reachable exactly once
-            // (the list no longer repeats it).
-            .testTag("library_book_item_${book.book.id}"),
+            .testTag("library_continue_card"),
         shape = RoundedCornerShape(AppDimens.RadiusHero),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Column(
-            modifier = Modifier
-                .padding(AppDimens.SpaceLg)
-                .testTag("library_continue_card")
-        ) {
+        Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
             Text(
                 text = "ПРОДОВЖИТИ",
                 style = MaterialTheme.typography.labelSmall.copy(

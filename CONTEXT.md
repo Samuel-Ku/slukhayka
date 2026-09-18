@@ -414,6 +414,10 @@ _Avoid_: друга бібліотека, автосід як пояснення
 A listener's progress, bookmarks, completion state, and playback preferences for one Edition. It is independent of the Source currently used to play that Edition — its row is keyed by Edition alone, so a Source switch never forks progress.
 _Avoid_: Library Entry, playback progress
 
+**Відстежуваний твір** (Tracked Work):
+Library Entry над Work без жодного Source: твір живе в Медіатеці з чесним станом «аудіо недоступне», ручна позначка «Прослухано» фіксує слухання поза Слухайкою; поява аудіо підсвічується Source Watch і мапуванням та імпортується звичайними дверима без авто-імпорту. Зовнішня база дає лише Work-рівень Metadata Assertions (назва, автор, обкладинка), ніколи не доказ аудіо.
+_Avoid_: полиця прочитаного, Goodreads-трекер, текстова книжка як каталог, аудіо-поля ззовні
+
 **«Прослухано» (Listened)**:
 Стан завершення одного Listening State, який слухач може виставити й прибрати вручну, а не лише автоматично дійти до кінця. Це аудіо-обличчя Reading State «Прочитано» для аудіо-Readthrough цього Work, а не друга правда й не окремий стан: ручна позначка виставляє той самий прапорець завершення, а не другий маркер поруч. Поверхня «Прослухано» — це «Мої книги», відфільтровані за завершенням; це не «Добірка слухача» й не кураторська колекція.
 _Avoid_: окремий ручний маркер прослуханого, `listened` поруч із `isCompleted`, друга правда завершення, плутання з «Добіркою слухача»

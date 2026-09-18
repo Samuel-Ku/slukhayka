@@ -106,10 +106,30 @@ class TelegramLoginSpikeTest {
                 }
 
                 is TdApi.AuthorizationStateWaitCode -> {
-                    if (code.isNullOrBlank()) {
-                        log("SPIKE tdlib: WAIT_CODE — rerun with …arguments.code=<code from Telegram>")
-                    } else {
+                    if (!code.isNullOrBlank()) {
                         send("code", TdApi.CheckAuthenticationCode(code))
+                    } else {
+                        // The host may not know the code when this run starts: the
+                        // owner reads it from Telegram while the attempt WAITS.
+                        // So the state stays alive and watches a file the host can
+                        // write from outside (adb → run-as), and the code is used
+                        // by THIS attempt — no second phone request, no new code.
+                        log("SPIKE tdlib: WAIT_CODE — чекаю код у files/tdlib-code.txt")
+                        Thread {
+                            repeat(90) {
+                                val value = runCatching {
+                                    java.io.File(context.filesDir, "tdlib-code.txt")
+                                        .readText().trim()
+                                }.getOrNull()
+                                if (!value.isNullOrBlank()) {
+                                    log("SPIKE tdlib: код з файлу, відправляю")
+                                    send("code", TdApi.CheckAuthenticationCode(value))
+                                    return@Thread
+                                }
+                                Thread.sleep(3_000)
+                            }
+                            log("SPIKE tdlib: код так і не зʼявився у файлі")
+                        }.start()
                     }
                 }
 

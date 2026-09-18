@@ -15,13 +15,14 @@ import org.junit.Test
 class SearchReturnNavigationTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun incomingQueryOpensTheHeaderAndCanBeReplaced() {
+    @Test fun permanentSearchFieldIsEditableOnArrival() {
         val vm = ViewModelProvider(rule.activity)[MainViewModel::class.java]
         rule.runOnUiThread {
             vm.updateSearchQuery("")
             vm.selectTab(SelectedTab.EXPLORE)
         }
-        rule.onNodeWithTag("home_search_input").assertDoesNotExist()
+        // IA §4 «Огляд» / expressive: the field is visible without any action.
+        rule.onNodeWithTag("home_search_input").assertIsDisplayed()
         try {
             rule.runOnUiThread { vm.updateSearchQuery("Absolute") }
             rule.onNodeWithTag("home_search_input")
@@ -29,8 +30,6 @@ class SearchReturnNavigationTest {
             rule.onNodeWithTag("home_search_input").performTextClearance()
             rule.onNodeWithTag("home_search_input").assertIsDisplayed().performTextInput("Wonder")
             rule.onNodeWithTag("home_search_input").assertTextContains("Wonder")
-            rule.onNodeWithTag("home_search_toggle").performClick()
-            rule.onNodeWithTag("home_search_input").assertDoesNotExist()
         } finally {
             rule.runOnUiThread { vm.updateSearchQuery("") }
         }
@@ -43,20 +42,19 @@ class SearchReturnNavigationTest {
             vm.selectTab(SelectedTab.EXPLORE)
         }
         try {
-            rule.onNodeWithTag("home_search_toggle").performClick()
-            rule.onNodeWithTag("home_search_input").performTextInput("Absolute")
+            rule.runOnUiThread { vm.updateSearchQuery("Absolute") }
+            rule.onNodeWithTag("home_search_input")
+                .assertIsDisplayed().assertTextContains("Absolute")
             rule.onNodeWithTag("tab_settings").performClick()
             rule.onNodeWithTag("settings_screen").assertIsDisplayed()
             rule.onNodeWithTag("tab_explore").performClick()
             rule.onNodeWithTag("home_search_input")
                 .assertIsDisplayed().assertTextContains("Absolute")
-            rule.onNodeWithTag("home_search_close").performClick()
-            rule.onNodeWithTag("home_search_input").assertDoesNotExist()
-            rule.onNodeWithTag("home_search_toggle").performClick()
-            rule.onNodeWithTag("home_search_input").assert(
+            // ✕ only empties the query — the field stays on screen.
+            rule.onNodeWithTag("home_search_clear").performClick()
+            rule.onNodeWithTag("home_search_input").assertIsDisplayed().assert(
                 SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(""))
             )
-            rule.onNodeWithTag("home_search_close").performClick()
         } finally {
             rule.runOnUiThread { vm.updateSearchQuery("") }
         }

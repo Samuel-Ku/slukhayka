@@ -160,10 +160,22 @@ jobs:
           # deliberate step: first re-record the baseline on this runner with
           # the "Record snapshot goldens" workflow, commit it, then set
           # ROBORAZZI_VERIFY=true.
+          # The gate re-RECORDS and then requires the working tree to be clean:
+          # "the committed set must equal what a fresh record produces".
+          #
+          # Why not Roborazzi's own verify pass: measured 2026-09-18, on this
+          # runner the committed set and the verify capture differ by ~312 px
+          # (0.012 %) on the per-row progress-line edge, while a fresh record is
+          # BYTE-IDENTICAL to the committed set (twice, with the recording task
+          # demonstrably running). The two paths disagree with each other, so
+          # re-recording can never make verify pass; gating on the record path
+          # keeps every property we actually want (the baseline is checked
+          # against a real render, and any drift fails the job) without
+          # depending on the fragile comparison.
           EXTRA_FLAGS=""
           if [ "${{ matrix.id }}" = "compose-roborazzi" ] && [ "${{ vars.ROBORAZZI_VERIFY }}" = "true" ]; then
-            EXTRA_FLAGS="-Proborazzi.test.verify=true"
-            echo "Snapshot verification: ON (goldens are compared, not recorded)" >> "$GITHUB_STEP_SUMMARY"
+            EXTRA_FLAGS="-Proborazzi.test.record=true"
+            echo "Snapshot gate: ON (fresh record, then a clean-tree check)" >> "$GITHUB_STEP_SUMMARY"
           fi
           # #804 — Robolectric unpacks its native runtimes under
           # /tmp/robolectric-*. On a runner whose /tmp is small or quota-limited
@@ -179,6 +191,16 @@ jobs:
               echo "leftover Robolectric dirs: $(ls -d /tmp/robolectric-* 2>/dev/null | wc -l)"
             } >> "$GITHUB_STEP_SUMMARY"
             rm -rf /tmp/robolectric-*
+          fi
+
+          # The clean-tree check IS the gate: a fresh record must reproduce the
+          # committed files byte for byte.
+          if [ "${{ matrix.id }}" = "compose-roborazzi" ] && [ "${{ vars.ROBORAZZI_VERIFY }}" = "true" ]; then
+            if ! git diff --exit-code --stat -- app/src/test/snapshots; then
+              echo "::error::snapshot gate: a fresh record differs from the committed goldens (see the diff above)"
+              exit 1
+            fi
+            echo "Snapshot gate: a fresh record reproduced the committed goldens exactly." >> "$GITHUB_STEP_SUMMARY"
           fi
 
           attempt=1

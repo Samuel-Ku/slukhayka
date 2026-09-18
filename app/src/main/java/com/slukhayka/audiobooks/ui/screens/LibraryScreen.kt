@@ -484,7 +484,19 @@ fun LibraryScreen(
                         LibraryContinueCard(
                             book = book,
                             onOpen = { onBookClick(book.book.id) },
-                            onPlay = { onPlayClick(book.book) }
+                            onPlay = { onPlayClick(book.book) },
+                            // #885 — the card IS the book's node on this screen,
+                            // so it also has to carry the return-focus contract:
+                            // after coming back from the book the journey waits
+                            // for this node to be Focused. Without it the card
+                            // showed the book while focus had nowhere to return.
+                            modifier = if (book.book.id == restoreFocusBookId) {
+                                Modifier
+                                    .focusRequester(bookReturnFocusRequester)
+                                    .focusProperties { canFocus = true }
+                            } else {
+                                Modifier
+                            }
                         )
                     }
                 }

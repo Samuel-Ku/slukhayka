@@ -101,10 +101,31 @@ class LargeScreenSnapshotTest {
 
     /**
      * The two-pane split as a FRAME, with both panes deliberately labelled as
-     * placeholders: the real [com.slukhayka.audiobooks.ui.screens.LibraryScreen]
-     * and `BookDetailScreen` need a ViewModel, so this pins the SPLIT (list
-     * 0.4 left, page right, hairline between) and nothing about their content.
+     * placeholders: the real [com.slukhayka.audiobooks.ui.screens.LibraryScreen],
+     * `GenreScreen`, `SeriesScreen` and `BookDetailScreen` need a ViewModel, and
+     * a MainViewModel-composing test belongs to the Room/Robolectric partition,
+     * not to the snapshot one. So these pin the SPLIT (list 0.4 left, detail
+     * right, hairline between) and nothing about the panes' content.
      */
+    @Test
+    @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
+    fun large_explore_two_pane() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    WideDetailPane(
+                        list = { PanePlaceholder("Добірка / жанр", "заглушка") },
+                        detail = { PanePlaceholder("Картка твору", "заглушка") }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "$frameDir/large-explore-two-pane.png"
+        )
+    }
+
     @Composable
     private fun PanePlaceholder(title: String, subtitle: String) {
         Box(

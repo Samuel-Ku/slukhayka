@@ -98,4 +98,21 @@
     <string name="storage_delete_consequence">Видаляє всі завантажені файли з пристрою. Цю дію не можна скасувати.</string>
     <string name="storage_delete_action">Видалити завантажені файли</string>
     <string name="storage_delete_dialog_title">Видалити завантажені файли?</string>
+
+    <!-- #899 — the download manager, the screen the «Завантаження та пам'ять» row now opens. -->
+    <string name="download_manager_queue_heading">Черга завантажень</string>
+    <string name="download_manager_empty_title">Немає завантажень</string>
+    <string name="download_manager_empty_body">Коли ви завантажите книгу зі сторінки книги, вона з\'явиться тут зі своїм станом, розміром і керуванням.</string>
+    <string name="download_manager_status_queued">У черзі</string>
+    <string name="download_manager_status_downloading">Завантажується</string>
+    <string name="download_manager_status_paused">Призупинено</string>
+    <string name="download_manager_status_done">Готово</string>
+    <string name="download_manager_status_error">Помилка: потрібне оновлення джерела</string>
+    <string name="download_manager_pause">Пауза</string>
+    <string name="download_manager_continue">Продовжити</string>
+    <string name="download_manager_remove">Прибрати</string>
+    <string name="download_manager_remove_completed">Прибрати завершені</string>
+    <string name="download_manager_remove_title">Прибрати завантаження?</string>
+    <string name="download_manager_remove_message">Завантажені файли «%1$s» буде видалено з пристрою. Цю дію не можна скасувати.</string>
+    <string name="download_manager_remove_completed_title">Прибрати завершені завантаження?</string>
 </resources>

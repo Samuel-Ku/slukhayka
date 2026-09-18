@@ -5210,11 +5210,133 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { counts -> counts.associateBy { it.bookId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    // =====================================================================
+    // #899 — Менеджер завантажень: черга, дії та підсумок памʼяті.
+    //
+    // The screen reads ONE queue derived from the EXISTING state: Library
+    // Entries (#392 state + progress), the per-book Source Track counts
+    // (#397), the one-at-a-time active job and the persisted browser-refresh
+    // recovery queue. No new entity, nothing persisted by the manager.
+    // =====================================================================
+
+    /** Books whose failed source download waits for a browser refresh (persisted). */
+    private val _downloadRecoveryBookIds = MutableStateFlow<Set<String>>(emptySet())
+
+    /** On-disk bytes per queue book — the files are not in Room. */
+    private val _downloadQueueBytes = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** Free space on the downloads' volume — the «вільно» half of the summary. */
+    private val _downloadFreeBytes = MutableStateFlow(0L)
+    val downloadFreeBytes: StateFlow<Long> = _downloadFreeBytes.asStateFlow()
+
+    /**
+     * #899 — the manager's queue, mapped and sorted by the pure
+     * [com.slukhayka.audiobooks.data.downloads.DownloadQueue.build]. A book
+     * with no download fact (IDLE, nothing on disk) is not an item.
+     */
+    val downloadQueue: StateFlow<List<com.slukhayka.audiobooks.data.downloads.DownloadQueueItem>> = combine(
+        libraryBooks,
+        bookDownloadCounts,
+        _downloadingBookId,
+        _downloadRecoveryBookIds,
+        _downloadQueueBytes
+    ) { books, counts, activeBookId, recoveryBookIds, bytesByBook ->
+        com.slukhayka.audiobooks.data.downloads.DownloadQueue.build(
+            facts = books.map { entry ->
+                val count = counts[entry.book.id]
+                com.slukhayka.audiobooks.data.downloads.DownloadQueueFacts(
+                    bookId = entry.book.id,
+                    title = entry.book.title,
+                    author = entry.book.author,
+                    isDownloaded = entry.book.isDownloaded,
+                    downloadState = entry.book.downloadState,
+                    downloadedChapters = count?.downloaded ?: 0,
+                    totalChapters = count?.total ?: 0,
+                    progress = entry.book.downloadProgress,
+                    requiresBrowserRefresh = entry.book.id in recoveryBookIds,
+                    isLocal = entry.isLocal
+                )
+            },
+            activeBookId = activeBookId,
+            bytesOnDisk = bytesByBook
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * #899 — re-reads what Room cannot answer: the device's free space, each
+     * queue book's bytes on disk (the paths live on the track rows, the sizes
+     * only on the filesystem) and the persisted browser-refresh recovery
+     * flags. The manager calls it on open and after every queue action.
+     */
+    fun refreshDownloadQueue() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val books = libraryBooks.value
+            _downloadFreeBytes.value = runCatching {
+                android.os.StatFs(App.instance.filesDir.absolutePath).availableBytes
+            }.getOrDefault(0L)
+            _downloadQueueBytes.value = buildMap {
+                for (entry in books) {
+                    val book = entry.book
+                    // The manager's scope: source downloads only (a local
+                    // import is not a download), and only books it can list.
+                    if (entry.isLocal) continue
+                    if (!book.isDownloaded && book.downloadState == DownloadState.IDLE) continue
+                    val tracks = runCatching {
+                        App.instance.audiobookDao.getTracksForBookSync(book.id)
+                    }.getOrDefault(emptyList())
+                    var bytes = 0L
+                    for (track in tracks) {
+                        val path = track.localFilePath ?: continue
+                        bytes += runCatching { File(path).length() }.getOrDefault(0L).coerceAtLeast(0L)
+                    }
+                    put(book.id, bytes)
+                }
+            }
+            _downloadRecoveryBookIds.value = books
+                .map { it.book.id }
+                .filterTo(mutableSetOf()) { offlineDownloads.hasPendingBrowserRefresh(it) }
+        }
+    }
+
+    /**
+     * #899 — «Прибрати одне»: removes ONE download's files. A running queue
+     * owns the book's files, so it is stopped first (the existing bounded
+     * cancel) and only then deleted — the deletion itself is the existing,
+     * reference-counted [com.slukhayka.audiobooks.data.downloads.OfflineDownloads.removeOfflineDownload].
+     */
+    fun removeDownload(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { offlineDownloads.cancelDownload(bookId) }
+            runCatching { offlineDownloads.removeOfflineDownload(bookId) }
+            if (!offlineDownloads.hasActiveDownload()) {
+                _downloadingBookId.value = null
+                stopDownloadNotification()
+            }
+            refreshCacheSize()
+            refreshDownloadQueue()
+        }
+    }
+
+    /** #899 — «Прибрати всі завершені»: deletes only finished downloads. */
+    fun removeCompletedDownloads() {
+        val completed = com.slukhayka.audiobooks.data.downloads.DownloadQueue
+            .completedBookIds(downloadQueue.value)
+        if (completed.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            for (bookId in completed) {
+                runCatching { offlineDownloads.removeOfflineDownload(bookId) }
+            }
+            refreshCacheSize()
+            refreshDownloadQueue()
+        }
+    }
+
     /** #397 — deletes the offline copy of ONE chapter, keeping the rest. */
     fun removeChapterDownload(bookId: String, chapterIndex: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { offlineDownloads.removeChapterDownload(bookId, chapterIndex) }
             refreshCacheSize()
+            refreshDownloadQueue()
         }
     }
 

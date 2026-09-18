@@ -51,8 +51,14 @@ import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
+import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
+import com.slukhayka.audiobooks.ui.adaptive.rememberWindowLayout
+import com.slukhayka.audiobooks.ui.adaptive.showsWideDetailPane
+import com.slukhayka.audiobooks.ui.adaptive.showsWideExploreDetailPane
 import com.slukhayka.audiobooks.ui.bookPersonPath
+import com.slukhayka.audiobooks.ui.components.AppNavigationRail
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
@@ -308,6 +314,9 @@ class MainActivity : FragmentActivity() {
 @Composable
 fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
+    // #900 — the window's own width decides the navigation surface and (from
+    // here on) which screens show a list with its detail beside it.
+    val windowLayout = rememberWindowLayout()
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -618,6 +627,186 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    // #900 — the wide library layout: the list keeps its place and the page
+    // opens beside it.
+    val wideDetailPaneOpen = showsWideDetailPane(
+        layout = windowLayout,
+        tab = selectedTab,
+        detailOpen = selectedBookId != null
+    )
+
+    // #900 — the Бібліотека list and the book page, wired ONCE so the wide
+    // layout and the phone layout cannot drift into two different libraries
+    // («лише інша розкладка тих самих», issue #900). These are values, not
+    // screens: the wide branch places them side by side, the phone branches
+    // place them one at a time, and both get the identical callbacks.
+    val libraryRootContent: @Composable () -> Unit = {
+        LibraryScreen(
+            // #860 — the gear opens Settings from THIS root.
+            onOpenSettings = {
+                settingsReturnTab = SelectedTab.LIBRARY
+                viewModel.selectTab(SelectedTab.SETTINGS)
+            },
+            viewModel = viewModel,
+            // ADR-0008 batch 1 (#154): the screen receives the
+            // modules it reads from as parameters, wired here
+            // from the single adapter (the ViewModel's public
+            // module fields — the playerManager precedent).
+            libraryEntries = viewModel.libraryEntries,
+            listeningState = viewModel.listeningState,
+            // #401: person bookmarks module (ADR-0008).
+            personBookmarks = App.instance.personBookmarks,
+            onBookClick = { id ->
+                libraryBookFocusReturnId = id
+                viewModel.selectBook(id)
+            },
+            onPlayClick = { book ->
+                viewModel.playAudiobook(book)
+                viewModel.setShowFullPlayer(true)
+            },
+            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
+            onPersonClick = { person ->
+                viewModel.openPersonBooks(person)
+            },
+            // #900 — while the page sits BESIDE the list, focus belongs to the
+            // page: the return-focus marker is held back (not consumed) so the
+            // list can still restore the originating card when the pane closes.
+            restoreFocusBookId = libraryBookFocusReturnId.takeIf { !wideDetailPaneOpen },
+            onBookFocusRestored = { restoredId ->
+                if (libraryBookFocusReturnId == restoredId) {
+                    libraryBookFocusReturnId = null
+                }
+            }
+        )
+    }
+
+    val bookDetailContent: @Composable () -> Unit = {
+        BookDetailScreen(
+            viewModel = viewModel,
+            // ADR-0008 batch 4 (#159): the modules come in as
+            // parameters from the composition root.
+            listeningState = viewModel.listeningState,
+            offlineDownloads = viewModel.offlineDownloads,
+            // ADR-0011: the «Інші начитки» block reads the Work's
+            // other rendition cards from the module.
+            libraryEntries = viewModel.libraryEntries,
+            personBookmarks = viewModel.personBookmarks,
+            playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
+            onBackClick = {
+                bookDetailChildRouteOpen = false
+                bookDetailChildOrigin = null
+                bookDetailChildEditionId = null
+                viewModel.selectBook(null)
+            },
+            returnFocusOrigin = bookDetailChildFocusOrigin
+                ?.takeIf { bookDetailChildEditionId == selectedBookId },
+            fullPlayerModalActive = fullPlayerModalActive,
+            onChildRouteOpened = { origin ->
+                bookDetailChildRouteOpen = true
+                bookDetailChildOrigin = origin.name
+                bookDetailChildEditionId = selectedBookId
+            },
+            onReturnFocusRestored = { origin ->
+                if (bookDetailChildOrigin == origin.name) {
+                    bookDetailChildOrigin = null
+                    bookDetailChildEditionId = null
+                }
+            }
+        )
+    }
+
+    // #900 — «Огляд»: does the list the work was opened FROM stay beside the
+    // work's card? The answer lives in ui/adaptive (the one place that decides
+    // layouts); it is read into a val HERE, before the list lambdas, because
+    // those lists consult it to hold their focus-return marker back.
+    val wideExploreParent = secondaryBookRoute.parent
+    val wideExplorePaneOpen = showsWideExploreDetailPane(
+        layout = windowLayout,
+        tab = selectedTab,
+        hasParentList = secondaryBookDetailOpen &&
+            (wideExploreParent == SecondaryBookParent.SERIES ||
+                wideExploreParent == SecondaryBookParent.GENRE)
+    )
+
+    // #900 — the two «Огляд» lists the owner named («добірка/жанр»), wired
+    // ONCE for the same reason the library is: the phone route pushes them
+    // full-screen, the wide route keeps them beside the work's card, and both
+    // get identical callbacks and the same scroll state.
+    //
+    // While the pane is open the focus-return marker is HELD BACK (not
+    // consumed): the list must not steal focus from the card beside it, and
+    // the marker has to survive until the pane closes so the list can restore
+    // the originating row then — exactly the library's rule.
+    val seriesListContent: @Composable () -> Unit = {
+        SeriesScreen(
+            viewModel = viewModel,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closeSeries()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.SERIES,
+                    originBookId = id,
+                    detailBookId = id,
+                    parentTitle = selectedSeries?.title.orEmpty(),
+                    parentUrl = selectedSeries?.url.orEmpty()
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.SERIES
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.SERIES &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = seriesBookListState
+        )
+    }
+
+    val genreListContent: @Composable () -> Unit = {
+        GenreScreen(
+            viewModel = viewModel,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closeGenre()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.GENRE,
+                    originBookId = id,
+                    detailBookId = id
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.GENRE
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.GENRE &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = genreBookListState
+        )
+    }
+
+    // Null for a parent this slice deliberately leaves on the phone route (the
+    // rating, a person's books) — the question is recorded on issue #900, and
+    // [wideExplorePaneOpen] is false for exactly those, so the branch below
+    // never asks for this value when it is null.
+    val wideExploreListContent: (@Composable () -> Unit)? = when (wideExploreParent) {
+        SecondaryBookParent.SERIES -> seriesListContent
+        SecondaryBookParent.GENRE -> genreListContent
+        else -> null
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier
@@ -659,7 +848,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     }
 
                     // Four primary destinations, including the settings home (#547).
-                    AppBottomBar(
+                    // #900 — on a wide window the rail leads instead, so this
+                    // slot draws nothing (see AdaptiveNavigationLayout).
+                    AppBottomBarSlot(
+                        layout = windowLayout,
                         selectedTab = selectedTab,
                         bookDetailOpen = selectedBookId != null,
                         onSelect = { tab ->
@@ -673,6 +865,18 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 }
             }
         ) { innerPadding ->
+            AdaptiveNavigationLayout(
+                layout = windowLayout,
+                selectedTab = selectedTab,
+                bookDetailOpen = selectedBookId != null,
+                onSelect = { tab ->
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                    bookDetailChildRouteOpen = false
+                    bookDetailChildOrigin = null
+                    bookDetailChildEditionId = null
+                    viewModel.selectTab(tab)
+                }
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -758,67 +962,23 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         }
                     )
 
+                    // #900 — on a wide «Огляд», the genre/series the work was
+                    // opened from keeps the left pane and the work's card takes
+                    // the right: the same two screens the phone shows one at a
+                    // time. Any other parent list keeps the phone route below
+                    // (the question is on issue #900).
+                    wideExplorePaneOpen -> WideDetailPane(
+                        list = requireNotNull(wideExploreListContent),
+                        detail = bookDetailContent
+                    )
+
                     // A book opened from a pushed catalogue list overlays
                     // that retained parent route. Closing details reveals the
                     // same list and lets it restore the originating card.
-                    secondaryBookDetailOpen -> BookDetailScreen(
-                        viewModel = viewModel,
-                        listeningState = viewModel.listeningState,
-                        offlineDownloads = viewModel.offlineDownloads,
-                        libraryEntries = viewModel.libraryEntries,
-                        personBookmarks = viewModel.personBookmarks,
-                        playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
-                        onBackClick = {
-                            bookDetailChildRouteOpen = false
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            viewModel.selectBook(null)
-                        },
-                        returnFocusOrigin = bookDetailChildFocusOrigin
-                            ?.takeIf { bookDetailChildEditionId == selectedBookId },
-                        fullPlayerModalActive = fullPlayerModalActive,
-                        onChildRouteOpened = { origin ->
-                            bookDetailChildRouteOpen = true
-                            bookDetailChildOrigin = origin.name
-                            bookDetailChildEditionId = selectedBookId
-                        },
-                        onReturnFocusRestored = { origin ->
-                            if (bookDetailChildOrigin == origin.name) {
-                                bookDetailChildOrigin = null
-                                bookDetailChildEditionId = null
-                            }
-                        }
-                    )
+                    secondaryBookDetailOpen -> bookDetailContent()
 
                     // Series (cycle) page (spec #8 ticket T8).
-                    selectedSeries != null -> SeriesScreen(
-                        viewModel = viewModel,
-                        onBackClick = {
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            viewModel.closeSeries()
-                        },
-                        onBookClick = { id ->
-                            secondaryBookRoute = SecondaryBookRouteFrame(
-                                parent = SecondaryBookParent.SERIES,
-                                originBookId = id,
-                                detailBookId = id,
-                                parentTitle = selectedSeries?.title.orEmpty(),
-                                parentUrl = selectedSeries?.url.orEmpty()
-                            )
-                            viewModel.selectBook(id)
-                        },
-                        restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                            secondaryBookRoute.parent == SecondaryBookParent.SERIES
-                        },
-                        onBookFocusRestored = { restoredId ->
-                            if (secondaryBookRoute.parent == SecondaryBookParent.SERIES &&
-                                secondaryBookRoute.originBookId == restoredId
-                            ) {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                            }
-                        },
-                        listState = seriesBookListState
-                    )
+                    selectedSeries != null -> seriesListContent()
 
                     // spec-28 (#189): the «Серії» index — every series from
                     // the catalogue sections; tapping one pushes the existing
@@ -936,32 +1096,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").
-                    selectedGenre != null -> GenreScreen(
-                        viewModel = viewModel,
-                        onBackClick = {
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            viewModel.closeGenre()
-                        },
-                        onBookClick = { id ->
-                            secondaryBookRoute = SecondaryBookRouteFrame(
-                                parent = SecondaryBookParent.GENRE,
-                                originBookId = id,
-                                detailBookId = id
-                            )
-                            viewModel.selectBook(id)
-                        },
-                        restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                            secondaryBookRoute.parent == SecondaryBookParent.GENRE
-                        },
-                        onBookFocusRestored = { restoredId ->
-                            if (secondaryBookRoute.parent == SecondaryBookParent.GENRE &&
-                                secondaryBookRoute.originBookId == restoredId
-                            ) {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                            }
-                        },
-                        listState = genreBookListState
-                    )
+                    selectedGenre != null -> genreListContent()
 
                     // #738 — the library rating (local, offline).
                     selectedTop100 -> LibraryRatingScreen(
@@ -1060,38 +1195,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listState = peopleListState
                     )
 
-                    selectedBookId != null -> BookDetailScreen(
-                        viewModel = viewModel,
-                        // ADR-0008 batch 4 (#159): the modules come in as
-                        // parameters from the composition root.
-                        listeningState = viewModel.listeningState,
-                        offlineDownloads = viewModel.offlineDownloads,
-                        // ADR-0011: the «Інші начитки» block reads the Work's
-                        // other rendition cards from the module.
-                        libraryEntries = viewModel.libraryEntries,
-                        personBookmarks = viewModel.personBookmarks,
-                        playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
-                        onBackClick = {
-                            bookDetailChildRouteOpen = false
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            viewModel.selectBook(null)
-                        },
-                        returnFocusOrigin = bookDetailChildFocusOrigin
-                            ?.takeIf { bookDetailChildEditionId == selectedBookId },
-                        fullPlayerModalActive = fullPlayerModalActive,
-                        onChildRouteOpened = { origin ->
-                            bookDetailChildRouteOpen = true
-                            bookDetailChildOrigin = origin.name
-                            bookDetailChildEditionId = selectedBookId
-                        },
-                        onReturnFocusRestored = { origin ->
-                            if (bookDetailChildOrigin == origin.name) {
-                                bookDetailChildOrigin = null
-                                bookDetailChildEditionId = null
-                            }
-                        }
+                    // #900 — a wide window keeps the Бібліотека list beside the
+                    // opened book's page instead of replacing it: the SAME two
+                    // screens, one click still, no second library to keep in
+                    // sync. The phone path below is untouched.
+                    wideDetailPaneOpen -> WideDetailPane(
+                        list = libraryRootContent,
+                        detail = bookDetailContent
                     )
+
+                    selectedBookId != null -> bookDetailContent()
 
                     else -> com.slukhayka.audiobooks.ui.components.TabSaveableHost(
                         tabKey = selectedTab.name
@@ -1151,41 +1264,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 null
                             }
                         )
-                        SelectedTab.LIBRARY -> LibraryScreen(
-                            // #860 — the gear opens Settings from THIS root.
-                            onOpenSettings = {
-                                settingsReturnTab = SelectedTab.LIBRARY
-                                viewModel.selectTab(SelectedTab.SETTINGS)
-                            },
-                            viewModel = viewModel,
-                            // ADR-0008 batch 1 (#154): the screen receives the
-                            // modules it reads from as parameters, wired here
-                            // from the single adapter (the ViewModel's public
-                            // module fields — the playerManager precedent).
-                            libraryEntries = viewModel.libraryEntries,
-                            listeningState = viewModel.listeningState,
-                            // #401: person bookmarks module (ADR-0008).
-                            personBookmarks = App.instance.personBookmarks,
-                            onBookClick = { id ->
-                                libraryBookFocusReturnId = id
-                                viewModel.selectBook(id)
-                            },
-                            onPlayClick = { book ->
-                                viewModel.playAudiobook(book)
-                                viewModel.setShowFullPlayer(true)
-                            },
-                            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                            onPersonClick = { person ->
-                                viewModel.openPersonBooks(person)
-                            },
-                            restoreFocusBookId = libraryBookFocusReturnId,
-                            onBookFocusRestored = { restoredId ->
-                                if (libraryBookFocusReturnId == restoredId) {
-                                    libraryBookFocusReturnId = null
-                                }
-                            },
-
-                        )
+                        SelectedTab.LIBRARY -> libraryRootContent()
                         SelectedTab.FRIENDS -> FriendsScreen(
                             // #898 — the feed renders the state that EXISTS today.
                             // The listener's own pseudonym is real (spec-40
@@ -1226,6 +1305,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     }
                     }
                 }
+            }
             }
         }
 
@@ -1420,3 +1500,62 @@ fun AppBottomBar(
         }
     }
 }
+
+/**
+ * #900 — the bottom-navigation SLOT for a window's width.
+ *
+ * On a wide window the rail replaces the bar, so this deliberately renders
+ * nothing: [AdaptiveNavigationLayout] draws the rail instead. Extracted (like
+ * [AppBottomBar] itself) so the decision "rail INSTEAD of the bottom bar" is a
+ * test over the two real surfaces, not a line of prose in the composition root.
+ */
+@Composable
+fun AppBottomBarSlot(
+    layout: WindowLayout,
+    selectedTab: SelectedTab,
+    bookDetailOpen: Boolean = false,
+    onSelect: (SelectedTab) -> Unit
+) {
+    if (layout == WindowLayout.COMPACT) {
+        AppBottomBar(
+            selectedTab = selectedTab,
+            bookDetailOpen = bookDetailOpen,
+            onSelect = onSelect
+        )
+    }
+}
+
+/**
+ * #900 — the navigation surface PLUS the content it leads.
+ *
+ * A phone window gets the content alone (its navigation lives in the
+ * Scaffold's `bottomBar`). A wide window gets the rail leading, sharing the
+ * same [SelectedTab] state and the same [onSelect] callback as the bar, so
+ * switching surfaces never changes what a destination means.
+ *
+ * This is a different LAYOUT of the same screens, never a second set of them
+ * (issue #900).
+ */
+@Composable
+fun AdaptiveNavigationLayout(
+    layout: WindowLayout,
+    selectedTab: SelectedTab,
+    bookDetailOpen: Boolean,
+    onSelect: (SelectedTab) -> Unit,
+    content: @Composable () -> Unit
+) {
+    Row(modifier = Modifier.fillMaxSize()) {
+        if (layout == WindowLayout.EXPANDED) {
+            AppNavigationRail(
+                selectedTab = selectedTab,
+                bookDetailOpen = bookDetailOpen,
+                onSelect = onSelect,
+                modifier = Modifier.fillMaxHeight()
+            )
+        }
+        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            content()
+        }
+    }
+}
+

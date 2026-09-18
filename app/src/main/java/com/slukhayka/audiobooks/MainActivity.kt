@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -69,6 +70,8 @@ import com.slukhayka.audiobooks.ui.screens.ListenScreen
 import com.slukhayka.audiobooks.ui.screens.AppLocaleScreen
 import com.slukhayka.audiobooks.ui.screens.ContentLanguageScreen
 import com.slukhayka.audiobooks.ui.screens.FirstLanguageChoiceSheet
+import com.slukhayka.audiobooks.ui.screens.FriendsFeedState
+import com.slukhayka.audiobooks.ui.screens.FriendsScreen
 import com.slukhayka.audiobooks.ui.screens.NetworkPrivacyScreen
 import com.slukhayka.audiobooks.ui.screens.PeopleScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
@@ -473,6 +476,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedPerson by viewModel.selectedPerson.collectAsState()
     val authorsIndexOpen by viewModel.authorsIndexOpen.collectAsState()
     val authorsIndexResults by viewModel.authorsIndexResults.collectAsState()
+    // #898 — the listener's own pseudonym for the friends feed. The identity
+    // resolves in the background (spec-40), so this is null for the first
+    // frames; an empty feed renders the same empty state either way.
+    val listenerProfile by viewModel.listenerIdentity.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
         SecondaryBookParent.SERIES -> selectedSeries != null
         SecondaryBookParent.GENRE -> selectedGenre != null
@@ -1177,6 +1184,28 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             },
 
                         )
+                        SelectedTab.FRIENDS -> FriendsScreen(
+                            // #898 — the feed renders the state that EXISTS today.
+                            // The listener's own pseudonym is real (spec-40
+                            // identity); the friendship set and the posts are
+                            // not: #897's `SocialModel` is still an open PR and
+                            // no store or shared collection holds a friendship
+                            // or a post yet. So the screen is handed an empty
+                            // feed and shows its honest «no friends» state
+                            // instead of invented acquaintances (§6.4). Wiring a
+                            // real source is the next ticket — see the report.
+                            feed = FriendsFeedState(),
+                            viewerPseudonym = listenerProfile?.nickname.orEmpty(),
+                            // A post's `sourceId` points at a Work/review; the
+                            // book page opens by that same id.
+                            onOpenBook = { id -> viewModel.selectBook(id) },
+                            // ADR-0049 — the gear sits in the SAME place on
+                            // every root.
+                            onOpenSettings = {
+                                settingsReturnTab = SelectedTab.FRIENDS
+                                viewModel.selectTab(SelectedTab.SETTINGS)
+                            }
+                        )
                         SelectedTab.SETTINGS -> SettingsScreen(
                             returnDestination = settingsReturnDestination,
                             onOpen = { destination ->
@@ -1366,6 +1395,22 @@ fun AppBottomBar(
                     indicatorColor = MaterialTheme.colorScheme.outlineVariant
                 ),
                 modifier = Modifier.testTag("tab_library")
+            )
+
+            // #898 / ADR-0049 — the fourth working section. «Друзі» takes the
+            // slot the settings tab used to hold; settings is a gear in every
+            // root header now, so no working destination was displaced.
+            NavigationBarItem(
+                selected = selectedTab == SelectedTab.FRIENDS && !bookDetailOpen,
+                onClick = { onSelect(SelectedTab.FRIENDS) },
+                icon = { Icon(imageVector = Icons.Default.Group, contentDescription = null) },
+                label = { Text(stringResource(R.string.nav_friends), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier.testTag("tab_friends")
             )
 
             // #860 / ADR-0049 — «Налаштування» left the bar: the gear in every

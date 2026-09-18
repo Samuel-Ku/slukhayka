@@ -131,11 +131,16 @@ import java.util.concurrent.atomic.AtomicLong
 //
 // Spec-9 (listen-first IA): the bottom bar is Слухати · Огляд · Медіатека;
 // the app always lands on Слухати (the listening panel, not the storefront).
-// Enum order defines the four bottom-bar destinations.
+// Enum order defines the bottom-bar destinations.
+//
+// ADR-0049 / #898: the map is Слухати · Огляд · Мої книги · Друзі. The fourth
+// working section arrives with the friends feed; SETTINGS stays reachable, but
+// as the gear in each root's header rather than a bar item.
 enum class SelectedTab {
     LISTEN,
     EXPLORE,
     LIBRARY,
+    FRIENDS,
     SETTINGS
 }
 

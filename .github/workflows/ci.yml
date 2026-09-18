@@ -160,6 +160,18 @@ jobs:
           # deliberate step: first re-record the baseline on this runner with
           # the "Record snapshot goldens" workflow, commit it, then set
           # ROBORAZZI_VERIFY=true.
+          #
+          # Measured (2026-09-18) so nobody repeats the dead ends: the drift is
+          # NOT a stale baseline and NOT Gradle's build cache. A forced fresh
+          # record on this same runner (test source touched, and the log shows
+          # "> Task :app:testComposeRoborazzi" with no UP-TO-DATE/FROM-CACHE)
+          # produced files BYTE-IDENTICAL to the committed ones, twice — yet the
+          # verify pass still reported ~312 differing pixels (0.012 %) on
+          # LibraryRedesignSnapshotTest.narrowed_down_dense_rows, all of them on
+          # the per-row progress line's edge. The committed set and the verify
+          # capture therefore differ from each other on the SAME runner, which
+          # means the baseline cannot be fixed by re-recording it: the two paths
+          # have to be aligned first.
           EXTRA_FLAGS=""
           if [ "${{ matrix.id }}" = "compose-roborazzi" ] && [ "${{ vars.ROBORAZZI_VERIFY }}" = "true" ]; then
             EXTRA_FLAGS="-Proborazzi.test.verify=true"

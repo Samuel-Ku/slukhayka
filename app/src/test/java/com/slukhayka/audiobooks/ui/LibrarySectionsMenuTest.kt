@@ -39,9 +39,7 @@ class LibrarySectionsMenuTest {
                     LibraryHeaderActionsInner(
                         bookmarksCount = counts.first,
                         peopleCount = counts.second,
-                        searchExpanded = false,
                         menuOpen = true,
-                        onToggleSearch = {},
                         onMenuOpenChange = {},
                         onOpenSection = { openedSection = it },
                         onOpenShelves = { openedShelves++ },

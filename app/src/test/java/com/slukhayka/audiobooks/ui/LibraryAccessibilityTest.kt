@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.OnBackPressedDispatcherOwner
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.Column
@@ -37,6 +40,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -47,6 +51,8 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.data.imports.ImportPlan
 import com.slukhayka.audiobooks.data.imports.SourceRef
@@ -60,10 +66,12 @@ import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
 import com.slukhayka.audiobooks.ui.screens.LibraryModalUnderlay
 import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheet
+import com.slukhayka.audiobooks.ui.screens.LibraryHeaderActionsInner
 import com.slukhayka.audiobooks.ui.screens.LibraryImportSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryImportSheet
 import com.slukhayka.audiobooks.ui.screens.ImportPreviewDialog
 import com.slukhayka.audiobooks.ui.screens.LibraryEmptyState
+import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -441,5 +449,119 @@ class LibraryAccessibilityTest {
                     node.config.getOrNull(SemanticsProperties.StateDescription)?.contains(label) == true
                 }
             )
+    }
+
+    /**
+     * ADR-0033 amended 2026-09-18 (IA §4 «Бібліотека»): the local search is a
+     * permanently visible field on the root, exactly like Огляд — no 🔍 action
+     * reveals or hides it, so the listener never pays an extra tap.
+     */
+    @Test
+    fun librarySearchFieldIsPermanentlyVisibleWithoutAnyRevealingAction() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                val focus = remember { FocusRequester() }
+                Column {
+                    LibraryHeaderActionsInner(
+                        bookmarksCount = 0,
+                        peopleCount = 0,
+                        menuOpen = false,
+                        onMenuOpenChange = {},
+                        onOpenSection = {},
+                        onAdd = {},
+                        importFocusRequester = focus
+                    )
+                    LibrarySearchField(query = "", onQueryChange = {})
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("library_search")
+            .assertTextContains("Пошук у медіатеці")
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithTag("library_search_toggle").assertDoesNotExist()
+    }
+
+    /** ✕ only empties the query; the field itself never leaves the screen. */
+    @Test
+    fun typedLibraryQueryKeepsTheFieldAndClearOnlyEmptiesIt() {
+        var query by mutableStateOf("Гібсон")
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibrarySearchField(query = query, onQueryChange = { query = it })
+            }
+        }
+
+        composeTestRule.onNodeWithTag("library_search").assertTextContains("Гібсон")
+        composeTestRule.onNodeWithTag("library_search_clear")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(24.dp)
+            .performClick()
+        composeTestRule.onNodeWithTag("library_search")
+            .assertIsDisplayed()
+            .assertTextContains("Пошук у медіатеці")
+        composeTestRule.onNodeWithTag("library_search_clear").assertDoesNotExist()
+    }
+
+    /**
+     * The system Back clears a typed query first — navigation keeps it only when
+     * the field is empty (ADR-0033 amended 2026-09-18).
+     */
+    @Test
+    fun systemBackClearsATypedLibraryQueryWithoutLeavingTheField() {
+        var query by mutableStateOf("Гібсон")
+        val dispatcher = OnBackPressedDispatcher()
+        composeTestRule.setContent {
+            val lifecycleOwner = LocalLifecycleOwner.current
+            CompositionLocalProvider(
+                LocalOnBackPressedDispatcherOwner provides remember(dispatcher) {
+                    object : OnBackPressedDispatcherOwner {
+                        override val onBackPressedDispatcher: OnBackPressedDispatcher = dispatcher
+                        override val lifecycle: Lifecycle = lifecycleOwner.lifecycle
+                    }
+                }
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    LibrarySearchField(query = query, onQueryChange = { query = it })
+                }
+            }
+        }
+
+        composeTestRule.runOnIdle { dispatcher.onBackPressed() }
+
+        composeTestRule.onNodeWithTag("library_search").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("library_search_clear").assertDoesNotExist()
+    }
+
+    @Test
+    fun emptyLibraryQueryLeavesBackToTheNavigationContract() {
+        var query by mutableStateOf("")
+        var clears = 0
+        val dispatcher = OnBackPressedDispatcher()
+        composeTestRule.setContent {
+            val lifecycleOwner = LocalLifecycleOwner.current
+            CompositionLocalProvider(
+                LocalOnBackPressedDispatcherOwner provides remember(dispatcher) {
+                    object : OnBackPressedDispatcherOwner {
+                        override val onBackPressedDispatcher: OnBackPressedDispatcher = dispatcher
+                        override val lifecycle: Lifecycle = lifecycleOwner.lifecycle
+                    }
+                }
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    LibrarySearchField(
+                        query = query,
+                        onQueryChange = {
+                            clears++
+                            query = it
+                        }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.runOnIdle { dispatcher.onBackPressed() }
+
+        assertEquals("an empty field never consumes Back", 0, clears)
     }
 }

@@ -5454,28 +5454,6 @@
 
     <issue
         id="MissingTranslation"
-        message="&quot;a11y_open_search&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;a11y_open_search&quot;>Пошук&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings_accessibility_discovery.xml"
-            line="38"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="MissingTranslation"
-        message="&quot;a11y_close_search&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;a11y_close_search&quot;>Закрити пошук&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings_accessibility_discovery.xml"
-            line="39"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="MissingTranslation"
         message="&quot;a11y_clear_search&quot; is not translated in &quot;pl&quot; (Polish)"
         errorLine1="    &lt;string name=&quot;a11y_clear_search&quot;>Очистити пошук&lt;/string>"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">

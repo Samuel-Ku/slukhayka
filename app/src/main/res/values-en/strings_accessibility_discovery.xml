@@ -35,8 +35,6 @@
     <string name="a11y_chapter_number">Chapter %1$d</string>
     <string name="a11y_search_books">Search for a book or author</string>
     <string name="a11y_refresh_catalogue">Refresh catalogue</string>
-    <string name="a11y_open_search">Search</string>
-    <string name="a11y_close_search">Close search</string>
     <string name="a11y_clear_search">Clear search</string>
     <string name="a11y_download_work">Download: %1$s</string>
     <string name="a11y_downloaded_work">Downloaded: %1$s</string>

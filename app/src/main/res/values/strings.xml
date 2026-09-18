@@ -3,6 +3,8 @@
     <string name="nav_listen">Слухати</string>
     <string name="nav_explore">Огляд</string>
     <string name="nav_library">Мої книги</string>
+    <!-- #898 / ADR-0049 — the fourth root section: the friends feed. -->
+    <string name="nav_friends">Друзі</string>
     <string name="pane_player">Програвач</string>
     <string name="empty_tag"></string>
     <!-- fix(accessibility): #371 — override Material3 strings so TalkBack voices

@@ -3,6 +3,7 @@
     <string name="nav_listen">Listen</string>
     <string name="nav_explore">Explore</string>
     <string name="nav_library">My books</string>
+    <string name="nav_friends">Friends</string>
     <string name="pane_player">Player</string>
     <string name="empty_tag"></string>
     <!-- Spec-45 (#405): Material3 overrides voiced in the UI language. -->

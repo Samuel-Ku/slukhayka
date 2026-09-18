@@ -6,7 +6,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
@@ -145,42 +147,40 @@ class CatalogRowsSnapshotTest {
         )
     }
 
-    // spec-42 T1: the Огляд header is collapsible — brand + [🔍] + [🔄]
-    // when collapsed and one text-search field when expanded. Genre filtering
-    // has one home in the feed sheet, never a duplicate search row.
+    // IA §4 «Огляд» / expressive «Основні екрани»: the Огляд search is
+    // permanently visible, so the header has two states — an empty field and a
+    // typed query. Genre filtering has one home in the feed sheet, never a
+    // duplicate search row. The golden file names keep their historical
+    // "collapsed"/"expanded" ids (empty/typed) so the tracked baselines stay
+    // gated; re-record them through the «Record snapshot goldens» workflow.
     @Test
-    fun explore_header_collapsed() {
+    fun explore_header_withEmptySearch() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CatalogSurface {
                     HomeHeader(
-                        searchExpanded = false,
                         searchQuery = "",
-                        onToggleSearch = {},
                         onRefresh = {},
-                        onSearchQueryChange = {},
-                        onCloseSearch = {}
+                        onSearchQueryChange = {}
                     )
                 }
             }
         }
+        composeTestRule.onNodeWithTag("home_search_input").assertIsDisplayed()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/explore_header_collapsed.png"
         )
     }
 
     @Test
-    fun explore_header_expanded() {
+    fun explore_header_withTypedQuery() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CatalogSurface {
                     HomeHeader(
-                        searchExpanded = true,
                         searchQuery = "Шевченко",
-                        onToggleSearch = {},
                         onRefresh = {},
-                        onSearchQueryChange = {},
-                        onCloseSearch = {}
+                        onSearchQueryChange = {}
                     )
                 }
             }

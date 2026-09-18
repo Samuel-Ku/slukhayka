@@ -37,7 +37,7 @@
     <string name="a11y_refresh_catalogue">Refresh catalogue</string>
     <string name="a11y_open_search">Search</string>
     <string name="a11y_close_search">Close search</string>
-    <string name="a11y_clear_close_search">Clear and close search</string>
+    <string name="a11y_clear_search">Clear search</string>
     <string name="a11y_download_work">Download: %1$s</string>
     <string name="a11y_downloaded_work">Downloaded: %1$s</string>
     <string name="a11y_recommendation_actions">Recommendation actions: %1$s</string>

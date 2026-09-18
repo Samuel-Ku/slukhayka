@@ -37,7 +37,7 @@
     <string name="a11y_refresh_catalogue">Оновити каталог</string>
     <string name="a11y_open_search">Пошук</string>
     <string name="a11y_close_search">Закрити пошук</string>
-    <string name="a11y_clear_close_search">Очистити й закрити пошук</string>
+    <string name="a11y_clear_search">Очистити пошук</string>
     <string name="a11y_download_work">Завантажити: %1$s</string>
     <string name="a11y_downloaded_work">Завантажено: %1$s</string>
     <string name="a11y_recommendation_actions">Дії з рекомендацією: %1$s</string>

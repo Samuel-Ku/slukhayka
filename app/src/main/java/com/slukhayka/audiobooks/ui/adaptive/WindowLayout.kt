@@ -64,13 +64,30 @@ fun rememberWindowLayout(): WindowLayout =
  * open book. The phone path is untouched — a false here means the existing
  * full-screen route renders exactly as before.
  *
- * Бібліотека is the root the owner named for this slice. Огляд's collection +
- * work card is the next one and joins this function — deliberately one place,
- * so «which roots are two-pane» cannot drift between screens.
+ * Бібліотека is the root the owner named for the library slice; Огляд has its
+ * own answer right below ([showsWideExploreDetailPane]) because its trigger is
+ * a pushed parent list, not a root-level selection.
  */
 fun showsWideDetailPane(
     layout: WindowLayout,
     tab: SelectedTab,
     detailOpen: Boolean
 ): Boolean = layout == WindowLayout.EXPANDED && detailOpen && tab == SelectedTab.LIBRARY
+
+/**
+ * #900 — the same question for «Огляд»: does the list the listener opened the
+ * work FROM stay beside the work's card?
+ *
+ * [hasParentList] is true only when the open book came from one of the two
+ * surfaces the owner named — a genre page or a series page («добірка/жанр»).
+ * The rating (TOP_100) and person lists keep the phone route for now: the
+ * issue does not say whether they belong here, and this slice does not guess
+ * (the question is recorded on #900).
+ */
+fun showsWideExploreDetailPane(
+    layout: WindowLayout,
+    tab: SelectedTab,
+    hasParentList: Boolean
+): Boolean = layout == WindowLayout.EXPANDED && hasParentList && tab == SelectedTab.EXPLORE
+
 

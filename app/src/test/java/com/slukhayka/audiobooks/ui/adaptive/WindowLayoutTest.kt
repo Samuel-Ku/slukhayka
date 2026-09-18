@@ -100,4 +100,61 @@ class WindowLayoutTest {
             )
         )
     }
+
+    @Test
+    fun exploreKeepsTheParentListBesideTheWorkOnlyOnAWideWindow() {
+        assertTrue(
+            showsWideExploreDetailPane(
+                layout = WindowLayout.EXPANDED,
+                tab = SelectedTab.EXPLORE,
+                hasParentList = true
+            )
+        )
+        assertFalse(
+            showsWideExploreDetailPane(
+                layout = WindowLayout.COMPACT,
+                tab = SelectedTab.EXPLORE,
+                hasParentList = true
+            )
+        )
+        // No genre/series under the work (rating, person lists): the phone
+        // route stays, deliberately, until the owner answers on #900.
+        assertFalse(
+            showsWideExploreDetailPane(
+                layout = WindowLayout.EXPANDED,
+                tab = SelectedTab.EXPLORE,
+                hasParentList = false
+            )
+        )
+        // Only «Огляд» owns that parent list.
+        listOf(SelectedTab.LISTEN, SelectedTab.LIBRARY, SelectedTab.FRIENDS, SelectedTab.SETTINGS)
+            .forEach { tab ->
+                assertFalse(
+                    "tab=$tab",
+                    showsWideExploreDetailPane(
+                        layout = WindowLayout.EXPANDED,
+                        tab = tab,
+                        hasParentList = true
+                    )
+                )
+            }
+    }
+
+    @Test
+    fun theExplorePaneFollowsTheSameFiveHundredNinetyNineSixHundredBoundary() {
+        assertFalse(
+            showsWideExploreDetailPane(
+                layout = windowLayoutFor(599),
+                tab = SelectedTab.EXPLORE,
+                hasParentList = true
+            )
+        )
+        assertTrue(
+            showsWideExploreDetailPane(
+                layout = windowLayoutFor(600),
+                tab = SelectedTab.EXPLORE,
+                hasParentList = true
+            )
+        )
+    }
 }

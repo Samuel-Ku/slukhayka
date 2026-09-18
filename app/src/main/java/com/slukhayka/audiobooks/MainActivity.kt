@@ -54,6 +54,7 @@ import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
 import com.slukhayka.audiobooks.ui.adaptive.rememberWindowLayout
 import com.slukhayka.audiobooks.ui.adaptive.showsWideDetailPane
+import com.slukhayka.audiobooks.ui.adaptive.showsWideExploreDetailPane
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.AppNavigationRail
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
@@ -714,6 +715,98 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    // #900 — «Огляд»: does the list the work was opened FROM stay beside the
+    // work's card? The answer lives in ui/adaptive (the one place that decides
+    // layouts); it is read into a val HERE, before the list lambdas, because
+    // those lists consult it to hold their focus-return marker back.
+    val wideExploreParent = secondaryBookRoute.parent
+    val wideExplorePaneOpen = showsWideExploreDetailPane(
+        layout = windowLayout,
+        tab = selectedTab,
+        hasParentList = secondaryBookDetailOpen &&
+            (wideExploreParent == SecondaryBookParent.SERIES ||
+                wideExploreParent == SecondaryBookParent.GENRE)
+    )
+
+    // #900 — the two «Огляд» lists the owner named («добірка/жанр»), wired
+    // ONCE for the same reason the library is: the phone route pushes them
+    // full-screen, the wide route keeps them beside the work's card, and both
+    // get identical callbacks and the same scroll state.
+    //
+    // While the pane is open the focus-return marker is HELD BACK (not
+    // consumed): the list must not steal focus from the card beside it, and
+    // the marker has to survive until the pane closes so the list can restore
+    // the originating row then — exactly the library's rule.
+    val seriesListContent: @Composable () -> Unit = {
+        SeriesScreen(
+            viewModel = viewModel,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closeSeries()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.SERIES,
+                    originBookId = id,
+                    detailBookId = id,
+                    parentTitle = selectedSeries?.title.orEmpty(),
+                    parentUrl = selectedSeries?.url.orEmpty()
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.SERIES
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.SERIES &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = seriesBookListState
+        )
+    }
+
+    val genreListContent: @Composable () -> Unit = {
+        GenreScreen(
+            viewModel = viewModel,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closeGenre()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.GENRE,
+                    originBookId = id,
+                    detailBookId = id
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.GENRE
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.GENRE &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = genreBookListState
+        )
+    }
+
+    // Null for a parent this slice deliberately leaves on the phone route (the
+    // rating, a person's books) — the question is recorded on issue #900, and
+    // [wideExplorePaneOpen] is false for exactly those, so the branch below
+    // never asks for this value when it is null.
+    val wideExploreListContent: (@Composable () -> Unit)? = when (wideExploreParent) {
+        SecondaryBookParent.SERIES -> seriesListContent
+        SecondaryBookParent.GENRE -> genreListContent
+        else -> null
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier
@@ -869,40 +962,23 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         }
                     )
 
+                    // #900 — on a wide «Огляд», the genre/series the work was
+                    // opened from keeps the left pane and the work's card takes
+                    // the right: the same two screens the phone shows one at a
+                    // time. Any other parent list keeps the phone route below
+                    // (the question is on issue #900).
+                    wideExplorePaneOpen -> WideDetailPane(
+                        list = requireNotNull(wideExploreListContent),
+                        detail = bookDetailContent
+                    )
+
                     // A book opened from a pushed catalogue list overlays
                     // that retained parent route. Closing details reveals the
                     // same list and lets it restore the originating card.
                     secondaryBookDetailOpen -> bookDetailContent()
 
                     // Series (cycle) page (spec #8 ticket T8).
-                    selectedSeries != null -> SeriesScreen(
-                        viewModel = viewModel,
-                        onBackClick = {
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            viewModel.closeSeries()
-                        },
-                        onBookClick = { id ->
-                            secondaryBookRoute = SecondaryBookRouteFrame(
-                                parent = SecondaryBookParent.SERIES,
-                                originBookId = id,
-                                detailBookId = id,
-                                parentTitle = selectedSeries?.title.orEmpty(),
-                                parentUrl = selectedSeries?.url.orEmpty()
-                            )
-                            viewModel.selectBook(id)
-                        },
-                        restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                            secondaryBookRoute.parent == SecondaryBookParent.SERIES
-                        },
-                        onBookFocusRestored = { restoredId ->
-                            if (secondaryBookRoute.parent == SecondaryBookParent.SERIES &&
-                                secondaryBookRoute.originBookId == restoredId
-                            ) {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                            }
-                        },
-                        listState = seriesBookListState
-                    )
+                    selectedSeries != null -> seriesListContent()
 
                     // spec-28 (#189): the «Серії» index — every series from
                     // the catalogue sections; tapping one pushes the existing
@@ -1020,32 +1096,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").
-                    selectedGenre != null -> GenreScreen(
-                        viewModel = viewModel,
-                        onBackClick = {
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            viewModel.closeGenre()
-                        },
-                        onBookClick = { id ->
-                            secondaryBookRoute = SecondaryBookRouteFrame(
-                                parent = SecondaryBookParent.GENRE,
-                                originBookId = id,
-                                detailBookId = id
-                            )
-                            viewModel.selectBook(id)
-                        },
-                        restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                            secondaryBookRoute.parent == SecondaryBookParent.GENRE
-                        },
-                        onBookFocusRestored = { restoredId ->
-                            if (secondaryBookRoute.parent == SecondaryBookParent.GENRE &&
-                                secondaryBookRoute.originBookId == restoredId
-                            ) {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                            }
-                        },
-                        listState = genreBookListState
-                    )
+                    selectedGenre != null -> genreListContent()
 
                     // #738 — the library rating (local, offline).
                     selectedTop100 -> LibraryRatingScreen(

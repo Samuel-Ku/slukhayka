@@ -1825,6 +1825,11 @@ internal fun LibraryDenseRow(
                 )
                 .weight(1f)
                 .padding(vertical = AppDimens.SpaceMd)
+                // #885 — the focus/ripple indication painted a hard square box
+                // behind the row (clearly visible on the focused book right
+                // after returning from it). The prototype's shapes are soft, so
+                // the indication is clipped to a rounded rectangle.
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
                 .focusProperties { canFocus = true }
                 .clickable(onClick = onOpen)
                 // #885 — the dense row IS the library book item: keep the

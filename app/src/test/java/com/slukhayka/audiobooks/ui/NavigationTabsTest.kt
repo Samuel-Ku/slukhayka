@@ -36,10 +36,11 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Spec-9 (listen-first IA): the bottom bar shows exactly Слухати · Огляд ·
- * Медіатека, with the listening panel first. Renders the extracted
- * [AppBottomBar] directly — no `MainViewModel`, no full app — so the
- * assertions are deterministic and fast.
+ * Spec-9 (listen-first IA): the bottom bar shows the root sections with the
+ * listening panel first. ADR-0049 / #898 fixes the map at four working
+ * destinations — Слухати · Огляд · Мої книги · Друзі — with Settings behind the
+ * gear. Renders the extracted [AppBottomBar] directly — no `MainViewModel`, no
+ * full app — so the assertions are deterministic and fast.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -79,7 +80,7 @@ class NavigationTabsTest {
     }
 
     @Test
-    fun bottomBarShowsListenBrowseAndLibraryTabs() {
+    fun bottomBarShowsListenBrowseLibraryAndFriendsTabs() {
         var selected: SelectedTab? = null
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -94,8 +95,9 @@ class NavigationTabsTest {
         composeTestRule.onNodeWithTag("tab_listen").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("tab_explore").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("tab_library").assertExists().assertIsDisplayed()
-        // #860 / ADR-0049 — «Налаштування» left the bar: the gear in a root
-        // header opens them instead, so the bar keeps only working sections.
+        // #898 / ADR-0049 — «Друзі» is the fourth WORKING section; the settings
+        // slot it takes is served by the gear in every root header.
+        composeTestRule.onNodeWithTag("tab_friends").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("tab_settings").assertDoesNotExist()
         // Removed tabs: the WebView and the standalone Bookmarks tab.
         composeTestRule.onNodeWithTag("tab_4read_web").assertDoesNotExist()
@@ -119,6 +121,7 @@ class NavigationTabsTest {
             .assertTextEquals("Слухати")
         composeTestRule.onNodeWithTag("tab_explore").assertTextEquals("Огляд")
         composeTestRule.onNodeWithTag("tab_library").assertTextEquals("Мої книги")
+        composeTestRule.onNodeWithTag("tab_friends").assertTextEquals("Друзі")
         composeTestRule.onNodeWithTag("tab_settings").assertDoesNotExist()
 
         composeTestRule.onNodeWithContentDescription("Listen", useUnmergedTree = true)
@@ -184,6 +187,24 @@ class NavigationTabsTest {
     }
 
     @Test
+    fun friendsTabClickReportsFriendsSelection() {
+        var selected: SelectedTab? = null
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Scaffold(
+                    bottomBar = {
+                        AppBottomBar(selectedTab = SelectedTab.LISTEN) { tab -> selected = tab }
+                    }
+                ) { }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("tab_friends").performClick()
+
+        assertEquals(SelectedTab.FRIENDS, selected)
+    }
+
+    @Test
     fun bottomBarKeepsEveryDestinationReachableAtTwoHundredPercentFontScale() {
         composeTestRule.setContent {
             val density = LocalDensity.current
@@ -210,7 +231,11 @@ class NavigationTabsTest {
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
             .assertTextEquals("Мої книги")
-        listOf("Слухати", "Огляд", "Мої книги").forEach { label ->
+        composeTestRule.onNodeWithTag("tab_friends")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(24.dp)
+            .assertTextEquals("Друзі")
+        listOf("Слухати", "Огляд", "Мої книги", "Друзі").forEach { label ->
             val layouts = mutableListOf<TextLayoutResult>()
             composeTestRule.onNodeWithText(label, useUnmergedTree = true)
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }

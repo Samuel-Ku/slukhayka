@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- #898 — the «Друзі» feed. The copy is written so the two empty states
+         stay distinguishable and neither promises a feature that does not
+         exist yet (no friends vs. friends with no posts). -->
+    <string name="a11y_friends_pane">Друзі</string>
+    <string name="friends_empty_no_friends_title">Поки немає друзів</string>
+    <string name="friends_empty_no_friends_body">Тут з’являться дописи людей, з якими ви потоваришували. Додавання друзів за іменем і власний профіль читача ще не готові — екран не вигадує знайомих, щоб не було порожньо.</string>
+    <string name="friends_empty_no_posts_title">Друзі є, але дописів немає</string>
+    <string name="friends_empty_no_posts_body">Щойно хтось із друзів поділиться враженням про книгу з аудиторією «Друзі», допис з’явиться тут. Дописи з аудиторією «Лише я» не показуються нікому.</string>
+</resources>

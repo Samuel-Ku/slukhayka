@@ -23,7 +23,14 @@ open class FakeFetcher(
     private val fallback: String = "",
     private val streamResponses: Map<String, ByteArray> = emptyMap(),
     private val sizedStreamResponses: Map<String, Pair<ByteArray, Long?>> = emptyMap(),
-    private val delayMs: Long = 0L
+    private val delayMs: Long = 0L,
+    /**
+     * #858 (T5) — the real HTTP status for the URLs whose answer is not a
+     * 200: [getTextResult] returns the pair verbatim, so a fixture can be a
+     * 404 (a positive "the base does not know this key") or a 5xx/429. Every
+     * other URL keeps its 200 + canned-body semantics.
+     */
+    private val statusResponses: Map<String, Pair<Int, String>> = emptyMap()
 ) : HttpFetcher() {
 
     /** Extra headers of each headerful request, in call order. Thread-safe:
@@ -103,6 +110,21 @@ open class FakeFetcher(
         requestedUrls += url
         if (extraHeaders.isNotEmpty()) recordedHeaders += extraHeaders
         return responses[url] ?: fallback
+    }
+
+    /**
+     * #858 (T5) — the status-aware door for providers that must tell a 404
+     * (the base POSITIVELY not knowing the key) from a failed fetch. Every
+     * canned body keeps its 200 semantics unless [statusResponses] names the
+     * URL's real status, so existing fixture tests are untouched; the URL is
+     * recorded exactly like the [getText] doors so request-count assertions
+     * keep working.
+     */
+    override fun getTextResult(url: String, extraHeaders: Map<String, String>): Pair<Int, String> {
+        requestedUrls += url
+        if (extraHeaders.isNotEmpty()) recordedHeaders += extraHeaders
+        statusResponses[url]?.let { return it }
+        return 200 to (responses[url] ?: fallback)
     }
 
     override fun getStream(url: String, extraHeaders: Map<String, String>): InputStream? {

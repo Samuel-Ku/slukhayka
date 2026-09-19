@@ -3041,6 +3041,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         closeRecommendationSettings()
         closeContentLanguages()
         closeAppLocale()
+        // #959 — the seventh destination was missed here, so its panel stayed
+        // over the next tab. Same close-on-tab-switch contract as its six
+        // siblings above.
+        closeSourceAudioRefusal()
         _selectedTab.value = tab
     }
 

@@ -82,6 +82,7 @@ import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -426,8 +427,11 @@ fun HomeScreen(
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
                 onOpenPeople = { kind ->
-                    if (kind.title == "Автори") viewModel.openAuthorsIndex()
-                    else viewModel.openPeople(kind)
+                    if (kind.type == com.slukhayka.audiobooks.ui.PeopleKindType.AUTHORS) {
+                        viewModel.openAuthorsIndex()
+                    } else {
+                        viewModel.openPeople(kind)
+                    }
                 },
                 onOpenSeriesIndex = { viewModel.openSeriesIndex() },
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
@@ -1047,28 +1051,41 @@ fun CatalogNavRow(
     onSeriesClick: () -> Unit,
     onCollectionsClick: () -> Unit
 ) {
+    // spec-46 T16 (#577): every chip label is chrome and comes from the
+    // resources; the people chips carry a stable PeopleKindType, never the
+    // localized title, so an English run opens the same index.
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            NavigationChip(title = "Рейтинг", onClick = onTop100Click)
+            NavigationChip(title = stringResource(R.string.catalog_nav_rating), onClick = onTop100Click)
         }
         item {
             NavigationChip(
-                title = "Виконавці",
+                title = stringResource(R.string.people_narrators_title),
                 onClick = {
                     // #736 — the narrator index is local (the Медіатека), so a
                     // PeopleKind carries no provider URL anymore.
-                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Виконавці", url = ""))
+                    onPeopleClick(
+                        com.slukhayka.audiobooks.ui.PeopleKind(
+                            com.slukhayka.audiobooks.ui.PeopleKindType.NARRATORS,
+                            url = ""
+                        )
+                    )
                 }
             )
         }
         item {
             NavigationChip(
-                title = "Автори",
+                title = stringResource(R.string.author_index_title),
                 onClick = {
-                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Автори", url = ""))
+                    onPeopleClick(
+                        com.slukhayka.audiobooks.ui.PeopleKind(
+                            com.slukhayka.audiobooks.ui.PeopleKindType.AUTHORS,
+                            url = ""
+                        )
+                    )
                 }
             )
         }
@@ -1076,58 +1093,40 @@ fun CatalogNavRow(
         // from the catalogue sections (the «Цикли» row), deduplicated by URL.
         // Tapping a series opens the existing series page.
         item {
-            NavigationChip(title = "Серії", onClick = onSeriesClick)
+            NavigationChip(
+                title = stringResource(R.string.series_index_title),
+                onClick = onSeriesClick
+            )
         }
         // spec-28 (#190): «Колекції» — a pushed index of every matched smart
         // collection; tapping a book resolves-and-plays exactly like the
         // inline collection cards.
         item {
-            NavigationChip(title = "Колекції", onClick = onCollectionsClick)
+            NavigationChip(
+                title = stringResource(R.string.collections_index_title),
+                onClick = onCollectionsClick
+            )
         }
     }
 }
 
-/** First-run empty catalogue: no mocks, just clear actions (spec #8 T1/T6). */
+/**
+ * First-run empty catalogue: no mocks, just clear actions (spec #8 T1/T6).
+ *
+ * spec-46 T16 (#577): a thin facade over the canonical [EmptyState] (v1.4 C4,
+ * ADR-0033) — one empty-state shape app-wide; the two next actions ride the
+ * canonical actions slot instead of a hand-rolled icon/title/body column.
+ */
 @Composable
 fun EmptyCatalogState(
     onRefreshClick: () -> Unit,
     onImportClick: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    EmptyState(
+        icon = Icons.Default.MenuBook,
+        title = stringResource(R.string.home_empty_catalog_title),
+        body = stringResource(R.string.home_empty_catalog_body)
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-            modifier = Modifier.size(64.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.MenuBook,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(30.dp)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(14.dp))
-        Text(
-            text = stringResource(R.string.home_empty_catalog_title),
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.semantics { heading() }
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.home_empty_catalog_body),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(18.dp))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(8.dp)

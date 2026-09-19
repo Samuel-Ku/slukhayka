@@ -117,7 +117,7 @@ fun EmptyState(
     }
 }
 
-/** Compact empty state for list sub-tabs: 40 dp icon, title, one-line body, optional trailing action. */
+/** Compact canonical empty state for list sub-sections: 40 dp icon, title, one-line body, optional trailing action. Announces itself politely like [EmptyState]. */
 @Composable
 fun EmptyStateRow(
     icon: ImageVector,
@@ -149,10 +149,14 @@ fun EmptyStateRow(
         }
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
         Column(modifier = Modifier.weight(1f)) {
+            // v1.4 C4 (ADR-0033): the compact state announces itself exactly
+            // like the full one — an empty state is transient, so it is a
+            // polite live-region wherever it appears.
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
             )
             Text(
                 text = body,

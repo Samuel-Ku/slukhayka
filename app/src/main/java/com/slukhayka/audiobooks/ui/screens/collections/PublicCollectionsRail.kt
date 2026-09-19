@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,6 +27,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import java.util.Locale
 
 /** The real average line, or the honest absence — one rule for every surface. */
@@ -138,13 +141,13 @@ fun CuratorProfileContent(
         )
         Spacer(Modifier.height(8.dp))
         if (rows.isEmpty()) {
-            Text(
-                text = stringResource(R.string.curator_profile_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .testTag("curator_profile_empty")
+            // spec-46 T16 (#577): the curator's honest absence is the canonical
+            // compact state, not a bare Text.
+            EmptyStateRow(
+                icon = Icons.Default.Bookmark,
+                title = stringResource(R.string.curator_profile_empty),
+                body = "",
+                modifier = Modifier.testTag("curator_profile_empty")
             )
             return@Column
         }

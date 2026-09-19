@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.annotation.StringRes
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.R
@@ -36,6 +37,7 @@ import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.PeopleKind
+import com.slukhayka.audiobooks.ui.PeopleKindType
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -43,10 +45,18 @@ import com.slukhayka.audiobooks.ui.theme.*
 @Composable
 private fun peopleCountLabel(kind: PeopleKind, size: Int): String =
     pluralStringResource(
-        if (kind.title == "Виконавці") R.plurals.performer_count else R.plurals.author_count,
+        // spec-46 T16 (#577): the discriminant is the stable kind, never the
+        // localized title — the title now comes from the resources.
+        if (kind.type == PeopleKindType.NARRATORS) R.plurals.performer_count else R.plurals.author_count,
         size,
         size
     )
+
+@StringRes
+private fun peopleTitleRes(kind: PeopleKind): Int = when (kind.type) {
+    PeopleKindType.NARRATORS -> R.string.people_narrators_title
+    PeopleKindType.AUTHORS -> R.string.author_index_title
+}
 
 /**
  * Full-screen Виконавці (`/readers.html`) or Автори (`/avtors.html`) index:
@@ -76,7 +86,7 @@ fun PeopleScreen(
     // v1.4 E6 (ADR-0033): the count rides the scaffold's subtitle (R10),
     // never a free-standing list row.
     IndexScreenScaffold(
-        title = currentKind.title,
+        title = stringResource(peopleTitleRes(currentKind)),
         onBackClick = onBackClick,
         subtitle = peopleCountLabel(currentKind, people.size)
     ) { padding ->

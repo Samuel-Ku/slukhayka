@@ -91,4 +91,9 @@
     <string name="storage_delete_consequence">Deletes all downloaded files from the device. This cannot be undone.</string>
     <string name="storage_delete_action">Delete downloaded files</string>
     <string name="storage_delete_dialog_title">Delete downloaded files?</string>
+
+    <!-- spec-46 T16 (#577): the download manager's canonical empty state had
+         no EN twin, so the English run fell back to Ukrainian. -->
+    <string name="download_manager_empty_title">No downloads</string>
+    <string name="download_manager_empty_body">When you download a book from its page, it will appear here with its status, size and controls.</string>
 </resources>

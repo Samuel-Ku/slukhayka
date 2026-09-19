@@ -489,6 +489,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // resolves in the background (spec-40), so this is null for the first
     // frames; an empty feed renders the same empty state either way.
     val listenerProfile by viewModel.listenerIdentity.collectAsState()
+    // #916 — the real, locally stored social state (accepted friends, both
+    // block directions). It is EMPTY until a friendship or a block is actually
+    // recorded; the screen then shows its honest empty state rather than an
+    // invented one (§6.4).
+    val socialSnapshot by viewModel.socialSnapshot.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
         SecondaryBookParent.SERIES -> selectedSeries != null
         SecondaryBookParent.GENRE -> selectedGenre != null
@@ -1266,16 +1271,18 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         )
                         SelectedTab.LIBRARY -> libraryRootContent()
                         SelectedTab.FRIENDS -> FriendsScreen(
-                            // #898 — the feed renders the state that EXISTS today.
-                            // The listener's own pseudonym is real (spec-40
-                            // identity); the friendship set and the posts are
-                            // not: #897's `SocialModel` is still an open PR and
-                            // no store or shared collection holds a friendship
-                            // or a post yet. So the screen is handed an empty
-                            // feed and shows its honest «no friends» state
-                            // instead of invented acquaintances (§6.4). Wiring a
-                            // real source is the next ticket — see the report.
-                            feed = FriendsFeedState(),
+                            // #916 — the state that EXISTS: the friendship and
+                            // block facts read from the local store. Posts are
+                            // still absent because no shared base holds them
+                            // yet (§5: a post lives with an audience in the
+                            // shared store, not on this device), so the feed
+                            // honestly shows «friends, no posts» or «no
+                            // friends» instead of invented content (§6.4).
+                            feed = FriendsFeedState(
+                                friendsNow = socialSnapshot.friendsNow,
+                                posts = emptyList(),
+                                blocks = socialSnapshot.blocks
+                            ),
                             viewerPseudonym = listenerProfile?.nickname.orEmpty(),
                             // A post's `sourceId` points at a Work/review; the
                             // book page opens by that same id.

@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -42,11 +41,9 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +83,7 @@ import com.slukhayka.audiobooks.ui.components.BookmarkDialog
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
@@ -461,21 +459,16 @@ fun BookDetailSourceSection(
     presentation: BookDetailPresentation
 ) {
     if (presentation.sources.isEmpty()) return
-    Spacer(modifier = Modifier.height(20.dp))
-    Text(
-        // v1.4 E4 / spec-46 T11 (#572): the heading lives in resources now —
-        // singular for one source, plural otherwise (no count phrase).
-        text = stringResource(
+    // v1.4 E4 / spec-46 T10 (#571, ADR-0033): the «Джерело/Джерела» heading is
+    // the canonical AppSectionHeader — the last free-standing `Text(titleMedium
+    // Bold)` + heading() on the book page. The singular/plural split (#572)
+    // stays: one source is not a «Джерела» section.
+    AppSectionHeader(
+        title = stringResource(
             if (presentation.sources.size == 1) R.string.book_detail_source_heading_one
             else R.string.book_detail_source_heading_many
-        ),
-        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier
-            .padding(horizontal = 8.dp)
-            .semantics { heading() }
+        )
     )
-    Spacer(modifier = Modifier.height(8.dp))
     presentation.sources.forEach { source ->
         WorkSourceRowCard(
             source = source,
@@ -486,8 +479,18 @@ fun BookDetailSourceSection(
 
 /**
  * Spec-23 T5/#426 — one informational row of the book page's «Джерела»
- * section: a source that carries the Work, with its stream-only marker
- * («Тільки стрімінг»).
+ * section: a source that carries the Work.
+ *
+ * v1.4 E4 / spec-46 T10 (#571, ADR-0033): the row is the canonical [BookRow]
+ * now — «divider not border» (ADR-0018) — instead of its own bordered
+ * `Surface`. Slots: the source icon is [BookRow]'s `leading`, the two state
+ * markers («Поточна» / «Тільки стрімінг») ride the `badges` chip slot, the
+ * source's rating is the `stats` fact line, and the source's DIFFERING
+ * metadata (narrator/genres/description — the work's own values are already in
+ * the summary above) rides the free-form `footnote` block inside the text
+ * column. No `trailing` and no [BookRow] click: the block is informational —
+ * playback picks the source through the shared coordinator, so a detail-page
+ * tap must never become an implicit source switch.
  * [isCurrent] marks the source the library row itself came from. Pure
  * `@Composable` — pinned by the snapshot seam from fixture rows.
  */
@@ -509,100 +512,95 @@ fun WorkSourceRowCard(
     ).let { base ->
         if (source.streamOnly) stringResource(R.string.book_detail_source_stream_only, base) else base
     }
-    Surface(
-        shape = RoundedCornerShape(AppDimens.RadiusPanel),
-        color = if (source.isCurrent) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (source.isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .testTag("work_source_${source.sourceId}")
-            .semantics(mergeDescendants = true) {
-                contentDescription = actionDescription
-                stateDescription = sourceState
-                selected = source.isCurrent
-            }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
-        ) {
+    BookRow(
+        title = source.name,
+        leading = {
             Icon(
                 imageVector = if (source.selectable) Icons.Default.PlayArrow else Icons.Default.Public,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier
+                    .size(AppDimens.TouchTarget)
+                    .padding(14.dp)
             )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = source.name,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (source.isCurrent) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        MetadataChip(source = stringResource(R.string.book_detail_source_current))
-                    }
-                }
-                source.rating?.let { rating ->
-                    Text(
-                        text = stringResource(
-                            R.string.book_detail_source_rating,
-                            "%.1f".format(java.util.Locale.US, rating)
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                source.differingNarrator?.let { narrator ->
-                    Text(
-                        text = stringResource(R.string.book_detail_source_narrator, narrator),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (source.differingGenres.isNotEmpty()) {
-                    Text(
-                        text = stringResource(
-                            R.string.book_detail_source_genres,
-                            source.differingGenres.joinToString(" · ")
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                source.differingDescription?.let { description ->
-                    Text(
-                        text = stringResource(R.string.book_detail_source_description, description),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (source.streamOnly) {
-                    Text(
-                        text = stringResource(R.string.book_detail_stream_only),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        },
+        badges = {
+            // «Поточна» / «Тільки стрімінг» are chip slots (E4 AC4). Both are
+            // non-interactive MetadataChip facts, never a second control.
+            if (source.isCurrent) {
+                MetadataChip(
+                    modifier = Modifier.testTag(SourceStateChipTags.CURRENT),
+                    source = stringResource(R.string.book_detail_source_current)
+                )
             }
-        }
-    }
+            if (source.streamOnly) {
+                if (source.isCurrent) Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                MetadataChip(
+                    modifier = Modifier.testTag(SourceStateChipTags.STREAM_ONLY),
+                    text = stringResource(R.string.book_detail_stream_only)
+                )
+            }
+        },
+        stats = source.rating?.let { rating ->
+            stringResource(
+                R.string.book_detail_source_rating,
+                "%.1f".format(java.util.Locale.US, rating)
+            )
+        },
+        footnoteInColumn = true,
+        footnote = {
+            source.differingNarrator?.let { narrator ->
+                Text(
+                    text = stringResource(R.string.book_detail_source_narrator, narrator),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (source.differingGenres.isNotEmpty()) {
+                Text(
+                    text = stringResource(
+                        R.string.book_detail_source_genres,
+                        source.differingGenres.joinToString(" · ")
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            source.differingDescription?.let { description ->
+                Text(
+                    text = stringResource(R.string.book_detail_source_description, description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        },
+        stateDescription = sourceState,
+        contentDescription = actionDescription,
+        selected = source.isCurrent,
+        testTag = "work_source_${source.sourceId}"
+    )
+}
+
+/** Test seams for the two «Джерела» state chips (spec-46 T10, E4 AC4). */
+object SourceStateChipTags {
+    const val CURRENT = "source_state_current_chip"
+    const val STREAM_ONLY = "source_state_stream_only_chip"
 }
 
 /**
  * ADR-0011 — one row of the book page's «Інші начитки» section: another
- * rendition card of the same Work. The narrator is the rendition identity
+ * rendition of the same Work. The narrator is the rendition identity
  * (ADR-0010); the row shows it plus the source the card came from, and
- * tapping it opens that card — the narration selection. Pure `@Composable`.
+ * tapping it opens that card — the narration selection.
+ *
+ * v1.4 E4 / spec-46 T10 (#571, ADR-0033): the canonical [BookRow] — the
+ * rendition icon is the `leading` slot, the language is the `badges` chip
+ * slot (spec-45 #495), the source name is the `stats` fact line, and the
+ * rendition's own average (ADR-0023) rides the `trailing` slot so it stays
+ * end-aligned outside the merged text block. This is the one book-page row
+ * that keeps a click: it opens another narration. Pure `@Composable`.
  */
 @Composable
 fun NarrationRowCard(
@@ -621,59 +619,30 @@ fun NarrationRowCard(
         sourceName
     )
     val otherEditionState = stringResource(R.string.book_detail_other_edition)
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(AppDimens.RadiusPanel),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 48.dp)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .testTag("narration_${sibling.id}")
-            .semantics(mergeDescendants = true) {
-                contentDescription = actionDescription
-                stateDescription = otherEditionState
-            }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
-        ) {
+    BookRow(
+        title = narrator,
+        leading = {
             Icon(
                 imageVector = Icons.Default.RecordVoiceOver,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier
+                    .size(AppDimens.TouchTarget)
+                    .padding(14.dp)
             )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = narrator,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    // Spec-45 (#405) T7 (#495): this rendition's language — one
-                    // EN/UA badge next to the narrator; unknown renders nothing.
-                    if (sibling.language.isNotBlank()) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        MetadataChip(language = sibling.language)
-                    }
-                }
-                Text(
-                    text = sourceName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        },
+        badges = {
+            // Spec-45 (#405) T7 (#495): this rendition's language — one
+            // EN/UA chip next to the narrator; unknown renders nothing.
+            if (sibling.language.isNotBlank()) {
+                MetadataChip(language = sibling.language)
             }
+        },
+        stats = sourceName,
+        trailing = {
             // ADR-0023 (#357): this rendition's own average — shown only when
             // votes exist (honest absence, ADR-0014).
             if (average != null) {
-                Spacer(modifier = Modifier.width(10.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = 12)
                     Text(
@@ -684,6 +653,10 @@ fun NarrationRowCard(
                     )
                 }
             }
-        }
-    }
+        },
+        stateDescription = otherEditionState,
+        contentDescription = actionDescription,
+        onClick = onClick,
+        testTag = "narration_${sibling.id}"
+    )
 }

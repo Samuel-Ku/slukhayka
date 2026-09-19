@@ -97,8 +97,11 @@ describe('W3.2 indexes', () => {
     await user.click(screen.getByRole('button', { name: 'ТОП 100' }))
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /ТОП 100/ })).toBeTruthy())
-    // The honest count rides the header (R10 / ADR-0033).
-    expect(screen.getByRole('heading', { level: 2, name: /· 2$/ })).toBeTruthy()
+    // The honest count rides the header (R10 / ADR-0033) — but only once
+    // useFourreadSection's async read (IndexedDB warm cache + api.catalog)
+    // lands, so it needs its own wait rather than a sync check after the
+    // immediately-rendered /ТОП 100/ title.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /· 2$/ })).toBeTruthy())
     const rows = screen.getAllByRole('button', { name: /Відкрити книгу:/ })
     expect(rows).toHaveLength(2)
     // Rank badges are 1-based list order.
@@ -136,8 +139,9 @@ describe('W3.2 indexes', () => {
     await user.click(screen.getByRole('button', { name: 'Колекції' }))
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /Колекції/ })).toBeTruthy())
-    // «Старий і море» matches the shipped nobel.json asset.
-    expect(screen.getByRole('heading', { level: 3, name: 'Нобелівські лауреати' })).toBeTruthy()
+    // «Старий і море» matches the shipped nobel.json asset — and the match
+    // exists only once visibleWorks has loaded, so it needs its own wait.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 3, name: 'Нобелівські лауреати' })).toBeTruthy())
     expect(screen.getByRole('button', { name: 'Відкрити книгу: Старий і море' })).toBeTruthy()
   })
 
@@ -149,7 +153,9 @@ describe('W3.2 indexes', () => {
     await user.click(screen.getByRole('button', { name: 'Виконавці' }))
 
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /Виконавці/ })).toBeTruthy())
-    expect(screen.getByRole('heading', { level: 2, name: /· 2$/ })).toBeTruthy()
+    // Same async count as ТОП 100: the title renders first, the people count
+    // only after useFourreadSection returns.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /· 2$/ })).toBeTruthy())
     const row = screen.getByRole('button', { name: 'Відкрити сторінку: Ада Роговцева' })
     expect(row.textContent).toContain('23 книги')
     expect(screen.getByRole('button', { name: 'Відкрити сторінку: Аліна Лукащук' }).textContent).toContain('1 книга')

@@ -772,7 +772,12 @@ fun LibraryScreen(
                                                     entity.displayName
                                                 ),
                                                 bookCount = 0,
-                                                role = role
+                                                role = role,
+                                                // #955 — a stored bookmark already carries
+                                                // the canonical person id; an author page
+                                                // must read Works by it, not by the name.
+                                                authorId = entity.id
+                                                    .takeIf { role == PersonRole.AUTHOR }
                                             )
                                         )
                                     },

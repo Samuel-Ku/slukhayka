@@ -474,7 +474,9 @@ fun SubmissionSheetContent(
                 initialAuthor = previewEdits?.author ?: preview.author.orEmpty(),
                 initialNarrator = previewEdits?.narrator ?: preview.narrator.orEmpty(),
                 onDismiss = { showPreviewEdit = false },
-                onSave = { title, author, narrator ->
+                // The pre-add preview edits the three text claims only: no
+                // cover field here, and null covers the "unchanged" case.
+                onSave = { title, author, narrator, _ ->
                     previewEdits = ListenerSubmissionFlow.PreviewEdits(
                         title = title,
                         author = author,

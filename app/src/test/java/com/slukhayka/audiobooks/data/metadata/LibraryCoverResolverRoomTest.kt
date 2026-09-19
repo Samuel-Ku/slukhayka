@@ -180,4 +180,62 @@ class LibraryCoverResolverRoomTest {
         assertEquals(0, filled)
         assertNull(dao.getAudiobookById("b1")!!.coverImageUrl)
     }
+
+    // -----------------------------------------------------------------
+    // #855 (T2) — the listener's Override outranks the shared base
+    // -----------------------------------------------------------------
+
+    @Test
+    fun `a pinned absence keeps the honest no-cover state - on either pass`() = runBlocking {
+        seedLibraryRow(bookId = "b1", workId = "w1", mergeKey = "книга|автор")
+        // The listener removed a wrong cover: the decision is «no cover».
+        CoverOverrideStore(dao).pin("b1", "книга|автор", null, now = 100L)
+        val resolver = LibraryCoverResolver(
+            dao,
+            FakeStore(mapOf("книга|автор" to "https://shared.example/kniga.jpg"))
+        )
+
+        assertEquals("the claim may not fill a decided Work", 0, resolver.resolve())
+        assertEquals("", dao.getAudiobookById("b1")!!.coverImageUrl)
+        // The next pass must not quietly undo the fix either.
+        assertEquals(0, resolver.resolve())
+        assertEquals("", dao.getAudiobookById("b1")!!.coverImageUrl)
+    }
+
+    @Test
+    fun `a pinned cover is never overwritten by the shared base - on either pass`() = runBlocking {
+        seedLibraryRow(bookId = "b1", workId = "w1", mergeKey = "книга|автор")
+        CoverOverrideStore(dao).pin("b1", "книга|автор", "https://mine.example/kniga.jpg", now = 100L)
+        val resolver = LibraryCoverResolver(
+            dao,
+            FakeStore(mapOf("книга|автор" to "https://shared.example/other.jpg"))
+        )
+
+        assertEquals(0, resolver.resolve())
+        assertEquals(0, resolver.resolve())
+
+        assertEquals("https://mine.example/kniga.jpg", dao.getAudiobookById("b1")!!.coverImageUrl)
+    }
+
+    @Test
+    fun `the batch still fills the rows the listener did not decide about`() = runBlocking {
+        seedLibraryRow(bookId = "b1", workId = "w1", mergeKey = "книга|автор")
+        seedLibraryRow(bookId = "b2", workId = "w2", mergeKey = "кобзар|шевченко")
+        CoverOverrideStore(dao).pin("b1", "книга|автор", null, now = 100L)
+        val resolver = LibraryCoverResolver(
+            dao,
+            FakeStore(
+                mapOf(
+                    "книга|автор" to "https://shared.example/kniga.jpg",
+                    "кобзар|шевченко" to "https://shared.example/kobzar.jpg"
+                )
+            )
+        )
+
+        val filled = resolver.resolve()
+
+        assertEquals(1, filled)
+        assertEquals("", dao.getAudiobookById("b1")!!.coverImageUrl)
+        assertEquals("https://shared.example/kobzar.jpg", dao.getAudiobookById("b2")!!.coverImageUrl)
+    }
 }

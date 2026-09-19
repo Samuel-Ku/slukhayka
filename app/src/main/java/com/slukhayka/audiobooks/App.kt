@@ -212,6 +212,21 @@ class App : Application() {
     val manualBookAdder: com.slukhayka.audiobooks.data.entries.ManualBookAdder
         by lazy { com.slukhayka.audiobooks.data.entries.ManualBookAdder(audiobookDao) }
 
+    /**
+     * ADR-0053 / #854 — the tracked Work: a manual Work whose audio no source
+     * carries yet. Same persistence doors as the import upsert minus the
+     * Source branch — the card, the Work and the Library Entry, and NOTHING
+     * that would claim audio exists.
+     */
+    val trackedWorks: com.slukhayka.audiobooks.data.entries.TrackedWorks
+        by lazy {
+            com.slukhayka.audiobooks.data.entries.TrackedWorks(
+                dao = audiobookDao,
+                workRelationshipsSync = workRelationshipsSync,
+                writeBatchRunner = { block -> database.withTransaction { block() } }
+            )
+        }
+
     /** #876 — the write path of reading progress (journal, finish, re-read). */
     val readingProgressRecorder: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder
         by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }

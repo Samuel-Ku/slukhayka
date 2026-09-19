@@ -20,7 +20,10 @@ import { LISTEN_BLOCK_IDS, ListenPrefsStore, type ListenBlockId, type ListenPref
 import { RecommendationPrefsStore } from '../local/recommendationPrefs'
 import { useTranslate } from '../i18n/locale'
 import type { StringKey } from '../i18n/strings'
+import { CollectionRanking, type PublishedCollection } from '../collections/collectionModel'
+import type { CollectionsStore } from '../collections/store'
 import { BookRow, EmptyState, EmptyStateRow, SectionHeader, TabHeader } from './components'
+import { CollectionDetailSheet, CollectionsRail } from './collectionReading'
 import { buildLibraryViews, type LibraryBookView } from './libraryModel'
 import { composeListenBlocks, deduplicateListenShelves, type ListenBlock } from './listenComposer'
 
@@ -40,13 +43,15 @@ export function blockTitleKey(id: ListenBlockId): StringKey {
   return BLOCK_TITLE_KEYS[id]
 }
 
-export function Listen({ domainStore, linkStore, listening, prefsStore, recommendationPrefs }: {
+export function Listen({ domainStore, linkStore, listening, prefsStore, recommendationPrefs, collectionsStore }: {
   domainStore: DomainStore
   linkStore: EditionLinkStore
   listening: Pick<ListenerDatabase, 'allSnapshots'>
   prefsStore: ListenPrefsStore
   /** #586 W2.2 — the local Recommendation Preference store («Не цікаво»). */
   recommendationPrefs: RecommendationPrefsStore
+  /** spec-51 (#697) — the shared-collections reader; null => no rail at all. */
+  collectionsStore?: CollectionsStore | null
 }) {
   const t = useTranslate()
   const [views, setViews] = useState<LibraryBookView[] | null>(null)
@@ -54,6 +59,10 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
   // #586 W2.2 — «Не цікаво» mergeKeys; the HIDE_WORK preference targets.
   const [dismissed, setDismissed] = useState<string[]>([])
   const [manageOpen, setManageOpen] = useState(false)
+  // spec-51 (#697) — «Добірки слухачів»: the ranked top public collections and
+  // the collection screen one of them opens. Absent without a store.
+  const [collectionsRail, setCollectionsRail] = useState<PublishedCollection[]>([])
+  const [openedCollection, setOpenedCollection] = useState<PublishedCollection | null>(null)
   const manageButtonRef = useRef<HTMLButtonElement | null>(null)
   const sheetWasOpen = useRef(false)
 
@@ -106,6 +115,22 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
       setDismissed((current) => (current.includes(mergeKey) ? current : [...current, mergeKey]))
     })
   }
+
+  // spec-51 (#697) — one bounded read of the public rail; the shared ranking
+  // already ordered it. No store (no Firebase) → no rail, never a fake shelf.
+  useEffect(() => {
+    let alive = true
+    if (collectionsStore === undefined || collectionsStore === null) {
+      setCollectionsRail([])
+      return
+    }
+    void collectionsStore.topPublic(CollectionRanking.DEFAULT_LIMIT).then((collections) => {
+      if (alive) setCollectionsRail(collections)
+    })
+    return () => {
+      alive = false
+    }
+  }, [collectionsStore])
 
   return (
     <div>
@@ -162,12 +187,20 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
         ))
       )}
 
+      {/* spec-51 (#697) — «Добірки слухачів»: community, not a personal shelf,
+          so it renders even when the listener's own shelves are empty. */}
+      <CollectionsRail collections={collectionsRail} onOpen={setOpenedCollection} />
+
       {manageOpen && (
         <ManageShelvesSheet
           prefs={prefs}
           onClose={() => setManageOpen(false)}
           onSave={(next) => void savePrefs(next)}
         />
+      )}
+
+      {openedCollection && (
+        <CollectionDetailSheet collection={openedCollection} onClose={() => setOpenedCollection(null)} />
       )}
     </div>
   )

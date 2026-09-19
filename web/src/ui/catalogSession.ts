@@ -50,6 +50,10 @@ export interface CatalogFeedState {
   /** The snapshot's savedAt when `phase === 'cached'`; null otherwise. */
   cachedAt: number | null
   loadingMore: boolean
+  /**
+   * A failed OR no-progress append. The cursor is kept, so the listener can
+   * retry the same page explicitly; it also means auto-loading must not fire.
+   */
   appendError: boolean
 }
 
@@ -99,8 +103,21 @@ export interface CatalogSession {
    * never restarts the work.
    */
   setIntent(intent: { source: CatalogSource; query: string; forceRefresh?: boolean }): void
-  /** One more page for the CURRENT generation and cursor. */
+  /**
+   * One more page for the CURRENT generation and cursor. Observer and manual
+   * action share this one attempt, so two calls for the same cursor during an
+   * in-flight request coalesce into a single request and a single append.
+   * After a failure — or after the source returns the same cursor, i.e. makes
+   * no progress — the cursor stays put and `appendError` is set: the listener
+   * retries the same page explicitly instead of auto-loading in a loop.
+   */
   loadMore(): void
+  /**
+   * The listener's EXPLICIT retry of the page `loadMore` could not advance:
+   * the same cursor is requested again. The automatic path refuses while
+   * `appendError` is set, so only this call breaks the stall.
+   */
+  retryAppend(): void
   /** Local only: re-derives the visible Works, never starts a request. */
   setContentLanguages(selection: readonly string[]): void
   /** Aborts the request and the debounce timer; no late result publishes. */
@@ -285,6 +302,61 @@ export function createCatalogSession(options: CatalogSessionOptions = {}): Catal
     }, CATALOG_SEARCH_DEBOUNCE_MS)
   }
 
+  /**
+   * #624 — ONE append attempt for the current cursor, shared by the observer
+   * and the manual action. `loadMore` is the automatic path; `retryAppend` is
+   * the listener's explicit retry of the SAME page after a failure or after a
+   * cursor that did not move. Both go through this function, so the in-flight
+   * guard coalesces them into one request and one append.
+   */
+  const startAppend = (explicit: boolean): void => {
+    if (normalizeCatalogQuery(query).length >= CATALOG_SEARCH_MIN_CHARS) return
+    if (feed.nextCursor === null || feed.loadingMore || feed.phase === 'loading') return
+    // Auto-loading never retries what just failed or stalled; only the
+    // listener's explicit retry does.
+    if (feed.appendError && !explicit) return
+    const current = generation
+    const cursor = feed.nextCursor
+    const intentSource = source
+    const runController = new AbortController()
+    controller = runController
+    feed = { ...feed, loadingMore: true, appendError: false }
+    emit()
+    void (async () => {
+      const page = await withBudget(runController, () =>
+        deps.feed(cursor, intentSource === 'all' ? undefined : intentSource, runController.signal),
+      )
+      // A page of a superseded intent (another Source, another query, a
+      // refresh or dispose) never reaches the Works, the cursor or the cache.
+      if (!stillCurrent(current)) return
+      if (page === null) {
+        feed = { ...feed, loadingMore: false, appendError: true }
+        emit()
+        return
+      }
+      // #624 — the source answered with the very cursor it was asked for: it
+      // made no forward progress, so the «next» page is the page just read.
+      // Stop instead of walking that cursor forever: keep the Works already on
+      // screen, keep the cursor in place and surface the explicit retry.
+      // (Same rule as the Android delta syncs: a page that does not move the
+      // cursor carries nothing new.)
+      if (page.nextCursor === cursor) {
+        feed = { ...feed, loadingMore: false, appendError: true }
+        emit()
+        return
+      }
+      const combined = appendWorks(feed.works, page.works)
+      const nextCursor = page.nextCursor ?? null
+      feed = { ...feed, works: combined, nextCursor, loadingMore: false, appendError: false }
+      emit()
+      // Outside any state updater, and only for the Source it was asked for.
+      const snapshotPage: UnifiedWorkPage = page.nextCursor === undefined
+        ? { works: combined }
+        : { works: combined, nextCursor: page.nextCursor }
+      void deps.writeEntry(warmKey('catalog', intentSource), snapshotPage, () => stillCurrent(current))
+    })()
+  }
+
   return {
     getState: () => snapshot,
     subscribe: (listener) => {
@@ -312,39 +384,8 @@ export function createCatalogSession(options: CatalogSessionOptions = {}): Catal
       query = intent.query
       startGeneration(intent.forceRefresh === true)
     },
-    loadMore: () => {
-      if (normalizeCatalogQuery(query).length >= CATALOG_SEARCH_MIN_CHARS) return
-      if (feed.nextCursor === null || feed.loadingMore || feed.phase === 'loading') return
-      const current = generation
-      const cursor = feed.nextCursor
-      const intentSource = source
-      const runController = new AbortController()
-      controller = runController
-      feed = { ...feed, loadingMore: true, appendError: false }
-      emit()
-      void (async () => {
-        const page = await withBudget(runController, () =>
-          deps.feed(cursor, intentSource === 'all' ? undefined : intentSource, runController.signal),
-        )
-        // A page of a superseded intent (another Source, another query, a
-        // refresh or dispose) never reaches the Works, the cursor or the cache.
-        if (!stillCurrent(current)) return
-        if (page === null) {
-          feed = { ...feed, loadingMore: false, appendError: true }
-          emit()
-          return
-        }
-        const combined = appendWorks(feed.works, page.works)
-        const nextCursor = page.nextCursor ?? null
-        feed = { ...feed, works: combined, nextCursor, loadingMore: false, appendError: false }
-        emit()
-        // Outside any state updater, and only for the Source it was asked for.
-        const snapshotPage: UnifiedWorkPage = page.nextCursor === undefined
-          ? { works: combined }
-          : { works: combined, nextCursor: page.nextCursor }
-        void deps.writeEntry(warmKey('catalog', intentSource), snapshotPage, () => stillCurrent(current))
-      })()
-    },
+    loadMore: () => startAppend(false),
+    retryAppend: () => startAppend(true),
     setContentLanguages: (selection) => {
       const next = [...selection]
       if (next.length === contentLanguages.length && next.every((code, index) => code === contentLanguages[index])) return

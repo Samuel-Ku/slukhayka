@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +21,7 @@ import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -42,6 +44,7 @@ import com.slukhayka.audiobooks.ui.components.PosterDismissVisualSize
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
+import com.slukhayka.audiobooks.ui.screens.ListenShelvesManageDoor
 import com.slukhayka.audiobooks.ui.screens.ListenShelvesManageEntry
 import com.slukhayka.audiobooks.ui.screens.ListenShelvesSheetContent
 import com.slukhayka.audiobooks.ui.screens.RecentlyListenedRow
@@ -229,6 +232,59 @@ class ListenAccessibilityTest {
         compose.onNodeWithTag("listen_shelf_toggle_SHORT").performClick()
         assertFalse(ListenComposer.BlockId.SHORT in hidden)
         compose.onNodeWithText("Приховано").assertDoesNotExist()
+    }
+
+    // v1.4 E1 / #570 — the focus contract of the shelf-management door: the
+    // sheet takes focus when it opens, keeps it while the listener works
+    // INSIDE it (↑↓, hide — no bouncing back to the trigger on every edit),
+    // and returns it to the exact «Керувати полицями» door only once the
+    // sheet closes.
+    @Test
+    fun manageShelvesDoorReturnsFocusToTheTriggerOnlyAfterTheSheetCloses() {
+        val blocks = listOf(
+            ListenComposer.Block(ListenComposer.BlockId.ALMOST_DONE, "Майже дочитали", "До кінця 12 хв", emptyList()),
+            ListenComposer.Block(ListenComposer.BlockId.SHORT, "Щось коротке", "~1 год прослуховування", emptyList())
+        )
+        var reordered = 0
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                // The production shape: the door is an item of the tab's
+                // LazyColumn, and it owns the sheet it opens.
+                LazyColumn {
+                    item {
+                        ListenShelvesManageDoor(
+                            blocks = blocks,
+                            hiddenIds = emptySet(),
+                            onMoveUp = {},
+                            onMoveDown = { reordered += 1 },
+                            onHide = {},
+                            onUnhide = {},
+                            onRestoreAll = {}
+                        )
+                    }
+                }
+            }
+        }
+
+        // Nothing owns focus before the door is used.
+        compose.onNodeWithTag("listen_manage_shelves").assertIsNotFocused()
+
+        // Opening hands focus to the sheet heading — the trigger gives it away.
+        compose.onNodeWithTag("listen_manage_shelves").performClick()
+        compose.onNodeWithTag("listen_shelves_sheet_heading").assertIsFocused()
+        compose.onNodeWithTag("listen_manage_shelves").assertIsNotFocused()
+
+        // An in-sheet edit (reorder) lands, yet the sheet stays the focus
+        // owner: focus must NOT come back on every selection.
+        compose.onNodeWithTag("listen_shelf_down_ALMOST_DONE").performClick()
+        assertEquals(1, reordered)
+        compose.onNodeWithTag("listen_shelves_sheet_heading").assertIsFocused()
+        compose.onNodeWithTag("listen_manage_shelves").assertIsNotFocused()
+
+        // Closing is the one transition that returns focus to the exact door.
+        compose.onNodeWithContentDescription("Закрити керування полицями").performClick()
+        compose.onNodeWithTag("listen_shelves_sheet_heading").assertDoesNotExist()
+        compose.onNodeWithTag("listen_manage_shelves").assertIsFocused()
     }
 
     @Test

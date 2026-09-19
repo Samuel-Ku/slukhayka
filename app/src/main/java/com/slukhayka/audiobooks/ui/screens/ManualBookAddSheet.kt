@@ -36,22 +36,28 @@ import com.slukhayka.audiobooks.data.entries.ReadingFormat
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
- * ADR-0046 §§3–4 / spec-54 T15 (#870) — adding a book of ANY format by hand.
+ * ADR-0046 §§3–4 / spec-54 T15 (#870) — adding a book of ANY format by hand,
+ * plus ADR-0053 / #854 — the tracked Work: a title and an author whose audio
+ * no source carries yet.
  *
  * The sheet collects ONLY what the listener really knows: a title, an author,
  * the format, and two explicit choices. It cannot invent a "want to read" and
  * it never names an Edition — that is the policy's job, and the policy refuses
- * anything fiction-like.
+ * anything fiction-like. The tracked mode carries no format at all: it writes
+ * no Edition and no Source, only the honest «аудіо недоступне» card.
  */
 @Composable
 fun ManualBookAddSheet(
     onAdd: (ManualBookAddRequest) -> Unit,
     onDismiss: () -> Unit,
+    /** ADR-0053 / #854 — title + author of a tracked Work (no audio yet). */
+    onAddTracked: (title: String, author: String) -> Unit,
     now: Long = System.currentTimeMillis()
 ) {
     var title by rememberSaveable { mutableStateOf("") }
     var author by rememberSaveable { mutableStateOf("") }
     var format by rememberSaveable { mutableStateOf(ReadingFormat.PAPER.name) }
+    var tracked by rememberSaveable { mutableStateOf(false) }
     var wantsToRead by rememberSaveable { mutableStateOf(false) }
     var importedOwnFile by rememberSaveable { mutableStateOf(false) }
 
@@ -97,47 +103,72 @@ fun ManualBookAddSheet(
                         ReadingFormat.EBOOK to R.string.manual_add_format_ebook
                     ).forEach { (value, labelRes) ->
                         FilterChip(
-                            selected = format == value.name,
-                            onClick = { format = value.name },
+                            selected = !tracked && format == value.name,
+                            onClick = {
+                                format = value.name
+                                tracked = false
+                            },
                             label = { Text(stringResource(labelRes)) },
                             modifier = Modifier
                                 .heightIn(min = 48.dp)
                                 .testTag("manual_add_format_${value.name.lowercase()}")
                         )
                     }
+                    FilterChip(
+                        selected = tracked,
+                        onClick = { tracked = true },
+                        label = { Text(stringResource(R.string.manual_add_format_tracked)) },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("manual_add_format_tracked")
+                    )
                 }
-                ChoiceRow(
-                    checked = wantsToRead,
-                    onCheckedChange = { wantsToRead = it },
-                    label = stringResource(R.string.manual_add_wants_to_read),
-                    tag = "manual_add_wants"
-                )
-                ChoiceRow(
-                    checked = importedOwnFile,
-                    onCheckedChange = { importedOwnFile = it },
-                    label = stringResource(R.string.manual_add_own_file),
-                    tag = "manual_add_own_file"
-                )
-                Text(
-                    text = stringResource(R.string.manual_add_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (tracked) {
+                    // ADR-0053 — the honest tracked mode: no format choices,
+                    // because there is no audio to describe yet.
+                    Text(
+                        text = stringResource(R.string.manual_add_tracked_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    ChoiceRow(
+                        checked = wantsToRead,
+                        onCheckedChange = { wantsToRead = it },
+                        label = stringResource(R.string.manual_add_wants_to_read),
+                        tag = "manual_add_wants"
+                    )
+                    ChoiceRow(
+                        checked = importedOwnFile,
+                        onCheckedChange = { importedOwnFile = it },
+                        label = stringResource(R.string.manual_add_own_file),
+                        tag = "manual_add_own_file"
+                    )
+                    Text(
+                        text = stringResource(R.string.manual_add_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    onAdd(
-                        ManualBookAddRequest(
-                            title = title,
-                            author = author,
-                            format = ReadingFormat.valueOf(format),
-                            importedOwnFile = importedOwnFile,
-                            wantsToRead = wantsToRead,
-                            now = now
+                    if (tracked) {
+                        onAddTracked(title.trim(), author.trim())
+                    } else {
+                        onAdd(
+                            ManualBookAddRequest(
+                                title = title,
+                                author = author,
+                                format = ReadingFormat.valueOf(format),
+                                importedOwnFile = importedOwnFile,
+                                wantsToRead = wantsToRead,
+                                now = now
+                            )
                         )
-                    )
+                    }
                 },
                 enabled = canAdd,
                 modifier = Modifier

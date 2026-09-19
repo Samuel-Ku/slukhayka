@@ -375,9 +375,11 @@
     <string name="manual_add_format">Format</string>
     <string name="manual_add_format_paper">Paper</string>
     <string name="manual_add_format_ebook">E-book</string>
+    <string name="manual_add_format_tracked">No audio</string>
     <string name="manual_add_wants_to_read">I want to read it</string>
     <string name="manual_add_own_file">I imported my own file</string>
     <string name="manual_add_note">A format is not a narration: a paper or e-book record creates neither an Edition nor a source.</string>
+    <string name="manual_add_tracked_note">The work lands in the library right away with an honest \"audio unavailable\" state. When audio shows up in the sources, the app highlights it — never auto-imports.</string>
     <string name="manual_add_confirm">Add</string>
     <string name="manual_add_cancel">Cancel</string>
     <string name="lib_imported_explain">The origin of these entries cannot be recovered from the data. Confirm them as yours, or remove the link.</string>

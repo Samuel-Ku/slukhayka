@@ -8,7 +8,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,14 +21,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
-import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
-import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -85,7 +88,19 @@ fun LibraryRatingScreen(
             when {
                 isLoading -> {
                     item {
-                        SecondaryLoadingState(
+                        val loadingLabel = stringResource(R.string.secondary_loading)
+                        EmptyState(
+                            icon = Icons.Filled.Info,
+                            title = loadingLabel,
+                            body = "",
+                            iconContent = {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .semantics { contentDescription = loadingLabel }
+                                )
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp)
@@ -95,18 +110,24 @@ fun LibraryRatingScreen(
 
                 loadFailed -> {
                     item {
-                        SecondaryMessageState(
-                            message = stringResource(R.string.secondary_library_rating_error),
-                            modifier = Modifier.fillMaxWidth().padding(48.dp),
-                            isError = true
+                        EmptyState(
+                            icon = Icons.Filled.Warning,
+                            title = stringResource(R.string.secondary_library_rating_error),
+                            body = "",
+                            stateDescription = stringResource(R.string.secondary_state_error),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(48.dp)
                         )
                     }
                 }
 
                 rows.isEmpty() -> {
                     item {
-                        SecondaryMessageState(
-                            message = stringResource(R.string.secondary_library_rating_empty),
+                        EmptyState(
+                            icon = Icons.Filled.Info,
+                            title = stringResource(R.string.secondary_library_rating_empty),
+                            body = "",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp)

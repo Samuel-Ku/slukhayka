@@ -5,19 +5,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.components.BookRow
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
-import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
-import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -79,7 +85,23 @@ fun BookListScreen(
             when {
                 isLoading -> {
                     item {
-                        SecondaryLoadingState(
+                        // v1.4 C4 (ADR-0033): the canonical full empty state
+                        // with the spinner on the icon slot — a live indicator,
+                        // not a static glyph; the label is the title and the
+                        // real progress-bar node keeps its contentDescription.
+                        val loadingLabel = stringResource(R.string.secondary_loading)
+                        EmptyState(
+                            icon = Icons.Filled.Info,
+                            title = loadingLabel,
+                            body = "",
+                            iconContent = {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .semantics { contentDescription = loadingLabel }
+                                )
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp)
@@ -89,20 +111,24 @@ fun BookListScreen(
 
                 errorMessage != null -> {
                     item {
-                        SecondaryMessageState(
-                            message = errorMessage,
+                        EmptyState(
+                            icon = Icons.Filled.Warning,
+                            title = errorMessage,
+                            body = "",
+                            stateDescription = stringResource(R.string.secondary_state_error),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(48.dp),
-                            isError = true
+                                .padding(48.dp)
                         )
                     }
                 }
 
                 books.isEmpty() -> {
                     item {
-                        SecondaryMessageState(
-                            message = emptyMessage,
+                        EmptyState(
+                            icon = Icons.Filled.Info,
+                            title = emptyMessage,
+                            body = "",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp)

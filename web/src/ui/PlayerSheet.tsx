@@ -207,8 +207,9 @@ export function PlayerSheet({
             currentPosition={state.positionSeconds}
             cachedUrls={cachedUrls}
             onJump={(index) => {
-              if (index === state.chapterIndex) engine.play()
-              else engine.jumpTo(index, 0)
+              // #611 — an explicit Chapter pick starts THAT Chapter from zero,
+              // the current one included: it never resumes the saved place.
+              engine.jumpTo(index, 0)
             }}
           />
         </div>

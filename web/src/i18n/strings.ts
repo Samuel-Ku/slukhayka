@@ -273,6 +273,17 @@ const uk = {
   narrationRatingAsk: 'Оцінити начитку',
   narrationRatingDeleteAria: 'Видалити оцінку начитки',
   narrationRatingAverage: '{value} · {count}',
+  // spec-51 (#697, T9) — listener collections: the web reads the shared
+  // documents and renders the block, the rail and the collection screen.
+  collectionsWithBookTitle: 'Добірки з цією книгою',
+  collectionsRailTitle: 'Добірки слухачів',
+  collectionByPseudonym: 'добірка слухача {pseudonym}',
+  collectionNoRatings: 'Ще без оцінок',
+  collectionVotes: '{count} оцінок',
+  collectionBooksCount: 'Книг у добірці: {count}',
+  collectionItemUnknown: 'Книга поза локальною бібліотекою',
+  collectionOpenAria: 'Відкрити добірку: {title} — {pseudonym}',
+  collectionPane: 'Добірка: {title}',
   // player
   miniChapter: 'Розділ {n} · {time}',
   close: '✕ Закрити',
@@ -610,6 +621,17 @@ const en: Strings = {
   narrationRatingAsk: 'Rate the narration',
   narrationRatingDeleteAria: 'Delete the narration rating',
   narrationRatingAverage: '{value} · {count}',
+  // spec-51 (#697, T9) — listener collections: the web reads the shared
+  // documents and renders the block, the rail and the collection screen.
+  collectionsWithBookTitle: 'Collections with this book',
+  collectionsRailTitle: 'Listener collections',
+  collectionByPseudonym: 'a collection by {pseudonym}',
+  collectionNoRatings: 'No ratings yet',
+  collectionVotes: '{count} ratings',
+  collectionBooksCount: 'Books in the collection: {count}',
+  collectionItemUnknown: 'Book outside the local library',
+  collectionOpenAria: 'Open collection: {title} by {pseudonym}',
+  collectionPane: 'Collection: {title}',
   // player
   miniChapter: 'Chapter {n} · {time}',
   close: '✕ Close',

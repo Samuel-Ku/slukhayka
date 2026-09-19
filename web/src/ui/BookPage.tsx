@@ -9,6 +9,9 @@ import { useTranslate } from '../i18n/locale'
 import type { ListenerProfile } from '../identity/listenerIdentity'
 import type { NarrationRatingsStore, ReviewsStore } from '../reviews/store'
 import { reviewWorkIdFor, ReviewsBlock } from './bookReviews'
+import { CollectionRanking, type PublishedCollection } from '../collections/collectionModel'
+import type { CollectionsStore } from '../collections/store'
+import { CollectionDetailSheet, CollectionsWithBookBlock } from './collectionReading'
 import { mergeKeyFor, editionIdFor } from '../sync/edition'
 import type { DomainStore, PersonRole } from '../local/domain'
 import { personIdentityOf } from '../local/personIdentity'
@@ -28,6 +31,7 @@ export function BookPage({
   profile,
   reviewsStore,
   narrationRatingsStore,
+  collectionsStore,
   domainStore,
   personBookmarks,
 }: {
@@ -38,6 +42,8 @@ export function BookPage({
   profile: ListenerProfile | null
   reviewsStore: ReviewsStore | null
   narrationRatingsStore: NarrationRatingsStore | null
+  /** spec-51 (#697) — the shared-collections reader; null => no block at all. */
+  collectionsStore?: CollectionsStore | null
   /** #582 W0.4 — person-bookmark state + toggle (buttons render only with both). */
   domainStore?: Pick<DomainStore, 'personBookmarkOf'>
   personBookmarks?: PersonBookmarkSyncController
@@ -51,6 +57,10 @@ export function BookPage({
   // read fresh on mount (the screen remounts per book) and after each toggle.
   const [bookmarkedPeople, setBookmarkedPeople] = useState<Set<string>>(new Set())
   const [bookmarkReady, setBookmarkReady] = useState(false)
+  // spec-51 (#697) — the public collections containing this book, and the
+  // collection screen one of them opens.
+  const [withBook, setWithBook] = useState<PublishedCollection[]>([])
+  const [openedCollection, setOpenedCollection] = useState<PublishedCollection | null>(null)
   useEffect(() => {
     let alive = true
     setBookmarkReady(false)
@@ -120,14 +130,35 @@ export function BookPage({
     }
   }, [source, seriesUrl, url])
 
+  // spec-51 (#697) — the Work identity is derived BEFORE the loading returns
+  // so the collections effect stays above them (hooks are unconditional).
+  const mergeKey = detail === null ? '' : mergeKeyFor(detail.title, detail.author)
+  const editionId = detail === null ? '' : editionIdFor(mergeKey, url, detail.narrator ?? '', detail.language ?? '')
+  const workId = detail === null ? '' : reviewWorkIdFor(mergeKey, editionId)
+
+  // One read per open book. A failed read keeps the last good list, a real
+  // empty clears it, data replaces it — Android's stale fallback (#692).
+  useEffect(() => {
+    let alive = true
+    if (collectionsStore === undefined || collectionsStore === null || workId === '') {
+      setWithBook([])
+      return
+    }
+    void collectionsStore.readContaining(workId).then((result) => {
+      if (!alive) return
+      if (result.kind === 'data') setWithBook(CollectionRanking.top(result.collections))
+      else if (result.kind === 'empty') setWithBook([])
+    })
+    return () => {
+      alive = false
+    }
+  }, [collectionsStore, workId])
+
   if (failed) return <EmptyState message={t('bookFailed')} />
   if (detail === null) return <EmptyState message={t('loadingBook')} />
 
   const canPlay = canPlayBookFromDisplayedDetail(source, showingCachedBook)
   const requiresFreshSession = !canPlay && sourceNeedsBrowserSession(source)
-  const mergeKey = mergeKeyFor(detail.title, detail.author)
-  const editionId = editionIdFor(mergeKey, url, detail.narrator ?? '', detail.language ?? '')
-  const workId = reviewWorkIdFor(mergeKey, editionId)
   // #582 W0.4 — the byline's people, blank-safe for the identity computation.
   const bylineAuthor = detail.author ?? ''
   const bylineNarrator = detail.narrator ?? ''
@@ -277,6 +308,12 @@ export function BookPage({
         </>
       )}
 
+      {/* spec-51 (#697) — «Добірки з цією книгою»: the ranked visible
+          collections that contain this book. No rows → no block at all. */}
+      {withBook.length > 0 && (
+        <CollectionsWithBookBlock collections={withBook} onOpen={setOpenedCollection} />
+      )}
+
       {/* W4.1 — «Відгуки»: the block exists ONLY when the store does (no
           Firebase config → no block, Android's contract). The narration
           rating row sits beside the current rendition. */}
@@ -292,6 +329,10 @@ export function BookPage({
           narrationRatingsStore={narrationRatingsStore}
           narrationEditionId={editionId}
         />
+      )}
+
+      {openedCollection && (
+        <CollectionDetailSheet collection={openedCollection} onClose={() => setOpenedCollection(null)} />
       )}
     </article>
   )

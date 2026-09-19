@@ -191,8 +191,12 @@ class UiSurfaceAuditTest {
                         rule.onNodeWithTag("settings_screen")
                             .named("scene=$name fontScale=$fontScale tag=settings_screen") { assertWidthIsEqualTo(320.dp) }
                         openedSettings.clear()
+                        // All SEVEN destinations (ADR-0037 / #959) — with only
+                        // six listed here the assertEquals below passed
+                        // trivially and never touched SourceAudioRefusal.
                         val routes = listOf(SettingsDestination.Profile, SettingsDestination.Storage,
-                            SettingsDestination.NetworkPrivacy, SettingsDestination.Recommendations,
+                            SettingsDestination.NetworkPrivacy, SettingsDestination.SourceAudioRefusal,
+                            SettingsDestination.Recommendations,
                             SettingsDestination.ContentLanguages, SettingsDestination.AppLocale)
                         for (route in routes) {
                             rule.onNodeWithTag("settings_${route.name}").performScrollTo()

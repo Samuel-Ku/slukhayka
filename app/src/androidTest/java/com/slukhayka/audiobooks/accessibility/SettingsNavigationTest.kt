@@ -101,10 +101,15 @@ class SettingsNavigationTest {
         // its gear for the destination contract below.
         rule.onNodeWithTag("settings_gear").performClick()
         waitFor("settings_screen")
+        // ADR-0037 — the SEVENTH destination, «Аудіо джерел» (#959). It sits
+        // between NetworkPrivacy and Recommendations in SettingsScreen's own
+        // group order; leaving it out made the six-route list pass without ever
+        // opening the panel.
         val routes = listOf(
             "Profile" to "profile_screen_heading",
             "Storage" to "storage_destination_screen_heading",
             "NetworkPrivacy" to "network_privacy_screen_heading",
+            "SourceAudioRefusal" to "source_audio_refusal_screen_heading",
             "Recommendations" to "recommendations_screen_heading",
             "ContentLanguages" to "content_languages_screen_heading",
             "AppLocale" to "app_locale_screen_heading"

@@ -17,7 +17,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
-// The union-card contract (the old UnifiedCatalogCard) now renders through
+// The union-card contract now renders through
 // the canonical PosterCard's GlobalSearchResult overload (v1.4 C2, ADR-0033).
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme

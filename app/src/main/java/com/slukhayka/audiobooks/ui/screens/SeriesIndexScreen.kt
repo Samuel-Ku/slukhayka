@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,7 +24,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.CycleCard
-import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -69,7 +71,7 @@ fun SeriesIndexScreen(
 }
 
 /**
- * The «Серії» index body: a browsable two-column grid of [CatalogSeriesCard]s
+ * The «Серії» index body: a browsable two-column grid of [CycleCard]s
  * under a count line, or a no-series placeholder. Public and stateless (pure
  * `@Composable` inputs — no ViewModel) so the snapshot seam pins both the
  * populated grid and the empty state from fixture data.
@@ -86,8 +88,10 @@ fun SeriesIndexContent(
     if (series.isEmpty()) {
         // No-series state: the shared index placeholder, never a crash — the
         // catalogue may simply not have synced yet (spec-28 #202).
-        IndexEmptyState(
-            message = "Серії з'являться після завантаження каталогу.",
+        EmptyState(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = "Серії з'являться після завантаження каталогу.",
+            body = "",
             modifier = modifier.testTag("series_index_screen")
         )
         return

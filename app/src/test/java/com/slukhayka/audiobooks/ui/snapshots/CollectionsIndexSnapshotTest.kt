@@ -94,7 +94,7 @@ class CollectionsIndexSnapshotTest {
         }
 
         // Self-verifying on top of the image: both collection headers (which
-        // [CatalogRowHeader] renders uppercased) and a book title render.
+        // the canonical section header renders uppercased) and a book title render.
         composeTestRule.onNodeWithText("Нобелівські лауреати", ignoreCase = true)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         composeTestRule.onNodeWithText("Шевченківська премія", ignoreCase = true)

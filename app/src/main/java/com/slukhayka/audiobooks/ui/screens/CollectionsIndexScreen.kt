@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -17,7 +19,7 @@ import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
@@ -71,8 +73,10 @@ fun CollectionsIndexContent(
     if (collections.isEmpty()) {
         // No matched collections: the shared index placeholder, never a crash
         // — the union may simply not have synced yet (spec-28 #202).
-        IndexEmptyState(
-            message = stringResource(R.string.collections_index_empty),
+        EmptyState(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = stringResource(R.string.collections_index_empty),
+            body = "",
             modifier = modifier.testTag("collections_index_screen")
         )
         return

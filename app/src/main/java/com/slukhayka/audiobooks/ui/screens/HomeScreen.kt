@@ -954,9 +954,11 @@ fun RecommendedBookCard(
     onPreflight: () -> Unit = {},
     onFeedback: (String) -> Unit = {}
 ) {
-    // v1.4 C2 (ADR-0033): the recommendation rejoins the poster rhythm — the
-    // same canonical 120×168 PosterCard as every other shelf, its ⋮ menu as a
-    // cover overlay. The reason line renders through the caption slot; the
+    // v1.4 C2/C4 (ADR-0033, #564): the recommendation rejoins the poster
+    // rhythm — the same canonical 120×168 PosterCard as every other shelf,
+    // its ⋮ menu as a cover overlay. The reason line renders through the
+    // canonical plain MetadataChip via PosterCard's dedicated `reason` slot
+    // (NOT `caption`, which stays a bare Text for the Listen shelf); the
     // per-Source badge keeps its own phrasing (#486).
     var menuExpanded by remember { mutableStateOf(false) }
     var feedbackExpanded by remember { mutableStateOf(false) }
@@ -971,7 +973,7 @@ fun RecommendedBookCard(
         genre = rec.candidate.genre,
         author = rec.candidate.author.takeIf { it.isNotBlank() },
         onClick = onClick,
-        caption = reasonLine,
+        reason = reasonLine,
         preflightKey = rec.candidate.id,
         onPreflight = onPreflight,
         testTag = "recommended_${rec.candidate.id}",

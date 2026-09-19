@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -93,7 +94,6 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
@@ -333,7 +333,14 @@ fun LibraryScreen(
     // back to a book through these entries — never through `visibleBooks`
     // (the two stopped aligning the moment the hero and the headers appeared).
     val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
-    val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing) {
+    // spec-46 T08 (#569) — resolved outside `remember`: stringResource is a
+    // composable read, the entries builder is a plain function.
+    val denseTitle = if (query.isNotBlank()) {
+        stringResource(R.string.lib_search_section_title)
+    } else {
+        stringResource(filter.labelRes)
+    }
+    val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing, denseTitle) {
         libraryGridEntries(
             // #885 — the prototype's «Книги» is a VERTICAL list of rows with a
             // progress line, not a wall of shelves: shelves belong to «Полиці»
@@ -343,7 +350,7 @@ fun LibraryScreen(
             gridMode = gridMode,
             visible = shownCards,
             continueBook = continueBook,
-            denseTitle = if (query.isNotBlank()) "Пошук" else filter.label,
+            denseTitle = denseTitle,
             denseTrailing = denseTrailing
         )
     }
@@ -510,7 +517,13 @@ fun LibraryScreen(
                             selected = isSheetFilterActive,
                             onClick = { showFilterSheet = true },
                             label = {
-                                Text(if (isSheetFilterActive) filter.label else "Фільтр")
+                                Text(
+                                    if (isSheetFilterActive) {
+                                        stringResource(filter.labelRes)
+                                    } else {
+                                        stringResource(R.string.lib_filter)
+                                    }
+                                )
                             },
                             leadingIcon = {
                                 Icon(
@@ -665,8 +678,8 @@ fun LibraryScreen(
 
                         visibleBooks.isEmpty() -> EmptyState(
                             icon = Icons.Default.Search,
-                            title = "Нічого не знайдено",
-                            body = "Спробуйте інший фільтр або змініть пошуковий запит."
+                            title = stringResource(R.string.lib_no_results_title),
+                            body = stringResource(R.string.lib_no_results_body)
                         )
 
                         else -> LazyVerticalGrid(
@@ -813,7 +826,8 @@ fun LibraryScreen(
                                 val book = allBooks.find { it.id == bookmark.bookId }
                                 GlobalBookmarkItem(
                                     bookmark = bookmark,
-                                    bookTitle = book?.title ?: "Аудіокнига",
+                                    bookTitle = book?.title
+                                        ?: stringResource(R.string.lib_audiobook_fallback),
                                     onJumpClick = { viewModel.jumpToBookmark(bookmark) },
                                     onDeleteClick = {
                                         scope.launch { listeningState.deleteBookmark(bookmark.id) }
@@ -1414,7 +1428,7 @@ internal fun LibraryContinueCard(
     ) {
         Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
             Text(
-                text = "ПРОДОВЖИТИ",
+                text = stringResource(R.string.lib_continue_label),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
@@ -1464,7 +1478,7 @@ internal fun LibraryContinueCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val subtitle = chapter ?: book.seriesLabel
+                    val subtitle = chapter ?: librarySeriesLabel(book)
                     if (!subtitle.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
                         Text(
@@ -1493,7 +1507,10 @@ internal fun LibraryContinueCard(
                     // it here made the two labels fight for one line on a phone
                     // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
                     Text(
-                        text = "Прослухано ${(book.percent * 100f).roundToInt()}%",
+                        text = stringResource(
+                            R.string.lib_progress_percent,
+                            (book.percent * 100f).roundToInt()
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1518,7 +1535,11 @@ internal fun LibraryContinueCard(
                 )
                 Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
                 Text(
-                    text = if (remaining != null) "Слухати далі · $remaining" else "Слухати далі",
+                    text = if (remaining != null) {
+                        stringResource(R.string.lib_listen_continue_remaining, remaining)
+                    } else {
+                        stringResource(R.string.lib_listen_continue)
+                    },
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onPrimary
                 )
@@ -1634,20 +1655,51 @@ internal fun LazyGridScope.libraryGridContent(
 @Composable
 private fun librarySizeLabel(books: List<LibraryBook>): String {
     val count = books.size
-    val noun = ukPlural(count, one = "книга", few = "книги", many = "книг")
+    // spec-46 T08 (#569) — the plural lives in the resource table, so the EN
+    // build says «58 books» instead of a hardcoded Ukrainian form.
+    val countLabel = pluralStringResource(R.plurals.book_count, count, count)
     val total = books.sumOf { it.totalDurationSeconds }
     return if (total > 0L) {
-        "$count $noun · ${formatRemainingTime(total, stringRemainingTimeUnits())}"
+        "$countLabel · ${formatRemainingTime(total, stringRemainingTimeUnits())}"
     } else {
-        "$count $noun"
+        countLabel
     }
 }
 
 /** «Розділ 5 із 14» — a real projection of playback state, or null. */
+@Composable
 private fun libraryChapterLabel(book: LibraryBook): String? {
     val index = book.progress?.currentChapterIndex ?: return null
     val total = book.book.totalChapters
-    return if (total > 0) "Розділ ${index + 1} із $total" else null
+    return if (total > 0) stringResource(R.string.lib_chapter_of, index + 1, total) else null
+}
+
+/**
+ * «Сага · Книга 2» — the series line of the edition, or just the series title,
+ * or null. spec-46 T08 (#569): the volume word is chrome, so it comes from the
+ * resource table instead of the pure model.
+ */
+@Composable
+private fun librarySeriesLabel(book: LibraryBook): String? {
+    val series = book.book.seriesTitle?.takeIf { it.isNotBlank() } ?: return null
+    val index = book.book.seriesIndex
+    return if (index != null && index > 0) {
+        stringResource(R.string.lib_series_volume, series, index)
+    } else {
+        series
+    }
+}
+
+/**
+ * The provenance chip's honest label. spec-46 T08 (#569): the local source's
+ * registry display name is the Ukrainian «Локальна», and the chip is library
+ * chrome — so it is resolved from resources here. Remote sources keep their
+ * brand name (a proper noun, not chrome).
+ */
+@Composable
+private fun librarySourceName(book: LibraryBook): String? {
+    if (book.isLocal) return stringResource(R.string.lib_source_local)
+    return book.sourceName.takeIf { it.isNotBlank() }
 }
 
 /** «разом 23 год 55 хв» — the honest listening time left in a filtered set. */
@@ -1655,7 +1707,10 @@ private fun libraryChapterLabel(book: LibraryBook): String? {
 private fun libraryRemainingTotal(books: List<LibraryBook>): String {
     val seconds = books.sumOf { it.remainingSeconds }
     if (seconds <= 0L) return ""
-    return "разом ${formatRemainingTime(seconds, stringRemainingTimeUnits())}"
+    return stringResource(
+        R.string.lib_remaining_total,
+        formatRemainingTime(seconds, stringRemainingTimeUnits())
+    )
 }
 
 /**
@@ -1688,7 +1743,7 @@ internal fun LibrarySectionHeader(
                 modifier = Modifier.semantics { heading() }
             )
             Text(
-                text = "$count ${ukPlural(count, one = "книга", few = "книги", many = "книг")}",
+                text = pluralStringResource(R.plurals.book_count, count, count),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1756,8 +1811,8 @@ internal fun LibraryDenseRow(
         )
     }
     val progressLabel = when {
-        book.isCompleted -> "готово"
-        book.isNew -> "новий"
+        book.isCompleted -> stringResource(R.string.lib_progress_done)
+        book.isNew -> stringResource(R.string.lib_progress_new)
         else -> "${(book.percent * 100f).roundToInt()}%"
     }
     Row(
@@ -1842,7 +1897,7 @@ internal fun LibraryDenseRow(
             )
             val subtitle = listOfNotNull(
                 book.book.displayAuthor.takeIf { it.isNotBlank() },
-                libraryChapterLabel(book) ?: book.seriesLabel
+                libraryChapterLabel(book) ?: librarySeriesLabel(book)
             ).joinToString(" · ")
             if (subtitle.isNotBlank()) {
                 Text(
@@ -2048,8 +2103,11 @@ private fun libraryEntryStateDescription(
         book.book.isDownloaded -> stringResource(R.string.a11y_library_offline)
         else -> stringResource(R.string.a11y_library_online)
     }
+    // spec-46 T08 (#569) — a local book already says «Локальна книга»; repeating
+    // the source registry's own «Локальна» right after both duplicated it for
+    // TalkBack and leaked UK chrome into the EN run.
     val sourceState = book.sourceName
-        .takeIf { it.isNotBlank() }
+        .takeIf { it.isNotBlank() && !book.isLocal }
         ?.let { stringResource(R.string.a11y_library_source, it) }
     return listOfNotNull(
         progressState,
@@ -2160,16 +2218,135 @@ fun LibraryBookCard(
                             }
                         }
                 ) {
-                    LibraryBookRowContent(
-                        book,
-                        availability,
-                        onRecheck,
-                        downloadCount = downloadCount,
-                        awaitingPlayback = awaitingPlayback,
-                        submissionBadge = submissionBadge,
-                        watchingSource = watchingSource,
-                        deferredPublication = deferredPublication,
-                        onListenNow = onListenNow
+                    // v1.4 E3 (ADR-0033): the library list row IS the canonical
+                    // BookRow — #569 deleted the old library row wrapper (the
+                    // library's own sixth row style) and moved its only consumer
+                    // here, so the row is built by the canonical component
+                    // directly. The card's own a11y contract (the contract tag,
+                    // content/state description, role) still rides on the Box
+                    // above; the row only carries the visuals.
+                    BookRow(
+                        title = book.book.title,
+                        book = book.book,
+                        author = book.book.displayAuthor.takeIf { it.isNotBlank() },
+                        // The series line is a known fact about the edition, so it
+                        // rides the stats slot (label line under the author).
+                        stats = librarySeriesLabel(book),
+                        progress = book.percent,
+                        coverBadge = {
+                            LibraryCoverOfflineBadge(
+                                book = book,
+                                downloadCount = downloadCount,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(3.dp)
+                            )
+                        },
+                        footnoteInColumn = true,
+                        badges = {
+                            // C4: the canonical provenance chip — the local
+                            // SourceBadge was a pixel-duplicate of
+                            // MetadataChip(source=…).
+                            librarySourceName(book)?.let { MetadataChip(source = it) }
+                            if (awaitingPlayback && onListenNow != null) {
+                                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                                Text(
+                                    text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .clickable(onClick = onListenNow)
+                                        .testTag("submission_awaiting_badge_${book.book.id}")
+                                )
+                            }
+                            if (watchingSource) {
+                                // Spec-53 T5 — an honest badge on the TG card: no
+                                // audio yet, a direct source is being watched for
+                                // (spec-49 reports it).
+                                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                                Text(
+                                    text = stringResource(R.string.submission_watching_source),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
+                                )
+                            }
+                            if (deferredPublication) {
+                                // Spec-53 T12 — the copy really played; the day's
+                                // budget was gone, so the publication is promised
+                                // for tomorrow instead of being refused. No second
+                                // playback will be needed.
+                                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                                Text(
+                                    text = stringResource(R.string.submission_deferred_publication_badge),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
+                                )
+                            }
+                            if (submissionBadge != SubmissionBadge.NONE) {
+                                // #837 — the honest state of MY submission of this
+                                // book: a queued candidate, an approved
+                                // publication, or the curator's rejection. Never a
+                                // promise, never before the fact.
+                                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                                Text(
+                                    text = stringResource(submissionBadgeRes(submissionBadge)),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = when (submissionBadge) {
+                                        SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
+                                        SubmissionBadge.IN_SHARED_BASE -> MaterialTheme.colorScheme.tertiary
+                                        else -> MaterialTheme.colorScheme.secondary
+                                    },
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .wrapContentWidth()
+                                        .testTag(
+                                            "submission_badge_${submissionBadge.name.lowercase()}_${book.book.id}"
+                                        )
+                                )
+                            }
+                            // #397 — the offline state (cloud / «7 із 12») is not a
+                            // title badge any more: it rides next to the play
+                            // action, where it can never be pushed off-screen by a
+                            // long title.
+                        },
+                        footnote = {
+                            availabilityLabel(availability)?.let { label ->
+                                // ADR-0042 §1 — the honest availability state of a
+                                // problem Work, under the progress hairline; a
+                                // clean Work has none. Spec-56 T2: a tap asks for
+                                // a fresh, bounded re-check.
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .padding(bottom = AppDimens.SpaceXs)
+                                        .clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
+                                )
+                            }
+                            // Always rendered, so every row is the same height: an
+                            // unknown duration shows the honest «—» instead of a
+                            // missing line.
+                            Text(
+                                text = stringResource(
+                                    R.string.library_remaining,
+                                    formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                modifier = Modifier.padding(bottom = AppDimens.SpaceXs)
+                            )
+                        }
                     )
                 }
                 // UI (v1.5 review, on-device): a play disc on every row put the
@@ -2180,141 +2357,6 @@ fun LibraryBookCard(
             }
         }
     }
-}
-
-@Composable
-private fun LibraryBookRowContent(
-    book: LibraryBook,
-    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
-    onRecheck: (() -> Unit)? = null,
-    // #397 — the offline marker is laid over the cover's top-end corner.
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
-    awaitingPlayback: Boolean = false,
-    watchingSource: Boolean = false,
-    deferredPublication: Boolean = false,
-    submissionBadge: SubmissionBadge = SubmissionBadge.NONE,
-    onListenNow: (() -> Unit)? = null
-) {
-    // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
-    // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
-    // own a11y contract (tag, content/state description, role) still rides
-    // on the Card wrapper above; the inner row only carries the visuals.
-    BookRow(
-        title = book.book.title,
-        book = book.book,
-        author = book.book.displayAuthor.takeIf { it.isNotBlank() },
-        // The series line is a known fact about the edition, so it rides
-        // the stats slot (label line under the author).
-        stats = book.seriesLabel,
-        progress = book.percent,
-        coverBadge = {
-            LibraryCoverOfflineBadge(
-                book = book,
-                downloadCount = downloadCount,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(3.dp)
-            )
-        },
-        footnoteInColumn = true,
-        badges = {
-            // C4: the canonical provenance chip — the local SourceBadge was
-            // a pixel-duplicate of MetadataChip(source=…).
-            if (book.sourceName.isNotBlank()) MetadataChip(source = book.sourceName)
-            if (awaitingPlayback && onListenNow != null) {
-                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                Text(
-                    text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    softWrap = false,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clickable(onClick = onListenNow)
-                        .testTag("submission_awaiting_badge_${book.book.id}")
-                )
-            }
-            if (watchingSource) {
-                // Spec-53 T5 — an honest badge on the TG card: no audio yet,
-                // a direct source is being watched for (spec-49 reports it).
-                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                Text(
-                    text = stringResource(R.string.submission_watching_source),
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    softWrap = false,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
-                )
-            }
-            if (deferredPublication) {
-                // Spec-53 T12 — the copy really played; the day's budget was
-                // gone, so the publication is promised for tomorrow instead
-                // of being refused. No second playback will be needed.
-                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                Text(
-                    text = stringResource(R.string.submission_deferred_publication_badge),
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    softWrap = false,
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.testTag("submission_deferred_publication_badge_${book.book.id}")
-                )
-            }
-            if (submissionBadge != SubmissionBadge.NONE) {
-                // #837 — the honest state of MY submission of this book: a
-                // queued candidate, an approved publication, or the curator's
-                // rejection. Never a promise, never before the fact.
-                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                Text(
-                    text = stringResource(submissionBadgeRes(submissionBadge)),
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = when (submissionBadge) {
-                        SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
-                        SubmissionBadge.IN_SHARED_BASE -> MaterialTheme.colorScheme.tertiary
-                        else -> MaterialTheme.colorScheme.secondary
-                    },
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier
-                        .wrapContentWidth()
-                        .testTag(
-                            "submission_badge_${submissionBadge.name.lowercase()}_${book.book.id}"
-                        )
-                )
-            }
-            // #397 — the offline state (cloud / «7 із 12») is not a title
-            // badge any more: it rides next to the play action, where it can
-            // never be pushed off-screen by a long title.
-        },
-        footnote = {
-            availabilityLabel(availability)?.let { label ->
-                // ADR-0042 §1 — the honest availability state of a problem
-                // Work, under the progress hairline; a clean Work has none.
-                // Spec-56 T2: a tap asks for a fresh, bounded re-check.
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(bottom = AppDimens.SpaceXs)
-                        .clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
-                )
-            }
-            // Always rendered, so every row is the same height: an unknown
-            // duration shows the honest «—» instead of a missing line.
-            Text(
-                text = stringResource(
-                    R.string.library_remaining,
-                    formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier.padding(bottom = AppDimens.SpaceXs)
-            )
-        }
-    )
 }
 
 @Composable
@@ -2364,7 +2406,7 @@ private fun LibraryBookGridContent(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = book.seriesLabel.orEmpty(),
+                text = librarySeriesLabel(book).orEmpty(),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -2411,7 +2453,7 @@ private fun LibraryBookGridContent(
                 }
                 // C4: the canonical provenance chip (the local SourceBadge
                 // was a pixel-duplicate of MetadataChip(source=…)).
-                if (book.sourceName.isNotBlank()) MetadataChip(source = book.sourceName)
+                librarySourceName(book)?.let { MetadataChip(source = it) }
                 // #397 — the offline marker rides the artwork (LibraryCoverOfflineBadge).
             }
         }
@@ -2435,7 +2477,7 @@ fun ListeningStatsCard(listeningStats: List<com.slukhayka.audiobooks.data.db.Lis
             .padding(16.dp)
     ) {
         Text(
-            text = "Статистика прослуховування",
+            text = stringResource(R.string.lib_stats_heading),
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -2447,15 +2489,15 @@ fun ListeningStatsCard(listeningStats: List<com.slukhayka.audiobooks.data.db.Lis
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             StatItemCard(
-                title = "Сьогодні",
-                value = "$todayMinutes хв",
+                title = stringResource(R.string.lib_stats_today),
+                value = stringResource(R.string.lib_stats_today_value, todayMinutes),
                 icon = Icons.Default.Today,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
-                title = "За тиждень",
-                value = "$weekHours год",
+                title = stringResource(R.string.lib_stats_week),
+                value = stringResource(R.string.lib_stats_week_value, weekHours),
                 icon = Icons.Default.DateRange,
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f)
@@ -2469,15 +2511,15 @@ fun ListeningStatsCard(listeningStats: List<com.slukhayka.audiobooks.data.db.Lis
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             StatItemCard(
-                title = "Серія днів",
-                value = "$streakDays дн поспіль",
+                title = stringResource(R.string.lib_stats_streak),
+                value = stringResource(R.string.lib_stats_streak_value, streakDays),
                 icon = Icons.Default.Whatshot,
                 color = AppStatStreak,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
-                title = "Всього в бібліотеці",
-                value = "$totalBooks книг",
+                title = stringResource(R.string.lib_stats_total),
+                value = stringResource(R.string.lib_stats_total_value, totalBooks),
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 color = AppStatLibrary,
                 modifier = Modifier.weight(1f)
@@ -2583,7 +2625,11 @@ fun GlobalBookmarkItem(
                 )
                 Text(
                     // Spec-27 (#204): «На 2:35:44: …» — never EN «At».
-                    text = "На ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
+                    text = stringResource(
+                        R.string.lib_bookmark_at,
+                        MainViewModel.formatTime(bookmark.timestampSeconds),
+                        bookmark.note
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2722,11 +2768,16 @@ fun ImportPreviewDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "Знайдено ${preview.plan.books.size} книг — нічого не записано, поки не підтвердите.",
+                    text = stringResource(
+                        R.string.lib_import_preview_found,
+                        preview.plan.books.size
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                val untitled = stringResource(R.string.lib_untitled)
+                val existingBook = stringResource(R.string.lib_import_existing_book)
                 preview.plan.books.forEach { book ->
                     Card(
                         modifier = Modifier
@@ -2737,13 +2788,17 @@ fun ImportPreviewDialog(
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = book.title.ifBlank { "Без назви" },
+                                    text = book.title.ifBlank { untitled },
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
                                 )
                                 Text(
-                                    text = "${book.chapters.size} файл(ів)",
+                                    text = pluralStringResource(
+                                        R.plurals.lib_import_file_count,
+                                        book.chapters.size,
+                                        book.chapters.size
+                                    ),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -2751,7 +2806,11 @@ fun ImportPreviewDialog(
                             val suggestion = book.suggestion
                             if (suggestion != null && book.mergedIntoBookId == null) {
                                 Text(
-                                    text = "Схоже на «${suggestion.existingTitle}» (${suggestion.reason})",
+                                    text = stringResource(
+                                        R.string.lib_import_similar,
+                                        suggestion.existingTitle,
+                                        suggestion.reason
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -2765,7 +2824,10 @@ fun ImportPreviewDialog(
                                 }
                             } else if (book.mergedIntoBookId != null) {
                                 Text(
-                                    text = "Буде з'єднано з «${suggestion?.existingTitle ?: "книгою в бібліотеці"}»",
+                                    text = stringResource(
+                                        R.string.lib_import_will_merge,
+                                        suggestion?.existingTitle ?: existingBook
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.tertiary
                                 )
@@ -2784,9 +2846,13 @@ fun ImportPreviewDialog(
             ) {
                 Text(
                     if (mergedCount > 0) {
-                        "Імпортувати (${preview.plan.books.size - mergedCount} нових, $mergedCount з'єднати)"
+                        stringResource(
+                            R.string.lib_import_confirm_merged,
+                            preview.plan.books.size - mergedCount,
+                            mergedCount
+                        )
                     } else {
-                        "Імпортувати ${preview.plan.books.size}"
+                        stringResource(R.string.lib_import_confirm, preview.plan.books.size)
                     }
                 )
             }
@@ -2803,7 +2869,7 @@ fun ImportPreviewDialog(
 }
 
 /**
- * #401 — one bookmarked person row in the Медіатека "Люди" tab.
+ * #401 — one bookmarked person row in the Медіатека «Люди» tab.
  * Always bookmarked (this list only shows bookmarked people);
  * long-press toggles notifyEnabled without deleting the bookmark.
  */
@@ -2818,6 +2884,21 @@ fun BookmarkedPersonRow(
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
     var currentNotifyEnabled by remember(notifyEnabled) { mutableStateOf(notifyEnabled) }
+    // spec-46 T08 (#569) — every label of the row is a resource, so the EN
+    // build has no Ukrainian left in the «Збережене» list.
+    val stateText = stringResource(
+        if (currentNotifyEnabled) R.string.lib_person_state_on else R.string.lib_person_state_off
+    )
+    val roleText = stringResource(
+        if (role == PersonRole.AUTHOR) {
+            R.string.lib_person_role_author
+        } else {
+            R.string.lib_person_role_narrator
+        }
+    )
+    val notifyText = stringResource(
+        if (currentNotifyEnabled) R.string.lib_person_notify_on else R.string.lib_person_notify_off
+    )
 
     Box(modifier = modifier) {
         Card(
@@ -2832,7 +2913,7 @@ fun BookmarkedPersonRow(
                     onLongClick = { showContextMenu = true }
                 )
                 .semantics(mergeDescendants = true) {
-                    stateDescription = if (currentNotifyEnabled) "Закладка, повідомлення увімкнені" else "Закладка, повідомлення вимкнені"
+                    stateDescription = stateText
                 }
                 .testTag("bookmarked_person_${displayName.hashCode()}"),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
@@ -2869,12 +2950,12 @@ fun BookmarkedPersonRow(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (role == PersonRole.AUTHOR) "Автор" else "Виконавець",
+                        text = roleText,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = if (currentNotifyEnabled) "Повідомлення увімкнені" else "Повідомлення вимкнені",
+                        text = notifyText,
                         style = MaterialTheme.typography.labelSmall,
                         color = if (currentNotifyEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2894,7 +2975,17 @@ fun BookmarkedPersonRow(
             onDismissRequest = { showContextMenu = false }
         ) {
             DropdownMenuItem(
-                text = { Text(if (currentNotifyEnabled) "Вимкнути повідомлення" else "Увімкнути повідомлення") },
+                text = {
+                    Text(
+                        stringResource(
+                            if (currentNotifyEnabled) {
+                                R.string.lib_person_notify_disable
+                            } else {
+                                R.string.lib_person_notify_enable
+                            }
+                        )
+                    )
+                },
                 onClick = {
                     currentNotifyEnabled = !currentNotifyEnabled
                     onToggleNotify(currentNotifyEnabled)

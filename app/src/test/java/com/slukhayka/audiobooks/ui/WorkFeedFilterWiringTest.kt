@@ -473,6 +473,20 @@ class WorkFeedFilterWiringTest {
         // The genre-test idiom: wait for the restarted Pager's refresh to
         // COMPLETE (a raw itemCount can sit on the previous generation's
         // items while refresh is Loading).
+        //
+        // #915 — the wait MUST include the DISAPPEARANCE it is about to
+        // assert, not just the survival of the book that stays visible.
+        // `kobzar == 1` is ALREADY true in the «Усі» generation this test
+        // just asserted, and `refresh !is Loading` is true for a moment
+        // before `flatMapLatest` restarts the Pager — so both conditions
+        // together were satisfiable BEFORE the re-filter happened. The wait
+        // then returned instantly and the very next line raced the real
+        // (asynchronous, Dispatchers.IO) re-filter, which is the flake:
+        // it failed as "Pride and Prejudice is still on screen" only when
+        // the machine was slow enough for the restart to land late.
+        // Waiting for the whole post-condition makes the assertion
+        // deterministic — on a fast run it returns as soon as the refilter
+        // settles, on a slow one it waits instead of guessing.
         languages.value = setOf("uk")
         var diag: String = ""
         try {
@@ -481,7 +495,7 @@ class WorkFeedFilterWiringTest {
                 val kobzar = compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().size
                 val pride = compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size
                 diag = "langs=${languages.value} itemCount=${feed.itemCount} refresh=$refresh kobzar=$kobzar pride=$pride"
-                refresh !is androidx.paging.LoadState.Loading && kobzar == 1
+                refresh !is androidx.paging.LoadState.Loading && kobzar == 1 && pride == 0
             }
         } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
             throw AssertionError("Усі→Українська refilter timed out; state: $diag", e)
@@ -496,10 +510,14 @@ class WorkFeedFilterWiringTest {
         )).assertExists()
 
         // Українська → English: the opposite world, again without restart.
+        // #915 — same rule as above: wait for BOTH halves of the change
+        // (the reappearance AND the disappearance), otherwise the wait can
+        // return on the previous generation and the next line races it.
         languages.value = setOf("en")
         compose.waitUntil(30_000) {
             feed.loadState.refresh !is androidx.paging.LoadState.Loading && languages.value == setOf("en") &&
-                compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size == 1
+                compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size == 1 &&
+                compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isEmpty()
         }
         assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isEmpty())
     }

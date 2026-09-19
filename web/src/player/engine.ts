@@ -23,11 +23,12 @@
  *   prepare (fresh DIRECT attempt); pause/resume within one prepare keeps
  *   it. `attemptErrored()` / `attemptPlaying()` feed the fallback policy;
  *   the engine exposes `attemptKind` but never touches media elements.
- * - T5 binding surface (added minimally): `currentAttemptUrl()` exposes the
- *   running attempt's URL for the `<audio>` binding to mirror onto `src`;
- *   `chapterEnded()` lets the element report a natural end-of-track;
- *   `jumpToChapter()` serves lock-screen previous/next. Same advance/park
- *   rules as the ticker path — one `finishChapter()` tail, no drift.
+ * - #614 binding surface: a manual Chapter transition is
+ *   `AudioEngine.loadBook(..., { forceChapter: true })` — Next, Previous, the
+ *   chapter list and Media Session all share that ONE explicit intent.
+ *   `markCompleted()` is the ONE honest completion signal the `<audio>`
+ *   binding sends when the LAST Chapter's natural `ended` arrives, whether
+ *   the Source gave a duration or not.
  */
 
 import type { Chapter } from '../worker/types'
@@ -156,6 +157,29 @@ export class PlaybackEngine {
       this.attempt = null
       this.pausedAtMs = null
     }
+    this.publish()
+  }
+
+  /**
+   * #614 — the media adapter reported the natural end of the CURRENT Chapter
+   * and there is no next Chapter to prepare: the Edition is completed. Parks
+   * on 'paused' at the Chapter's known end, or at the already-reported
+   * position when the Source never gave a duration — an honest completion
+   * must not depend on metadata that does not exist.
+   *
+   * This is the ONE completion signal `persist()` and the finish prompt read.
+   * A mid-book call is refused: completion is only ever the LAST Chapter's
+   * honest end, never a shortcut out of the middle of an Edition.
+   */
+  markCompleted(): void {
+    if (this.chapters.length === 0) return
+    if (this.chapterIndex < this.chapters.length - 1) return
+    const duration = this.currentChapter()?.durationSeconds
+    if (duration !== undefined) this.positionSeconds = duration
+    this.status = 'paused'
+    this.isCompleted = true
+    this.attempt = null
+    this.pausedAtMs = null
     this.publish()
   }
 

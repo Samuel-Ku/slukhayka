@@ -268,20 +268,34 @@ export class AudioEngine {
     this.seek(s.positionSeconds + deltaSeconds)
   }
 
+  /**
+   * #614 — a deliberate step to the neighbouring Chapter. The step is an
+   * EXPLICIT Chapter intent (`forceChapter`), so the persisted Listening
+   * State snapshot can never pull the listener back to the Chapter they are
+   * already leaving. On the last Chapter it is a defined no-op (Android's
+   * `nextChapter` parity): the current Chapter keeps its position and state.
+   */
   nextChapter(): void {
     const s = this.engine.getState()
-    if (s.chapterIndex < this.chapters.length - 1) {
-      this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId, workId: this.workId }, s.chapterIndex + 1)
-    }
+    const next = s.chapterIndex + 1
+    if (next >= this.chapters.length) return
+    void this.loadBook(this.currentDetail(), next, { forceChapter: true })
   }
 
+  /**
+   * #614 — Previous steps to the previous Chapter from zero. On the FIRST
+   * Chapter there is no previous one, so it restarts the current Chapter
+   * (Android's `previousChapter` seeks to zero instead of leaving the
+   * Edition) — a defined outcome, not a silent nothing. Same explicit intent
+   * as Next, so the saved snapshot never overrides it.
+   */
   prevChapter(): void {
     const s = this.engine.getState()
-    if (s.chapterIndex > 0) {
-      this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId, workId: this.workId }, s.chapterIndex - 1)
-    } else {
+    if (s.chapterIndex <= 0) {
       this.seek(0)
+      return
     }
+    void this.loadBook(this.currentDetail(), s.chapterIndex - 1, { forceChapter: true })
   }
 
   /** W5.1 — a bookmark jump: the user's expressed intent, never overridden. */
@@ -294,11 +308,7 @@ export class AudioEngine {
       this.seek(positionSeconds)
       return true
     }
-    void this.loadBook(
-      { title: this.bookTitle, chapters: this.chapters, editionId: this.editionId, workId: this.workId },
-      chapterIndex,
-      { forceChapter: true, startPositionSeconds: positionSeconds },
-    )
+    void this.loadBook(this.currentDetail(), chapterIndex, { forceChapter: true, startPositionSeconds: positionSeconds })
     return true
   }
 
@@ -361,6 +371,15 @@ export class AudioEngine {
     return this.engine.subscribe(listener)
   }
 
+  /**
+   * #614 — the loaded Edition's identity, so every transition path (Next,
+   * Previous, ended, jumpTo) re-enters `loadBook` with exactly the same
+   * description instead of four hand-copied literals.
+   */
+  private currentDetail(): { title: string; chapters: Chapter[]; editionId?: string; workId?: string } {
+    return { title: this.bookTitle, chapters: this.chapters, editionId: this.editionId, workId: this.workId }
+  }
+
   private primeCurrentChapter(): void {
     if (this.offlinePrimer === null || this.relayBase === undefined) return
     const state = this.engine.getState()
@@ -398,13 +417,22 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * #614 — the element's natural end-of-track. The next Chapter starts from
+   * zero through the same explicit intent as the Next button (never the
+   * saved snapshot). The LAST Chapter has no next one, so its end IS the
+   * Edition's completion — recorded even when the Source never reported a
+   * duration, because the adapter's own `ended` is the end.
+   */
   private onEnded(): void {
     const state = this.engine.getState()
-    if (state.chapterIndex < this.chapters.length - 1) {
-      void this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId, workId: this.workId }, state.chapterIndex + 1)
-    } else {
-      this.persist(true)
+    const next = state.chapterIndex + 1
+    if (next < this.chapters.length) {
+      void this.loadBook(this.currentDetail(), next, { forceChapter: true })
+      return
     }
+    this.engine.markCompleted()
+    this.persist(true)
   }
 
   private startTicker(): void {

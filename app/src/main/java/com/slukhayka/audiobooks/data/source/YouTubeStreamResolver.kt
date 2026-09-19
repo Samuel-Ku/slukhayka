@@ -216,34 +216,16 @@ internal interface YtDlpJsonSource {
 object YtDlpStreamExtractor : YtDlpJsonSource {
 
     /**
-     * Drops `"key": null` pairs BEFORE [MiniJson.parse] — the shared pure
-     * decoder treats a JSON null as a parse error (its `parseValue` returns
+     * Drops `"key": null` pairs BEFORE [MiniJson.parse] — the shared decoder
+     * treats a literal JSON null as a parse error (its `parseValue` returns
      * null for both `null` and failure), so a document carrying nulls (and
      * yt-dlp emits `"acodec": null` / `"abr": null` on its HLS and
-     * storyboard formats) would otherwise decode to nothing. The field is
-     * absent after the strip — the format reads treat absence exactly like
-     * null. Three passes cover pair-with-trailing-comma, pair-with-leading-
-     * comma and a lone last pair; a `: null` inside a quoted STRING value is
-     * never matched (the value there is quoted, not bare `null`).
+     * storyboard formats) would otherwise decode to nothing. The workaround
+     * now lives with the decoder itself ([MiniJson.stripNullFields], exposed
+     * as [MiniJson.parseLenient]); this door keeps its name and contract for
+     * its callers.
      */
-    override fun stripNullFields(json: String): String {
-        val nullField = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
-        val trailingComma = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null\\s*,")
-        val leadingComma = Regex(",\\s*\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
-        val lone = nullField
-        // Repeated until stable: a pair once trailing-comma-stripped may leave
-        // a new leading-comma neighbour, and vice versa.
-        var text = json
-        var changed = true
-        while (changed) {
-            changed = false
-            val a = trailingComma.replace(text, "")
-            val b = leadingComma.replace(a, "")
-            val c = lone.replace(b, "")
-            if (c != text) { text = c; changed = true }
-        }
-        return text
-    }
+    override fun stripNullFields(json: String): String = MiniJson.stripNullFields(json)
 
     /**
      * Parses one `yt-dlp -J` document into audio candidates. Pure JVM,

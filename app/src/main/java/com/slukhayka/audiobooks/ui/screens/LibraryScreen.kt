@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
@@ -72,6 +73,7 @@ import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.availability.AvailabilityStatus
 import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
+import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -266,6 +268,16 @@ fun LibraryScreen(
         4 -> stringResource(R.string.lib_section_year)
         else -> stringResource(R.string.lib_statistics)
     }
+    // #962 — the title RESOURCE (not the resolved string) is what the
+    // extracted chrome composable takes: `stringResource` is a composable
+    // read, and resolving it here only to pass the text on would move the
+    // lookup out of the composable that draws it.
+    val sectionTitleRes = when (activeTab) {
+        1 -> R.string.lib_section_saved
+        3 -> R.string.lib_section_imported
+        4 -> R.string.lib_section_year
+        else -> R.string.lib_statistics
+    }
     val librarySubtitle = librarySizeLabel(libraryBooks)
     // Browsing the whole library vs narrowing it down: the sections (and the
     // «Продовжити» card) only make sense while nothing is filtering.
@@ -303,6 +315,19 @@ fun LibraryScreen(
     val libraryHeadingFocusRequester = remember { FocusRequester() }
     val bookReturnFocusRequester = remember { FocusRequester() }
     val libraryGridState = rememberLazyGridState()
+    // #962 — the chrome's own collections blocks. Read here, not inside the
+    // extracted `libraryChrome`, because the same state also drives the
+    // full-screen collection pages that stay in this scope.
+    val listenerCollections by viewModel.listenerCollections.collectAsState()
+    var openCollectionId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { viewModel.refreshListenerCollections() }
+    val publishedCollections by viewModel.publishedListenerCollections.collectAsState()
+    var openPublishedDocumentId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(viewModel.publicCollectionsAvailable) {
+        if (viewModel.publicCollectionsAvailable) {
+            viewModel.refreshMyPublishedCollections()
+        }
+    }
     val modalVisible = showFilterSheet || showImportSheet || showSubmissionSheet || importPreview != null
 
     RestoreFocusAfterModal(
@@ -403,6 +428,16 @@ fun LibraryScreen(
             modalVisible = modalVisible,
             modifier = Modifier.fillMaxSize()
         ) {
+        // #962 — a wide window on a LANDSCAPE PHONE is 905 dp wide and only
+        // 411 dp tall. Every wide rule fires, and the chrome they ask for
+        // (header + year hero + tabs + search + chip row) measured 1402 px of
+        // the 1440 px on the device, leaving the book grid ≈11 dp and no way
+        // to scroll to it. So on that one window the chrome goes compact and
+        // the content below takes the real height.
+        // #962 — the wide-and-SHORT window is the only one that drops chrome;
+        // a narrow portrait window keeps the full header and the year hero.
+        val landscapePhone = rememberIsLandscapePhoneWindow()
+        val chromeScrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -427,6 +462,7 @@ fun LibraryScreen(
                 subtitle = if (activeTab == 0) librarySubtitle else null,
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
+                compact = landscapePhone,
                 actions = {
                     // #860 — the gear sits in the SAME place on every root.
                     com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
@@ -464,203 +500,53 @@ fun LibraryScreen(
                 }
             )
 
-            // #885 — the prototype («Нічна бібліотека») switches between
-            // «Книги / Полиці / Збережене» with a visible control at the top,
-            // instead of hiding two of the three behind the overflow menu.
-            if (activeTab == 0) {
-                yearGoal?.let { goal ->
-                    Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
-                        LibraryYearHero(goal = goal)
-                    }
-                }
-            }
-
-            if (activeTab == 0 || activeTab == 1) {
-                LibrarySectionTabs(
-                    booksSelected = activeTab == 0,
-                    savedSelected = activeTab == 1,
+            // #962 — everything between the header and the book list is the
+            // CHROME, and the list is the CONTENT. On the wide-and-short
+            // window the chrome sits in its own bounded, scrollable band so
+            // the three things that happen when the window is short are all
+            // honest: the list always keeps most of the height, the chrome is
+            // never silently clipped (a clipped row is a row the listener
+            // cannot reach at all — the defect), and it scrolls when it does
+            // not fit. Portrait and tablet windows keep the plain Column they
+            // always had, byte for byte.
+            val chromeContent: @Composable () -> Unit = {
+                libraryChrome(
+                    activeTab = activeTab,
+                    sectionTitleRes = sectionTitleRes,
+                    yearGoal = yearGoal,
+                    query = query,
+                    onQueryChange = { query = it },
+                    filter = filter,
+                    onFilterChange = { filter = it },
+                    statusRowScrollState = statusRowScrollState,
+                    filterFocusRequester = filterFocusRequester,
+                    onShowFilterSheet = { showFilterSheet = true },
                     onBooks = { activeTab = 0 },
                     onShelves = { viewModel.openCollectionsIndex() },
-                    onSaved = { activeTab = 1 }
+                    onSaved = { activeTab = 1 },
+                    libraryBooks = libraryBooks,
+                    listenerCollections = listenerCollections,
+                    publishedCollections = publishedCollections,
+                    onOpenCollection = { openCollectionId = it },
+                    onOpenPublishedCollection = { openPublishedDocumentId = it },
+                    compact = landscapePhone
                 )
             }
 
-            if (activeTab == 0) {
-                // Library chrome (wayfinder #39): the permanently visible search
-                // (ADR-0033 amended 2026-09-18 — the same pattern as Огляд),
-                // quick filters, sort + view toggle.
-                LibrarySearchField(
-                    query = query,
-                    onQueryChange = { query = it }
-                )
-
-                // Spec-28 #193 + design guide §6.3: the five one-tap statuses
-                // on ONE horizontally scrolled line — never wrapped onto a
-                // second row. The rare-filter launcher (Обрані / Локальні /
-                // Онлайн) rides the same line and keeps its accent + its own
-                // name while active, so a non-default filter stays visible.
-                val isSheetFilterActive = filter in SHEET_FILTERS
-                LaunchedEffect(filter) {
-                    // The rare-filter launcher lives at the far end of the row:
-                    // scroll it into view while it is the active filter, and
-                    // back to the statuses when a one-tap status takes over.
-                    withFrameNanos { }
-                    statusRowScrollState.animateScrollTo(
-                        if (isSheetFilterActive) statusRowScrollState.maxValue else 0
-                    )
-                }
-                LibraryStatusRow(
-                    selected = filter,
-                    onSelect = { filter = it },
-                    scrollState = statusRowScrollState,
-                    trailing = {
-                        FilterChip(
-                            selected = isSheetFilterActive,
-                            onClick = { showFilterSheet = true },
-                            label = {
-                                Text(
-                                    if (isSheetFilterActive) {
-                                        stringResource(filter.labelRes)
-                                    } else {
-                                        stringResource(R.string.lib_filter)
-                                    }
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Tune,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSheetFilterActive,
-                                borderColor = MaterialTheme.colorScheme.outlineVariant,
-                                selectedBorderColor = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier
-                                .heightIn(min = 36.dp)
-                                .focusRequester(filterFocusRequester)
-                                .testTag("library_filter_button")
-                        )
-                    }
-                )
-
-                // Spec-51 (#690) — the listener's own collections, right in the
-                // Library. Local-first, and honestly empty when there are none.
-                val listenerCollections by viewModel.listenerCollections.collectAsState()
-                var openCollectionId by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(Unit) { viewModel.refreshListenerCollections() }
-                MyCollectionsBlock(
-                    rows = listenerCollections.map { collection ->
-                        com.slukhayka.audiobooks.ui.screens.collections.MyCollectionRow(
-                            id = collection.id,
-                            title = collection.title,
-                            bookCount = collection.items.size,
-                            // The cover of the FIRST real item, or null — the
-                            // block then draws nothing rather than a fake.
-                            coverUrl = collection.coverBookId
-                                ?.let { coverId ->
-                                    libraryBooks.firstOrNull { it.book.id == coverId }
-                                        ?.book?.coverImageUrl
-                                }
-                        )
-                    },
-                    onOpen = { openCollectionId = it }
-                )
-
-                // Spec-51 (#691) — the listener's OWN published collections,
-                // read back from the shared store. Rendered ONLY when a shared
-                // store is configured (the gate), so an unconfigured build
-                // shows no public surface at all.
-                val publishedCollections by viewModel.publishedListenerCollections.collectAsState()
-                var openPublishedDocumentId by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(viewModel.publicCollectionsAvailable) {
-                    if (viewModel.publicCollectionsAvailable) {
-                        viewModel.refreshMyPublishedCollections()
-                    }
-                }
-                com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionsBlock(
-                    rows = publishedCollections.map { published ->
-                        com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionRow(
-                            documentId = published.documentId,
-                            title = published.title,
-                            bookCount = published.bookIds.size,
-                            pseudonym = published.pseudonym,
-                            average = com.slukhayka.audiobooks.data.collections.CollectionRating.average(
-                                published.ratingSum,
-                                published.ratingCount
-                            ),
-                            ratingCount = published.ratingCount,
-                            hidden = published.hidden
-                        )
-                    },
-                    onOpen = { openPublishedDocumentId = it }
-                )
-                publishedCollections
-                    .firstOrNull { it.documentId == openPublishedDocumentId }
-                    ?.let { open ->
-                        com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
-                            title = open.title,
-                            onClose = { openPublishedDocumentId = null },
-                            testTag = "published_collection_page"
-                        ) {
-                            com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
-                                collection = open,
-                                // "Already downloaded" means the reader HAS at
-                                // least one of these books locally: a fork
-                                // copies the composition, and offline it is
-                                // only useful (and honest) when the books are
-                                // really here. Otherwise the action is
-                                // disabled rather than silently failing.
-                                originalAvailableLocally = open.bookIds.any { bookId ->
-                                    libraryBooks.any { it.book.id == bookId }
-                                },
-                                onSaveForYou = {
-                                    viewModel.saveForkOfPublished(open.documentId)
-                                    openPublishedDocumentId = null
-                                },
-                                // The listener's own published collection: no
-                                // self-rating (#694) and the community verdict
-                                // is shown as-is (#696).
-                                isOwn = true,
-                                onDelete = {
-                                    viewModel.deleteOwnPublishedCollection(open.documentId)
-                                    openPublishedDocumentId = null
-                                }
-                            )
-                        }
-                    }
-                listenerCollections.firstOrNull { it.id == openCollectionId }?.let { open ->
-                    com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
-                        title = open.title,
-                        onClose = { openCollectionId = null },
-                        testTag = "own_collection_page"
-                    ) {
-                        com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent(
-                            collection = open,
-                            onRemoveBook = { bookId ->
-                                viewModel.removeBookFromCollection(open.id, bookId)
-                            },
-                            onDelete = {
-                                viewModel.deleteListenerCollection(open.id)
-                                openCollectionId = null
-                            }
-                        )
-                    }
-                }
-
-                // Spec-28 #194: the storage line and «Видалити завантажені
-                // файли» moved to the «Завантаження та пам'ять» destination
-                // (⋮ overflow) — nothing destructive sits on the main screen.
-
+            // #962 — the chrome band. It WRAPS its content and is capped at
+            // [ChromeMaxHeight], so the book list below takes whatever height
+            // is left: the band is CHROME, and chrome never wins the height
+            // contest on a 411 dp window. A `weight(1f)` here would do the
+            // opposite — the band would eat the whole leftover and hand the
+            // grid back a sliver, which is the defect wearing a new hat.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = ChromeMaxHeight)
+                    .verticalScroll(chromeScrollState)
+                    .testTag("library_chrome")
+            ) {
+                chromeContent()
             }
 
             when (activeTab) {
@@ -686,7 +572,18 @@ fun LibraryScreen(
                         else -> LazyVerticalGrid(
                             columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
                             state = libraryGridState,
-                            modifier = Modifier.fillMaxSize(),
+                            // #962 — the grid takes what is LEFT of the column
+                            // rather than claiming everything: `fillMaxSize`
+                            // inside a Column is measured against the whole
+                            // window, so it both over-reported its height and
+                            // pushed the rows it did lay out past the bottom
+                            // edge. `weight(1f)` is the honest ask — "the rest
+                            // of the screen" — and it is what makes the list
+                            // scrollable in a 411 dp landscape window.
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .testTag("library_grid"),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -720,7 +617,8 @@ fun LibraryScreen(
                     // follows AND the bookmarks they left, in ONE place, on the
                     // data that already exists (no new schema).
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        // #962 — "the rest of the column", not the whole window.
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                     ) {
                         item {
@@ -838,7 +736,8 @@ fun LibraryScreen(
 
                 2 -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        // #962 — as above: the grid's siblings take the rest.
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
                     ) {
                         item {
@@ -863,7 +762,8 @@ fun LibraryScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier
-                                .fillMaxSize()
+                                .weight(1f)
+                                .fillMaxWidth()
                                 .testTag("library_year"),
                             contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                         ) {
@@ -926,7 +826,8 @@ fun LibraryScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier
-                                .fillMaxSize()
+                                .weight(1f)
+                                .fillMaxWidth()
                                 .testTag("library_imported_list"),
                             contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                         ) {
@@ -3074,6 +2975,199 @@ private fun ReadingProgressRow(
             }
         }
     }
+}
+
+/**
+ * #962 — the ceiling the chrome band may take in a wide-and-short window.
+ *
+ * The band is the ONLY scrollable thing above the list, so it must never be
+ * allowed to swallow the window: at this cap a 411 dp landscape window still
+ * hands the list most of its height, while the ordinary portrait window is
+ * far taller than 280 dp and keeps the plain header + hero + tabs + search +
+ * chips stack it always had.
+ */
+private val ChromeMaxHeight: Dp = 280.dp
+
+/**
+ * #962 — the Library's CHROME: everything above the book list, and nothing
+ * else.
+ *
+ * Extracted from [LibraryScreen] so the wide-and-short (landscape phone)
+ * window can put it in its own bounded, scrollable band without a second copy
+ * of the header, the year hero, the section switch, the search field, the
+ * status chips and the collections blocks. The screen keeps ownership of the
+ * state ([yearGoal], [query], [filter], the scroll state and the focus
+ * requesters); this composable only draws it, so the portrait path and the
+ * landscape path can never drift apart.
+ *
+ * Collections state comes in as values because the SAME state also drives the
+ * full-screen collection pages, which stay in the screen's scope.
+ */
+@Composable
+private fun libraryChrome(
+    activeTab: Int,
+    sectionTitleRes: Int,
+    yearGoal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    filter: LibraryFilter,
+    onFilterChange: (LibraryFilter) -> Unit,
+    statusRowScrollState: androidx.compose.foundation.ScrollState,
+    filterFocusRequester: FocusRequester,
+    onShowFilterSheet: () -> Unit,
+    onBooks: () -> Unit,
+    onShelves: () -> Unit,
+    onSaved: () -> Unit,
+    libraryBooks: List<LibraryBook>,
+    listenerCollections: List<com.slukhayka.audiobooks.data.collections.ListenerCollection>,
+    publishedCollections: List<com.slukhayka.audiobooks.data.collections.PublishedCollection>,
+    onOpenCollection: (String) -> Unit,
+    onOpenPublishedCollection: (String) -> Unit,
+    /** #962 — true on the wide-and-short window; drops the year hero. */
+    compact: Boolean
+) {
+    // #885 — the prototype («Нічна бібліотека») switches between
+    // «Книги / Полиці / Збережене» with a visible control at the top,
+    // instead of hiding two of the three behind the overflow menu.
+    // #962 — «Мій рік» is the single largest piece of chrome on this screen
+    // (388 px of a 1438 px window on the device) and the least load-bearing:
+    // it reports a yearly count, it does not lead anywhere. On the
+    // wide-and-short window it is dropped, so the listener gets a real book
+    // list instead of a hero card; portrait and tablet keep it exactly as
+    // before. Nothing is lost — «Мій рік» remains its own destination in the
+    // section switch, one tap away.
+    if (activeTab == 0 && !compact) {
+        yearGoal?.let { goal ->
+            Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
+                LibraryYearHero(goal = goal)
+            }
+        }
+    }
+
+    if (activeTab == 0 || activeTab == 1) {
+        LibrarySectionTabs(
+            booksSelected = activeTab == 0,
+            savedSelected = activeTab == 1,
+            onBooks = onBooks,
+            onShelves = onShelves,
+            onSaved = onSaved
+        )
+    }
+
+    if (activeTab != 0) return
+
+    // Library chrome (wayfinder #39): the permanently visible search
+    // (ADR-0033 amended 2026-09-18 — the same pattern as Огляд),
+    // quick filters, sort + view toggle.
+    LibrarySearchField(
+        query = query,
+        onQueryChange = onQueryChange
+    )
+
+    // Spec-28 #193 + design guide §6.3: the five one-tap statuses
+    // on ONE horizontally scrolled line — never wrapped onto a
+    // second row. The rare-filter launcher (Обрані / Локальні /
+    // Онлайн) rides the same line and keeps its accent + its own
+    // name while active, so a non-default filter stays visible.
+    val isSheetFilterActive = filter in SHEET_FILTERS
+    LaunchedEffect(filter) {
+        // The rare-filter launcher lives at the far end of the row:
+        // scroll it into view while it is the active filter, and
+        // back to the statuses when a one-tap status takes over.
+        withFrameNanos { }
+        statusRowScrollState.animateScrollTo(
+            if (isSheetFilterActive) statusRowScrollState.maxValue else 0
+        )
+    }
+    LibraryStatusRow(
+        selected = filter,
+        onSelect = onFilterChange,
+        scrollState = statusRowScrollState,
+        trailing = {
+            FilterChip(
+                selected = isSheetFilterActive,
+                onClick = onShowFilterSheet,
+                label = {
+                    Text(
+                        if (isSheetFilterActive) {
+                            stringResource(filter.labelRes)
+                        } else {
+                            stringResource(R.string.lib_filter)
+                        }
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(FilterChipDefaults.IconSize)
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    labelColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isSheetFilterActive,
+                    borderColor = MaterialTheme.colorScheme.outlineVariant,
+                    selectedBorderColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier
+                    .heightIn(min = 36.dp)
+                    .focusRequester(filterFocusRequester)
+                    .testTag("library_filter_button")
+            )
+        }
+    )
+
+    // Spec-51 (#690) — the listener's own collections, right in the
+    // Library. Local-first, and honestly empty when there are none.
+    MyCollectionsBlock(
+        rows = listenerCollections.map { collection ->
+            com.slukhayka.audiobooks.ui.screens.collections.MyCollectionRow(
+                id = collection.id,
+                title = collection.title,
+                bookCount = collection.items.size,
+                // The cover of the FIRST real item, or null — the
+                // block then draws nothing rather than a fake.
+                coverUrl = collection.coverBookId
+                    ?.let { coverId ->
+                        libraryBooks.firstOrNull { it.book.id == coverId }
+                            ?.book?.coverImageUrl
+                    }
+            )
+        },
+        onOpen = onOpenCollection
+    )
+
+    // Spec-51 (#691) — the listener's OWN published collections,
+    // read back from the shared store. Rendered ONLY when a shared
+    // store is configured (the gate), so an unconfigured build
+    // shows no public surface at all.
+    com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionsBlock(
+        rows = publishedCollections.map { published ->
+            com.slukhayka.audiobooks.ui.screens.collections.PublishedCollectionRow(
+                documentId = published.documentId,
+                title = published.title,
+                bookCount = published.bookIds.size,
+                pseudonym = published.pseudonym,
+                average = com.slukhayka.audiobooks.data.collections.CollectionRating.average(
+                    published.ratingSum,
+                    published.ratingCount
+                ),
+                ratingCount = published.ratingCount,
+                hidden = published.hidden
+            )
+        },
+        onOpen = onOpenPublishedCollection
+    )
+
+    // Spec-28 #194: the storage line and «Видалити завантажені
+    // файли» moved to the «Завантаження та пам'ять» destination
+    // (⋮ overflow) — nothing destructive sits on the main screen.
 }
 
 /**

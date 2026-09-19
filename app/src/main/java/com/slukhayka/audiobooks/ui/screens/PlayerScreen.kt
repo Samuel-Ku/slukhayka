@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.BuildConfig
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookmarkDeleteConfirmation
@@ -549,6 +550,13 @@ fun PlayerScreenContent(
     val background = MaterialTheme.colorScheme.background
     val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
     val largeFont = LocalDensity.current.fontScale >= 2f
+    // #962 — a wide-but-SHORT window (a phone in landscape: 905 × 411 dp on
+    // the device this was found on) cannot fit the portrait column. The cover
+    // slot is the flexible element there, and there is no leftover height to
+    // give it, so the quick-tool row fell past the bottom edge and reported
+    // `bounds=[0,0][0,0]` while the transport row was clipped. This window
+    // lays out in two columns instead.
+    val landscape = rememberIsLandscapePhoneWindow()
     val contentScrollState = rememberScrollState()
     val playerContextFocusRequester = remember { FocusRequester() }
     val speedFocusRequester = remember { FocusRequester() }
@@ -632,143 +640,139 @@ fun PlayerScreenContent(
             // Spec-24 T1: the player fits ONE screen — the scroll wrapper is
             // gone and the cover block is the flexible element (weight-based,
             // aspect preserved, capped), so every control below stays visible.
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .then(
-                        if (largeFont) Modifier.verticalScroll(contentScrollState)
-                        else Modifier
-                    )
-                    .fillMaxWidth()
-                    .padding(horizontal = AppDimens.PageSides),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // The cover absorbs the leftover vertical space (weight slot).
-                // Issue #385: розмір обкладинки рахується напряму від живої
-                // висоти слота (BoxWithConstraints дає її в dp), а не через
-                // .aspectRatio() після fillMaxWidth — той вимірюється від
-                // ШИРИНИ і, коли жоден candidate не вміщується в обмеження,
-                // падає в fallback, який ігнорує і heightIn, і weight-частку:
-                // з'являється рядок «Завантаження» (#381) →
-                // слот стискається, а обкладинка лишається w/ratio заввишки й
-                // «випадає» за нижню межу слота поверх заголовка (Compose не
-                // кліпує сусідів). У спокійному стані виходить той самий
-                // w/ratio, що й раніше; у стиснутому — висота слота зі
-                // збереженням пропорцій.
-                BoxWithConstraints(
-                    modifier = (if (largeFont) {
-                        Modifier.height(208.dp)
-                    } else {
-                        Modifier.weight(1f)
-                    })
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+            //
+            // #962 — that is a PORTRAIT contract: it holds in a 411 dp-wide,
+            // ~700 dp-tall column. A landscape phone window (905 × 411 dp,
+            // measured on device) has no leftover height for that flexible
+            // slot, so the quick-tool row was measured at y 1391–1438 px of a
+            // 1438 px window and the system bar then took the rest — those
+            // controls reported `bounds=[0,0][0,0]` (never placed at all) and
+            // the transport row was clipped by the bottom edge. The
+            // wide-and-short window therefore lays out the way every other
+            // wide surface in this app does: the artwork and identity on the
+            // LEFT, progress + transport + tools BESIDE them, each in a column
+            // with real height to give.
+            if (landscape) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = AppDimens.PageSides),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Soft glow behind the cover — tinted with the artwork accent
-                    // (or the brand accent before the cover loads) so the shadow
-                    // hue matches the scene instead of reading as flat black.
-                    // Sized and painted in dp so the falloff is density-stable.
-                    val glowRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 300.dp.toPx() }
-                    // The glow mirrors the cover's (real) aspect ratio instead
-                    // of a hard-coded square, so the halo hugs the artwork.
-                    val coverAspect = artworkAspect.coerceIn(0.6f, 1.6f)
-                    val glowWidth = maxWidth * 0.9f
-                    Box(
+                    Column(
                         modifier = Modifier
-                            .size(width = glowWidth, height = glowWidth / coverAspect)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        tint.copy(alpha = 0.28f),
-                                        tint.copy(alpha = 0.08f),
-                                        Color.Transparent
-                                    ),
-                                    radius = glowRadiusPx
-                                )
-                            )
-                    )
-                    // Cover width keeps the old widthIn(272.dp) + fillMaxWidth(0.76f)
-                    // result; the height is w/ratio while it fits the slot and
-                    // clamps to the slot (ratio kept) when the loading status
-                    // squeezes the column — so the artwork can never
-                    // outgrow its slot into the title.
-                    val coverWidth = (272.dp).coerceAtMost(maxWidth) * 0.76f
-                    val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
-                    Surface(
-                        shape = RoundedCornerShape(AppDimens.RadiusHero),
-                        tonalElevation = 1.dp,
-                        shadowElevation = 6.dp,
-                        // Test seam: the tight-viewport snapshot measures the
-                        // cover to pin that it shrinks while keeping its aspect
-                        // ratio (spec-24 T6) — and, since #385, that it stays
-                        // inside its slot.
-                        modifier = Modifier
-                            .size(width = coverHeight * coverAspect, height = coverHeight)
-                            .testTag("player_cover")
+                            .weight(0.85f)
+                            .fillMaxHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        BookCoverImage(
+                        PlayerArtworkPane(
                             book = book,
-                            semantics = BookCoverSemantics.Decorative,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            onImageLoaded = onArtworkLoaded
+                            playerNarrator = playerNarrator,
+                            currentChapterTitle = currentChapterTitle,
+                            playerContextDescription = playerContextDescription,
+                            artworkAspect = artworkAspect,
+                            onArtworkLoaded = onArtworkLoaded,
+                            playerContextFocusRequester = playerContextFocusRequester,
+                            largeFont = largeFont,
+                            tint = tint,
+                            slotWeight = 1f
                         )
                     }
-                }
+                    Column(
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .fillMaxHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                                        Spacer(Modifier.height(AppDimens.SpaceLg))
+                                        DualProgress(
+                                            progress = progress,
+                                            chapterPositionSeconds = playerState.currentPositionMs / 1000L,
+                                            chapterDurationSeconds = playerState.durationMs / 1000L,
+                                            onSeek = onSeek,
+                                            onBookSeek = onBookSeek,
+                                            bookmarkTarget = lastBookmarkTarget,
+                                            bookmarkFocusRequester = bookmarksFocusRequester,
+                                            onJumpToBookmark = onJumpToBookmark,
+                                            onShowAllBookmarks = onShowAllBookmarks
+                                        )
 
-                Spacer(Modifier.height(AppDimens.SpaceSm))
+                                        Spacer(Modifier.height(AppDimens.SpaceMd))
+                                        TransportControls(
+                                            bookTitle = book.title,
+                                            currentChapterTitle = currentChapterTitle,
+                                            isPlaying = playerState.isPlaying,
+                                            // Issue #381: під час резолюції стріму кнопка не має
+                                            // промовляти застаріле «Призупинено».
+                                            isBuffering = playerState.isBuffering,
+                                            onPreviousChapter = onPreviousChapter,
+                                            onBack = onBack,
+                                            onPlayPause = onPlayPause,
+                                            onForward = onForward,
+                                            onNextChapter = onNextChapter
+                                        )
+
+                                        if (playerState.canUndoSeek) {
+                                            TextButton(
+                                                onClick = onUndoSeek,
+                                                modifier = Modifier
+                                                    .heightIn(min = AppDimens.TouchTarget)
+                                                    .testTag("undo_seek_row")
+                                            ) {
+                                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null)
+                                                Spacer(Modifier.width(AppDimens.SpaceSm))
+                                                Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
+                                            }
+                                        }
+
+                                        Spacer(Modifier.height(AppDimens.SpaceMd))
+                                        QuickTools(
+                                            speed = playerState.playbackSpeed,
+                                            timerMinutes = playerState.sleepTimerMinutes,
+                                            castReady = castReady,
+                                            onSpeed = onSpeed,
+                                            onTimer = onTimer,
+                                            onBookmark = onBookmark,
+                                            onChapters = onChapters,
+                                            speedFocusRequester = speedFocusRequester,
+                                            timerFocusRequester = timerFocusRequester,
+                                            bookmarkFocusRequester = bookmarkFocusRequester,
+                                            chaptersFocusRequester = chaptersFocusRequester
+                                        )
+                    }
+                }
+                // The player is a full-screen OVERLAY rendered outside the host
+                // Scaffold, so it gets no bottom inset from it. Pad past the
+                // system navigation bar / gesture zone so the quick-tools row
+                // is never hidden behind it (3-button nav is ~48dp tall).
+                Spacer(Modifier.navigationBarsPadding())
+            } else {
                 Column(
                     modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (largeFont) Modifier.verticalScroll(contentScrollState)
+                            else Modifier
+                        )
                         .fillMaxWidth()
-                        .testTag("player_context")
-                        .focusRequester(playerContextFocusRequester)
-                        .focusable()
-                        .clearAndSetSemantics {
-                            contentDescription = playerContextDescription
-                            heading()
-                        },
+                        .padding(horizontal = AppDimens.PageSides),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = book.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = if (largeFont) 3 else 2,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center
+                    PlayerArtworkPane(
+                        book = book,
+                        playerNarrator = playerNarrator,
+                        currentChapterTitle = currentChapterTitle,
+                        playerContextDescription = playerContextDescription,
+                        artworkAspect = artworkAspect,
+                        onArtworkLoaded = onArtworkLoaded,
+                        playerContextFocusRequester = playerContextFocusRequester,
+                        largeFont = largeFont,
+                        tint = tint,
+                        slotWeight = 1f
                     )
-                    Spacer(Modifier.height(AppDimens.SpaceXs))
-                    Text(
-                        text = book.displayAuthor,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = if (largeFont) 2 else 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    // Spec-20 T2: narrator renders only when real — the fabricated
-                    // "4read Voice Narrator" placeholder is scrubbed away. The
-                    // real narrator lands once the book page fetch back-fills it.
-                    if (playerNarrator.isNotBlank()) {
-                        Text(
-                            text = stringResource(R.string.player_narrated_by, playerNarrator),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = if (largeFont) 2 else 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(Modifier.height(AppDimens.SpaceSm))
-                    Text(
-                        text = currentChapterTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = if (largeFont) 2 else 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
                 if (playerState.isBuffering) {
                     // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
                     // YouTube-стріму TalkBack промовляв застаріле «Призупинено»
@@ -892,7 +896,6 @@ fun PlayerScreenContent(
                         }
                     )
                 }
-
                 Spacer(Modifier.height(AppDimens.SpaceLg))
                 DualProgress(
                     progress = progress,
@@ -948,14 +951,175 @@ fun PlayerScreenContent(
                     bookmarkFocusRequester = bookmarkFocusRequester,
                     chaptersFocusRequester = chaptersFocusRequester
                 )
-                Spacer(Modifier.height(AppDimens.SpaceLg))
-                // The player is a full-screen OVERLAY rendered outside the host
-                // Scaffold, so it gets no bottom inset from it. Pad past the
-                // system navigation bar / gesture zone so the quick-tools row
-                // is never hidden behind it (3-button nav is ~48dp tall).
-                Spacer(Modifier.navigationBarsPadding())
+                    // The player is a full-screen OVERLAY rendered outside the
+                    // host Scaffold, so it gets no bottom inset from it. Pad
+                    // past the system navigation bar / gesture zone so the
+                    // quick-tools row is never hidden behind it.
+                    Spacer(Modifier.navigationBarsPadding())
+                }
             }
         }
+    }
+}
+
+/**
+ * #962 — the player's artwork and identity (cover, title, author, narrator,
+ * current chapter) as ONE piece, because the two window shapes put it in two
+ * different containers: the portrait column gives it the flexible slot above
+ * the transport, and a wide-but-short window puts it in the LEFT column of a
+ * Row beside them. Extracting it is what lets both shapes draw the same pixels
+ * instead of two copies that drift.
+ *
+ * [slotModifier] is the #385 contract, moved to the caller: the cover slot is
+ * the flexible element and the cover is measured from the slot's LIVE height
+ * (not from its width via `aspectRatio`), so it can never outgrow its slot.
+ *
+ * It is a [ColumnScope] extension because the portrait caller's slot IS
+ * `Modifier.weight(1f)`, and `weight` is only meaningful when it is applied
+ * inside a `Column`'s own scope. Passing that modifier through a plain
+ * parameter silently drops the scope and the weight with it, which collapses
+ * the cover to its intrinsic size and pushes the transport off the screen —
+ * exactly the regression the portrait pin caught.
+ */
+@Composable
+private fun ColumnScope.PlayerArtworkPane(
+    // The artwork accent (or the brand primary before a cover loads) — the
+    // glow behind the cover is tinted with it, so the pane cannot resolve it.
+    tint: Color,
+    book: AudiobookEntity,
+    playerNarrator: String,
+    currentChapterTitle: String,
+    playerContextDescription: String,
+    artworkAspect: Float,
+    onArtworkLoaded: (Drawable) -> Unit,
+    playerContextFocusRequester: FocusRequester,
+    largeFont: Boolean,
+    slotWeight: Float
+) {
+    val slotModifier: Modifier = if (largeFont) {
+        Modifier.height(208.dp)
+    } else {
+        Modifier.weight(slotWeight)
+    }
+    // The cover absorbs the leftover vertical space (weight slot).
+    // Issue #385: розмір обкладинки рахується напряму від живої
+    // висоти слота (BoxWithConstraints дає її в dp), а не через
+    // .aspectRatio() після fillMaxWidth — той вимірюється від
+    // ШИРИНИ і, коли жоден candidate не вміщується в обмеження,
+    // падає в fallback, який ігнорує і heightIn, і weight-частку:
+    // з'являється рядок «Завантаження» (#381) →
+    // слот стискається, а обкладинка лишається w/ratio заввишки й
+    // «випадає» за нижню межу слота поверх заголовка (Compose не
+    // кліпує сусідів). У спокійному стані виходить той самий
+    // w/ratio, що й раніше; у стиснутому — висота слота зі
+    // збереженням пропорцій.
+    BoxWithConstraints(
+        modifier = slotModifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        // Soft glow behind the cover — tinted with the artwork accent
+        // (or the brand accent before the cover loads) so the shadow
+        // hue matches the scene instead of reading as flat black.
+        // Sized and painted in dp so the falloff is density-stable.
+        val glowRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 300.dp.toPx() }
+        // The glow mirrors the cover's (real) aspect ratio instead
+        // of a hard-coded square, so the halo hugs the artwork.
+        val coverAspect = artworkAspect.coerceIn(0.6f, 1.6f)
+        val glowWidth = maxWidth * 0.9f
+        Box(
+            modifier = Modifier
+                .size(width = glowWidth, height = glowWidth / coverAspect)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            tint.copy(alpha = 0.28f),
+                            tint.copy(alpha = 0.08f),
+                            Color.Transparent
+                        ),
+                        radius = glowRadiusPx
+                    )
+                )
+        )
+        // Cover width keeps the old widthIn(272.dp) + fillMaxWidth(0.76f)
+        // result; the height is w/ratio while it fits the slot and
+        // clamps to the slot (ratio kept) when the loading status
+        // squeezes the column — so the artwork can never
+        // outgrow its slot into the title.
+        val coverWidth = (272.dp).coerceAtMost(maxWidth) * 0.76f
+        val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
+        Surface(
+            shape = RoundedCornerShape(AppDimens.RadiusHero),
+            tonalElevation = 1.dp,
+            shadowElevation = 6.dp,
+            // Test seam: the tight-viewport snapshot measures the
+            // cover to pin that it shrinks while keeping its aspect
+            // ratio (spec-24 T6) — and, since #385, that it stays
+            // inside its slot.
+            modifier = Modifier
+                .size(width = coverHeight * coverAspect, height = coverHeight)
+                .testTag("player_cover")
+        ) {
+            BookCoverImage(
+                book = book,
+                semantics = BookCoverSemantics.Decorative,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                onImageLoaded = onArtworkLoaded
+            )
+        }
+    }
+
+    Spacer(Modifier.height(AppDimens.SpaceSm))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("player_context")
+            .focusRequester(playerContextFocusRequester)
+            .focusable()
+            .clearAndSetSemantics {
+                contentDescription = playerContextDescription
+                heading()
+            },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = book.title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = if (largeFont) 3 else 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(AppDimens.SpaceXs))
+        Text(
+            text = book.displayAuthor,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = if (largeFont) 2 else 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        // Spec-20 T2: narrator renders only when real — the fabricated
+        // "4read Voice Narrator" placeholder is scrubbed away. The
+        // real narrator lands once the book page fetch back-fills it.
+        if (playerNarrator.isNotBlank()) {
+            Text(
+                text = stringResource(R.string.player_narrated_by, playerNarrator),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (largeFont) 2 else 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.height(AppDimens.SpaceSm))
+        Text(
+            text = currentChapterTitle,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = if (largeFont) 2 else 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

@@ -21,7 +21,6 @@ data class BookDetailPresentation(
     val seriesTitle: String?,
     val seriesUrl: String?,
     val seriesIndex: Int?,
-    val sourceHeading: String,
     val sources: List<BookDetailSourcePresentation>,
     val combinedAverage: CombinedAverageResult?
 )
@@ -89,11 +88,6 @@ fun bookDetailPresentation(
         seriesTitle = book.seriesTitle,
         seriesUrl = book.seriesUrl,
         seriesIndex = book.seriesIndex,
-        sourceHeading = when (sources.size) {
-            0 -> ""
-            1 -> "Джерело"
-            else -> "Джерела"
-        },
         sources = sources,
         combinedAverage = CombinedAverage.average(
             sourceRatings = sourceProfiles.map { it.rating },

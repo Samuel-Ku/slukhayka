@@ -251,6 +251,43 @@
         <item quantity="many">Ще %1$d відгуків приховано вами — вони ураховані в середній</item>
         <item quantity="other">Ще %1$d відгуків приховано вами — вони ураховані в середній</item>
     </plurals>
+    <!-- v1.4 E4 / spec-46 T11 (#572): the book-page chrome that used to be
+         hardcoded Ukrainian. EN twins must stay Cyrillic-free (US18). -->
+    <string name="book_detail_accent_book">книгу</string>
+    <string name="book_detail_author_label">Автор: %1$s</string>
+    <string name="book_detail_narrator_label">Озвучує: %1$s</string>
+    <string name="book_detail_unknown_narrator">Невідомий читач</string>
+    <string name="book_detail_more_actions">Інші дії</string>
+    <string name="book_detail_add_to_collection">Додати до добірки</string>
+    <string name="book_detail_chapters_tab">Розділи (%1$d)</string>
+    <string name="book_detail_bookmarks_tab">Закладки (%1$d)</string>
+    <string name="book_detail_bookmark_note_at">На %1$s: %2$s</string>
+    <string name="book_detail_series_pill">«%1$s»</string>
+    <string name="book_detail_series_pill_index">«%1$s» • Кн. %2$d</string>
+    <string name="book_detail_universe_line">Всесвіт: «%1$s»</string>
+    <string name="book_detail_source_rating">Оцінка джерела: ★ %1$s</string>
+    <string name="book_detail_source_narrator">Озвучує за даними джерела: %1$s</string>
+    <string name="book_detail_source_genres">Жанри за даними джерела: %1$s</string>
+    <string name="book_detail_source_description">Інший опис від джерела: %1$s</string>
+    <plurals name="book_detail_rating_sources">
+        <item quantity="one">джерела і слухачі · %1$d оцінка</item>
+        <item quantity="few">джерела і слухачі · %1$d оцінки</item>
+        <item quantity="many">джерела і слухачі · %1$d оцінок</item>
+        <item quantity="other">джерела і слухачі · %1$d оцінок</item>
+    </plurals>
+    <string name="book_detail_reviews_empty">Ще немає відгуків — станьте першим</string>
+    <string name="book_detail_narration_rating_delete_pane">Видалення оцінки начитки</string>
+    <string name="book_detail_narration_rating_delete_title">Видалити оцінку начитки?</string>
+    <string name="book_detail_narration_rating_delete_body">Ваші зірки біля «%1$s» буде прибрано з цієї сторінки.</string>
+    <string name="book_detail_source_heading_one">Джерело</string>
+    <string name="book_detail_source_heading_many">Джерела</string>
+    <string name="book_detail_review_edit_action">Змінити</string>
+    <string name="book_detail_review_pending_sync">надішлемо при мережі</string>
+    <string name="book_detail_review_rate_narration">Оцінити начитку</string>
+    <string name="book_detail_review_narration_tag">Начитка: %1$s</string>
+    <string name="book_detail_review_edition_line">Начитка:</string>
+    <string name="book_detail_review_edition_none">Не вказувати</string>
+    <string name="book_detail_visitor_comments">Коментарі відвідувачів %1$s</string>
 
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Автори</string>

@@ -2,9 +2,7 @@ package com.slukhayka.audiobooks.ui.screens.collections
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -15,10 +13,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import java.util.Locale
 
 /** One curated collection as the book page shows it. */
@@ -54,14 +51,11 @@ fun CollectionsWithBookBlock(
             .fillMaxWidth()
             .testTag("collections_with_book_block")
     ) {
-        Text(
-            text = stringResource(R.string.collection_with_book_title),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier
-                .padding(horizontal = 16.dp)
-                .semantics { heading() }
-        )
-        Spacer(Modifier.height(8.dp))
+        // v1.4 E4 / spec-46 T10 (#571, ADR-0033): the block's title is the
+        // book page's «Добірки з цією книгою» section header — it renders
+        // through the canonical AppSectionHeader like the page's other five
+        // sections, not as its own `Text(titleMedium)` + heading().
+        AppSectionHeader(title = stringResource(R.string.collection_with_book_title))
         rows.forEach { row ->
             Column(
                 modifier = Modifier

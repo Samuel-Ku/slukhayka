@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
@@ -177,7 +178,8 @@ class UiSurfaceAuditTest {
                             SettingsDestination.ContentLanguages, SettingsDestination.AppLocale)
                         for (route in routes) {
                             rule.onNodeWithTag("settings_${route.name}").performScrollTo()
-                                .assertIsDisplayed().assertHeightIsAtLeast(24.dp).performTouchInput { click() }
+                                .assertTouchTarget("scene=$name fontScale=$fontScale tag=settings_${route.name}")
+                                .performTouchInput { click() }
                         }
                         rule.waitForIdle()
                         assertEquals(routes, openedSettings)
@@ -187,11 +189,18 @@ class UiSurfaceAuditTest {
                         val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply {
                             setLocale(Locale.forLanguageTag(locale))
                         })
-                        for (res in listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_settings)) {
+                        // #956: AppBottomBar renders exactly four destinations —
+                        // LISTEN / EXPLORE / LIBRARY / FRIENDS (MainActivity.kt).
+                        // «Налаштування» left the bar in #860, so expecting
+                        // nav_settings here made the audit unpassable by
+                        // construction and aborted the fontScale = 2f pass.
+                        val labels = listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_friends)
+                        for (res in labels) {
+                            val label = context.getString(res)
                             val layouts = mutableListOf<TextLayoutResult>()
-                            rule.onNodeWithText(context.getString(res), useUnmergedTree = true)
+                            rule.onNodeWithText(label, useUnmergedTree = true)
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                            assertTrue("Clipped navigation label", !layouts.single().hasVisualOverflow)
+                            assertTrue("scene=$name fontScale=$fontScale label='$label': clipped navigation label", !layouts.single().hasVisualOverflow)
                         }
                     }
                     if (name == "book") {
@@ -206,19 +215,22 @@ class UiSurfaceAuditTest {
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                             assertTrue("Clipped person name", !layouts.single().hasVisualOverflow)
                         }
-                        rule.onNodeWithTag("book_detail_series_pill").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+                        rule.onNodeWithTag("book_detail_series_pill").performScrollTo()
+                            .assertTouchTarget("scene=$name fontScale=$fontScale tag=book_detail_series_pill")
                         screenshot("555-$locale-long-series-$fontScale.png")
                         for (tag in listOf("play_book_button", "download_offline_button", "bookmark_button")) {
-                            rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+                            rule.onNodeWithTag(tag).performScrollTo()
+                                .assertTouchTarget("scene=$name fontScale=$fontScale tag=$tag")
                         }
                         rule.onAllNodesWithText("4read").assertCountEquals(1)
                         screenshot("550-$locale-book-actions-$fontScale.png")
                     }
                     if (name == "catalog_empty") {
                         for (tag in listOf("catalog_empty_refresh", "catalog_empty_import")) {
-                            val node = rule.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+                            val node = rule.onNodeWithTag(tag)
+                                .assertTouchTarget("scene=$name fontScale=$fontScale tag=$tag")
                             val height = node.fetchSemanticsNode().boundsInRoot.height / rule.activity.resources.displayMetrics.density
-                            assertTrue("Stretched $tag: $height dp", height <= 120)
+                            assertTrue("scene=$name fontScale=$fontScale tag=$tag stretched: $height dp", height <= 120)
                         }
                     }
                     if (name == "library_filters") {
@@ -233,7 +245,8 @@ class UiSurfaceAuditTest {
                         for (tag in listOf("player_retry", "player_find_another_source")) {
                             val node = rule.onNodeWithTag(tag)
                             if (fontScale == 2f) node.performScrollTo()
-                            node.assertIsDisplayed().assertHeightIsAtLeast(24.dp).performTouchInput { click() }
+                            node.assertTouchTarget("scene=$name fontScale=$fontScale tag=$tag")
+                                .performTouchInput { click() }
                         }
                         rule.waitForIdle()
                         assertEquals(beforeRetries + 1, retries)
@@ -243,6 +256,19 @@ class UiSurfaceAuditTest {
             }
         }
     }
+
+    /**
+     * #852 AC3 — a touch-target failure must name the audited state and the tag,
+     * so the surface that shrank is identifiable from the assertion text alone.
+     * Compose 1.8's [assertIsDisplayed] / [assertHeightIsAtLeast] take no
+     * message hook, hence the rethrow with [where] prepended.
+     */
+    private fun SemanticsNodeInteraction.assertTouchTarget(where: String, minHeight: Dp = 24.dp): SemanticsNodeInteraction =
+        try {
+            assertIsDisplayed().assertHeightIsAtLeast(minHeight)
+        } catch (error: AssertionError) {
+            throw AssertionError("$where — ${error.message}", error)
+        }
 
     private fun screenshot(name: String) {
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()

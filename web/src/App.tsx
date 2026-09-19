@@ -23,6 +23,9 @@ import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
 import { ProgressSyncController } from './sync/controller'
 import { FirestoreNarrationRatingsStore, FirestoreReviewsStore } from './reviews/store'
+// spec-51 (#697, T9) — the shared listener-collections reader; null without a
+// Firebase config, so every collection surface is honestly absent.
+import { FirestoreCollectionsStore } from './collections/store'
 import { WorkRelationshipController } from './sync/workRelationshipController'
 import { FirestoreWorkRelationshipStore } from './sync/workRelationshipStore'
 import { PersonBookmarkSyncController, LocalPendingPersonBookmarkDeletes } from './sync/personBookmarkController'
@@ -115,6 +118,12 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   const reviewsStore = useMemo(() => (firestore ? new FirestoreReviewsStore(firestore) : null), [firestore])
   const narrationRatingsStore = useMemo(
     () => (firestore ? new FirestoreNarrationRatingsStore(firestore) : null),
+    [firestore],
+  )
+  // spec-51 (#697) — same gate as the reviews block: no Firebase config → no
+  // block, no rail, no collection screen (never a fake empty community).
+  const collectionsStore = useMemo(
+    () => (firestore ? new FirestoreCollectionsStore(firestore) : null),
     [firestore],
   )
 
@@ -309,6 +318,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             profile={profile}
             reviewsStore={reviewsStore}
             narrationRatingsStore={narrationRatingsStore}
+            collectionsStore={collectionsStore}
             domainStore={domainStore}
             personBookmarks={personBookmarks}
           />
@@ -323,6 +333,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             listening={idbStore}
             prefsStore={listenPrefsStore}
             recommendationPrefs={recommendationPrefsStore}
+            collectionsStore={collectionsStore}
           />
         ) : tab === 'explore' ? (
           <Catalog

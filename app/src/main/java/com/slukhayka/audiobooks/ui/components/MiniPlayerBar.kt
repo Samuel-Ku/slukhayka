@@ -9,24 +9,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -35,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-import kotlinx.coroutines.launch
 
 /**
  * How much of the bar's width a leftward swipe must cover to close the player.
@@ -53,13 +53,16 @@ fun MiniPlayerBar(
     onSkipNextClick: () -> Unit,
     onBarClick: () -> Unit,
     // Closing the player: the bar leaves the screen and the host pauses
-    // playback. Deliberately two doors to the same room — this button and a
-    // leftward swipe — because a gesture alone is invisible to TalkBack.
+    // playback. Issue #808 draws no cross here — a fifth 48 dp target would
+    // squeeze the title — so the gesture is the visible door and the same
+    // action is exposed to TalkBack as a custom action on the summary node
+    // below. Both paths run through onCloseClick.
     onCloseClick: () -> Unit,
     modifier: Modifier = Modifier,
-    // ADR-0024 (#362): the second (and last) home of the cast affordance —
-    // the same shared tool as on the player screen, never a duplicate.
-    castReady: Boolean = false,
+    // Issue #808: previous chapter is one of the bar's three transport
+    // controls. It replaces the cast affordance, which now lives only on the
+    // full player — the bar is about this chapter, not about devices.
+    onPreviousClick: () -> Unit = {},
     viewedBookId: String? = null
 ) {
     val book = playerState.currentBook ?: return
@@ -80,13 +83,12 @@ fun MiniPlayerBar(
     ).joinToString(". ")
     val closeDescription = stringResource(R.string.a11y_mini_player_close)
 
-    // The button and the gesture share one dismissal state, so the bar always
-    // leaves the same way: it slides out to the left, then the host takes it
-    // away (and pauses playback).
+    // Issue #808: one dismissal state behind every way out — the leftward
+    // swipe and the TalkBack custom action on the summary node below. The bar
+    // slides out to the left, then the host takes it away (and pauses playback).
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { distance -> distance * MiniPlayerDismissWidthFraction }
     )
-    val scope = rememberCoroutineScope()
     LaunchedEffect(dismissState.currentValue) {
         if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) onCloseClick()
     }
@@ -139,7 +141,15 @@ fun MiniPlayerBar(
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = AppDimens.TouchTarget)
-                            .semantics { stateDescription = summaryState }
+                            .semantics {
+                                stateDescription = summaryState
+                                // Issue #808: the bar has no cross, so TalkBack
+                                // — which cannot perform the swipe — gets the
+                                // same close through the actions menu.
+                                customActions = listOf(
+                                    CustomAccessibilityAction(closeDescription) { onCloseClick(); true }
+                                )
+                            }
                             .clickable(role = Role.Button, onClick = onBarClick)
                             .testTag("mini_player_summary"),
                         verticalAlignment = Alignment.CenterVertically
@@ -160,7 +170,9 @@ fun MiniPlayerBar(
                                 Text(
                                     text = book.title,
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    maxLines = 2,
+                                    // Issue #808: one line, not two — the bar's
+                                    // height no longer jumps between books.
+                                    maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     // The control row is full at 360 dp; the
@@ -195,8 +207,24 @@ fun MiniPlayerBar(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // ADR-0024 (#362): cast affordance in the mini-player too.
-                    CastButton(castReady = castReady)
+                    // Issue #808: three transport controls — previous chapter,
+                    // play/pause, next chapter. The bar has no cast button (the
+                    // full player owns it) and no cross (the swipe closes it),
+                    // so the row stays at four 48 dp targets and the title keeps
+                    // real room at 360 dp.
+                    IconButton(
+                        onClick = onPreviousClick,
+                        modifier = Modifier
+                            .size(AppDimens.TouchTarget)
+                            .testTag("mini_player_previous")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = stringResource(R.string.a11y_previous_chapter_work, book.title),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
 
                     // Play/Pause Button
                     IconButton(
@@ -231,25 +259,6 @@ fun MiniPlayerBar(
                             contentDescription = stringResource(R.string.a11y_next_chapter_work, book.title),
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    // Close: the way out of the player. Issue #752's -15 s step
-                    // deliberately does NOT get a twin here — a fifth 48 dp
-                    // target would leave the book title a few dp wide, and the
-                    // full player and the widget both carry the seek step.
-                    IconButton(
-                        onClick = { scope.launch { dismissState.dismiss(SwipeToDismissBoxValue.EndToStart) } },
-                        modifier = Modifier
-                            .size(AppDimens.TouchTarget)
-                            .semantics { contentDescription = closeDescription }
-                            .testTag("mini_player_close")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }

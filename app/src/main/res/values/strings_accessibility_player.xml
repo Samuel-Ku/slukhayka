@@ -1,7 +1,8 @@
 <resources>
     <string name="a11y_player_close">Згорнути програвач</string>
     <!-- Міні-плеєр: «згорнути» (стрілка вниз у повному плеєрі) і «закрити»
-         (хрестик у барі) — різні дії, тому й різні тексти. -->
+         (свайп вліво по бару та однойменна дія для TalkBack) — різні дії,
+         тому й різні тексти. -->
     <string name="a11y_mini_player_close">Закрити програвач</string>
     <string name="a11y_player_actions">Дії з аудіокнигою %1$s</string>
     <string name="a11y_player_context">%1$s. Автор: %2$s. %3$s Поточний розділ: %4$s</string>

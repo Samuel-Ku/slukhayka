@@ -248,6 +248,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
     /**
+     * ADR-0053 / #854 — one manual tracked Work: title + author only. The
+     * result is handed back so the surface can say WHY it refused (no
+     * identity, a tombstoned Work) instead of failing silently.
+     */
+    suspend fun addTrackedWork(
+        title: String,
+        author: String
+    ): com.slukhayka.audiobooks.data.entries.TrackedWorks.Result =
+        runCatching { App.instance.trackedWorks.ensureTrackedWork(title, author) }
+            .getOrElse {
+                com.slukhayka.audiobooks.data.entries.TrackedWorks.Result.Refused(
+                    com.slukhayka.audiobooks.data.entries.TrackedWorkPolicy.REASON_NO_IDENTITY
+                )
+            }
+
+    /**
      * #876 — «Мій рік»: the yearly reading goal, computed by the pure policy
      * from every pass. Formats are reported separately: their units cannot be
      * summed, and the goal counts PASSES, not pages or minutes.

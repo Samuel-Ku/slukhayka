@@ -1009,6 +1009,12 @@ fun LibraryScreen(
                     manualAddOpen = false
                     scope.launch { viewModel.addManualBook(request) }
                 },
+                // ADR-0053 / #854 — the tracked Work: the listener's title and
+                // author, no audio yet; the card lands in Медіатека at once.
+                onAddTracked = { title, author ->
+                    manualAddOpen = false
+                    scope.launch { viewModel.addTrackedWork(title, author) }
+                },
                 onDismiss = { manualAddOpen = false }
             )
         }

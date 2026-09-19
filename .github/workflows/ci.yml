@@ -396,6 +396,45 @@ jobs:
         env:
           FAIL_ON_NO_GO: "true"
 
+  # #943 (part 2): the web tree had no CI surface at all. Web parity (v1.15)
+  # merged 6+ slices on author discipline alone, and a red `tsc` sat on main
+  # making every web PR re-litigate "are these my errors?". Nothing below the
+  # web/ directory needs the JDK or the Android SDK, so this job is a plain
+  # Node run. It is deliberately NOT folded into the Kover aggregate gate:
+  # that gate merges Android coverage binaries, and web produces none. It
+  # reports its own check, so whether a red web blocks a merge is decided by
+  # the repository's required-checks configuration, not by this file.
+  web:
+    name: Web typecheck and vitest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: timing-start
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          # npm ci pins the tree to web/package-lock.json, so warming the npm
+          # store only skips downloads — it can never mask a stale lockfile.
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: Run vitest
+        working-directory: web
+        run: npx vitest run
+
   # Back on PRs (2026-09): the journey failed 6/6 and was made push-only to
   # stop a constant red mark on pull requests. The cause is fixed — the 40dp
   # author/narrator touch targets (an -8dp row overlap clipping them) and the

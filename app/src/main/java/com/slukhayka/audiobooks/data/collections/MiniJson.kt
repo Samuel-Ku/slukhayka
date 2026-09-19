@@ -6,8 +6,12 @@ package com.slukhayka.audiobooks.data.collections
  * adapters follow).
  *
  * Understands objects (→ [Map]), arrays (→ [List]), strings with standard
- * escapes incl. `\uXXXX` (→ [String]), numbers (→ [Double]) and
- * booleans/`null`. Returns `null` on any malformed input. Shared by the
+ * escapes incl. `\uXXXX` (→ [String]), numbers (→ [Double]) and booleans.
+ * A literal `null` is this parser's one blind spot — `parseValue` returns
+ * `null` for it exactly as for malformed input, so [parse] rejects a whole
+ * document that carries one; [parseLenient] drops `"key": null` pairs first
+ * for the callers whose real payloads have them. Returns `null` on any
+ * malformed input. Shared by the
  * strict asset decoder ([CollectionJson]) and the live-list sources
  * ([com.slukhayka.audiobooks.data.collections.LiveCollectionSource] implementations such
  * as [OpenLibraryTrendingSource]). Public so the sibling universe module
@@ -22,6 +26,46 @@ object MiniJson {
         val value = parser.parseValue() ?: return null
         if (parser.skipWs() != -1) return null // trailing junk
         return value
+    }
+
+    /**
+     * [parse] after dropping `"key": null` pairs — the workaround for this
+     * decoder's ONE limitation: [Parser.parseValue] returns `null` for both a
+     * literal JSON `null` and a parse failure, so a document carrying nulls
+     * would otherwise decode to nothing. Real documents do carry them (Open
+     * Library work/edition responses are full of `"covers": null`; yt-dlp
+     * emits `"acodec": null`), and every caller's field reads treat an ABSENT
+     * field exactly like a null one — so the strip loses nothing usable.
+     */
+    fun parseLenient(text: String): Any? = parse(stripNullFields(text))
+
+    /**
+     * Drops `"key": null` pairs from one JSON document. Three regex passes
+     * cover pair-with-trailing-comma, pair-with-leading-comma and a lone last
+     * pair, repeated until stable (a pair once stripped may leave a new
+     * leading-comma neighbour); a `: null` inside a quoted STRING value is
+     * never matched, because the value there is quoted rather than a bare
+     * `null`. Lived in `YtDlpStreamExtractor` before; the ONE decoder now owns
+     * its own workaround and that adapter delegates here.
+     */
+    fun stripNullFields(json: String): String {
+        val nullField = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
+        val trailingComma = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null\\s*,")
+        val leadingComma = Regex(",\\s*\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
+        val lone = nullField
+        var text = json
+        var changed = true
+        while (changed) {
+            changed = false
+            val a = trailingComma.replace(text, "")
+            val b = leadingComma.replace(a, "")
+            val c = lone.replace(b, "")
+            if (c != text) {
+                text = c
+                changed = true
+            }
+        }
+        return text
     }
 
     private class Parser(private val input: String) {

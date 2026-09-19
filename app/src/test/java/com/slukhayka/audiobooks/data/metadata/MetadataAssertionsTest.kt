@@ -105,6 +105,24 @@ class MetadataAssertionsTest {
     }
 
     @Test
+    fun `title normalization decodes an HTML entity and keeps a clean title`() {
+        // #964 — the ONE write-path title seam is where a source's rendered
+        // entity has to become text; a stored row written before the rule
+        // existed is repaired by StoredMetadataScrub through this same rule.
+        assertEquals("Ім'я тіні", MetadataAssertions.normalizeTitle("Ім&#x27;я тіні", "Айя Нея"))
+        assertEquals("Дев'ятко", MetadataAssertions.normalizeTitle("Дев&#039;ятко", "Наталія"))
+        assertEquals(
+            "Тіні забутих предків",
+            MetadataAssertions.normalizeTitle("Тіні забутих предків - аудіокнига слухати онлайн")
+        )
+        // Boundary: no entity — the claim is returned untouched.
+        val clean = "Айя Нея — Ім'я тіні"
+        assertEquals(clean, MetadataAssertions.normalizeTitle(clean, "Айя Нея"))
+        // An unknown entity is never guessed into a character.
+        assertEquals("Світ &foo; тіні", MetadataAssertions.normalizeTitle("Світ &foo; тіні"))
+    }
+
+    @Test
     fun `title scrub cuts the plural site-brand suffix`() {
         // Spec-27 (#184) BUG-002: «АудіоКниги Українською» is the site brand
         // 4read appends to its raw page <title>. The plural form the site

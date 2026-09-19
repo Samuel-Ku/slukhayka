@@ -126,6 +126,25 @@ class ChytayloAdapterTest {
     }
 
     @Test
+    fun `listing decodes the hex entity React renders in a title`() = runBlocking {
+        // #964 — the live listing is a React server-rendered page, so an
+        // apostrophe arrives as `&#x27;`. Left undecoded it became BOTH the
+        // visible title «Ім&#x27;я тіні» and a merge key distinct from the
+        // book page's JSON-LD title «Ім'я тіні» — one Work, two rows.
+        val encodedTitle = "Ім&#x27;я тіні"
+        val page = """
+            <article class="group min-w-0"><div class="relative overflow-hidden rounded-[24px]"><a class="block" href="/books/imya-tini"><img alt="Ім'я тіні" src="/api/uploads/cover.webp"/></a></div><div class="px-1 pt-3"><a class="block" href="/books/imya-tini"><div class="line-clamp-2 text-[1rem] font-extrabold leading-[1.2] text-[#2F2F2F]">$encodedTitle</div><div class="mt-1 line-clamp-2 text-sm font-medium leading-[1.35] text-[#7B766D]">Айя Нея</div></a></div></article>
+        """.trimIndent()
+        val adapter = ChytayloAdapter(FakeFetcher(mapOf(listingUrl to page)))
+
+        val books = adapter.fetchNew(limit = 10)
+
+        assertEquals(1, books.size)
+        assertEquals("Ім'я тіні", books[0].title)
+        assertEquals("Айя Нея", books[0].author)
+    }
+
+    @Test
     fun `non-listing articles never become cards`() = runBlocking {
         // The «Схожі книги»-shaped article carries a /books/ link but not the
         // listing card signature — it must stay invisible to the catalogue.

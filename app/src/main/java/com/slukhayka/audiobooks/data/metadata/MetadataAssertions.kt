@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.metadata
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import com.slukhayka.audiobooks.data.source.decodeEntities
 
 /**
  * ADR-0004 — the ONE place Metadata Assertions from sources are applied to
@@ -144,7 +145,13 @@ object MetadataAssertions {
      * blank title. Idempotent: a second application matches nothing.
      */
     fun normalizeTitle(claimed: String?, author: String? = null): String {
-        val original = claimed?.trim().orEmpty()
+        // #964 — the source's rendered entity is part of the CLAIM, not chrome:
+        // it must become text here, at the ONE write-path seam. A stored row
+        // written before this rule existed is repaired by StoredMetadataScrub,
+        // which runs this same rule over every stored title. (The merge key is
+        // still computed from the raw claim upstream — that is why the decoder
+        // also has to run inside the source parsers before the key is formed.)
+        val original = decodeEntities(claimed?.trim().orEmpty())
         var title = original
         // Emoji anywhere, then a leading «Аудіокнига» prefix, then the curated
         // trailing phrases. Each pass is idempotent and never blanks.

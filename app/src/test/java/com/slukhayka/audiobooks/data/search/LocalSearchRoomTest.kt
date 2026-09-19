@@ -190,8 +190,46 @@ class LocalSearchRoomTest {
         assertEquals(3, unfiltered.size)
         assertTrue(unfiltered.all { it.language == "en" })
 
-        val ukOnly = catalog(SilentAdapter("t1"), selection = setOf("uk")).searchAllSources("oxford")
+        // Under a uk selection every local row is hidden, so the answer is thin
+        // and the live leg runs (#824 order: FTS → language filter → gather).
+        // The live leg answers empty here — the surface stays honestly empty.
+        val ukOnly = catalog(LiveAdapter("t1", emptyList()), selection = setOf("uk"))
+            .searchAllSources("oxford")
         assertTrue(ukOnly.isEmpty())
+    }
+
+    @Test
+    fun `hidden-language local rows never satisfy sufficiency so live fills the gap`() = runBlocking {
+        // Three indexed en works — enough rows to look "sufficient", but none of
+        // them is visible to a uk-only listener, so they must not suppress the
+        // live gather (ticket #824: FTS → language filter → live <3).
+        write("t1", "Oxford Tales", "Author E", "https://t1.example/ox", language = "en")
+        write("t1", "Oxford Echoes", "Author F", "https://t1.example/ox2", language = "en")
+        write("t1", "Oxford Nights", "Author G", "https://t1.example/ox3", language = "en")
+        val live = listOf(book("Oxford Ukrainian", "Автор У", "https://t1.example/ox-uk"))
+
+        val cards = catalog(LiveAdapter("t1", live), selection = setOf("uk"))
+            .searchAllSources("oxford")
+
+        assertEquals(1, cards.size)
+        assertEquals("Oxford Ukrainian", cards.single().title)
+        assertTrue(cards.single().sources.all { it.language == "uk" })
+        // The live hit mirrored into the index, so the next uk query answers
+        // locally instead of firing the same volley again.
+        val mirrored = dao.matchWorkSearch(SearchIndexNormalize.matchQuery("oxford")!!, 50)
+        assertTrue(mirrored.contains(MergeKey.keyFor("Oxford Ukrainian", "Автор У")))
+    }
+
+    @Test
+    fun `sufficient language-visible local answer still fires zero requests`() = runBlocking {
+        write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/kobzar", language = "uk")
+        write("t2", "Кобза", "Автор А", "https://t2.example/kobza", language = "uk")
+        write("t3", "Кобзареві думи", "Автор Б", "https://t3.example/dumy", language = "uk")
+
+        val cards = catalog(SilentAdapter("t1"), SilentAdapter("t2"), selection = setOf("uk"))
+            .searchAllSources("кобз")
+
+        assertEquals(3, cards.size)
     }
 
     @Test

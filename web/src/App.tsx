@@ -5,7 +5,7 @@ import { Listen } from './ui/Listen'
 import { Library } from './ui/Library'
 import { Settings } from './ui/Settings'
 import { BookPage } from './ui/BookPage'
-import { AudioEngine } from './player/audioEngine'
+import { AudioEngine, type PlayIntent } from './player/audioEngine'
 import { MiniPlayer } from './ui/MiniPlayer'
 import { PlayerSheet } from './ui/PlayerSheet'
 import type { BookDetail, SourceId, UnifiedEdition, UnifiedWork } from './worker/types'
@@ -228,7 +228,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   // SAME review form the book page uses (the AC's single entry — no second
   // buttons anywhere).
   const lastPlayedRef = useRef<{ title: string; author: string; narrator?: string; language?: string; url: string } | null>(null)
-  const handlePlay = async (detail: BookDetail, chapterIndex: number): Promise<boolean> => {
+  const handlePlay = async (detail: BookDetail, chapterIndex: number, intent?: PlayIntent): Promise<boolean> => {
     lastPlayedRef.current = {
       title: detail.title,
       author: detail.author,
@@ -254,6 +254,10 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
     const playing = await engine.loadBookAndAwaitPlaying(
       { title: detail.title, chapters: detail.chapters, editionId, workId: mergeKey },
       chapterIndex,
+      undefined,
+      // #611 — a Chapter row is an explicit pick that starts there from zero;
+      // a card's Play (no intent) resumes this Edition's Listening State.
+      { forceChapter: intent?.explicitChapter === true },
     )
     if (playing) setPlayerOpen(true)
     return playing

@@ -31,6 +31,26 @@ import { OfflineAudioPrimer } from '../offline/primer'
  */
 export const AUTO_BOOKMARK_NOTE = 'Авто-закладка (Таймер сну)'
 
+/**
+ * #611 — how a «Play» was expressed. The catalogue card's Play carries the
+ * default `resume` intent: continue this Edition's Listening State. A
+ * Chapter row carries `explicitChapter: true`, meaning «start THIS Chapter
+ * from zero». The distinction lives at the interface boundary so no caller
+ * has to reconstruct it from the chapter index (0 is both «first Chapter»
+ * and «the default one a card passes»).
+ */
+export interface PlayIntent {
+  explicitChapter?: boolean
+}
+
+/** The AudioEngine's per-load options, derived from a `PlayIntent`. */
+export interface LoadOptions {
+  /** Explicit Chapter pick — never read the saved position for the start. */
+  forceChapter?: boolean
+  /** Explicit start position in seconds (a bookmark jump); ignored for resume. */
+  startPositionSeconds?: number
+}
+
 export interface AudioEngineOptions {
   relayBase?: string
   storage?: StorageLike
@@ -110,8 +130,16 @@ export class AudioEngine {
   async loadBook(
     detail: { title: string; chapters: Chapter[]; editionId?: string; workId?: string },
     startChapter = 0,
-    opts: { forceChapter?: boolean; startPositionSeconds?: number } = {},
-  ): Promise<void> {
+    opts: LoadOptions = {},
+  ): Promise<boolean> {
+    // #611 — the intent is decided BEFORE anything on the active audio is
+    // touched: an empty Edition and an explicit Chapter outside the list are
+    // honest refusals, never a silent replacement of what is playing.
+    const explicit = opts.forceChapter === true
+    if (detail.chapters.length === 0) return false
+    if (explicit && (!Number.isInteger(startChapter) || startChapter < 0 || startChapter >= detail.chapters.length)) {
+      return false
+    }
     this.bookTitle = detail.title
     this.chapters = detail.chapters
     this.editionId = detail.editionId ?? detail.title
@@ -124,13 +152,26 @@ export class AudioEngine {
         // degrade-never
       }
     }
-    let startPosition = opts.startPositionSeconds ?? 0
-    let chapterIndex = startChapter
-    // An explicit jump (bookmark, chapter pick) is the user's expressed
-    // intent — the saved state must not override it.
-    if (!opts.forceChapter) {
-      const saved = this.editionId ? this.store.load(this.editionId) : null
-      if (saved && saved.chapterIndex < detail.chapters.length) {
+    // Explicit Chapter jump (bookmark, chapter pick) is the user's expressed
+    // intent — it starts exactly there, at the given position or zero, and
+    // never consults the saved place. Resume keeps the caller's fallback
+    // Chapter for a listener with no history.
+    const fallbackChapter = Math.max(0, Math.min(startChapter, detail.chapters.length - 1))
+    let chapterIndex = explicit ? startChapter : fallbackChapter
+    let startPosition = explicit ? Math.max(0, opts.startPositionSeconds ?? 0) : 0
+    // The saved preferred speed belongs to the Edition, not to the place: only
+    // resume restores it, so a Chapter pick keeps the pace already in force.
+    const saved = explicit || !this.editionId ? null : this.store.load(this.editionId)
+    if (saved) {
+      if (saved.isCompleted) {
+        // A finished Edition plays again from the first Chapter — at zero,
+        // with the preferred speed kept (loading never resets it).
+        chapterIndex = 0
+        startPosition = 0
+      } else if (saved.chapterIndex < detail.chapters.length) {
+        // Smart Rewind is applied here and only here: once per resume, from
+        // the persisted pause marker. The engine's own in-session rewind
+        // cannot fire twice because a fresh load clears the pause marker.
         chapterIndex = saved.chapterIndex
         const pausedFor = saved.lastPausedAtEpochMs ? Date.now() - saved.lastPausedAtEpochMs : 0
         startPosition = pausedFor > 0 ? rewoundPositionMs(saved.positionSeconds, pausedFor) : saved.positionSeconds
@@ -141,6 +182,9 @@ export class AudioEngine {
       startPositionSeconds: startPosition,
       editionId: this.editionId,
     })
+    if (saved && typeof saved.preferredSpeed === 'number' && Number.isFinite(saved.preferredSpeed) && saved.preferredSpeed > 0) {
+      this.engine.setSpeed(saved.preferredSpeed)
+    }
     this.lastChapterIndex = chapterIndex
     this.syncAudioSrc()
     this.engine.play()
@@ -148,6 +192,7 @@ export class AudioEngine {
     this.startTicker()
     this.rearmSleepTimerForChapter()
     this.updateSession()
+    return true
   }
 
   /**
@@ -160,6 +205,7 @@ export class AudioEngine {
     detail: { title: string; chapters: Chapter[]; editionId?: string; workId?: string },
     startChapter = 0,
     timeoutMs = 8_000,
+    opts: LoadOptions = {},
   ): Promise<boolean> {
     const audio = this.audio
     if (!audio) return Promise.resolve(false)
@@ -181,7 +227,13 @@ export class AudioEngine {
       unsubscribe = this.subscribe((state) => {
         if (state.status === 'unavailable') finish(false)
       })
-      void this.loadBook(detail, startChapter).catch(() => finish(false))
+      // #611 — a refused load (empty Edition, explicit Chapter out of range)
+      // resolves honestly at once instead of waiting out the playing budget.
+      void this.loadBook(detail, startChapter, opts)
+        .then((accepted) => {
+          if (!accepted) finish(false)
+        })
+        .catch(() => finish(false))
     })
   }
 
@@ -233,17 +285,21 @@ export class AudioEngine {
   }
 
   /** W5.1 — a bookmark jump: the user's expressed intent, never overridden. */
-  jumpTo(chapterIndex: number, positionSeconds: number): void {
+  jumpTo(chapterIndex: number, positionSeconds: number): boolean {
+    // #611 — an explicit Chapter outside the loaded list is refused honestly
+    // rather than clamped onto a different Chapter and reported as success.
+    if (!Number.isInteger(chapterIndex) || chapterIndex < 0 || chapterIndex >= this.chapters.length) return false
     const s = this.engine.getState()
     if (s.chapterIndex === chapterIndex) {
       this.seek(positionSeconds)
-      return
+      return true
     }
     void this.loadBook(
       { title: this.bookTitle, chapters: this.chapters, editionId: this.editionId, workId: this.workId },
       chapterIndex,
       { forceChapter: true, startPositionSeconds: positionSeconds },
     )
+    return true
   }
 
   /** W5.1 — the loaded chapters, for the player's chapter list. */

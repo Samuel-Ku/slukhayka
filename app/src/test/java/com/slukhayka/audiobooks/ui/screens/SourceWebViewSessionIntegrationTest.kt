@@ -19,7 +19,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class SourceWebViewSessionIntegrationTest {
-    private val cookies get() = CookieManager.getInstance()
+    // #948 — Robolectric's CookieManager is NOT a stable singleton across calls.
+    // ShadowCookieManager keeps its store behind a static, and its @Resetter
+    // nulls that static; a later `getInstance()` therefore builds a DIFFERENT,
+    // empty RoboCookieManager. Measured on this class: ~1 run in 25, mid-method,
+    // exactly between a `setCookie` and the next `getInstance()` read — the write
+    // landed in `setStore=sluhay.com/challenge` while the read got `getStore=` on
+    // another instance hash. A getter that calls `getInstance()` per use (the
+    // old shape) therefore races its own fixture: the cookie is written into a
+    // store the assertion's read never sees, and the test fails at the first
+    // assertion with "browserOnly" — on PRs that do not touch cookies at all.
+    //
+    // Pin ONE manager per test instance so the write, the callback-free `flush`
+    // and every read below share one store. This is a fixture, not a weakened
+    // check: every assertion still runs, and the precondition is asserted
+    // explicitly instead of assumed.
+    private val cookies: CookieManager by lazy { CookieManager.getInstance() }
 
     @Before
     fun resetCookies() {
@@ -60,6 +75,13 @@ class SourceWebViewSessionIntegrationTest {
         val book = source("expired", "https://sluhay.com/books/expired")
         cookies.setCookie(book.url, "challenge=ready; Path=/books; Secure")
         cookies.flush()
+        // The write is a real state change, so prove the fixture's post-state
+        // before asserting on the policy built from it: a failure here means the
+        // cookie never became visible, not that the policy is wrong.
+        assertTrue(
+            "CookieManager не бачить щойно записаний кукі — фікстура не готова",
+            hasUsableSourceSession(cookies.getCookie(book.url).orEmpty())
+        )
         assertEquals(sessionThenBrowser, candidates(book))
 
         cookies.setCookie(book.url, "challenge=; Max-Age=0; Path=/books; Secure")

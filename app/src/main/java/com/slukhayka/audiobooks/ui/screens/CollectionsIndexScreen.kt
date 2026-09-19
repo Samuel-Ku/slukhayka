@@ -8,9 +8,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -39,7 +41,10 @@ fun CollectionsIndexScreen(
     // spec-28 (#202): the chrome is the shared index scaffold — title, back
     // arrow, insets and container colour live in one place; only the content
     // differs per screen.
-    IndexScreenScaffold(title = "Колекції", onBackClick = onBackClick) { padding ->
+    IndexScreenScaffold(
+        title = stringResource(R.string.collections_index_title),
+        onBackClick = onBackClick
+    ) { padding ->
         CollectionsIndexContent(
             collections = collections,
             onBookClick = onBookClick,
@@ -67,7 +72,7 @@ fun CollectionsIndexContent(
         // No matched collections: the shared index placeholder, never a crash
         // — the union may simply not have synced yet (spec-28 #202).
         IndexEmptyState(
-            message = "Колекції з'являться після завантаження каталогу.",
+            message = stringResource(R.string.collections_index_empty),
             modifier = modifier.testTag("collections_index_screen")
         )
         return

@@ -34,9 +34,11 @@ import org.robolectric.annotation.GraphicsMode
  * Pure `@Composable` inputs ([CollectionsIndexContent] is stateless) — no
  * `MainViewModel`.
  */
+// spec-46 T16 (#577): the placeholder message is a resource now, so the
+// locale is explicit — the pinned image is the app's default (uk-rUA).
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class CollectionsIndexSnapshotTest {
 
     @get:Rule

@@ -169,11 +169,20 @@ data class SelectedGenre(
     val url: String
 )
 
-/** Виконавці or Автори index (from the Explore "Каталог" chips row). */
+/**
+ * Виконавці or Автори index (from the Explore "Каталог" chips row).
+ *
+ * spec-46 T16 (#577): the discriminant is the [type], never the localized
+ * title. The chip label is chrome and lives in the resources, so comparing
+ * titles would silently break the moment the interface language changes.
+ */
 data class PeopleKind(
-    val title: String,
+    val type: PeopleKindType,
     val url: String
 )
+
+/** Which /people index a [PeopleKind] opens. */
+enum class PeopleKindType { NARRATORS, AUTHORS }
 
 /** One person (narrator/author) whose books list was opened. */
 data class SelectedPerson(

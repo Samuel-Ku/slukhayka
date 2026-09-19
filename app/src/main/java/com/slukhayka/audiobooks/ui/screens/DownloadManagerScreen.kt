@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -43,6 +45,7 @@ import com.slukhayka.audiobooks.data.downloads.DownloadQueue
 import com.slukhayka.audiobooks.data.downloads.DownloadQueueItem
 import com.slukhayka.audiobooks.data.downloads.DownloadQueueStatus
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.library.downloadMemorySummaryText
@@ -396,27 +399,23 @@ private fun DownloadQueueRow(
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
-/** The honest empty state: nothing is downloading and nothing is stored. */
+/**
+ * The honest empty state: nothing is downloading and nothing is stored.
+ *
+ * spec-46 T16 (#577): a thin wrapper over the canonical [EmptyState] (v1.4 C4,
+ * ADR-0033) — the hand-rolled title/body column is gone; the caller still
+ * supplies the full-size box, and the state stays vertically centred.
+ */
 @Composable
 fun DownloadQueueEmptyState(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .testTag("download_queue_empty")
-            .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    Box(
+        modifier = modifier.testTag("download_queue_empty"),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = stringResource(R.string.download_manager_empty_title),
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.download_manager_empty_body),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
+        EmptyState(
+            icon = Icons.Default.CloudDownload,
+            title = stringResource(R.string.download_manager_empty_title),
+            body = stringResource(R.string.download_manager_empty_body)
         )
     }
 }

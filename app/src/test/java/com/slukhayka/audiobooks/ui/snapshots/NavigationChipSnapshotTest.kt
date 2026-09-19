@@ -29,9 +29,13 @@ import org.robolectric.annotation.GraphicsMode
  * «перейти» form per ADR-0018 — and each chip forwards its tap. Stateless
  * pure-`@Composable` inputs, no `MainViewModel`.
  */
+// spec-46 T16 (#577): the chip labels are resources now, so the locale is
+// explicit — the app's default (uk-rUA) is what this row pins. Before the
+// migration it was the Robolectric default (en-US) and the assertions only
+// passed because the Ukrainian was hardcoded.
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class NavigationChipSnapshotTest {
 
     @get:Rule

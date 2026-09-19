@@ -51,6 +51,14 @@
     <string name="feed_similar_cycles">Similar cycles</string>
     <string name="feed_recommended_for_you">Recommended for you</string>
     <string name="feed_discover">Discover</string>
+    <!-- spec-46 T16 (#577): the Огляд quick-navigation rail and the Слухати
+         fresh-install empty state — English twins. -->
+    <string name="catalog_nav_rating">Rating</string>
+    <string name="people_narrators_title">Narrators</string>
+    <string name="collections_index_title">Collections</string>
+    <string name="collections_index_empty">Collections will appear once the catalogue has loaded.</string>
+    <string name="listen_empty_title">Keep listening</string>
+    <string name="listen_empty_body">Your current book will appear here as soon as you start listening.</string>
     <string name="feed_genres">Genres</string>
     <string name="feed_duration">Duration</string>
     <string name="home_new_arrivals">New arrivals</string>
@@ -120,6 +128,7 @@
     <string name="bookdetail_precedes">Precedes: “%1$s”</string>
     <string name="bookdetail_continues">Continues: “%1$s”</string>
     <string name="feed_help_recommendations">Help recommendations get better?</string>
+    <string name="feed_recommendation_consent_body">Local recommendations already work privately. With separate consent, future shared learning would use only the weekly update of five weights — never books or history.</string>
     <string name="feed_more">Learn more</string>
     <string name="update_hide">Hide</string>
     <string name="speed_default_for_all">Default for all</string>
@@ -321,6 +330,15 @@
     <plurals name="performer_count">
         <item quantity="one">%1$d narrator</item>
         <item quantity="other">%1$d narrators</item>
+    </plurals>
+    <!-- spec-46 T16 (#577): English twins for the person page's counts. -->
+    <plurals name="person_works_count">
+        <item quantity="one">%1$d work</item>
+        <item quantity="other">%1$d works</item>
+    </plurals>
+    <plurals name="person_narrations_count">
+        <item quantity="one">%1$d narration</item>
+        <item quantity="other">%1$d narrations</item>
     </plurals>
     <string name="a11y_submission_pane">Submit a link</string>
     <string name="a11y_submission_close">Close</string>

@@ -10,6 +10,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
@@ -23,15 +26,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.library.PersonWorkRow
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import kotlinx.coroutines.launch
 
 /**
@@ -70,7 +74,8 @@ fun PersonBooksScreen(
     IndexScreenScaffold(
         title = currentPerson.name,
         // Spec-27 (#204) BUG-006: правильна множина — «1 твір», «2 твори».
-        subtitle = "${works.size} ${ukPlural(works.size, "твір", "твори", "творів")}",
+        // spec-46 T16 (#577): the plural is chrome — EN reads «1 work».
+        subtitle = pluralStringResource(R.plurals.person_works_count, works.size, works.size),
         onBackClick = onBackClick,
         actions = {
             PersonBookmarkButton(
@@ -104,19 +109,30 @@ fun PersonBooksScreen(
                         .testTag("person_books_loading")
                 )
 
-                works.isEmpty() -> Text(
-                    text = stringResource(
+                works.isEmpty() -> EmptyState(
+                    // spec-46 T16 (#577): the residual person-page state is the
+                    // canonical full EmptyState — icon, message and the error
+                    // flavour announcing itself, never a bare Text.
+                    icon = if (loadFailed) {
+                        Icons.Default.Warning
+                    } else {
+                        Icons.AutoMirrored.Filled.MenuBook
+                    },
+                    title = stringResource(
                         if (loadFailed) {
                             R.string.secondary_person_books_error
                         } else {
                             R.string.secondary_person_books_empty
                         }
                     ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    body = "",
+                    stateDescription = if (loadFailed) {
+                        stringResource(R.string.secondary_state_error)
+                    } else {
+                        null
+                    },
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(horizontal = 24.dp)
                         .testTag("person_books_empty")
                 )
 
@@ -153,7 +169,11 @@ private fun PersonWorkRowItem(
         .distinct()
         .joinToString(" · ")
     val narrations = if (row.hasSeveralNarrations) {
-        " · ${row.narrations.size} ${ukPlural(row.narrations.size, "начитка", "начитки", "начиток")}"
+        " · " + pluralStringResource(
+            R.plurals.person_narrations_count,
+            row.narrations.size,
+            row.narrations.size
+        )
     } else {
         ""
     }

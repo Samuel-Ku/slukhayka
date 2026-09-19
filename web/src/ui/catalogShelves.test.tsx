@@ -65,9 +65,15 @@ describe('Огляд shelves', () => {
     render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} />)
 
     // «Відкрити нове» group → «Новинки» → «Цикли» → «Колекції» → feed.
-    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Відкрити нове' })).toBeTruthy())
-    const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '')
+    // The group header alone is not enough: it also renders while only the
+    // homepage «Цикли» shelf exists, so wait for the WHOLE shelf set and pin
+    // the order deterministically (#915 convention).
     const order = ['Відкрити нове', 'Новинки', 'Цикли', 'Нобелівські лауреати']
+    await waitFor(() => {
+      const rendered = screen.getAllByRole('heading').map((h) => h.textContent ?? '')
+      expect(order.every((name) => rendered.some((heading) => heading.startsWith(name)))).toBe(true)
+    })
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '')
     const positions = order.map((name) => headings.findIndex((h) => h.startsWith(name)))
     expect(positions.every((p) => p >= 0)).toBe(true)
     expect(positions).toEqual([...positions].sort((a, b) => a - b))

@@ -45,6 +45,35 @@ class SourceParsingTest {
     }
 
     @Test
+    fun `decodeEntities decodes the hexadecimal numeric entity a React page emits`() {
+        // #964 — a Next.js/React server-rendered page escapes an apostrophe as
+        // the HEX form `&#x27;` (chytaylo listing); the decimal-only set missed
+        // it and the entity reached the Work title and its merge key.
+        assertEquals("Ім'я тіні", decodeEntities("Ім&#x27;я тіні"))
+        assertEquals("Ім'я тіні", decodeEntities("Ім&#X27;я тіні"))
+        assertEquals("Дев'ятко", decodeEntities("Дев&#x27;ятко"))
+        // A numeric spelling of `&` is decoded too — and the single pass never
+        // re-reads its own output, so `&#x26;amp;` stays the literal `&amp;`.
+        assertEquals("A&B", decodeEntities("A&#x26;B"))
+        assertEquals("&amp;", decodeEntities("&#x26;amp;"))
+    }
+
+    @Test
+    fun `decodeEntities leaves a clean title byte-identical`() {
+        // The boundary: a title with no entity must survive unchanged.
+        assertEquals("Ім'я тіні", decodeEntities("Ім'я тіні"))
+        assertEquals("Айя Нея — Ім'я тіні (Книга 1)", decodeEntities("Айя Нея — Ім'я тіні (Книга 1)"))
+    }
+
+    @Test
+    fun `decodeEntities never guesses an unknown or malformed entity`() {
+        // Unknown names, bad hex, empty numeric and out-of-range/astral code
+        // points stay LITERAL — a decoder never fabricates a character.
+        assertEquals("&foo; &#xZZ; &#; &#x;", decodeEntities("&foo; &#xZZ; &#; &#x;"))
+        assertEquals("&#x110000; &#0;", decodeEntities("&#x110000; &#0;"))
+    }
+
+    @Test
     fun `titleFromSlug replaces hyphens, trims and titlecases the first letter`() {
         assertEquals("Zahublena stinka", titleFromSlug("zahublena-stinka"))
         assertEquals("Kobzar", titleFromSlug("kobzar"))

@@ -102,6 +102,19 @@ class MergeKeyTest {
     }
 
     @Test
+    fun `spec964 - a hex-entity title merges with the clean title`() {
+        // #964 — the React-rendered listing title «Ім&#x27;я тіні» and the book
+        // page's JSON-LD «Ім'я тіні» are ONE Work. Before the entity decode ran
+        // inside the shared normalizeTitle, the raw `x27` survived punctuation
+        // stripping and the two spellings produced DIFFERENT keys — one book,
+        // two rows on the person page.
+        val encoded = MergeKey.keyFor("Ім&#x27;я тіні", "Айя Нея")
+        val clean = MergeKey.keyFor("Ім'я тіні", "Айя Нея")
+        assertEquals(clean, encoded)
+        assertEquals("імя тіні|айя нея", clean)
+    }
+
+    @Test
     fun `spec27 - the dash suffix cut never blanks a title key`() {
         // A title that is entirely the suffix keeps a usable (if imperfect)
         // key — the normalization never degrades a title into blank.

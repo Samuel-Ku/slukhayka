@@ -42,9 +42,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
-import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
-import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -54,20 +52,14 @@ import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.PosterCard
-import com.slukhayka.audiobooks.ui.screens.GlobalSearchResultCard
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchStatus
 import com.slukhayka.audiobooks.ui.screens.HomeHeader
 import com.slukhayka.audiobooks.ui.screens.NewArrivalsRail
 import com.slukhayka.audiobooks.ui.screens.RecommendedBookCard
 import com.slukhayka.audiobooks.ui.screens.RecommendationDisclosureDialog
-import com.slukhayka.audiobooks.ui.screens.WorkFeedCard
 import com.slukhayka.audiobooks.ui.screens.WorkFeedFilters
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
-import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
-import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
-import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
-import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -148,132 +140,6 @@ class ExploreAccessibilityTest {
 
         compose.onNodeWithText("Новинки")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
-    }
-
-    @Test
-    fun globalSearchCardIsOneWorkNodeWithoutDuplicateCoverOrPlayLabel() {
-        compose.setContent {
-            AudiobookTheme(darkTheme = true) {
-                GlobalSearchResultCard(result = result, onClick = {})
-            }
-        }
-
-        compose.onNodeWithTag("global_search_result_${result.key}")
-            .assertTextContains(result.title)
-            .assertTextContains(result.author)
-        compose.onNodeWithContentDescription(result.title, useUnmergedTree = true)
-            .assertDoesNotExist()
-        compose.onNodeWithContentDescription("Відтворити", useUnmergedTree = true)
-            .assertDoesNotExist()
-    }
-
-    @Test
-    fun browserRequiredCardOffersAWorkingWebsiteAction() {
-        var opens = 0
-        val target = CatalogCardTarget(
-            workId = result.key,
-            title = result.title,
-            cardKey = result.key
-        )
-        val source = SourceEntity(
-            id = "4read-edition",
-            bookId = result.key,
-            editionId = "edition",
-            type = "4read",
-            url = "https://example.invalid/session"
-        )
-        compose.setContent {
-            AudiobookTheme(darkTheme = true) {
-                GlobalSearchResultCard(
-                    result = result,
-                    onClick = {},
-                    actionState = CatalogCardActionState.BrowserRequired(
-                        target = target,
-                        action = CatalogCardAction.PLAY,
-                        source = source
-                    ),
-                    onOpenBrowser = { opens++ }
-                )
-            }
-        }
-
-        compose.onNodeWithTag("catalog_card_open_browser_${result.key}")
-            .assertIsDisplayed()
-            .performClick()
-        org.junit.Assert.assertEquals(1, opens)
-    }
-
-    @Test
-    fun browserRequiredCardRestoresFocusToWebsiteActionAfterBrowserClose() {
-        val target = CatalogCardTarget(result.key, result.title, cardKey = result.key)
-        val source = SourceEntity(
-            id = "4read-edition",
-            bookId = result.key,
-            editionId = "edition",
-            type = "4read",
-            url = "https://example.invalid/session"
-        )
-        CatalogBrowserFocusReturn.remember(result.key)
-        CatalogBrowserFocusReturn.publishAfterBrowserClose()
-
-        compose.setContent {
-            AudiobookTheme(darkTheme = true) {
-                GlobalSearchResultCard(
-                    result = result,
-                    onClick = {},
-                    actionState = CatalogCardActionState.BrowserRequired(
-                        target,
-                        CatalogCardAction.PLAY,
-                        source
-                    )
-                )
-            }
-        }
-
-        compose.waitForIdle()
-        compose.onNodeWithTag("catalog_card_open_browser_${result.key}").assertIsFocused()
-        CatalogBrowserFocusReturn.consume(result.key)
-    }
-
-    @Test
-    fun workFeedBrowserFallbackRestoresFocusToItsWebsiteAction() {
-        val row = WorkFeedRow(
-            workId = "work-feed-browser",
-            mergeKey = result.mergeKey,
-            title = result.title,
-            author = result.author,
-            coverImageUrl = null,
-            addedAt = 1L,
-            sourceCount = 1
-        )
-        val target = CatalogCardTarget(row.workId, row.title, cardKey = row.workId)
-        val source = SourceEntity(
-            id = "4read-edition",
-            bookId = row.workId,
-            editionId = "edition",
-            type = "4read",
-            url = "https://4read.org/work-feed-browser"
-        )
-        CatalogBrowserFocusReturn.remember(row.workId)
-        CatalogBrowserFocusReturn.publishAfterBrowserClose()
-
-        compose.setContent {
-            AudiobookTheme(darkTheme = true) {
-                WorkFeedCard(
-                    row = row,
-                    onClick = {},
-                    actionState = CatalogCardActionState.BrowserRequired(
-                        target,
-                        CatalogCardAction.PLAY,
-                        source
-                    )
-                )
-            }
-        }
-
-        compose.waitForIdle()
-        compose.onNodeWithTag("catalog_card_open_browser_${row.workId}").assertIsFocused()
-        CatalogBrowserFocusReturn.consume(row.workId)
     }
 
     /**
@@ -466,32 +332,6 @@ class ExploreAccessibilityTest {
     }
 
     @Test
-    fun workFeedCardIsOneWorkNodeAndItsCoverAndArrowAreDecorative() {
-        val row = WorkFeedRow(
-            workId = "dark-matter",
-            mergeKey = result.mergeKey,
-            title = result.title,
-            author = result.author,
-            coverImageUrl = null,
-            addedAt = 1L,
-            sourceCount = 2
-        )
-        compose.setContent {
-            AudiobookTheme(darkTheme = true) {
-                WorkFeedCard(row = row, onClick = {})
-            }
-        }
-
-        compose.onNodeWithTag("work_feed_${row.workId}")
-            .assertTextContains(row.title)
-            .assertTextContains(row.author)
-        compose.onNodeWithContentDescription(row.title, useUnmergedTree = true)
-            .assertDoesNotExist()
-        compose.onNodeWithContentDescription("Відтворити", useUnmergedTree = true)
-            .assertDoesNotExist()
-    }
-
-    @Test
     fun workFeedFiltersExposeTheirSelectedState() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -528,24 +368,6 @@ class ExploreAccessibilityTest {
 
         compose.onNodeWithTag("home_search_input").assertIsDisplayed()
         compose.onNodeWithContentDescription("Очистити пошук")
-            .assertIsDisplayed()
-            .assertHeightIsAtLeast(24.dp)
-    }
-
-    @Test
-    fun globalSearchWorkRemainsReachableAtTwoHundredPercentFontScale() {
-        compose.setContent {
-            val density = LocalDensity.current
-            CompositionLocalProvider(
-                LocalDensity provides Density(density.density, fontScale = 2f)
-            ) {
-                AudiobookTheme(darkTheme = true) {
-                    GlobalSearchResultCard(result = result, onClick = {})
-                }
-            }
-        }
-
-        compose.onNodeWithTag("global_search_result_${result.key}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
     }

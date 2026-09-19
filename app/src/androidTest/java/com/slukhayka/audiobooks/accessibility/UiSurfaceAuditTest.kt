@@ -5,6 +5,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
@@ -95,14 +97,29 @@ class UiSurfaceAuditTest {
                                     "search_loading" -> Column { GlobalSearchStatus(true, false, true) }
                                     "search_empty" -> Column { GlobalSearchStatus(false, false, true) }
                                     "search_error" -> Column { GlobalSearchStatus(false, true, true) }
-                                    "search_result" -> Column {
-                                        GlobalSearchResultCard(GlobalSearchResult(
-                                            title = book.title, author = book.author, narrator = book.narrator,
-                                            mergeKey = "audit", sources = listOf(
-                                                GlobalSearchSource("4read", "4read", "https://example.invalid/a"),
-                                                GlobalSearchSource("soundbooks", "Sound-Books", "https://example.invalid/b")
-                                            )
-                                        ), onClick = {})
+                                    "search_result" -> LazyColumn {
+                                        // #567: the row is built inline at the
+                                        // search surface's call site — the old
+                                        // GlobalSearchResultCard wrapper is gone.
+                                        searchResultsContent(
+                                            localBooks = emptyList(),
+                                            globalResults = listOf(GlobalSearchResult(
+                                                title = book.title, author = book.author, narrator = book.narrator,
+                                                mergeKey = "audit", sources = listOf(
+                                                    GlobalSearchSource("4read", "4read", "https://example.invalid/a"),
+                                                    GlobalSearchSource("soundbooks", "Sound-Books", "https://example.invalid/b")
+                                                )
+                                            )),
+                                            liveSearchActive = true,
+                                            isGlobalLoading = false,
+                                            globalError = false,
+                                            onOpenLocalBook = {},
+                                            onPlayLocalBook = {},
+                                            onOpenGlobalResult = {},
+                                            catalogCardActionState = CatalogCardActionState.Idle,
+                                            onOpenCatalogBrowser = {},
+                                            onPreflightGlobalResult = {}
+                                        )
                                     }
                                     "catalog_empty" -> Column { EmptyCatalogState({}, {}) }
                                     "cycle" -> Column { CycleCard("Епоха божевілля", null, {}) }

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.catalog
 
+import com.slukhayka.audiobooks.data.authors.AuthorIdentity
 import com.slukhayka.audiobooks.data.db.PersonRole
 
 /**
@@ -61,8 +62,40 @@ data class CatalogPerson(
     /** Raw site path, e.g. `/xfsearch/chitaet/Ім'я/` (encoded on fetch). */
     val path: String,
     val bookCount: Int,
-    val role: PersonRole
-)
+    val role: PersonRole,
+    /**
+     * #955 — the canonical author id when the caller already holds one (the
+     * authors index, a stored person bookmark). Null when only the name is
+     * known; [canonicalAuthorId] then derives it.
+     */
+    val authorId: String? = null
+) {
+    /**
+     * #955 — the id `work_facets.canonicalAuthorId` carries for this person,
+     * or null when the person is not an author.
+     *
+     * The person page must read the listener's Медіатека through the route the
+     * ROLE names: an AUTHOR by this id (`worksForAuthor` /
+     * `ownedWorkIdsForAuthor`), a narrator by the name its editions carry.
+     * Reading an author through the narrator name marks nothing whenever no
+     * Edition names them — the device defect: «Айя Нея» owns two Works, both
+     * mapped to `author-4ba6bdc52ed5f262` in `work_facets`, yet her page
+     * badged none because the editions' narrator is empty.
+     *
+     * The fallback is the very derivation the Work index writes into
+     * `work_facets` (`AuthorIdentity.fromWorkName`) — never a second source of
+     * truth. A NARRATOR never has a canonical author id: the editions carry
+     * only the written name, so the role decides the route explicitly.
+     */
+    val canonicalAuthorId: String?
+        get() = when (role) {
+            PersonRole.AUTHOR ->
+                authorId ?: name.takeIf { it.isNotBlank() }
+                    ?.let { AuthorIdentity.fromWorkName(it).id }
+
+            PersonRole.NARRATOR -> null
+        }
+}
 
 /** One series (cycle) chip shown in the "Цикли" row. */
 data class CatalogSeries(

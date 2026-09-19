@@ -192,7 +192,10 @@ data class SelectedPerson(
     /**
      * #874 — for a canonical AUTHOR the page reads Works by this id
      * (`worksForAuthor`); a narrator is identified by the name their editions
-     * carry. Null for narrators and for source-page people.
+     * carry. #955 — an author arriving through [openPersonBooks] always gets
+     * the canonical id ([CatalogPerson.canonicalAuthorId]); it stays null for
+     * a narrator, and for a source-page person whose role the caller does not
+     * know.
      */
     val authorId: String? = null
 )
@@ -2982,7 +2985,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openPersonBooks(person: CatalogPerson) {
-        val selected = SelectedPerson(person.name, person.path, person.role)
+        // #955 — the person carries the canonical author id for an AUTHOR and
+        // none for a narrator, so the page counts ownership by author instead
+        // of silently reading an author through the narrator name.
+        val selected = SelectedPerson(
+            name = person.name,
+            path = person.path,
+            role = person.role,
+            authorId = person.canonicalAuthorId
+        )
         _selectedPerson.value = selected
         personLoader.open(selected)
     }

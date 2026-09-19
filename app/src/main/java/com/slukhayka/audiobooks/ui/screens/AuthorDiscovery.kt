@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -230,10 +231,17 @@ fun CanonicalAuthorContent(
         return
     }
     if (loadFailed) {
+        // v1.4 E6 (#574): a failed load is an ERROR, so it carries the
+        // canonical error flavour — Warning instead of the menu glyph and
+        // «Помилка» on the same polite node, exactly as the person page
+        // (#577) announces its own failed load. The bare empty state below
+        // stays flavourless: nothing failed when the author simply has no
+        // Works yet.
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = Icons.Filled.Warning,
             title = stringResource(R.string.author_load_failed),
             body = "",
+            stateDescription = stringResource(R.string.secondary_state_error),
             modifier = modifier.testTag("canonical_author_page")
         )
         return

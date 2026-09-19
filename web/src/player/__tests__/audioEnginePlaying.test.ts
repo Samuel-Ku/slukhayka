@@ -8,6 +8,8 @@ class FakeAudio extends EventTarget {
   playbackRate = 1
   play(): Promise<void> { return Promise.resolve() }
   pause(): void {}
+  load(): void {}
+  removeAttribute(name: string): void { if (name === 'src') this.src = '' }
 }
 
 /** A recording primer stub — the offline-cache behaviour itself is tested in offline/primer.test.ts. */

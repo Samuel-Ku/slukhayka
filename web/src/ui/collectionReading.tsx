@@ -8,12 +8,15 @@
  * Honest absence is the contract: with no store the caller renders nothing at
  * all (no empty-but-present surface), an empty read renders nothing, and a
  * failed read keeps the caller's last good list. Star only when real votes
- * exist (ADR-0014). Voting and reporting (#694/#696) are the next slice; this
- * one is deliberately read-only, exactly as the ticket orders it.
+ * exist (ADR-0014). Voting and reporting (#694/#696) live on the collection
+ * screen through the SAME seam, online-only and with an honest refusal.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CollectionRating, collectionDocumentId, type PublishedCollection, type PublishedCollectionItem } from '../collections/collectionModel'
+import { CollectionIdentity, CuratorIdentity } from '../collections/collectionIdentity'
+import type { CollectionsStore } from '../collections/store'
 import { useTranslate } from '../i18n/locale'
+import type { ListenerProfile } from '../identity/listenerIdentity'
 import { SectionHeader } from './components'
 
 /** The real average line, or the honest absence — one rule for every surface. */
@@ -106,19 +109,51 @@ export function CollectionsRail({
 /**
  * The collection screen: the curator's own composition (frozen display
  * snapshots when the document carries them, else the honest book ids with
- * their reasons), the real average or its absence, and a close action. Read
- * only — editing is the owner's job and stays on Android (ticket's out of
- * scope).
+ * their reasons), the real average or its absence, the viewer's 1–5 stars with
+ * re-voting, and the complaint — all through the SAME `CollectionsStore` seam
+ * the reading surfaces use (#694/#696). The author never sees the vote
+ * control (an author does not rate themselves), and without an identity the
+ * sheet stays honestly read-only instead of offering a dead control.
+ *
+ * A write is online-only with an honest refusal: `false` shows the error and
+ * changes nothing — no queued vote, no fabricated new average. On success the
+ * caller re-reads the surfaces (the server aggregate is the truth), and an
+ * accepted complaint drops the collection from the reporter's surfaces at once.
  */
 export function CollectionDetailSheet({
   collection,
+  profile,
+  collectionsStore,
   onClose,
+  onCollectionChanged,
+  onReported,
 }: {
   collection: PublishedCollection
+  profile?: ListenerProfile | null
+  /** spec-51 (#694/#696) — the write seam; absent => read-only sheet. */
+  collectionsStore?: CollectionsStore | null
   onClose: () => void
+  /** A stored vote: the caller re-reads its surfaces instead of faking an average. */
+  onCollectionChanged?: () => void
+  /** A stored complaint: the caller hides the collection from its own surfaces at once. */
+  onReported?: (documentId: string) => void
 }) {
   const t = useTranslate()
   const headingRef = useRef<HTMLHeadingElement | null>(null)
+  const [myStars, setMyStars] = useState<number | null>(null)
+  const [voteBusy, setVoteBusy] = useState(false)
+  const [voteError, setVoteError] = useState<string | null>(null)
+  const [reportBusy, setReportBusy] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
+
+  const documentId = collectionDocumentId(collection)
+  const uid = profile?.uid ?? null
+  // The vote and the complaint share ONE anonymous key: sha256(uid + collectionId).
+  const voterKey = uid === null ? '' : CollectionIdentity.voterKey(uid, collection.collectionId)
+  // An author never rates or reports their own collection.
+  const isOwn = uid !== null && collection.authorId === CuratorIdentity.authorId(uid)
+  const canAct = collectionsStore !== undefined && collectionsStore !== null && voterKey !== '' && !isOwn
+
   useEffect(() => {
     headingRef.current?.focus()
     // Android dismisses with Back; Escape is the web's Back.
@@ -128,6 +163,53 @@ export function CollectionDetailSheet({
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Android's `loadMyCollectionVote`: read THIS listener's stars when the
+  // screen opens, so a re-vote starts from the real previous value.
+  useEffect(() => {
+    if (collectionsStore === undefined || collectionsStore === null || voterKey === '') {
+      setMyStars(null)
+      return
+    }
+    let alive = true
+    void collectionsStore.myVote(voterKey).then((stars) => {
+      if (alive) setMyStars(stars)
+    })
+    return () => {
+      alive = false
+    }
+  }, [collectionsStore, voterKey])
+
+  const vote = (stars: number): void => {
+    if (collectionsStore === undefined || collectionsStore === null || voterKey === '') return
+    setVoteBusy(true)
+    setVoteError(null)
+    void collectionsStore.vote(documentId, voterKey, stars).then((accepted) => {
+      setVoteBusy(false)
+      if (!accepted) {
+        // An honest refusal: nothing changed, and nothing claims it did.
+        setVoteError(t('collectionVoteError'))
+        return
+      }
+      setMyStars(stars)
+      onCollectionChanged?.()
+    })
+  }
+
+  const report = (): void => {
+    if (collectionsStore === undefined || collectionsStore === null || voterKey === '') return
+    setReportBusy(true)
+    setReportError(null)
+    void collectionsStore.report(documentId, voterKey).then((accepted) => {
+      setReportBusy(false)
+      if (!accepted) {
+        setReportError(t('collectionReportError'))
+        return
+      }
+      onReported?.(documentId)
+      onClose()
+    })
+  }
 
   const composition = collectionComposition(collection)
   return (
@@ -163,6 +245,44 @@ export function CollectionDetailSheet({
         <p className="collection-detail-rating">
           <CollectionRatingLine collection={collection} />
         </p>
+
+        {/* #694/#696 — the viewer's stars and the complaint. Hidden on the
+            author's own collection and until an identity exists. */}
+        {canAct && (
+          <div className="collection-actions">
+            <p className="collection-your-rating">{t('collectionYourRating')}</p>
+            <span
+              className="review-stars review-stars-interactive"
+              role="radiogroup"
+              aria-label={t('collectionYourRating')}
+            >
+              {Array.from({ length: CollectionRating.MAX_STARS }, (_, index) => index + 1).map((position) => (
+                <button
+                  key={position}
+                  type="button"
+                  role="radio"
+                  aria-checked={position === myStars}
+                  aria-label={t('reviewRatingSummary', { rating: position })}
+                  className={`review-star${position <= (myStars ?? 0) ? ' review-star-on' : ''}`}
+                  onClick={() => vote(position)}
+                  disabled={voteBusy}
+                >
+                  ★
+                </button>
+              ))}
+            </span>
+            {voteError !== null && <p className="review-error" role="status">{voteError}</p>}
+            <button
+              type="button"
+              className="collection-report"
+              onClick={report}
+              disabled={reportBusy}
+            >
+              {t('collectionReport')}
+            </button>
+            {reportError !== null && <p className="review-error" role="status">{reportError}</p>}
+          </div>
+        )}
       </div>
     </div>
   )

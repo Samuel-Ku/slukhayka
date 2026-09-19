@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +93,16 @@ fun BookRow(
     progressTestTag: String? = null,
     stateDescription: String? = null,
     contentDescription: String? = null,
+    /**
+     * v1.4 E4 (#571) — the informational-selector state. A row that is not
+     * clickable itself but whose identity is «the one in effect» (the book
+     * page's current source) can say so without gaining an action. Opt-in:
+     * every other caller leaves it null and the row carries no `selected`
+     * semantics at all, so nothing grows a selection affordance by accident.
+     * Distinct from a selector: [selected] states a fact, an absent [onClick]
+     * keeps the promise that nothing can be switched from this row.
+     */
+    selected: Boolean? = null,
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
     onLongClick: (() -> Unit)? = null,
@@ -118,6 +129,7 @@ fun BookRow(
                 .semantics(mergeDescendants = true) {
                     if (stateDescription != null) this.stateDescription = stateDescription
                     if (contentDescription != null) this.contentDescription = contentDescription
+                    if (selected != null) this.selected = selected
                 }
                 .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
                 .then(

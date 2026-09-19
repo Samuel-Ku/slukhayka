@@ -12,10 +12,23 @@ import type { Document, AnyNode, Element } from 'domhandler'
 import { selectAll, selectOne } from 'css-select'
 import { getText, getAttributeValue } from 'domutils'
 
-// Spec-47 T6 — the wave's two server-fetch sources join; ukrainianaudiobooks
-// is deliberately ABSENT (Cloudflare-GATED, the worker has no WebView
-// session — the honest absence per the spec).
-export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay' | 'librivox' | 'audiobookcoua' | 'chytaylo' | 'knigionline' | 'chitaka'
+// Spec-47 T6 — the wave's two server-fetch sources join. ukrainianaudiobooks
+// stays deliberately absent from the WORKER registry (Cloudflare-GATED, the
+// worker has no WebView session — the honest absence per the spec), but it is
+// a WEB source: sources.json lists it (accessMode BROWSER) and
+// sourceMetadata.ts serves its metadata, order and browser door. So the web
+// source vocabulary (`SourceId`) includes it; the worker-only subset
+// (`WorkerSourceId`) excludes it. #943: the web tests used it as a session
+// source while the union omitted it.
+export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay' | 'librivox' | 'audiobookcoua' | 'chytaylo' | 'knigionline' | 'chitaka' | 'ukrainianaudiobooks'
+
+/**
+ * The source ids the worker serves server-side — every `SourceId` with an
+ * adapter in `registry.ts`. `ukrainianaudiobooks` is web-only: it has no
+ * adapter and never enters a worker fan-out; its door opens the listener's own
+ * browser (ADR-0036 browser profile).
+ */
+export type WorkerSourceId = Exclude<SourceId, 'ukrainianaudiobooks'>
 
 export interface CatalogCard {
   /** Stable page URL of this Work on its Source. */

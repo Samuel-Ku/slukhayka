@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.focusable
@@ -26,6 +27,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -45,12 +47,25 @@ fun AppTabHeader(
     showBrandMark: Boolean = false,
     headingTestTag: String? = null,
     returnFocusRequester: FocusRequester? = null,
+    // #962 — a landscape phone is 905 dp wide and 411 dp tall, so every wide
+    // rule fires while the height cannot pay for the chrome they ask for. In
+    // that window the header drops to its name and its actions on one
+    // [CompactHeaderHeight] line and the subtitle is not drawn: it is the
+    // honest size of the window, not a second header. Portrait and tablet
+    // callers keep the default and render byte-for-byte as before.
+    compact: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(AppDimens.PageSides),
+            .then(if (compact) Modifier.heightIn(min = CompactHeaderHeight) else Modifier)
+            .padding(
+                start = AppDimens.PageSides,
+                end = AppDimens.PageSides,
+                top = if (compact) AppDimens.SpaceXs else AppDimens.PageSides,
+                bottom = if (compact) AppDimens.SpaceXs else AppDimens.PageSides
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
@@ -85,13 +100,17 @@ fun AppTabHeader(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = if (showBrandMark) FontWeight.ExtraBold else FontWeight.Bold,
-                        letterSpacing = if (showBrandMark) 1.sp else 0.sp
-                    ),
+                    style = if (compact) {
+                        MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    } else {
+                        MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = if (showBrandMark) FontWeight.ExtraBold else FontWeight.Bold,
+                            letterSpacing = if (showBrandMark) 1.sp else 0.sp
+                        )
+                    },
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                if (subtitle != null) {
+                if (subtitle != null && !compact) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
@@ -103,3 +122,10 @@ fun AppTabHeader(
         if (actions != null) actions()
     }
 }
+
+/**
+ * #962 — the height a compact header occupies. Named rather than inlined
+ * because the landscape gate asserts the row it buys, and a magic number in a
+ * `heightIn` could drift from what that test pins.
+ */
+val CompactHeaderHeight: Dp = 56.dp

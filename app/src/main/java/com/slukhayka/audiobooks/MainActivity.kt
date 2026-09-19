@@ -1215,6 +1215,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     ) { when (selectedTab) {
                         // Spec-9: first tab is the listening panel, not the storefront.
                         SelectedTab.LISTEN -> ListenScreen(
+                            // #958 — the gear opens Settings from THIS root,
+                            // wired exactly as EXPLORE, LIBRARY and FRIENDS
+                            // already are (ADR-0049: the gear sits in the SAME
+                            // place on EVERY root). Without it the header
+                            // button fell through to ListenScreen's
+                            // `onOpenSettings = {}` default and did nothing.
+                            onOpenSettings = {
+                                settingsReturnTab = SelectedTab.LISTEN
+                                viewModel.selectTab(SelectedTab.SETTINGS)
+                            },
                             viewModel = viewModel,
                             // ADR-0008 batch 3 (#158): the modules come in as
                             // parameters from the composition root. spec-28

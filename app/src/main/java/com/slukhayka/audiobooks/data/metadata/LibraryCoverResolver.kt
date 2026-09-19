@@ -16,9 +16,15 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
  * resolver and the import paths use, so the row's known cover can never be
  * clobbered: a row with a cover is simply never a candidate.
  *
+ * ADR-0053 / #855 (T2) adds the stronger tier above both: the listener's own
+ * Override ([CoverOverride]). A Work the listener decided about is never a
+ * candidate — a pinned cover is already on the row, and a pinned ABSENCE must
+ * stay absent instead of being filled back in on the next pass.
+ *
  * Degrade-never by construction: no store, a throwing store, a corrupt
  * document or a failing write all leave the rows exactly as they are and the
- * pass returns what it actually filled (0 on any failure).
+ * pass returns what it actually filled (0 on any failure). A failing
+ * Override read counts as «decided»: it never licenses a write.
  */
 class LibraryCoverResolver(
     private val dao: AudiobookDao,
@@ -35,12 +41,24 @@ class LibraryCoverResolver(
         val rows = runCatching { dao.getLibraryRowsMissingCovers(limit) }.getOrNull() ?: return 0
         if (rows.isEmpty()) return 0
 
+        // #855 (T2) — the Override is consulted BEFORE the shared base, and it
+        // is consulted per row (the same read budget the search mirror already
+        // spends on the local row).
+        val overrides = CoverOverrideStore(dao)
+        val candidates = rows.filterNot { row ->
+            val key = row.mergeKey?.takeIf { it.isNotBlank() } ?: return@filterNot false
+            // A failing Override read counts as «decided»: degrade-never, so it
+            // never licenses a write the listener may have forbidden.
+            runCatching { overrides.pinned(key) != null }.getOrDefault(true)
+        }
+        if (candidates.isEmpty()) return 0
+
         val hits = runCatching {
-            store.getCovers(rows.mapNotNull { it.mergeKey })
+            store.getCovers(candidates.mapNotNull { it.mergeKey })
         }.getOrDefault(emptyMap())
 
         var filled = 0
-        for (row in rows) {
+        for (row in candidates) {
             val hit = hits[row.mergeKey] ?: continue
             val wrote = runCatching { dao.updateCoverImageUrl(row.id, hit) }.isSuccess
             if (wrote) filled++

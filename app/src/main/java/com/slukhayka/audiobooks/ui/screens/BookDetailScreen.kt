@@ -1591,10 +1591,12 @@ fun BookDetailScreen(
             initialAuthor = currentBook.author,
             initialNarrator = currentBook.narrator,
             onDismiss = { showMetadataDialog = false },
-            onSave = { title, author, narrator ->
+            // #855 (T2) — the book page edits the cover too.
+            onSave = { title, author, narrator, coverUrl ->
                 showMetadataDialog = false
-                viewModel.correctBookMetadata(currentBook.id, title, author, narrator)
-            }
+                viewModel.correctBookMetadata(currentBook.id, title, author, narrator, coverUrl)
+            },
+            initialCoverUrl = currentBook.coverImageUrl.orEmpty()
         )
     }
 

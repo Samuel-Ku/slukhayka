@@ -11,7 +11,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
@@ -280,6 +282,7 @@ class ListenAccessibilityTest {
     @Test
     fun miniPlayerHasASeparateSummaryAndContextualControls() {
         val chapters = TestDataFactory.dataChapters(listOf(book))
+        var previous = 0
         var closes = 0
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -292,6 +295,7 @@ class ListenAccessibilityTest {
                         isOfflineMode = true
                     ),
                     onPlayPauseClick = {},
+                    onPreviousClick = { previous++ },
                     onSkipNextClick = {},
                     onCloseClick = { closes++ },
                     onBarClick = {}
@@ -310,18 +314,50 @@ class ListenAccessibilityTest {
             )
         compose.onNodeWithContentDescription("Пауза: ${book.title}")
             .assertHeightIsAtLeast(24.dp)
+        compose.onNodeWithContentDescription("Попередній розділ: ${book.title}")
+            .assertHeightIsAtLeast(24.dp)
+            .performClick()
         compose.onNodeWithContentDescription("Наступний розділ: ${book.title}")
             .assertHeightIsAtLeast(24.dp)
-        compose.onNodeWithTag("mini_player_close")
-            .assertHeightIsAtLeast(24.dp)
-            .assertContentDescriptionEquals("Закрити програвач")
-            .performClick()
-        // The button drives the same slide-out the gesture does, so the host
-        // hears about the close when the exit animation lands.
-        compose.waitForIdle()
-        assertEquals(1, closes)
+        assertEquals(1, previous)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
+    }
+
+    /**
+     * #808: the bar carries no cross, so the close must not be a button at all.
+     * What makes it reachable from TalkBack is a custom action on the summary
+     * node — the gesture stays invisible, the action does not.
+     */
+    @Test
+    fun miniPlayerCloseIsACustomActionOnTheSummaryNotAButton() {
+        var closes = 0
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                MiniPlayerBar(
+                    playerState = PlayerState(currentBook = book, isPlaying = true),
+                    onPlayPauseClick = {},
+                    onPreviousClick = {},
+                    onSkipNextClick = {},
+                    onCloseClick = { closes++ },
+                    onBarClick = {}
+                )
+            }
+        }
+
+        // No cross in the control row: a fifth 48 dp target would squeeze the title.
+        compose.onNodeWithTag("mini_player_close").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Закрити програвач").assertDoesNotExist()
+
+        val summary = compose.onNodeWithTag("mini_player_summary")
+            .fetchSemanticsNode()
+        val closeAction = summary.config
+            .getOrNull(SemanticsActions.CustomActions)
+            ?.firstOrNull { it.label == "Закрити програвач" }
+        assertTrue("summary must expose the close action to TalkBack", closeAction != null)
+        closeAction!!.action()
+        compose.waitForIdle()
+        assertEquals(1, closes)
     }
 
     @Test
@@ -339,8 +375,8 @@ class ListenAccessibilityTest {
             }
         }
 
-        // The gesture and the X are the same door: a leftward swipe has to
-        // reach onCloseClick exactly as the button does.
+        // The gesture is now the bar's only visible way out (#808): a leftward
+        // swipe has to reach onCloseClick, exactly as the custom action does.
         compose.onNodeWithTag("mini_player_bar").performTouchInput { swipeLeft() }
         compose.waitForIdle()
         assertEquals(1, closes)
@@ -354,7 +390,7 @@ class ListenAccessibilityTest {
                 MiniPlayerBar(
                     playerState = PlayerState(currentBook = book),
                     viewedBookId = "another-book",
-                    onPlayPauseClick = { toggles++ }, onSkipNextClick = {}, onCloseClick = {}, onBarClick = {}
+                    onPlayPauseClick = { toggles++ }, onPreviousClick = {}, onSkipNextClick = {}, onCloseClick = {}, onBarClick = {}
                 )
             }
         }

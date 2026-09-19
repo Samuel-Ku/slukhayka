@@ -28,9 +28,10 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * The mini player is the surface where the affordances already fill the width.
- * This snapshot pins the visible control set (cast, play/pause, next, close) and
- * checks the book title still gets real room at 360 dp — the width the close
- * button competes for.
+ * Issue #808 settles its control row: three transport targets (previous,
+ * play/pause, next), no cast and no cross, with the title on one line. This
+ * snapshot pins that set and checks the book title still gets real room at
+ * 360 dp — the width the controls compete for.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -60,7 +61,7 @@ class MiniPlayerBarSnapshotTest {
     }
 
     @Test
-    fun mini_player_bar_keeps_title_room_with_the_close_button() {
+    fun mini_player_bar_keeps_title_room_with_the_transport_row() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 NarrowBar {
@@ -73,6 +74,7 @@ class MiniPlayerBarSnapshotTest {
                             isOfflineMode = true
                         ),
                         onPlayPauseClick = {},
+                        onPreviousClick = {},
                         onSkipNextClick = {},
                         onCloseClick = {},
                         onBarClick = {}
@@ -81,16 +83,16 @@ class MiniPlayerBarSnapshotTest {
             }
         }
 
-        // Self-verifying on top of the image: a fifth 48 dp target would cut the
-        // title column by half, and the ellipsised Text reports that squeeze as
-        // its own width — the floor is what keeps the row legitimate.
+        // Self-verifying on top of the image: the title is one line now (#808),
+        // and the snapshot measures the box it actually gets at 360 dp — the
+        // floor is what keeps the row legitimate.
         val titleWidth = composeTestRule.onNodeWithTag("mini_player_title", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot.width
         val titleFloorPx = with(composeTestRule.density) { 64.dp.toPx() }
         assertTrue("book title must keep usable room, was $titleWidth px", titleWidth >= titleFloorPx)
 
         composeTestRule.onNodeWithTag("mini_player_bar").captureRoboImage(
-            filePath = "src/test/snapshots/mini_player_bar_close.png"
+            filePath = "src/test/snapshots/mini_player_bar_transport.png"
         )
     }
 
@@ -115,6 +117,7 @@ class MiniPlayerBarSnapshotTest {
                             currentPositionMs = 500L
                         ),
                         onPlayPauseClick = {},
+                        onPreviousClick = {},
                         onSkipNextClick = {},
                         onCloseClick = {},
                         onBarClick = {}

@@ -822,8 +822,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 ),
             bottomBar = {
                 Column {
-                    // Floating Persistent Mini Player. Closed by the X on the
-                    // bar or a leftward swipe; it returns when audio does.
+                    // Floating Persistent Mini Player. Closed by a leftward
+                    // swipe on the bar (TalkBack gets the same action from the
+                    // summary's actions menu); it returns when audio does.
                     // UI: на «Слухати» міні-плеєр не потрібен — угорі вже
                     // стоїть hero-картка «Продовжити слухати» з тим самим
                     // керуванням, тож панель лише дублювала її.
@@ -842,13 +843,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 }
                             },
                             onSkipNextClick = { viewModel.playerManager.nextChapter() },
+                            // Issue #808: the bar carries the full transport —
+                            // previous chapter sits where cast used to be.
+                            onPreviousClick = { viewModel.playerManager.previousChapter() },
                             onCloseClick = { viewModel.dismissMiniPlayer() },
-                            onBarClick = { viewModel.setShowFullPlayer(true) },
-                            // ADR-0024 (#362): ready when this device can cast and
-                            // the current chapter carries a stream Source.
-                            castReady = runCatching {
-                                App.instance.castController.isCastAvailable()
-                            }.getOrDefault(false) && playerState.currentStreamUrl.isNotEmpty()
+                            onBarClick = { viewModel.setShowFullPlayer(true) }
                         )
                     }
 

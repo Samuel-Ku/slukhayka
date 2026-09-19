@@ -26,6 +26,7 @@
     <string name="catalog_card_open_browser">Open website</string>
     <string name="catalog_card_cancelled">Verification cancelled.</string>
     <string name="a11y_pause_work">Pause: %1$s</string>
+    <string name="a11y_previous_chapter_work">Previous chapter: %1$s</string>
     <string name="a11y_next_chapter_work">Next chapter: %1$s</string>
     <string name="a11y_listened_percent">Listened %1$d%%</string>
     <string name="a11y_available_offline">Available offline</string>

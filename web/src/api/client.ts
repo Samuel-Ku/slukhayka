@@ -61,8 +61,8 @@ export interface Api {
   book(source: SourceId, url: string, signal?: AbortSignal): Promise<BookDetail | null>
   search(source: SourceId, query: string): Promise<CatalogCard[] | null>
   searchAll(query: string): Promise<SearchGroup[] | null>
-  workFeed(cursor?: string, source?: SourceId): Promise<UnifiedWorkPage | null>
-  workSearch(query: string, source?: SourceId): Promise<UnifiedWorkPage | null>
+  workFeed(cursor?: string, source?: SourceId, signal?: AbortSignal): Promise<UnifiedWorkPage | null>
+  workSearch(query: string, source?: SourceId, signal?: AbortSignal): Promise<UnifiedWorkPage | null>
 }
 
 export const api: Api = {
@@ -72,8 +72,10 @@ export const api: Api = {
   search: (source, query) =>
     call<CatalogCard[]>(`/api/search?source=${source}&q=${encodeURIComponent(query)}`),
   searchAll: (query) => call<SearchGroup[]>(`/api/search-all?q=${encodeURIComponent(query)}`),
-  workFeed: (cursor, source) =>
-    call<UnifiedWorkPage>(`/api/work-feed?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ''}${source ? `source=${source}` : ''}`),
-  workSearch: (query, source) =>
-    call<UnifiedWorkPage>(`/api/work-search?q=${encodeURIComponent(query)}${source ? `&source=${source}` : ''}`),
+  // #621 — the feed and search requests are cancellable: the Catalog session
+  // aborts the superseded intent's request instead of letting it finish.
+  workFeed: (cursor, source, signal) =>
+    call<UnifiedWorkPage>(`/api/work-feed?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ''}${source ? `source=${source}` : ''}`, signal),
+  workSearch: (query, source, signal) =>
+    call<UnifiedWorkPage>(`/api/work-search?q=${encodeURIComponent(query)}${source ? `&source=${source}` : ''}`, signal),
 }

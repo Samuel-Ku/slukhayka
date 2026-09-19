@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { api } from '../api/client'
 import { readWarmEntry, warmKey, writeWarm } from '../api/warmCache'
-import type { BookDetail, CatalogCard, ParsedCatalog, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from '../worker/types'
+import type { BookDetail, CatalogCard, ParsedCatalog, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork } from '../worker/types'
 import {
   availabilitySortRank,
   isAvailabilityFresh,
@@ -45,7 +45,11 @@ import type { ListenerDatabase } from '../local/listeningState'
 import type { RecommendationPrefsStore } from '../local/recommendationPrefs'
 import type { RecommendationProfileSource } from '../recommend/profile'
 import { RecommendationParticipation } from '../recommend/participation'
-import { FEED_CATALOG, FEED_HOMEPAGE_SECTIONS, FEED_NEW_ARRIVALS, needsNetwork } from './feedSnapshotPolicy'
+import {
+  createCatalogSession,
+  CATALOG_SEARCH_MIN_CHARS,
+} from './catalogSession'
+import { FEED_CATALOG, FEED_HOMEPAGE_SECTIONS, needsNetwork } from './feedSnapshotPolicy'
 import { formatRemainingTime } from './listenComposer'
 
 const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
@@ -99,24 +103,52 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   const t = useTranslate()
   const locale = useUiLocale()
   const [source, setSource] = useState<'all' | SourceId>('all')
-  const [works, setWorks] = useState<UnifiedWork[] | null>(null)
-  const [nextPageUrl, setNextPageUrl] = useState<string | null>(null)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [appendError, setAppendError] = useState(false)
-  const [showingCachedCatalog, setShowingCachedCatalog] = useState(false)
-  const [cachedAt, setCachedAt] = useState<number | null>(null)
-  const [failed, setFailed] = useState(false)
   // W3.4 — the query survives the book round-trip (Android keeps the screen
   // on the backstack; the web remembers the two things the AC names).
   const [query, setQuery] = useState(() => searchMemory.query)
-  const [searchWorks, setSearchWorks] = useState<UnifiedWork[] | null>(null)
-  const [searching, setSearching] = useState(false)
   // W3.1 — explicit refresh: the «Оновити» pill sets the flag and bumps the
-  // nonce; the load effect consumes the flag once (bypassing the snapshot
-  // TTL) and rewrites the snapshot — the consumed-ref pattern avoids an echo
-  // re-run that would briefly blank the feed.
+  // nonce; the session consumes the flag once (bypassing the snapshot TTL)
+  // and rewrites the snapshot.
   const forceRefreshRef = useRef(false)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  // #621 — the ONE Source Catalog session owns the selected Source, the
+  // normalized query, the intent generation, the feed Works/cursor, the
+  // search Works and the cache provenance. A late success, failure or
+  // finalization of a superseded intent reaches neither the screen nor the
+  // warm cache; the initial feed and the search ride the same interface.
+  const session = useMemo(() => createCatalogSession({ contentLanguages: loadContentLanguagePrefs() }), [])
+  const sessionState = useSyncExternalStore(session.subscribe, session.getState, session.getState)
+  useEffect(() => {
+    const forceRefresh = forceRefreshRef.current
+    forceRefreshRef.current = false // consumed once, never echoed
+    session.setIntent({ source, query, forceRefresh })
+  }, [session, source, query, refreshNonce])
+  // React StrictMode disposes and re-arms the same session: dispose aborts the
+  // in-flight request and the debounce timer, and no late result publishes.
+  useEffect(() => () => session.dispose(), [session])
+  const feedState = sessionState.feed
+  // #621 — the session accepts the intent in a passive effect, one commit
+  // after the picker moves. Until then the previous Source's Works are NOT
+  // this Source's answer, so the derived states below fall back to the honest
+  // loading/searching state instead of flashing stale cards (or «нічого не
+  // знайшли» before the search even started).
+  const intentPending = source !== sessionState.source || query !== sessionState.query
+  const settledFeed = intentPending ? null : feedState
+  const works = settledFeed === null || settledFeed.phase === 'loading' ? null : settledFeed.works
+  const nextPageUrl = settledFeed?.nextCursor ?? null
+  const loadingMore = settledFeed?.loadingMore ?? false
+  const appendError = settledFeed?.appendError ?? false
+  const showingCachedCatalog = settledFeed?.phase === 'cached'
+  const cachedAt = settledFeed?.cachedAt ?? null
+  const failed = settledFeed?.phase === 'failed'
+  const searchWorks = sessionState.search.phase === 'idle' ? null : sessionState.search.works
+  const searchFailed = !intentPending && sessionState.search.phase === 'failed'
+  const searching = intentPending
+    ? query.trim().length >= CATALOG_SEARCH_MIN_CHARS
+    : sessionState.search.phase === 'pending'
+  // spec-45 T13 — the persisted content-language preference is a LOCAL
+  // projection the session already applied to its Works; empty = all.
+  const contentLanguages = sessionState.contentLanguages
   // W3.1 — «Цикли»: the 4read homepage series shelf (live list via the worker).
   const [cycles, setCycles] = useState<CatalogCard[] | null>(null)
   // W3.3 — the homepage genre nav (the filter sheet's honest options; null =
@@ -187,9 +219,11 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   const toggleDuration = (bucket: DurationBucket): void => {
     setDurationFilter((current) => current.includes(bucket) ? current.filter((item) => item !== bucket) : [...current, bucket])
   }
-  // spec-45 T13 — the persisted content-language preference; empty = all.
-  const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
-  const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
+  // spec-45 T13 — the persisted content-language preference lives in the
+  // session; `applyLanguages` only persists and re-projects (never a fetch).
+  const applyLanguages = (next: string[]): void => {
+    session.setContentLanguages(saveContentLanguagePrefs(next))
+  }
   // spec-51 (#742) — the one-time First Language Choice (fires after the first
   // sync with content; any answer is terminal).
   const [firstChoiceAnswered, setFirstChoiceAnswered] = useState<boolean>(() => isFirstLanguageChoiceAnswered())
@@ -217,9 +251,12 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
     const filter = createFacetFilter({ durationBucketIds: durationFilter })
     return list.filter((work) => workMatchesFacets(facetOf(work), filter))
   }
-  const visibleWorks = filterWorksByLanguage(byDurations((works ?? []).filter((work) => !tombstoned.has(work.mergeKey))), contentLanguages)
+  // The session already applied the Content Language Preference to the feed
+  // and search Works (a local projection); the UI-only duration and tombstone
+  // filters compose on top.
+  const visibleWorks = byDurations(sessionState.visibleFeed.filter((work) => !tombstoned.has(work.mergeKey)))
   const visibleGenreWorks = filterWorksByLanguage(byDurations((genreWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey))), contentLanguages)
-  const visibleSearch = filterWorksByLanguage((searchWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
+  const visibleSearch = sessionState.visibleSearch.filter((work) => !tombstoned.has(work.mergeKey))
   const languageOptions = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], contentLanguages)
   // The First Language Choice offers every language with actual content, all
   // on (the empty selection), never a hardcoded pair.
@@ -261,66 +298,12 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
     return () => { tombstonesAlive = false }
   }, [domainStore])
 
-  useEffect(() => {
-    if (query.trim().length >= 2) return
-    let alive = true
-    setFailed(false)
-    setAppendError(false)
-    setShowingCachedCatalog(false)
-    setCachedAt(null)
-    setWorks(null)
-    setNextPageUrl(null)
-    // W3.1 — the FeedSnapshotPolicy port decides the network: a FRESH
-    // snapshot answers without a call; stale/missing or the explicit refresh
-    // fetches live; a failed fetch falls back to the last snapshot with an
-    // honest note (offline start). One merged page serves the «Новинки» rail
-    // and the catalog feed, so on the cross-source view the binding TTL is
-    // the new-arrivals one (6 h); a per-source view is catalog-grade (24 h).
-    const feedKey = source === 'all' ? FEED_NEW_ARRIVALS : FEED_CATALOG
-    const forceRefresh = forceRefreshRef.current
-    forceRefreshRef.current = false // consumed once, never echoed
-    void (async () => {
-      const cached = await readWarmEntry<UnifiedWorkPage | UnifiedWork[]>(warmKey('catalog', source))
-      if (!alive) return
-      if (cached !== null && !needsNetwork(feedKey, cached.savedAt, Date.now(), forceRefresh)) {
-        const cachedPage = Array.isArray(cached.value)
-          ? { works: cached.value }
-          : cached.value
-        setWorks(cachedPage.works)
-        setNextPageUrl(cachedPage.nextCursor ?? null)
-        return
-      }
-      const page = await api.workFeed(undefined, source === 'all' ? undefined : source)
-      if (!alive) return
-      if (page === null) {
-        if (cached !== null) {
-          const cachedPage = Array.isArray(cached.value)
-            ? { works: cached.value }
-            : cached.value
-          setWorks(cachedPage.works)
-          setNextPageUrl(cachedPage.nextCursor ?? null)
-          setShowingCachedCatalog(true)
-          setCachedAt(cached.savedAt)
-        } else {
-          setFailed(true)
-        }
-        return
-      }
-      setWorks(page.works)
-      setNextPageUrl(page.nextCursor ?? null)
-      setShowingCachedCatalog(false)
-      setCachedAt(null)
-      void writeWarm(warmKey('catalog', source), page)
-    })()
-    return () => { alive = false }
-  }, [source, query, refreshNonce])
-
   // W3.1/W3.3 — the 4read homepage sections through the worker (spec-37
   // live list): «Цикли» feeds the shelf, «Жанри» feeds the filter sheet's
   // options. Homepage sections are catalog-grade (24 h); a failure leaves
   // both honestly absent and never breaks the refresh.
   useEffect(() => {
-    if (source !== 'all' || query.trim().length >= 2) {
+    if (source !== 'all' || query.trim().length >= CATALOG_SEARCH_MIN_CHARS) {
       setCycles(null)
       setGenres(null)
       return
@@ -368,7 +351,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   // so a genre selection replaces the feed with this union, exactly like a
   // source selection replaces it with that source's feed.
   useEffect(() => {
-    if (query.trim().length >= 2 || genreFilter.length === 0) {
+    if (query.trim().length >= CATALOG_SEARCH_MIN_CHARS || genreFilter.length === 0) {
       setGenreWorks(null)
       return
     }
@@ -406,48 +389,13 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
     return () => { alive = false }
   }, [query, genreFilter])
 
-  useEffect(() => {
-    const trimmed = query.trim()
-    if (trimmed.length < 2) {
-      setSearchWorks(null)
-      return
-    }
-    let alive = true
-    setSearching(true)
-    const timer = setTimeout(() => {
-      api.workSearch(trimmed, source === 'all' ? undefined : source).then((page) => {
-        if (!alive) return
-        setSearching(false)
-        setSearchWorks(page?.works ?? [])
-      })
-    }, 400)
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
-  }, [query, source])
-
   const loadMore = (): void => {
-    if (!nextPageUrl || loadingMore || query.trim().length >= 2) return
-    setLoadingMore(true)
-    setAppendError(false)
-    api.workFeed(nextPageUrl, source === 'all' ? undefined : source).then((page) => {
-      if (page === null) {
-        setAppendError(true)
-        return
-      }
-      setWorks((current) => {
-        const combined = appendWorks(current ?? [], page.works)
-        void writeWarm(warmKey('catalog', source), { works: combined, nextCursor: page.nextCursor } satisfies UnifiedWorkPage)
-        return combined
-      })
-      setNextPageUrl(page.nextCursor ?? null)
-    }).finally(() => setLoadingMore(false))
+    session.loadMore()
   }
 
   useEffect(() => {
     const marker = loadMoreMarker.current
-    if (!marker || !nextPageUrl || query.trim().length >= 2 || typeof IntersectionObserver === 'undefined') return
+    if (!marker || !nextPageUrl || query.trim().length >= CATALOG_SEARCH_MIN_CHARS || typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) loadMore()
     }, { rootMargin: '320px' })
@@ -497,7 +445,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
             {s.id === 'all' ? t('allSources') : s.label}
           </button>
         ))}
-        {query.trim().length < 2 && (
+        {query.trim().length < CATALOG_SEARCH_MIN_CHARS && (
           <button
             type="button"
             onClick={() => {
@@ -540,7 +488,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
           Колекції. Navigation chips (ADR-0018): filled, no outline. The
           row belongs to the default view only; an open index replaces the
           feed below (push-screen chassis). */}
-      {source === 'all' && query.trim().length < 2 && (
+      {source === 'all' && query.trim().length < CATALOG_SEARCH_MIN_CHARS && (
         <section>
           <SectionHeader level="group" title={t('quickTransitions')} />
           <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -560,7 +508,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
           otherwise the honest local adaptation from the browser's own
           Listening State (ADR-0031: absent graph never blocks Огляд).
           The group belongs to the default view only. */}
-      {source === 'all' && query.trim().length < 2 && works !== null && !failed && domainStore !== undefined && linkStore !== undefined && listening !== undefined && recommendationPrefs !== undefined && participation !== undefined && (
+      {source === 'all' && query.trim().length < CATALOG_SEARCH_MIN_CHARS && works !== null && !failed && domainStore !== undefined && linkStore !== undefined && listening !== undefined && recommendationPrefs !== undefined && participation !== undefined && (
         <ForYouGroup
           works={works}
           domainStore={domainStore}
@@ -579,7 +527,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
           The cross-source shelves belong to the default view only (a chosen
           source shows its own feed); the infinite feed stays the last
           element. An empty shelf renders nothing at all (ADR-0014). */}
-      {source === 'all' && query.trim().length < 2 && works !== null && !failed &&
+      {source === 'all' && query.trim().length < CATALOG_SEARCH_MIN_CHARS && works !== null && !failed &&
         (railWorks.length > 0 || (cycles?.length ?? 0) > 0 || collections.length > 0) && (
         <section>
           <SectionHeader level="group" title={t('shelfGroupNew')} />
@@ -645,7 +593,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
       {/* W3.3 — the sticky toolbar (spec-42 T1 #302): ONE compact filter
           entry above the endless feed; a selection lights the trigger. The
           sheet commits OR-sets immediately (no draft). */}
-      {query.trim().length < 2 && (
+      {query.trim().length < CATALOG_SEARCH_MIN_CHARS && (
         <>
           <StickyFiltersToolbar
             active={genreFilter.length > 0 || durationFilter.length > 0}
@@ -667,9 +615,13 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
         </>
       )}
 
-      {query.trim().length >= 2 ? (
+      {query.trim().length >= CATALOG_SEARCH_MIN_CHARS ? (
         searching ? (
           <EmptyStateRow message={t('searching')} />
+        ) : searchFailed ? (
+          // #621 — an empty successful search and a failed search are
+          // different states: the failure never claims «Нічого не знайшли».
+          <EmptyStateRow message={t('sourceFailed')} />
         ) : searchWorks === null || visibleSearch.length === 0 ? (
           <EmptyStateRow message={t('nothingFound')} />
         ) : (
@@ -716,7 +668,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
           </ul>
         </section>
       )}
-      {query.trim().length < 2 && nextPageUrl && (
+      {query.trim().length < CATALOG_SEARCH_MIN_CHARS && nextPageUrl && (
         <div ref={loadMoreMarker} style={{ padding: '16px 0', textAlign: 'center' }}>
           {appendError && <EmptyStateRow message={t('appendFailed')} />}
           <button onClick={loadMore} disabled={loadingMore} style={pillStyle(false)}>
@@ -730,10 +682,8 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   )
 }
 
-export function appendWorks(current: UnifiedWork[], incoming: UnifiedWork[]): UnifiedWork[] {
-  const known = new Set(current.map((work) => work.id))
-  return [...current, ...incoming.filter((work) => !known.has(work.id))]
-}
+/** #621 — re-exported from the session module that owns the feed append. */
+export { appendWorks } from './catalogSession'
 
 /** One Work card with explicit Edition selection; changing it never mutates progress. */
 function UnifiedWorkRow({ work, onOpenBook, onPlay, onSaveWork }: {

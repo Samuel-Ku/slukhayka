@@ -107,7 +107,10 @@ class IntegratedPeopleMigrationTest {
                 // from 26 to 47 was required but not found").
                 AudiobookDatabase.MIGRATION_45_46,
                 AudiobookDatabase.MIGRATION_46_47,
-                AudiobookDatabase.MIGRATION_47_48
+                AudiobookDatabase.MIGRATION_47_48,
+                // #916 — the current version is 49 now; every new migration
+                // must be appended here or Room finds no path from 26/27 to 49.
+                AudiobookDatabase.MIGRATION_48_49
             )
             .allowMainThreadQueries().build()
         try {

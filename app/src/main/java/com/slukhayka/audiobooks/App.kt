@@ -16,6 +16,8 @@ import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
 import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.db.SocialDao
+import com.slukhayka.audiobooks.data.social.SocialStore
 import com.slukhayka.audiobooks.data.downloads.DownloadNotificationActionCoordinator
 import com.slukhayka.audiobooks.data.downloads.DownloadNotificationService
 import com.slukhayka.audiobooks.data.downloads.NotificationAction
@@ -182,6 +184,18 @@ class App : Application() {
 
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
+
+    /** #916 — the social layer's local facts (friendship state, blocks). */
+    val socialDao: SocialDao get() = database.socialDao()
+
+    /**
+     * #916 — the social layer's local storage, per
+     * `docs/specs/2026-09-16-social-layer.md` §5: the friendship request state
+     * and the blocks live on the device. There is no shared base here yet — the
+     * accepted link (Firebase) is a later slice, and this store must not
+     * pretend otherwise.
+     */
+    val socialStore: SocialStore by lazy { SocialStore(socialDao) }
 
     /**
      * ADR-0047 / #867 — the «Імпортоване» queue: the links whose origin the

@@ -12,7 +12,7 @@
  *     becomes a final Chapter[]; every helper it calls is a pure export of
  *     the adapter module.
  */
-import type { BookDetail, Chapter, SourceAdapter, SourceId } from './types'
+import type { BookDetail, Chapter, SourceAdapter, WorkerSourceId } from './types'
 import { isScamSourceKey } from './sourceMetadata'
 import { buildBookDetail, fourread } from './adapters/fourread'
 import { soundBooksAdapter, parseM3u, playlistUrlOf as sbPlaylistUrl } from './adapters/soundbooks'
@@ -103,7 +103,13 @@ function searchUrlSluhayua(query: string): string {
   return `https://sluhay.com.ua/find/allcards?search=${encodeURIComponent(query)}&page=1`
 }
 
-export const REGISTRY: Record<SourceId, SourceEntry> = {
+/**
+ * Every worker-fetchable web source, keyed by its web id. `ukrainianaudiobooks`
+ * is absent by design (#943): it is a web-listed BROWSER source (sources.json,
+ * WEB_IDS, its browser door) with no server-side adapter — the worker has no
+ * WebView session (spec-47 T6, honest absence).
+ */
+export const REGISTRY: Record<WorkerSourceId, SourceEntry> = {
   fourread: {
     adapter: fourread,
     allowedHosts: ['4read.org'],
@@ -245,9 +251,9 @@ export function sourceEntry(id: string): SourceEntry | null {
 }
 
 /** The served registry — scam sources are excluded from every worker fan-out. */
-export const SERVED_REGISTRY: Record<SourceId, SourceEntry> = Object.fromEntries(
+export const SERVED_REGISTRY: Record<WorkerSourceId, SourceEntry> = Object.fromEntries(
   Object.entries(REGISTRY).filter(([id]) => !isScamSourceKey(id)),
-) as Record<SourceId, SourceEntry>
+) as Record<WorkerSourceId, SourceEntry>
 
 export function mayFetch(entry: SourceEntry, url: string): boolean {
   return hostAllowed(entry.allowedHosts, url)

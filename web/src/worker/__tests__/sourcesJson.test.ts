@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import sources from '../../../../sources.json'
-import { REGISTRY, sourceEntry } from '../registry'
+import { sourceEntry } from '../registry'
 import { isScamSourceKey, SOURCE_METADATA, SOURCE_ORDER } from '../sourceMetadata'
 
 /**
@@ -58,9 +58,11 @@ describe('sources.json — the one carrier of source facts (ADR-0038)', () => {
 
   it('REGISTRY allowedHosts stay within the registry transportHosts', () => {
     for (const key of SOURCE_ORDER) {
-      // ukrainianaudiobooks is a web-listed source with a worker entry still
-      // pending (spec-47 T6 follow-up): skip it, never assert on undefined.
-      const entry = (REGISTRY as Partial<typeof REGISTRY>)[key]
+      // ukrainianaudiobooks is a web-listed BROWSER source that deliberately
+      // has no worker entry (spec-47 T6, #943): skip it, never assert on
+      // undefined. sourceEntry() is the worker's own lookup, so it encodes
+      // that absence.
+      const entry = sourceEntry(key)
       if (!entry) continue
       const json = jsonById.get(idOf(key))!
       for (const host of entry.allowedHosts) {
@@ -71,7 +73,7 @@ describe('sources.json — the one carrier of source facts (ADR-0038)', () => {
 
   it('search URLs and catalogue URLs ride the registry', () => {
     for (const key of SOURCE_ORDER) {
-      const entry = (REGISTRY as Partial<typeof REGISTRY>)[key]
+      const entry = sourceEntry(key)
       if (!entry) continue
       const json = jsonById.get(idOf(key))!
       if (entry.searchUrl && json.searchUrl) {
@@ -95,5 +97,16 @@ describe('sources.json — the one carrier of source facts (ADR-0038)', () => {
     expect(SOURCE_ORDER).not.toContain('fourread')
     expect(sourceEntry('fourread')).toBeNull()
     expect(sourceEntry('4read')).toBeNull()
+  })
+
+  it('keeps the web-only browser source out of the worker registry', () => {
+    // #943 — ukrainianaudiobooks is a legitimate web source: sources.json
+    // lists it, SOURCE_ORDER/SOURCE_METADATA carry it and the UI offers its
+    // browser door. It deliberately has NO server-side adapter (the worker
+    // has no WebView session; spec-47 T6), which is exactly the split between
+    // the web vocabulary (SourceId) and the worker registry (WorkerSourceId).
+    expect(SOURCE_ORDER).toContain('ukrainianaudiobooks')
+    expect(SOURCE_METADATA.ukrainianaudiobooks.browserSessionRequired).toBe(true)
+    expect(sourceEntry('ukrainianaudiobooks')).toBeNull()
   })
 })

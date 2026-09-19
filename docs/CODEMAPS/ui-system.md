@@ -26,7 +26,7 @@ app/src/main/java/com/slukhayka/audiobooks/ui/components/AppTabHeader.kt        
 app/src/main/java/com/slukhayka/audiobooks/ui/components/DesignSystem.kt         141 lines  (canonical EmptyState / EmptyStateRow)
 app/src/main/java/com/slukhayka/audiobooks/ui/components/CatalogCoverImage.kt
 app/src/main/java/com/slukhayka/audiobooks/ui/components/BookCoverImage.kt       139 lines  (Coil)
-app/src/main/java/com/slukhayka/audiobooks/ui/components/IndexScreenScaffold.kt  (one pushed-index chrome; Secondary states)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/IndexScreenScaffold.kt  (one pushed-index chrome)
 app/src/main/java/com/slukhayka/audiobooks/ui/components/NavigationChip.kt
 app/src/main/java/com/slukhayka/audiobooks/ui/components/BookmarkDialog.kt       120 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/components/SleepTimerSheet.kt      121 lines
@@ -66,7 +66,8 @@ CatalogRowHeader, AuthorDiscoveryScaffold) are deleted, not deprecated.
   collapsible search pattern on Огляд/Медіатека).
 - `DesignSystem` — the canonical `EmptyState` / `EmptyStateRow`.
 - `IndexScreenScaffold` — the ONE pushed-index chrome (title + optional
-  count subtitle + actions); hosts the index empty/loading/message states.
+  count subtitle + actions); its screens render the canonical
+  `EmptyState` directly (T13, #574 — no per-screen state facades).
 - `CatalogCoverImage` / `BookCoverImage` — cover rendering (URL / entity).
 - `MiniPlayerBar` — the persistent floating bar; `BookmarkDialog`,
   `SleepTimerSheet`, `SpeedSheet` — modal overlays; `PlayerDebugOverlay` —

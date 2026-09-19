@@ -296,8 +296,8 @@ fun PosterCard(
 }
 
 /**
- * Library-entity convenience overload — the Listen shelves' shape (the old
- * CompactBookCard contract, preserved verbatim: test tags, state description,
+ * Library-entity convenience overload — the Listen shelves' shape (the
+ * shelf-card contract, preserved verbatim: test tags, state description,
  * dismiss indicator sizing).
  */
 @Composable
@@ -342,7 +342,7 @@ fun PosterCard(
 
 /**
  * Catalogue-Work convenience overload — the Огляд cross-source rails' shape
- * (the old UnifiedCatalogCard contract: one-tap download slot, per-source
+ * (the union-card contract: one-tap download slot, per-source
  * provenance stays in the row model).
  */
 @Composable
@@ -357,8 +357,8 @@ fun PosterCard(
     preflightKey: Any? = null,
     onPreflight: (() -> Unit)? = null,
     actionHost: (@Composable () -> Unit)? = null,
-    // The old UnifiedCatalogCard contract keeps its tag by default; the
-    // collections rail overrides it (same old contract).
+    // The union-card contract keeps its tag by default; the
+    // collections rail overrides it (same contract).
     testTag: String? = "unified_catalog_${result.key}"
 ) {
     PosterCard(

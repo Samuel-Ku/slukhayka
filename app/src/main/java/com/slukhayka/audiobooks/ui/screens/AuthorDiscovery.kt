@@ -17,6 +17,7 @@ import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
@@ -47,7 +48,7 @@ import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
@@ -185,8 +186,10 @@ fun AuthorsIndexContent(
     initialScrollIndex: Int = 0
 ) {
     if (authors.isEmpty()) {
-        IndexEmptyState(
-            message = stringResource(R.string.author_empty_catalog),
+        EmptyState(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = stringResource(R.string.author_empty_catalog),
+            body = "",
             modifier = modifier.testTag("authors_index")
         )
         return
@@ -227,15 +230,19 @@ fun CanonicalAuthorContent(
         return
     }
     if (loadFailed) {
-        IndexEmptyState(
-            message = stringResource(R.string.author_load_failed),
+        EmptyState(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = stringResource(R.string.author_load_failed),
+            body = "",
             modifier = modifier.testTag("canonical_author_page")
         )
         return
     }
     if (works.isEmpty()) {
-        IndexEmptyState(
-            message = stringResource(R.string.author_empty_works),
+        EmptyState(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = stringResource(R.string.author_empty_works),
+            body = "",
             modifier = modifier.testTag("canonical_author_page")
         )
         return

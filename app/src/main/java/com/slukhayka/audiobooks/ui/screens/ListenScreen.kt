@@ -460,7 +460,7 @@ private fun ListenShelfRow(
 
 /**
  * spec-28 (#191) — one Listen block as a horizontal shelf of compact posters
- * ([CompactBookCard] in a LazyRow), replacing the old full-width vertical
+ * ([PosterCard] in a LazyRow), replacing the old full-width vertical
  * rows. No default play triangle: tapping a poster opens the book page (the
  * hero card is the resume CTA); the Listen-only «Не цікаво» dismiss stays on
  * each poster.

@@ -13,12 +13,15 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.ui.screens.AuthorsIndexContent
 import com.slukhayka.audiobooks.ui.screens.BookListScreen
+import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorContent
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexContent
 import com.slukhayka.audiobooks.ui.screens.PeopleContent
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -75,11 +78,55 @@ class CanonicalStateFacadesGuardTest {
         )
     }
 
+    /**
+     * The canonical error flavour («Помилка» via `stateDescription`) belongs to
+     * genuinely failed states only. After T13 every consumer renders
+     * `EmptyState` inline, so the flavour is one line each — and exactly the
+     * five failure branches may carry it: the author page, the shared book
+     * list, the library rating, the people index and the series page. A
+     * successful empty (no collections, no series, no authors, no rated books)
+     * must stay silent about an error that did not happen.
+     */
+    @Test
+    fun `the error flavour rides only the genuinely failed states`() {
+        val carriers = CONSUMER_SURFACES.filter { read(it).contains(ERROR_FLAVOUR) }.toSet()
+
+        assertEquals(EXPECTED_ERROR_SURFACES, carriers)
+    }
+
+    private fun read(path: String): String {
+        val file = File(sourceRoot, path)
+        check(file.isFile) { "source file not found: $file" }
+        return file.readText()
+    }
+
     private companion object {
         val OLD_STATE_FACADES = listOf(
             "IndexEmptyState",
             "SecondaryLoadingState",
             "SecondaryMessageState"
+        )
+
+        /** The exact canonical error announcement the failure branches pass. */
+        const val ERROR_FLAVOUR =
+            "stateDescription = stringResource(R.string.secondary_state_error)"
+
+        val CONSUMER_SURFACES = listOf(
+            "ui/screens/AuthorDiscovery.kt",
+            "ui/screens/BookListScreen.kt",
+            "ui/screens/CollectionsIndexScreen.kt",
+            "ui/screens/LibraryRatingScreen.kt",
+            "ui/screens/PeopleScreen.kt",
+            "ui/screens/SeriesIndexScreen.kt",
+            "ui/screens/SeriesScreen.kt"
+        )
+
+        val EXPECTED_ERROR_SURFACES = setOf(
+            "ui/screens/AuthorDiscovery.kt",
+            "ui/screens/BookListScreen.kt",
+            "ui/screens/LibraryRatingScreen.kt",
+            "ui/screens/PeopleScreen.kt",
+            "ui/screens/SeriesScreen.kt"
         )
     }
 }
@@ -117,6 +164,7 @@ class CanonicalStateFacadesBehaviorTest {
         compose.onNodeWithText(string(R.string.author_empty_catalog))
             .assertIsDisplayed()
             .assert(announcesItselfPolitely())
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
     }
 
     @Test
@@ -134,6 +182,7 @@ class CanonicalStateFacadesBehaviorTest {
         compose.onNodeWithText(string(R.string.collections_index_empty))
             .assertIsDisplayed()
             .assert(announcesItselfPolitely())
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
     }
 
     @Test
@@ -151,6 +200,7 @@ class CanonicalStateFacadesBehaviorTest {
         compose.onNodeWithText("Серії з'являться після завантаження каталогу.")
             .assertIsDisplayed()
             .assert(announcesItselfPolitely())
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
     }
 
     @Test
@@ -179,6 +229,7 @@ class CanonicalStateFacadesBehaviorTest {
             )
         compose.onNodeWithText(string(R.string.secondary_loading))
             .assert(announcesItselfPolitely())
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
     }
 
     @Test
@@ -240,7 +291,7 @@ class CanonicalStateFacadesBehaviorTest {
     }
 
     @Test
-    fun `the people index empty and failed states are canonical`() {
+    fun `the people index failed state announces the canonical error flavour`() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
                 PeopleContent(
@@ -262,5 +313,80 @@ class CanonicalStateFacadesBehaviorTest {
                     string(R.string.secondary_state_error)
                 )
             )
+    }
+
+    @Test
+    fun `an empty people list carries no error flavour`() {
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                PeopleContent(
+                    people = emptyList(),
+                    isLoading = false,
+                    loadFailed = false,
+                    onPersonClick = {},
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        compose.onNodeWithText(string(R.string.secondary_people_empty))
+            .assertIsDisplayed()
+            .assert(announcesItselfPolitely())
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+    }
+
+    @Test
+    fun `the author page failure announces the canonical error flavour`() {
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CanonicalAuthorContent(
+                    author = AuthorSummary(
+                        id = "lesia-ukrainka",
+                        displayName = "Леся Українка",
+                        normalizedName = "леся українка",
+                        workCount = 12
+                    ),
+                    works = emptyList(),
+                    onWorkClick = {},
+                    loadFailed = true,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        compose.onNodeWithText(string(R.string.author_load_failed))
+            .assertIsDisplayed()
+            .assert(announcesItselfPolitely())
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    string(R.string.secondary_state_error)
+                )
+            )
+    }
+
+    @Test
+    fun `a successful author empty carries no error flavour`() {
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CanonicalAuthorContent(
+                    author = AuthorSummary(
+                        id = "lesia-ukrainka",
+                        displayName = "Леся Українка",
+                        normalizedName = "леся українка",
+                        workCount = 0
+                    ),
+                    works = emptyList(),
+                    onWorkClick = {},
+                    loadFailed = false,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        compose.onNodeWithText(string(R.string.author_empty_works))
+            .assertIsDisplayed()
+            .assert(announcesItselfPolitely())
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
     }
 }

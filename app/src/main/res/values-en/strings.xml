@@ -236,6 +236,42 @@
         <item quantity="one">%1$d more review is hidden by you — it still counts</item>
         <item quantity="other">%1$d more reviews are hidden by you — they still count</item>
     </plurals>
+    <!-- v1.4 E4 / spec-46 T11 (#572): EN twins of the book-page chrome that
+         used to be hardcoded Ukrainian. No Cyrillic here — the EN run is
+         asserted clean by BookDetailEnglishChromeTest. -->
+    <string name="book_detail_accent_book">this book</string>
+    <string name="book_detail_author_label">Author: %1$s</string>
+    <string name="book_detail_narrator_label">Narrated by: %1$s</string>
+    <string name="book_detail_unknown_narrator">Unknown narrator</string>
+    <string name="book_detail_more_actions">More actions</string>
+    <string name="book_detail_add_to_collection">Add to collection</string>
+    <string name="book_detail_chapters_tab">Chapters (%1$d)</string>
+    <string name="book_detail_bookmarks_tab">Bookmarks (%1$d)</string>
+    <string name="book_detail_bookmark_note_at">At %1$s: %2$s</string>
+    <string name="book_detail_series_pill">“%1$s”</string>
+    <string name="book_detail_series_pill_index">“%1$s” • Book %2$d</string>
+    <string name="book_detail_universe_line">Universe: “%1$s”</string>
+    <string name="book_detail_source_rating">Source rating: ★ %1$s</string>
+    <string name="book_detail_source_narrator">Narrated by (source data): %1$s</string>
+    <string name="book_detail_source_genres">Genres (source data): %1$s</string>
+    <string name="book_detail_source_description">Different description from the source: %1$s</string>
+    <plurals name="book_detail_rating_sources">
+        <item quantity="one">sources and listeners · %1$d rating</item>
+        <item quantity="other">sources and listeners · %1$d ratings</item>
+    </plurals>
+    <string name="book_detail_reviews_empty">No reviews yet — be the first</string>
+    <string name="book_detail_narration_rating_delete_pane">Delete narration rating</string>
+    <string name="book_detail_narration_rating_delete_title">Delete the narration rating?</string>
+    <string name="book_detail_narration_rating_delete_body">Your stars for “%1$s” will be removed from this page.</string>
+    <string name="book_detail_source_heading_one">Source</string>
+    <string name="book_detail_source_heading_many">Sources</string>
+    <string name="book_detail_review_edit_action">Edit</string>
+    <string name="book_detail_review_pending_sync">we will send it when you are online</string>
+    <string name="book_detail_review_rate_narration">Rate the narration</string>
+    <string name="book_detail_review_narration_tag">Narration: %1$s</string>
+    <string name="book_detail_review_edition_line">Narration:</string>
+    <string name="book_detail_review_edition_none">Do not specify</string>
+    <string name="book_detail_visitor_comments">Visitor comments from %1$s</string>
 
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Authors</string>

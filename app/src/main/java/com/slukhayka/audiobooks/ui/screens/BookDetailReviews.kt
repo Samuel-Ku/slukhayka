@@ -203,7 +203,10 @@ fun ReviewCard(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Text(
-                        text = "Начитка: ${review.editionTag}",
+                        text = stringResource(
+                            R.string.book_detail_review_narration_tag,
+                            review.editionTag
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -226,7 +229,7 @@ fun ReviewCard(
                     )
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
-                        text = "надішлемо при мережі",
+                        text = stringResource(R.string.book_detail_review_pending_sync),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -263,7 +266,7 @@ fun ReviewCard(
                         Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.size(2.dp))
                         Text(
-                            "Змінити",
+                            stringResource(R.string.book_detail_review_edit_action),
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.clearAndSetSemantics { }
                         )
@@ -328,9 +331,6 @@ fun ReviewCard(
     }
 }
 
-/** «Не вказувати» — the dropdown's explicit no-tag choice (#278). */
-const val EDITION_TAG_NONE = "Не вказувати"
-
 /**
  * ADR-0023 (#348) — the narration-rating row beside the narrator's name:
  * the crowd average ONLY when votes exist (#383 / ADR-0014 — zero votes
@@ -364,7 +364,7 @@ fun NarrationRatingRow(
         if (average != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Начитка:",
+                    text = stringResource(R.string.book_detail_review_edition_line),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -385,7 +385,7 @@ fun NarrationRatingRow(
             // rate, never a displayed value.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Оцінити начитку",
+                    text = stringResource(R.string.book_detail_review_rate_narration),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -449,6 +449,9 @@ fun ListenerReviewFormSheet(
         mutableStateOf(editing?.editionTag ?: defaultEditionTag.takeIf { it.isNotBlank() })
     }
     var tagMenuOpen by remember { mutableStateOf(false) }
+    // #278 — the dropdown's explicit no-tag choice: the LABEL is localized,
+    // while the stored tag stays null (no fake value is ever persisted).
+    val editionTagNoneLabel = stringResource(R.string.book_detail_review_edition_none)
 
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = { if (!isSaving) onDismiss() },
@@ -502,7 +505,7 @@ fun ListenerReviewFormSheet(
                 onExpandedChange = { tagMenuOpen = it }
             ) {
                 OutlinedTextField(
-                    value = selectedTag ?: EDITION_TAG_NONE,
+                    value = selectedTag ?: editionTagNoneLabel,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(stringResource(R.string.book_detail_review_edition_label)) },
@@ -517,7 +520,7 @@ fun ListenerReviewFormSheet(
                     onDismissRequest = { tagMenuOpen = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text(EDITION_TAG_NONE) },
+                        text = { Text(editionTagNoneLabel) },
                         onClick = {
                             selectedTag = null
                             tagMenuOpen = false
@@ -748,7 +751,7 @@ fun VisitorCommentsSubblock(
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Text(
-            text = "Коментарі відвідувачів ${profile.sourceName}",
+            text = stringResource(R.string.book_detail_visitor_comments, profile.sourceName),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

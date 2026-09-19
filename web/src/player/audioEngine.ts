@@ -209,10 +209,16 @@ export class AudioEngine {
     this.chapters = detail.chapters
     this.editionId = detail.editionId ?? detail.title
     this.workId = detail.workId
-    // Progress Sync: pull the cloud state before resuming (LWW).
-    if (this.syncController && this.editionId) {
+    // Progress Sync: pull the cloud state before resuming (LWW). #619 — only a
+    // resume reads the cloud: an explicit Chapter is the listener's own place
+    // and waits for nobody. The pull is bounded (the controller's own budget)
+    // and scoped to THIS load generation, so an answer that arrives after a
+    // newer intent can no longer reach the local mirror.
+    if (this.syncController && this.editionId && !explicit) {
       try {
-        await this.syncController.pullBeforeResume(this.editionId)
+        await this.syncController.pullBeforeResume(this.editionId, {
+          isCurrent: () => loadGeneration === this.loadGeneration,
+        })
       } catch {
         // degrade-never
       }

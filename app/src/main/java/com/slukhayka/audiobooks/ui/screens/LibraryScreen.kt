@@ -79,6 +79,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.SubmissionBadge
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -733,29 +734,25 @@ fun LibraryScreen(
                         }
                         if (bookmarkedPeople.isEmpty()) {
                             // #873 — an empty state carries a clear ACTION, not
-                            // just an explanation.
+                            // just an explanation. spec-46 T16 (#577): the
+                            // canonical compact state, never a bare Text column.
                             item {
-                                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.lib_saved_empty_people_title),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.lib_saved_empty_people_body),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    OutlinedButton(
-                                        onClick = onBrowseClick,
-                                        modifier = Modifier
-                                            .padding(top = 8.dp)
-                                            .heightIn(min = 48.dp)
-                                            .testTag("library_saved_people_browse")
-                                    ) {
-                                        Text(stringResource(R.string.lib_find_book))
+                                EmptyStateRow(
+                                    icon = Icons.Default.Group,
+                                    title = stringResource(R.string.lib_saved_empty_people_title),
+                                    body = stringResource(R.string.lib_saved_empty_people_body),
+                                    modifier = Modifier.testTag("library_saved_people_empty"),
+                                    action = {
+                                        OutlinedButton(
+                                            onClick = onBrowseClick,
+                                            modifier = Modifier
+                                                .heightIn(min = 48.dp)
+                                                .testTag("library_saved_people_browse")
+                                        ) {
+                                            Text(stringResource(R.string.lib_find_book))
+                                        }
                                     }
-                                }
+                                )
                             }
                         } else {
                             items(
@@ -799,27 +796,23 @@ fun LibraryScreen(
                         }
                         if (allBookmarks.isEmpty()) {
                             item {
-                                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.lib_saved_empty_bookmarks_title),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.lib_saved_empty_bookmarks_body),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    OutlinedButton(
-                                        onClick = onBrowseClick,
-                                        modifier = Modifier
-                                            .padding(top = 8.dp)
-                                            .heightIn(min = 48.dp)
-                                            .testTag("library_saved_bookmarks_browse")
-                                    ) {
-                                        Text(stringResource(R.string.lib_find_book))
+                                // spec-46 T16 (#577): canonical compact state.
+                                EmptyStateRow(
+                                    icon = Icons.Default.Bookmark,
+                                    title = stringResource(R.string.lib_saved_empty_bookmarks_title),
+                                    body = stringResource(R.string.lib_saved_empty_bookmarks_body),
+                                    modifier = Modifier.testTag("library_saved_bookmarks_empty"),
+                                    action = {
+                                        OutlinedButton(
+                                            onClick = onBrowseClick,
+                                            modifier = Modifier
+                                                .heightIn(min = 48.dp)
+                                                .testTag("library_saved_bookmarks_browse")
+                                        ) {
+                                            Text(stringResource(R.string.lib_find_book))
+                                        }
                                     }
-                                }
+                                )
                             }
                         } else {
                             items(allBookmarks, key = { it.id }) { bookmark ->

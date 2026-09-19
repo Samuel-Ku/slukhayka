@@ -755,8 +755,10 @@ fun ListenEmptyState(
 ) {
     EmptyState(
         icon = Icons.Default.PlayCircle,
-        title = "Продовжити слухати",
-        body = "Тут з'явиться ваша поточна книга, щойно ви почнете слухати."
+        // spec-46 T16 (#577): the Слухати empty state had hardcoded Ukrainian
+        // in an otherwise translated screen — the chrome comes from resources.
+        title = stringResource(R.string.listen_empty_title),
+        body = stringResource(R.string.listen_empty_body)
     ) {
         Button(
             onClick = onBrowseClick,

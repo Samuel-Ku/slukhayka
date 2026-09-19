@@ -39,13 +39,15 @@ class SettingsNavigationTest {
                 CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                     AudiobookTheme(darkTheme = true) {
                         Box(Modifier.width(320.dp).height(480.dp)) {
-                            AppBottomBar(SelectedTab.SETTINGS) { }
+                            // #956 — the bar's real four destinations; SETTINGS
+                            // has not been one since #860.
+                            AppBottomBar(SelectedTab.LISTEN) { }
                         }
                     }
                 }
             }
         }
-        listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_settings).forEach { res ->
+        listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_friends).forEach { res ->
             val label = rule.activity.getString(res)
             val layouts = mutableListOf<TextLayoutResult>()
             rule.onNodeWithText(label, useUnmergedTree = true)
@@ -64,14 +66,41 @@ class SettingsNavigationTest {
     }
 
     @Test fun allDestinationsReturnToTheirSettingsRow() {
-        rule.runOnUiThread {
-            ViewModelProvider(rule.activity)[MainViewModel::class.java].selectTab(SelectedTab.SETTINGS)
+        val viewModel = ViewModelProvider(rule.activity)[MainViewModel::class.java]
+        // #860 / ADR-0049 — «Налаштування» are NOT a bottom-bar destination any
+        // more: the real entry is the gear every root header carries
+        // (AppSettingsGear, tag "settings_gear"), and BACK returns to the root
+        // the gear was tapped on (MainActivity.kt BackHandler +
+        // settingsReturnTab). MainActivity wires the gear for EXPLORE, LIBRARY
+        // and FRIENDS; the LISTEN call passes no onOpenSettings, so its gear is
+        // inert — a production gap, reported, deliberately not asserted here.
+        val roots = listOf(
+            SelectedTab.EXPLORE to "home_screen",
+            SelectedTab.LIBRARY to "library_screen",
+            SelectedTab.FRIENDS to "friends_screen"
+        )
+        for ((tab, rootTag) in roots) {
+            rule.runOnUiThread { viewModel.selectTab(tab) }
+            waitFor(rootTag)
+            rule.onNodeWithTag("settings_gear").performClick()
+            waitFor("settings_screen")
+            // The bar keeps its four real destinations — and Settings, having
+            // left it in #860, must not be back as a fifth tab.
+            listOf("tab_listen", "tab_explore", "tab_library", "tab_friends").forEach { tag ->
+                rule.onNodeWithTag(tag).assertIsDisplayed()
+                    .assertHeightIsAtLeast(androidx.compose.ui.unit.Dp(48f))
+            }
+            rule.onNodeWithTag("tab_settings").assertDoesNotExist()
+            rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+            waitFor(rootTag)
+            rule.onNodeWithTag(rootTag).assertIsDisplayed()
+            rule.onNodeWithTag("settings_screen").assertDoesNotExist()
         }
+
+        // The loop left us on the FRIENDS root; open Settings once more through
+        // its gear for the destination contract below.
+        rule.onNodeWithTag("settings_gear").performClick()
         waitFor("settings_screen")
-        rule.onNodeWithTag("tab_settings").assertIsSelected()
-        listOf("tab_listen", "tab_explore", "tab_library", "tab_settings").forEach {
-            rule.onNodeWithTag(it).assertIsDisplayed().assertHeightIsAtLeast(androidx.compose.ui.unit.Dp(48f))
-        }
         val routes = listOf(
             "Profile" to "profile_screen_heading",
             "Storage" to "storage_destination_screen_heading",
@@ -97,22 +126,26 @@ class SettingsNavigationTest {
                 rule.onNodeWithTag("settings_$destination").assertIsFocused()
             }
         }
+        // A pushed pane must not survive leaving Settings: open Profile, switch
+        // to Бібліотека through the bar, then re-open Settings via its gear.
         rule.onNodeWithTag("settings_Profile").performScrollTo().performClick()
         waitFor("profile_screen_heading")
         rule.onNodeWithTag("tab_library").performClick()
         waitFor("library_screen")
         rule.onNodeWithTag("library_overflow_button").assertDoesNotExist()
-        rule.onNodeWithTag("tab_settings").performClick()
+        rule.onNodeWithTag("settings_gear").performClick()
         waitFor("settings_screen")
         rule.onNodeWithTag("profile_screen_heading").assertDoesNotExist()
+        // A secondary root route must not survive a bar switch either.
         rule.runOnUiThread {
-            ViewModelProvider(rule.activity)[MainViewModel::class.java].apply {
-                selectTab(SelectedTab.EXPLORE)
-                openSeriesIndex()
-            }
+            viewModel.selectTab(SelectedTab.EXPLORE)
+            viewModel.openSeriesIndex()
         }
         waitFor("series_index_screen")
-        rule.onNodeWithTag("tab_settings").performClick()
+        rule.onNodeWithTag("tab_library").performClick()
+        waitFor("library_screen")
+        rule.onNodeWithTag("series_index_screen").assertDoesNotExist()
+        rule.onNodeWithTag("settings_gear").performClick()
         waitFor("settings_screen")
         rule.onNodeWithTag("series_index_screen").assertDoesNotExist()
         InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().let { screenshot ->

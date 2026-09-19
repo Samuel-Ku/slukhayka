@@ -5,6 +5,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
@@ -34,6 +36,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
@@ -95,14 +98,29 @@ class UiSurfaceAuditTest {
                                     "search_loading" -> Column { GlobalSearchStatus(true, false, true) }
                                     "search_empty" -> Column { GlobalSearchStatus(false, false, true) }
                                     "search_error" -> Column { GlobalSearchStatus(false, true, true) }
-                                    "search_result" -> Column {
-                                        GlobalSearchResultCard(GlobalSearchResult(
-                                            title = book.title, author = book.author, narrator = book.narrator,
-                                            mergeKey = "audit", sources = listOf(
-                                                GlobalSearchSource("4read", "4read", "https://example.invalid/a"),
-                                                GlobalSearchSource("soundbooks", "Sound-Books", "https://example.invalid/b")
-                                            )
-                                        ), onClick = {})
+                                    "search_result" -> LazyColumn {
+                                        // #567: the row is built inline at the
+                                        // search surface's call site — the old
+                                        // GlobalSearchResultCard wrapper is gone.
+                                        searchResultsContent(
+                                            localBooks = emptyList(),
+                                            globalResults = listOf(GlobalSearchResult(
+                                                title = book.title, author = book.author, narrator = book.narrator,
+                                                mergeKey = "audit", sources = listOf(
+                                                    GlobalSearchSource("4read", "4read", "https://example.invalid/a"),
+                                                    GlobalSearchSource("soundbooks", "Sound-Books", "https://example.invalid/b")
+                                                )
+                                            )),
+                                            liveSearchActive = true,
+                                            isGlobalLoading = false,
+                                            globalError = false,
+                                            onOpenLocalBook = {},
+                                            onPlayLocalBook = {},
+                                            onOpenGlobalResult = {},
+                                            catalogCardActionState = CatalogCardActionState.Idle,
+                                            onOpenCatalogBrowser = {},
+                                            onPreflightGlobalResult = {}
+                                        )
                                     }
                                     "catalog_empty" -> Column { EmptyCatalogState({}, {}) }
                                     "cycle" -> Column { CycleCard("Епоха божевілля", null, {}) }
@@ -170,55 +188,70 @@ class UiSurfaceAuditTest {
                 }
                 if (phase != "before") {
                     if (name == "settings") {
-                        rule.onNodeWithTag("settings_screen").assertWidthIsEqualTo(320.dp)
+                        rule.onNodeWithTag("settings_screen")
+                            .named("scene=$name fontScale=$fontScale tag=settings_screen") { assertWidthIsEqualTo(320.dp) }
                         openedSettings.clear()
                         val routes = listOf(SettingsDestination.Profile, SettingsDestination.Storage,
                             SettingsDestination.NetworkPrivacy, SettingsDestination.Recommendations,
                             SettingsDestination.ContentLanguages, SettingsDestination.AppLocale)
                         for (route in routes) {
                             rule.onNodeWithTag("settings_${route.name}").performScrollTo()
-                                .assertIsDisplayed().assertHeightIsAtLeast(24.dp).performTouchInput { click() }
+                                .assertTouchTarget("scene=$name fontScale=$fontScale tag=settings_${route.name}")
+                                .performTouchInput { click() }
                         }
                         rule.waitForIdle()
-                        assertEquals(routes, openedSettings)
+                        assertEquals("scene=$name fontScale=$fontScale: opened settings destinations", routes, openedSettings)
                     }
                     if (name == "navigation") {
-                        rule.onNodeWithTag("navigation_fixture").assertWidthIsEqualTo(320.dp)
+                        rule.onNodeWithTag("navigation_fixture")
+                            .named("scene=$name fontScale=$fontScale tag=navigation_fixture") { assertWidthIsEqualTo(320.dp) }
                         val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply {
                             setLocale(Locale.forLanguageTag(locale))
                         })
-                        for (res in listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_settings)) {
+                        // #956: AppBottomBar renders exactly four destinations —
+                        // LISTEN / EXPLORE / LIBRARY / FRIENDS (MainActivity.kt).
+                        // «Налаштування» left the bar in #860, so expecting
+                        // nav_settings here made the audit unpassable by
+                        // construction and aborted the fontScale = 2f pass.
+                        val labels = listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_friends)
+                        for (res in labels) {
+                            val label = context.getString(res)
                             val layouts = mutableListOf<TextLayoutResult>()
-                            rule.onNodeWithText(context.getString(res), useUnmergedTree = true)
+                            rule.onNodeWithText(label, useUnmergedTree = true)
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                            assertTrue("Clipped navigation label", !layouts.single().hasVisualOverflow)
+                            assertTrue("scene=$name fontScale=$fontScale label='$label': clipped navigation label", !layouts.single().hasVisualOverflow)
                         }
                     }
                     if (name == "book") {
-                        rule.onNodeWithTag("book_fixture").assertWidthIsEqualTo(320.dp)
+                        rule.onNodeWithTag("book_fixture")
+                            .named("scene=$name fontScale=$fontScale tag=book_fixture") { assertWidthIsEqualTo(320.dp) }
                         for (role in listOf("author", "narrator")) {
-                            rule.onNodeWithTag("book_detail_${role}_link").performScrollTo().assertIsDisplayed()
+                            rule.onNodeWithTag("book_detail_${role}_link").performScrollTo()
+                                .named("scene=$name fontScale=$fontScale tag=book_detail_${role}_link") { assertIsDisplayed() }
                             val person = rule.onNodeWithTag("book_detail_${role}_link").fetchSemanticsNode().boundsInRoot
                             val star = rule.onNodeWithTag("book_detail_${role}_bookmark").fetchSemanticsNode().boundsInRoot
-                            assertEquals("Detached bookmark", person.right, star.left, 1f)
+                            assertEquals("scene=$name fontScale=$fontScale tag=book_detail_${role}_link: detached bookmark", person.right, star.left, 1f)
                             val layouts = mutableListOf<TextLayoutResult>()
                             rule.onNodeWithTag("book_detail_${role}_link")
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                            assertTrue("Clipped person name", !layouts.single().hasVisualOverflow)
+                            assertTrue("scene=$name fontScale=$fontScale tag=book_detail_${role}_link: clipped person name", !layouts.single().hasVisualOverflow)
                         }
-                        rule.onNodeWithTag("book_detail_series_pill").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+                        rule.onNodeWithTag("book_detail_series_pill").performScrollTo()
+                            .assertTouchTarget("scene=$name fontScale=$fontScale tag=book_detail_series_pill")
                         screenshot("555-$locale-long-series-$fontScale.png")
                         for (tag in listOf("play_book_button", "download_offline_button", "bookmark_button")) {
-                            rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+                            rule.onNodeWithTag(tag).performScrollTo()
+                                .assertTouchTarget("scene=$name fontScale=$fontScale tag=$tag")
                         }
                         rule.onAllNodesWithText("4read").assertCountEquals(1)
                         screenshot("550-$locale-book-actions-$fontScale.png")
                     }
                     if (name == "catalog_empty") {
                         for (tag in listOf("catalog_empty_refresh", "catalog_empty_import")) {
-                            val node = rule.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(24.dp)
+                            val node = rule.onNodeWithTag(tag)
+                                .assertTouchTarget("scene=$name fontScale=$fontScale tag=$tag")
                             val height = node.fetchSemanticsNode().boundsInRoot.height / rule.activity.resources.displayMetrics.density
-                            assertTrue("Stretched $tag: $height dp", height <= 120)
+                            assertTrue("scene=$name fontScale=$fontScale tag=$tag stretched: $height dp", height <= 120)
                         }
                     }
                     if (name == "library_filters") {
@@ -233,7 +266,8 @@ class UiSurfaceAuditTest {
                         for (tag in listOf("player_retry", "player_find_another_source")) {
                             val node = rule.onNodeWithTag(tag)
                             if (fontScale == 2f) node.performScrollTo()
-                            node.assertIsDisplayed().assertHeightIsAtLeast(24.dp).performTouchInput { click() }
+                            node.assertTouchTarget("scene=$name fontScale=$fontScale tag=$tag")
+                                .performTouchInput { click() }
                         }
                         rule.waitForIdle()
                         assertEquals(beforeRetries + 1, retries)
@@ -243,6 +277,25 @@ class UiSurfaceAuditTest {
             }
         }
     }
+
+    /**
+     * #852 AC3 — Compose 1.8's assertion helpers (`assertIsDisplayed`,
+     * `assertHeightIsAtLeast`, `assertWidthIsEqualTo`, …) take no message hook,
+     * so their failure would not say WHICH surface was audited. [named] prefixes
+     * the rethrown error with the audited state and tag; it adds no assertion.
+     */
+    private inline fun SemanticsNodeInteraction.named(
+        where: String,
+        assertion: SemanticsNodeInteraction.() -> SemanticsNodeInteraction
+    ): SemanticsNodeInteraction =
+        try {
+            assertion()
+        } catch (error: AssertionError) {
+            throw AssertionError("$where — ${error.message}", error)
+        }
+
+    private fun SemanticsNodeInteraction.assertTouchTarget(where: String, minHeight: Dp = 24.dp): SemanticsNodeInteraction =
+        named(where) { assertIsDisplayed().assertHeightIsAtLeast(minHeight) }
 
     private fun screenshot(name: String) {
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()

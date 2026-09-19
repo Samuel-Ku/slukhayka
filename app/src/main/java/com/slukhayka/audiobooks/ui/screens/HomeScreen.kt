@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterCard
@@ -63,7 +62,6 @@ import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
-import com.slukhayka.audiobooks.data.LanguageCode
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -75,8 +73,6 @@ import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
-import com.slukhayka.audiobooks.data.metadata.EditionDurationSummary
-import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.DurationBooks
@@ -94,9 +90,7 @@ import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
-import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
-import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -1153,143 +1147,6 @@ fun EmptyCatalogState(
             }
         }
     }
-}
-
-/**
- * One row of the endless merged feed: a Work without Source chrome. Tapping
- * resolves the Work's first Edition and import-and-plays it (the same path as
- * global-search cards); provenance remains in the underlying metadata.
- * Pure `@Composable` — pinned by the snapshot seam from fixture rows.
- */
-@Composable
-fun WorkFeedCard(
-    row: WorkFeedRow,
-    onClick: () -> Unit,
-    onPlayClick: () -> Unit = onClick,
-    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
-    onOpenBrowser: () -> Unit = {},
-    onPreflight: () -> Unit = {},
-    modifier: Modifier = Modifier
-) {
-    LaunchedEffect(row.workId) { onPreflight() }
-    val rowState = actionState.takeIf { state ->
-        when (state) {
-            is CatalogCardActionState.Checking -> state.target.cardKey == row.workId
-            is CatalogCardActionState.Completed -> state.target.cardKey == row.workId
-            is CatalogCardActionState.BrowserRequired -> state.target.cardKey == row.workId
-            is CatalogCardActionState.Failed -> state.target.cardKey == row.workId
-            is CatalogCardActionState.Cancelled -> state.target.cardKey == row.workId
-            CatalogCardActionState.Idle -> false
-        }
-    }
-    val checking = rowState is CatalogCardActionState.Checking
-    val openDescription = stringResource(R.string.a11y_open_work, row.title)
-    val listenDescription = stringResource(R.string.a11y_catalog_card_listen, row.title)
-
-    // v1.4 C3 (ADR-0033): the feed row IS the canonical BookRow — the old
-    // 56×80 bordered-card body is gone. Language chips ride the badges slot;
-    // the action status stays under the row via the footnote slot.
-    BookRow(
-        title = row.title,
-        modifier = modifier,
-        coverUrl = row.coverImageUrl,
-        author = row.author.takeIf { it.isNotBlank() },
-        stats = EditionDurationPolicy.summarize(
-            listOfNotNull(row.durationSeconds, row.durationMaxSeconds)
-        )?.let { feedDuration ->
-            when (feedDuration) {
-                is EditionDurationSummary.Single ->
-                    MainViewModel.formatTime(feedDuration.seconds)
-                is EditionDurationSummary.Range ->
-                    "${MainViewModel.formatTime(feedDuration.shortestSeconds)}–" +
-                        MainViewModel.formatTime(feedDuration.longestSeconds)
-            }
-        },
-        badges = {
-            // Spec-45 (#405) T7 (#495): the rendition's known languages — one
-            // EN/UA chip per language, sorted; unknown renders nothing (US3).
-            row.languages
-                .split(',')
-                .mapNotNull { LanguageCode.normalize(it.trim()) }
-                .distinct()
-                .sorted()
-                .forEach { lang ->
-                    MetadataChip(language = lang)
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-        },
-        trailing = {
-            if (checking) {
-                IconButton(
-                    onClick = onCancelAction,
-                    modifier = Modifier.size(AppDimens.TouchTarget)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.catalog_card_cancel),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                IconButton(
-                    onClick = onPlayClick,
-                    modifier = Modifier.size(AppDimens.TouchTarget)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = listenDescription,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
-        },
-        contentDescription = openDescription,
-        onClick = if (checking) null else onClick,
-        testTag = "work_feed_${row.workId}",
-        footnote = {
-            val statusText = when (val state = rowState) {
-                is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
-                is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)
-                is CatalogCardActionState.Failed -> stringResource(
-                    when {
-                        state.reason == CatalogCardFailure.AUDIO_REFUSED -> R.string.catalog_card_audio_refused
-                        state.action == CatalogCardAction.OPEN -> R.string.catalog_card_open_error
-                        else -> R.string.catalog_card_play_error
-                    }
-                )
-                is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)
-                else -> null
-            }
-            if (statusText != null) {
-                Column(
-                    modifier = Modifier
-                        .padding(start = 68.dp, bottom = 4.dp)
-                        .semantics { liveRegion = LiveRegionMode.Polite }
-                ) {
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (rowState is CatalogCardActionState.Failed) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                    if (rowState is CatalogCardActionState.BrowserRequired) {
-                        TextButton(
-                            onClick = onOpenBrowser,
-                            modifier = catalogBrowserReturnFocusModifier(row.workId)
-                                .testTag("catalog_card_open_browser_${row.workId}")
-                        ) {
-                            Text(stringResource(R.string.catalog_card_open_browser))
-                        }
-                    }
-                }
-            }
-        }
-    )
 }
 
 /**

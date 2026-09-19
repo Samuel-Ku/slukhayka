@@ -5,9 +5,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -17,6 +22,7 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
+import com.slukhayka.audiobooks.data.LanguageCode
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
@@ -24,18 +30,25 @@ import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.metadata.EditionDurationSummary
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
+import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
+import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
  * spec-28 (#203) — the Огляд feed body, extracted from HomeScreen as a
@@ -502,14 +515,126 @@ fun LazyListScope.homeFeedContent(
         contentType = workFeedItems.itemContentType { "WorkFeedRow" }
     ) { index ->
         workFeedItems[index]?.let { row ->
-            WorkFeedCard(
-                row = row,
-                onClick = { onOpenWorkFeedRow(row) },
-                onPlayClick = { onPlayWorkFeedRow(row) },
-                actionState = catalogCardActionState,
-                onCancelAction = onCancelCatalogCardAction,
-                onOpenBrowser = onOpenCatalogBrowser,
-                onPreflight = { onPreflightWorkFeedRow(row) }
+            // #567 v1.4 C3 (ADR-0033): the feed row IS the canonical BookRow,
+            // built here directly — the named WorkFeedCard wrapper (a row
+            // dialect of its own) is gone. Language chips ride the badges
+            // slot; the action status stays under the row via the footnote
+            // slot, so the honest action progress is not lost.
+            LaunchedEffect(row.workId) { onPreflightWorkFeedRow(row) }
+            val rowState = catalogCardActionState.takeIf { state ->
+                when (state) {
+                    is CatalogCardActionState.Checking -> state.target.cardKey == row.workId
+                    is CatalogCardActionState.Completed -> state.target.cardKey == row.workId
+                    is CatalogCardActionState.BrowserRequired -> state.target.cardKey == row.workId
+                    is CatalogCardActionState.Failed -> state.target.cardKey == row.workId
+                    is CatalogCardActionState.Cancelled -> state.target.cardKey == row.workId
+                    CatalogCardActionState.Idle -> false
+                }
+            }
+            val checking = rowState is CatalogCardActionState.Checking
+            val openDescription = stringResource(R.string.a11y_open_work, row.title)
+            val listenDescription = stringResource(R.string.a11y_catalog_card_listen, row.title)
+            val onRowClick: (() -> Unit)? = if (checking) null else { { onOpenWorkFeedRow(row) } }
+
+            BookRow(
+                title = row.title,
+                coverUrl = row.coverImageUrl,
+                author = row.author.takeIf { it.isNotBlank() },
+                stats = EditionDurationPolicy.summarize(
+                    listOfNotNull(row.durationSeconds, row.durationMaxSeconds)
+                )?.let { feedDuration ->
+                    when (feedDuration) {
+                        is EditionDurationSummary.Single ->
+                            MainViewModel.formatTime(feedDuration.seconds)
+                        is EditionDurationSummary.Range ->
+                            "${MainViewModel.formatTime(feedDuration.shortestSeconds)}–" +
+                                MainViewModel.formatTime(feedDuration.longestSeconds)
+                    }
+                },
+                badges = {
+                    // Spec-45 (#405) T7 (#495): the rendition's known
+                    // languages — one EN/UA chip per language, sorted; unknown
+                    // renders nothing (US3).
+                    row.languages
+                        .split(',')
+                        .mapNotNull { LanguageCode.normalize(it.trim()) }
+                        .distinct()
+                        .sorted()
+                        .forEach { lang ->
+                            MetadataChip(language = lang)
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                },
+                trailing = {
+                    if (checking) {
+                        IconButton(
+                            onClick = onCancelCatalogCardAction,
+                            modifier = Modifier.size(AppDimens.TouchTarget)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.catalog_card_cancel),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { onPlayWorkFeedRow(row) },
+                            modifier = Modifier.size(AppDimens.TouchTarget)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = listenDescription,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                },
+                contentDescription = openDescription,
+                onClick = onRowClick,
+                testTag = "work_feed_${row.workId}",
+                footnote = {
+                    val statusText = when (val state = rowState) {
+                        is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
+                        is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)
+                        is CatalogCardActionState.Failed -> stringResource(
+                            when {
+                                state.reason == CatalogCardFailure.AUDIO_REFUSED -> R.string.catalog_card_audio_refused
+                                state.action == CatalogCardAction.OPEN -> R.string.catalog_card_open_error
+                                else -> R.string.catalog_card_play_error
+                            }
+                        )
+                        is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)
+                        else -> null
+                    }
+                    if (statusText != null) {
+                        Column(
+                            modifier = Modifier
+                                .padding(start = 68.dp, bottom = 4.dp)
+                                .semantics { liveRegion = LiveRegionMode.Polite }
+                        ) {
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (rowState is CatalogCardActionState.Failed) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            if (rowState is CatalogCardActionState.BrowserRequired) {
+                                TextButton(
+                                    onClick = onOpenCatalogBrowser,
+                                    modifier = catalogBrowserReturnFocusModifier(row.workId)
+                                        .testTag("catalog_card_open_browser_${row.workId}")
+                                ) {
+                                    Text(stringResource(R.string.catalog_card_open_browser))
+                                }
+                            }
+                        }
+                    }
+                }
             )
         }
     }

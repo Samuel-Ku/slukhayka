@@ -13,7 +13,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +26,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,9 +36,8 @@ import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
-import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
-import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.PeopleKindType
 import com.slukhayka.audiobooks.ui.library.ukPlural
@@ -144,7 +146,19 @@ fun PeopleContent(
         when {
             isLoading -> {
                 item {
-                    SecondaryLoadingState(
+                    val loadingLabel = stringResource(R.string.secondary_loading)
+                    EmptyState(
+                        icon = Icons.Filled.Info,
+                        title = loadingLabel,
+                        body = "",
+                        iconContent = {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .semantics { contentDescription = loadingLabel }
+                            )
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(48.dp)
@@ -154,20 +168,24 @@ fun PeopleContent(
 
             loadFailed -> {
                 item {
-                    SecondaryMessageState(
-                        message = stringResource(R.string.secondary_people_error),
+                    EmptyState(
+                        icon = Icons.Filled.Warning,
+                        title = stringResource(R.string.secondary_people_error),
+                        body = "",
+                        stateDescription = stringResource(R.string.secondary_state_error),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(48.dp),
-                        isError = true
+                            .padding(48.dp)
                     )
                 }
             }
 
             people.isEmpty() -> {
                 item {
-                    SecondaryMessageState(
-                        message = stringResource(R.string.secondary_people_empty),
+                    EmptyState(
+                        icon = Icons.Filled.Info,
+                        title = stringResource(R.string.secondary_people_empty),
+                        body = "",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(48.dp)

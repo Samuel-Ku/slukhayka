@@ -17,8 +17,10 @@ import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +49,7 @@ import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
@@ -185,8 +187,10 @@ fun AuthorsIndexContent(
     initialScrollIndex: Int = 0
 ) {
     if (authors.isEmpty()) {
-        IndexEmptyState(
-            message = stringResource(R.string.author_empty_catalog),
+        EmptyState(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = stringResource(R.string.author_empty_catalog),
+            body = "",
             modifier = modifier.testTag("authors_index")
         )
         return
@@ -227,15 +231,26 @@ fun CanonicalAuthorContent(
         return
     }
     if (loadFailed) {
-        IndexEmptyState(
-            message = stringResource(R.string.author_load_failed),
+        // v1.4 E6 (#574): a failed load is an ERROR, so it carries the
+        // canonical error flavour — Warning instead of the menu glyph and
+        // «Помилка» on the same polite node, exactly as the person page
+        // (#577) announces its own failed load. The bare empty state below
+        // stays flavourless: nothing failed when the author simply has no
+        // Works yet.
+        EmptyState(
+            icon = Icons.Filled.Warning,
+            title = stringResource(R.string.author_load_failed),
+            body = "",
+            stateDescription = stringResource(R.string.secondary_state_error),
             modifier = modifier.testTag("canonical_author_page")
         )
         return
     }
     if (works.isEmpty()) {
-        IndexEmptyState(
-            message = stringResource(R.string.author_empty_works),
+        EmptyState(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            title = stringResource(R.string.author_empty_works),
+            body = "",
             modifier = modifier.testTag("canonical_author_page")
         )
         return

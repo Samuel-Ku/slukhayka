@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +18,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -28,11 +31,10 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.MetadataChip
-import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
-import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -40,7 +42,7 @@ import com.slukhayka.audiobooks.ui.theme.*
  * Full-screen list of every book in a 4read.org series (cycle) — spec #8
  * ticket T8. Opened from the "Цикли" row of the Explore screen; the book list
  * is fetched (and upserted) from the series page, then rendered as the
- * standard [AudiobookListItem] rows.
+ * standard [BookRow] rows.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,7 +102,19 @@ fun SeriesScreen(
             when {
                 isLoading -> {
                     item {
-                        SecondaryLoadingState(
+                        val loadingLabel = stringResource(R.string.secondary_loading)
+                        EmptyState(
+                            icon = Icons.Filled.Info,
+                            title = loadingLabel,
+                            body = "",
+                            iconContent = {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .semantics { contentDescription = loadingLabel }
+                                )
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp)
@@ -114,10 +128,12 @@ fun SeriesScreen(
                             modifier = Modifier.fillMaxWidth().padding(48.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            SecondaryMessageState(
-                                message = stringResource(R.string.secondary_series_error),
-                                modifier = Modifier.fillMaxWidth(),
-                                isError = true
+                            EmptyState(
+                                icon = Icons.Filled.Warning,
+                                title = stringResource(R.string.secondary_series_error),
+                                body = "",
+                                stateDescription = stringResource(R.string.secondary_state_error),
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
@@ -125,8 +141,10 @@ fun SeriesScreen(
 
                 books.isEmpty() -> {
                     item {
-                        SecondaryMessageState(
-                            message = stringResource(R.string.secondary_series_empty),
+                        EmptyState(
+                            icon = Icons.Filled.Info,
+                            title = stringResource(R.string.secondary_series_empty),
+                            body = "",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp)

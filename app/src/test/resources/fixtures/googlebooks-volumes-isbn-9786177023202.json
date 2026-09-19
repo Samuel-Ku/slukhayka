@@ -1,0 +1,109 @@
+{
+  "kind": "books#volumes",
+  "totalItems": 2,
+  "items": [
+    {
+      "kind": "books#volume",
+      "id": "mQFMDwAAQBAJ",
+      "etag": "3r9Y0m8Qm0M",
+      "selfLink": "https://www.googleapis.com/books/v1/volumes/mQFMDwAAQBAJ",
+      "volumeInfo": {
+        "title": "Чигиринський Кобзар і Гайдамаки",
+        "authors": [
+          "Тарас Григорович Шевченко"
+        ],
+        "publisher": "Видавництво «УкрСлово»",
+        "publishedDate": "2014-05-01",
+        "description": "Передрук класичної збірки.",
+        "industryIdentifiers": [
+          {
+            "type": "ISBN_13",
+            "identifier": "9786177023202"
+          },
+          {
+            "type": "ISBN_10",
+            "identifier": "6177023206"
+          }
+        ],
+        "readingModes": {
+          "text": false,
+          "image": true
+        },
+        "pageCount": 320,
+        "printType": "BOOK",
+        "categories": [
+          "Poetry"
+        ],
+        "maturityRating": "NOT_MATURE",
+        "allowAnonLogging": false,
+        "contentVersion": "1.2.3.0.preview.1",
+        "panelizationSummary": {
+          "containsEpubBubbles": false,
+          "containsImageBubbles": false
+        },
+        "imageLinks": {
+          "smallThumbnail": "http://books.google.com/books/content?id=mQFMDwAAQBAJ&printsec=frontcover&img=1&zoom=5&edge=curl&source=gbs_api",
+          "thumbnail": "http://books.google.com/books/content?id=mQFMDwAAQBAJ&printsec=frontcover&img=1&zoom=1&edge=curl&source=gbs_api"
+        },
+        "language": "uk",
+        "previewLink": "http://books.google.com/books?id=mQFMDwAAQBAJ&printsec=frontcover&dq=isbn:9786177023202&hl=&cd=1&source=gbs_api",
+        "infoLink": "https://play.google.com/store/books/details?id=mQFMDwAAQBAJ&source=gbs_api",
+        "canonicalVolumeLink": "https://play.google.com/store/books/details?id=mQFMDwAAQBAJ"
+      },
+      "saleInfo": {
+        "country": "UA",
+        "saleability": "NOT_FOR_SALE",
+        "isEbook": false
+      },
+      "accessInfo": {
+        "country": "UA",
+        "viewability": "NO_PAGES",
+        "embeddable": false,
+        "publicDomain": false,
+        "textToSpeechPermission": "ALLOWED",
+        "epub": {
+          "isAvailable": false
+        },
+        "pdf": {
+          "isAvailable": false
+        },
+        "webReaderLink": "http://play.google.com/books/reader?id=mQFMDwAAQBAJ&hl=&printsec=frontcover&source=gbs_api",
+        "accessViewStatus": "NONE",
+        "quoteSharingAllowed": false
+      },
+      "searchInfo": {
+        "textSnippet": "Передрук класичної збірки Тараса Шевченка."
+      }
+    },
+    {
+      "kind": "books#volume",
+      "id": "sparseVolumeId",
+      "etag": "sparseEtag",
+      "selfLink": "https://www.googleapis.com/books/v1/volumes/sparseVolumeId",
+      "volumeInfo": {
+        "title": "Чигиринський Кобзар і Гайдамаки (передрук)",
+        "publishedDate": "2018"
+      },
+      "saleInfo": {
+        "country": "UA",
+        "saleability": "NOT_FOR_SALE",
+        "isEbook": false
+      },
+      "accessInfo": {
+        "country": "UA",
+        "viewability": "NO_PAGES",
+        "embeddable": false,
+        "publicDomain": false,
+        "textToSpeechPermission": "ALLOWED",
+        "epub": {
+          "isAvailable": false
+        },
+        "pdf": {
+          "isAvailable": false
+        },
+        "accessViewStatus": "NONE",
+        "quoteSharingAllowed": false
+      }
+    }
+  ]
+}

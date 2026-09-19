@@ -111,7 +111,7 @@ fun LibraryImportSheetContent(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Додати аудіо",
+                text = stringResource(R.string.lib_import_add_audio),
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
@@ -131,16 +131,16 @@ fun LibraryImportSheetContent(
 
         ImportOptionRow(
             icon = Icons.Default.FileUpload,
-            title = "Додати файл",
-            subtitle = "Одна аудіокнига з пристрою",
+            title = stringResource(R.string.lib_import_add_file),
+            subtitle = stringResource(R.string.lib_import_add_file_subtitle),
             tag = "import_option_file",
             onClick = onImportFile
         )
         Spacer(modifier = Modifier.height(8.dp))
         ImportOptionRow(
             icon = Icons.Default.CreateNewFolder,
-            title = "Додати папку",
-            subtitle = "Усі аудіофайли у вибраній папці",
+            title = stringResource(R.string.lib_import_add_folder),
+            subtitle = stringResource(R.string.lib_import_add_folder_subtitle),
             tag = "import_option_folder",
             onClick = onImportFolder
         )

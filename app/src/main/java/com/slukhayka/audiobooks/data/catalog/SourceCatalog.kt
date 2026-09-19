@@ -999,11 +999,18 @@ class SourceCatalog(
                 return@withContext cached.visibleInContentLanguages(contentLanguageSelection.value)
             }
 
-            // #824 — the folded local index first: zero requests. A sufficient
-            // answer (at least LOCAL_SEARCH_SUFFICIENT_COUNT cards) never
-            // touches the network; a thin answer keeps its rows and the live
-            // volley only fills the gap behind them.
+            // #824 — the folded local index first: zero requests. The ticket
+            // fixes the order as FTS → content-language filter → live gather
+            // (<3 local), so the SAME visibility rule the published surfaces
+            // apply runs HERE, before the sufficiency decision: a local row the
+            // listener's selection hides is not an answer to them, so it neither
+            // counts toward sufficiency nor rides into the merge. A sufficient
+            // answer (at least LOCAL_SEARCH_SUFFICIENT_COUNT visible cards) never
+            // touches the network; a thin one falls through to the volley, whose
+            // own hits are filtered by the same rule at the tail of this method.
+            val localSelection = contentLanguageSelection.value
             val localBooks = searchLocalBooks(cleanQuery)
+                .filter { contentLanguageVisible(it.language, localSelection) }
             val matched = if (localBooks.size >= localSearchSufficientCount) {
                 localBooks
             } else {

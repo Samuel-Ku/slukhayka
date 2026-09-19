@@ -171,7 +171,8 @@ class UiSurfaceAuditTest {
                 }
                 if (phase != "before") {
                     if (name == "settings") {
-                        rule.onNodeWithTag("settings_screen").assertWidthIsEqualTo(320.dp)
+                        rule.onNodeWithTag("settings_screen")
+                            .named("scene=$name fontScale=$fontScale tag=settings_screen") { assertWidthIsEqualTo(320.dp) }
                         openedSettings.clear()
                         val routes = listOf(SettingsDestination.Profile, SettingsDestination.Storage,
                             SettingsDestination.NetworkPrivacy, SettingsDestination.Recommendations,
@@ -182,10 +183,11 @@ class UiSurfaceAuditTest {
                                 .performTouchInput { click() }
                         }
                         rule.waitForIdle()
-                        assertEquals(routes, openedSettings)
+                        assertEquals("scene=$name fontScale=$fontScale: opened settings destinations", routes, openedSettings)
                     }
                     if (name == "navigation") {
-                        rule.onNodeWithTag("navigation_fixture").assertWidthIsEqualTo(320.dp)
+                        rule.onNodeWithTag("navigation_fixture")
+                            .named("scene=$name fontScale=$fontScale tag=navigation_fixture") { assertWidthIsEqualTo(320.dp) }
                         val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply {
                             setLocale(Locale.forLanguageTag(locale))
                         })
@@ -204,16 +206,18 @@ class UiSurfaceAuditTest {
                         }
                     }
                     if (name == "book") {
-                        rule.onNodeWithTag("book_fixture").assertWidthIsEqualTo(320.dp)
+                        rule.onNodeWithTag("book_fixture")
+                            .named("scene=$name fontScale=$fontScale tag=book_fixture") { assertWidthIsEqualTo(320.dp) }
                         for (role in listOf("author", "narrator")) {
-                            rule.onNodeWithTag("book_detail_${role}_link").performScrollTo().assertIsDisplayed()
+                            rule.onNodeWithTag("book_detail_${role}_link").performScrollTo()
+                                .named("scene=$name fontScale=$fontScale tag=book_detail_${role}_link") { assertIsDisplayed() }
                             val person = rule.onNodeWithTag("book_detail_${role}_link").fetchSemanticsNode().boundsInRoot
                             val star = rule.onNodeWithTag("book_detail_${role}_bookmark").fetchSemanticsNode().boundsInRoot
-                            assertEquals("Detached bookmark", person.right, star.left, 1f)
+                            assertEquals("scene=$name fontScale=$fontScale tag=book_detail_${role}_link: detached bookmark", person.right, star.left, 1f)
                             val layouts = mutableListOf<TextLayoutResult>()
                             rule.onNodeWithTag("book_detail_${role}_link")
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                            assertTrue("Clipped person name", !layouts.single().hasVisualOverflow)
+                            assertTrue("scene=$name fontScale=$fontScale tag=book_detail_${role}_link: clipped person name", !layouts.single().hasVisualOverflow)
                         }
                         rule.onNodeWithTag("book_detail_series_pill").performScrollTo()
                             .assertTouchTarget("scene=$name fontScale=$fontScale tag=book_detail_series_pill")
@@ -258,17 +262,23 @@ class UiSurfaceAuditTest {
     }
 
     /**
-     * #852 AC3 — a touch-target failure must name the audited state and the tag,
-     * so the surface that shrank is identifiable from the assertion text alone.
-     * Compose 1.8's [assertIsDisplayed] / [assertHeightIsAtLeast] take no
-     * message hook, hence the rethrow with [where] prepended.
+     * #852 AC3 — Compose 1.8's assertion helpers (`assertIsDisplayed`,
+     * `assertHeightIsAtLeast`, `assertWidthIsEqualTo`, …) take no message hook,
+     * so their failure would not say WHICH surface was audited. [named] prefixes
+     * the rethrown error with the audited state and tag; it adds no assertion.
      */
-    private fun SemanticsNodeInteraction.assertTouchTarget(where: String, minHeight: Dp = 24.dp): SemanticsNodeInteraction =
+    private inline fun SemanticsNodeInteraction.named(
+        where: String,
+        assertion: SemanticsNodeInteraction.() -> SemanticsNodeInteraction
+    ): SemanticsNodeInteraction =
         try {
-            assertIsDisplayed().assertHeightIsAtLeast(minHeight)
+            assertion()
         } catch (error: AssertionError) {
             throw AssertionError("$where — ${error.message}", error)
         }
+
+    private fun SemanticsNodeInteraction.assertTouchTarget(where: String, minHeight: Dp = 24.dp): SemanticsNodeInteraction =
+        named(where) { assertIsDisplayed().assertHeightIsAtLeast(minHeight) }
 
     private fun screenshot(name: String) {
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()

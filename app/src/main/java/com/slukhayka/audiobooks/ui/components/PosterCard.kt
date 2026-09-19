@@ -57,9 +57,14 @@ private val CycleHeight = 78.dp
 /**
  * v1.4 C2 (ADR-0033) — the ONE portrait poster (120×168), the canonical
  * horizontal-shelf card. Every element is a slot: title, author, duration,
- * progress hairline, caption, dismiss («Не цікаво»), download. Surfaces
- * render only what they really know (ADR-0014) — a null slot is absent,
- * never a placeholder.
+ * progress hairline, caption, reason, dismiss («Не цікаво»), download.
+ * Surfaces render only what they really know (ADR-0014) — a null slot is
+ * absent, never a placeholder.
+ *
+ * [caption] is the shelf's own context line (a bare `Text`); [reason] is the
+ * recommendation explanation and renders as the canonical plain
+ * [MetadataChip] (v1.4 C4 / #564). The two stay separate slots so a shelf
+ * caption («Частина N» on «Далі у серії») never turns into a chip.
  *
  * The a11y contract rides inside: one merged clickable node, the optional
  * [stateDescription] on the card, dismiss/download as separate 48 dp
@@ -76,6 +81,7 @@ fun PosterCard(
     author: String? = null,
     duration: String? = null,
     caption: String? = null,
+    reason: String? = null,
     progress: Float? = null,
     progressTestTag: String? = null,
     stateDescription: String? = null,
@@ -242,6 +248,13 @@ fun PosterCard(
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))
+            // v1.4 C4 / #564 — the recommendation reason is the canonical
+            // plain MetadataChip, on its OWN slot: `caption` below stays a
+            // bare Text so «Частина N» on the Listen shelf is untouched.
+            reason?.let {
+                MetadataChip(text = it)
+                Spacer(modifier = Modifier.height(2.dp))
+            }
             caption?.let {
                 Text(
                     text = it,

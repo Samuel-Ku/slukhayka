@@ -77,7 +77,7 @@ class NewArrivalsRailSnapshotTest {
         }
 
         // Self-verifying on top of the image: the header renders (uppercased
-        // by CatalogRowHeader), and each card carries exactly one badge — the
+        // by the canonical section header), and each card carries exactly one badge — the
         // source its Library Entry was imported from.
         composeTestRule.onNodeWithText("Новинки", ignoreCase = true).assertExists()
         composeTestRule.onNodeWithText("4read").assertExists()

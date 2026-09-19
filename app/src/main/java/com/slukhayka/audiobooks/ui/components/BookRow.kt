@@ -249,8 +249,8 @@ fun BookRow(
 }
 
 /**
- * Library-entity convenience overload — the flat library-list row (the old
- * AudiobookListItem contract, preserved verbatim: the `book_item_<id>` tag,
+ * Library-entity convenience overload — the flat library-list row (the
+ * library-row contract, preserved verbatim: the `book_item_<id>` tag,
  * the availability state description, the "4read Каталог" placeholder genre
  * skip, and the haptic-tick play action as the trailing 48 dp target).
  */

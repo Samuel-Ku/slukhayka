@@ -20,8 +20,8 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
  * v1.4 C4 (ADR-0033) — the ONE non-interactive metadata chip; the
- * language/source/plain slots replace `LanguageBadge`, `SourceBadgePill`,
- * `TagPill` and the recommendation-reason surfaces. A chip states a fact
+ * language/source/plain slots replace the retired language badge, the
+ * source/tag pills and the recommendation-reason surfaces. A chip states a fact
  * about the card it rides on; it is never clickable (actions live on the
  * card or in ⋮, «one tool, one place»).
  *

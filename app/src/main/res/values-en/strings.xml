@@ -131,6 +131,7 @@
     <string name="book_detail_metadata_title">Title</string>
     <string name="book_detail_metadata_author">Author</string>
     <string name="book_detail_metadata_narrator">Narrator</string>
+    <string name="book_detail_metadata_cover">Cover (URL)</string>
     <string name="book_detail_metadata_save">Save</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
     <string name="book_detail_listened_state_off">Not marked as listened</string>
@@ -372,6 +373,7 @@
     <string name="manual_add_title">Add a book</string>
     <string name="manual_add_name">Title</string>
     <string name="manual_add_author">Author</string>
+    <string name="manual_add_cover">Cover (URL, optional)</string>
     <string name="manual_add_format">Format</string>
     <string name="manual_add_format_paper">Paper</string>
     <string name="manual_add_format_ebook">E-book</string>

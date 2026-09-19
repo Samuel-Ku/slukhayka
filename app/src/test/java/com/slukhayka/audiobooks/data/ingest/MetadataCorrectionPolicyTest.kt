@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.data.ingest
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -91,5 +93,79 @@ class MetadataCorrectionPolicyTest {
             MetadataCorrectionPolicy.Correction("Нова назва", "Справжній автор", "Справжня начитка"),
             correction
         )
+    }
+
+    // -----------------------------------------------------------------
+    // #855 (T2) — the cover is a claim of its own
+    // -----------------------------------------------------------------
+
+    @Test
+    fun `a cover only fix is a correction of its own`() {
+        val outcome = MetadataCorrectionPolicy.apply(
+            currentTitle = "Кривий розбір",
+            currentAuthor = "Невідомий",
+            currentNarrator = "Диктор",
+            edit = MetadataCorrectionPolicy.Edit(coverUrl = "https://mine.example/c.jpg"),
+            currentCoverUrl = null
+        )
+
+        assertEquals(
+            MetadataCorrectionPolicy.Outcome.Corrected(
+                MetadataCorrectionPolicy.Correction(
+                    title = "Кривий розбір",
+                    author = "Невідомий",
+                    narrator = "Диктор",
+                    coverUrl = "https://mine.example/c.jpg",
+                    coverChanged = true
+                )
+            ),
+            outcome
+        )
+    }
+
+    @Test
+    fun `a cleared cover is an honest absence and counts as a change`() {
+        val outcome = MetadataCorrectionPolicy.apply(
+            currentTitle = "Кривий розбір",
+            currentAuthor = "Невідомий",
+            currentNarrator = "Диктор",
+            edit = MetadataCorrectionPolicy.Edit(coverUrl = "   "),
+            currentCoverUrl = "https://claim.example/wrong.jpg"
+        )
+
+        val correction = (outcome as MetadataCorrectionPolicy.Outcome.Corrected).correction
+        assertNull("no cover stays no cover — never a placeholder", correction.coverUrl)
+        assertTrue(correction.coverChanged)
+    }
+
+    @Test
+    fun `a cover equal to the stored one is not a change at all`() {
+        val outcome = MetadataCorrectionPolicy.apply(
+            currentTitle = "Кривий розбір",
+            currentAuthor = "Невідомий",
+            currentNarrator = "Диктор",
+            edit = MetadataCorrectionPolicy.Edit(coverUrl = "  https://mine.example/c.jpg  "),
+            currentCoverUrl = "https://mine.example/c.jpg"
+        )
+
+        assertEquals(
+            MetadataCorrectionPolicy.Outcome.Refused(MetadataCorrectionPolicy.Refusal.NOTHING_TO_CHANGE),
+            outcome
+        )
+    }
+
+    @Test
+    fun `a form that does not edit the cover leaves it out of the correction`() {
+        val outcome = MetadataCorrectionPolicy.apply(
+            currentTitle = "Кривий розбір",
+            currentAuthor = "Невідомий",
+            currentNarrator = "Диктор",
+            edit = MetadataCorrectionPolicy.Edit(title = "Нова назва"),
+            currentCoverUrl = "https://claim.example/c.jpg"
+        )
+
+        val correction = (outcome as MetadataCorrectionPolicy.Outcome.Corrected).correction
+        assertEquals("https://claim.example/c.jpg", correction.coverUrl)
+        assertFalse("the cover is not pinned by a title edit", correction.coverChanged)
     }
 }

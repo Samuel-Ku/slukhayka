@@ -12,6 +12,8 @@ import com.slukhayka.audiobooks.data.db.TombstoneEntity
 import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import kotlinx.coroutines.flow.map
+import com.slukhayka.audiobooks.data.metadata.CoverOverride
+import com.slukhayka.audiobooks.data.metadata.CoverOverrideStore
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
@@ -307,10 +309,19 @@ class LibraryEntries(
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext
             val detail = adapter.fetchBookPage(book.sourceUrl)
-            // Cover applies only when the claim is non-blank — never clears a
-            // stored cover with an absent one.
-            MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
-                dao.updateCoverImageUrl(bookId, cover)
+            // #855 (T2) — a cover the listener pinned is not the page's to
+            // change: their Override outranks this claim too, so the fix
+            // survives every book-page open.
+            val coverIsPinned = runCatching {
+                val key = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@runCatching false
+                CoverOverride.blocksWrite(CoverOverrideStore(dao).pinned(key))
+            }.getOrDefault(true)
+            if (!coverIsPinned) {
+                // Cover applies only when the claim is non-blank — never clears
+                // a stored cover with an absent one.
+                MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
+                    dao.updateCoverImageUrl(bookId, cover)
+                }
             }
             // Real metadata (author/narrator/genre/duration/rating/series) is
             // back-filled on EVERY book-page open — the catalogue seed only

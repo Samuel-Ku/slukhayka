@@ -232,6 +232,14 @@ class App : Application() {
         by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }
 
     /**
+     * #855 (T2) — the write half of the listener's cover Override: the cover
+     * lands through the ordinary cover write path and the decision is
+     * remembered, so no later external claim can undo it.
+     */
+    val coverOverrideStore: com.slukhayka.audiobooks.data.metadata.CoverOverrideStore
+        by lazy { com.slukhayka.audiobooks.data.metadata.CoverOverrideStore(audiobookDao) }
+
+    /**
      * Spec-51 (#689) — a listener's own collections, local-first: the store is
      * backed by the same Room database, never by a network round trip.
      */

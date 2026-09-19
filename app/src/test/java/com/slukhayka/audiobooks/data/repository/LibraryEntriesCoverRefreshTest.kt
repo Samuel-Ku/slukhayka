@@ -9,6 +9,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.CoverOverrideStore
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
@@ -147,5 +148,50 @@ class LibraryEntriesCoverRefreshTest {
         LibraryEntries(dao, listOf(soundBooks)).refreshBookCoverAndDetails("sb-book")
 
         assertNull(dao.getAudiobookById("sb-book")!!.coverImageUrl)
+    }
+
+    // -----------------------------------------------------------------
+    // #855 (T2) — the listener's Override outranks the page's claim
+    // -----------------------------------------------------------------
+
+    @Test
+    fun `a pinned cover survives the page-open heal - on either pass`() = runBlocking {
+        seedBook(coverImageUrl = "https://claim.example/wrong.webp")
+        CoverOverrideStore(dao).pin(
+            bookId = "sb-book",
+            mergeKey = MergeKey.keyFor("Темна матерія", "Блейк Крауч"),
+            coverUrl = "https://mine.example/right.webp",
+            now = 100L
+        )
+        val soundBooks = FakeAdapter("soundbooks", detail("https://sound-books.net/uploads/posts/2026-07/page.webp"))
+
+        LibraryEntries(dao, listOf(soundBooks)).refreshBookCoverAndDetails("sb-book")
+
+        assertEquals(
+            "https://mine.example/right.webp",
+            dao.getAudiobookById("sb-book")!!.coverImageUrl
+        )
+        // The next open must not quietly undo the fix either.
+        LibraryEntries(dao, listOf(soundBooks)).refreshBookCoverAndDetails("sb-book")
+        assertEquals(
+            "https://mine.example/right.webp",
+            dao.getAudiobookById("sb-book")!!.coverImageUrl
+        )
+    }
+
+    @Test
+    fun `a pinned absence is not healed back in by the page`() = runBlocking {
+        seedBook(coverImageUrl = "https://claim.example/wrong.webp")
+        CoverOverrideStore(dao).pin(
+            bookId = "sb-book",
+            mergeKey = MergeKey.keyFor("Темна матерія", "Блейк Крауч"),
+            coverUrl = null,
+            now = 100L
+        )
+        val soundBooks = FakeAdapter("soundbooks", detail("https://sound-books.net/uploads/posts/2026-07/page.webp"))
+
+        LibraryEntries(dao, listOf(soundBooks)).refreshBookCoverAndDetails("sb-book")
+
+        assertEquals("", dao.getAudiobookById("sb-book")!!.coverImageUrl)
     }
 }

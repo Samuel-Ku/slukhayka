@@ -97,7 +97,6 @@ import com.slukhayka.audiobooks.ui.library.BookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPlayLabel
 import com.slukhayka.audiobooks.ui.library.bookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPositionAndTotal
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -292,7 +291,7 @@ fun BookDetailCanonicalSummary(
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Автор: ${presentation.author}",
+                    text = stringResource(R.string.book_detail_author_label, presentation.author),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.Center,
@@ -340,7 +339,7 @@ fun BookDetailCanonicalSummary(
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Озвучує: ${presentation.narrator}",
+                    text = stringResource(R.string.book_detail_narrator_label, presentation.narrator),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -400,9 +399,10 @@ fun BookDetailCanonicalSummary(
         val chaptersKnown = presentation.totalChapters > 0
         val durationKnown = presentation.totalDurationSeconds > 0L
         if (chaptersKnown || durationKnown) {
-            val chaptersLabel = ukPlural(
+            val chaptersLabel = pluralStringResource(
+                R.plurals.chapter_count,
                 presentation.totalChapters,
-                "розділ", "розділи", "розділів"
+                presentation.totalChapters
             )
             MetadataChip(
                 text = when {
@@ -463,7 +463,12 @@ fun BookDetailSourceSection(
     if (presentation.sources.isEmpty()) return
     Spacer(modifier = Modifier.height(20.dp))
     Text(
-        text = presentation.sourceHeading,
+        // v1.4 E4 / spec-46 T11 (#572): the heading lives in resources now —
+        // singular for one source, plural otherwise (no count phrase).
+        text = stringResource(
+            if (presentation.sources.size == 1) R.string.book_detail_source_heading_one
+            else R.string.book_detail_source_heading_many
+        ),
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
         color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier
@@ -491,7 +496,8 @@ fun WorkSourceRowCard(
     source: BookDetailSourcePresentation,
     workTitle: String = ""
 ) {
-    val contextualTitle = workTitle.takeIf(String::isNotBlank) ?: "книгу"
+    val contextualTitle = workTitle.takeIf(String::isNotBlank)
+        ?: stringResource(R.string.book_detail_accent_book)
     val actionDescription = if (source.selectable) {
         stringResource(R.string.book_detail_play_source, contextualTitle, source.name)
     } else {
@@ -546,28 +552,34 @@ fun WorkSourceRowCard(
                 }
                 source.rating?.let { rating ->
                     Text(
-                        text = "Оцінка джерела: ★ ${"%.1f".format(java.util.Locale.US, rating)}",
+                        text = stringResource(
+                            R.string.book_detail_source_rating,
+                            "%.1f".format(java.util.Locale.US, rating)
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 source.differingNarrator?.let { narrator ->
                     Text(
-                        text = "Озвучує за даними джерела: $narrator",
+                        text = stringResource(R.string.book_detail_source_narrator, narrator),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (source.differingGenres.isNotEmpty()) {
                     Text(
-                        text = "Жанри за даними джерела: ${source.differingGenres.joinToString(" · ")}",
+                        text = stringResource(
+                            R.string.book_detail_source_genres,
+                            source.differingGenres.joinToString(" · ")
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 source.differingDescription?.let { description ->
                     Text(
-                        text = "Інший опис від джерела: $description",
+                        text = stringResource(R.string.book_detail_source_description, description),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 4,
@@ -599,7 +611,8 @@ fun NarrationRowCard(
     voteCount: Int = 0,
     onClick: () -> Unit
 ) {
-    val narrator = sibling.narrator.ifBlank { "Невідомий читач" }
+    val narrator = sibling.narrator.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.book_detail_unknown_narrator)
     val sourceName = sourceDisplayName(sourceIdForUrl(sibling.sourceUrl))
     val actionDescription = stringResource(
         R.string.book_detail_open_edition,

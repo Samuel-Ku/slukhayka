@@ -351,44 +351,15 @@ fun BookDetailScreen(
     )
     if (showNarrationRatingDeleteConfirm && currentEditionId != null) {
         val editionId = currentEditionId.orEmpty()
-        val titleFocusRequester = remember { FocusRequester() }
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showNarrationRatingDeleteConfirm = false },
-            modifier = Modifier
-                .accessibilityPane("Видалення оцінки начитки")
-                .testTag("narration_rating_delete_dialog"),
-            title = {
-                Text(
-                    "Видалити оцінку начитки?",
-                    modifier = Modifier
-                        .focusRequester(titleFocusRequester)
-                        .focusable()
-                        .semantics { heading() }
-                )
-                LaunchedEffect(Unit) {
-                    withFrameNanos { }
-                    titleFocusRequester.requestFocus()
-                }
+        // v1.4 E4 / spec-46 T11 (#572): the dialog moved next to its sibling
+        // modals and onto string resources — behaviour unchanged.
+        NarrationRatingDeleteConfirmation(
+            narrator = detailPresentation.narrator,
+            onConfirm = {
+                viewModel.deleteOwnNarrationRating(reviewsWorkId, editionId)
+                showNarrationRatingDeleteConfirm = false
             },
-            text = {
-                Text(
-                    "Ваші зірки біля «${detailPresentation.narrator}» буде прибрано з цієї сторінки."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteOwnNarrationRating(reviewsWorkId, editionId)
-                    showNarrationRatingDeleteConfirm = false
-                }, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
-                    Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showNarrationRatingDeleteConfirm = false },
-                    modifier = Modifier.sizeIn(minHeight = 48.dp)
-                ) { Text(stringResource(R.string.action_cancel)) }
-            }
+            onDismiss = { showNarrationRatingDeleteConfirm = false }
         )
     }
 
@@ -700,7 +671,7 @@ fun BookDetailScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Інші дії",
+                                contentDescription = stringResource(R.string.book_detail_more_actions),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -944,7 +915,7 @@ fun BookDetailScreen(
                         modifier = Modifier
                             .heightIn(min = 48.dp)
                             .testTag("add_to_collection_open")
-                    ) { Text("Додати до добірки") }
+                    ) { Text(stringResource(R.string.book_detail_add_to_collection)) }
                     // #392 — size display below download button
                     if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
                         val sizeText = when {
@@ -1142,7 +1113,7 @@ fun BookDetailScreen(
                         onClick = { activeTab = 0 },
                         text = {
                             Text(
-                                text = "Розділи (${chapters.size})",
+                                text = stringResource(R.string.book_detail_chapters_tab, chapters.size),
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1154,7 +1125,7 @@ fun BookDetailScreen(
                         onClick = { activeTab = 1 },
                         text = {
                             Text(
-                                text = "Закладки (${bookmarks.size})",
+                                text = stringResource(R.string.book_detail_bookmarks_tab, bookmarks.size),
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1257,11 +1228,12 @@ fun BookDetailScreen(
                 }
             }
 
-            if (activeTab == 0) {
-                item(key = "book_feedback") {
-                    BookFeedbackEntry { viewModel.bookFeedback.open(currentBook.id) }
-                }
-            }
+            // v1.4 E4 / spec-46 T11 (#572, ADR-0033): the «Ваші враження»
+            // door that used to sit after the chapter list is gone — the
+            // «Відгуки» block below is the single entry to feedback on the
+            // book page (ADR-0014 «one tool, one place»). The ADR-0032
+            // post-completion prompt and the player's own chapter-sheet door
+            // are different surfaces and keep BookFeedbackEntry.
 
             // Related books from the book page ("Можливо, Тебе зацікавить:").
             if (relatedBooks.isNotEmpty()) {
@@ -1416,7 +1388,11 @@ fun BookDetailScreen(
                             )
                             Spacer(modifier = Modifier.size(8.dp))
                             Text(
-                                text = "джерела і слухачі · ${average.count} оцінок",
+                                text = pluralStringResource(
+                                    R.plurals.book_detail_rating_sources,
+                                    average.count,
+                                    average.count
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1427,7 +1403,7 @@ fun BookDetailScreen(
                 if (bookReviews.isEmpty()) {
                     item(key = "reviews_empty") {
                         Text(
-                            text = "Ще немає відгуків — станьте першим",
+                            text = stringResource(R.string.book_detail_reviews_empty),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)

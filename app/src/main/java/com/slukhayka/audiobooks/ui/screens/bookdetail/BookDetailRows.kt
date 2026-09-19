@@ -312,7 +312,11 @@ fun BookmarkRowItem(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "На ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
+                    text = stringResource(
+                        R.string.book_detail_bookmark_note_at,
+                        timestamp,
+                        bookmark.note
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

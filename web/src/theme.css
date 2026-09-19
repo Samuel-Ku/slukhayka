@@ -1518,3 +1518,90 @@ span.bookrow-body {
   color: var(--fg);
   background: var(--line);
 }
+
+/* spec-51 (#697, T9) — «Добірки з цією книгою» / «Добірки слухачів»: the web
+   reading surfaces of listener collections. Rows keep the 48 px touch target
+   the other community lists use; the rail scrolls horizontally like the
+   poster rows. Nothing here draws a number the data does not carry. */
+.collections-with-book,
+.collections-rail {
+  margin-top: 16px;
+}
+
+.collection-list,
+.collection-composition {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.collection-row,
+.collection-rail-card {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.collection-rail-row {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 0 4px;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+
+.collection-rail-card {
+  min-width: 200px;
+}
+
+.collection-row-title,
+.collection-rail-title,
+.collection-item-title {
+  font-weight: 600;
+}
+
+.collection-row-curator,
+.collection-average,
+.collection-no-ratings,
+.collection-count,
+.collection-description,
+.collection-detail-rating,
+.collection-item-author,
+.collection-item-reason {
+  color: var(--fg-dim);
+  font-size: 14px;
+}
+
+.collection-composition-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.collection-item-cover {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.collection-item-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.collection-detail-rating {
+  margin-top: 8px;
+}

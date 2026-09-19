@@ -235,7 +235,20 @@ interface SourceAdapter {
         val slug = url.substringAfterLast('/').substringBefore('?')
             .removeSuffix(".html")
             .removeSuffix(".m3u")
-            .ifBlank { "book-${System.currentTimeMillis()}" }
+            .ifBlank { "book-${urlIdSuffix(url)}" }
         return "$sourceId-$slug"
     }
 }
+
+/**
+ * #814 — the deterministic id suffix for a URL whose last path segment is
+ * unusable (a landing/series link ending in "/", or one carrying only a
+ * query). The former `System.currentTimeMillis()` fallback was the opposite
+ * of the stable-Work-id contract: it minted a NEW Work on every call, so the
+ * same page could never merge with itself — one more way a source invented
+ * an identity instead of owning one. `String.hashCode` is specified and
+ * stable across runs, which is exactly the stability this needs; a hash
+ * collision between two slug-less URLs of one source is a far smaller harm
+ * than the same URL never merging.
+ */
+private fun urlIdSuffix(url: String): String = url.hashCode().toUInt().toString(16)

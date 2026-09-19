@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.AfterClass
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,6 +78,28 @@ class StoredMetadataScrubRoomTest {
         assertEquals(2, scrub.scrubOnce())
         assertEquals("Темна матерія", dao.getAllBookTitleRows().single().title)
         assertEquals("Темна матерія", dao.getAllWorkTitleRows().single().title)
+        assertEquals(0, scrub.scrubOnce())
+    }
+
+    @Test
+    fun `startup scrub decodes a stored HTML entity on both tables and is idempotent`() = runBlocking {
+        // #964 — the on-device Work row held «Ім&#x27;я тіні» (a React-rendered
+        // hex entity persisted before the write rule decoded it). The one-time
+        // pass repairs the stored title without a schema migration; identity
+        // (mergeKey) is deliberately NOT touched here.
+        dao.insertAudiobooks(listOf(book("b1", "Ім&#x27;я тіні")))
+        dao.upsertWork(
+            WorkEntity(id = "w1", mergeKey = "w1", title = "Ім&#x27;я тіні", author = "Айя Нея")
+        )
+
+        val scrub = StoredMetadataScrub(dao)
+        assertEquals(2, scrub.scrubOnce())
+        assertEquals("Ім'я тіні", dao.getAllBookTitleRows().single().title)
+        assertEquals("Ім'я тіні", dao.getAllWorkTitleRows().single().title)
+        // The repair rewrites the DISPLAY title only — a stored identity
+        // (mergeKey) is never re-keyed behind the listener's back.
+        assertNotNull(dao.findWorkByMergeKey("w1"))
+        // Idempotent: a second run finds nothing left to decode.
         assertEquals(0, scrub.scrubOnce())
     }
 

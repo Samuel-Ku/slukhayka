@@ -25,12 +25,41 @@ fun ogMeta(html: String, property: String): String? =
         ?: Regex("""<meta\s+content="([^"]+)"\s+property="$property"""", RegexOption.IGNORE_CASE)
         .find(html)?.groupValues?.get(1)
 
-/** The entity set the non-4read pages actually use: `&#039;`, `&#39;`, `&quot;`, `&amp;`. */
-fun decodeEntities(input: String): String = input
-    .replace("&#039;", "'")
-    .replace("&#39;", "'")
-    .replace("&quot;", "\"")
-    .replace("&amp;", "&")
+/**
+ * The entity set the non-4read pages actually use: the named `&quot;` /
+ * `&amp;` pair, plus numeric entities in BOTH spellings — decimal (`&#039;`,
+ * `&#39;`) and hexadecimal (`&#x27;`). The hex form is what a React/Next.js
+ * server-rendered page emits for an apostrophe (chytaylo.com.ua is one), and
+ * missing it left «Ім&#x27;я тіні» as a Work title and, worse, as a merge key
+ * distinct from the same book's JSON-LD title (#964).
+ *
+ * ONE pass over the input, so a replacement is never re-read: `&#x26;amp;`
+ * stays the literal `&amp;`, and `&lt;` / `&gt;` / `&apos;` are deliberately
+ * NOT in the set (already-stripped markup boundaries). Anything unrecognised —
+ * an unknown name, malformed hex, an empty numeric or an out-of-range code
+ * point — stays byte-for-byte literal: a decoder never fabricates a
+ * character.
+ */
+fun decodeEntities(input: String): String = HTML_ENTITY.replace(input) { match ->
+    val hex = match.groupValues[1]
+    val decimal = match.groupValues[2]
+    val named = match.groupValues[3]
+    when {
+        hex.isNotEmpty() -> decodeCodePoint(hex.toIntOrNull(16), match.value)
+        decimal.isNotEmpty() -> decodeCodePoint(decimal.toIntOrNull(), match.value)
+        named == "quot" -> "\""
+        named == "amp" -> "&"
+        else -> match.value
+    }
+}
+
+private val HTML_ENTITY = Regex("""&(?:#(?:[xX]([0-9a-fA-F]+)|(\d+))|(quot|amp));""")
+
+/** The code point as text, or [literal] when it is not a decodable character. */
+private fun decodeCodePoint(code: Int?, literal: String): String {
+    if (code == null || code !in 1..0x10FFFF || code in 0xD800..0xDFFF) return literal
+    return String(Character.toChars(code))
+}
 
 /**
  * Transliterated-slug → display title: hyphens to spaces, trimmed, first

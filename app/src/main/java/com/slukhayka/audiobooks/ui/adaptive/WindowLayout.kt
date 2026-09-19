@@ -90,4 +90,69 @@ fun showsWideExploreDetailPane(
     hasParentList: Boolean
 ): Boolean = layout == WindowLayout.EXPANDED && hasParentList && tab == SelectedTab.EXPLORE
 
+/**
+ * #962 — the height below which an EXPANDED window is a LANDSCAPE PHONE, not a
+ * tablet.
+ *
+ * #900 put the line at width alone, which is right for «rail instead of the
+ * bottom bar» but blind to the second dimension: a phone turned sideways is
+ * 905 dp WIDE and only 411 dp TALL (OnePlus 8 Pro, 3168×1440 @560 dpi,
+ * measured on device). At that width every rule that widens chrome fires, and
+ * the 411 dp of height then has to pay for all of it — the Library's header,
+ * year hero, tabs, search field and chip row alone measured 1402 px of the
+ * 1440 px, leaving the book grid ≈11 dp and no scroll to reach it (#962).
+ *
+ * So the width line still decides the ADAPTIVE layout, and this second line
+ * only decides how much CHROME that layout may spend. It sits at 600 dp for
+ * the same reason [ExpandedMinWidthDp] does: 600 dp is the shortest height at
+ * which the wide chrome (hero + search + chips + a real list) still fits, and
+ * a portrait tablet at 840×1000 dp stays well above it. A landscape phone is
+ * the only window that crosses the width line while staying under this one.
+ */
+const val WideChromeMinHeightDp: Int = 600
+
+/**
+ * #962 — may this window afford the FULL wide chrome?
+ *
+ * True for every window that already was (portrait phones and tablets never
+ * change), true for a wide-and-tall tablet, and false only for the wide AND
+ * short window a landscape phone produces. Pure, like [windowLayoutFor], so
+ * the boundary is a JVM test rather than something only a device can answer.
+ */
+fun showsWideChrome(widthDp: Int, heightDp: Int): Boolean =
+    windowLayoutFor(widthDp) == WindowLayout.EXPANDED && heightDp >= WideChromeMinHeightDp
+
+/**
+ * #962 — is this the LANDSCAPE-PHONE window: wide enough for every EXPANDED
+ * rule, and too short to pay for them?
+ *
+ * This is the one shape that needs the compact chrome, and stating it as its
+ * own predicate keeps the call sites honest. It is NOT `!showsWideChrome(...)`:
+ * that is also true of a narrow portrait window (the 320 × 470 dp Robolectric
+ * default, a split-screen half), which must keep the ordinary phone layout it
+ * has always had. A window qualifies only if it is EXPANDED by width AND
+ * shorter than [WideChromeMinHeightDp].
+ */
+fun isLandscapePhoneWindow(widthDp: Int, heightDp: Int): Boolean =
+    windowLayoutFor(widthDp) == WindowLayout.EXPANDED && heightDp < WideChromeMinHeightDp
+
+/**
+ * #962 — the CURRENT window's chrome budget, the height twin of
+ * [rememberWindowLayout].
+ *
+ * Reads the same [LocalConfiguration] (the Activity's own window, so a
+ * split-screen half or a folded foldable answers for itself) and follows a
+ * resize without a restart.
+ */
+@Composable
+fun rememberShowsWideChrome(): Boolean = LocalConfiguration.current.let {
+    showsWideChrome(it.screenWidthDp, it.screenHeightDp)
+}
+
+/** #962 — the CURRENT window as a landscape phone, for the compact layouts. */
+@Composable
+fun rememberIsLandscapePhoneWindow(): Boolean = LocalConfiguration.current.let {
+    isLandscapePhoneWindow(it.screenWidthDp, it.screenHeightDp)
+}
+
 

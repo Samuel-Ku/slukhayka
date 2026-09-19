@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -19,6 +20,9 @@ import com.slukhayka.audiobooks.AdaptiveNavigationLayout
 import com.slukhayka.audiobooks.AppBottomBarSlot
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
+import com.slukhayka.audiobooks.ui.adaptive.isLandscapePhoneWindow
+import com.slukhayka.audiobooks.ui.components.AppSettingsGear
+import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import org.junit.Rule
@@ -123,6 +127,71 @@ class LargeScreenSnapshotTest {
 
         composeTestRule.onRoot().captureRoboImage(
             filePath = "$frameDir/large-explore-two-pane.png"
+        )
+    }
+
+    /**
+     * #962 — the LANDSCAPE PHONE (905 × 411 dp), as a frame.
+     *
+     * This is the window the defect was found in and the one the golden set
+     * never covered: at that width every wide rule fires, and at that height
+     * the chrome they ask for does not fit. The frame pins the COMPACT header
+     * `AppTabHeader` draws there — title and actions on one 56 dp line, no
+     * subtitle — which is what hands the list its height back.
+     *
+     * Qualifiers carry `uk-rUA` explicitly and not the bare `uk` of
+     * `robolectric.properties`: this class's fixtures are Ukrainian, and a
+     * qualifier set without a locale pins EN chrome onto uk content.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w905dp-h411dp-560dpi", sdk = [36])
+    fun landscape_phone_compact_header() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        AppTabHeader(
+                            title = "Мої книги",
+                            subtitle = "12 книг · 12 год",
+                            headingTestTag = "library_heading",
+                            compact = isLandscapePhoneWindow(905, 411)
+                        ) {
+                            AppSettingsGear(onClick = {})
+                        }
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth())
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "$frameDir/landscape-phone-compact-header.png"
+        )
+    }
+
+    /** The same header on a portrait phone, where nothing changes. */
+    @Test
+    fun portrait_phone_full_header() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        AppTabHeader(
+                            title = "Мої книги",
+                            subtitle = "12 книг · 12 год",
+                            headingTestTag = "library_heading",
+                            compact = isLandscapePhoneWindow(411, 905)
+                        ) {
+                            AppSettingsGear(onClick = {})
+                        }
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth())
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "$frameDir/portrait-phone-full-header.png"
         )
     }
 

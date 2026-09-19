@@ -464,6 +464,125 @@ describe('#621 catalog session — language reprojection and dispose', () => {
   })
 })
 
+describe('#624 catalog session — safe pagination', () => {
+  it('the observer and the manual action share one request and one append per cursor', async () => {
+    const harness = makeHarness()
+    harness.session.setIntent({ source: 'all', query: '' })
+    await flush()
+    harness.settleFeed(0, { works: [work('a')], nextCursor: 'cursor-2' })
+    await flush()
+
+    // Both callers fire for cursor-2 before the request is in flight:
+    // single-flight coalesces them.
+    harness.session.loadMore()
+    harness.session.loadMore()
+    await flush()
+    expect(harness.feedCalls).toHaveLength(2)
+    expect(harness.feedCalls[1]?.cursor).toBe('cursor-2')
+
+    harness.settleFeed(1, { works: [work('b')], nextCursor: 'cursor-3' })
+    await flush()
+    expect(ids(harness.session.getState().feed.works)).toEqual(['a', 'b'])
+  })
+
+  it('a repeated next cursor stops auto-loading and keeps the cursor for an explicit retry', async () => {
+    const harness = makeHarness()
+    harness.session.setIntent({ source: 'all', query: '' })
+    await flush()
+    harness.settleFeed(0, { works: [work('a')], nextCursor: 'cursor-2' })
+    await flush()
+    harness.writes.length = 0
+
+    harness.session.loadMore()
+    await flush()
+    // The source answers with the cursor it was asked for: no forward progress.
+    harness.settleFeed(1, { works: [work('b')], nextCursor: 'cursor-2' })
+    await flush()
+
+    const stalled = harness.session.getState().feed
+    expect(stalled.appendError).toBe(true)
+    expect(stalled.nextCursor).toBe('cursor-2')
+    // The no-progress page carries nothing new (the cursor did not move): the
+    // Works on screen stay as they were and the cache keeps its last prefix.
+    expect(ids(stalled.works)).toEqual(['a'])
+    expect(harness.writes).toHaveLength(0)
+
+    // The automatic path never walks the same cursor again.
+    harness.session.loadMore()
+    await flush()
+    expect(harness.feedCalls).toHaveLength(2)
+
+    // The listener retries the same page explicitly, and progress resumes.
+    harness.session.retryAppend()
+    await flush()
+    expect(harness.feedCalls).toHaveLength(3)
+    expect(harness.feedCalls[2]?.cursor).toBe('cursor-2')
+    harness.settleFeed(2, { works: [work('b')], nextCursor: 'cursor-3' })
+    await flush()
+    const recovered = harness.session.getState().feed
+    expect(recovered.appendError).toBe(false)
+    expect(recovered.nextCursor).toBe('cursor-3')
+    expect(ids(recovered.works)).toEqual(['a', 'b'])
+  })
+
+  it('a failed append keeps the Works and the cursor and retries the same page explicitly', async () => {
+    const harness = makeHarness()
+    harness.session.setIntent({ source: 'all', query: '' })
+    await flush()
+    harness.settleFeed(0, { works: [work('a')], nextCursor: 'cursor-2' })
+    await flush()
+
+    harness.session.loadMore()
+    await flush()
+    harness.settleFeed(1, null)
+    await flush()
+
+    const failed = harness.session.getState().feed
+    expect(failed.appendError).toBe(true)
+    expect(ids(failed.works)).toEqual(['a'])
+    expect(failed.nextCursor).toBe('cursor-2')
+
+    // Nothing auto-retries the failed page…
+    harness.session.loadMore()
+    await flush()
+    expect(harness.feedCalls).toHaveLength(2)
+
+    // …the explicit retry does, and success without a next cursor ends the list.
+    harness.session.retryAppend()
+    await flush()
+    expect(harness.feedCalls).toHaveLength(3)
+    expect(harness.feedCalls[2]?.cursor).toBe('cursor-2')
+    harness.settleFeed(2, { works: [work('b')] })
+    await flush()
+    const recovered = harness.session.getState().feed
+    expect(recovered.appendError).toBe(false)
+    expect(ids(recovered.works)).toEqual(['a', 'b'])
+    expect(recovered.nextCursor).toBeNull()
+  })
+
+  it('an append on a cached prefix keeps the cached provenance until a live refresh', async () => {
+    const harness = makeHarness()
+    harness.seed(warmKey('catalog', 'all'), { works: [work('old')], nextCursor: 'cursor-2' }, 5000)
+    harness.setNow(5000 + NEW_ARRIVALS_TTL_MS + 1)
+    harness.session.setIntent({ source: 'all', query: '' })
+    await flush()
+    harness.settleFeed(0, null)
+    await flush()
+    expect(harness.session.getState().feed.phase).toBe('cached')
+
+    harness.session.loadMore()
+    await flush()
+    harness.settleFeed(1, { works: [work('live')] })
+    await flush()
+
+    const state = harness.session.getState().feed
+    // The live page was appended, but the initial list is still the snapshot.
+    expect(ids(state.works)).toEqual(['old', 'live'])
+    expect(state.phase).toBe('cached')
+    expect(state.cachedAt).toBe(5000)
+  })
+})
+
 describe('#621 appendWorks', () => {
   it('keeps the cards the listener already saw exactly once', () => {
     expect(appendWorks([work('a'), work('b')], [work('b'), work('c')]).map((item) => item.id)).toEqual(['a', 'b', 'c'])

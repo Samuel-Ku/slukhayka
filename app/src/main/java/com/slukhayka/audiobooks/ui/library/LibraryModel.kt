@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.library
 
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
@@ -25,20 +26,24 @@ import java.util.Locale
  * The library filters (spec-28 #193). The five one-tap statuses live in the
  * visible segmented row (Усі / Нові / Слухаю / Завершені / Завантажені); the
  * three rare filters (Обрані / Локальні / Онлайн) live in the filter sheet.
+ *
+ * spec-46 T08 (#569) — the label is a string resource, never a hardcoded UK
+ * literal: a screen outside a composable context (or the EN build) must never
+ * read Ukrainian chrome off the enum.
  */
-enum class LibraryFilter(val label: String) {
-    ALL("Усі"),
+enum class LibraryFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.lib_filter_all),
     // Spec-28 #193: «Нові» = never started — a book with no playback progress
     // row at all, completing the Нові/Слухаю/Завершені trilogy.
-    NEW("Нові"),
-    LISTENING("Слухаю"),
-    COMPLETED("Завершені"),
-    DOWNLOADED("Завантажені"),
-    LOCAL("Локальні"),
+    NEW(R.string.lib_filter_new),
+    LISTENING(R.string.lib_filter_listening),
+    COMPLETED(R.string.lib_filter_completed),
+    DOWNLOADED(R.string.lib_filter_downloaded),
+    LOCAL(R.string.lib_filter_local),
     // Spec-15 T6: the multi-source catalog means "online" is any source, not
     // just 4read — the chip now says what it means.
-    ONLINE("Онлайн"),
-    FAVORITE("Обрані")
+    ONLINE(R.string.lib_filter_online),
+    FAVORITE(R.string.lib_filter_favorite)
 }
 
 /** The visible one-tap statuses of the segmented row (spec-28 #193). */
@@ -58,13 +63,13 @@ val SHEET_FILTERS: List<LibraryFilter> = listOf(
 )
 
 /** The six library sort modes (нещодавно слухані … за тривалістю). */
-enum class LibrarySort(val label: String) {
-    RECENTLY_LISTENED("Нещодавно слухані"),
-    RECENTLY_ADDED("Нещодавно додані"),
-    TITLE("За назвою"),
-    AUTHOR("За автором"),
-    PROGRESS("За прогресом"),
-    DURATION("За тривалістю")
+enum class LibrarySort(@StringRes val labelRes: Int) {
+    RECENTLY_LISTENED(R.string.lib_sort_recently_listened),
+    RECENTLY_ADDED(R.string.lib_sort_recently_added),
+    TITLE(R.string.lib_sort_title),
+    AUTHOR(R.string.lib_sort_author),
+    PROGRESS(R.string.lib_sort_progress),
+    DURATION(R.string.lib_sort_duration)
 }
 
 /**
@@ -130,13 +135,12 @@ data class LibraryBook(
             }
         }
 
-    /** «Сага про Дріззта · Книга 2» — or just the series title, or null. */
-    val seriesLabel: String?
-        get() {
-            val series = book.seriesTitle?.takeIf { it.isNotBlank() } ?: return null
-            val index = book.seriesIndex
-            return if (index != null && index > 0) "$series · Книга $index" else series
-        }
+    /**
+     * spec-46 T08 (#569) — the series line («Сага · Книга 2») is chrome, so it
+     * is NOT built here any more: the raw facts stay on the entity and the
+     * screen resolves the label from resources (librarySeriesLabel), which is
+     * what keeps the EN build free of a hardcoded Ukrainian «Книга».
+     */
 }
 
 /**

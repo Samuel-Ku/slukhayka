@@ -120,7 +120,7 @@ fun LibraryStatusRow(
             FilterChip(
                 selected = isSelected,
                 onClick = { onSelect(f) },
-                label = { Text(f.label) },
+                label = { Text(stringResource(f.labelRes)) },
                 colors = FilterChipAccentColors,
                 border = FilterChipDefaults.filterChipBorder(
                     enabled = true,
@@ -221,7 +221,7 @@ fun LibraryFilterSheetContent(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Фільтр та сортування",
+                text = stringResource(R.string.lib_filter_sheet_title),
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
@@ -239,14 +239,14 @@ fun LibraryFilterSheetContent(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        SheetSectionLabel("Фільтр")
+        SheetSectionLabel(stringResource(R.string.lib_filter_section))
         Spacer(modifier = Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SHEET_FILTERS.forEach { f ->
                 FilterChip(
                     selected = filter == f,
                     onClick = { onFilterChange(f) },
-                    label = { Text(f.label) },
+                    label = { Text(stringResource(f.labelRes)) },
                     colors = FilterChipAccentColors,
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
@@ -264,7 +264,7 @@ fun LibraryFilterSheetContent(
         Spacer(modifier = Modifier.height(20.dp))
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Spacer(modifier = Modifier.height(16.dp))
-        SheetSectionLabel("Сортування")
+        SheetSectionLabel(stringResource(R.string.lib_sort_section))
         Spacer(modifier = Modifier.height(4.dp))
         Column(Modifier.selectableGroup()) {
             LibrarySort.entries.forEach { s ->
@@ -288,7 +288,7 @@ fun LibraryFilterSheetContent(
                         modifier = Modifier.clearAndSetSemantics { }
                     )
                     Text(
-                        text = s.label,
+                        text = stringResource(s.labelRes),
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
@@ -300,19 +300,19 @@ fun LibraryFilterSheetContent(
         Spacer(modifier = Modifier.height(8.dp))
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Spacer(modifier = Modifier.height(16.dp))
-        SheetSectionLabel("Вигляд")
+        SheetSectionLabel(stringResource(R.string.lib_view_section))
         Spacer(modifier = Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ViewModeChip(
                 selected = !gridMode,
-                label = "Список",
+                label = stringResource(R.string.lib_view_list),
                 icon = { Icon(imageVector = Icons.Default.ViewList, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) },
                 onClick = { onGridModeChange(false) },
                 tag = "library_view_list"
             )
             ViewModeChip(
                 selected = gridMode,
-                label = "Сітка",
+                label = stringResource(R.string.lib_view_grid),
                 icon = { Icon(imageVector = Icons.Default.GridView, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) },
                 onClick = { onGridModeChange(true) },
                 tag = "library_view_grid"

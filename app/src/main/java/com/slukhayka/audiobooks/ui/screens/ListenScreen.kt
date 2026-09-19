@@ -41,6 +41,7 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
@@ -87,9 +88,6 @@ fun ListenScreen(
     // unrendered here.
     val listenBlocks by viewModel.listenBlocks.collectAsState()
     val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
-    // v1.4 E1: the single shelf-management door — the eight per-block ⋮
-    // menus are gone; one sheet owns reorder/hide/restore (ADR-0033).
-    var manageShelvesOpen by rememberSaveable { mutableStateOf(false) }
 
     // Refresh the "continue the series" suggestion whenever the hero book
     // changes (keyed on its id so position updates don't refetch).
@@ -200,25 +198,23 @@ fun ListenScreen(
         // під hero, через що внизу лишалася порожня чорна смуга, а сама
         // кнопка сприймалась як частина картки «Продовжити слухати».
         item(key = "block-manage") {
-            ListenShelvesManageEntry(onClick = { manageShelvesOpen = true })
+            // v1.4 E1 (#570): the door owns the sheet AND the focus contract —
+            // the trigger and the sheet's focus-return target are the same
+            // requester by construction.
+            ListenShelvesManageDoor(
+                blocks = listenBlocks,
+                hiddenIds = hiddenBlocks,
+                onMoveUp = viewModel::moveListenBlockUp,
+                onMoveDown = viewModel::moveListenBlockDown,
+                onHide = viewModel::hideListenBlock,
+                onUnhide = viewModel::unhideListenBlock,
+                onRestoreAll = viewModel::restoreHiddenListenBlocks
+            )
         }
 
         // spec-28 (#192): discovery left the tab — the cross-source
         // «Новинки» rail and the «Більше книг на Sluhay» CTA now live on
         // Огляд, and the 4read sections render there only.
-    }
-
-    if (manageShelvesOpen) {
-        ListenShelvesSheet(
-            blocks = listenBlocks,
-            hiddenIds = hiddenBlocks,
-            onMoveUp = viewModel::moveListenBlockUp,
-            onMoveDown = viewModel::moveListenBlockDown,
-            onHide = viewModel::hideListenBlock,
-            onUnhide = viewModel::unhideListenBlock,
-            onRestoreAll = viewModel::restoreHiddenListenBlocks,
-            onDismiss = { manageShelvesOpen = false }
-        )
     }
 }
 
@@ -245,6 +241,52 @@ fun ListenShelvesManageEntry(
         Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(8.dp))
         Text(stringResource(R.string.listen_manage_shelves))
+    }
+}
+
+/**
+ * v1.4 E1 (#570) — the «Керувати полицями» door and the sheet it opens as ONE
+ * component. The door is the tab's focus owner: opening the sheet hands focus
+ * to its heading, and the [RestoreFocusAfterModal] contract gives it back to
+ * the exact trigger on the sheet's visible→closed transition — never on an
+ * in-sheet edit (↑↓, hide/restore), which must keep focus inside the sheet.
+ * Keeping both ends of that contract in one composable means the trigger and
+ * the return target cannot drift apart: they are the same requester.
+ */
+@Composable
+fun ListenShelvesManageDoor(
+    blocks: List<ListenComposer.Block>,
+    hiddenIds: Set<ListenComposer.BlockId>,
+    onMoveUp: (ListenComposer.BlockId) -> Unit,
+    onMoveDown: (ListenComposer.BlockId) -> Unit,
+    onHide: (ListenComposer.BlockId) -> Unit,
+    onUnhide: (ListenComposer.BlockId) -> Unit,
+    onRestoreAll: () -> Unit
+) {
+    var sheetOpen by rememberSaveable { mutableStateOf(false) }
+    val doorFocusRequester = remember { FocusRequester() }
+
+    RestoreFocusAfterModal(
+        modalVisible = sheetOpen,
+        returnFocusRequester = doorFocusRequester
+    )
+
+    ListenShelvesManageEntry(
+        onClick = { sheetOpen = true },
+        modifier = Modifier.focusRequester(doorFocusRequester)
+    )
+
+    if (sheetOpen) {
+        ListenShelvesSheet(
+            blocks = blocks,
+            hiddenIds = hiddenIds,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
+            onHide = onHide,
+            onUnhide = onUnhide,
+            onRestoreAll = onRestoreAll,
+            onDismiss = { sheetOpen = false }
+        )
     }
 }
 

@@ -71,10 +71,11 @@ class SettingsNavigationTest {
         // more: the real entry is the gear every root header carries
         // (AppSettingsGear, tag "settings_gear"), and BACK returns to the root
         // the gear was tapped on (MainActivity.kt BackHandler +
-        // settingsReturnTab). MainActivity wires the gear for EXPLORE, LIBRARY
-        // and FRIENDS; the LISTEN call passes no onOpenSettings, so its gear is
-        // inert — a production gap, reported, deliberately not asserted here.
+        // settingsReturnTab). All FOUR roots are wired — LISTEN joined them in
+        // #958, which gave its ListenScreen call the same onOpenSettings the
+        // other three already carried, so its gear is no longer inert.
         val roots = listOf(
+            SelectedTab.LISTEN to "listen_screen",
             SelectedTab.EXPLORE to "home_screen",
             SelectedTab.LIBRARY to "library_screen",
             SelectedTab.FRIENDS to "friends_screen"

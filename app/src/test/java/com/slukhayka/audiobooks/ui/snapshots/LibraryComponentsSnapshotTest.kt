@@ -238,7 +238,10 @@ class LibraryComponentsSnapshotTest {
         }
 
         STATUS_FILTERS.forEach { f ->
-            composeTestRule.onNodeWithText(f.label).performClick()
+            val label = androidx.test.core.app.ApplicationProvider
+                .getApplicationContext<android.content.Context>()
+                .getString(f.labelRes)
+            composeTestRule.onNodeWithText(label).performClick()
             assertEquals(f, selected)
         }
     }

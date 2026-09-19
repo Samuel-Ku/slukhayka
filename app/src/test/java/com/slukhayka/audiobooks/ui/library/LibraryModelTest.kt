@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.library
 
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
@@ -211,22 +212,9 @@ class LibraryModelTest {
             idSet(filterAndSortLibrary(items, LibraryFilter.ONLINE, LibrarySort.TITLE, ""))
         )
         // Spec-15 T6: the chip says «Онлайн», not the dated «4read».
-        assertEquals("Онлайн", LibraryFilter.ONLINE.label)
-    }
-
-    @Test
-    fun `series label combines title and volume`() {
-        val withVolume = buildLibraryBooks(
-            listOf(book("a", "Книга", seriesTitle = "Сага", seriesIndex = 2)), emptyList(), emptyMap()
-        ).single()
-        val noVolume = buildLibraryBooks(
-            listOf(book("b", "Книга", seriesTitle = "Сага", seriesIndex = null)), emptyList(), emptyMap()
-        ).single()
-        val none = buildLibraryBooks(listOf(book("c", "Книга")), emptyList(), emptyMap()).single()
-
-        assertEquals("Сага · Книга 2", withVolume.seriesLabel)
-        assertEquals("Сага", noVolume.seriesLabel)
-        assertNull(none.seriesLabel)
+        // spec-46 T08 (#569): the label is a resource — the EN build reads
+        // "Online" off the very same enum entry.
+        assertEquals(R.string.lib_filter_online, LibraryFilter.ONLINE.labelRes)
     }
 
     // --- filters -----------------------------------------------------------

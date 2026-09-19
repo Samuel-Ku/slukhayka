@@ -334,6 +334,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             prefsStore={listenPrefsStore}
             recommendationPrefs={recommendationPrefsStore}
             collectionsStore={collectionsStore}
+            profile={profile}
           />
         ) : tab === 'explore' ? (
           <Catalog

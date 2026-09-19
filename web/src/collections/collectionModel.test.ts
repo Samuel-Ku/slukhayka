@@ -139,6 +139,22 @@ describe('CollectionRating (#694)', () => {
     expect(CollectionRating.isValidStars(6)).toBe(false)
     expect(CollectionRating.isValidStars(3.5)).toBe(false)
   })
+
+  it('applyVote adds a first vote and REPLACES a re-vote (Kotlin applyVote)', () => {
+    // First vote: the aggregate grows by the new stars and one vote.
+    expect(CollectionRating.applyVote(0, 0, null, 5)).toEqual([5, 1])
+    // Re-vote: the previous stars and count are removed first — never doubled.
+    expect(CollectionRating.applyVote(5, 1, 5, 2)).toEqual([2, 1])
+    // A third listener stacks on the aggregate, keeping one vote per person.
+    expect(CollectionRating.applyVote(2, 1, null, 4)).toEqual([6, 2])
+    // An impossible stored aggregate never goes negative.
+    expect(CollectionRating.applyVote(0, 0, 5, 3)).toEqual([3, 1])
+  })
+
+  it('applyVote refuses stars outside 1..5', () => {
+    expect(() => CollectionRating.applyVote(0, 0, null, 0)).toThrow()
+    expect(() => CollectionRating.applyVote(0, 0, null, 6)).toThrow()
+  })
 })
 
 describe('CollectionRanking (#692/#693)', () => {

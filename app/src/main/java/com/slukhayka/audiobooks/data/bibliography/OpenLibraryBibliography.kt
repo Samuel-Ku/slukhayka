@@ -41,8 +41,10 @@ import java.net.URLEncoder
  * ## Honest states, never fabrication
  *
  * [BibliographyOutcome.Found] with an EMPTY list is a legitimate "the base
- * stated nothing usable"; [BibliographyOutcome.Deferred] is the budget
- * resting (the honest partial state, ADR-0039/0040); [Unavailable] is a
+ * stated nothing usable" — including a 404, which is the base POSITIVELY not
+ * knowing the key (#858: that is the ONE trigger the Google Books fallback
+ * waits for); [BibliographyOutcome.Deferred] is the budget resting (the
+ * honest partial state, ADR-0039/0040); [Unavailable] is a
  * failed fetch or an unparseable body. Absent claims stay absent: no cover,
  * no year, no author NAME (Open Library work/edition documents name only
  * author keys), and an unknown language stays unmapped — which no language
@@ -126,28 +128,58 @@ class OpenLibraryBibliography(
             BibliographyOutcome.Unavailable -> BibliographyOutcome.Unavailable
         }
 
-    /** One gated request; a blank body is a failed fetch, never an empty answer. */
+    /**
+     * One gated request. #858 (T5) reads the HTTP status for exactly the ONE
+     * distinction the Google Books fallback chain needs: a **404** is the base
+     * POSITIVELY stating it does not know the key — a legitimate "nothing"
+     * ([Found] with an empty body the parsers turn into an empty list, cached
+     * like any answer) — while every other non-200 status and a blank 200 body
+     * stay [Unavailable], i.e. a failure. Without the distinction Open
+     * Library's 404 (`/isbn/<isbn>.json` for an ISBN it never had, verified
+     * live 2026-09-19) would masquerade as a network failure and the fallback
+     * could never fire for the case it exists for.
+     */
     private suspend fun fetch(url: String, endpoint: BibliographyEndpoint): BibliographyOutcome<String> {
         val profile = requestProfile(endpoint)
         val activeGate = gate ?: SourceGateProvider.current
-        if (activeGate == null) {
-            val body = fetcher.getText(url)
-            return if (body.isBlank()) BibliographyOutcome.Unavailable else BibliographyOutcome.Found(body)
-        }
+        if (activeGate == null) return bodyOutcome(gatedBody(url))
         return when (val outcome = activeGate.run(url, profile.requestClass, profile.cacheTtlMillis) {
-            fetcher.getText(url).ifBlank { null }
+            gatedBody(url)
         }) {
-            is GateOutcome.Fresh -> BibliographyOutcome.Found(outcome.value)
-            is GateOutcome.Fetched -> BibliographyOutcome.Found(outcome.value)
+            is GateOutcome.Fresh -> bodyOutcome(outcome.value)
+            is GateOutcome.Fetched -> bodyOutcome(outcome.value)
             is GateOutcome.Deferred -> BibliographyOutcome.Deferred(outcome.retryAfterMs)
             GateOutcome.Unavailable -> BibliographyOutcome.Unavailable
         }
     }
 
+    /**
+     * The status-aware body read: a 200 with a body is the body; a 404 is
+     * [ABSENT_BODY] (a positive absence, cacheable for the TTL); anything else
+     * — a failed request (status 0), a 5xx, a blank 200 — is null, a failure.
+     */
+    private fun gatedBody(url: String): String? {
+        val (status, body) = fetcher.getTextResult(url)
+        return when {
+            status == HTTP_OK && body.isNotBlank() -> body
+            status == HTTP_NOT_FOUND -> ABSENT_BODY
+            else -> null
+        }
+    }
+
+    private fun bodyOutcome(body: String?): BibliographyOutcome<String> =
+        if (body == null) BibliographyOutcome.Unavailable else BibliographyOutcome.Found(body)
+
     companion object {
         const val SEARCH_ENDPOINT = "https://openlibrary.org/search.json"
         const val WORKS_ROOT = "https://openlibrary.org"
         const val ISBN_ENDPOINT = "https://openlibrary.org/isbn"
+
+        /** A 404: the base positively states it does not know the key. */
+        private const val ABSENT_BODY = ""
+
+        private const val HTTP_OK = 200
+        private const val HTTP_NOT_FOUND = 404
 
         /** The default page of candidates one search asks for. */
         const val DEFAULT_LIMIT = 10

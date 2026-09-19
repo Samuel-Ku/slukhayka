@@ -38,6 +38,7 @@ class OpenLibraryBibliographyTest {
 
     private class Harness(
         fallback: String = "",
+        statusResponses: Map<String, Pair<Int, String>> = emptyMap(),
         params: SourceGateParams = SourceGateParams(
             refillIntervalMs = 1_000,
             listenerWaitCapMs = 500,
@@ -47,7 +48,7 @@ class OpenLibraryBibliographyTest {
     ) {
         var now = 1_000_000L
         val store = InMemorySourceGateBudgetStore()
-        val fetcher = FakeFetcher(fallback = fallback)
+        val fetcher = FakeFetcher(fallback = fallback, statusResponses = statusResponses)
         val provider = OpenLibraryBibliography(
             fetcher = fetcher,
             gate = SourceRequestGate(
@@ -246,6 +247,29 @@ class OpenLibraryBibliographyTest {
 
         assertEquals(emptyList<BibliographyCandidate>(), found(harness.provider.isbn("not-an-isbn")))
         assertTrue(harness.fetcher.requestedUrls.isEmpty())
+    }
+
+    // --- #858 (T5): a 404 is an answer, a 5xx is a failure -------------------
+
+    @Test
+    fun `a 404 is the base positively not knowing the edition`() = runTest {
+        // Live behavior (2026-09-19): an ISBN Open Library never had answers
+        // 404 from /isbn/<isbn>.json — a KNOWLEDGE statement, which is the one
+        // trigger the Google Books fallback waits for (#858).
+        val harness = Harness(
+            statusResponses = mapOf("https://openlibrary.org/isbn/9791234567890.json" to (404 to ""))
+        )
+
+        assertEquals(emptyList<BibliographyCandidate>(), found(harness.provider.isbn("9791234567890")))
+    }
+
+    @Test
+    fun `a 5xx stays Unavailable so an outage never looks like absence`() = runTest {
+        val harness = Harness(
+            statusResponses = mapOf("https://openlibrary.org/isbn/9786177023202.json" to (500 to ""))
+        )
+
+        assertEquals(BibliographyOutcome.Unavailable, harness.provider.isbn("9786177023202"))
     }
 
     // --- cache, budget and the declared rhythm ------------------------------

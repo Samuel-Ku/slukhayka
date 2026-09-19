@@ -332,6 +332,59 @@ fun BookDeleteConfirmationDialog(
     )
 }
 
+/**
+ * v1.4 E4 / spec-46 T11 (#572) — the narration-rating delete confirmation.
+ * Extracted verbatim from [BookDetailScreen]: the same pane announcement,
+ * the same heading focus contract and the same 48 dp actions, but the
+ * Ukrainian chrome now comes from resources so the EN run has no Cyrillic.
+ */
+@Composable
+fun NarrationRatingDeleteConfirmation(
+    narrator: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val titleFocusRequester = remember { FocusRequester() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .accessibilityPane(stringResource(R.string.book_detail_narration_rating_delete_pane))
+            .testTag("narration_rating_delete_dialog"),
+        title = {
+            Text(
+                stringResource(R.string.book_detail_narration_rating_delete_title),
+                modifier = Modifier
+                    .focusRequester(titleFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+            )
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                titleFocusRequester.requestFocus()
+            }
+        },
+        text = {
+            Text(
+                stringResource(
+                    R.string.book_detail_narration_rating_delete_body,
+                    narrator
+                )
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+                Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.sizeIn(minHeight = 48.dp)
+            ) { Text(stringResource(R.string.action_cancel)) }
+        }
+    )
+}
+
 @Composable
 fun BookmarkDeleteConfirmation(
     workTitle: String,

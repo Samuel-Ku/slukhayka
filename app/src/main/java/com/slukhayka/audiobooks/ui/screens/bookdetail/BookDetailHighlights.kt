@@ -102,7 +102,8 @@ fun FavoriteButton(
     onToggle: () -> Unit,
     bookTitle: String = ""
 ) {
-    val contextualTitle = bookTitle.takeIf(String::isNotBlank) ?: "книгу"
+    val contextualTitle = bookTitle.takeIf(String::isNotBlank)
+        ?: stringResource(R.string.book_detail_accent_book)
     val actionDescription = stringResource(
         if (isFavorite) R.string.book_detail_favorite_remove else R.string.book_detail_favorite_add,
         contextualTitle
@@ -158,7 +159,11 @@ fun SeriesPill(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (seriesIndex > 0) "«$seriesTitle» • Кн. $seriesIndex" else "«$seriesTitle»",
+                text = if (seriesIndex > 0) {
+                    stringResource(R.string.book_detail_series_pill_index, seriesTitle, seriesIndex)
+                } else {
+                    stringResource(R.string.book_detail_series_pill, seriesTitle)
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center
@@ -176,7 +181,7 @@ fun SeriesPill(
 @Composable
 fun BookUniverseLine(universeName: String) {
     Text(
-        text = "Всесвіт: «$universeName»",
+        text = stringResource(R.string.book_detail_universe_line, universeName),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,

@@ -62,7 +62,8 @@ class BookDetailPresentationTest {
         assertEquals(fourReadProfile.description, presentation.description)
         assertEquals(book.narrator, presentation.narrator)
         assertEquals(book.genre, presentation.genre)
-        assertEquals("Джерело", presentation.sourceHeading)
+        // spec-46 T11 (#572): the «Джерело/Джерела» heading is resolved from
+        // the source count in the UI; the model keeps the honest count only.
         assertEquals(1, presentation.sources.size)
         assertEquals("4read", presentation.sources.single().name)
         assertEquals(4.6, presentation.sources.single().rating!!, 0.001)
@@ -98,7 +99,7 @@ class BookDetailPresentationTest {
         )
 
         assertEquals(fourReadProfile.description, presentation.description)
-        assertEquals("Джерела", presentation.sourceHeading)
+        assertEquals(2, presentation.sources.size)
         assertEquals(listOf("4read", "Sluhay"), presentation.sources.map { it.name })
         assertEquals(listOf(true, false), presentation.sources.map { it.isCurrent })
         assertEquals(listOf(false, false), presentation.sources.map { it.selectable })

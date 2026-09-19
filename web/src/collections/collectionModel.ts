@@ -182,6 +182,37 @@ export const CollectionRating = {
     if (sum <= 0) return null
     return sum / count
   },
+
+  /**
+   * The aggregate after one listener's vote — exactly Kotlin's
+   * `CollectionRating.applyVote`. [previousStars] is that listener's earlier
+   * vote (null on a first vote), so a re-vote REPLACES it instead of adding a
+   * second one. Returns the new `[sum, count]`.
+   */
+  applyVote(sum: number, count: number, previousStars: number | null, newStars: number): [number, number] {
+    if (!CollectionRating.isValidStars(newStars)) {
+      throw new Error(`stars must be ${CollectionRating.MIN_STARS}..${CollectionRating.MAX_STARS}`)
+    }
+    const hadPrevious = previousStars !== null && CollectionRating.isValidStars(previousStars)
+    const baseSum = Math.max(0, sum - (hadPrevious ? previousStars : 0))
+    const baseCount = Math.max(0, count - (hadPrevious ? 1 : 0))
+    return [baseSum + newStars, baseCount + 1]
+  },
+} as const
+
+/**
+ * The moderation threshold (#696), exactly Kotlin's `CollectionModeration`.
+ * Three UNIQUE complaints hide a collection FOREVER: [nextHidden] only ever
+ * turns the flag on, mirroring the Firestore one-way `false → true` rule, so a
+ * client can never un-hide what the community removed.
+ */
+export const CollectionModeration = {
+  HIDE_THRESHOLD: 3,
+
+  /** The moderation state after one NEW unique complaint. */
+  nextHidden(currentHidden: boolean, currentCount: number): boolean {
+    return currentHidden || currentCount + 1 >= CollectionModeration.HIDE_THRESHOLD
+  },
 } as const
 
 /**

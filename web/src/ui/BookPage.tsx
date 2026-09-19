@@ -9,7 +9,7 @@ import { useTranslate } from '../i18n/locale'
 import type { ListenerProfile } from '../identity/listenerIdentity'
 import type { NarrationRatingsStore, ReviewsStore } from '../reviews/store'
 import { reviewWorkIdFor, ReviewsBlock } from './bookReviews'
-import { CollectionRanking, type PublishedCollection } from '../collections/collectionModel'
+import { CollectionRanking, collectionDocumentId, type PublishedCollection } from '../collections/collectionModel'
 import type { CollectionsStore } from '../collections/store'
 import { CollectionDetailSheet, CollectionsWithBookBlock } from './collectionReading'
 import { mergeKeyFor, editionIdFor } from '../sync/edition'
@@ -61,6 +61,9 @@ export function BookPage({
   // collection screen one of them opens.
   const [withBook, setWithBook] = useState<PublishedCollection[]>([])
   const [openedCollection, setOpenedCollection] = useState<PublishedCollection | null>(null)
+  // #696 — collections THIS listener reported leave their surfaces at once
+  // (Android's `reportedCollectionIds`); the complaint itself is not withdrawn.
+  const [reportedIds, setReportedIds] = useState<Set<string>>(new Set())
   useEffect(() => {
     let alive = true
     setBookmarkReady(false)
@@ -153,6 +156,30 @@ export function BookPage({
       alive = false
     }
   }, [collectionsStore, workId])
+
+  // After a stored vote the server aggregate is the truth: re-read the block
+  // rather than inventing the new average, and re-point the open sheet at the
+  // fresh document so it shows the same numbers.
+  const refreshCollections = (): void => {
+    if (collectionsStore === undefined || collectionsStore === null || workId === '') return
+    void collectionsStore.readContaining(workId).then((result) => {
+      if (result.kind !== 'data') {
+        if (result.kind === 'empty') setWithBook([])
+        return
+      }
+      const ranked = CollectionRanking.top(result.collections)
+      setWithBook(ranked)
+      setOpenedCollection((current) =>
+        current === null
+          ? null
+          : ranked.find((entry) => collectionDocumentId(entry) === collectionDocumentId(current)) ?? current,
+      )
+    })
+  }
+
+  // The reporter's own surfaces drop a complaint they just made — the shared
+  // count (three unique complaints) is not what hides it for them.
+  const visibleWithBook = withBook.filter((collection) => !reportedIds.has(collectionDocumentId(collection)))
 
   if (failed) return <EmptyState message={t('bookFailed')} />
   if (detail === null) return <EmptyState message={t('loadingBook')} />
@@ -310,8 +337,8 @@ export function BookPage({
 
       {/* spec-51 (#697) — «Добірки з цією книгою»: the ranked visible
           collections that contain this book. No rows → no block at all. */}
-      {withBook.length > 0 && (
-        <CollectionsWithBookBlock collections={withBook} onOpen={setOpenedCollection} />
+      {visibleWithBook.length > 0 && (
+        <CollectionsWithBookBlock collections={visibleWithBook} onOpen={setOpenedCollection} />
       )}
 
       {/* W4.1 — «Відгуки»: the block exists ONLY when the store does (no
@@ -332,7 +359,14 @@ export function BookPage({
       )}
 
       {openedCollection && (
-        <CollectionDetailSheet collection={openedCollection} onClose={() => setOpenedCollection(null)} />
+        <CollectionDetailSheet
+          collection={openedCollection}
+          profile={profile}
+          collectionsStore={collectionsStore}
+          onClose={() => setOpenedCollection(null)}
+          onCollectionChanged={refreshCollections}
+          onReported={(documentId) => setReportedIds((current) => new Set(current).add(documentId))}
+        />
       )}
     </article>
   )

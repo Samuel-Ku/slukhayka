@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
+import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -34,14 +35,18 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * Snapshot tests for the design-system primitives (wayfinder #23): the
- * section header, the full-size empty state and the compact empty-state row,
- * rendered in both the dark (graphite-navy) and light (warm paper) schemes.
- * Verifies the light scheme actually renders before the themes ticket (#37)
- * exposes it to users.
+ * section header, the ONE metadata chip (its three slots — language, source,
+ * plain, v1.4 C4 / ADR-0033 / #564), the full-size empty state and the
+ * compact empty-state row, rendered in both the dark (graphite-navy) and
+ * light (warm paper) schemes. Verifies the light scheme actually renders
+ * before the themes ticket (#37) exposes it to users.
+ *
+ * The fixtures are Ukrainian, so the class pins the `uk-rUA` locale: without
+ * it a resource-backed label silently pins the English chrome.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class DesignSystemSnapshotTest {
 
     @get:Rule
@@ -58,6 +63,48 @@ class DesignSystemSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/ds_section_header_dark.png"
+        )
+    }
+
+    @Test
+    fun metadata_chip_language_dark() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                DesignSurface {
+                    MetadataChip(language = "uk")
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/ds_metadata_chip_language_dark.png"
+        )
+    }
+
+    @Test
+    fun metadata_chip_source_dark() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                DesignSurface {
+                    MetadataChip(source = "4read")
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/ds_metadata_chip_source_dark.png"
+        )
+    }
+
+    @Test
+    fun metadata_chip_plain_dark() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                DesignSurface {
+                    MetadataChip(text = "3 год 20 хв")
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/ds_metadata_chip_plain_dark.png"
         )
     }
 

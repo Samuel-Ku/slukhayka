@@ -45,19 +45,25 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * it never names an Edition — that is the policy's job, and the policy refuses
  * anything fiction-like. The tracked mode carries no format at all: it writes
  * no Edition and no Source, only the honest «аудіо недоступне» card.
+ *
+ * #855 (T2) gives the tracked mode one more thing the listener may know: a
+ * cover URL. It is the SAME door the cover already travels (the ordinary
+ * cover write path) — and leaving it blank is a real answer: the card shows
+ * the absence, never a placeholder image.
  */
 @Composable
 fun ManualBookAddSheet(
     onAdd: (ManualBookAddRequest) -> Unit,
     onDismiss: () -> Unit,
     /** ADR-0053 / #854 — title + author of a tracked Work (no audio yet). */
-    onAddTracked: (title: String, author: String) -> Unit,
+    onAddTracked: (title: String, author: String, coverUrl: String?) -> Unit,
     now: Long = System.currentTimeMillis()
 ) {
     var title by rememberSaveable { mutableStateOf("") }
     var author by rememberSaveable { mutableStateOf("") }
     var format by rememberSaveable { mutableStateOf(ReadingFormat.PAPER.name) }
     var tracked by rememberSaveable { mutableStateOf(false) }
+    var coverUrl by rememberSaveable { mutableStateOf("") }
     var wantsToRead by rememberSaveable { mutableStateOf(false) }
     var importedOwnFile by rememberSaveable { mutableStateOf(false) }
 
@@ -124,6 +130,18 @@ fun ManualBookAddSheet(
                     )
                 }
                 if (tracked) {
+                    // #855 (T2) — the cover the listener already knows, if any.
+                    // Blank stays blank: an honest absence, not a placeholder.
+                    OutlinedTextField(
+                        value = coverUrl,
+                        onValueChange = { coverUrl = it },
+                        label = { Text(stringResource(R.string.manual_add_cover)) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("manual_add_cover")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     // ADR-0053 — the honest tracked mode: no format choices,
                     // because there is no audio to describe yet.
                     Text(
@@ -156,7 +174,11 @@ fun ManualBookAddSheet(
             Button(
                 onClick = {
                     if (tracked) {
-                        onAddTracked(title.trim(), author.trim())
+                        onAddTracked(
+                            title.trim(),
+                            author.trim(),
+                            coverUrl.trim().ifEmpty { null }
+                        )
                     } else {
                         onAdd(
                             ManualBookAddRequest(

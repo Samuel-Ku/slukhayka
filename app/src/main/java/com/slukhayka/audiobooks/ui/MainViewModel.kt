@@ -248,15 +248,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
     /**
-     * ADR-0053 / #854 — one manual tracked Work: title + author only. The
-     * result is handed back so the surface can say WHY it refused (no
-     * identity, a tombstoned Work) instead of failing silently.
+     * ADR-0053 / #854 — one manual tracked Work: title + author, plus the
+     * optional cover the listener already knows (#855 T2 — from day one, or a
+     * bibliography candidate's URL; no URL = honestly absent). The result is
+     * handed back so the surface can say WHY it refused (no identity, a
+     * tombstoned Work) instead of failing silently.
      */
     suspend fun addTrackedWork(
         title: String,
-        author: String
+        author: String,
+        coverUrl: String? = null
     ): com.slukhayka.audiobooks.data.entries.TrackedWorks.Result =
-        runCatching { App.instance.trackedWorks.ensureTrackedWork(title, author) }
+        runCatching { App.instance.trackedWorks.ensureTrackedWork(title, author, coverUrl) }
             .getOrElse {
                 com.slukhayka.audiobooks.data.entries.TrackedWorks.Result.Refused(
                     com.slukhayka.audiobooks.data.entries.TrackedWorkPolicy.REASON_NO_IDENTITY
@@ -545,8 +548,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Spec-53 T7 — the listener's explicit correction of a badly parsed book.
      * Display claims only: the Work mergeKey and the Edition id are untouched,
      * so identity survives and no second Work appears.
+     *
+     * #855 (T2) — the cover is the same kind of claim: it lands through the
+     * ordinary cover write path, and a cover the listener actually CHANGED is
+     * pinned as a Metadata Override, so no later external claim (the shared
+     * base, a source page, a bibliography candidate) can undo the fix. A null
+     * [coverUrl] means this caller does not edit the cover at all.
      */
-    fun correctBookMetadata(bookId: String, title: String, author: String, narrator: String) {
+    fun correctBookMetadata(
+        bookId: String,
+        title: String,
+        author: String,
+        narrator: String,
+        coverUrl: String? = null
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@runCatching
@@ -558,17 +573,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         edit = MetadataCorrectionPolicy.Edit(
                             title = title,
                             author = author,
-                            narrator = narrator
-                        )
+                            narrator = narrator,
+                            coverUrl = coverUrl
+                        ),
+                        currentCoverUrl = book.coverImageUrl
                     )
                 ) {
-                    is MetadataCorrectionPolicy.Outcome.Corrected ->
+                    is MetadataCorrectionPolicy.Outcome.Corrected -> {
                         App.instance.audiobookDao.correctBookMetadata(
                             bookId = bookId,
                             title = outcome.correction.title,
                             author = outcome.correction.author,
                             narrator = outcome.correction.narrator
                         )
+                        if (outcome.correction.coverChanged) {
+                            App.instance.coverOverrideStore.pin(
+                                bookId = bookId,
+                                // A book without a Works row has no identity to
+                                // remember the decision under; the row is still
+                                // fixed, the memory is skipped.
+                                mergeKey = book.mergeKey.orEmpty(),
+                                coverUrl = outcome.correction.coverUrl
+                            )
+                        }
+                    }
                     is MetadataCorrectionPolicy.Outcome.Refused -> Unit
                 }
             }

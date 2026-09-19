@@ -150,4 +150,49 @@ class SearchCoverMirrorRoomTest {
         assertNull(resolved[0].coverImageUrl)
         assertNull(dao.getAudiobookById("b1")!!.coverImageUrl)
     }
+
+    // -----------------------------------------------------------------
+    // #855 (T2) — the listener's Override outranks the claim
+    // -----------------------------------------------------------------
+
+    @Test
+    fun `a pinned cover is what the card shows and the shared cache never lands`() = runBlocking {
+        val mergeKey = "книга|автор"
+        seedLibraryRow(bookId = "b1", workId = "w1", mergeKey = mergeKey, coverUrl = null)
+        CoverOverrideStore(dao).pin("b1", mergeKey, "https://mine.example/c.jpg", now = 100L)
+        val resolver = SearchCoverResolver(dao, FakeStore(mapOf(mergeKey to "https://shared.example/c.jpg")))
+
+        val resolved = resolver.resolve(listOf(searchCard(mergeKey, coverUrl = "https://4read.org/claim.jpg")))
+
+        assertEquals("https://mine.example/c.jpg", resolved[0].coverImageUrl)
+        assertEquals("https://mine.example/c.jpg", dao.getAudiobookById("b1")!!.coverImageUrl)
+    }
+
+    @Test
+    fun `a pinned absence beats the source claim and the shared cache - on either pass`() = runBlocking {
+        val mergeKey = "книга|автор"
+        seedLibraryRow(bookId = "b1", workId = "w1", mergeKey = mergeKey, coverUrl = "https://claim.example/wrong.jpg")
+        CoverOverrideStore(dao).pin("b1", mergeKey, null, now = 100L)
+        val resolver = SearchCoverResolver(dao, FakeStore(mapOf(mergeKey to "https://shared.example/c.jpg")))
+        val card = searchCard(mergeKey, coverUrl = "https://4read.org/claim.jpg")
+
+        val resolved = resolver.resolve(listOf(card))
+
+        assertNull("the listener's «no cover» wins over both claims", resolved[0].coverImageUrl)
+        assertEquals("", dao.getAudiobookById("b1")!!.coverImageUrl)
+        assertNull(resolver.resolve(listOf(card))[0].coverImageUrl)
+        assertEquals("", dao.getAudiobookById("b1")!!.coverImageUrl)
+    }
+
+    @Test
+    fun `the source claim still shows when the listener made no decision`() = runBlocking {
+        val mergeKey = "книга|автор"
+        seedLibraryRow(bookId = "b1", workId = "w1", mergeKey = mergeKey, coverUrl = null)
+        val resolver = SearchCoverResolver(dao, FakeStore(emptyMap()))
+
+        val resolved = resolver.resolve(listOf(searchCard(mergeKey, coverUrl = "https://4read.org/claim.jpg")))
+
+        assertEquals("https://4read.org/claim.jpg", resolved[0].coverImageUrl)
+        assertNull("nothing is mirrored without an Override", dao.getAudiobookById("b1")!!.coverImageUrl)
+    }
 }

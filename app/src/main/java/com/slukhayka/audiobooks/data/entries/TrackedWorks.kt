@@ -5,6 +5,8 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.CoverOverride
+import com.slukhayka.audiobooks.data.metadata.CoverOverrideStore
 
 /**
  * ADR-0053 / #854 (T1) — the tracked Work: a personal Library Entry over a
@@ -25,7 +27,13 @@ data class TrackedWork(
     val workId: String,
     val mergeKey: String,
     val title: String,
-    val author: String
+    val author: String,
+    /**
+     * #855 (T2) — the cover the listener knows from day one: their own URL, or
+     * the one the bibliography candidate they picked carried. Null means
+     * honestly absent — the card renders no cover, never a placeholder.
+     */
+    val coverUrl: String? = null
 )
 
 object TrackedWorkPolicy {
@@ -39,7 +47,7 @@ object TrackedWorkPolicy {
      * on ([MergeKey]); a nameless pair has no identity and is refused instead
      * of guessed.
      */
-    fun identity(title: String, author: String): TrackedWork? {
+    fun identity(title: String, author: String, coverUrl: String? = null): TrackedWork? {
         val cleanTitle = title.trim()
         val cleanAuthor = author.trim()
         val key = MergeKey.keyFor(cleanTitle, cleanAuthor)
@@ -49,7 +57,10 @@ object TrackedWorkPolicy {
             workId = key,
             mergeKey = key,
             title = cleanTitle,
-            author = cleanAuthor
+            author = cleanAuthor,
+            // #855 (T2) — only what the listener (or the candidate they picked)
+            // actually supplied; a blank claim is absent, not an empty string.
+            coverUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() }
         )
     }
 
@@ -57,7 +68,8 @@ object TrackedWorkPolicy {
      * ADR-0014/0053 — the card carries ONLY what the listener actually knows.
      * Duration, chapter count, genre, description and source URL are honestly
      * absent: a fabricated duration is exactly what the milestone forbids.
-     * The cover is absent too (T2 attaches it through the cover write path).
+     * The cover is present only when a real URL was given (#855 T2), and it
+     * rides the same guarded card insert every other card uses.
      */
     fun card(work: TrackedWork): AudiobookEntity = AudiobookEntity(
         id = work.bookId,
@@ -66,7 +78,7 @@ object TrackedWorkPolicy {
         narrator = "",
         description = "",
         coverDrawableRes = 0,
-        coverImageUrl = null,
+        coverImageUrl = work.coverUrl,
         genre = "",
         sourceUrl = "",
         isDownloaded = false,
@@ -112,7 +124,10 @@ class TrackedWorks(
     }
 
     /**
-     * Creates (or resolves) the tracked Work behind [title] + [author].
+     * Creates (or resolves) the tracked Work behind [title] + [author], with
+     * an optional [coverUrl] the listener already knows (#855 T2 — a cover
+     * from day one, or a bibliography candidate's cover; no URL = honestly
+     * absent).
      *
      * Refused for a blank identity, a missing moment, or a TOMBSTONED Work:
      * deletion is a decision, and the catalog door must never silently
@@ -122,9 +137,10 @@ class TrackedWorks(
     suspend fun ensureTrackedWork(
         title: String,
         author: String,
+        coverUrl: String? = null,
         now: Long = System.currentTimeMillis()
     ): Result {
-        val work = TrackedWorkPolicy.identity(title, author)
+        val work = TrackedWorkPolicy.identity(title, author, coverUrl)
             ?: return Result.Refused(TrackedWorkPolicy.REASON_NO_IDENTITY)
         if (now <= 0L) return Result.Refused(TrackedWorkPolicy.REASON_NO_MOMENT)
         // ADR-0005 — the tombstone gate stays: a deleted Work is a decision,
@@ -137,6 +153,14 @@ class TrackedWorks(
         // in the library (any rendition, any source) is not forked.
         val existing = dao.findByMergeKey(work.mergeKey)
         if (existing != null) {
+            // #855 (T2) — the external claim may FILL a blank cover of an
+            // already-tracked Work, never replace one.
+            fillCoverGap(
+                bookId = existing.id,
+                mergeKey = work.mergeKey,
+                claimed = work.coverUrl,
+                current = existing.coverImageUrl
+            )
             return Result.AlreadyTracked(
                 work.copy(
                     bookId = existing.id,
@@ -196,5 +220,29 @@ class TrackedWorks(
         runCatching { workRelationshipsSync?.pushEntry(work.mergeKey, work.title, work.author) }
 
         return Result.Added(work)
+    }
+
+    /**
+     * #855 (T2) — puts a claimed cover on an already-tracked Work through the
+     * ordinary cover write path ([AudiobookDao.updateCoverImageUrl], the same
+     * door the import and the resolvers use). The GAP only: a locally known
+     * cover and, above all, the listener's Override ([CoverOverride]) outrank
+     * the claim. Best-effort and silent — a cover never breaks a write that
+     * already landed.
+     */
+    private suspend fun fillCoverGap(
+        bookId: String,
+        mergeKey: String,
+        claimed: String?,
+        current: String?
+    ) {
+        if (claimed == null || !current.isNullOrBlank()) return
+        // A failing Override read counts as «decided»: degrade-never, so it
+        // never licenses a write the listener may have forbidden.
+        val decided = runCatching {
+            CoverOverride.blocksWrite(CoverOverrideStore(dao).pinned(mergeKey))
+        }.getOrDefault(true)
+        if (decided) return
+        runCatching { dao.updateCoverImageUrl(bookId, claimed) }
     }
 }

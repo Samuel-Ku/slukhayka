@@ -20,7 +20,8 @@ import { LISTEN_BLOCK_IDS, ListenPrefsStore, type ListenBlockId, type ListenPref
 import { RecommendationPrefsStore } from '../local/recommendationPrefs'
 import { useTranslate } from '../i18n/locale'
 import type { StringKey } from '../i18n/strings'
-import { CollectionRanking, type PublishedCollection } from '../collections/collectionModel'
+import type { ListenerProfile } from '../identity/listenerIdentity'
+import { CollectionRanking, collectionDocumentId, type PublishedCollection } from '../collections/collectionModel'
 import type { CollectionsStore } from '../collections/store'
 import { BookRow, EmptyState, EmptyStateRow, SectionHeader, TabHeader } from './components'
 import { CollectionDetailSheet, CollectionsRail } from './collectionReading'
@@ -43,7 +44,7 @@ export function blockTitleKey(id: ListenBlockId): StringKey {
   return BLOCK_TITLE_KEYS[id]
 }
 
-export function Listen({ domainStore, linkStore, listening, prefsStore, recommendationPrefs, collectionsStore }: {
+export function Listen({ domainStore, linkStore, listening, prefsStore, recommendationPrefs, collectionsStore, profile }: {
   domainStore: DomainStore
   linkStore: EditionLinkStore
   listening: Pick<ListenerDatabase, 'allSnapshots'>
@@ -52,6 +53,8 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
   recommendationPrefs: RecommendationPrefsStore
   /** spec-51 (#697) — the shared-collections reader; null => no rail at all. */
   collectionsStore?: CollectionsStore | null
+  /** spec-51 (#694/#696) — the listener identity behind a vote or a complaint. */
+  profile?: ListenerProfile | null
 }) {
   const t = useTranslate()
   const [views, setViews] = useState<LibraryBookView[] | null>(null)
@@ -63,6 +66,8 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
   // the collection screen one of them opens. Absent without a store.
   const [collectionsRail, setCollectionsRail] = useState<PublishedCollection[]>([])
   const [openedCollection, setOpenedCollection] = useState<PublishedCollection | null>(null)
+  // #696 — a complaint this listener made leaves the rail at once.
+  const [reportedIds, setReportedIds] = useState<Set<string>>(new Set())
   const manageButtonRef = useRef<HTMLButtonElement | null>(null)
   const sheetWasOpen = useRef(false)
 
@@ -132,6 +137,22 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
     }
   }, [collectionsStore])
 
+  // After a stored vote the server aggregate is the truth: re-read the rail
+  // rather than inventing the new average, and re-point the open sheet.
+  const refreshCollections = (): void => {
+    if (collectionsStore === undefined || collectionsStore === null) return
+    void collectionsStore.topPublic(CollectionRanking.DEFAULT_LIMIT).then((collections) => {
+      setCollectionsRail(collections)
+      setOpenedCollection((current) =>
+        current === null
+          ? null
+          : collections.find((entry) => collectionDocumentId(entry) === collectionDocumentId(current)) ?? current,
+      )
+    })
+  }
+
+  const visibleRail = collectionsRail.filter((collection) => !reportedIds.has(collectionDocumentId(collection)))
+
   return (
     <div>
       <TabHeader
@@ -189,7 +210,7 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
 
       {/* spec-51 (#697) — «Добірки слухачів»: community, not a personal shelf,
           so it renders even when the listener's own shelves are empty. */}
-      <CollectionsRail collections={collectionsRail} onOpen={setOpenedCollection} />
+      <CollectionsRail collections={visibleRail} onOpen={setOpenedCollection} />
 
       {manageOpen && (
         <ManageShelvesSheet
@@ -200,7 +221,14 @@ export function Listen({ domainStore, linkStore, listening, prefsStore, recommen
       )}
 
       {openedCollection && (
-        <CollectionDetailSheet collection={openedCollection} onClose={() => setOpenedCollection(null)} />
+        <CollectionDetailSheet
+          collection={openedCollection}
+          profile={profile}
+          collectionsStore={collectionsStore}
+          onClose={() => setOpenedCollection(null)}
+          onCollectionChanged={refreshCollections}
+          onReported={(documentId) => setReportedIds((current) => new Set(current).add(documentId))}
+        />
       )}
     </div>
   )

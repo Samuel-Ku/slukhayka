@@ -284,6 +284,13 @@ const uk = {
   collectionItemUnknown: 'Книга поза локальною бібліотекою',
   collectionOpenAria: 'Відкрити добірку: {title} — {pseudonym}',
   collectionPane: 'Добірка: {title}',
+  // #694/#696 — the vote and the complaint; the texts are Android's
+  // `collection_your_rating` / `collection_vote_error` / `collection_report`
+  // / `collection_report_error` verbatim (values/strings.xml:200-205).
+  collectionYourRating: 'Ваша оцінка',
+  collectionVoteError: 'Не вдалося зберегти оцінку. Спробуйте ще раз.',
+  collectionReport: 'Поскаржитись',
+  collectionReportError: 'Не вдалося надіслати скаргу. Спробуйте ще раз.',
   // player
   miniChapter: 'Розділ {n} · {time}',
   close: '✕ Закрити',
@@ -632,6 +639,11 @@ const en: Strings = {
   collectionItemUnknown: 'Book outside the local library',
   collectionOpenAria: 'Open collection: {title} by {pseudonym}',
   collectionPane: 'Collection: {title}',
+  // #694/#696 — Android's `values-en/strings.xml:194-199` verbatim.
+  collectionYourRating: 'Your rating',
+  collectionVoteError: "Couldn't save your rating. Try again.",
+  collectionReport: 'Report',
+  collectionReportError: "Couldn't send the report. Try again.",
   // player
   miniChapter: 'Chapter {n} · {time}',
   close: '✕ Close',

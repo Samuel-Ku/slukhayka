@@ -1605,3 +1605,28 @@ span.bookrow-body {
 .collection-detail-rating {
   margin-top: 8px;
 }
+
+/* spec-51 (#694/#696) — the vote and the complaint on the collection screen:
+   Android's «Ваша оцінка» row plus the report action. */
+.collection-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.collection-your-rating {
+  margin: 0;
+  font-weight: 600;
+}
+
+.collection-report {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  color: var(--fg);
+  cursor: pointer;
+}
+

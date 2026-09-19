@@ -1,7 +1,9 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -9,6 +11,7 @@ import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -25,6 +28,9 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.formatRowDuration
+import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
  * #737 / ADR-0041 — the search surface's two sections, extracted from
@@ -108,13 +114,37 @@ fun LazyListScope.searchResultsContent(
             }
         }
         items(globalResults, key = { it.key }) { result ->
-            GlobalSearchResultCard(
-                result = result,
+            // #567 v1.4 C3/C4 (ADR-0033): the result row IS the canonical
+            // BookRow, built here directly — the named GlobalSearchResultCard
+            // wrapper (a sixth row style) is gone. Language and provenance
+            // chips ride the badges slot; the honest action status stays
+            // under the row through CatalogCardStatus.
+            LaunchedEffect(result.key) { onPreflightGlobalResult(result) }
+            BookRow(
+                title = result.title,
+                coverUrl = result.coverImageUrl,
+                author = result.author.takeIf { it.isNotBlank() },
+                // Spec-30 T2 (#217): the resolved duration when one is known
+                // (the local database or the shared metadata cache).
+                stats = result.durationSeconds?.takeIf { it > 0L }?.let { formatRowDuration(it) },
+                badges = {
+                    // Spec-45 (#405) T7 (#495): the card's rendition language —
+                    // one EN/UA chip; unknown renders nothing (US3).
+                    if (result.language.isNotBlank()) {
+                        MetadataChip(language = result.language)
+                        Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                    }
+                    // Spec-10 T4: which source(s) carry a book.
+                    result.sources.forEach { source ->
+                        MetadataChip(source = source.sourceName)
+                        Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                    }
+                },
+                contentDescription = stringResource(R.string.a11y_open_work, result.title),
                 onClick = { onOpenGlobalResult(result) },
-                actionState = catalogCardActionState,
-                onOpenBrowser = onOpenCatalogBrowser,
-                onPreflight = { onPreflightGlobalResult(result) }
+                testTag = "global_search_result_${result.key}"
             )
+            CatalogCardStatus(result.key, catalogCardActionState, onOpenCatalogBrowser)
         }
     }
 

@@ -280,7 +280,7 @@ fun LazyListScope.homeFeedContent(
                 Column(Modifier.padding(16.dp)) {
                     Text(stringResource(R.string.feed_help_recommendations), style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Локальні рекомендації вже працюють приватно. За окремою згодою майбутнє спільне навчання використовуватиме лише тижневе оновлення п’яти ваг — без книг та історії.",
+                        stringResource(R.string.feed_recommendation_consent_body),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,6 +38,7 @@ import com.slukhayka.audiobooks.data.ingest.ChannelCardState
 import com.slukhayka.audiobooks.data.ingest.ChannelItemKind
 import com.slukhayka.audiobooks.data.ingest.ChannelSelectionPolicy
 import com.slukhayka.audiobooks.data.ingest.ChannelTab
+import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 
 /**
  * Spec-53 T10 — the whole-channel selection card: tabs, checkboxes,
@@ -112,19 +116,23 @@ fun ChannelImportCard(
                 )
             }
         } else if (state.loadFailed && state.items.isEmpty()) {
-            Text(
-                text = stringResource(R.string.submission_channel_failed),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.testTag("channel_failed")
+            // spec-46 T16 (#577): the failure flavour is still a canonical
+            // empty state (icon + message + its one action) — no bare Text
+            // followed by a floating button.
+            EmptyStateRow(
+                icon = Icons.Default.Warning,
+                title = stringResource(R.string.submission_channel_failed),
+                body = "",
+                modifier = Modifier.testTag("channel_failed"),
+                action = {
+                    OutlinedButton(
+                        onClick = callbacks.onRetryLoad,
+                        modifier = Modifier.testTag("channel_retry")
+                    ) {
+                        Text(stringResource(R.string.submission_channel_retry))
+                    }
+                }
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = callbacks.onRetryLoad,
-                modifier = Modifier.testTag("channel_retry")
-            ) {
-                Text(stringResource(R.string.submission_channel_retry))
-            }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ChannelTabButton(
@@ -144,10 +152,11 @@ fun ChannelImportCard(
             }
             Spacer(modifier = Modifier.height(8.dp))
             if (state.items.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.submission_channel_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // spec-46 T16 (#577): canonical compact state, not a bare Text.
+                EmptyStateRow(
+                    icon = Icons.Default.Inbox,
+                    title = stringResource(R.string.submission_channel_empty),
+                    body = "",
                     modifier = Modifier.testTag("channel_empty")
                 )
             } else {

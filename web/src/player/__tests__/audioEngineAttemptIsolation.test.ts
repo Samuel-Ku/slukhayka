@@ -250,8 +250,10 @@ describe('#617 — an old attempt’s events cannot drive the current one', () =
     const audio = new ControllableAudio()
     engine.attachAudio(audio as unknown as HTMLAudioElement)
 
-    const first = engine.loadBook(detail('ed-A'), 0, { forceChapter: true })
-    const second = engine.loadBook(detail('ed-B'), 2, { forceChapter: true })
+    // #619 — the pull belongs to a RESUME; an explicit Chapter never starts
+    // one, so this race is built on two resume loads.
+    const first = engine.loadBook(detail('ed-A'), 0)
+    const second = engine.loadBook(detail('ed-B'), 2)
     // The superseded load resolves LAST — it must not win.
     pendingPulls[1]!()
     pendingPulls[0]!()

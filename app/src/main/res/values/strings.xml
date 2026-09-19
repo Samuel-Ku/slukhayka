@@ -406,9 +406,11 @@
     <string name="manual_add_format">Формат</string>
     <string name="manual_add_format_paper">Паперова</string>
     <string name="manual_add_format_ebook">Електронна</string>
+    <string name="manual_add_format_tracked">Без аудіо</string>
     <string name="manual_add_wants_to_read">Хочу прочитати</string>
     <string name="manual_add_own_file">Я імпортував власний файл</string>
     <string name="manual_add_note">Формат — не начитка: паперовий чи електронний запис не створює ані Edition, ані джерела.</string>
+    <string name="manual_add_tracked_note">Твір одразу в Медіатеці з чесним станом «аудіо недоступне». Коли аудіо з\'явиться в джерелах, застосунок підсвітить його — без автоімпорту.</string>
     <string name="manual_add_confirm">Додати</string>
     <string name="manual_add_cancel">Скасувати</string>
     <string name="lib_imported_explain">Походження цих записів не відновлюється з наявних даних. Підтвердьте їх як особисті або приберіть зв\'язок.</string>

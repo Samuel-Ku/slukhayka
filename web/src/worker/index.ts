@@ -7,6 +7,7 @@
  *   GET /api/book?source=&url=           → BookDetail with enriched chapters
  *   GET /api/search?source=&q=           → CatalogCard[] for one source
  *   GET /api/search-all?q=               → [{id, displayName, cards}] best-effort
+ *   GET /api/bibliography/isbn?isbn=     → Google Books body (keyless door, #858)
  *
  * Every outbound fetch is host-allowlisted per source — INCLUDING every
  * redirect hop (redirect: 'manual', re-validated, bounded depth). Failures
@@ -70,7 +71,14 @@ function transportFor(entry: SourceEntry) {
 }
 
 interface WorkerEnv {
-  // No bindings yet; declared for the Cloudflare module contract.
+  /**
+   * #858 (T5) — the Google Books API key, set as a Worker SECRET
+   * (`npx wrangler secret put GOOGLE_BOOKS_KEY`). It is deliberately the only
+   * place the key exists: it is never committed, never in a wrangler var and
+   * never echoed to a client. Absent = the bibliography door honestly refuses
+   * with 503 instead of reaching Google keyless (which answers 429).
+   */
+  readonly GOOGLE_BOOKS_KEY?: string
 }
 
 /** The minimal shape Cloudflare's runtime expects; declared locally to stay dep-free. */
@@ -79,7 +87,7 @@ interface ExportedHandler<E> {
 }
 
 export default {
-  async fetch(request: Request, _env: WorkerEnv): Promise<Response> {
+  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     const url = new URL(request.url)
     const { pathname, searchParams } = url
 
@@ -272,6 +280,31 @@ export default {
         return ok(detail)
       } catch {
         return fail(`parsing failed for ${target}`, 502)
+      }
+    }
+
+    // #858 (T5) — the keyless Google Books door for the tracked-Work
+    // bibliography fallback. The client (the Kotlin provider) sends an ISBN
+    // and nothing else: the key lives ONLY here, as the env-secret
+    // `GOOGLE_BOOKS_KEY`. The upstream body and status travel back VERBATIM —
+    // the relay recipe's transparency rule — so the client's parser owns the
+    // real `books#volumes` shape and no wrapper has to be unwrapped twice.
+    // Nothing from `env` is ever echoed into the response.
+    if (pathname === '/api/bibliography/isbn') {
+      const isbn = (searchParams.get('isbn') ?? '').replace(/[^0-9Xx]/g, '').toUpperCase()
+      if (!/^(\d{9}[\dX]|\d{13})$/.test(isbn)) return fail('invalid isbn')
+      const key = env.GOOGLE_BOOKS_KEY
+      if (!key) return fail('bibliography is not configured', 503)
+      const target = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${encodeURIComponent(key)}`
+      try {
+        const upstream = await fetch(target, {
+          headers: { 'user-agent': DEFAULT_UA },
+          redirect: 'manual',
+        })
+        if (upstream.status >= 300 && upstream.status < 400) return fail('google books redirected', 502)
+        return new Response(await upstream.text(), { status: upstream.status, headers: JSON_HEADERS })
+      } catch {
+        return fail('google books did not answer', 502)
       }
     }
 

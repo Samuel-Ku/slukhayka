@@ -61,6 +61,20 @@ export interface AudioEngineOptions {
   offlinePrimer?: OfflineAudioPrimer | null
 }
 
+/** A `loadBookAndAwaitPlaying` caller waiting for THIS attempt's `playing`. */
+interface PlayingWaiter {
+  ok(): void
+  fail(): void
+}
+
+/** The listeners bound to one media session (generation) of the one element. */
+interface MediaSessionListeners {
+  audio: HTMLAudioElement
+  onPlaying: () => void
+  onError: () => void
+  onEnded: () => void
+}
+
 export class AudioEngine {
   readonly engine: PlaybackEngine
   private audio: HTMLAudioElement | null = null
@@ -75,6 +89,29 @@ export class AudioEngine {
   private bookmarks: PlayerBookmarksStore | null
   private workId: string | undefined
   private offlinePrimer: OfflineAudioPrimer | null
+
+  // ---- #617 attempt isolation ------------------------------------------
+  //
+  // One `<audio>` element serves the whole app, but every playback intent
+  // (a load, a Next/Previous step, a relay retry) is its own attempt. The
+  // engine keeps a monotonic GENERATION, binds media events to the
+  // generation that armed them, and aborts the previous media session so
+  // its queued `playing`/`ended`/`error` can never drive the new attempt.
+  // The same generation guards a play() promise and a suspended loadBook.
+  private mediaGeneration = 0
+  /** The generation whose listeners are currently bound; 0 = none bound. */
+  private armedGeneration = 0
+  private mediaListeners: MediaSessionListeners | null = null
+  /** A media `playing` confirms the attempt (headless engines count as confirmed). */
+  private attemptConfirmed = true
+  /** The last confirmed Listening State snapshot of the loaded Edition. */
+  private prepareBaseline: LocalListeningStateSnapshot | null = null
+  /** `loadBook` calls are generations too: a suspended one must not clobber a newer. */
+  private loadGeneration = 0
+  private readonly playingWaiters = new Set<PlayingWaiter>()
+  private pendingWaiter: PlayingWaiter | null = null
+  /** Set while an unconfirmed attempt is being torn down — no writes. */
+  private suppressPersist = false
 
   // W5.1 — the sleep timer (Android's AudioPlayerManager policy): its own
   // wall-clock interval, independent of the play ticker, because Android's
@@ -114,17 +151,41 @@ export class AudioEngine {
     this.syncController = controller
   }
 
+  /**
+   * #617 — bind the one media element. Repeated binding of the SAME element
+   * is a no-op (React StrictMode mounts effects twice): listeners are bound
+   * per media session by `armMediaSession`, never here, so a double attach
+   * cannot multiply them. A different element supersedes the old binding.
+   */
   attachAudio(audio: HTMLAudioElement): void {
+    if (this.audio === audio) return
+    this.detachAudio()
     this.audio = audio
-    audio.addEventListener('playing', () => {
-      this.engine.attemptPlaying()
-      // W6.2 — the chapter actually started playing: prime its relay URL
-      // for offline (idempotent — an already-cached chapter is not
-      // re-downloaded; offline browsers skip the prime entirely).
-      this.primeCurrentChapter()
-    })
-    audio.addEventListener('error', () => this.engine.attemptErrored())
-    audio.addEventListener('ended', () => this.onEnded())
+    // A session already in flight (attach after a load) is re-armed on the
+    // new element so its events still reach the engine.
+    if (this.armedGeneration !== 0 && this.chapters.length > 0) {
+      this.armMediaSession()
+      this.syncAudioSrc()
+    }
+  }
+
+  /**
+   * #617 — unbind the media element: the current session's listeners and the
+   * play ticker go away. Playback state is untouched; `attachAudio` binds
+   * again.
+   */
+  detachAudio(): void {
+    this.removeMediaListeners()
+    this.audio = null
+    this.armedGeneration = 0
+    this.stopTicker()
+  }
+
+  /** #617 — release every background resource this engine owns. */
+  dispose(): void {
+    this.detachAudio()
+    this.failPlayingWaiters()
+    this.stopSleepTimerInterval()
   }
 
   async loadBook(
@@ -140,6 +201,10 @@ export class AudioEngine {
     if (explicit && (!Number.isInteger(startChapter) || startChapter < 0 || startChapter >= detail.chapters.length)) {
       return false
     }
+    // #617 — this load is its own generation. A newer loadBook (a fast
+    // Edition/Chapter switch) makes this one stale; if it resumes after an
+    // awaited cloud pull it must NOT clobber the newer attempt.
+    const loadGeneration = ++this.loadGeneration
     this.bookTitle = detail.title
     this.chapters = detail.chapters
     this.editionId = detail.editionId ?? detail.title
@@ -152,6 +217,7 @@ export class AudioEngine {
         // degrade-never
       }
     }
+    if (loadGeneration !== this.loadGeneration) return false
     // Explicit Chapter jump (bookmark, chapter pick) is the user's expressed
     // intent — it starts exactly there, at the given position or zero, and
     // never consults the saved place. Resume keeps the caller's fallback
@@ -186,9 +252,12 @@ export class AudioEngine {
       this.engine.setSpeed(saved.preferredSpeed)
     }
     this.lastChapterIndex = chapterIndex
-    this.syncAudioSrc()
+    // #617 — a NEW media attempt: abort the previous session, bind fresh
+    // listeners to this generation, then play it in.
+    this.beginAttempt()
     this.engine.play()
-    void this.audio?.play().catch(() => {})
+    this.syncAudioSrc()
+    this.requestAutoplay()
     this.startTicker()
     this.rearmSleepTimerForChapter()
     this.updateSession()
@@ -196,10 +265,11 @@ export class AudioEngine {
   }
 
   /**
-   * Resolves only when the real media element emits `playing`. A successful
-   * catalogue action must never be inferred from a fetched book page or from
-   * assigning `audio.src`; the direct→relay fallback remains inside this one
-   * bounded user attempt.
+   * Resolves only when the real media element emits `playing` for the attempt
+   * this call started. The waiter rides the attempt generation: a newer intent
+   * (or a pause) fails it, and a stale `playing` from an earlier media session
+   * can never resolve it — a catalogue action is never confirmed by an event
+   * the attempt did not produce.
    */
   loadBookAndAwaitPlaying(
     detail: { title: string; chapters: Chapter[]; editionId?: string; workId?: string },
@@ -207,23 +277,31 @@ export class AudioEngine {
     timeoutMs = 8_000,
     opts: LoadOptions = {},
   ): Promise<boolean> {
-    const audio = this.audio
-    if (!audio) return Promise.resolve(false)
+    if (!this.audio) return Promise.resolve(false)
     return new Promise((resolve) => {
       let done = false
       let unsubscribe = () => {}
-      const finish = (playing: boolean): void => {
+      const finish = (playing: boolean, cancel = true): void => {
         if (done) return
         done = true
         clearTimeout(timeout)
-        audio.removeEventListener('playing', onPlaying)
+        // The waiter "owns" the attempt only while it is still parked on it:
+        // a superseded waiter was already removed by `failPlayingWaiters`, so
+        // its failure must never tear down the newer attempt.
+        const owned = this.playingWaiters.delete(waiter) || this.pendingWaiter === waiter
+        if (this.pendingWaiter === waiter) this.pendingWaiter = null
         unsubscribe()
-        if (!playing) this.pause()
+        if (!playing && cancel && owned) this.cancelPrepare()
         resolve(playing)
       }
-      const onPlaying = (): void => finish(true)
+      const waiter: PlayingWaiter = {
+        ok: () => finish(true),
+        fail: () => finish(false),
+      }
+      // The waiter is parked as PENDING: `beginAttempt` adopts it into the
+      // generation it arms, so a superseding intent fails it first.
+      this.pendingWaiter = waiter
       const timeout = setTimeout(() => finish(false), timeoutMs)
-      audio.addEventListener('playing', onPlaying)
       unsubscribe = this.subscribe((state) => {
         if (state.status === 'unavailable') finish(false)
       })
@@ -231,22 +309,42 @@ export class AudioEngine {
       // resolves honestly at once instead of waiting out the playing budget.
       void this.loadBook(detail, startChapter, opts)
         .then((accepted) => {
-          if (!accepted) finish(false)
+          // A refused load (#611) never began an attempt: it resolves honestly
+          // without tearing down whatever is currently playing.
+          if (!accepted) finish(false, false)
         })
-        .catch(() => finish(false))
+        .catch(() => finish(false, false))
     })
   }
 
   play(): void {
+    // #617 — a play from an unloaded/unavailable engine is a fresh attempt;
+    // resuming a paused one continues the SAME media session.
+    const fresh = this.engine.getState().attemptKind === undefined
     this.engine.play()
-    this.syncAudioSrc()
-    void this.audio?.play().catch(() => {})
+    if (this.chapters.length > 0 && (fresh || this.armedGeneration === 0)) {
+      this.armMediaSession()
+      this.syncAudioSrc()
+    }
+    this.requestAutoplay()
     this.startTicker()
   }
 
   pause(): void {
+    const unconfirmed = this.audio !== null && !this.attemptConfirmed
+    // #617 — pausing also cancels a load still suspended on a cloud pull: a
+    // resume must not start the sound after the listener stopped the attempt.
+    this.loadGeneration += 1
     this.engine.pause()
-    this.audio?.pause()
+    // Pausing before the media element ever played cancels the autoplay:
+    // abort the session so a late `playing` cannot start the sound or confirm
+    // the attempt. A confirmed pause keeps its buffer for resume.
+    if (unconfirmed) {
+      this.abortArmedSession()
+    } else {
+      this.audio?.pause()
+    }
+    this.failPlayingWaiters()
     this.persist(true)
     this.stopTicker()
   }
@@ -406,14 +504,193 @@ export class AudioEngine {
     }
   }
 
-  private onEngineState(state: EngineState): void {
-    if (state.attemptKind === 'relay' && this.audio && !this.audio.src.includes('/api/audio')) {
-      this.syncAudioSrc()
-      void this.audio.play().catch(() => {})
+  // ---- #617 attempt generation ----------------------------------------
+
+  /**
+   * A new user intent (load, Next/Previous, bookmark jump, a fresh play):
+   * every waiter of the previous attempt is failed, the previous media
+   * session is aborted, and fresh listeners are bound to a new generation.
+   */
+  private beginAttempt(): void {
+    this.prepareBaseline = this.editionId ? this.store.load(this.editionId) : null
+    // Only the PREVIOUS attempt's waiters are stale; the waiter parked for
+    // this new intent is adopted by `armMediaSession` right after.
+    this.failPlayingWaiters(false)
+    this.armMediaSession()
+  }
+
+  /**
+   * Bind the media element for ONE generation. The element is first aborted
+   * (`pause` + cleared source + `load`), so the previous resource can no
+   * longer deliver `playing`/`ended`/`error`; its listeners are replaced by
+   * per-generation ones. Retries within one attempt (the relay fallback) call
+   * this WITHOUT failing the attempt's waiters.
+   */
+  private armMediaSession(): number {
+    this.mediaGeneration += 1
+    const generation = this.mediaGeneration
+    this.armedGeneration = generation
+    this.attemptConfirmed = this.audio === null
+    // The waiter parked for the attempt being armed now rides this
+    // generation; a superseding intent would have failed it beforehand.
+    if (this.pendingWaiter) {
+      this.playingWaiters.add(this.pendingWaiter)
+      this.pendingWaiter = null
     }
+    const audio = this.audio
+    if (!audio) return generation
+    audio.pause()
+    audio.removeAttribute('src')
+    audio.load()
+    const current = (): boolean => generation === this.armedGeneration
+    const onPlaying = (): void => {
+      if (!current()) return
+      this.attemptConfirmed = true
+      // The attempt produced sound: its position is legitimate from now on,
+      // so a later failure must not roll the store back to the pre-attempt place.
+      this.prepareBaseline = null
+      this.engine.attemptPlaying()
+      // W6.2 — the chapter actually started playing: prime its relay URL for
+      // offline (idempotent — an already-cached chapter is not re-downloaded).
+      this.primeCurrentChapter()
+      this.resolvePlayingWaiters()
+    }
+    const onError = (): void => {
+      if (!current()) return
+      this.handleAttemptError()
+    }
+    const onEnded = (): void => {
+      if (!current()) return
+      this.onEnded()
+    }
+    audio.addEventListener('playing', onPlaying)
+    audio.addEventListener('error', onError)
+    audio.addEventListener('ended', onEnded)
+    this.mediaListeners = { audio, onPlaying, onError, onEnded }
+    return generation
+  }
+
+  private removeMediaListeners(): void {
+    const bound = this.mediaListeners
+    if (!bound) return
+    bound.audio.removeEventListener('playing', bound.onPlaying)
+    bound.audio.removeEventListener('error', bound.onError)
+    bound.audio.removeEventListener('ended', bound.onEnded)
+    this.mediaListeners = null
+  }
+
+  /** Abort the armed session and drop its listeners — no generation is bound. */
+  private abortArmedSession(): void {
+    const audio = this.audio
+    if (audio) {
+      audio.pause()
+      audio.removeAttribute('src')
+      audio.load()
+    }
+    this.removeMediaListeners()
+    this.armedGeneration = 0
+  }
+
+  private requestAutoplay(): void {
+    const audio = this.audio
+    if (!audio) return
+    const generation = this.armedGeneration
+    let played: Promise<void> | void
+    try {
+      played = audio.play()
+    } catch (reason) {
+      this.handleAutoplayOutcome(generation, reason)
+      return
+    }
+    void Promise.resolve(played).then(
+      () => {},
+      (reason) => this.handleAutoplayOutcome(generation, reason),
+    )
+  }
+
+  /**
+   * #617 AC4 — a browser autoplay refusal is NOT a Source failure: it must
+   * not spend the attempt's one relay fallback or mark the Edition
+   * unavailable. The attempt parks into the manual-Play state instead. Any
+   * other rejection (a real media failure) feeds the fallback policy.
+   */
+  private handleAutoplayOutcome(generation: number, reason: unknown): void {
+    if (generation !== this.armedGeneration) return
+    if (isAutoplayRejection(reason)) {
+      this.cancelPrepare()
+      return
+    }
+    this.handleAttemptError()
+  }
+
+  private handleAttemptError(): void {
+    this.engine.attemptErrored()
+    const state = this.engine.getState()
+    if (state.status === 'unavailable') return
+    if (state.attemptKind === 'relay') {
+      // The ONE relay retry is a NEW media session: the failed direct
+      // attempt's queued events must not drive it, and the attempt's waiter
+      // stays valid because a retry is still the same user intent.
+      this.armMediaSession()
+      this.syncAudioSrc()
+      this.requestAutoplay()
+    }
+  }
+
+  /**
+   * #617 AC3 — pause/cancel of an attempt that never played. The engine parks
+   * in `paused` (so the manual Play is offered) and the last CONFIRMED
+   * Listening State is restored: an attempt that produced no sound must not
+   * overwrite the listener's real position.
+   */
+  private cancelPrepare(): void {
+    this.suppressPersist = true
+    try {
+      this.engine.pause()
+      this.abortArmedSession()
+      // Only THIS attempt's waiters: a newer load may be parked as pending.
+      this.failPlayingWaiters(false)
+      this.restoreBaseline()
+      this.stopTicker()
+    } finally {
+      this.suppressPersist = false
+    }
+  }
+
+  /** Undo an unconfirmed attempt's write, leaving the confirmed place intact. */
+  private restoreBaseline(): void {
+    const baseline = this.prepareBaseline
+    this.prepareBaseline = null
+    if (!baseline) return
+    this.store.save(baseline)
+    this.lastPersistMs = Date.now()
+  }
+
+  private failPlayingWaiters(includePending = true): void {
+    const waiters = [...this.playingWaiters]
+    this.playingWaiters.clear()
+    if (includePending && this.pendingWaiter) {
+      waiters.push(this.pendingWaiter)
+      this.pendingWaiter = null
+    }
+    for (const waiter of waiters) waiter.fail()
+  }
+
+  private resolvePlayingWaiters(): void {
+    const waiters = [...this.playingWaiters]
+    this.playingWaiters.clear()
+    for (const waiter of waiters) waiter.ok()
+  }
+
+  private onEngineState(state: EngineState): void {
     this.updateSession()
-    if (state.status === 'paused' || state.status === 'unavailable') {
+    if (state.status === 'paused') {
       this.persist(true)
+    } else if (state.status === 'unavailable') {
+      // #617 AC7 — a failed prepare is not a new position: undo its write
+      // rather than persisting a place the listener never reached.
+      this.restoreBaseline()
+      this.stopTicker()
     }
   }
 
@@ -449,7 +726,11 @@ export class AudioEngine {
       if (this.audio && state.status === 'playing' && Math.abs(this.audio.currentTime - state.positionSeconds) > 1) {
         this.audio.currentTime = state.positionSeconds
       }
-      if (Date.now() - this.lastPersistMs > 30000) this.persist(false)
+      // #617 — the periodic save only follows a CONFIRMED attempt: an
+      // unattached engine (tests, headless use) has no media event to wait for.
+      if ((this.audio === null || this.attemptConfirmed) && Date.now() - this.lastPersistMs > 30000) {
+        this.persist(false)
+      }
     }, 1000)
   }
 
@@ -540,6 +821,7 @@ export class AudioEngine {
 
   private persist(immediate = false): void {
     if (!this.editionId) return
+    if (this.suppressPersist) return
     const s = this.engine.getState()
     const snapshot: LocalListeningStateSnapshot = {
       editionId: this.editionId,
@@ -585,4 +867,13 @@ export function relayUrlFor(relayBase: string, streamUrl: string): string {
   } catch {
     return ''
   }
+}
+
+/**
+ * #617 — the browser refused `play()` for lack of a user gesture. That is a
+ * policy answer about the PAGE, not a failure of the Source, so it must never
+ * be treated as a media error (no relay spend, no `unavailable`).
+ */
+export function isAutoplayRejection(reason: unknown): boolean {
+  return typeof reason === 'object' && reason !== null && (reason as { name?: unknown }).name === 'NotAllowedError'
 }

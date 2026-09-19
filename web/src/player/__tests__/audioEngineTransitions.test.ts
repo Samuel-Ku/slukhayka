@@ -42,6 +42,8 @@ class FakeAudio extends EventTarget {
     return Promise.resolve()
   }
   pause(): void {}
+  load(): void {}
+  removeAttribute(name: string): void { if (name === 'src') this.src = '' }
 }
 
 const CHAPTERS: Chapter[] = [

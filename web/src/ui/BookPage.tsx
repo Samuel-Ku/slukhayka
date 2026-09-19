@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { readWarm, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail, CatalogCard, SourceId } from '../worker/types'
 import { canPlayBookFromDisplayedDetail, sourceNeedsBrowserSession } from './bookPlaybackAvailability'
+import type { PlayIntent } from '../player/audioEngine'
 import { EmptyState, EmptyStateRow, MetadataChip, PosterCard, SectionHeader } from './components'
 import { useTranslate } from '../i18n/locale'
 import type { ListenerProfile } from '../identity/listenerIdentity'
@@ -33,7 +34,7 @@ export function BookPage({
   url: string
   source: SourceId
   onOpenBook: (next: string, source: SourceId) => void
-  onPlay?: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
+  onPlay?: (detail: BookDetail, chapterIndex: number, intent?: PlayIntent) => Promise<boolean>
   profile: ListenerProfile | null
   reviewsStore: ReviewsStore | null
   narrationRatingsStore: NarrationRatingsStore | null
@@ -210,7 +211,7 @@ export function BookPage({
               <span>{chapter.title}</span>
               {onPlay && canPlay && (
                 <button
-                  onClick={() => { void onPlay(detail, idx) }}
+                  onClick={() => { void onPlay(detail, idx, { explicitChapter: true }) }}
                   aria-label={t('listenChapterAria', { n: idx + 1 })}
                   style={{ background: 'var(--accent)', color: 'var(--accent-contrast)', border: 'none', borderRadius: 999, padding: '4px 12px' }}
                 >

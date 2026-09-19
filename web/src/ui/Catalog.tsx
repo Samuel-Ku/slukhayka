@@ -393,15 +393,24 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
     session.loadMore()
   }
 
+  // #624 — after a failure, or after a source repeated the cursor, the same
+  // page is retried by the listener only; the observer stays off until then.
+  const retryAppend = (): void => {
+    session.retryAppend()
+  }
+
   useEffect(() => {
     const marker = loadMoreMarker.current
-    if (!marker || !nextPageUrl || query.trim().length >= CATALOG_SEARCH_MIN_CHARS || typeof IntersectionObserver === 'undefined') return
+    // #624 — while an append failed (or the source repeated the cursor and made
+    // no progress) auto-loading is off: the row shows the explicit retry, and
+    // the observer must not walk the same cursor in a loop.
+    if (!marker || !nextPageUrl || appendError || query.trim().length >= CATALOG_SEARCH_MIN_CHARS || typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) loadMore()
     }, { rootMargin: '320px' })
     observer.observe(marker)
     return () => observer.disconnect()
-  }, [nextPageUrl, loadingMore, query, source])
+  }, [nextPageUrl, loadingMore, appendError, query, source])
 
   return (
     <div>
@@ -671,7 +680,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
       {query.trim().length < CATALOG_SEARCH_MIN_CHARS && nextPageUrl && (
         <div ref={loadMoreMarker} style={{ padding: '16px 0', textAlign: 'center' }}>
           {appendError && <EmptyStateRow message={t('appendFailed')} />}
-          <button onClick={loadMore} disabled={loadingMore} style={pillStyle(false)}>
+          <button onClick={appendError ? retryAppend : loadMore} disabled={loadingMore} style={pillStyle(false)}>
             {loadingMore ? t('loading') : appendError ? t('retry') : t('showMore')}
           </button>
         </div>

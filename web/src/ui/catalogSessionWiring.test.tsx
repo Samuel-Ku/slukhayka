@@ -5,7 +5,7 @@
  * session owns the generation, the abort and the cache write. These tests use
  * the real `api` + warm cache seams and controlled promises.
  */
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import 'fake-indexeddb/auto'
@@ -116,5 +116,74 @@ describe('#621 Catalog session wiring', () => {
     await waitFor(() => expect(screen.getAllByText('Без мови').length).toBeGreaterThan(0))
     expect(feedSpy).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Українська' }).getAttribute('aria-pressed')).toBe('true')
+  })
+})
+
+/** #624 — a controllable IntersectionObserver: the test decides when it fires. */
+class FakeIntersectionObserver {
+  static all: FakeIntersectionObserver[] = []
+  connected = false
+  root: Element | null = null
+  rootMargin = ''
+  thresholds: number[] = []
+  constructor(public callback: IntersectionObserverCallback) { FakeIntersectionObserver.all.push(this) }
+  observe(): void { this.connected = true }
+  unobserve(): void {}
+  disconnect(): void { this.connected = false }
+  takeRecords(): IntersectionObserverEntry[] { return [] }
+  fire(): void {
+    this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+  }
+}
+
+describe('#624 observer and manual pagination share the session', () => {
+  beforeEach(() => {
+    FakeIntersectionObserver.all = []
+    ;(globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = FakeIntersectionObserver
+  })
+
+  afterEach(() => {
+    delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver
+  })
+
+  it('runs one request for observer + manual, stops on a repeated cursor and retries explicitly', async () => {
+    const cursors: Array<string | undefined> = []
+    let secondPage: UnifiedWorkPage | null = { works: [work('all-2', 'Друга')], nextCursor: 'cursor-2' }
+    vi.spyOn(api, 'workFeed').mockImplementation((cursor, source): Promise<UnifiedWorkPage | null> => {
+      cursors.push(cursor)
+      if (source === 'sluhay') return Promise.resolve({ works: [work('s-1', 'Друга з Sluhay', undefined, 'sluhay')] })
+      if (cursor === undefined) return Promise.resolve({ works: [work('all-1', 'Перша')], nextCursor: 'cursor-2' })
+      return Promise.resolve(secondPage)
+    })
+
+    render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} />)
+    await waitFor(() => expect(screen.getAllByText('Перша').length).toBeGreaterThan(0))
+
+    // The observer fires and the listener presses «Показати більше» for the SAME
+    // cursor in one tick: one request, no second append.
+    await act(async () => {
+      FakeIntersectionObserver.all.find((observer) => observer.connected)?.fire()
+      fireEvent.click(screen.getByRole('button', { name: 'Показати більше' }))
+      await Promise.resolve()
+    })
+
+    // The source answered with the cursor it was asked for: auto-loading stops
+    // and the explicit retry replaces the loop.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Спробувати ще раз' })).toBeTruthy())
+    expect(cursors.filter((cursor) => cursor === 'cursor-2')).toHaveLength(1)
+    expect(FakeIntersectionObserver.all.some((observer) => observer.connected)).toBe(false)
+    expect(screen.getAllByText('Перша').length).toBeGreaterThan(0)
+
+    // The explicit retry asks for the same page; this time the source advances.
+    secondPage = { works: [work('all-3', 'Третя')], nextCursor: 'cursor-3' }
+    fireEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
+    await waitFor(() => expect(screen.getAllByText('Третя').length).toBeGreaterThan(0))
+    expect(cursors.filter((cursor) => cursor === 'cursor-2')).toHaveLength(2)
+    expect(screen.getAllByText('Перша').length).toBeGreaterThan(0)
+
+    // Switching Source drops the previous Source's Works.
+    fireEvent.click(screen.getByRole('button', { name: 'Sluhay' }))
+    await waitFor(() => expect(screen.getAllByText('Друга з Sluhay').length).toBeGreaterThan(0))
+    expect(screen.queryByText('Третя')).toBeNull()
   })
 })

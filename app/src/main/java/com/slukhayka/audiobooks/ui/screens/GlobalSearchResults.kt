@@ -30,9 +30,9 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
  * («Перевіряємо…», the browser fallback and the terminal errors) keyed to the
  * card that owns the action.
  *
- * #567: the two named row wrappers that used to call this (`WorkFeedCard`,
- * `GlobalSearchResultCard`) are gone — search and the Work feed build their
- * canonical `BookRow` directly at the call site and mount this slot there.
+ * #567: the two named row wrappers that used to call this are gone — search
+ * and the Work feed build their canonical `BookRow` directly at the call site
+ * and mount this slot there.
  */
 @Composable
 internal fun CatalogCardStatus(

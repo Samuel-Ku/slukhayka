@@ -193,16 +193,6 @@ jobs:
             rm -rf /tmp/robolectric-*
           fi
 
-          # The clean-tree check IS the gate: a fresh record must reproduce the
-          # committed files byte for byte.
-          if [ "${{ matrix.id }}" = "compose-roborazzi" ] && [ "${{ vars.ROBORAZZI_VERIFY }}" = "true" ]; then
-            if ! git diff --exit-code --stat -- app/src/test/snapshots; then
-              echo "::error::snapshot gate: a fresh record differs from the committed goldens (see the diff above)"
-              exit 1
-            fi
-            echo "Snapshot gate: a fresh record reproduced the committed goldens exactly." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
           attempt=1
           max_attempts=2
           until ./gradlew ${{ matrix.tasks }} $EXTRA_FLAGS --no-daemon --stacktrace; do
@@ -214,6 +204,27 @@ jobs:
             echo "${{ matrix.name }}: attempt $((attempt - 1)) crashed in native code (no test name) — retrying after clearing /tmp/robolectric-* (#804)" >> "$GITHUB_STEP_SUMMARY"
             rm -rf /tmp/robolectric-*
           done
+
+          # The clean-tree check IS the gate: a fresh record must reproduce the
+          # committed files byte for byte. It MUST run AFTER the record above —
+          # placed before it (#977) it inspected a pristine checkout and passed
+          # on every run, so it never verified anything.
+          # `git diff` alone is blind to NEW files, so the status check below is
+          # what fails the job when a record adds a golden that was never committed.
+          if [ "${{ matrix.id }}" = "compose-roborazzi" ] && [ "${{ vars.ROBORAZZI_VERIFY }}" = "true" ]; then
+            if ! git diff --exit-code --stat -- app/src/test/snapshots; then
+              echo "::error::snapshot gate: a fresh record differs from the committed goldens (see the diff above)"
+              exit 1
+            fi
+            status=$(git status --porcelain -- app/src/test/snapshots)
+            if [ -n "$status" ]; then
+              echo "$status"
+              echo "::error::snapshot gate: a fresh record produced untracked snapshot files (see the list above)"
+              exit 1
+            fi
+            echo "Snapshot gate: a fresh record reproduced the committed goldens exactly." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           cp app/build/kover/bin-reports/testDebugUnitTest.ic "app/build/kover/partition/${{ matrix.ic }}"
           elapsed=$(( $(date +%s) - started_at ))
           echo "${{ matrix.name }}: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"

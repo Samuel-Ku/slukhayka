@@ -1,0 +1,19 @@
+# Канонічні identity репозиторію (git log / git shortlog).
+#
+# 02–03.09.2026 частина комітів пішла від службових identity, які підставив
+# тулінг: «stealth <stealth@local>» та «stealth
+# <stealth@users.noreply.github.com>» (ця noreply-адреса прив'язана до
+# чужого GitHub-акаунта), а також від агентських *@local і Claude.
+# «Viktoriya Yastremska <viktoria.jastremska@gmail.com>» — той самий автор
+# з іншого акаунта.
+#
+# Тут усі вони зводяться на автора проєкту. Історія не переписується, тож
+# прив'язка комітів на GitHub далі визначається email'ом у самому коміті.
+
+Samuel-Ku <shtopor02@gmail.com> <stealth@local>
+Samuel-Ku <shtopor02@gmail.com> <stealth@users.noreply.github.com>
+Samuel-Ku <shtopor02@gmail.com> <agent@local>
+Samuel-Ku <shtopor02@gmail.com> <main@local>
+Samuel-Ku <shtopor02@gmail.com> <ci@local>
+Samuel-Ku <shtopor02@gmail.com> <claude@anthropic.com>
+Samuel-Ku <shtopor02@gmail.com> <viktoria.jastremska@gmail.com>

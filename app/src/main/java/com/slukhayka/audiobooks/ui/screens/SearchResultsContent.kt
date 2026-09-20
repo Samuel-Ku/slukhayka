@@ -115,10 +115,10 @@ fun LazyListScope.searchResultsContent(
         }
         items(globalResults, key = { it.key }) { result ->
             // #567 v1.4 C3/C4 (ADR-0033): the result row IS the canonical
-            // BookRow, built here directly — the named GlobalSearchResultCard
-            // wrapper (a sixth row style) is gone. Language and provenance
-            // chips ride the badges slot; the honest action status stays
-            // under the row through CatalogCardStatus.
+            // BookRow, built here directly — the named wrapper that used to
+            // carry this row (a sixth row style) is gone. Language and
+            // provenance chips ride the badges slot; the honest action status
+            // stays under the row through CatalogCardStatus.
             LaunchedEffect(result.key) { onPreflightGlobalResult(result) }
             BookRow(
                 title = result.title,

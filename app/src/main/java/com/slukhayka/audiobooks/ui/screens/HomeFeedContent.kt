@@ -516,10 +516,10 @@ fun LazyListScope.homeFeedContent(
     ) { index ->
         workFeedItems[index]?.let { row ->
             // #567 v1.4 C3 (ADR-0033): the feed row IS the canonical BookRow,
-            // built here directly — the named WorkFeedCard wrapper (a row
-            // dialect of its own) is gone. Language chips ride the badges
-            // slot; the action status stays under the row via the footnote
-            // slot, so the honest action progress is not lost.
+            // built here directly — the named wrapper that used to carry this
+            // row (a dialect of its own) is gone. Language chips ride the
+            // badges slot; the action status stays under the row via the
+            // footnote slot, so the honest action progress is not lost.
             LaunchedEffect(row.workId) { onPreflightWorkFeedRow(row) }
             val rowState = catalogCardActionState.takeIf { state ->
                 when (state) {

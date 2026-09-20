@@ -87,10 +87,12 @@ fun SeriesIndexContent(
 ) {
     if (series.isEmpty()) {
         // No-series state: the shared index placeholder, never a crash — the
-        // catalogue may simply not have synced yet (spec-28 #202).
+        // catalogue may simply not have synced yet (spec-28 #202). v1.4 E6
+        // (#575): the placeholder is chrome, so it comes from the resources
+        // and the English run is clean.
         EmptyState(
             icon = Icons.AutoMirrored.Filled.MenuBook,
-            title = "Серії з'являться після завантаження каталогу.",
+            title = stringResource(R.string.series_index_empty),
             body = "",
             modifier = modifier.testTag("series_index_screen")
         )

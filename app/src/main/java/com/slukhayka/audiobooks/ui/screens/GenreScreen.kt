@@ -3,10 +3,10 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.runtime.*
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.library.ukPlural
 
 /**
  * Full-screen list of every book in a 4read.org genre (category) — e.g.
@@ -34,7 +34,9 @@ fun GenreScreen(
         title = currentGenre.title,
         // Spec-27 (#204) BUG-006: правильна множина — «1 книга у жанрі»,
         // «2 книги», «5 книг».
-        countLabel = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")} у жанрі",
+        // v1.4 E6 (#575): the counter is chrome — it comes from the resources
+        // so the English run reads «5 books in the genre», never the UK plural.
+        countLabel = pluralStringResource(R.plurals.genre_book_count, books.size, books.size),
         emptyMessage = stringResource(R.string.secondary_genre_empty),
         errorMessage = if (loadFailed) {
             stringResource(R.string.secondary_genre_error)

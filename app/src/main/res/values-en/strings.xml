@@ -285,6 +285,9 @@
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Authors</string>
     <string name="series_index_title">Series</string>
+    <!-- spec-46 T14 (#575): English twins for the E6 index chrome. -->
+    <string name="series_index_empty">Series will appear once the catalogue loads.</string>
+    <string name="people_index_backfill">The list is still filling up…</string>
     <string name="series_mirror_neighbours">Also in the mirror</string>
     <string name="collective_block_provenance">Source: %1$s</string>
     <string name="fallback_candidates_title">Other sources</string>
@@ -310,6 +313,11 @@
     <plurals name="book_count">
         <item quantity="one">%1$d book</item>
         <item quantity="other">%1$d books</item>
+    </plurals>
+    <!-- spec-46 T14 (#575): English twin for the genre index counter. -->
+    <plurals name="genre_book_count">
+        <item quantity="one">%1$d book in the genre</item>
+        <item quantity="other">%1$d books in the genre</item>
     </plurals>
     <plurals name="series_count">
         <item quantity="one">%1$d series</item>

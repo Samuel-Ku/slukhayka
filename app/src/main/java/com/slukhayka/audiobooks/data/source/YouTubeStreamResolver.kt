@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.source
 
 import android.util.Log
 import com.slukhayka.audiobooks.data.collections.MiniJson
+import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import java.util.Locale
@@ -169,23 +170,37 @@ object NewPipeYouTubeExtractor {
             request.headers().forEach { (name, values) ->
                 values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
             }
-            // #772 — do NOT substitute a browser User-Agent here. Measured on a
-            // live run: with the spoofed identity the same extractor either
-            // gets an `m.youtube.com` page it cannot parse (`Could not get
-            // ytInitialData`) or chases redirects forever (`Too many follow-up
-            // requests: 21`), while the plain transport — NewPipe's own headers,
-            // nothing added — resolves the very same video. YouTube is asked for
-            // the page NewPipe actually understands; the privacy relay still
-            // carries the request, and the media bytes keep riding it too.
-            return TransportClients.okHttp.newCall(builder.build()).execute().use { response ->
-                Response(
-                    response.code,
-                    response.message,
-                    response.headers.toMultimap(),
-                    response.body?.string().orEmpty(),
-                    response.request.url.toString()
-                )
-            }
+            // #772 — the extraction seam asks for its OWN identity (see the
+            // marker below). The shared client otherwise installs the
+            // app-wide system-WebView User-Agent on every request, and its
+            // `Mobile Safari` token makes YouTube redirect to `m.youtube.com`
+            // — markup this extractor cannot parse, so extraction died with
+            // `Could not get ytInitialData`.
+            //
+            // Measured, one URL and one set of headers, the ONLY changed
+            // variable being the client: bare OkHttp, bare OkHttp on HTTP/1.1,
+            // bare OkHttp with a desktop UA and HttpURLConnection all stay on
+            // `www.youtube.com`; only the client carrying our mobile UA lands
+            // on `m.youtube.com`. Adding just that UA to a bare client
+            // reproduces the redirect, and removing it from ours fixes
+            // extraction (name/duration resolve again).
+            //
+            // So this is deliberately NOT a User-Agent substitution: NewPipe's
+            // own headers are sent as they are, which is exactly what the
+            // working plain transport does. The privacy relay still carries
+            // the request, and the media bytes keep riding it too.
+            return TransportClients.okHttp
+                .newCall(BrowserIdentity.ownIdentityRequest(builder.build()))
+                .execute()
+                .use { response ->
+                    Response(
+                        response.code,
+                        response.message,
+                        response.headers.toMultimap(),
+                        response.body?.string().orEmpty(),
+                        response.request.url.toString()
+                    )
+                }
         }
     }
 }

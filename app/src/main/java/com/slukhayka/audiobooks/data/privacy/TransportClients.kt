@@ -43,8 +43,23 @@ object TransportClients {
             .addInterceptor { chain ->
                 // Retained clients and calls created just before a settings change fail closed.
                 if (TransportPrivacy.current() != route) throw IOException("Network route changed")
-                chain.proceed(chain.request().newBuilder()
-                    .header("User-Agent", BrowserIdentity.currentUserAgent()).build())
+                val request = chain.request()
+                // #772 — a request that carries its OWN identity keeps the
+                // User-Agent its protocol gave it. YouTube redirects the
+                // app-wide Mobile token to m.youtube.com, whose markup
+                // NewPipeExtractor cannot read; the extraction seam marks its
+                // requests (BrowserIdentity.ownIdentityRequest) so the browser
+                // identity still rides every other source unchanged.
+                if (BrowserIdentity.carriesOwnIdentity(request)) {
+                    // Leave it exactly as its protocol built it: NewPipe's own
+                    // headers ARE the working identity. Removing the header
+                    // instead would let OkHttp stamp its own `okhttp/4.x`,
+                    // which is a fingerprint of a different kind.
+                    chain.proceed(request)
+                } else {
+                    chain.proceed(request.newBuilder()
+                        .header("User-Agent", BrowserIdentity.currentUserAgent()).build())
+                }
             }
             .dns(TransportDns)
             .build()

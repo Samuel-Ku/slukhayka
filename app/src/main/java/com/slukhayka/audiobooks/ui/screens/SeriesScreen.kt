@@ -35,7 +35,6 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -258,7 +257,7 @@ fun SeriesUniverseHeader(
             .testTag("series_universe_header")
     ) {
         Text(
-            text = "Всесвіт: «${context.universeName}»",
+            text = stringResource(R.string.book_detail_universe_line, context.universeName),
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.semantics { heading() }
@@ -266,7 +265,11 @@ fun SeriesUniverseHeader(
         if (context.totalInUniverse > 1) {
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "Цикл ${context.position} з ${context.totalInUniverse}",
+                text = stringResource(
+                    R.string.series_cycle_position,
+                    context.position,
+                    context.totalInUniverse
+                ),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -289,6 +289,9 @@
     <string name="series_index_empty">Series will appear once the catalogue loads.</string>
     <string name="people_index_backfill">The list is still filling up…</string>
     <string name="series_mirror_neighbours">Also in the mirror</string>
+    <!-- spec-46 (#975 follow-up): English twin for the series screen's cycle
+         position line. -->
+    <string name="series_cycle_position">Cycle %1$d of %2$d</string>
     <string name="collective_block_provenance">Source: %1$s</string>
     <string name="fallback_candidates_title">Other sources</string>
     <string name="fallback_kind_local">On this device</string>

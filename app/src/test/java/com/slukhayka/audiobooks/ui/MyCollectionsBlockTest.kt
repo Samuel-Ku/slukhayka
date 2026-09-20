@@ -1,10 +1,13 @@
 package com.slukhayka.audiobooks.ui
 
+import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionRow
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -15,13 +18,22 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Spec-51 (#690) — the Library block's seam: honest empty state, real rows. */
+/**
+ * Spec-51 (#690) — the Library block's seam: honest empty state, real rows.
+ *
+ * spec-46 T14 (колекційний зріз): the heading and the row count are resources
+ * now, so the locale is explicit instead of inherited from the host — the pin
+ * used to pass only because the default locale is Ukrainian.
+ */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(qualifiers = "uk-rUA", sdk = [36])
 class MyCollectionsBlockTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    private val context: Context
+        get() = ApplicationProvider.getApplicationContext()
 
     private fun setBlock(rows: List<MyCollectionRow>, onOpen: (String) -> Unit = {}) {
         composeTestRule.setContent {
@@ -55,7 +67,10 @@ class MyCollectionsBlockTest {
 
         composeTestRule.onNodeWithTag("my_collection_row_c1").assertIsDisplayed()
         composeTestRule.onNodeWithText("Магія").assertIsDisplayed()
-        composeTestRule.onNodeWithText("3 книг").assertIsDisplayed()
+        // UK few: «3 книги», built from the same plural the block renders.
+        composeTestRule
+            .onNodeWithText(context.resources.getQuantityString(R.plurals.book_count, 3, 3))
+            .assertIsDisplayed()
         composeTestRule.onNodeWithText("Ще немає добірок").assertDoesNotExist()
 
         composeTestRule.onNodeWithTag("my_collection_row_c2").performClick()

@@ -211,6 +211,13 @@
     <string name="collections_rail_title">Listener collections</string>
     <string name="curator_profile_empty">This curator has no visible collections yet</string>
     <string name="collection_item_unknown">Book outside the local library</string>
+    <!-- spec-46 T14 (collections slice): English twins for the collection
+         screens' chrome. -->
+    <string name="my_collections_title">My collections</string>
+    <string name="published_collections_title">Published collections</string>
+    <string name="collection_detail_empty">No books in this collection yet</string>
+    <string name="publish_collection_title">Publish this collection?</string>
+    <string name="publish_collection_preview_lead">Exactly this goes public:</string>
     <string name="listen_shelves_restore_all">Restore all hidden</string>
     <string name="listen_remaining_h">%1$d h left</string>
     <string name="listen_remaining_m">%1$d min left</string>
@@ -316,6 +323,12 @@
     <plurals name="book_count">
         <item quantity="one">%1$d book</item>
         <item quantity="other">%1$d books</item>
+    </plurals>
+    <!-- spec-46 T14 (collections slice): English twin for the collection
+         count phrase; the noun inflects, so it is a plural, not a format. -->
+    <plurals name="collection_book_count">
+        <item quantity="one">Book in the collection: %1$d</item>
+        <item quantity="other">Books in the collection: %1$d</item>
     </plurals>
     <!-- spec-46 T14 (#575): English twin for the genre index counter. -->
     <plurals name="genre_book_count">

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui
 
+import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -7,6 +8,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.PublishedCollection
 import com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -17,13 +20,21 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Spec-51 (#692) — reading someone else's collection is read-only. */
+/**
+ * Spec-51 (#692) — reading someone else's collection is read-only.
+ *
+ * spec-46 T14 (колекційний зріз): the count line is a resource now, so the
+ * locale is explicit instead of inherited from the host.
+ */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(qualifiers = "uk-rUA", sdk = [36])
 class PublicCollectionContentTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    private val context: Context
+        get() = ApplicationProvider.getApplicationContext()
 
     private val collection = PublishedCollection(
         authorId = "a".repeat(64),
@@ -68,7 +79,12 @@ class PublicCollectionContentTest {
         composeTestRule.onNodeWithTag("public_collection_title").assertIsDisplayed()
         composeTestRule.onNodeWithText("Магія").assertIsDisplayed()
         composeTestRule.onNodeWithText("добірка слухача Слухач").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Книг у добірці: 3").assertIsDisplayed()
+        // UK few: «Книги у добірці: 3» — the noun inflects, so it is a plural.
+        composeTestRule
+            .onNodeWithText(
+                context.resources.getQuantityString(R.plurals.collection_book_count, 3, 3)
+            )
+            .assertIsDisplayed()
     }
 
     @Test

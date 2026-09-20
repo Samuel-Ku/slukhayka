@@ -109,7 +109,7 @@ fun CollectionDetailContent(
                             modifier = Modifier
                                 .heightIn(min = 48.dp)
                                 .testTag("collection_item_remove_${item.bookId}")
-                        ) { Text("Прибрати") }
+                        ) { Text(stringResource(R.string.collection_remove_book)) }
                     }
                 }
             }
@@ -122,14 +122,14 @@ fun CollectionDetailContent(
                 .padding(horizontal = 16.dp)
                 .heightIn(min = 48.dp)
                 .testTag("collection_delete")
-        ) { Text("Видалити добірку") }
+        ) { Text(stringResource(R.string.collection_delete)) }
     }
 
     if (confirmingDelete) {
         AlertDialog(
             onDismissRequest = { confirmingDelete = false },
-            title = { Text("Видалити добірку?") },
-            text = { Text("Добірка «${collection.title}» зникне. Книги у медіатеці залишаться.") },
+            title = { Text(stringResource(R.string.collection_delete_title)) },
+            text = { Text(stringResource(R.string.collection_delete_body, collection.title)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -137,13 +137,13 @@ fun CollectionDetailContent(
                         onDelete()
                     },
                     modifier = Modifier.testTag("collection_delete_confirm")
-                ) { Text("Видалити") }
+                ) { Text(stringResource(R.string.collection_delete_confirm)) }
             },
             dismissButton = {
                 TextButton(
                     onClick = { confirmingDelete = false },
                     modifier = Modifier.testTag("collection_delete_cancel")
-                ) { Text("Скасувати") }
+                ) { Text(stringResource(R.string.collection_cancel)) }
             }
         )
     }

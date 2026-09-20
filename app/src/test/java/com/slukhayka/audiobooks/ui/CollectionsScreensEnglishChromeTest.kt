@@ -6,17 +6,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.SemanticsNode
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
-import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
+import com.slukhayka.audiobooks.data.collections.ListenerCollectionItem
 import com.slukhayka.audiobooks.data.collections.PublicationPreview
 import com.slukhayka.audiobooks.data.collections.PublishedCollection
+import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.screens.collections.AddToCollectionSheet
 import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionRow
@@ -43,15 +43,18 @@ import java.io.File
  * literals that compile and render correctly under the default (uk) locale and
  * only leak once the app speaks English. This class is that named next slice.
  *
- * The proof walks the whole semantics tree in `en-rUS` and fails on any
- * Cyrillic (the [IndexScreensEnglishChromeTest] pattern); fixtures carry
- * Latin-only data, so a failure can only come from chrome the app itself
- * produced. Three surfaces cannot be walked honestly yet — the delete chrome in
- * [CollectionDetailContent], the inline-create chrome in [AddToCollectionSheet]
- * and `PublicationPreview.lines` are still Ukrainian literals in files outside
- * this slice, and the reader-side save button is too — so for those the test
- * asserts the English resource seam directly instead. The last test pins the
- * source itself so a future slice cannot quietly reintroduce the literals.
+ * #980 then closed the hole that made the earlier "clean" verdicts weaker than
+ * they sounded: the walk that this class and its two predecessors ran never
+ * read `SemanticsProperties.PaneTitle`, so [AddToCollectionSheet]'s
+ * `accessibilityPane("Додати до добірки")` could not fail it. The walk now
+ * lives once in [EnglishChromeWalk] and reads Text, ContentDescription,
+ * StateDescription and PaneTitle from every root, so the three surfaces this
+ * class used to step around — the delete chrome in [CollectionDetailContent],
+ * the inline-create chrome in [AddToCollectionSheet] and the preview lines
+ * rendered by [PublishCollectionSheet] — are walked whole instead of being
+ * asserted at the resource seam. The reader-side save button (#695) is walked
+ * too. The source-pin test stays: it catches a reintroduced literal at the
+ * source even on a surface no rendered fixture happens to reach.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "en-rUS", sdk = [36])
@@ -59,8 +62,6 @@ class CollectionsScreensEnglishChromeTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
-
-    private val cyrillic = Regex("[А-Яа-яІіЇїЄєҐґ]")
 
     private val context: Context
         get() = ApplicationProvider.getApplicationContext()
@@ -80,6 +81,10 @@ class CollectionsScreensEnglishChromeTest {
         title = title,
         description = "about stars",
         createdAt = 1L
+    )
+
+    private fun ownCollectionWithBook(): ListenerCollection = ownCollection().copy(
+        items = listOf(ListenerCollectionItem("book-a", "because stars", 1L))
     )
 
     private fun publishedCollection(hidden: Boolean = false): PublishedCollection = PublishedCollection(
@@ -148,8 +153,8 @@ class CollectionsScreensEnglishChromeTest {
         composeTestRule.setContent {
             chrome {
                 // The author's own HIDDEN collection: it exercises the count and
-                // the moderation chrome without reaching the reader-side save
-                // button, whose Ukrainian literal is a different file (#695).
+                // the moderation chrome; the reader-side save button is walked
+                // by its own test below.
                 PublicCollectionContent(
                     collection = publishedCollection(hidden = true),
                     originalAvailableLocally = true,
@@ -169,6 +174,28 @@ class CollectionsScreensEnglishChromeTest {
     }
 
     @Test
+    fun `the reader-side save button speaks English`() {
+        composeTestRule.setContent {
+            chrome {
+                // Someone else's VISIBLE collection, so the walk reaches the
+                // save button (#695) that the own-hidden fixture above skips.
+                PublicCollectionContent(
+                    collection = publishedCollection(hidden = false),
+                    originalAvailableLocally = true,
+                    onSaveForYou = {},
+                    onReport = {},
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        assertChromeHasNoCyrillic()
+        composeTestRule
+            .onNodeWithText(context.getString(R.string.collection_save_for_you))
+            .assertExists()
+    }
+
+    @Test
     fun `the collection detail empty state comes from a resource`() {
         composeTestRule.setContent {
             chrome {
@@ -181,13 +208,37 @@ class CollectionsScreensEnglishChromeTest {
             }
         }
 
-        // The walk cannot be used whole: the delete chrome around it is a
-        // Ukrainian literal in this same file but outside this slice.
+        assertChromeHasNoCyrillic()
         composeTestRule.onNodeWithText(context.getString(R.string.collection_detail_empty)).assertExists()
     }
 
     @Test
-    fun `the add-to-collection sheet title comes from a resource`() {
+    fun `the collection delete confirmation speaks English`() {
+        var deleted = false
+        composeTestRule.setContent {
+            chrome {
+                CollectionDetailContent(
+                    collection = ownCollectionWithBook(),
+                    onRemoveBook = {},
+                    onDelete = { deleted = true },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        // The itemised surface carries the remove action ...
+        assertChromeHasNoCyrillic()
+
+        // ... and the destructive confirmation composes into its own root, so
+        // this also proves the walk is not blind to dialogs.
+        composeTestRule.onNodeWithTag("collection_delete").performClick()
+        assertChromeHasNoCyrillic()
+        composeTestRule.onNodeWithTag("collection_delete_cancel").performClick()
+        assertTrue("cancelling must destroy nothing", !deleted)
+    }
+
+    @Test
+    fun `the add-to-collection sheet chrome speaks English`() {
         composeTestRule.setContent {
             chrome {
                 AddToCollectionSheet(
@@ -201,8 +252,17 @@ class CollectionsScreensEnglishChromeTest {
             }
         }
 
+        assertChromeHasNoCyrillic()
         composeTestRule
             .onNodeWithText(context.getString(R.string.book_detail_add_to_collection))
+            .assertExists()
+
+        // The inline-create form is the same sheet's other half — open it so
+        // the walk sees its labels and actions instead of only the closed one.
+        composeTestRule.onNodeWithTag("new_collection_open").performClick()
+        assertChromeHasNoCyrillic()
+        composeTestRule
+            .onNodeWithText(context.getString(R.string.collection_new_title_label))
             .assertExists()
     }
 
@@ -224,11 +284,13 @@ class CollectionsScreensEnglishChromeTest {
             }
         }
 
-        // `preview.lines` are still Ukrainian literals inside PublicationPreview
-        // (another file), so only the sheet's own two lines are asserted here.
+        assertChromeHasNoCyrillic()
         composeTestRule.onNodeWithText(context.getString(R.string.publish_collection_title)).assertExists()
         composeTestRule
             .onNodeWithText(context.getString(R.string.publish_collection_preview_lead))
+            .assertExists()
+        composeTestRule
+            .onNodeWithText(context.getString(R.string.publish_collection_preview_line_title, "Magic"))
             .assertExists()
     }
 
@@ -285,6 +347,27 @@ class CollectionsScreensEnglishChromeTest {
             "CollectionDetailContent must not keep the Ukrainian empty-state literal",
             !detail.contains("\"У добірці ще немає книг\"")
         )
+        assertTrue(
+            "CollectionDetailContent must build the delete chrome from resources",
+            detail.contains("R.string.collection_delete") &&
+                detail.contains("R.string.collection_delete_title") &&
+                detail.contains("R.string.collection_delete_body") &&
+                detail.contains("R.string.collection_delete_confirm") &&
+                detail.contains("R.string.collection_remove_book") &&
+                detail.contains("R.string.collection_cancel")
+        )
+        listOf(
+            "\"Прибрати\"",
+            "\"Видалити добірку\"",
+            "\"Видалити добірку?\"",
+            "\"Видалити\"",
+            "\"Скасувати\""
+        ).forEach { literal ->
+            assertTrue(
+                "CollectionDetailContent must not keep the Ukrainian literal $literal",
+                !detail.contains(literal)
+            )
+        }
 
         val publish = read("ui/screens/collections/PublishCollectionSheet.kt")
         assertTrue(
@@ -296,23 +379,71 @@ class CollectionsScreensEnglishChromeTest {
             publish.contains("R.string.publish_collection_preview_lead")
         )
         assertTrue(
-            "PublishCollectionSheet must not keep the Ukrainian title literal",
-            !publish.contains("\"Опублікувати добірку?\"")
+            "PublishCollectionSheet must build the preview lines from resources",
+            publish.contains("R.string.publish_collection_preview_line_title") &&
+                publish.contains("R.string.publish_collection_preview_line_pseudonym") &&
+                publish.contains("R.string.publish_collection_preview_line_book_count") &&
+                publish.contains("R.string.publish_collection_preview_line_description_included") &&
+                publish.contains("R.string.publish_collection_preview_line_description_absent")
         )
-        assertTrue(
-            "PublishCollectionSheet must not keep the Ukrainian lead literal",
-            !publish.contains("\"Піде назовні рівно це:\"")
-        )
+        listOf(
+            "\"Опублікувати добірку?\"",
+            "\"Піде назовні рівно це:\"",
+            "\"Скасувати\"",
+            "\"Опублікувати\""
+        ).forEach { literal ->
+            assertTrue(
+                "PublishCollectionSheet must not keep the Ukrainian literal $literal",
+                !publish.contains(literal)
+            )
+        }
 
         val addTo = read("ui/screens/collections/AddToCollectionSheet.kt")
         assertTrue(
-            "AddToCollectionSheet must reuse R.string.book_detail_add_to_collection",
-            addTo.contains("R.string.book_detail_add_to_collection")
+            "AddToCollectionSheet must reuse R.string.book_detail_add_to_collection for its Text AND its pane",
+            addTo.contains("R.string.book_detail_add_to_collection") &&
+                addTo.contains("accessibilityPane(stringResource(R.string.book_detail_add_to_collection))")
         )
         assertTrue(
-            "AddToCollectionSheet must not hardcode the title Text",
-            !addTo.contains("text = \"Додати до добірки\"")
+            "AddToCollectionSheet must build the inline-create chrome from resources",
+            addTo.contains("R.string.collection_new_title_label") &&
+                addTo.contains("R.string.collection_new_title_limit") &&
+                addTo.contains("R.string.collection_new_description_label") &&
+                addTo.contains("R.string.collection_cancel") &&
+                addTo.contains("R.string.collection_create") &&
+                addTo.contains("R.string.collection_new_open")
         )
+        listOf(
+            "\"Додати до добірки\"",
+            "\"Назва добірки\"",
+            "\"Опис (не обов",
+            "\"Скасувати\"",
+            "\"Створити\"",
+            "\"Нова добірка"
+        ).forEach { literal ->
+            assertTrue(
+                "AddToCollectionSheet must not keep the Ukrainian literal $literal",
+                !addTo.contains(literal)
+            )
+        }
+
+        val saveButton = read("ui/screens/collections/SaveCollectionForYouButton.kt")
+        assertTrue(
+            "SaveCollectionForYouButton must build its label from R.string.collection_save_for_you",
+            saveButton.contains("R.string.collection_save_for_you")
+        )
+        assertTrue(
+            "SaveCollectionForYouButton must not keep the Ukrainian label literal",
+            !saveButton.contains("\"Зберегти собі\"")
+        )
+
+        val preview = read("data/collections/PublicationPreview.kt")
+        listOf("\"Назва:", "\"Псевдонім:", "\"Книг у добірці:", "\"Опис:").forEach { literal ->
+            assertTrue(
+                "PublicationPreview must not keep the Ukrainian preview literal $literal",
+                !preview.contains(literal)
+            )
+        }
     }
 
     private fun read(path: String): String {
@@ -331,22 +462,6 @@ class CollectionsScreensEnglishChromeTest {
     }
 
     private fun assertChromeHasNoCyrillic() {
-        val texts = collectAllTexts()
-        val leaked = texts.filter { cyrillic.containsMatchIn(it) }
-        assertTrue("Ukrainian chrome leaked into the EN collections run: $leaked", leaked.isEmpty())
-    }
-
-    private fun collectAllTexts(): List<String> =
-        composeTestRule.onAllNodes(isRoot(), useUnmergedTree = true)
-            .fetchSemanticsNodes()
-            .flatMap { collectTexts(it) }
-
-    private fun collectTexts(node: SemanticsNode): List<String> {
-        val out = mutableListOf<String>()
-        node.config.getOrNull(SemanticsProperties.Text)?.forEach { out += it.text }
-        node.config.getOrNull(SemanticsProperties.ContentDescription)?.let { out += it }
-        node.config.getOrNull(SemanticsProperties.StateDescription)?.let { out += it }
-        node.children.forEach { out += collectTexts(it) }
-        return out
+        EnglishChromeWalk.assertNoCyrillic(composeTestRule, "collections")
     }
 }

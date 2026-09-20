@@ -65,7 +65,7 @@ fun AddToCollectionSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 8.dp)
-                .accessibilityPane("Додати до добірки")
+                .accessibilityPane(stringResource(R.string.book_detail_add_to_collection))
                 .testTag("add_to_collection_sheet")
         ) {
             Text(
@@ -102,9 +102,14 @@ fun AddToCollectionSheet(
                     value = newTitle,
                     onValueChange = { newTitle = it },
                     singleLine = true,
-                    label = { Text("Назва добірки") },
+                    label = { Text(stringResource(R.string.collection_new_title_label)) },
                     supportingText = {
-                        Text("до ${ListenerCollectionLimits.MAX_TITLE_LEN} символів")
+                        Text(
+                            stringResource(
+                                R.string.collection_new_title_limit,
+                                ListenerCollectionLimits.MAX_TITLE_LEN
+                            )
+                        )
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -113,7 +118,7 @@ fun AddToCollectionSheet(
                 OutlinedTextField(
                     value = newDescription,
                     onValueChange = { newDescription = it },
-                    label = { Text("Опис (не обовʼязково)") },
+                    label = { Text(stringResource(R.string.collection_new_description_label)) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("new_collection_description")
@@ -122,7 +127,9 @@ fun AddToCollectionSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = { creating = false }) { Text("Скасувати") }
+                    TextButton(onClick = { creating = false }) {
+                        Text(stringResource(R.string.collection_cancel))
+                    }
                     Button(
                         onClick = {
                             onCreate(newTitle, newDescription.ifBlank { null })
@@ -133,7 +140,7 @@ fun AddToCollectionSheet(
                         modifier = Modifier
                             .heightIn(min = 48.dp)
                             .testTag("new_collection_confirm")
-                    ) { Text("Створити") }
+                    ) { Text(stringResource(R.string.collection_create)) }
                 }
             } else {
                 TextButton(
@@ -141,7 +148,7 @@ fun AddToCollectionSheet(
                     modifier = Modifier
                         .heightIn(min = 48.dp)
                         .testTag("new_collection_open")
-                ) { Text("Нова добірка…") }
+                ) { Text(stringResource(R.string.collection_new_open)) }
             }
             Spacer(Modifier.height(12.dp))
         }

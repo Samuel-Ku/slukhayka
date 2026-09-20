@@ -218,6 +218,25 @@
     <string name="collection_detail_empty">No books in this collection yet</string>
     <string name="publish_collection_title">Publish this collection?</string>
     <string name="publish_collection_preview_lead">Exactly this goes public:</string>
+    <!-- #980: English twins for the residual collection chrome the extended
+         walk now reaches. -->
+    <string name="collection_remove_book">Remove</string>
+    <string name="collection_delete_title">Delete this collection?</string>
+    <string name="collection_delete_body">The collection “%1$s” will disappear. Its books stay in your library.</string>
+    <string name="collection_delete_confirm">Delete</string>
+    <string name="collection_cancel">Cancel</string>
+    <string name="collection_publish">Publish</string>
+    <string name="collection_save_for_you">Save for yourself</string>
+    <string name="collection_new_title_label">Collection name</string>
+    <string name="collection_new_title_limit">up to %1$d characters</string>
+    <string name="collection_new_description_label">Description (optional)</string>
+    <string name="collection_create">Create</string>
+    <string name="collection_new_open">New collection…</string>
+    <string name="publish_collection_preview_line_title">Title: %1$s</string>
+    <string name="publish_collection_preview_line_pseudonym">Pseudonym: %1$s</string>
+    <string name="publish_collection_preview_line_book_count">Books in the collection: %1$d</string>
+    <string name="publish_collection_preview_line_description_included">Description: will be published</string>
+    <string name="publish_collection_preview_line_description_absent">Description: not included</string>
     <string name="listen_shelves_restore_all">Restore all hidden</string>
     <string name="listen_remaining_h">%1$d h left</string>
     <string name="listen_remaining_m">%1$d min left</string>

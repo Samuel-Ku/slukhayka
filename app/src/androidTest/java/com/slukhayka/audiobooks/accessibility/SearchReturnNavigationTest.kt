@@ -45,7 +45,12 @@ class SearchReturnNavigationTest {
             rule.runOnUiThread { vm.updateSearchQuery("Absolute") }
             rule.onNodeWithTag("home_search_input")
                 .assertIsDisplayed().assertTextContains("Absolute")
-            rule.onNodeWithTag("tab_settings").performClick()
+            // #982 / #860 — «Налаштування» лишили нижній бар в #860 (ADR-0049):
+            // вхід — шестерня AppSettingsGear у шапці кореня («settings_gear»),
+            // а не видалений тег `tab_settings`. Старий тег не існує в жодному
+            // лезі CI, тож клік по ньому не виходив з «Огляду» взагалі — і
+            // повернення до пошуку (#549) не відтворювалося.
+            rule.onNodeWithTag("settings_gear").performClick()
             rule.onNodeWithTag("settings_screen").assertIsDisplayed()
             rule.onNodeWithTag("tab_explore").performClick()
             rule.onNodeWithTag("home_search_input")

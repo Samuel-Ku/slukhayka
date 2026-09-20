@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.merge
 
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.source.decodeEntities
 import java.util.Locale
 
 /**
@@ -44,8 +45,14 @@ object MergeKey {
         return normalize(withoutSubtitle)
     }
 
-    /** Normalizes an author or narrator name for comparison. */
-    fun normalizePerson(name: String): String = normalize(name)
+    /**
+     * Normalizes an author or narrator name for comparison. The shared entity
+     * decode runs FIRST, exactly as it does for the title (#964): the key is
+     * computed from the RAW claim upstream, so a name still carrying
+     * `&#x27;` would otherwise survive punctuation stripping as the spurious
+     * token `x27` and split one person's identity across two keys.
+     */
+    fun normalizePerson(name: String): String = normalize(decodeEntities(name))
 
     /**
      * The merge key of a book: `normalizedTitle|normalizedAuthor`. The

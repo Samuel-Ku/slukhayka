@@ -1479,7 +1479,10 @@ class LibraryImport(
             title = MetadataAssertions.normalizeTitle(book.title, book.author),
             // #812 - zhodnoho napysu 4read u zapysi. Porozhnii avtor lyshaietsia
             // porozhnim: vyhadane imia hirshe za vidsutnie.
-            author = book.author,
+            // #964 follow-up: the claimed name goes through the ONE
+            // claim-normalization seam beside the title above, so a source
+            // entity («Дев&#x27;ятко») becomes text instead of a stored name.
+            author = MetadataAssertions.normalizeClaimedText(book.author).orEmpty(),
             // ADR-0004: nachytka nevidoma - porozhno, a ne nazvoiu dzherela.
             narrator = "",
             // #264: the constant catalog phrase passes the rule like every
@@ -1554,7 +1557,7 @@ class LibraryImport(
                 mergeKey = mergeKey,
                 // Spec-24 T1: the Work row stores the scrubbed title too.
                 title = MetadataAssertions.normalizeTitle(book.title, book.author),
-                author = book.author.trim(),
+                author = MetadataAssertions.normalizeClaimedText(book.author).orEmpty(),
                 seriesTitle = book.seriesTitle,
                 seriesUrl = book.seriesUrl,
                 seriesIndex = book.seriesIndex,

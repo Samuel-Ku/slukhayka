@@ -235,6 +235,38 @@ class MetadataAssertionsTest {
         }
     }
 
+    @Test
+    fun `claimed person text decodes an HTML entity exactly as the title does`() {
+        // #964 follow-up — author/narrator ride the same source pages as the
+        // title, so an escaped apostrophe must become text at this ONE
+        // write-path seam too: both the hex form a React page emits and the
+        // decimal form 4read/lihtar emit. (A live sample of the decimal form
+        // in an author field: lihtar's og:description «Наталія Дев&#039;ятко».)
+        assertEquals("Наталія Дев'ятко", MetadataAssertions.normalizeClaimedText("Наталія Дев&#x27;ятко"))
+        assertEquals("Наталія Дев'ятко", MetadataAssertions.normalizeClaimedText("Наталія Дев&#039;ятко"))
+        assertEquals("О’Коннор", MetadataAssertions.normalizeClaimedText("О&#x2019;Коннор"))
+    }
+
+    @Test
+    fun `claimed person text leaves a clean name byte-identical`() {
+        // The boundary: no entity — the claim survives unchanged (trim aside).
+        val clean = "Джеймс Джойс"
+        assertEquals(clean, MetadataAssertions.normalizeClaimedText(clean))
+        assertEquals(clean, MetadataAssertions.normalizeClaimedText("  $clean  "))
+        assertEquals("Айя Нея-Ковальчук", MetadataAssertions.normalizeClaimedText("Айя Нея-Ковальчук"))
+    }
+
+    @Test
+    fun `claimed person text never guesses an unknown or malformed entity`() {
+        // A decoder never fabricates a character: an unknown name, malformed
+        // hex and an out-of-range code point stay LITERAL.
+        assertEquals("Світ &foo; тіні", MetadataAssertions.normalizeClaimedText("Світ &foo; тіні"))
+        assertEquals("Дев&#xZZ;ятко", MetadataAssertions.normalizeClaimedText("Дев&#xZZ;ятко"))
+        assertEquals("&#x110000;", MetadataAssertions.normalizeClaimedText("&#x110000;"))
+        // The brand scrub still fires AFTER the decode.
+        assertNull(MetadataAssertions.normalizeClaimedText("4read.org"))
+    }
+
     // --- Never-clobber duration -------------------------------------------
 
     @Test

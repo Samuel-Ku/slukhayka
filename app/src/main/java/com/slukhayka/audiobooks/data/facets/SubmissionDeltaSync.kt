@@ -217,7 +217,10 @@ class RoomSubmissionProjectionWriter(private val dao: AudiobookDao) : Submission
                     id = workId,
                     mergeKey = mergeKey,
                     title = MetadataAssertions.normalizeTitle(publication.title),
-                    author = publication.author?.trim().orEmpty(),
+                    // #964 follow-up: the Work row's author feeds the author
+                    // facet identity — decode the claim here, beside the title,
+                    // exactly as the catalogue write path does.
+                    author = MetadataAssertions.normalizeClaimedText(publication.author).orEmpty(),
                     addedAt = publication.submittedAt
                 )
             )

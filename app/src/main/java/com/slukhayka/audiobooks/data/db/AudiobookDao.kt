@@ -589,8 +589,9 @@ interface AudiobookDao {
     }
 
     /**
-     * One-shot Kotlin backfill (fresh installs after the v45 migration,
-     * tests): indexes every mergeable Work missing from the FTS table. The
+     * One-shot Kotlin backfill (tests, and any row the 47→48 migration
+     * could not fold — the plan first numbered it 44→45): indexes every
+     * mergeable Work missing from the FTS table. The
      * fold needs Kotlin, so SQL alone cannot do this — hence a door, not a
      * migration INSERT. Safe to replay; returns the number of rows indexed.
      */

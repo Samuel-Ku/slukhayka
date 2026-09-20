@@ -5,25 +5,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.SemanticsNode
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.library.PersonWorkRow
 import com.slukhayka.audiobooks.ui.screens.PersonWorksContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -43,6 +39,9 @@ import org.robolectric.annotation.Config
  * Asserting a couple of labels would still pass with one hardcoded corner left,
  * so the EN method also walks the WHOLE semantics tree and fails on any
  * Cyrillic, exactly like [LibraryEnglishChromeTest].
+ *
+ * #986 — the walk itself is the shared [EnglishChromeWalk], so it reads every
+ * root and PaneTitle too; this slice used to keep a narrower private copy.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -50,8 +49,6 @@ class PersonWorksChromeTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
-
-    private val cyrillic = Regex("[А-Яа-яІіЇїЄєҐґ]")
 
     @Test
     @Config(qualifiers = "en-rUS", sdk = [36])
@@ -116,18 +113,8 @@ class PersonWorksChromeTest {
     }
 
     private fun assertNoCyrillic() {
-        val texts = collectTexts(composeTestRule.onRoot(useUnmergedTree = true).fetchSemanticsNode())
-        val leaked = texts.filter { cyrillic.containsMatchIn(it) }
-        assertTrue("Ukrainian chrome leaked into the EN run: $leaked", leaked.isEmpty())
-    }
-
-    private fun collectTexts(node: SemanticsNode): List<String> {
-        val out = mutableListOf<String>()
-        node.config.getOrNull(SemanticsProperties.Text)?.forEach { out += it.text }
-        node.config.getOrNull(SemanticsProperties.ContentDescription)?.let { out += it }
-        node.config.getOrNull(SemanticsProperties.StateDescription)?.let { out += it }
-        node.children.forEach { out += collectTexts(it) }
-        return out
+        // #986 — one shared walk, every root, PaneTitle included.
+        EnglishChromeWalk.assertNoCyrillic(composeTestRule, "person works")
     }
 
     private fun card(id: String, narrator: String) = AudiobookEntity(

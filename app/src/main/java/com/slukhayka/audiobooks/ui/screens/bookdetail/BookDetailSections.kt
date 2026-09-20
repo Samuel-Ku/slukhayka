@@ -133,30 +133,49 @@ fun BookDetailIdentityHeader(
     // пропорції й притискаємо до ГОРИ, тож ріжеться лише низ — верх
     // обкладинки (назва, арт) лишається цілим.
     var coverAspect by remember(book.coverImageUrl) { mutableStateOf<Float?>(null) }
-    BoxWithConstraints(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(heroHeight)
+            // #991: 72 % екрана — це МІНІМУМ hero, а не його стеля. Фіксована
+            // висота на fontScale = 2f лишала ОСТАННЬОМУ рядку summary
+            // (пілюля серії) ~24 px, бо Column міряє дітей із залишком.
+            // `heightIn(min = …)` не змінює нічого для тих, чий summary
+            // вміщається в 72 % (1f), і дає боксу вирости, коли не вміщається.
+            .heightIn(min = heroHeight)
             .clipToBounds()
             .testTag("book_detail_cover")
     ) {
-        val naturalHeight = coverAspect?.let { maxWidth / it } ?: heroHeight
-        BookCoverImage(
-            book = book,
-            semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(maxOf(naturalHeight, heroHeight)),
-            contentScale = ContentScale.Crop,
-            onImageLoaded = { drawable ->
-                val width = drawable.intrinsicWidth
-                val height = drawable.intrinsicHeight
-                if (width > 0 && height > 0) {
-                    coverAspect = width.toFloat() / height.toFloat()
+        // Шар обкладинки. `matchParentSize` тримає обкладинку ПОЗА
+        // розрахунком висоти боксу: інакше її природна висота (більша за
+        // heroHeight) сама розтягла б бокс навіть на 1f. Усередині ж
+        // constraints — це вже ВИМІРЯНИЙ бокс, тож обкладинку прив'язано до
+        // реальної висоти hero, а не до константи 72 %: коли summary робить
+        // hero вищим, під обкладинкою не лишається дірки.
+        BoxWithConstraints(modifier = Modifier.matchParentSize()) {
+            val heroMeasuredHeight = maxHeight
+            val naturalHeight = coverAspect?.let { maxWidth / it } ?: heroMeasuredHeight
+            BookCoverImage(
+                book = book,
+                semantics = BookCoverSemantics.Decorative,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    // Міряємо на природну висоту (вона може перевищувати
+                    // hero), але звітуємо лише висоту hero: обкладинка
+                    // лишається притиснутою до гори, а зайве знизу обрізає
+                    // clipToBounds — так само, як було до #991.
+                    .wrapContentHeight(unbounded = true, align = Alignment.Top)
+                    .height(maxOf(naturalHeight, heroMeasuredHeight)),
+                contentScale = ContentScale.Crop,
+                onImageLoaded = { drawable ->
+                    val width = drawable.intrinsicWidth
+                    val height = drawable.intrinsicHeight
+                    if (width > 0 && height > 0) {
+                        coverAspect = width.toFloat() / height.toFloat()
+                    }
                 }
-            }
-        )
+            )
+        }
         // Верхній скрим: іконки прозорого тулбара мають читатися на арті.
         Box(
             modifier = Modifier

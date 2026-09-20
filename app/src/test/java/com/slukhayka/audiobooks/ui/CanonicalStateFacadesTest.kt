@@ -197,7 +197,7 @@ class CanonicalStateFacadesBehaviorTest {
             }
         }
 
-        compose.onNodeWithText("Серії з'являться після завантаження каталогу.")
+        compose.onNodeWithText(string(R.string.series_index_empty))
             .assertIsDisplayed()
             .assert(announcesItselfPolitely())
             .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))

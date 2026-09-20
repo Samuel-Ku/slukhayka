@@ -25,11 +25,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -53,7 +50,6 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import kotlinx.coroutines.launch
 
 private const val INLINE_AUTHOR_LIMIT = 5
@@ -318,7 +314,9 @@ private fun AuthorRow(author: AuthorSummary, onClick: () -> Unit) {
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            "${author.workCount} ${ukPlural(author.workCount, "книга", "книги", "книг")}",
+            // v1.4 E6 (#575): the row count is chrome — the shared plural
+            // carries the English twin, so the EN run reads «5 books».
+            pluralStringResource(R.plurals.book_count, author.workCount, author.workCount),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

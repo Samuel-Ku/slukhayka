@@ -1867,7 +1867,11 @@ class SourceCatalog(
                 // merge key keeps the RAW claim so stored identities never
                 // churn under the SEO-suffix scrub.
                 title = MetadataAssertions.normalizeTitle(title, author),
-                author = author.trim(),
+                // #964 follow-up: the Work row's author is what the author
+                // facet identity derives from, so it goes through the ONE
+                // claim-normalization seam too — a raw claim keeps its source
+                // entity otherwise (and a second author facet is born).
+                author = MetadataAssertions.normalizeClaimedText(author).orEmpty(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
@@ -1879,7 +1883,7 @@ class SourceCatalog(
                 id = id,
                 mergeKey = "",
                 title = MetadataAssertions.normalizeTitle(title, author),
-                author = author.trim(),
+                author = MetadataAssertions.normalizeClaimedText(author).orEmpty(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,

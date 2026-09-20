@@ -57,7 +57,7 @@ fun PublishedCollectionsBlock(
             .testTag("published_collections_block")
     ) {
         Text(
-            text = "Опубліковані добірки",
+            text = stringResource(R.string.published_collections_title),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .padding(horizontal = 16.dp)
@@ -76,7 +76,8 @@ fun PublishedCollectionsBlock(
             ) {
                 Text(text = row.title, style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    text = "${row.bookCount} книг · ${row.pseudonym}",
+                    text = pluralStringResource(R.plurals.book_count, row.bookCount, row.bookCount) +
+                        " · " + row.pseudonym,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

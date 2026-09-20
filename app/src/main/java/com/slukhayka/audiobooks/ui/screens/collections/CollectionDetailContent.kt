@@ -22,9 +22,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
@@ -75,7 +77,7 @@ fun CollectionDetailContent(
 
         if (collection.items.isEmpty()) {
             Text(
-                text = "У добірці ще немає книг",
+                text = stringResource(R.string.collection_detail_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier
                     .padding(horizontal = 16.dp)

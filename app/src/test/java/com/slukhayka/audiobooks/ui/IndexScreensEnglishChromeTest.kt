@@ -6,17 +6,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.SemanticsNode
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.screens.AuthorsIndexContent
 import com.slukhayka.audiobooks.ui.screens.PeopleContent
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexContent
@@ -43,10 +40,11 @@ import java.io.File
  * correctly under the UK run and only leaked once the app spoke English.
  *
  * The proof walks the WHOLE semantics tree in `en-rUS` and fails on any
- * Cyrillic (the [OverviewEnglishChromeTest] pattern); fixtures use Latin-only
- * data, so a failure can only come from chrome the app itself produced. The
- * genre counter is asserted at the source seam because its screen needs a
- * `MainViewModel` that a unit test cannot cheaply build.
+ * Cyrillic (the shared [EnglishChromeWalk], which since #980 also reads
+ * `PaneTitle`); fixtures use Latin-only data, so a failure can only come from
+ * chrome the app itself produced. The genre counter is asserted at the source
+ * seam because its screen needs a `MainViewModel` that a unit test cannot
+ * cheaply build.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "en-rUS", sdk = [36])
@@ -164,17 +162,6 @@ class IndexScreensEnglishChromeTest {
     }
 
     private fun assertChromeHasNoCyrillic() {
-        val texts = collectTexts(composeTestRule.onRoot(useUnmergedTree = true).fetchSemanticsNode())
-        val leaked = texts.filter { cyrillic.containsMatchIn(it) }
-        assertTrue("Ukrainian chrome leaked into the EN index run: $leaked", leaked.isEmpty())
-    }
-
-    private fun collectTexts(node: SemanticsNode): List<String> {
-        val out = mutableListOf<String>()
-        node.config.getOrNull(SemanticsProperties.Text)?.forEach { out += it.text }
-        node.config.getOrNull(SemanticsProperties.ContentDescription)?.let { out += it }
-        node.config.getOrNull(SemanticsProperties.StateDescription)?.let { out += it }
-        node.children.forEach { out += collectTexts(it) }
-        return out
+        EnglishChromeWalk.assertNoCyrillic(composeTestRule, "index")
     }
 }

@@ -65,7 +65,20 @@ class PublishCollectionSheetTest {
             .assertIsDisplayed()
         composeTestRule.onNodeWithText(context.getString(R.string.publish_collection_preview_lead))
             .assertIsDisplayed()
-        preview.lines.forEachIndexed { index, line ->
+        // #980: the labels live here now (the pure PublicationPreview only
+        // carries the facts), so each rendered line is asserted from its
+        // resource — the EN twin is covered by the collections EN walk.
+        val descriptionLine = if (preview.descriptionIncluded) {
+            R.string.publish_collection_preview_line_description_included
+        } else {
+            R.string.publish_collection_preview_line_description_absent
+        }
+        listOf(
+            context.getString(R.string.publish_collection_preview_line_title, preview.title),
+            context.getString(R.string.publish_collection_preview_line_pseudonym, preview.pseudonym),
+            context.getString(R.string.publish_collection_preview_line_book_count, preview.bookCount),
+            context.getString(descriptionLine)
+        ).forEachIndexed { index, line ->
             composeTestRule.onNodeWithTag("publish_collection_line_$index").assertIsDisplayed()
             composeTestRule.onNodeWithText(line).assertExists()
         }

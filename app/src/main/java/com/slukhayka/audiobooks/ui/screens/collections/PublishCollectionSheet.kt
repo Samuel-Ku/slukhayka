@@ -27,9 +27,13 @@ import com.slukhayka.audiobooks.data.collections.PublicationPreview
 /**
  * Spec-51 (#691) — the EXPLICIT confirmation before anything leaves the device.
  *
- * It shows exactly what will be published ([PublicationPreview.lines]) and there
+ * It shows exactly what will be published ([PublicationPreview]) and there
  * is no other way out: dismissing publishes nothing, and only «Опублікувати»
  * reaches [onConfirm]. That is the AC's "without it nothing leaves the device".
+ *
+ * #980 — the labels around those fields are chrome: they come from resources
+ * here rather than from the pure [PublicationPreview], so the EN semantics
+ * walk can actually see them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +44,18 @@ fun PublishCollectionSheet(
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val previewLines = listOf(
+        stringResource(R.string.publish_collection_preview_line_title, preview.title),
+        stringResource(R.string.publish_collection_preview_line_pseudonym, preview.pseudonym),
+        stringResource(R.string.publish_collection_preview_line_book_count, preview.bookCount),
+        stringResource(
+            if (preview.descriptionIncluded) {
+                R.string.publish_collection_preview_line_description_included
+            } else {
+                R.string.publish_collection_preview_line_description_absent
+            }
+        )
+    )
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, modifier = modifier) {
         Column(
@@ -63,7 +79,7 @@ fun PublishCollectionSheet(
 
             // Exactly the preview's lines — the listener sees the whole list,
             // not a summary that could hide a field.
-            preview.lines.forEachIndexed { index, line ->
+            previewLines.forEachIndexed { index, line ->
                 Text(
                     text = line,
                     style = MaterialTheme.typography.bodyLarge,
@@ -80,14 +96,14 @@ fun PublishCollectionSheet(
                     modifier = Modifier
                         .heightIn(min = 48.dp)
                         .testTag("publish_collection_cancel")
-                ) { Text("Скасувати") }
+                ) { Text(stringResource(R.string.collection_cancel)) }
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier
                         .heightIn(min = 48.dp)
                         .testTag("publish_collection_confirm")
-                ) { Text("Опублікувати") }
+                ) { Text(stringResource(R.string.collection_publish)) }
             }
             Spacer(Modifier.height(12.dp))
         }

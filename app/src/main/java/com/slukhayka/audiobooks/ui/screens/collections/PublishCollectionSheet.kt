@@ -17,9 +17,11 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.PublicationPreview
 
 /**
@@ -47,13 +49,13 @@ fun PublishCollectionSheet(
                 .testTag("publish_collection_sheet")
         ) {
             Text(
-                text = "Опублікувати добірку?",
+                text = stringResource(R.string.publish_collection_title),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.semantics { heading() }
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Піде назовні рівно це:",
+                text = stringResource(R.string.publish_collection_preview_lead),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

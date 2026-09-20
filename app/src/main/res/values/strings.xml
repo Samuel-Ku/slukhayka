@@ -209,6 +209,13 @@
     <string name="collections_rail_title">Добірки слухачів</string>
     <string name="curator_profile_empty">У цього куратора ще немає видимих добірок</string>
     <string name="collection_item_unknown">Книга поза локальною бібліотекою</string>
+    <!-- spec-46 T14 (колекційний зріз): хром колекційних екранів, що лишався
+         UK-літералом у коді й тече в EN лише тому, що дефолтна локаль — uk. -->
+    <string name="my_collections_title">Мої добірки</string>
+    <string name="published_collections_title">Опубліковані добірки</string>
+    <string name="collection_detail_empty">У добірці ще немає книг</string>
+    <string name="publish_collection_title">Опублікувати добірку?</string>
+    <string name="publish_collection_preview_lead">Піде назовні рівно це:</string>
     <string name="listen_shelves_restore_all">Відновити всі приховані</string>
     <string name="listen_remaining_h">Залишилося %1$d год</string>
     <string name="listen_remaining_m">Залишилося %1$d хв</string>
@@ -342,6 +349,14 @@
         <item quantity="few">%1$d книги</item>
         <item quantity="many">%1$d книг</item>
         <item quantity="other">%1$d книг</item>
+    </plurals>
+    <!-- spec-46 T14 (колекційний зріз): «Книг у добірці: N» відмінює іменник
+         (книга/книги/книг), тож це plurals, а не формат-рядок. -->
+    <plurals name="collection_book_count">
+        <item quantity="one">Книга у добірці: %1$d</item>
+        <item quantity="few">Книги у добірці: %1$d</item>
+        <item quantity="many">Книг у добірці: %1$d</item>
+        <item quantity="other">Книг у добірці: %1$d</item>
     </plurals>
     <!-- spec-46 T14 (#575): the genre index counter («N книг у жанрі») is the
          one named E6 count that never reached the resources. -->

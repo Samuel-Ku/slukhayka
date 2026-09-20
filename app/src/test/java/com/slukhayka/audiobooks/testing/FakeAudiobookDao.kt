@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.testing
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookRow
+import com.slukhayka.audiobooks.data.db.BookNameRow
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
@@ -24,6 +25,7 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.EmbeddingVectorEntity
 import com.slukhayka.audiobooks.data.db.BookDownloadCount
 import com.slukhayka.audiobooks.data.db.DescriptionRow
+import com.slukhayka.audiobooks.data.db.PersonNameRow
 import com.slukhayka.audiobooks.data.db.TitleRow
 import com.slukhayka.audiobooks.data.db.UniverseEntity
 import com.slukhayka.audiobooks.data.db.TombstoneEntity
@@ -1144,6 +1146,31 @@ class FakeAudiobookDao(
 
     override suspend fun updateBookDescription(id: String, description: String) {
         booksState.update { current -> current.map { if (it.id == id) it.copy(description = description) else it } }
+    }
+
+    // #964 follow-up: the stored person-name scrub reads/writes through the
+    // same projections and name columns the real DAO serves.
+    override suspend fun getAllBookNameRows(): List<BookNameRow> =
+        booksState.value.map { BookNameRow(it.id, it.author, it.narrator) }
+
+    override suspend fun getAllWorkAuthorRows(): List<PersonNameRow> =
+        worksState.value.map { PersonNameRow(it.id, it.author) }
+
+    override suspend fun getAllEditionNarratorRows(): List<PersonNameRow> =
+        editionsState.value.map { PersonNameRow(it.id, it.narrator) }
+
+    override suspend fun updateBookNames(id: String, author: String, narrator: String) {
+        booksState.update {
+            current -> current.map { if (it.id == id) it.copy(author = author, narrator = narrator) else it }
+        }
+    }
+
+    override suspend fun updateWorkAuthor(id: String, author: String) {
+        worksState.update { current -> current.map { if (it.id == id) it.copy(author = author) else it } }
+    }
+
+    override suspend fun updateEditionNarrator(id: String, narrator: String) {
+        editionsState.update { current -> current.map { if (it.id == id) it.copy(narrator = narrator) else it } }
     }
 
     override suspend fun countWorks(): Int = worksState.value.size

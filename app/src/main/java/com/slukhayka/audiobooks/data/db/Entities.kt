@@ -723,6 +723,30 @@ data class DescriptionRow(
 )
 
 /**
+ * #964 follow-up — one (id, author, narrator) row of the stored person-name
+ * scrub: the startup pass reads the `audiobooks` names through this
+ * projection, decodes them with the shared
+ * [com.slukhayka.audiobooks.data.source.decodeEntities], and rewrites only the
+ * rows that change. A row projection of a Room query, not a stored table.
+ */
+data class BookNameRow(
+    val id: String,
+    val author: String,
+    val narrator: String
+)
+
+/**
+ * #964 follow-up — one (id, name) person-name row of the same startup pass:
+ * `works.author` (the Work's author) and `editions.narrator` (the rendition's
+ * narrator) share this shape. The pass never rewrites `mergeKey` or an Edition
+ * id — only the stored display text is decoded.
+ */
+data class PersonNameRow(
+    val id: String,
+    val name: String
+)
+
+/**
  * #482 — the per-book embedding cache. The key is the Work identity AND the
  * SHA-256 of exactly the text that was embedded, so an unchanged book is
  * never re-embedded, a changed text re-embeds only that book, and the cache

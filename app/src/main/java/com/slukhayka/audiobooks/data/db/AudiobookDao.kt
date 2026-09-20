@@ -465,6 +465,32 @@ interface AudiobookDao {
     @Query("UPDATE audiobooks SET description = :description WHERE id = :id")
     suspend fun updateBookDescription(id: String, description: String)
 
+    // --- #964 / #972 follow-up: the stored person-name scrub ----------------
+    // Same pass, same contract as the title scrub above: read every stored
+    // author/narrator name column (audiobooks + works.author + editions.narrator),
+    // decode the source's HTML entity with the shared decodeEntities in Kotlin,
+    // rewrite only the rows that change. Identity columns (`works.mergeKey`,
+    // `editions.id`, the facet ids) are deliberately NOT part of this pass —
+    // re-keying them is the separate identity decision (#968).
+
+    @Query("SELECT id, author, narrator FROM audiobooks")
+    suspend fun getAllBookNameRows(): List<BookNameRow>
+
+    @Query("SELECT id, author AS name FROM works")
+    suspend fun getAllWorkAuthorRows(): List<PersonNameRow>
+
+    @Query("SELECT id, narrator AS name FROM editions")
+    suspend fun getAllEditionNarratorRows(): List<PersonNameRow>
+
+    @Query("UPDATE audiobooks SET author = :author, narrator = :narrator WHERE id = :id")
+    suspend fun updateBookNames(id: String, author: String, narrator: String)
+
+    @Query("UPDATE works SET author = :author WHERE id = :id")
+    suspend fun updateWorkAuthor(id: String, author: String)
+
+    @Query("UPDATE editions SET narrator = :narrator WHERE id = :id")
+    suspend fun updateEditionNarrator(id: String, narrator: String)
+
     // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) -------
 
     /** One Work per normalized merge key — the merge-on-write lookup. */

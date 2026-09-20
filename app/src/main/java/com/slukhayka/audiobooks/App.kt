@@ -1461,8 +1461,10 @@ class App : Application() {
             runCatching { sourceCatalog.fetchCatalogSections() }
         }
         // Spec-24 T1: scrub SEO title suffixes from rows stored before the
-        // write-path rule existed (audiobooks + works). Best-effort and
-        // idempotent — a failing or repeated pass never blocks startup.
+        // write-path rule existed (audiobooks + works), plus the SEO
+        // descriptions and the source's HTML entity in stored person names
+        // (#964/#972). Best-effort and idempotent — a failing or repeated pass
+        // never blocks startup.
         // Spec-27 (#184) BUG-002: right after the scrub (so both copies of a
         // duplicate read clean), the one-time duplicate-Work merge collapses
         // rows sharing a hardened identity — one card per book, with progress

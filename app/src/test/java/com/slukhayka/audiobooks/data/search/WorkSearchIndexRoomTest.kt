@@ -7,6 +7,8 @@ import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -128,5 +130,59 @@ class WorkSearchIndexRoomTest {
         assertEquals(1, dao.ensureWorkSearchBackfilled())
         assertEquals(workId, matchIds("кобзар").single())
         assertEquals(0, dao.ensureWorkSearchBackfilled())
+    }
+
+    /**
+     * #1002 — the index door itself refuses scam, not just the enumeration
+     * doors above it. A scam-only Work carries a perfectly mergeable identity
+     * (the 4read enumeration created real `works` rows), so without the guard
+     * on [AudiobookDao.refreshWorkSearchIndex] it lands a `works_fts` row and
+     * becomes MATCHable; today only the callers keep it out.
+     *
+     * The honest Work written alongside it is the guard's selectivity control:
+     * a blanket refusal would fail this test from the other side.
+     */
+    @Test
+    fun `scam-only work never reaches works_fts through any write door`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition(
+            sourceId = "s1",
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "",
+            sourceUrl = "https://s1.example/kobzar"
+        )
+        // The same merge-on-write door a real enumeration uses — 4read is a
+        // registered scam source, so its Work must never reach the index.
+        catalog.writeWorkEdition(
+            sourceId = "4read",
+            title = "Кобза",
+            author = "Скам Автор",
+            narrator = "",
+            sourceUrl = "https://4read.org/scam"
+        )
+
+        val honestKey = MergeKey.keyFor("Кобзар", "Тарас Шевченко")
+        val scamKey = MergeKey.keyFor("Кобза", "Скам Автор")
+        assertTrue("4read must be a registered scam source", SourceRegistry.isScam("4read"))
+
+        // Red without the door guard: the scam Work is mergeable, so the write
+        // door indexes it — 2 rows here instead of 1.
+        assertEquals("works_fts holds only the honest Work", 1, dao.workSearchRowCount())
+        val matched = matchIds("кобза")
+        assertTrue("scam Work must never be MATCHable: $matched", scamKey !in matched)
+        assertTrue("the honest Work stays indexed: $matched", honestKey in matched)
+
+        // Nor does an explicit refresh of the scam identity resurrect it...
+        dao.refreshWorkSearchIndex(scamKey)
+        assertEquals(1, dao.workSearchRowCount())
+
+        // ...nor the backfill door, which walks every mergeable Work missing
+        // from the index — a scam-only Work is always "missing" (that is the
+        // point), so this is the door a new path would come through.
+        dao.ensureWorkSearchBackfilled()
+        assertEquals(1, dao.workSearchRowCount())
+        assertTrue("backfill must not resurrect the scam Work", scamKey !in matchIds("кобза"))
+        assertTrue("the honest Work survives the backfill", honestKey in matchIds("кобза"))
     }
 }

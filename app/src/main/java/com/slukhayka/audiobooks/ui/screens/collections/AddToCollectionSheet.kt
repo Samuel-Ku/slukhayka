@@ -27,7 +27,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionLimits
@@ -67,7 +69,7 @@ fun AddToCollectionSheet(
                 .testTag("add_to_collection_sheet")
         ) {
             Text(
-                text = "Додати до добірки",
+                text = stringResource(R.string.book_detail_add_to_collection),
                 style = MaterialTheme.typography.titleMedium
             )
             Spacer(Modifier.height(12.dp))

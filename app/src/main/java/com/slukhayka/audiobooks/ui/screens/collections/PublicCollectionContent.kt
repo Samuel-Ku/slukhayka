@@ -90,7 +90,11 @@ fun PublicCollectionContent(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "Книг у добірці: ${collection.bookIds.size}",
+            text = pluralStringResource(
+                R.plurals.collection_book_count,
+                collection.bookIds.size,
+                collection.bookIds.size
+            ),
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier
                 .padding(horizontal = 16.dp)

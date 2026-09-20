@@ -1,9 +1,13 @@
 package com.slukhayka.audiobooks.ui
 
+import android.content.Context
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionItem
 import com.slukhayka.audiobooks.ui.screens.collections.AddToCollectionSheet
@@ -20,13 +24,20 @@ import org.robolectric.annotation.Config
  * Spec-51 (#689) — the sheet's seam: it lists the listener's OWN collections,
  * marks the one that already holds the book, and creates a new collection
  * inline (no leaving the book page).
+ *
+ * spec-46 T14 (колекційний зріз): the title now reuses the existing
+ * `book_detail_add_to_collection` resource, so the locale is explicit instead
+ * of inherited from the host.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(qualifiers = "uk-rUA", sdk = [36])
 class AddToCollectionSheetTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    private val context: Context
+        get() = ApplicationProvider.getApplicationContext()
 
     private val bookId = "book-a"
 
@@ -63,6 +74,8 @@ class AddToCollectionSheetTest {
         )
 
         composeTestRule.onNodeWithTag("add_to_collection_sheet").assertExists()
+        composeTestRule.onNodeWithText(context.getString(R.string.book_detail_add_to_collection))
+            .assertExists()
         composeTestRule.onNodeWithTag("collection_row_c1").assertExists()
         composeTestRule.onNodeWithTag("collection_row_c2").assertExists()
     }

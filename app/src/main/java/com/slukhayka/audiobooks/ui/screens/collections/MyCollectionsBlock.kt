@@ -18,9 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 
 /** One row of the «Мої добірки» block — already resolved by the caller. */
 data class MyCollectionRow(
@@ -52,7 +55,7 @@ fun MyCollectionsBlock(
             .testTag("my_collections_block")
     ) {
         Text(
-            text = "Мої добірки",
+            text = stringResource(R.string.my_collections_title),
             style = MaterialTheme.typography.titleMedium,
             // The AC asks for real headings: a screen reader must announce this
             // as a heading, not as one more line of text.
@@ -93,7 +96,11 @@ fun MyCollectionsBlock(
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         Text(text = row.title, style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            text = "${row.bookCount} книг",
+                            text = pluralStringResource(
+                                R.plurals.book_count,
+                                row.bookCount,
+                                row.bookCount
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

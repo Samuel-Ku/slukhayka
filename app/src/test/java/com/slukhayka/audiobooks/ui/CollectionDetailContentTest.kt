@@ -1,10 +1,13 @@
 package com.slukhayka.audiobooks.ui
 
+import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionItem
 import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
@@ -17,13 +20,21 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Spec-51 (#690) — the collection screen's seam, including the delete gate. */
+/**
+ * Spec-51 (#690) — the collection screen's seam, including the delete gate.
+ *
+ * spec-46 T14 (колекційний зріз): the empty state is a resource now, so the
+ * locale is explicit instead of inherited from the host.
+ */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(qualifiers = "uk-rUA", sdk = [36])
 class CollectionDetailContentTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    private val context: Context
+        get() = ApplicationProvider.getApplicationContext()
 
     private fun collection(vararg books: Pair<String, String>) = ListenerCollection(
         id = "c1",
@@ -65,6 +76,9 @@ class CollectionDetailContentTest {
         setContent(collection())
 
         composeTestRule.onNodeWithTag("collection_empty").assertIsDisplayed()
+        composeTestRule
+            .onNodeWithText(context.getString(R.string.collection_detail_empty))
+            .assertIsDisplayed()
     }
 
     @Test

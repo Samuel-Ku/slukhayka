@@ -3,14 +3,11 @@ package com.slukhayka.audiobooks.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.ui.semantics.SemanticsNode
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
@@ -20,7 +17,6 @@ import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryImportSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,6 +32,9 @@ import org.robolectric.annotation.Config
  * walks the WHOLE semantics tree and fails on any Cyrillic in the chrome. The
  * row fixture uses Latin-only data, so a failure can only come from chrome the
  * app itself produced, never from a title.
+ *
+ * #986 — the walk itself is the shared [EnglishChromeWalk], so it reads every
+ * root and PaneTitle too; this slice used to keep a narrower private copy.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "en-rUS", sdk = [36])
@@ -43,8 +42,6 @@ class LibraryEnglishChromeTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
-
-    private val cyrillic = Regex("[А-Яа-яІіЇїЄєҐґ]")
 
     @Test
     fun filterSheetStatusRowAndImportSheetSpeakEnglish() {
@@ -106,18 +103,8 @@ class LibraryEnglishChromeTest {
     }
 
     private fun assertChromeHasNoCyrillic() {
-        val texts = collectTexts(composeTestRule.onRoot(useUnmergedTree = true).fetchSemanticsNode())
-        val leaked = texts.filter { cyrillic.containsMatchIn(it) }
-        assertTrue("Ukrainian chrome leaked into the EN run: $leaked", leaked.isEmpty())
-    }
-
-    private fun collectTexts(node: SemanticsNode): List<String> {
-        val out = mutableListOf<String>()
-        node.config.getOrNull(SemanticsProperties.Text)?.forEach { out += it.text }
-        node.config.getOrNull(SemanticsProperties.ContentDescription)?.let { out += it }
-        node.config.getOrNull(SemanticsProperties.StateDescription)?.let { out += it }
-        node.children.forEach { out += collectTexts(it) }
-        return out
+        // #986 — one shared walk, every root, PaneTitle included.
+        EnglishChromeWalk.assertNoCyrillic(composeTestRule, "library")
     }
 
     /** Latin-only data: any Cyrillic left in the tree is chrome, not content. */

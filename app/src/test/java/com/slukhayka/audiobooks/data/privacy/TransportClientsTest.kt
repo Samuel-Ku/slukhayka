@@ -14,6 +14,14 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 class TransportClientsTest {
+
+    /** NewPipe's own extraction identity — deliberately not a mobile token. */
+    private companion object {
+        const val NEWPIPE_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
     @Test
     fun `audio requests carry browser fetch metadata and preserve ranges while page requests stay unchanged`() {
         TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
@@ -62,6 +70,52 @@ class TransportClientsTest {
                 }.build()
                 client.newCall(Request.Builder().url("http://archive.org/download/book/chapter.mp3")
                     .header("Range", "bytes=0-0").build()).execute().close()
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
+    /**
+     * #772 — the regression guard for the YouTube extraction path.
+     *
+     * The shared client stamps the app-wide mobile WebView User-Agent onto
+     * every request. YouTube answers a `Mobile` token by redirecting to
+     * `m.youtube.com`, whose markup NewPipeExtractor cannot parse, so
+     * extraction died with `Could not get ytInitialData`. The extraction seam
+     * therefore asks for its OWN identity; the client must then send the
+     * User-Agent its protocol gave it (here: NewPipe's own) and never the
+     * app-wide one.
+     *
+     * This runs entirely against the local origin — no YouTube, no network —
+     * because the defect is OUR header substitution, provable in isolation.
+     */
+    @Test
+    fun `a request carrying its own identity keeps its User-Agent while page requests keep the browser identity`() {
+        TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+        try {
+            Origin().use { origin ->
+                // The extraction seam's own header, exactly as NewPipe sets it.
+                TransportClients.calls.newCall(
+                    BrowserIdentity.ownIdentityRequest(
+                        Request.Builder().url(origin.url).header("User-Agent", NEWPIPE_USER_AGENT).build()
+                    )
+                ).execute().close()
+                // An ordinary page request keeps the app-wide browser identity.
+                TransportClients.calls.newCall(Request.Builder().url(origin.url).build()).execute().close()
+
+                val headers = origin.requestHeaders.toList()
+                assertEquals(2, headers.size)
+                assertEquals(
+                    "the extraction seam's own identity must survive the shared client",
+                    NEWPIPE_USER_AGENT, headers.first()["user-agent"]
+                )
+                assertEquals(
+                    "every other source keeps the app-wide browser identity",
+                    BrowserIdentity.currentUserAgent(), headers.last()["user-agent"]
+                )
+                assertNotEquals(
+                    "the mobile app identity is what triggers YouTube's m.youtube.com redirect",
+                    NEWPIPE_USER_AGENT, headers.last()["user-agent"]
+                )
             }
         } finally { TransportPrivacy.install(PrivacyPrefs()) }
     }

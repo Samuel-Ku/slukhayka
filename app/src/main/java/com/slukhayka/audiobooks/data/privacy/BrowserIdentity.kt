@@ -24,6 +24,31 @@ object BrowserIdentity {
         if (request.header("Sec-Fetch-Dest") == null) header("Sec-Fetch-Dest", "audio")
     }.build()
 
+    /** Marks a request as carrying its OWN identity (see [ownIdentityRequest]). */
+    private object OwnIdentity
+
+    /**
+     * #772 — hand a request its OWN identity instead of the app-wide mobile
+     * one. [TransportClients] installs the system WebView User-Agent on every
+     * request; that is right for sources that gate on a browser identity, but
+     * YouTube answers a Mobile token by redirecting to `m.youtube.com`, whose
+     * markup NewPipeExtractor cannot parse — so YouTube extraction died with
+     * `Could not get ytInitialData`. Measured (one client, one URL, one set of
+     * headers): dropping ONLY the User-Agent keeps the request on
+     * `www.youtube.com` and extraction resolves the real duration.
+     *
+     * The marker rides the request as a tag, so the decision is made by the
+     * caller that knows the protocol (NewPipe) and applied by the one place
+     * that owns the identity header (the client interceptor). Requests without
+     * the tag are untouched — every other source keeps the browser identity.
+     */
+    fun ownIdentityRequest(request: okhttp3.Request): okhttp3.Request =
+        request.newBuilder().tag(OwnIdentity::class.java, OwnIdentity).build()
+
+    /** True when [request] asked to keep its own User-Agent (see [ownIdentityRequest]). */
+    fun carriesOwnIdentity(request: okhttp3.Request): Boolean =
+        request.tag(OwnIdentity::class.java) != null
+
     /**
      * 4read serves a hard block page to Android WebViews that advertise the
      * embedded-browser markers (`Version/4.0` and `; wv`). Chrome on the same

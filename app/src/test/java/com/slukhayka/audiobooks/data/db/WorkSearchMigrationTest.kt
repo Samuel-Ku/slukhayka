@@ -13,9 +13,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * #823 — migration 44 to 45 creates the FTS4 search index and backfills one
- * folded row per mergeable Work (narrator from editions, else from edition
- * facets). Works without an identity are skipped; replay is idempotent.
+ * #823 — migration 47 to 48 (першу чернетку нумерували 44→45, перенумеровано
+ * при злитті з v1.8, де 45 зайняла `readthroughs`) creates the FTS4 search
+ * index and backfills one folded row per mergeable Work (narrator from
+ * editions, else from edition facets). Works without an identity are
+ * skipped; replay is idempotent.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -23,12 +25,12 @@ class WorkSearchMigrationTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun `migration 44 to 45 creates works_fts and backfills folded rows`() {
-        context.deleteDatabase("work-search-migration-44-45.db")
+    fun `migration 47 to 48 creates works_fts and backfills folded rows`() {
+        context.deleteDatabase("work-search-migration-47-48.db")
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
-                .name("work-search-migration-44-45.db")
-                .callback(object : SupportSQLiteOpenHelper.Callback(44) {
+                .name("work-search-migration-47-48.db")
+                .callback(object : SupportSQLiteOpenHelper.Callback(47) {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         db.execSQL("CREATE TABLE works (id TEXT NOT NULL PRIMARY KEY, mergeKey TEXT NOT NULL, title TEXT NOT NULL, author TEXT NOT NULL, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, coverImageUrl TEXT, addedAt INTEGER NOT NULL)")
                         db.execSQL("CREATE TABLE editions (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, language TEXT NOT NULL, narrator TEXT NOT NULL, totalChapters INTEGER NOT NULL, totalDurationSeconds INTEGER NOT NULL, addedAt INTEGER NOT NULL DEFAULT 0)")

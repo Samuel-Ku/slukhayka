@@ -3,15 +3,13 @@ package com.slukhayka.audiobooks.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.screens.BookDetailSourcePresentation
 import com.slukhayka.audiobooks.ui.screens.ListenerReviewFormSheet
 import com.slukhayka.audiobooks.ui.screens.NarrationRatingRow
@@ -40,11 +38,14 @@ import org.robolectric.annotation.Config
  * ресурсів; EN-прогін чистий». Asserting a handful of English labels would
  * still pass with one hardcoded Ukrainian string left in a corner, so every
  * test renders the real production composable with Latin-only fixture data and
- * fails on ANY Cyrillic in the semantics tree — text, content description or
- * state description. A failure can then only come from chrome the app itself
- * produced, never from a title.
+ * fails on ANY Cyrillic in the semantics tree — text, content description,
+ * state description and PaneTitle, from every root. A failure can then only
+ * come from chrome the app itself produced, never from a title.
  *
  * Follows the #569 precedent ([LibraryEnglishChromeTest]).
+ *
+ * #986 — the walk itself is the shared [EnglishChromeWalk]; this slice used to
+ * carry its own matcher-based walk, which missed PaneTitle.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "en-rUS", sdk = [36])
@@ -52,8 +53,6 @@ class BookDetailEnglishChromeTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
-
-    private val cyrillic = Regex("[А-Яа-яІіЇїЄєҐґ]")
 
     private val book = AudiobookEntity(
         id = "en-book",
@@ -234,32 +233,11 @@ class BookDetailEnglishChromeTest {
     }
 
     /**
-     * Any Cyrillic text, content description or state description anywhere in
-     * the semantics forest — including dialogs and sheets, which live in their
-     * own roots. [onAllNodes] searches every root.
+     * Any Cyrillic chrome anywhere in the semantics forest, through the shared
+     * [EnglishChromeWalk] — including dialogs and sheets, which live in their
+     * own roots, and PaneTitle, which the old matcher walk could not see.
      */
     private fun assertChromeHasNoCyrillic() {
-        val leaked = composeTestRule
-            .onAllNodes(hasCyrillicText() or hasCyrillicDescription(), useUnmergedTree = true)
-            .fetchSemanticsNodes()
-            .flatMap { node ->
-                (node.config.getOrNull(SemanticsProperties.Text)?.map { it.text } ?: emptyList()) +
-                    (node.config.getOrNull(SemanticsProperties.ContentDescription) ?: emptyList()) +
-                    listOfNotNull(node.config.getOrNull(SemanticsProperties.StateDescription))
-            }
-            .filter { cyrillic.containsMatchIn(it) }
-
-        assertTrue("Ukrainian chrome leaked into the EN book page: $leaked", leaked.isEmpty())
-    }
-
-    private fun hasCyrillicText() = SemanticsMatcher("has Cyrillic text") { node ->
-        node.config.getOrNull(SemanticsProperties.Text)?.any { cyrillic.containsMatchIn(it.text) } == true
-    }
-
-    private fun hasCyrillicDescription() = SemanticsMatcher("has Cyrillic description") { node ->
-        node.config.getOrNull(SemanticsProperties.ContentDescription)
-            ?.any { cyrillic.containsMatchIn(it) } == true ||
-            node.config.getOrNull(SemanticsProperties.StateDescription)
-                ?.let { cyrillic.containsMatchIn(it) } == true
+        EnglishChromeWalk.assertNoCyrillic(composeTestRule, "book page")
     }
 }

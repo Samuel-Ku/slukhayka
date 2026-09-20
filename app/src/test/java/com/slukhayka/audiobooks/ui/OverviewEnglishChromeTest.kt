@@ -7,16 +7,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.SemanticsNode
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.ingest.ChannelCardState
 import com.slukhayka.audiobooks.data.ingest.ChannelTab
+import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.screens.CatalogNavRow
 import com.slukhayka.audiobooks.ui.screens.ChannelCardCallbacks
 import com.slukhayka.audiobooks.ui.screens.ChannelImportCard
@@ -42,6 +39,9 @@ import org.robolectric.annotation.Config
  * semantics tree and fails on any Cyrillic in the chrome — the
  * [LibraryEnglishChromeTest] pattern. Fixtures use Latin-only data, so a
  * failure can only come from chrome the app itself produced.
+ *
+ * #986 — the walk itself is the shared [EnglishChromeWalk], so it reads every
+ * root and PaneTitle too; this slice used to keep a narrower private copy.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "en-rUS", sdk = [36])
@@ -179,17 +179,9 @@ class OverviewEnglishChromeTest {
     }
 
     private fun assertChromeHasNoCyrillic() {
-        val texts = collectTexts(composeTestRule.onRoot(useUnmergedTree = true).fetchSemanticsNode())
-        val leaked = texts.filter { cyrillic.containsMatchIn(it) }
-        assertTrue("Ukrainian chrome leaked into the EN run: $leaked", leaked.isEmpty())
-    }
-
-    private fun collectTexts(node: SemanticsNode): List<String> {
-        val out = mutableListOf<String>()
-        node.config.getOrNull(SemanticsProperties.Text)?.forEach { out += it.text }
-        node.config.getOrNull(SemanticsProperties.ContentDescription)?.let { out += it }
-        node.config.getOrNull(SemanticsProperties.StateDescription)?.let { out += it }
-        node.children.forEach { out += collectTexts(it) }
-        return out
+        // #986 — one shared walk, every root, PaneTitle included. The local
+        // `cyrillic` regex stays for the resource-string assertions, which
+        // never touch the semantics tree.
+        EnglishChromeWalk.assertNoCyrillic(composeTestRule, "overview")
     }
 }

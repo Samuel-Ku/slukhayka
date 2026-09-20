@@ -4,6 +4,7 @@ import androidx.paging.PagingSource
 import androidx.room.*
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -32,6 +33,19 @@ interface AudiobookDao {
             LEFT JOIN library_entries le ON le.id = a.id
             LEFT JOIN works w ON w.id = le.workId
         """
+
+        /**
+         * #1002 — the search-index invariant, evaluated on the write door
+         * itself: a Work may hold a `works_fts` row only while at least one of
+         * its persisted Source claims is not a scam source. 4read's scam Work
+         * carries an ordinary mergeable identity, so without this the door
+         * would index it and only the enumeration callers would keep it out —
+         * the guarantee would live in the wrong place. A Work with no claim at
+         * all is no discovery surface's to publish (ADR-0041: a claim-less Work
+         * can never be opened or played), so it is not indexed either.
+         */
+        fun isIndexableWork(claims: List<WorkSourceEntity>): Boolean =
+            claims.any { !SourceRegistry.isScam(it.sourceId) }
     }
 
     /**
@@ -569,11 +583,19 @@ interface AudiobookDao {
      * removed instead. ADR-0005: a tombstoned Work is never resurrected,
      * including through the index — its row is purged here, on every write
      * door that funnels through this refresh.
+     *
+     * #1002: the same purge refuses scam here, not in the callers — a Work
+     * with no non-scam Source claim ([isIndexableWork]) is removed instead of
+     * indexed. A new write path into the index therefore inherits the
+     * invariant, and a row that slipped in through an older door is dropped
+     * on the next refresh.
      */
     @Transaction
     suspend fun refreshWorkSearchIndex(workId: String) {
         val work = getWorkById(workId) ?: return
-        if (work.mergeKey.isBlank() || isBookTombstoned(work.id)) {
+        if (work.mergeKey.isBlank() || isBookTombstoned(work.id) ||
+            !isIndexableWork(getWorkSourcesForWorkSync(workId))
+        ) {
             deleteWorkSearchRows(workId)
             return
         }

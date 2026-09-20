@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.collections
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,28 +21,22 @@ class PublicationPreviewTest {
     )
 
     @Test
-    fun `the preview lists exactly what travels`() {
+    fun `the preview carries exactly what travels`() {
         val preview = PublicationPreviewFactory.of(collection(books = arrayOf("a", "b")), "Слухач")!!
 
         assertEquals("Магія", preview.title)
         assertEquals("Слухач", preview.pseudonym)
         assertEquals(2, preview.bookCount)
         assertTrue(preview.descriptionIncluded)
-        assertEquals(
-            listOf(
-                "Назва: Магія",
-                "Псевдонім: Слухач",
-                "Книг у добірці: 2",
-                "Опис: буде опубліковано"
-            ),
-            preview.lines
-        )
     }
 
     @Test
     fun `an absent description is stated honestly, not implied`() {
         val preview = PublicationPreviewFactory.of(collection(description = "", books = arrayOf("a")), "Слухач")!!
-        assertTrue(preview.lines.last() == "Опис: не додано")
+
+        // #980: the label moved to the sheet's resources, so the data class
+        // states the fact and the EN walk checks the wording on screen.
+        assertFalse("a blank description must not travel as included", preview.descriptionIncluded)
     }
 
     @Test

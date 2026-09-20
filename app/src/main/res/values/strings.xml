@@ -308,6 +308,12 @@
     <string name="series_index_empty">Серії з\'являться після завантаження каталогу.</string>
     <string name="people_index_backfill">Список поповнюється…</string>
     <string name="series_mirror_neighbours">Також у Дзеркалі</string>
+    <!-- spec-46 (#975 follow-up): the series screen's universe header still
+         built «Цикл N з M» as a Ukrainian literal. The universe line itself
+         reuses book_detail_universe_line (identical chrome); only the position
+         line was missing a resource. The noun does not inflect, so it is a
+         plain format string, not a plural. -->
+    <string name="series_cycle_position">Цикл %1$d з %2$d</string>
     <string name="collective_block_provenance">Джерело: %1$s</string>
     <string name="fallback_candidates_title">Інші джерела</string>
     <string name="fallback_kind_local">На пристрої</string>

@@ -302,6 +302,11 @@
     <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
     <string name="author_index_title">Автори</string>
     <string name="series_index_title">Серії</string>
+    <!-- spec-46 T14 (#575): the last E6 index chrome lived as hardcoded
+         Ukrainian literals; the empty placeholder and the backfill notice are
+         chrome and must have an English twin. -->
+    <string name="series_index_empty">Серії з\'являться після завантаження каталогу.</string>
+    <string name="people_index_backfill">Список поповнюється…</string>
     <string name="series_mirror_neighbours">Також у Дзеркалі</string>
     <string name="collective_block_provenance">Джерело: %1$s</string>
     <string name="fallback_candidates_title">Інші джерела</string>
@@ -331,6 +336,14 @@
         <item quantity="few">%1$d книги</item>
         <item quantity="many">%1$d книг</item>
         <item quantity="other">%1$d книг</item>
+    </plurals>
+    <!-- spec-46 T14 (#575): the genre index counter («N книг у жанрі») is the
+         one named E6 count that never reached the resources. -->
+    <plurals name="genre_book_count">
+        <item quantity="one">%1$d книга у жанрі</item>
+        <item quantity="few">%1$d книги у жанрі</item>
+        <item quantity="many">%1$d книг у жанрі</item>
+        <item quantity="other">%1$d книг у жанрі</item>
     </plurals>
     <plurals name="series_count">
         <item quantity="one">%1$d серія</item>

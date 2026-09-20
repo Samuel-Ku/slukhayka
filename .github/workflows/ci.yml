@@ -153,25 +153,23 @@ jobs:
         run: |
           started_at=$(date +%s)
           mkdir -p app/build/kover/partition
-          # T3/#848: the snapshot leg can COMPARE against the committed goldens
-          # instead of silently re-rendering them. It is gated by a repository
-          # variable because the committed set currently drifts from a fresh
-          # renderer (0.02–3% on unrelated surfaces), so flipping it on is a
-          # deliberate step: first re-record the baseline on this runner with
-          # the "Record snapshot goldens" workflow, commit it, then set
-          # ROBORAZZI_VERIFY=true.
-          # The gate re-RECORDS and then requires the working tree to be clean:
-          # "the committed set must equal what a fresh record produces".
+          # T3/#848: the snapshot leg can VERIFY the committed goldens against a
+          # fresh render instead of leaving them unchecked. The gate sits behind
+          # the repository variable `ROBORAZZI_VERIFY`; only `true` turns it on.
+          # It re-RECORDS and then requires the working tree to be clean:
+          # "the committed set must equal what a fresh record produces":
+          #   1. `git diff --exit-code --stat -- app/src/test/snapshots` — a
+          #      fresh record must reproduce every committed golden byte-for-byte;
+          #   2. `git status --porcelain -- app/src/test/snapshots` — `git diff`
+          #      is blind to NEW files, so this fails the job on a golden that
+          #      the record produced but nobody committed.
           #
-          # Why not Roborazzi's own verify pass: measured 2026-09-18, on this
-          # runner the committed set and the verify capture differ by ~312 px
-          # (0.012 %) on the per-row progress-line edge, while a fresh record is
-          # BYTE-IDENTICAL to the committed set (twice, with the recording task
-          # demonstrably running). The two paths disagree with each other, so
-          # re-recording can never make verify pass; gating on the record path
-          # keeps every property we actually want (the baseline is checked
-          # against a real render, and any drift fails the job) without
-          # depending on the fragile comparison.
+          # Do NOT commit a local `record` that rewrote a golden without an
+          # explanation. #977's nine rewritten goldens were STALE, not renderer
+          # drift (#990/#992): three UI commits (18–20.09) changed the screens
+          # and never re-recorded the images, while the old gate checked BEFORE
+          # the record and so never saw them. An unexplained rewrite is either
+          # that regression or a deliberate change to the goldens — say which.
           EXTRA_FLAGS=""
           if [ "${{ matrix.id }}" = "compose-roborazzi" ] && [ "${{ vars.ROBORAZZI_VERIFY }}" = "true" ]; then
             EXTRA_FLAGS="-Proborazzi.test.record=true"

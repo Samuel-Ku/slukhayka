@@ -189,9 +189,28 @@ class WorkFeedFilterWiringTest {
             compose.onAllNodesWithTag("feed_genre_science-fiction").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("feed_genre_science-fiction").performClick()
+        // The genre-test idiom: wait for the restarted Pager's refresh to
+        // COMPLETE (a raw itemCount can sit on the previous generation's
+        // items while refresh is Loading).
+        //
+        // #973 — same rule as the language test above (#915): the wait MUST
+        // include the DISAPPEARANCE it is about to assert, not just the
+        // reappearance of the book that survives. `Чотири 0` is ALREADY
+        // visible in the unfiltered generation this test just asserted, and
+        // `refresh !is Loading` is true for a moment before `flatMapLatest`
+        // restarts the Pager on `genreFilters.value = ...` — so both
+        // conditions together were satisfiable BEFORE the refilter happened.
+        // The wait then returned instantly and the very next line raced the
+        // real (asynchronous, Dispatchers.IO) refilter, which is the flake:
+        // it failed as "інший жанр лишився після фільтра" only when the
+        // machine was slow enough for the restart to land late. Waiting for
+        // the whole post-condition makes the assertion deterministic — on a
+        // fast run it returns as soon as the refilter settles, on a slow one
+        // it waits instead of guessing.
         compose.waitUntil(20_000) {
             feed.loadState.refresh !is androidx.paging.LoadState.Loading &&
-                compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().size == 1
+                compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().size == 1 &&
+                compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().isEmpty()
         }
         assertTrue("книги жанру зникли після тапу на чіп", compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().size == 1)
         assertTrue("інший жанр лишився після фільтра", compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().size == 0)

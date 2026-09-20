@@ -40,7 +40,6 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.PeopleKindType
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /** v1.4 E6 (ADR-0033): the people-tab count in the scaffold's subtitle. */
@@ -200,7 +199,9 @@ fun PeopleContent(
                 if (indexBackfillPending) {
                     item {
                         Text(
-                            text = "Список поповнюється…",
+                            // v1.4 E6 (#575): index chrome comes from the
+                            // resources — the English run reads it in English.
+                            text = stringResource(R.string.people_index_backfill),
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
@@ -238,7 +239,13 @@ fun PeopleContent(
                         },
                         trailing = {
                             Text(
-                                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
+                                // v1.4 E6 (#575): the row count is chrome too —
+                                // the shared plural keeps the English twin.
+                                text = pluralStringResource(
+                                    R.plurals.book_count,
+                                    person.bookCount,
+                                    person.bookCount
+                                ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

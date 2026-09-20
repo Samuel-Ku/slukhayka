@@ -165,8 +165,12 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
             val first = books.first()
             GlobalSearchResult(
                 title = MetadataAssertions.normalizeTitle(first.title, first.author),
-                author = first.author,
-                narrator = first.narrator,
+                // #964 follow-up — the SAME card normalizes its title above and
+                // its per-source narrator below; neither the author nor the
+                // narrator may be the claim left raw, or the rail/global-search
+                // card renders the source's HTML entity as a name.
+                author = MetadataAssertions.normalizeClaimedText(first.author).orEmpty(),
+                narrator = MetadataAssertions.normalizeClaimedText(first.narrator).orEmpty(),
                 mergeKey = MergeKey.keyFor(first.title, first.author),
                 coverImageUrl = first.coverImageUrl,
                 // One Work language: known only when every member source

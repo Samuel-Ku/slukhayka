@@ -53,9 +53,17 @@ object MetadataAssertions {
      * Narrator») are treated as absent at WRITE time — safe to match on
      * "4read": no real author/narrator name contains it. Not applied to URLs
      * (cover / series links may legitimately live on a source's own domain).
+     *
+     * #964 follow-up — a source's rendered entity is part of the CLAIM, not
+     * chrome, so it becomes text HERE, exactly as [normalizeTitle] does for
+     * titles: this is the ONE write-path seam a claimed person name passes
+     * through. A name left encoded («Дев&#x27;ятко») would otherwise be stored
+     * verbatim AND seed a separate AuthorIdentity facet — one person, two
+     * author identities. Unknown or malformed entities stay literal: the
+     * shared [decodeEntities] never fabricates a character.
      */
     fun normalizeClaimedText(value: String?): String? {
-        val trimmed = value?.trim().orEmpty()
+        val trimmed = decodeEntities(value?.trim().orEmpty())
         if (trimmed.isEmpty() || trimmed.contains("4read", ignoreCase = true)) return null
         return trimmed
     }

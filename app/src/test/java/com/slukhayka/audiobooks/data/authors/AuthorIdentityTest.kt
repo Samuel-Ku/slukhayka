@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.authors
 
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -62,5 +63,23 @@ class AuthorIdentityTest {
         assertEquals(upper.id, lower.id)
         assertEquals("ґабрієль гарсія маркес", upper.normalizedName)
         assertNotEquals(upper.id, withoutDiacritics.id)
+    }
+
+    @Test
+    fun `the claim seam yields ONE facet identity for an entity-escaped name`() {
+        // #964 follow-up — a Work's author reaches this identity as
+        // `work.author`, so a raw source entity used to seed a SECOND person:
+        // «дев&#x27;ятко» is not an apostrophe variant the normalizer folds, so
+        // its id differed from «дев’ятко». The claim seam decodes the name
+        // before it is ever stored, and both spellings become one identity.
+        val clean = "Наталія Дев'ятко"
+        val throughSeam = MetadataAssertions.normalizeClaimedText("Наталія Дев&#x27;ятко")!!
+        assertEquals(AuthorIdentity.fromWorkName(clean).id, AuthorIdentity.fromWorkName(throughSeam).id)
+        // The pre-fix stored value would have split the person — the defect
+        // this guards against (existing rows are the #968 identity decision).
+        assertNotEquals(
+            AuthorIdentity.fromWorkName(clean).id,
+            AuthorIdentity.fromWorkName("Наталія Дев&#x27;ятко").id
+        )
     }
 }

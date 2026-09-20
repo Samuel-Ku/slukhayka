@@ -115,6 +115,30 @@ class MergeKeyTest {
     }
 
     @Test
+    fun `spec964 - an entity-escaped author merges with the clean author`() {
+        // #964 follow-up — the SAME defect on the OTHER half of the key: an
+        // author/narrator escaped exactly like the title («Дев&#x27;ятко»)
+        // used to survive punctuation stripping as the token `x27`, so the
+        // very same book got a DIFFERENT key and a second Work row (and the
+        // author facet, built from the raw name, split as well). Both entity
+        // spellings must land on the clean key.
+        val clean = MergeKey.keyFor("Кобзар", "Наталія Дев'ятко")
+        assertEquals(clean, MergeKey.keyFor("Кобзар", "Наталія Дев&#x27;ятко"))
+        assertEquals(clean, MergeKey.keyFor("Кобзар", "Наталія Дев&#039;ятко"))
+        assertEquals("кобзар|наталія девятко", clean)
+    }
+
+    @Test
+    fun `spec964 - an unknown entity is never invented into a character in the key`() {
+        // The decoder knows only the entities it defines: an unknown name or
+        // malformed hex stays LITERAL, so the key carries the literal token
+        // and can never accidentally equal the clean spelling.
+        assertEquals("світ foo тіні", MergeKey.normalizePerson("Світ &foo; тіні"))
+        assertEquals("девxzzятко", MergeKey.normalizePerson("Дев&#xZZ;ятко"))
+        assertNotEquals(MergeKey.normalizePerson("Дев&#xZZ;ятко"), MergeKey.normalizePerson("Дев'ятко"))
+    }
+
+    @Test
     fun `spec27 - the dash suffix cut never blanks a title key`() {
         // A title that is entirely the suffix keeps a usable (if imperfect)
         // key — the normalization never degrades a title into blank.

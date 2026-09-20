@@ -106,6 +106,15 @@ class WorkFeedFilterWiringTest {
             }.flow
         }.cachedIn(scope)
 
+    // #915 secondary hypothesis — RECORDED, not proven, and deliberately NOT
+    // "fixed" here. Every test builds `CoroutineScope(SupervisorJob() +
+    // Dispatchers.IO)` and passes it to `cachedIn` above, then never cancels
+    // it; `@After` closes the database while those scopes are still alive, and
+    // five tests share one JVM (one fork per class). A leaked scope can
+    // therefore keep a Pager generation running against a closed DB. It is not
+    // the root of the `:517` hang — the captured state below is what decides —
+    // but if the artifact ever shows a generation that never completes while
+    // the previous test ended mid-refresh, this is the next thing to check.
     @Test
     fun tapping_a_genre_chip_keeps_matching_books_visible() = runBlocking {
         repeat(6) { i ->
@@ -408,6 +417,24 @@ class WorkFeedFilterWiringTest {
         )
     }
 
+    /**
+     * #915 diagnostics: one instant of the feed state, formatted so it lands
+     * verbatim in the JUnit XML failure message. That artifact
+     * (`test-results-room-*`) is the only place the full `waitUntil` stack and
+     * its message survive — the Gradle console prints just the first frame.
+     */
+    private fun snapshotFeedState(
+        label: String,
+        languages: MutableStateFlow<Set<String>>,
+        feed: LazyPagingItems<WorkFeedRow>,
+    ): String {
+        val kobzar = compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().size
+        val pride = compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size
+        return "$label: langs=${languages.value} itemCount=${feed.itemCount} " +
+            "refresh=${feed.loadState.refresh} append=${feed.loadState.append} " +
+            "prepend=${feed.loadState.prepend} kobzar=$kobzar pride=$pride"
+    }
+
     // Spec-51 (#742): the SAME persisted content-language preference feeds the
     // Pager, so a change made on the «Мови контенту» screen re-filters the
     // endless feed live, no restart (US7/US8). The chip no longer cycles — it
@@ -513,11 +540,57 @@ class WorkFeedFilterWiringTest {
         // #915 — same rule as above: wait for BOTH halves of the change
         // (the reappearance AND the disappearance), otherwise the wait can
         // return on the previous generation and the next line races it.
+        //
+        // #915 (recurrence): THIS is the wait that actually timed out in CI
+        // (run 35436697401 attempt 1 → `ComposeTimeoutException` at
+        // `WorkFeedFilterWiringTest.kt:517` in the `test-results-room-*` XML
+        // artifact), NOT the uk wait above. The Gradle console only prints the
+        // first frame of the stack — the method signature at `:416` — which is
+        // why an earlier pass analysed the wrong phase; the uk-phase
+        // try/catch therefore instrumented a phase that never fails and its
+        // body was empty. The same diagnostic is duplicated here so the NEXT
+        // recurrence arrives already diagnosed instead of being restarted: the
+        // full feed state is captured on every poll, the last state before the
+        // timeout is kept, and it is re-thrown inside the `AssertionError`
+        // message — the message is what lands in the XML artifact we read.
+        //
+        // The wait itself is NOT weakened: same 30_000 ms, same condition. The
+        // captured state separates the three live hypotheses:
+        //   H1 `refresh` stuck `Loading` — the restarted generation never
+        //      completes (a real hang);
+        //   H2 `refresh` settled, but the uk generation was never replaced
+        //      (`kobzar=1, pride=0`, identical to the after-uk snapshot) — the
+        //      new filter did not take effect;
+        //   H3 the en filter produced nothing (`itemCount=0, pride=0,
+        //      kobzar=0`) — an empty result set, not a hang.
+        val afterUkState = snapshotFeedState("after-uk", languages, feed)
         languages.value = setOf("en")
-        compose.waitUntil(30_000) {
-            feed.loadState.refresh !is androidx.paging.LoadState.Loading && languages.value == setOf("en") &&
-                compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size == 1 &&
-                compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isEmpty()
+        var enFirstPoll: String = ""
+        var enDiag: String = ""
+        try {
+            compose.waitUntil(30_000) {
+                val refresh = feed.loadState.refresh
+                val append = feed.loadState.append
+                val prepend = feed.loadState.prepend
+                // A raw `itemCount`/semantics snapshot can still describe the
+                // PREVIOUS generation — that is exactly the #915 trap — so it
+                // is reported next to the load states, never instead of them.
+                val count = feed.itemCount
+                val kobzar = compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().size
+                val pride = compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size
+                val state = "langs=${languages.value} itemCount=$count refresh=$refresh " +
+                    "append=$append prepend=$prepend kobzar=$kobzar pride=$pride"
+                if (enFirstPoll.isEmpty()) enFirstPoll = state
+                enDiag = state
+                refresh !is androidx.paging.LoadState.Loading && languages.value == setOf("en") &&
+                    pride == 1 && kobzar == 0
+            }
+        } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError(
+                "Українська→English refilter timed out; $afterUkState; " +
+                    "first-en-poll: $enFirstPoll; last-en-poll: $enDiag",
+                e
+            )
         }
         assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isEmpty())
     }

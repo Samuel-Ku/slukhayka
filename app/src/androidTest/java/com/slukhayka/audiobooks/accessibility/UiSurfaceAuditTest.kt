@@ -1,7 +1,6 @@
 package com.slukhayka.audiobooks.accessibility
 
 import android.content.res.Configuration
-import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -26,7 +25,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.platform.app.InstrumentationRegistry
-import com.slukhayka.audiobooks.MainActivity
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.slukhayka.audiobooks.testing.TestHostActivity
 import com.slukhayka.audiobooks.AppBottomBar
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
@@ -50,10 +50,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
 
 /** Controlled UI states on the phone. No network, playback or library writes. */
+@RunWith(AndroidJUnit4::class)
 class UiSurfaceAuditTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    // #852: the audit draws its own tree, so it needs the CONTENT-FREE host
+    // (#766 A2). MainActivity sets content in onCreate, and hanging a second
+    // tree off it produced "No compose hierarchies found in the app".
+    @get:Rule val rule = createAndroidComposeRule<TestHostActivity>()
 
     private val book = AudiobookEntity(
         id = "ui-audit", title = "Надзвичайно довга назва книги про подорож між світами та повернення додому",
@@ -76,89 +81,91 @@ class UiSurfaceAuditTest {
         val openedSettings = mutableListOf<SettingsDestination>()
         val arguments = InstrumentationRegistry.getArguments()
         val locale = arguments.getString("auditLocale") ?: "uk"
-        rule.runOnUiThread {
-            rule.activity.setContent {
-                val density = LocalDensity.current
-                val base = LocalContext.current
-                val configuration = Configuration(base.resources.configuration).apply {
-                    setLocale(Locale.forLanguageTag(locale))
-                    fontScale = scale
-                }
-                CompositionLocalProvider(
-                    LocalDensity provides Density(density.density, scale),
-                    LocalContext provides base.createConfigurationContext(configuration),
-                    LocalConfiguration provides configuration
-                ) {
-                    AudiobookTheme(darkTheme = true) {
-                        Surface(Modifier.fillMaxSize().safeDrawingPadding(), color = MaterialTheme.colorScheme.background) {
-                            if (scene.startsWith("player_")) {
-                                Player(scene, { retries++ }, { alternatives++ })
-                            } else key(scene) {
-                                when (scene) {
-                                    "search_loading" -> Column { GlobalSearchStatus(true, false, true) }
-                                    "search_empty" -> Column { GlobalSearchStatus(false, false, true) }
-                                    "search_error" -> Column { GlobalSearchStatus(false, true, true) }
-                                    "search_result" -> LazyColumn {
-                                        // #567: the row is built inline at the
-                                        // search surface's call site — the old
-                                        // GlobalSearchResultCard wrapper is gone.
-                                        searchResultsContent(
-                                            localBooks = emptyList(),
-                                            globalResults = listOf(GlobalSearchResult(
-                                                title = book.title, author = book.author, narrator = book.narrator,
-                                                mergeKey = "audit", sources = listOf(
-                                                    GlobalSearchSource("4read", "4read", "https://example.invalid/a"),
-                                                    GlobalSearchSource("soundbooks", "Sound-Books", "https://example.invalid/b")
-                                                )
-                                            )),
-                                            liveSearchActive = true,
-                                            isGlobalLoading = false,
-                                            globalError = false,
-                                            onOpenLocalBook = {},
-                                            onPlayLocalBook = {},
-                                            onOpenGlobalResult = {},
-                                            catalogCardActionState = CatalogCardActionState.Idle,
-                                            onOpenCatalogBrowser = {},
-                                            onPreflightGlobalResult = {}
-                                        )
-                                    }
-                                    "catalog_empty" -> Column { EmptyCatalogState({}, {}) }
-                                    "cycle" -> Column { CycleCard("Епоха божевілля", null, {}) }
-                                    "library_empty" -> LibraryEmptyState({}, {})
-                                    "library_row" -> Column { LibraryBookCard(buildLibraryBooks(listOf(book), emptyList(), mapOf(book.id to chapters)).single(), grid = false, onClick = {}) }
-                                    "library_grid" -> LazyVerticalGrid(
-                                        columns = GridCells.Fixed(2), contentPadding = PaddingValues(16.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) { items(2) { LibraryBookCard(buildLibraryBooks(listOf(book), emptyList(), mapOf(book.id to chapters)).single(), grid = true, onClick = {}) } }
-                                    "library_filters" -> LibraryFilterSheet(LibraryFilter.ALL, LibrarySort.RECENTLY_LISTENED, false, {}, {}, { gridSelected = it }, {})
-                                    "delete_dialog" -> ClearCacheConfirmDialog(3, 1024L * 1024 * 120, {}, {})
-                                    "speed" -> SpeedSheet(1.25f, {}, {}, {})
-                                    "timer" -> SleepTimerSheet(currentTimerMinutes = 15, onSelectTimer = {}, onDismiss = {})
-                                    "chapters" -> ChapterBottomSheet(chapters, 1, {}, {})
-                                    "bookmark" -> BookmarkBottomSheet(120, chapters[1].title, {}, {})
-                                    "settings" -> Box(Modifier.fillMaxSize()) { Box(Modifier.width(320.dp)) { SettingsScreen { openedSettings += it } } }
-                                    "navigation" -> Box(Modifier.fillMaxSize()) { Box(Modifier.width(320.dp).testTag("navigation_fixture")) { AppBottomBar(SelectedTab.SETTINGS) {} } }
-                                    "book" -> Box(Modifier.fillMaxSize()) { Column(
-                                        Modifier.width(320.dp).testTag("book_fixture").verticalScroll(rememberScrollState()).padding(16.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        val presentation = bookDetailPresentation(book, emptyList(), listOf(
-                                            SourceCatalog.WorkSourceRow("4read", "4read", "https://4read.org/audit", false)
-                                        )).copy(
-                                            seriesTitle = "Надзвичайно довга назва циклу про повернення додому між світами",
-                                            seriesIndex = 12,
-                                            seriesUrl = "https://example.invalid/audit-series"
-                                        )
-                                        BookDetailIdentityHeader(book, presentation, universeName = "Перший закон")
-                                        BookDetailPrimaryActions(
-                                            workTitle = book.title,
-                                            playLabel = stringResource(R.string.book_detail_continue_short) + " 01:23:45",
-                                            streamOnly = false, downloadAction = BookDetailDownloadAction.Continue,
-                                            downloadProgress = 0.5f, onPlay = {}, onDownload = {}, onAddBookmark = {}
-                                        )
-                                        BookDetailSourceSection(presentation)
-                                    } }
+        // #852: the rule's own setContent composes into the content-free host
+        // and waits for it to be RESUMED; the previous
+        // `runOnUiThread { rule.activity.setContent { … } }` never registered a
+        // semantics root, so every query died with "No compose hierarchies".
+        rule.setContent {
+            val density = LocalDensity.current
+            val base = LocalContext.current
+            val configuration = Configuration(base.resources.configuration).apply {
+                setLocale(Locale.forLanguageTag(locale))
+                fontScale = scale
+            }
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, scale),
+                LocalContext provides base.createConfigurationContext(configuration),
+                LocalConfiguration provides configuration
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    Surface(Modifier.fillMaxSize().safeDrawingPadding(), color = MaterialTheme.colorScheme.background) {
+                        if (scene.startsWith("player_")) {
+                            Player(scene, { retries++ }, { alternatives++ })
+                        } else key(scene) {
+                            when (scene) {
+                                "search_loading" -> Column { GlobalSearchStatus(true, false, true) }
+                                "search_empty" -> Column { GlobalSearchStatus(false, false, true) }
+                                "search_error" -> Column { GlobalSearchStatus(false, true, true) }
+                                "search_result" -> LazyColumn {
+                                    // #567: the row is built inline at the
+                                    // search surface's call site — the old
+                                    // GlobalSearchResultCard wrapper is gone.
+                                    searchResultsContent(
+                                        localBooks = emptyList(),
+                                        globalResults = listOf(GlobalSearchResult(
+                                            title = book.title, author = book.author, narrator = book.narrator,
+                                            mergeKey = "audit", sources = listOf(
+                                                GlobalSearchSource("4read", "4read", "https://example.invalid/a"),
+                                                GlobalSearchSource("soundbooks", "Sound-Books", "https://example.invalid/b")
+                                            )
+                                        )),
+                                        liveSearchActive = true,
+                                        isGlobalLoading = false,
+                                        globalError = false,
+                                        onOpenLocalBook = {},
+                                        onPlayLocalBook = {},
+                                        onOpenGlobalResult = {},
+                                        catalogCardActionState = CatalogCardActionState.Idle,
+                                        onOpenCatalogBrowser = {},
+                                        onPreflightGlobalResult = {}
+                                    )
                                 }
+                                "catalog_empty" -> Column { EmptyCatalogState({}, {}) }
+                                "cycle" -> Column { CycleCard("Епоха божевілля", null, {}) }
+                                "library_empty" -> LibraryEmptyState({}, {})
+                                "library_row" -> Column { LibraryBookCard(buildLibraryBooks(listOf(book), emptyList(), mapOf(book.id to chapters)).single(), grid = false, onClick = {}) }
+                                "library_grid" -> LazyVerticalGrid(
+                                    columns = GridCells.Fixed(2), contentPadding = PaddingValues(16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) { items(2) { LibraryBookCard(buildLibraryBooks(listOf(book), emptyList(), mapOf(book.id to chapters)).single(), grid = true, onClick = {}) } }
+                                "library_filters" -> LibraryFilterSheet(LibraryFilter.ALL, LibrarySort.RECENTLY_LISTENED, false, {}, {}, { gridSelected = it }, {})
+                                "delete_dialog" -> ClearCacheConfirmDialog(3, 1024L * 1024 * 120, {}, {})
+                                "speed" -> SpeedSheet(1.25f, {}, {}, {})
+                                "timer" -> SleepTimerSheet(currentTimerMinutes = 15, onSelectTimer = {}, onDismiss = {})
+                                "chapters" -> ChapterBottomSheet(chapters, 1, {}, {})
+                                "bookmark" -> BookmarkBottomSheet(120, chapters[1].title, {}, {})
+                                "settings" -> Box(Modifier.fillMaxSize()) { Box(Modifier.width(320.dp)) { SettingsScreen { openedSettings += it } } }
+                                "navigation" -> Box(Modifier.fillMaxSize()) { Box(Modifier.width(320.dp).testTag("navigation_fixture")) { AppBottomBar(SelectedTab.SETTINGS) {} } }
+                                "book" -> Box(Modifier.fillMaxSize()) { Column(
+                                    Modifier.width(320.dp).testTag("book_fixture").verticalScroll(rememberScrollState()).padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    val presentation = bookDetailPresentation(book, emptyList(), listOf(
+                                        SourceCatalog.WorkSourceRow("4read", "4read", "https://4read.org/audit", false)
+                                    )).copy(
+                                        seriesTitle = "Надзвичайно довга назва циклу про повернення додому між світами",
+                                        seriesIndex = 12,
+                                        seriesUrl = "https://example.invalid/audit-series"
+                                    )
+                                    BookDetailIdentityHeader(book, presentation, universeName = "Перший закон")
+                                    BookDetailPrimaryActions(
+                                        workTitle = book.title,
+                                        playLabel = stringResource(R.string.book_detail_continue_short) + " 01:23:45",
+                                        streamOnly = false, downloadAction = BookDetailDownloadAction.Continue,
+                                        downloadProgress = 0.5f, onPlay = {}, onDownload = {}, onAddBookmark = {}
+                                    )
+                                    BookDetailSourceSection(presentation)
+                                } }
                             }
                         }
                     }

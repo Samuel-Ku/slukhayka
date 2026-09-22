@@ -6,8 +6,8 @@ import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
 import com.slukhayka.audiobooks.App
+import com.slukhayka.audiobooks.player.PlaybackResume
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -22,30 +22,22 @@ class TogglePlayActionCallback : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        withContext(Dispatchers.Main) {
-            try {
-                val playerManager = App.instance.playerManager
-                if (playerManager.playerState.value.currentBook != null) {
-                    playerManager.togglePlayPause()
-                } else {
-                    // Nothing loaded: resume the most recently listened book.
-                    val latest = App.instance.libraryEntries.recentProgress.first().maxByOrNull { it.lastListenedAt }
-                    if (latest != null) {
-                        val book = App.instance.libraryEntries.getBookSync(latest.bookId)
-                        if (book != null) {
-                            val chapters = App.instance.sourceCatalog.getChaptersList(book.id)
-                            playerManager.loadAndPlayBook(
-                                book = book,
-                                chapters = chapters,
-                                initialChapterIndex = latest.currentChapterIndex,
-                                initialPositionSeconds = latest.currentPositionSeconds,
-                                autoPlay = true
-                            )
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
+        try {
+            val playerManager = App.instance.playerManager
+            if (playerManager.playerState.value.currentBook != null) {
+                withContext(Dispatchers.Main) { playerManager.togglePlayPause() }
+            } else {
+                // Nothing loaded: resume the most recently listened book. #805
+                // moved this step into PlaybackResume so the media session's
+                // resumption uses the exact same path instead of a second copy.
+                PlaybackResume.resumeMostRecent(
+                    playerManager = playerManager,
+                    libraryEntries = App.instance.libraryEntries,
+                    chaptersFor = { bookId -> App.instance.sourceCatalog.getChaptersList(bookId) },
+                    autoPlay = true
+                )
+            }
+        } catch (_: Exception) {}
         AudiobookGlanceWidget().updateAll(context)
     }
 }

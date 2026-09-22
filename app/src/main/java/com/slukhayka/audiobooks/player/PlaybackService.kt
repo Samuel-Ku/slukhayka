@@ -5,9 +5,16 @@ import android.content.Context
 import android.content.Intent
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.MainActivity
 import com.slukhayka.audiobooks.data.diagnostics.DiagnosticPlaybackService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Background playback host (audit CRITICAL finding PERF-002 / PERF-021:
@@ -36,6 +43,12 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    // #805 — the resumption callback resolves the freshest progress row through
+    // the database, so the session's future is completed off the session's
+    // binder thread. Main.immediate keeps the player itself on the application
+    // thread, like every other playback caller.
+    private val resumeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
     override fun onCreate() {
         super.onCreate()
         App.instance.crashContextTracker.updatePlaybackService(DiagnosticPlaybackService.STARTED)
@@ -52,6 +65,7 @@ class PlaybackService : MediaSessionService() {
         )
         mediaSession = MediaSession.Builder(this, App.instance.playerManager.player)
             .setSessionActivity(sessionActivity)
+            .setCallback(PlaybackResumptionCallback())
             .build()
         // ADR-0024 (#362): while a cast session is live, the CastPlayer owns
         // the session (notification + media buttons drive the RECEIVER); when
@@ -67,12 +81,67 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         App.instance.crashContextTracker.updatePlaybackService(DiagnosticPlaybackService.STOPPED)
+        resumeScope.cancel()
         // Release only the session; the shared player stays with App.playerManager.
         mediaSession?.run {
             release()
             mediaSession = null
         }
         super.onDestroy()
+    }
+
+    /**
+     * #805 — media resumption.
+     *
+     * After the system kills the process, Media3 rebuilds this session around
+     * the shared player, which is empty: a play command from the notification
+     * shade then has nothing to resume, so the app showed «Не вдалося
+     * відновити відтворення» and «Повторити» had nothing to retry.
+     *
+     * Media3 asks the app for the queue through this callback. The load rides
+     * the SAME path the widget and the in-app «Продовжити слухати» tile use
+     * ([PlaybackResume]), so the manager's state — book, chapters, position,
+     * heal budget, progress saving — stays coherent; handing Media3 raw media
+     * items would leave `playerState` empty.
+     *
+     * The returned items are what the manager just put on the player; Media3
+     * sets them again for the resumption, and that second prepare is the price
+     * of letting the manager own the queue.
+     */
+    private inner class PlaybackResumptionCallback : MediaSession.Callback {
+        override fun onPlaybackResumption(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            resumeScope.launch {
+                val restored = runCatching {
+                    PlaybackResume.resumeMostRecent(
+                        playerManager = App.instance.playerManager,
+                        libraryEntries = App.instance.libraryEntries,
+                        chaptersFor = { bookId -> App.instance.sourceCatalog.getChaptersList(bookId) },
+                        // The system asks to resume only because playback was
+                        // requested — starting here is the requested action.
+                        autoPlay = true
+                    )
+                }.getOrDefault(false)
+
+                val player = session.player
+                val items = if (restored && player.mediaItemCount > 0) {
+                    (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+                } else {
+                    emptyList()
+                }
+                result.set(
+                    MediaSession.MediaItemsWithStartPosition(
+                        items,
+                        player.currentMediaItemIndex.coerceAtLeast(0),
+                        player.currentPosition.coerceAtLeast(0L)
+                    )
+                )
+            }
+            return result
+        }
     }
 
     companion object {

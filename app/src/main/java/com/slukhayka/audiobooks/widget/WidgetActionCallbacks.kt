@@ -33,7 +33,7 @@ class TogglePlayActionCallback : ActionCallback {
                 PlaybackResume.resumeMostRecent(
                     playerManager = playerManager,
                     libraryEntries = App.instance.libraryEntries,
-                    chaptersFor = { bookId -> App.instance.sourceCatalog.getChaptersList(bookId) },
+                    playableFor = { bookId -> App.instance.sourceCatalog.getPlayableChapters(bookId) },
                     autoPlay = true
                 )
             }

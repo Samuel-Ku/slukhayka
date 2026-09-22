@@ -102,7 +102,8 @@ class PlaybackService : MediaSessionService() {
      * the SAME path the widget and the in-app «Продовжити слухати» tile use
      * ([PlaybackResume]), so the manager's state — book, chapters, position,
      * heal budget, progress saving — stays coherent; handing Media3 raw media
-     * items would leave `playerState` empty.
+     * items would leave `playerState` empty. The values handed back are built by
+     * [PlaybackResumption], which is unit-tested without a live session.
      *
      * The returned items are what the manager just put on the player; Media3
      * sets them again for the resumption, and that second prepare is the price
@@ -115,28 +116,12 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
             resumeScope.launch {
-                val restored = runCatching {
-                    PlaybackResume.resumeMostRecent(
+                result.set(
+                    PlaybackResumption.itemsFor(
                         playerManager = App.instance.playerManager,
                         libraryEntries = App.instance.libraryEntries,
-                        chaptersFor = { bookId -> App.instance.sourceCatalog.getChaptersList(bookId) },
-                        // The system asks to resume only because playback was
-                        // requested — starting here is the requested action.
-                        autoPlay = true
-                    )
-                }.getOrDefault(false)
-
-                val player = session.player
-                val items = if (restored && player.mediaItemCount > 0) {
-                    (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-                } else {
-                    emptyList()
-                }
-                result.set(
-                    MediaSession.MediaItemsWithStartPosition(
-                        items,
-                        player.currentMediaItemIndex.coerceAtLeast(0),
-                        player.currentPosition.coerceAtLeast(0L)
+                        playableFor = { bookId -> App.instance.sourceCatalog.getPlayableChapters(bookId) },
+                        player = session.player
                     )
                 )
             }

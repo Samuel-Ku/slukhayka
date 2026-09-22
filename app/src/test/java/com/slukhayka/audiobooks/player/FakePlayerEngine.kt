@@ -99,6 +99,14 @@ class FakePlayerEngine(
 
     override fun getCurrentMediaItem(): MediaItem? = recordedMediaItems.lastOrNull()
 
+    // #805: the media-session resumption path reads the queue back off the
+    // player, so the fake mirrors the one item setMediaItem recorded.
+    override fun getMediaItemCount(): Int = recordedMediaItems.size
+
+    override fun getMediaItemAt(p0: Int): MediaItem = recordedMediaItems[p0]
+
+    override fun getCurrentMediaItemIndex(): Int = (recordedMediaItems.size - 1).coerceAtLeast(0)
+
     override fun prepare() {
         prepareCount += 1
         playbackState = Player.STATE_BUFFERING

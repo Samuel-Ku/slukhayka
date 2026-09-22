@@ -1,6 +1,6 @@
 package com.slukhayka.audiobooks.player
 
-import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -22,10 +22,13 @@ import kotlinx.coroutines.withContext
  *    while the in-app «Продовжити слухати» tile (which goes through
  *    `MainViewModel`) still worked.
  *
- * This object is that step, shared by both doors. It deliberately goes through
- * [AudioPlayerManager.loadAndPlayBook]: the manager owns `playerState`, the
- * chapter→track pairing, the heal budget and progress saving, so restoring the
- * queue any other way would leave the UI and the session out of sync.
+ * The load goes through [AudioPlayerManager.loadAndPlayBook] **with the playable
+ * list**: the manager pairs each chapter with a physical track from that list,
+ * and without it every chapter is trackless — `prepareChapter` then answers
+ * «No playable locator for chapter 0», which is the very symptom above. Both
+ * production callers therefore pass
+ * [com.slukhayka.audiobooks.data.catalog.SourceCatalog.getPlayableChapters],
+ * exactly like `MainViewModel` does for the in-app tile.
  */
 object PlaybackResume {
 
@@ -33,17 +36,17 @@ object PlaybackResume {
      * Loads the freshest listened row into [playerManager] when nothing is
      * loaded yet.
      *
-     * @param chaptersFor chapter list for a book id; production passes
-     *   `SourceCatalog::getChaptersList`. Injected so the decision is testable
-     *   without the catalogue graph.
-     * @return true when a book was handed to the manager, false when there was
-     *   nothing to resume (already loaded, no progress rows, missing book or
-     *   chapters).
+     * @param playableFor chapter→track pairs for a book id; production passes
+     *   `SourceCatalog::getPlayableChapters`. Injected so the decision is
+     *   testable without the catalogue graph.
+     * @return true when a book with at least one playable chapter was handed to
+     *   the manager, false when there was nothing to resume (already loaded, no
+     *   progress rows, missing book, no playable chapters).
      */
     suspend fun resumeMostRecent(
         playerManager: AudioPlayerManager,
         libraryEntries: LibraryEntries,
-        chaptersFor: suspend (String) -> List<ChapterEntity>,
+        playableFor: suspend (String) -> List<SourceCatalog.PlayableChapter>,
         autoPlay: Boolean,
         // Injectable so the JVM tests run on their test scheduler; production
         // keeps the real dispatchers.
@@ -60,15 +63,16 @@ object PlaybackResume {
         val book = withContext(ioDispatcher) { libraryEntries.getBookSync(latest.bookId) }
             ?: return false
 
-        val chapters = withContext(ioDispatcher) { chaptersFor(book.id) }
-        if (chapters.isEmpty()) return false
+        val playable = withContext(ioDispatcher) { playableFor(book.id) }
+        if (playable.isEmpty()) return false
 
         // ExoPlayer is driven from the application thread; every other
         // loadAndPlayBook caller (MainViewModel, the widget) does the same.
         withContext(playerDispatcher) {
             playerManager.loadAndPlayBook(
                 book = book,
-                chapters = chapters,
+                chapters = playable.map { it.chapter },
+                playable = playable,
                 initialChapterIndex = latest.currentChapterIndex,
                 initialPositionSeconds = latest.currentPositionSeconds,
                 autoPlay = autoPlay

@@ -14,6 +14,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -68,7 +69,7 @@ class PlaybackResumeTest {
     }
 
     @Test
-    fun `resumes the freshest progress row when nothing is loaded`() = resumeTest { manager ->
+    fun `resumes the freshest progress row when nothing is loaded`() = resumeTest { manager, factory ->
         val older = books[0]
         val fresher = books[1]
         dao.savePlaybackProgress(
@@ -97,10 +98,15 @@ class PlaybackResumeTest {
         assertEquals(fresher.id, state.currentBook?.id)
         assertEquals(1, state.currentChapterIndex)
         assertEquals(42_000L, state.currentPositionMs)
+        // #805 regression: the chapter must reach the engine WITH its track.
+        // Loading the book without the playable list left every chapter
+        // trackless («No playable locator») and the restore carried no audio.
+        runCurrent()
+        assertEquals(1, factory.current.mediaItems.size)
     }
 
     @Test
-    fun `never replaces a loaded player`() = resumeTest { manager ->
+    fun `never replaces a loaded player`() = resumeTest { manager, _ ->
         val loaded = books[0]
         val other = books[1]
         dao.savePlaybackProgress(
@@ -123,7 +129,7 @@ class PlaybackResumeTest {
     }
 
     @Test
-    fun `does nothing without progress rows`() = resumeTest { manager ->
+    fun `does nothing without progress rows`() = resumeTest { manager, _ ->
         val resumed = resume(manager)
 
         assertFalse(resumed)
@@ -131,7 +137,7 @@ class PlaybackResumeTest {
     }
 
     @Test
-    fun `does nothing when the progress row points at a missing book`() = resumeTest { manager ->
+    fun `does nothing when the progress row points at a missing book`() = resumeTest { manager, _ ->
         dao.savePlaybackProgress(
             PlaybackProgressEntity(
                 editionId = "gone",
@@ -147,7 +153,7 @@ class PlaybackResumeTest {
     }
 
     @Test
-    fun `does nothing when the book has no chapters`() = resumeTest { manager ->
+    fun `does nothing when the book has no chapters`() = resumeTest { manager, _ ->
         val book = books[0]
         dao.savePlaybackProgress(
             PlaybackProgressEntity(
@@ -160,13 +166,13 @@ class PlaybackResumeTest {
         val resumed = PlaybackResume.resumeMostRecent(
             playerManager = manager,
             libraryEntries = libraryEntries,
-            chaptersFor = { emptyList() },
+            playableFor = { emptyList() },
             autoPlay = false,
             ioDispatcher = dispatcher,
             playerDispatcher = dispatcher
         )
 
-        assertFalse("an empty chapter list never reaches the engine", resumed)
+        assertFalse("an empty playable list never reaches the engine", resumed)
         assertNull(manager.playerState.value.currentBook)
     }
 
@@ -174,25 +180,41 @@ class PlaybackResumeTest {
         PlaybackResume.resumeMostRecent(
             playerManager = manager,
             libraryEntries = libraryEntries,
-            chaptersFor = { bookId -> dao.getChaptersListForBook(bookId) },
+            playableFor = { bookId -> playableFor(bookId) },
             autoPlay = false,
             ioDispatcher = dispatcher,
             playerDispatcher = dispatcher
         )
 
-    private fun resumeTest(body: suspend TestScope.(AudioPlayerManager) -> Unit) = runTest(dispatcher) {
+    /**
+     * Chapter→track pairs the way `SourceCatalog.getPlayableChapters` hands them
+     * over: without a track the manager answers «No playable locator» and the
+     * restore silently carries no audio (#805).
+     */
+    private suspend fun playableFor(bookId: String): List<SourceCatalog.PlayableChapter> {
+        val book = books.firstOrNull { it.id == bookId } ?: return emptyList()
+        val tracks = TestDataFactory.tracksFor(book, "4read")
+        return dao.getChaptersListForBook(bookId).mapIndexed { index, chapter ->
+            SourceCatalog.PlayableChapter(chapter = chapter, track = tracks.getOrNull(index))
+        }
+    }
+
+    private fun resumeTest(
+        body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
+    ) = runTest(dispatcher) {
+        val factory = RecordingPlayerFactory()
         val manager = AudioPlayerManager(
             context,
             listeningState,
             { dao.getChaptersListForBook(it).map { chapter -> SourceCatalog.PlayableChapter(chapter, null) } },
-            injectedPlayerFactory = RecordingPlayerFactory(),
+            injectedPlayerFactory = factory,
             ioDispatcher = dispatcher,
             // Spec-22 T4: widget sync is a forever-running sampled collector;
             // keep it off the test scheduler.
             widgetSyncEnabled = false
         )
         try {
-            body(manager)
+            body(manager, factory)
         } finally {
             manager.release()
         }

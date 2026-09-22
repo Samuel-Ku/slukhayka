@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.player
 
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
@@ -62,6 +63,14 @@ object PlaybackResumption {
         } else {
             playerManager.playerState.value.currentPositionMs.coerceAtLeast(0L)
         }
+        // #805 — the one line that tells a phone run whether the system really
+        // asked for a resumption and what we answered: `restored=false` with an
+        // empty list means the callback fired but found nothing, a non-zero
+        // count means Media3 got the queue and the saved position.
+        Log.i(
+            "PlaybackService",
+            "resumption: restored=$restored items=${items.size} positionMs=$startPositionMs"
+        )
         return MediaSession.MediaItemsWithStartPosition(
             items,
             player.currentMediaItemIndex.coerceAtLeast(0),

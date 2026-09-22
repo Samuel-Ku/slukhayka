@@ -1,67 +1,54 @@
 package com.slukhayka.audiobooks.accessibility
 
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.height
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import com.slukhayka.audiobooks.MainActivity
-import com.slukhayka.audiobooks.AppBottomBar
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import java.io.File
 import org.junit.Rule
 import org.junit.Test
-import org.junit.Assert.assertFalse
 
-/** Exercise real routes without changing preferences or library data. */
+/**
+ * Exercise real routes without changing preferences or library data.
+ *
+ * #852: the app asks for `POST_NOTIFICATIONS` on launch
+ * ([MainActivity] `onCreate` → `LaunchedEffect`); without the pre-grant the
+ * system permission dialog takes the foreground, the activity never reaches
+ * RESUMED, no Compose root is registered and every wait dies with «No compose
+ * hierarchies found in the app» — the same rule [MainActivityAccessibilityTest]
+ * already carries. The 200 %-text bottom-bar check moved to
+ * [BottomBarLargeTextLayoutTest], which needs a content-free host.
+ */
 class SettingsNavigationTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    @Test fun largeTextLabelsFitWithoutChangingPhoneSettings() {
-        rule.runOnUiThread {
-            rule.activity.setContent {
-                val density = LocalDensity.current
-                CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
-                    AudiobookTheme(darkTheme = true) {
-                        Box(Modifier.width(320.dp).height(480.dp)) {
-                            // #956 — the bar's real four destinations; SETTINGS
-                            // has not been one since #860.
-                            AppBottomBar(SelectedTab.LISTEN) { }
-                        }
-                    }
-                }
-            }
-        }
-        listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_friends).forEach { res ->
-            val label = rule.activity.getString(res)
-            val layouts = mutableListOf<TextLayoutResult>()
-            rule.onNodeWithText(label, useUnmergedTree = true)
-                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertFalse("Clipped label: $label", layouts.single().hasVisualOverflow)
-        }
-    }
+    @get:Rule(order = 0)
+    val notificationPermission: GrantPermissionRule =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
+    @get:Rule(order = 1) val rule = createAndroidComposeRule<MainActivity>()
 
     private fun waitFor(tag: String) {
-        rule.waitUntil(20_000) {
-            // #766 A — a raw fetchSemanticsNodes() THROWS while no hierarchy
-            // exists yet; the tolerant wait retries instead.
-            runCatching { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().size == 1 }
-                .getOrDefault(false)
+        try {
+            rule.waitUntil(20_000) {
+                // #766 A — a raw fetchSemanticsNodes() THROWS while no hierarchy
+                // exists yet; the tolerant wait retries instead.
+                runCatching { rule.onAllNodesWithTag(tag).fetchSemanticsNodes().size == 1 }
+                    .getOrDefault(false)
+            }
+        } catch (timeout: ComposeTimeoutException) {
+            // #852: a bare ComposeTimeoutException left the failing step to
+            // guesswork — name the node that never appeared and show the tree
+            // that WAS there.
+            val tree = runCatching { rule.onRoot(useUnmergedTree = true).printToString() }
+                .getOrDefault("(no compose root)")
+            throw AssertionError("node «$tag» never appeared within 20 s; tree:\n$tree", timeout)
         }
     }
 

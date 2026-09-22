@@ -188,6 +188,11 @@ class InstrumentedCoverageGuardTest {
             "BookDetail" + "CoverLayout",
             "BookDetail" + "PeopleLayout",
             "BookFeedback" + "Ui",
+            // #852: split out of SettingsNavigationTest, which drives the real
+            // MainActivity routes; this half draws its own tree on the
+            // content-free TestHostActivity. Green on an emulator, still not
+            // wired into the CI run.
+            "BottomBar" + "LargeText" + "Layout",
             "EditionLanguageFilter" + "Device",
             "LanguageFilter" + "Layout",
             "LanguageFilter",

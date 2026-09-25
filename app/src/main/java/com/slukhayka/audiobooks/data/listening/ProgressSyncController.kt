@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * ADR-0051 (spec-43 T6) — the narrow view of the Listening State Store that
@@ -40,6 +41,9 @@ interface ProgressMirror {
  *
  *  - **Pull** (`pullBeforeResume`): apply the cloud row iff strictly newer
  *    than the newest server state this device has seen; record its stamp.
+ *    The round trip runs under a short budget ([PULL_BUDGET_MS]) because it
+ *    sits on the critical path of a play tap: the cloud may improve WHERE a
+ *    resume starts, it never decides WHEN the audio starts.
  *  - **Push** (`pushAfterSave`): honest moments (pause/completion) go at
  *    once; periodic ticks wait out the pacing window. A successful push's
  *    server stamp becomes this device's sync point.
@@ -55,19 +59,35 @@ class ProgressSyncController(
     private val ledger: ProgressSyncLedger,
     private val isEnabled: () -> Boolean = { true },
     /** Wall clock, injectable for deterministic throttle tests. */
-    private val nowMs: () -> Long = System::currentTimeMillis
+    private val nowMs: () -> Long = System::currentTimeMillis,
+    /**
+     * ADR-0051 — how long a resume waits for the cloud before it accepts the
+     * local row. Injectable so the expiry is deterministic in tests.
+     */
+    private val pullBudgetMs: Long = PULL_BUDGET_MS
 ) {
 
     suspend fun pullBeforeResume(bookId: String): Unit = withContext(Dispatchers.IO) {
         if (!isEnabled()) return@withContext
         val remoteStore = store ?: return@withContext
-        val uid = identityUid() ?: return@withContext
         val editionId = mirror.editionIdForSync(bookId) ?: return@withContext
 
-        val remote = remoteStore.pull(uid, editionId)
+        // The round trip is bounded: this pull sits on the critical path of a
+        // play tap, so a cloud that never answers — no DNS, a sleeping radio,
+        // a Firestore outage — must not hold the resume hostage. Only the
+        // network part spends the budget; the local write below stays outside
+        // it so an expired pull can never cancel a mirror write halfway.
+        val remote = withTimeoutOrNull(pullBudgetMs) {
+            val uid = identityUid() ?: return@withTimeoutOrNull null
+            remoteStore.pull(uid, editionId)
+        }
+        // The budget expiring and the cloud holding nothing land in the same
+        // place: there is no remote row to apply and the local one stands.
+        if (remote == null) return@withContext
+
         val syncedAtServerMs = ledger.lastSyncedServerMs(editionId)
         if (!isEnabled()) return@withContext // the switch stops it mid-flight too
-        if (remote == null || !ProgressSyncPolicy.shouldPull(remote, syncedAtServerMs)) {
+        if (!ProgressSyncPolicy.shouldPull(remote, syncedAtServerMs)) {
             return@withContext
         }
         mirror.applyRemoteProgress(bookId, remote)
@@ -113,5 +133,15 @@ class ProgressSyncController(
     private suspend fun identityUid(): String? {
         val profile = runCatching { identity.ensure() }.getOrNull() ?: return null
         return profile.uid.takeUnless { it.startsWith(LocalOnlyIdentity.LOCAL_UID_PREFIX) }
+    }
+
+    companion object {
+        /**
+         * ADR-0051 — the pull-before-resume budget. Deliberately short: the
+         * cloud row may move the resume a few minutes, but the listener's
+         * finger on «Грати» outranks it. A real Firestore read on a healthy
+         * network lands well inside this.
+         */
+        const val PULL_BUDGET_MS: Long = 2_000L
     }
 }

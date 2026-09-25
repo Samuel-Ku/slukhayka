@@ -2,11 +2,13 @@
 #
 # #852 — one command for the instrumented suites that guard the UI surfaces.
 #
-# CI executes exactly ONE instrumented class
-# (.github/scripts/run-accessibility-test.sh passes a single `class=` filter);
-# the rest are compiled by every CI run and executed by none. That debt is
-# pinned deliberately in InstrumentedCoverageGuardTest (#984) — widening the CI
-# run is a CI-cost decision, not a code one.
+# CI runs this same five, one gradle invocation per class
+# (.github/scripts/run-accessibility-test.sh); the rest of the instrumented tree
+# is compiled by every CI run and executed by none. That debt is pinned
+# deliberately in InstrumentedCoverageGuardTest (#984) — widening the CI run
+# further is a CI-cost decision, not a code one. It was widened from a single
+# class to these five in #1017, after the device verification below made them
+# all green.
 #
 # This script is the local door: it runs the suites that are already green, one
 # class at a time, on an attached device or emulator, and fails if any of them

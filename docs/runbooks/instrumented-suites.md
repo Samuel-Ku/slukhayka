@@ -60,7 +60,7 @@ adb shell getprop sys.boot_completed   # 1 — можна запускати
 його в `$ANDROID_AVD_HOME`, `$ANDROID_SDK_HOME/avd` і `$HOME/.android/avd` —
 без змінної він відповідає `Unknown AVD name`.
 
-## Три граблі, на які вже наступили
+## Граблі, на які вже наступили
 
 1. **Власне дерево тесту → контент-вільний хост.** `MainActivity` ставить
    контент у `onCreate`. Тест, який малює своє дерево поверх нього
@@ -75,6 +75,27 @@ adb shell getprop sys.boot_completed   # 1 — можна запускати
 3. **`UiAutomation`.** Зовнішній демон `app_process` (mobilecli) тримає
    `UiAutomation` зайнятим, і тоді падає кожен інструментований тест:
    `adb shell pkill -f app_process` перед прогоном.
+4. **Витяг Room-бази з пристрою — лише всі три файли разом.** Room працює в
+   WAL-режимі, тож свіжі коміти лежать у `-wal`. Команда
+
+   ```bash
+   adb exec-out run-as <pkg> cat databases/read4_audiobook_database > snap.db
+   ```
+
+   дає **застарілий** знімок, а окремо дотягнутий `-wal` без `-shm` — ще й
+   неконсистентний. Забирати треба всі три, одним заходом і **відразу після**
+   знімка екрана, з яким порівнюєш:
+
+   ```bash
+   for f in read4_audiobook_database read4_audiobook_database-wal read4_audiobook_database-shm; do
+     adb exec-out run-as <pkg> cat "databases/$f" > "snap.db${f#read4_audiobook_database}"
+   done
+   sqlite3 snap.db "select …"
+   ```
+
+   Ціна помилки — неіснуючий дефект у трекері: саме так народився #1020
+   («рядок каже `Призупинено`, база каже `DOWNLOADING`»), який закрито як хибне
+   спрацювання, коли знімок і екран узяли одночасно.
 
 ## Чому по одному класу
 

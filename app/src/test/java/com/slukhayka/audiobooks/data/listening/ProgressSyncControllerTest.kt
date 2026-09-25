@@ -4,6 +4,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.identity.FakeListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerProfile
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,7 +74,16 @@ class ProgressSyncControllerTest {
         var cloud: Map<String, Map<String, Any>> = emptyMap()
         var pushStamp: Long? = 9000L
 
-        override suspend fun fetchDocument(documentId: String): Map<String, Any>? = cloud[documentId]
+        /**
+         * A transport that never answers — the device-with-no-DNS case the
+         * bounded pull exists for. Null means "answer normally".
+         */
+        var fetchDelayMs: Long? = null
+
+        override suspend fun fetchDocument(documentId: String): Map<String, Any>? {
+            fetchDelayMs?.let { delay(it) }
+            return cloud[documentId]
+        }
         override suspend fun writeDocument(documentId: String, fields: Map<String, Any>): Boolean {
             pushed += ProgressSyncCodec.fromDocument(
                 fields + mapOf(ProgressSyncCodec.FIELD_UPDATED_AT to (pushStamp ?: 0L))
@@ -257,4 +267,69 @@ class ProgressSyncControllerTest {
 
         assertEquals(0, mirror.appliedCount)
     }
+
+    @Test
+    fun `a cloud that never answers never holds the resume`() = runBlocking {
+        val (mirror, bookId) = seededMirror()
+        val ledger = FakeLedger()
+        val identity = FakeListenerIdentity(kotlin.random.Random(1))
+        val store = FakeStore().apply {
+            // The phone-with-no-DNS case: the transport is reachable as a call
+            // but the answer never arrives.
+            fetchDelayMs = 60_000L
+            cloud = mapOf(keyFor(identity) to newerCloudRow())
+        }
+        val controller = ProgressSyncController(
+            identity = identity,
+            mirror = mirror,
+            store = store,
+            ledger = ledger,
+            pullBudgetMs = 100L
+        )
+
+        val startedAt = System.nanoTime()
+        controller.pullBeforeResume(bookId)
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+
+        // The resume gets the local row, and it gets it now: the play tap is
+        // never hostage to a cloud that does not answer.
+        assertTrue("the pull waited ${elapsedMs}ms", elapsedMs < 5_000)
+        assertEquals(0, mirror.appliedCount)
+        assertEquals(10L, mirror.rows["ed-1"]!!.currentPositionSeconds)
+        assertNull(ledger.synced["ed-1"])
+    }
+
+    @Test
+    fun `a slow cloud that answers inside the budget still lands`() = runBlocking {
+        val (mirror, bookId) = seededMirror()
+        val ledger = FakeLedger()
+        val identity = FakeListenerIdentity(kotlin.random.Random(1))
+        val store = FakeStore().apply {
+            fetchDelayMs = 20L
+            cloud = mapOf(keyFor(identity) to newerCloudRow())
+        }
+        val controller = ProgressSyncController(
+            identity = identity,
+            mirror = mirror,
+            store = store,
+            ledger = ledger,
+            pullBudgetMs = 1_000L
+        )
+
+        controller.pullBeforeResume(bookId)
+
+        assertEquals(1, mirror.appliedCount)
+        assertEquals(500L, mirror.rows["ed-1"]!!.currentPositionSeconds)
+        assertEquals(7000L, ledger.synced["ed-1"])
+    }
+
+    /** The «started on the phone» row every pull test offers the resume. */
+    private fun newerCloudRow(): Map<String, Any> = mapOf(
+        ProgressSyncCodec.FIELD_EDITION_ID to "ed-1",
+        ProgressSyncCodec.FIELD_CHAPTER_INDEX to 4L,
+        ProgressSyncCodec.FIELD_POSITION_SECONDS to 500L,
+        ProgressSyncCodec.FIELD_IS_COMPLETED to false,
+        ProgressSyncCodec.FIELD_PREFERRED_SPEED to 1.5f,
+        ProgressSyncCodec.FIELD_UPDATED_AT to 7000L
+    )
 }

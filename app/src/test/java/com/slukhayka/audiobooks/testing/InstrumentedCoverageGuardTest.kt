@@ -7,19 +7,23 @@ import java.io.File
 /**
  * #984 — the guard that stops the instrumented set from growing silently.
  *
- * The symptom: the `app/src/androidTest` tree declares 19 test classes, but CI
- * executes exactly one of them. `.github/scripts/run-accessibility-test.sh`
- * runs `:app:connectedDebugAndroidTest` with a single-class
+ * The symptom: the `app/src/androidTest` tree declares 20 test classes, but CI
+ * executed exactly one of them. `.github/scripts/run-accessibility-test.sh`
+ * ran `:app:connectedDebugAndroidTest` with a single-class
  * `-Pandroid.testInstrumentationRunnerArguments.class=…MainActivityAccessibilityTest`
- * filter (line 20), while `.github/workflows/ci.yml` still *compiles* the whole
+ * filter, while `.github/workflows/ci.yml` still *compiles* the whole
  * `androidTest` source set in the "Prebuild accessibility APKs" step
- * (`:app:assembleDebugAndroidTest`, line 479). Compiled-but-never-run classes
- * create the illusion of coverage — the defect class #956/#958/#966 each caught
- * once in miniature.
+ * (`:app:assembleDebugAndroidTest`). Compiled-but-never-run classes create the
+ * illusion of coverage — the defect class #956/#958/#966 each caught once in
+ * miniature.
  *
- * The owner has NOT decided to widen the CI run (that is a CI-cost decision).
- * So this guard widens nothing. It only pins the current set: a new
- * instrumented test class must be a deliberate act — wired into the run,
+ * #1017 (25.09) widened the run: the five #852 suites the device verification
+ * made green — the journey plus the four it used to leave behind — all execute
+ * in the `Accessibility journey (API 35)` leg now. That is why they sit in
+ * [EXECUTED_BY_CI] and no longer in the debt list; the classes still listed
+ * there remain debt, and the owner still decides before any of them joins a CI
+ * run. So this guard widens nothing on its own. It only pins the current set: a
+ * new instrumented test class must be a deliberate act — wired into the run,
  * silenced with a reasoned `@Ignore("…")`, or explicitly recorded as known debt
  * below.
  *
@@ -28,9 +32,9 @@ import java.io.File
  * [com.slukhayka.audiobooks.ui.ResidualOldNamesGuardTest] and
  * [SingleEnglishWalkGuardTest] — and stays on the JVM: no device and no
  * instrumentation. It deliberately does NOT use the JUnit4 Android runner
- * annotation as its marker: that annotation appears in only 5 of the 19
- * classes here, so it is not a reliable instrumented marker. What all 19 share
- * is a JUnit `@Test` method, which is the marker this guard uses. The 20th
+ * annotation as its marker: that annotation appears in only 5 of the 20
+ * classes here, so it is not a reliable instrumented marker. What all 20 share
+ * is a JUnit `@Test` method, which is the marker this guard uses. The 21st
  * `.kt` file in the tree, `IsolatedDatabaseTestRunner.kt`, is the
  * `AndroidJUnitRunner` itself and declares no `@Test`, so it is correctly not a
  * test class.
@@ -66,9 +70,10 @@ class InstrumentedCoverageGuardTest {
                 appendLine("these instrumented tests are not covered by any CI run and are not recorded debt:")
                 offenders.forEach { appendLine("  ${it.file}:${it.line}  ${it.name}") }
                 appendLine()
-                appendLine("CI executes only ${EXECUTED_BY_CI.joinToString()} (see ${RUNNER_SCRIPT_PATH}:20).")
+                appendLine("CI executes only ${EXECUTED_BY_CI.joinToString()}")
+                appendLine("(see the `suites` list in $RUNNER_SCRIPT_PATH).")
                 appendLine("A new class must be a deliberate act — pick one:")
-                appendLine("  1. run it: add it to the class filter in $RUNNER_SCRIPT_PATH")
+                appendLine("  1. run it: add it to that list")
                 appendLine("     (this widens the CI run, so it is the owner's call); or")
                 appendLine("  2. silence it with a reason: annotate the class @Ignore(\"why\") —")
                 appendLine("     a bare @Ignore with no reason does not count; or")
@@ -91,9 +96,9 @@ class InstrumentedCoverageGuardTest {
             stale.isEmpty()
         )
 
-        // The one class this guard claims CI runs must actually be named by the
-        // runner script. If the filter is renamed, removed or widened, this
-        // claim would otherwise become another silent lie.
+        // Every class this guard claims CI runs must actually be named by the
+        // runner script. If the list is renamed, removed or shrunk, this claim
+        // would otherwise become another silent lie.
         val script = accessibilityRunner.readText()
         val missing = EXECUTED_BY_CI.filterNot { script.contains(it) }
         assertTrue(
@@ -166,12 +171,17 @@ class InstrumentedCoverageGuardTest {
         val IGNORE_WITH_REASON = Regex("@Ignore\\s*\\(\\s*\"[^\"]+\"", RegexOption.MULTILINE)
 
         /**
-         * The one class CI actually executes: `.github/scripts/run-accessibility-test.sh`
-         * line 20 passes `-Pandroid.testInstrumentationRunnerArguments.class=` with
-         * this single class and no other, so it is the whole executed set.
+         * The classes CI actually executes: the `suites` list of
+         * `.github/scripts/run-accessibility-test.sh`, one gradle invocation per
+         * class. #1017 widened this from the single journey class to the five
+         * #852 suites the device verification made green.
          */
         val EXECUTED_BY_CI = listOf(
-            "MainActivity" + "AccessibilityTest"
+            "MainActivity" + "AccessibilityTest",
+            "AudioPlayback" + "EspressoTest",
+            "UiSurface" + "AuditTest",
+            "Settings" + "NavigationTest",
+            "BottomBar" + "LargeText" + "LayoutTest"
         )
 
         /**
@@ -179,20 +189,16 @@ class InstrumentedCoverageGuardTest {
          * into the androidTest APK on every CI run but executed by none. They
          * are listed explicitly so the set cannot grow by accident — adding one
          * more is a visible edit here. Each entry may only ever leave this list
-         * by being wired into the run. `TelegramLoginSpikeTest` also has a
-         * manual, out-of-CI entry point (`scripts/telegram-login-spike.sh`), but
-         * no CI filter runs it, so it stays debt here.
+         * by being wired into the run — #1017 took out the four #852 classes
+         * that used to sit here. `TelegramLoginSpikeTest` also has a manual,
+         * out-of-CI entry point (`scripts/telegram-login-spike.sh`), but no CI
+         * run executes it, so it stays debt here.
          */
         val KNOWN_UNEXECUTED_BY_CI = listOf(
             // accessibility/
             "BookDetail" + "CoverLayout",
             "BookDetail" + "PeopleLayout",
             "BookFeedback" + "Ui",
-            // #852: split out of SettingsNavigationTest, which drives the real
-            // MainActivity routes; this half draws its own tree on the
-            // content-free TestHostActivity. Green on an emulator, still not
-            // wired into the CI run.
-            "BottomBar" + "LargeText" + "Layout",
             "EditionLanguageFilter" + "Device",
             "LanguageFilter" + "Layout",
             "LanguageFilter",
@@ -200,10 +206,7 @@ class InstrumentedCoverageGuardTest {
             "LiveChapter" + "Focus",
             "RecommendationCover" + "Failure",
             "SearchReturn" + "Navigation",
-            "Settings" + "Navigation",
-            "UiSurface" + "Audit",
             // audio/
-            "AudioPlayback" + "Espresso",
             "LiveBookDetail" + "Actions",
             "LiveBrowser" + "Recovery",
             "LiveCandidate" + "Playback",

@@ -36,20 +36,24 @@ import org.junit.Test
 
 /** Pixel evidence at the production header: edge bands survive without stretching. */
 class BookDetailCoverLayoutTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    // #766 A — this test draws its OWN tree, so it needs the content-free
+    // host: MainActivity sets content in onCreate, and `rule.activity.setContent`
+    // over it registers no semantics root ("No compose hierarchies found").
+    @get:Rule val rule = createAndroidComposeRule<com.slukhayka.audiobooks.testing.TestHostActivity>()
 
     @Test fun portraitAndSquareCoversKeepTheirEdgesAndMissingCoverIsVisible() {
         val book = AudiobookEntity(id = "cover-layout", title = "Книга без обкладинки", author = "Автор", narrator = "", description = "",
             coverDrawableRes = 0, genre = "", sourceUrl = "https://example.invalid/book")
         val shown = mutableStateOf(book)
-        rule.runOnUiThread {
-            rule.activity.setContent {
-                AudiobookTheme(darkTheme = true) {
-                    Surface {
-                        Column {
-                            BookDetailIdentityHeader(shown.value, bookDetailPresentation(shown.value, emptyList(), emptyList()),
-                                requestInitialFocus = false)
-                        }
+        rule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    Column {
+                        BookDetailIdentityHeader(
+                            shown.value,
+                            bookDetailPresentation(shown.value, emptyList(), emptyList()),
+                            requestInitialFocus = false
+                        )
                     }
                 }
             }

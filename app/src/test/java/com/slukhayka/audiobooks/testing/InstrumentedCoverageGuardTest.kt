@@ -207,6 +207,10 @@ class InstrumentedCoverageGuardTest {
             "RecommendationCover" + "Failure",
             "SearchReturn" + "Navigation",
             // audio/
+            // #533 AC5 — opt-in live network run (`-P…liveSources=true`): it
+            // imports real books from sluhayua/soundbooks/audiobookmp3, so it
+            // can never be part of an offline CI leg.
+            "LiveStreaming" + "Sources",
             "LiveBookDetail" + "Actions",
             "LiveBrowser" + "Recovery",
             "LiveCandidate" + "Playback",

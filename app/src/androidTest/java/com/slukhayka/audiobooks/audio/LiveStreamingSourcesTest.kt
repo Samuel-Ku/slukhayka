@@ -50,11 +50,10 @@ import org.junit.Test
  *    encodes the slug itself, so a pre-encoded one is double-encoded
  *    (`%D1%96` -> `%25D1%2596`) and the import fails silently — which mimics an
  *    app defect.
- * 2. **Chapter count differs from the page.** The page advertises 8 chapters
- *    for «Марко Проклятий» and all eight `/play?fileId=` calls answer from a
- *    desktop curl, but the app resolved **5**. Asserting 8 here would assert
- *    my curl rather than the app, so the fixture asserts ≥ 1 and the count is
- *    logged for whoever investigates.
+ * 2. **Chapter counts are asserted for real now.** They used to be pinned to
+ *    ≥ 1 because the app resolved 5 where the page advertised 8; #1037 traced
+ *    that to a drained token bucket whose deferral was read as an
+ *    end-of-playlist, and after the fix the counts match the pages.
  */
 class LiveStreamingSourcesTest {
 
@@ -66,11 +65,10 @@ class LiveStreamingSourcesTest {
             sourceId = "sluhayua",
             url = "https://sluhay.com.ua/1403735:storozhenko-oleksa-marko-prokljatij",
             expectedTitle = "Марко Проклятий",
-            // The page advertises 8 chapters and all 8 /play?fileId= calls
-            // answer from a desktop curl. The APP resolved 5 on the emulator
-            // (2026-09-26) — recorded, not explained; asserting 8 here would be
-            // asserting my curl, not the app. See the class doc.
-            minChapters = 1
+            // #1037 fixed: the app now resolves all 8. Before the fix it saw 5,
+            // because the tail /play calls met a drained token bucket and a
+            // deferral was read as an end-of-playlist.
+            minChapters = 8
         ),
         Fixture(
             sourceId = "sluhayua",
@@ -80,7 +78,7 @@ class LiveStreamingSourcesTest {
             // not an app defect.
             url = "https://sluhay.com.ua/5931576:grigorіj-kvіtka-osnovjanenko-serdjeshna-oksana",
             expectedTitle = "Сердешна Оксана",
-            minChapters = 1
+            minChapters = 7
         ),
         Fixture(
             sourceId = "soundbooks",
@@ -89,12 +87,27 @@ class LiveStreamingSourcesTest {
             minChapters = 1
         ),
         Fixture(
+            sourceId = "soundbooks",
+            // Verified live 2026-09-26: 12 chapters on arch.sound-books.net,
+            // chapter 1 serves audio through the source's Referer rule.
+            url = "https://sound-books.net/zarubizhna-literatura/2581-ubyvstvo-pid-chas-doshchu.html",
+            expectedTitle = "Убивство під час дощу",
+            minChapters = 12
+        ),
+        Fixture(
             sourceId = "audiobookmp3",
             url = "https://audiobook-mp3.com/uk-audio-6217-brajan-lamli-mij-divnij-pjatnicja",
             // The adapter restores the apostrophe: «пятниця» -> «П'ятниця»,
             // so compare on the stable head of the title.
             expectedTitle = "Мій дивний",
             minChapters = 1
+        ),
+        Fixture(
+            sourceId = "audiobookmp3",
+            // Verified live 2026-09-26: 14 chapters, chapter 1 serves audio.
+            url = "https://audiobook-mp3.com/uk-audio-1246-dzhek-london-zhaga-do-zhittja",
+            expectedTitle = "Жага до життя",
+            minChapters = 14
         )
     )
 

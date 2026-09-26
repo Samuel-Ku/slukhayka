@@ -24,13 +24,25 @@ import com.slukhayka.audiobooks.ui.screens.WorkFeedFilters
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import java.io.File
 import java.util.Locale
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 class LanguageFilterTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+
+    // #1024 — the app asks for POST_NOTIFICATIONS in MainActivity.onCreate.
+    // Without the grant the system dialog takes the foreground, the activity
+    // never reaches RESUMED and NO Compose root exists at all — the 20 s wait
+    // for `home_screen` then times out against an empty hierarchy, which reads
+    // like "the feed never loaded" and is not. Same trap as
+    // SettingsNavigationTest (docs/runbooks/instrumented-suites.md, trap 2).
+    @get:Rule(order = 0)
+    val notificationPermission: GrantPermissionRule =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
+    @get:Rule(order = 1) val rule = createAndroidComposeRule<MainActivity>()
 
     private fun screenshot(name: String) {
         InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().let { bitmap ->

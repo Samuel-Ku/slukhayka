@@ -24,9 +24,22 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * Opt-in live regression on an ISOLATED application id. Never modifies the
- * listener's installed debug/release library. Supply an expired Soundbooks
- * URL as an instrumentation argument; signed URLs are not committed.
+ * Opt-in live regression over the real network sources. Never modifies the
+ * listener's installed library — that protection is the SUITE's, not this
+ * test's: every instrumented run goes through `IsolatedDatabaseTestRunner`
+ * (`testInstrumentationRunner` in app/build.gradle.kts), which points the app
+ * at the scratch database `read4_audiobook_database_test` and deletes it on
+ * entry. Production's `read4_audiobook_database` is untouched by construction.
+ *
+ * This used to `require(packageName.endsWith(".regression"))` — a guard from
+ * 2026-09-14, when imports really did write the listener's database. The
+ * runner landed on 2026-09-16 and made that guard both obsolete and
+ * impossible: no `.regression` build type exists, so the test FAILED the
+ * moment anyone ran it as documented (`-P…liveSources=true`). It is now
+ * skipped unless opted in, and runs against the isolated database.
+ *
+ * Supply an expired Soundbooks URL as an instrumentation argument; signed
+ * URLs are never committed.
  */
 class LiveSourceRegressionTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
@@ -34,7 +47,12 @@ class LiveSourceRegressionTest {
     @Test fun realSourcesRecoverAndKeepBookMetadata() {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue(args.getString("liveSources") == "true")
-        require(rule.activity.packageName.endsWith(".regression")) { "Use an isolated regression build" }
+        // Isolation is the runner's job (IsolatedDatabaseTestRunner); assert it
+        // is really in force rather than trusting a build-type suffix that does
+        // not exist. See the class doc.
+        require(
+            com.slukhayka.audiobooks.data.db.AudiobookDatabase.databaseNameOverride != null
+        ) { "Instrumented runs must use IsolatedDatabaseTestRunner" }
         rule.runOnUiThread {
             rule.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
@@ -148,7 +166,12 @@ class LiveSourceRegressionTest {
 
     @Test fun reasdDoctorSleepPlaysBookNotNotice() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("liveSources") == "true")
-        require(rule.activity.packageName.endsWith(".regression")) { "Use an isolated regression build" }
+        // Isolation is the runner's job (IsolatedDatabaseTestRunner); assert it
+        // is really in force rather than trusting a build-type suffix that does
+        // not exist. See the class doc.
+        require(
+            com.slukhayka.audiobooks.data.db.AudiobookDatabase.databaseNameOverride != null
+        ) { "Instrumented runs must use IsolatedDatabaseTestRunner" }
         rule.runOnUiThread {
             rule.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }

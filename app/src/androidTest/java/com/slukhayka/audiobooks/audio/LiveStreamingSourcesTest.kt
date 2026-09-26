@@ -36,12 +36,20 @@ import org.junit.Test
  *
  * Two gaps found while building this, both recorded rather than papered over:
  *
- * 1. **A second SluhayUA book could not be imported.** «Сердешна Оксана»
- *    (`https://sluhay.com.ua/5931576:grigor%D1%96j-kv%D1%96tka-osnovjanenko-serdjeshna-oksana`)
- *    answers 200 with 7 playlist entries to curl, but `importFromSourceUrl`
- *    returned null in the app. The AC5 requirement is "TWO different real
- *    Ukrainian books per source", so this is the one thing still missing for
- *    SluhayUA — and it looks like an app-side gap, not a dead fixture.
+ * 1. **A second SluhayUA book does not import.** «Сердешна Оксана»
+ *    (`https://sluhay.com.ua/5931576:grigorіj-kvіtka-osnovjanenko-serdjeshna-oksana`,
+ *    RAW slug — the adapter encodes it itself) answers 200 with **7 playlist
+ *    entries** to a plain HTTP GET, yet `importFromSourceUrl` returns null in
+ *    the app. Ruled out: the fixture URL (verified byte-for-byte against the
+ *    adapter's own `encodedPageUrl`), double-encoding (a pre-encoded slug IS a
+ *    trap, but the raw one encodes to exactly the URL that works), and the
+ *    source being down. So the app drops this book somewhere between the page
+ *    fetch and the import — AC5 needs TWO books per source, so this is the
+ *    open item for SluhayUA.
+ *
+ *    Trap worth knowing: pass slugs UN-encoded. A pre-encoded slug gets
+ *    double-encoded (`%D1%96` -> `%25D1%2596`) and the import fails silently,
+ *    which mimics an app defect.
  * 2. **Chapter count differs from the page.** The page advertises 8 chapters
  *    for «Марко Проклятий» and all eight `/play?fileId=` calls answer from a
  *    desktop curl, but the app resolved **5**. Asserting 8 here would assert

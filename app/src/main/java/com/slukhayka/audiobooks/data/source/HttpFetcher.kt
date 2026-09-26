@@ -186,10 +186,30 @@ open class HttpFetcher(
      * The short cache lets an interrupted resolution reuse completed pages.
      * Pacing stays here at the shared transport, not inside source adapters.
      */
-    open suspend fun awaitListenerText(url: String, cacheTtlMillis: Long = 5 * 60_000L): String {
+    open suspend fun awaitListenerText(url: String, cacheTtlMillis: Long = 5 * 60_000L): String =
+        awaitListenerText(url, cacheTtlMillis, emptyMap())
+
+    /**
+     * #1037 — the same wait, with request headers.
+     *
+     * One SluhayUA import costs the page fetch PLUS one `/play` call per
+     * chapter, and a 5-chapter book spends the bucket's whole capacity of six.
+     * So the next book's very first request meets an empty bucket; a plain
+     * [getText] turns that refusal into "" (measured on device: 1 ms, no
+     * network call), the parser reads "no chapters", and the import returns
+     * null with nothing to show for it.
+     *
+     * Waiting is what [awaitListenerText] already exists for; the header
+     * variant simply lets the SluhayUA door use it too.
+     */
+    open suspend fun awaitListenerText(
+        url: String,
+        cacheTtlMillis: Long,
+        extraHeaders: Map<String, String>
+    ): String {
         while (true) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            when (val result = fetchText(url, SourceRequestClass.LISTENER_ACTION, cacheTtlMillis)) {
+            when (val result = fetchText(url, SourceRequestClass.LISTENER_ACTION, cacheTtlMillis, extraHeaders)) {
                 is GateOutcome.Fresh -> return result.value
                 is GateOutcome.Fetched -> return result.value
                 is GateOutcome.Deferred -> kotlinx.coroutines.delay(result.retryAfterMs.coerceAtLeast(1L))

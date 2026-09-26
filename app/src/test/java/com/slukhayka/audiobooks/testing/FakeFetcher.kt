@@ -88,6 +88,17 @@ open class FakeFetcher(
 
     override suspend fun awaitListenerText(url: String, cacheTtlMillis: Long): String = getText(url)
 
+    /**
+     * #1037 — the header-aware waiting door. It must be covered here too:
+     * without this override the call falls through to the REAL transport, so
+     * every adapter fixture silently hit the network.
+     */
+    override suspend fun awaitListenerText(
+        url: String,
+        cacheTtlMillis: Long,
+        extraHeaders: Map<String, String>
+    ): String = getText(url, extraHeaders, SourceRequestClass.LISTENER_ACTION, cacheTtlMillis)
+
     override fun getText(url: String): String {
         requestedUrls += url
         return responses[url] ?: fallback

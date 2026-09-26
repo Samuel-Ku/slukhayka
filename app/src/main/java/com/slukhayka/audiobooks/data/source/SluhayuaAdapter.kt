@@ -106,7 +106,12 @@ class SluhayuaAdapter(
             .map { it.toSourceBook() }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(encodedPageUrl(url), emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
+        // #1037 — one import costs this page PLUS one /play call per chapter,
+        // and a 5-chapter book spends the bucket's whole capacity of six, so
+        // the next book meets an empty bucket on its first request. This door
+        // WAITS that out; plain getText returns "" for a deferral, which the
+        // line below cannot tell from a page that genuinely has no chapters.
+        val html = fetcher.awaitListenerText(encodedPageUrl(url), cacheTtlMillis = 0L, extraHeaders = emptyMap())
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
         // Spec-35 T6: the page-level profile rows — «Час запису:» (MM:SS or
@@ -134,7 +139,13 @@ class SluhayuaAdapter(
 
         val chapters = mutableListOf<SourceChapter>()
         for (fileId in 0 until chapterCount) {
-            val stream = fetcher.getText("https://sluhay.com.ua/play?bookId=$bookId&fileId=$fileId", XHR, SourceRequestClass.LISTENER_ACTION, 0L).trim()
+            // #1037 — same reason as the page fetch: a deferral must not be
+            // read as an end-of-playlist (that also truncated the list — #1035).
+            val stream = fetcher.awaitListenerText(
+                "https://sluhay.com.ua/play?bookId=$bookId&fileId=$fileId",
+                cacheTtlMillis = 0L,
+                extraHeaders = XHR
+            ).trim()
             if (stream.isEmpty() || stream == "0" || stream == "404" || !stream.startsWith("http")) break
             chapters += SourceChapter(title = "Глава ${chapters.size + 1}", streamUrl = stream)
         }

@@ -58,8 +58,12 @@ ADR-0035) входять локальним Source `youtube` через «+ До
 | `sluhayua` | Григорій Квітка-Основ'яненко — Сердешна Оксана | `/find/allcards?search=квітка` | 7 | `/play?bookId=5931576&fileId=N` | 200 |
 | `soundbooks` | Роберт Шеклі — Безглузді запитання | `/zarubizhna-literatura/2827-bezgluzdi-zapytannia.html` | 1 | m3u → `arch.sound-books.net/3261/…mp3?expires=…` | GET 200 `audio/mpeg`; RANGE 206 |
 | `soundbooks` | Джоан Ролінґ — Гаррі Поттер і таємна кімната | `/zarubizhna-literatura/1860-garri-potter-i-taiemna-kimnata.html` | 1 | m3u → `reasd.org/2519/…mp3?expires=…` | 200 |
+| `soundbooks` | Ярослав Гашек — Пригоди бравого вояка Швейка | `/zarubizhna-literatura/2790-prygody-bravogo-voiaka-shveika.html` | 120 | m3u → `reasd.org/347/…` | 200 |
+| `soundbooks` | Убивство під час дощу | `/zarubizhna-literatura/2581-ubyvstvo-pid-chas-doshchu.html` | 12 | m3u → `arch.sound-books.net/322/01.mp3` | GET 200 `audio/mpeg`; RANGE 206 |
 | `audiobookmp3` | Браян Ламлі — Мій дивний пятниця | `/uk-audio-6217-brajan-lamli-mij-divnij-pjatnicja` | 1 | `.pl.txt` → JSON `[{title,file}]` → `redirectto.cc/…/track-0.mp3` | GET 200 `audio/mpeg` 43 548 672 B; RANGE 206 |
-| `audiobookmp3` | Кассандра Клевеленд — Мовчазна пацієнтка | `/uk-audio-6287-movchazna-paciyentka` | ≥1 | те саме | 200 |
+| `audiobookmp3` | Джек Лондон — Жага до життя | `/uk-audio-1246-dzhek-london-zhaga-do-zhittja` | 14 | `.pl.txt` → `redirectto.cc/…/track-0.mp3` | GET 200 `audio/mpeg` 7 908 017 B; RANGE 206 |
+| `audiobookmp3` | Крессіда Коельо — Як приборкати дракона | `/uk-audio-5523-kressida-kouell-jak-priborkati-drakona` | 2 | те саме | 200 |
+| `audiobookmp3` | Кассандра Клевеленд — Мовчазна пацієнтка | `/uk-audio-6287-movchazna-paciyentka` | **0** | — | ⚠ непридатна для фікстур (порожній плейлист) |
 | `lihtar` | (стрім-онлі) Олена і Тимур Литовченки — І знову про любов | `lihtar.in.ua/biblioteka/…/i-znovu-pro-lubov` | — | JS-плеєр; прямого mp3 у HTML немає | потребує UI-прогону, не перевірки мережею |
 
 ### Що ламається і як

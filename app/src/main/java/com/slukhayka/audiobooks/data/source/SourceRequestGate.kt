@@ -133,6 +133,41 @@ class SourceRequestGate(
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<GateOutcome<Any?>>>()
     private val mouths = ConcurrentHashMap<String, HostMouth>()
 
+    // --- #533 AC8: request accounting -------------------------------------
+    //
+    // The acceptance criterion asks for a REQUEST COUNT per action, proving the
+    // lease, one-page and three-candidate budgets. Until now the gate kept no
+    // counters at all, so that could only be eyeballed in logcat — which is how
+    // a budget regression stays invisible. These maps make the numbers
+    // observable (and testable) without changing any decision.
+    private val requestCounts = ConcurrentHashMap<SourceRequestClass, java.util.concurrent.atomic.AtomicLong>()
+    private val outcomeCounts = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    /** How many requests of each class the gate has admitted, since start. */
+    fun requestsByClass(): Map<SourceRequestClass, Long> =
+        requestCounts.mapValues { it.value.get() }
+
+    /**
+     * How many times each outcome was returned: `fresh`, `fetched`,
+     * `deferred`, `unavailable`. `deferred` is the one worth watching — it is
+     * a request the source never saw because OUR budget refused it.
+     */
+    fun outcomes(): Map<String, Long> = outcomeCounts.mapValues { it.value.get() }
+
+    private fun countRequest(requestClass: SourceRequestClass) {
+        requestCounts.computeIfAbsent(requestClass) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
+    }
+
+    private fun countOutcome(name: String) {
+        outcomeCounts.computeIfAbsent(name) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
+    }
+
+    /** Test seam: forget every counter (the gate's decisions are untouched). */
+    fun resetMetrics() {
+        requestCounts.clear()
+        outcomeCounts.clear()
+    }
+
     /**
      * One gated request. [cacheTtlMillis] > 0 opts the call into the fresh
      * cache (positive results for its TTL, failures for [SourceGateParams.negativeTtlMs]);
@@ -148,7 +183,10 @@ class SourceRequestGate(
         fetch: suspend () -> T?
     ): GateOutcome<T> {
         if (cacheTtlMillis > 0L) {
-            cached(url)?.let { entry -> return entry.toOutcome() }
+            cached(url)?.let { entry ->
+                countOutcome("fresh")
+                return entry.toOutcome()
+            }
         }
 
         val leader = CompletableDeferred<GateOutcome<Any?>>()
@@ -181,20 +219,28 @@ class SourceRequestGate(
         val host = hostOf(url)
         val admission = admit(host, requestClass, canWait)
         when (admission) {
-            is Admission.Deferred -> return GateOutcome.Deferred(admission.retryAfterMs)
+            is Admission.Deferred -> {
+                // #533 AC8 — a deferred request never reaches the source; that
+                // is exactly the number the budgets are judged by.
+                countOutcome("deferred")
+                return GateOutcome.Deferred(admission.retryAfterMs)
+            }
             is Admission.Granted -> budgetStore.save(host, admission.state)
         }
+        countRequest(requestClass)
 
         val value = fetch()
         if (value == null) {
             if (cacheTtlMillis > 0L && params.negativeTtlMs > 0L) {
                 cache[url] = CacheEntry(null, clock(), params.negativeTtlMs)
             }
+            countOutcome("unavailable")
             return GateOutcome.Unavailable
         }
         if (cacheTtlMillis > 0L) {
             cache[url] = CacheEntry(value, clock(), cacheTtlMillis)
         }
+        countOutcome("fetched")
         return GateOutcome.Fetched(value)
     }
 

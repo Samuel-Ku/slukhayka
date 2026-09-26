@@ -36,20 +36,20 @@ import org.junit.Test
  *
  * Two gaps found while building this, both recorded rather than papered over:
  *
- * 1. **A second SluhayUA book does not import.** «Сердешна Оксана»
- *    (`https://sluhay.com.ua/5931576:grigorіj-kvіtka-osnovjanenko-serdjeshna-oksana`,
- *    RAW slug — the adapter encodes it itself) answers 200 with **7 playlist
- *    entries** to a plain HTTP GET, yet `importFromSourceUrl` returns null in
- *    the app. Ruled out: the fixture URL (verified byte-for-byte against the
- *    adapter's own `encodedPageUrl`), double-encoding (a pre-encoded slug IS a
- *    trap, but the raw one encodes to exactly the URL that works), and the
- *    source being down. So the app drops this book somewhere between the page
- *    fetch and the import — AC5 needs TWO books per source, so this is the
- *    open item for SluhayUA.
+ * 1. **Ordering matters, and it fooled me once.** An earlier revision
+ *    imported the second SluhayUA book while the previous fixture was still
+ *    PLAYING, and the import returned null. A standalone probe on the same
+ *    build imported that exact URL successfully (title «Сердешна Оксана»), so
+ *    the null was this test's sequencing rather than an app defect. The loop
+ *    now stops playback before the next import — but NOTE: the 4-fixture run
+ *    that change enables has NOT been observed green yet (the emulator was
+ *    lost to a missing /dev/kvm mid-verification). The 3-fixture set was green
+ *    on 2026-09-26 before the second SluhayUA fixture was added back.
  *
- *    Trap worth knowing: pass slugs UN-encoded. A pre-encoded slug gets
- *    double-encoded (`%D1%96` -> `%25D1%2596`) and the import fails silently,
- *    which mimics an app defect.
+ *    Trap worth knowing: pass slugs UN-encoded. `SluhayuaAdapter.encodedPageUrl`
+ *    encodes the slug itself, so a pre-encoded one is double-encoded
+ *    (`%D1%96` -> `%25D1%2596`) and the import fails silently — which mimics an
+ *    app defect.
  * 2. **Chapter count differs from the page.** The page advertises 8 chapters
  *    for «Марко Проклятий» and all eight `/play?fileId=` calls answer from a
  *    desktop curl, but the app resolved **5**. Asserting 8 here would assert
@@ -70,6 +70,16 @@ class LiveStreamingSourcesTest {
             // answer from a desktop curl. The APP resolved 5 on the emulator
             // (2026-09-26) — recorded, not explained; asserting 8 here would be
             // asserting my curl, not the app. See the class doc.
+            minChapters = 1
+        ),
+        Fixture(
+            sourceId = "sluhayua",
+            // Raw slug: the adapter encodes it itself (see the class doc).
+            // A standalone probe on this build imported this very URL fine, so
+            // the earlier "import returned null" was THIS TEST's sequencing,
+            // not an app defect.
+            url = "https://sluhay.com.ua/5931576:grigorіj-kvіtka-osnovjanenko-serdjeshna-oksana",
+            expectedTitle = "Сердешна Оксана",
             minChapters = 1
         ),
         Fixture(
@@ -110,6 +120,12 @@ class LiveStreamingSourcesTest {
         try {
             for (fixture in fixtures) {
                 val label = "${fixture.sourceId}: ${fixture.expectedTitle}"
+                // Nothing of the previous fixture may still be playing: an
+                // earlier revision imported the next book mid-playback and got
+                // a null import (see finding 1 in the class doc).
+                rule.runOnUiThread { vm.playerManager.stopAndClear() }
+                rule.waitUntil(15_000) { vm.playerState.value.currentBook == null }
+
                 // 1. Import: discovery → page → chapters, through the adapter.
                 val book = runBlocking {
                     app.libraryImport.importFromSourceUrl(fixture.sourceId, fixture.url)

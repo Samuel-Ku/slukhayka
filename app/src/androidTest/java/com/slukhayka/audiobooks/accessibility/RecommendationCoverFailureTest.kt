@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.test.rule.GrantPermissionRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -23,7 +24,15 @@ import org.junit.Test
 
 /** Renders a failed cover without modifying the listener's library or network settings. */
 class RecommendationCoverFailureTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    // The app asks for POST_NOTIFICATIONS in MainActivity.onCreate. Without the
+    // grant the system dialog takes the foreground, the activity never reaches
+    // RESUMED and NO Compose root exists — every semantics query then fails on
+    // an empty hierarchy (docs/runbooks/instrumented-suites.md, trap 2).
+    @get:Rule(order = 0)
+    val notificationPermission: GrantPermissionRule =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
+    @get:Rule(order = 1) val rule = createAndroidComposeRule<MainActivity>()
 
     @Test fun failedCoverKeepsRecommendationReadableAndClickable() {
         val failed = AtomicBoolean(false)

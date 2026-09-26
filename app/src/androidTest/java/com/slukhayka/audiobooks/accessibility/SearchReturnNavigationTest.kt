@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.accessibility
 
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.test.rule.GrantPermissionRule
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.ViewModelProvider
@@ -13,7 +14,15 @@ import org.junit.Test
 
 /** Search remains visible and can be cleared after leaving Overview. */
 class SearchReturnNavigationTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    // The app asks for POST_NOTIFICATIONS in MainActivity.onCreate. Without the
+    // grant the system dialog takes the foreground, the activity never reaches
+    // RESUMED and NO Compose root exists — every semantics query then fails on
+    // an empty hierarchy (docs/runbooks/instrumented-suites.md, trap 2).
+    @get:Rule(order = 0)
+    val notificationPermission: GrantPermissionRule =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
+    @get:Rule(order = 1) val rule = createAndroidComposeRule<MainActivity>()
 
     @Test fun permanentSearchFieldIsEditableOnArrival() {
         val vm = ViewModelProvider(rule.activity)[MainViewModel::class.java]

@@ -44,6 +44,29 @@ import java.util.concurrent.TimeUnit
 class LiveSourceRegressionTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
+    private companion object {
+        /**
+         * #1029 — the SoundBooks fixture, and why it is not «Доктор Сон».
+         *
+         * The old fixture (`/zarubizhna-literatura/2841-doktor-son.html`) now
+         * answers **301** to the section index: the book was removed from the
+         * site (its sibling `2851-temna-materiia.html` still answers 200). The
+         * site's own search still links the dead URL, so it cannot be trusted
+         * as a liveness check.
+         *
+         * This replacement was verified live on 2026-09-26: page 200 → m3u →
+         * **120** chapters on `reasd.org` (the host the assertions below pin),
+         * chapter 1 → HTTP 200 `audio/mpeg`, HTTP 206 on a Range request. The
+         * assertions were relaxed from the old fixture's exact numbers (24
+         * chapters, `/4769/`) to facts this book genuinely has — a hardcoded
+         * chapter count is exactly what rots.
+         */
+        const val SOUNDBOOKS_FIXTURE_URL =
+            "https://sound-books.net/zarubizhna-literatura/2790-prygody-bravogo-voiaka-shveika.html"
+        const val SOUNDBOOKS_FIXTURE_TITLE = "Пригоди бравого вояка Швейка"
+        const val SOUNDBOOKS_FIXTURE_MIN_CHAPTERS = 100
+    }
+
     @Test fun realSourcesRecoverAndKeepBookMetadata() {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue(args.getString("liveSources") == "true")
@@ -125,7 +148,7 @@ class LiveSourceRegressionTest {
             Log.i("LiveSourceRegression", "PASS Soundbooks: audio advances, URL refreshed=$refreshed, same source, clean stored/player title")
             rule.runOnUiThread { vm.playerManager.stopAndClear() }
 
-            assertDoctorSleepPlays(vm)
+            assertSoundBooksFixturePlays(vm)
             rule.runOnUiThread { vm.playerManager.stopAndClear() }
 
             val archive = requireNotNull(com.slukhayka.audiobooks.data.source.HttpFetcher().getRangeStream(
@@ -164,7 +187,7 @@ class LiveSourceRegressionTest {
         }
     }
 
-    @Test fun reasdDoctorSleepPlaysBookNotNotice() {
+    @Test fun reasdSoundBooksFixturePlaysBookNotNotice() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("liveSources") == "true")
         // Isolation is the runner's job (IsolatedDatabaseTestRunner); assert it
         // is really in force rather than trusting a build-type suffix that does
@@ -177,30 +200,36 @@ class LiveSourceRegressionTest {
         }
         val vm = ViewModelProvider(rule.activity)[MainViewModel::class.java]
         try {
-            assertDoctorSleepPlays(vm)
+            assertSoundBooksFixturePlays(vm)
         } finally {
             rule.runOnUiThread { vm.playerManager.stopAndClear() }
         }
     }
 
-    private fun assertDoctorSleepPlays(vm: MainViewModel) {
+    private fun assertSoundBooksFixturePlays(vm: MainViewModel) {
         // Go straight from the source page to Media3. A preliminary browser
         // or HTTP audio probe would warm the CDN and mask missing headers.
-        val doctor = runBlocking {
+        val fixtureBook = runBlocking {
             App.instance.libraryImport.importFromSourceUrl(
-                "soundbooks", "https://sound-books.net/zarubizhna-literatura/2841-doktor-son.html"
+                "soundbooks", SOUNDBOOKS_FIXTURE_URL
             )
-        } ?: error("Doctor Sleep import failed")
-        assertEquals("Доктор Сон", doctor.title)
+        } ?: error("SoundBooks fixture «$SOUNDBOOKS_FIXTURE_TITLE» import failed")
+        assertEquals(SOUNDBOOKS_FIXTURE_TITLE, fixtureBook.title)
         rule.runOnUiThread {
-            vm.playAudiobook(doctor, chapterIndex = 0)
+            vm.playAudiobook(fixtureBook, chapterIndex = 0)
             vm.setShowFullPlayer(true)
         }
         rule.waitUntil(90_000) {
-            vm.playerState.value.let { it.currentBook?.id == doctor.id && it.isPlaying }
+            vm.playerState.value.let { it.currentBook?.id == fixtureBook.id && it.isPlaying }
         }
-        assertEquals(24, vm.playerState.value.chapters.size)
-        assertTrue(vm.playerState.value.currentStreamUrl.startsWith("https://reasd.org/4769/"))
+        assertTrue(
+            "expected ${SOUNDBOOKS_FIXTURE_MIN_CHAPTERS}+ chapters, got ${vm.playerState.value.chapters.size}",
+            vm.playerState.value.chapters.size >= SOUNDBOOKS_FIXTURE_MIN_CHAPTERS
+        )
+        assertTrue(
+            "stream was ${vm.playerState.value.currentStreamUrl}",
+            vm.playerState.value.currentStreamUrl.startsWith("https://reasd.org/")
+        )
         assertTrue("The chapter is longer than the 52-second notice", vm.playerState.value.durationMs > 60_000)
         assertAdvances(vm)
         rule.runOnUiThread { vm.playerManager.seekTo(60_000) }
@@ -216,8 +245,12 @@ class LiveSourceRegressionTest {
         assertTrue(vm.playerState.value.durationMs > 60_000)
         assertAdvances(vm)
         rule.waitForIdle()
-        screenshot("reasd-doctor-playing")
-        Log.i("LiveSourceRegression", "PASS Doctor Sleep: reasd audio, 24 chapters, seek past 60 seconds, next chapter plays")
+        screenshot("reasd-soundbooks-fixture-playing")
+        Log.i(
+            "LiveSourceRegression",
+            "PASS SoundBooks fixture «$SOUNDBOOKS_FIXTURE_TITLE»: reasd audio, " +
+                "${vm.playerState.value.chapters.size} chapters, seek past 60 seconds, next chapter plays"
+        )
     }
 
     private fun assertAdvances(vm: MainViewModel) {

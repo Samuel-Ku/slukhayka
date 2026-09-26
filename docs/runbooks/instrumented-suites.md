@@ -71,7 +71,27 @@ adb shell getprop sys.boot_completed   # 1 — можна запускати
 2. **Дозволи.** Застосунок просить `POST_NOTIFICATIONS` на старті
    (`MainActivity.onCreate`). Без `GrantPermissionRule` системний діалог
    виходить на передній план, активність не досягає RESUMED — і Compose-кореня
-   немає взагалі. Так падав `SettingsNavigationTest`.
+   немає взагалі. Так падали `SettingsNavigationTest`, `LanguageFilterTest`,
+   `RecommendationCoverFailureTest` і `SearchReturnNavigationTest` (усі — #766 A
+   і #1024).
+
+   **Симптом оманливий:** падає не з «немає дозволу», а з таймауту на
+   очікуванні якогось тега (`Condition still not satisfied after 20000 ms`) або
+   з `No compose hierarchies found`. Читається як «екран не завантажився» і
+   легко заводить у хибний бік — я сам спершу вирішив, що стрічка не має
+   живих даних.
+
+   **Перевірка списком** (усі, хто стоїть на `MainActivity` і не мають правила):
+
+   ```bash
+   for f in app/src/androidTest/java/com/slukhayka/audiobooks/*/*.kt; do
+     grep -q 'createAndroidComposeRule<MainActivity>' "$f" || continue
+     grep -q GrantPermissionRule "$f" || echo "MISSING: $f"
+   done
+   ```
+
+   `@Ignore`-«живі» тести (`Live*`) на капкан не натрапляють — вони
+   пропускаються, тож чіпати їх не треба.
 3. **`UiAutomation`.** Зовнішній демон `app_process` (mobilecli) тримає
    `UiAutomation` зайнятим, і тоді падає кожен інструментований тест:
    `adb shell pkill -f app_process` перед прогоном.

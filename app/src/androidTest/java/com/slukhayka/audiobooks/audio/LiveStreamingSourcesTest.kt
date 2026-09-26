@@ -176,11 +176,39 @@ class LiveStreamingSourcesTest {
                     vm.playerState.value.currentStreamUrl.startsWith("http")
                 )
 
+                // 3. PAUSE: the position must freeze while paused.
+                rule.runOnUiThread { vm.playerManager.pause() }
+                rule.waitUntil(15_000) { !vm.playerState.value.isPlaying }
+                val pausedAt = vm.playerState.value.currentPositionMs
+                Thread.sleep(2_500)
+                assertTrue(
+                    "$label — position moved while paused ($pausedAt -> ${vm.playerState.value.currentPositionMs})",
+                    vm.playerState.value.currentPositionMs <= pausedAt + 1_000
+                )
+
+                // 4. SEEK: past the 52-second source notice where one exists
+                //    (SoundBooks serves one), and forward for the rest.
+                val seekTarget = if (fixture.sourceId == "soundbooks") 70_000L else 30_000L
+                rule.runOnUiThread { vm.playerManager.seekTo(seekTarget) }
+                rule.waitUntil(30_000) {
+                    vm.playerState.value.currentPositionMs >= seekTarget - 5_000
+                }
+                rule.runOnUiThread { vm.playerManager.play() }
+                val resumedAt = vm.playerState.value.currentPositionMs
+                rule.waitUntil(20_000) {
+                    vm.playerState.value.isPlaying && vm.playerState.value.currentPositionMs > resumedAt
+                }
+                assertTrue(
+                    "$label — lastErrorMsg after seek was «${vm.playerState.value.lastErrorMsg}»",
+                    vm.playerState.value.lastErrorMsg.isBlank()
+                )
+
                 Log.i(
                     "LiveStreamingSources",
-                    "PASS $label — chapters=${playable.size} stream=${vm.playerState.value.currentStreamUrl}"
+                    "PASS $label — chapters=${playable.size} stream=${vm.playerState.value.currentStreamUrl} " +
+                        "pause/seek ok (played to $pausedAt, seek to $seekTarget)"
                 )
-                results += "$label — ${playable.size} chapters, position advanced"
+                results += "$label — ${playable.size} chapters, position advanced, pause held, seek resumed"
 
                 rule.runOnUiThread { vm.playerManager.stopAndClear() }
             }

@@ -214,6 +214,7 @@ class InstrumentedCoverageGuardTest {
             "LiveStreaming" + "Sources",
             "LiveLocal" + "Chapter",
             "LiveResume" + "AfterRestart",
+            "LiveLihtar" + "StreamOnly",
             "LiveBookDetail" + "Actions",
             "LiveBrowser" + "Recovery",
             "LiveCandidate" + "Playback",

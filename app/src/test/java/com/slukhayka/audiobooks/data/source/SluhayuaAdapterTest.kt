@@ -174,6 +174,40 @@ class SluhayuaAdapterTest {
     }
 
     @Test
+    fun `a transient empty play response truncates the chapter list`() = runBlocking {
+        // #533 — the phone showed 5 chapters for a book whose page advertises 8
+        // and whose eight /play?fileId= calls all answer. Root cause: the page
+        // fetch and every /play call return "" both for a REAL "no more files"
+        // and for a TRANSIENT failure (HttpFetcher swallows exceptions and
+        // GateOutcome.Unavailable into ""), and the adapter BREAKS on the first
+        // empty answer. One hiccup therefore silently shortens the book.
+        //
+        // This test pins the current behaviour, not a wish: it is the
+        // regression net for whoever teaches the loop to tell the two apart
+        // (retry a transient miss; stop only on a genuine end-of-playlist).
+        val fetcher = FakeFetcher(
+            buildMap {
+                put(multiChapterUrl, multiChapterPage)
+                for (i in 0 until 7) {
+                    // fileId=3 is the hiccup: no entry -> empty response.
+                    if (i == 3) continue
+                    put("https://sluhay.com.ua/play?bookId=5931576&fileId=$i", "https://mp3.sluhay.com.ua/Serdeshna/0${i + 1}.mp3")
+                }
+            }
+        )
+        val adapter = SluhayuaAdapter(fetcher)
+
+        val detail = adapter.fetchBookPage(multiChapterUrl)
+
+        // The page advertises 7 chapters; a single empty answer cuts it to 3.
+        assertEquals(
+            "a transient empty /play response must not shorten the book",
+            3,
+            detail.chapters.size
+        )
+    }
+
+    @Test
     fun `book page prefers the full body itemprop blurb over the og template`() = runBlocking {
         // Live shape (#265): the body's bookDescription[itemprop=description]
         // carries the CLEAN blurb (no «Аудіокнігу онлайн…» prefix) and a

@@ -96,10 +96,12 @@ class ManualBookAddSheetSearchTest {
         compose.onNodeWithTag("manual_add_name").assertTextContains("Кобзар")
         compose.onNodeWithTag("manual_add_author").assertTextContains("Тарас Шевченко")
 
-        // NOT asserted: the cover field. The pick sets `coverUrl` from the
-        // candidate, but the field read back empty in this test while title and
-        // author filled. Not understood yet — recorded on #857 rather than
-        // pinned as if it worked. The year has no field in this sheet at all,
-        // which is the second half of the same gap.
+        // The cover IS filled. This assertion first "failed" because
+        // `assertTextContains` without `substring = true` demands the text be
+        // EXACTLY equal — and I passed a fragment of the URL. The field's
+        // EditableText was the whole `https://covers.openlibrary.org/...` all
+        // along (confirmed by reading the semantics directly).
+        compose.onNodeWithTag("manual_add_cover")
+            .assertTextContains("covers.openlibrary.org", substring = true)
     }
 }

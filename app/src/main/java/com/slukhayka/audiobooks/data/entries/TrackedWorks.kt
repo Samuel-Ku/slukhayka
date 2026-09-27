@@ -110,7 +110,15 @@ class TrackedWorks(
      * a card without its Work. Tests inject an in-memory transaction; the
      * default is a pass-through.
      */
-    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() },
+    /**
+     * #856 (T3) — a tracked Work is under Source Watch from the moment it
+     * exists: the listener asked to be told when audio shows up, so arming the
+     * watch is part of creating it, not a separate gesture they must discover.
+     * Injected so the module stays testable without SharedPreferences; null in
+     * tests that do not exercise the watch.
+     */
+    private val watchSource: (mergeKey: String, workId: String) -> Unit = { _, _ -> }
 ) {
 
     sealed interface Result {
@@ -161,12 +169,12 @@ class TrackedWorks(
                 claimed = work.coverUrl,
                 current = existing.coverImageUrl
             )
-            return Result.AlreadyTracked(
-                work.copy(
-                    bookId = existing.id,
-                    workId = existing.workId?.takeIf { it.isNotBlank() } ?: work.workId
-                )
+            val resolved = work.copy(
+                bookId = existing.id,
+                workId = existing.workId?.takeIf { it.isNotBlank() } ?: work.workId
             )
+            runCatching { watchSource(resolved.mergeKey, resolved.workId) }
+            return Result.AlreadyTracked(resolved)
         }
 
         writeBatchRunner {
@@ -218,6 +226,9 @@ class TrackedWorks(
         // Best-effort and silent by the seam's contract: a failing mirror
         // never breaks the manual write.
         runCatching { workRelationshipsSync?.pushEntry(work.mergeKey, work.title, work.author) }
+
+        // #856 — under watch from the moment it exists.
+        runCatching { watchSource(work.mergeKey, work.workId) }
 
         return Result.Added(work)
     }

@@ -38,7 +38,9 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
@@ -96,6 +98,10 @@ fun ListenScreen(
         viewModel.loadNextInSeries(heroBook)
     }
 
+    // #962 — a landscape phone is wide but short; the header drops to its name
+    // and actions on one line there, exactly as the other three roots do.
+    val landscapePhone = rememberIsLandscapePhoneWindow()
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -106,16 +112,22 @@ fun ListenScreen(
         // нею, тож список не додає нічого.
         contentPadding = PaddingValues(bottom = 0.dp)
     ) {
-        // ADR-0049 / #860 — the gear sits in the SAME place on every root, and
-        // it is the FIRST item so a fresh install (the empty state below)
-        // can reach Settings too.
+        // v1.4 C5 (#568) — the LAST tab to get the one header model. It used to
+        // render a bare gear in a Row: no title, so «Слухати» was the only root
+        // that did not name itself, and its gear sat on a line of its own
+        // instead of beside the name as on Огляд, Мої книги and Друзі.
+        //
+        // The title comes from the SAME resource the bottom bar uses
+        // (spec-54 T06 / #873), so a literal here cannot drift from the tab.
         item {
-            androidx.compose.foundation.layout.Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End
-            ) {
-                com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
-            }
+            AppTabHeader(
+                title = stringResource(R.string.nav_listen),
+                headingTestTag = "listen_heading",
+                compact = landscapePhone,
+                actions = {
+                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
+                }
+            )
         }
         // Fresh install: placeholder hero + clear next actions.
         if (allBooks.isEmpty()) {

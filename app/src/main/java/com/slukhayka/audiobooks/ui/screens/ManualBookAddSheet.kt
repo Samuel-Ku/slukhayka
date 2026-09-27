@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import com.slukhayka.audiobooks.data.bibliography.BibliographyCandidate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -117,12 +119,22 @@ fun ManualBookAddSheet(
                             enabled = searchQuery.isNotBlank() && !searching,
                             onClick = {
                                 searching = true
-                                scope.launch {
-                                    candidates = runCatching {
+                                // The bibliography door is a NETWORK call:
+                                // on the main dispatcher OkHttp throws
+                                // NetworkOnMainThreadException and the surface
+                                // would report an honest-looking "nothing
+                                // found" for a request that never left the
+                                // device. Found on the emulator, not in JVM
+                                // tests — hence the explicit IO dispatcher.
+                                scope.launch(Dispatchers.IO) {
+                                    val found = runCatching {
                                         onSearchBibliography(searchQuery)
                                     }.getOrDefault(emptyList())
-                                    searched = true
-                                    searching = false
+                                    withContext(Dispatchers.Main) {
+                                        candidates = found
+                                        searched = true
+                                        searching = false
+                                    }
                                 }
                             },
                             modifier = Modifier.testTag("manual_add_search_go")

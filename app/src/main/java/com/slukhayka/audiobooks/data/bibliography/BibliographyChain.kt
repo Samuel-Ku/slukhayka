@@ -43,7 +43,13 @@ package com.slukhayka.audiobooks.data.bibliography
  */
 class BibliographyChain(
     private val primary: OpenLibraryBibliography,
-    private val fallback: GoogleBooksBibliography
+    /**
+     * The ISBN fallback. Null while no Web Transport origin is configured —
+     * the provider cannot exist without one (#858 hides the Google Books key
+     * behind that worker, and a keyless GB answers 429), so an unconfigured
+     * install has an honest primary-only chain rather than a fabricated base.
+     */
+    private val fallback: GoogleBooksBibliography? = null
 ) {
 
     /**
@@ -55,7 +61,7 @@ class BibliographyChain(
         val primaryOutcome = primary.isbn(raw)
         if (primaryOutcome !is BibliographyOutcome.Found) return primaryOutcome
         if (primaryOutcome.value.isNotEmpty()) return primaryOutcome
-        return fallback.isbn(raw)
+        return fallback?.isbn(raw) ?: primaryOutcome
     }
 
     /**

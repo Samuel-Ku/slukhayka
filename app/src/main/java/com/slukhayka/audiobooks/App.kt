@@ -230,6 +230,22 @@ class App : Application() {
             )
         }
 
+    /**
+     * #857 (T4) — the external-bibliography chain: Open Library primary,
+     * Google Books confined to the ISBN fallback (#858). Both providers
+     * default their transport and resolve the politeness gate at CALL time,
+     * so this lazy value does not depend on install order.
+     */
+    val bibliographyChain: com.slukhayka.audiobooks.data.bibliography.BibliographyChain
+        by lazy {
+            com.slukhayka.audiobooks.data.bibliography.BibliographyChain(
+                primary = com.slukhayka.audiobooks.data.bibliography.OpenLibraryBibliography()
+                // No fallback yet: Google Books needs a Web Transport origin
+                // (#858) that this build does not configure, and a keyless GB
+                // answers 429. The search door is Open Library's alone anyway.
+            )
+        }
+
     /** #876 — the write path of reading progress (journal, finish, re-read). */
     val readingProgressRecorder: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder
         by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }

@@ -1,5 +1,9 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import com.slukhayka.audiobooks.data.bibliography.BibliographyCandidate
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,6 +61,13 @@ fun ManualBookAddSheet(
     onDismiss: () -> Unit,
     /** ADR-0053 / #854 — title + author of a tracked Work (no audio yet). */
     onAddTracked: (title: String, author: String, coverUrl: String?) -> Unit,
+    /**
+     * #857 (T4) — the external-bibliography door: given a query, the provider
+     * answers candidates (title, authors, year, cover). Null hides the search
+     * row entirely, so every existing host and test keeps today's sheet
+     * byte-for-byte.
+     */
+    onSearchBibliography: (suspend (String) -> List<BibliographyCandidate>)? = null,
     now: Long = System.currentTimeMillis()
 ) {
     var title by rememberSaveable { mutableStateOf("") }
@@ -66,6 +77,13 @@ fun ManualBookAddSheet(
     var coverUrl by rememberSaveable { mutableStateOf("") }
     var wantsToRead by rememberSaveable { mutableStateOf(false) }
     var importedOwnFile by rememberSaveable { mutableStateOf(false) }
+    // #857 — the corner's search: a query, its candidates and the honest
+    // "partly answered / nothing found" state.
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var candidates by remember { mutableStateOf<List<BibliographyCandidate>>(emptyList()) }
+    var searched by remember { mutableStateOf(false) }
+    var searching by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val canAdd = title.isNotBlank() && author.isNotBlank()
 
@@ -79,6 +97,70 @@ fun ManualBookAddSheet(
                     .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState())
             ) {
+                // #857 (T4) — the search door sits ABOVE the fields: its whole
+                // point is that the listener need not type metadata by hand.
+                // Selecting a candidate FILLS the fields rather than replacing
+                // the form, so a wrong pick stays correctable.
+                if (onSearchBibliography != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            label = { Text(stringResource(R.string.manual_add_search_hint)) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("manual_add_search_query")
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            enabled = searchQuery.isNotBlank() && !searching,
+                            onClick = {
+                                searching = true
+                                scope.launch {
+                                    candidates = runCatching {
+                                        onSearchBibliography(searchQuery)
+                                    }.getOrDefault(emptyList())
+                                    searched = true
+                                    searching = false
+                                }
+                            },
+                            modifier = Modifier.testTag("manual_add_search_go")
+                        ) { Text(stringResource(R.string.manual_add_search)) }
+                    }
+                    if (searched && candidates.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.manual_add_search_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("manual_add_search_empty")
+                        )
+                    }
+                    candidates.forEach { candidate ->
+                        OutlinedButton(
+                            onClick = {
+                                title = candidate.title
+                                candidate.authors.firstOrNull()?.let { author = it }
+                                candidate.coverImageUrl?.let { coverUrl = it }
+                                tracked = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("manual_add_candidate_${candidate.workKey ?: candidate.title}")
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(candidate.title)
+                                val meta = listOfNotNull(
+                                    candidate.authors.firstOrNull(),
+                                    candidate.firstPublishYear?.toString()
+                                ).joinToString(" · ")
+                                if (meta.isNotBlank()) {
+                                    Text(meta, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },

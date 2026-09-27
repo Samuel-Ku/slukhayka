@@ -175,4 +175,54 @@ class BibliographyChainTest {
         assertTrue(outcome is BibliographyOutcome.Deferred)
         assertTrue(harness.googleBooksFetcher.requestedUrls.isEmpty())
     }
+
+    // --- #857 (T4) — the search door --------------------------------------
+
+    @Test
+    fun `search answers from the primary alone`() = runTest {
+        val harness = Harness(
+            openLibraryBody = fixture("openlibrary-search-kobzar-2026-09-18.json"),
+            googleBooksBody = fixture("googlebooks-volumes-isbn-9786177023202.json")
+        )
+
+        val cards = found(harness.chain.search("кобзар"))
+
+        assertTrue("the primary must answer the search", cards.isNotEmpty())
+        assertEquals(
+            "the primary-only door must not consult Google Books at all",
+            0,
+            harness.googleBooksFetcher.requestedUrls.size
+        )
+    }
+
+    @Test
+    fun `a deferred primary search stays deferred - never a silent fallback`() = runTest {
+        val harness = Harness(
+            openLibraryBody = fixture("openlibrary-search-kobzar-2026-09-18.json"),
+            googleBooksBody = fixture("googlebooks-volumes-isbn-9786177023202.json")
+        )
+        harness.drainOpenLibrary()
+
+        val outcome = harness.chain.search("кобзар")
+
+        // #858 scopes GB to the ISBN fallback: a spent OL budget must NOT be
+        // papered over by a keyless Google Books request that would answer 429.
+        assertTrue(
+            "a deferred search must stay deferred, was $outcome",
+            outcome is BibliographyOutcome.Deferred || outcome is BibliographyOutcome.Unavailable
+        )
+        assertEquals(
+            "the fallback must not run for a search",
+            0,
+            harness.googleBooksFetcher.requestedUrls.size
+        )
+    }
+
+    @Test
+    fun `a blank search asks no base and finds nothing`() = runTest {
+        val harness = Harness(openLibraryBody = fixture("openlibrary-search-kobzar-2026-09-18.json"))
+
+        assertEquals(emptyList<BibliographyCandidate>(), found(harness.chain.search("   ")))
+        assertEquals(0, harness.openLibraryFetcher.requestedUrls.size)
+    }
 }

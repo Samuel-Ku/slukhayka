@@ -212,6 +212,7 @@ class InstrumentedCoverageGuardTest {
             // can never be part of an offline CI leg. The first downloads a
             // chapter, the second resumes a saved position.
             "LiveStreaming" + "Sources",
+            "SearchGuards" + "OnDevice",
             "LiveLocal" + "Chapter",
             "LiveResume" + "AfterRestart",
             "LiveLihtar" + "StreamOnly",

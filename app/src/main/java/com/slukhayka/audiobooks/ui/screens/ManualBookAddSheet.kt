@@ -104,17 +104,20 @@ fun ManualBookAddSheet(
                 // Selecting a candidate FILLS the fields rather than replacing
                 // the form, so a wrong pick stays correctable.
                 if (onSearchBibliography != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            label = { Text(stringResource(R.string.manual_add_search_hint)) },
-                            singleLine = true,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("manual_add_search_query")
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                    // Stacked, not side by side: beside the button the field
+                    // collapsed to three wrapped lines and the hint became
+                    // unreadable (seen on the emulator). Full width first.
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text(stringResource(R.string.manual_add_search_hint)) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("manual_add_search_query")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                         Button(
                             enabled = searchQuery.isNotBlank() && !searching,
                             onClick = {

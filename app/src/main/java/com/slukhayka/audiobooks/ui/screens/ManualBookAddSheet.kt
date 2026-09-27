@@ -150,7 +150,13 @@ fun ManualBookAddSheet(
                             modifier = Modifier.testTag("manual_add_search_empty")
                         )
                     }
-                    candidates.forEach { candidate ->
+                    // A bounded list, not the whole answer: the sheet caps its
+                    // body at 420 dp, so ten candidates pushed the Title,
+                    // Author and cover fields out of reach and the rows were
+                    // clipped mid-height (seen on the emulator). Five is what
+                    // stays tappable next to the form; the provider already
+                    // answers at most DEFAULT_LIMIT.
+                    candidates.take(MAX_VISIBLE_CANDIDATES).forEach { candidate ->
                         OutlinedButton(
                             onClick = {
                                 title = candidate.title
@@ -332,3 +338,6 @@ private fun ChoiceRow(
         Text(text = label, style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+/** #857 — how many bibliography candidates stay tappable inside the sheet. */
+private const val MAX_VISIBLE_CANDIDATES = 5

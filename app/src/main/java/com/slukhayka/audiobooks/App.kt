@@ -223,7 +223,10 @@ class App : Application() {
             com.slukhayka.audiobooks.data.entries.TrackedWorks(
                 dao = audiobookDao,
                 workRelationshipsSync = workRelationshipsSync,
-                writeBatchRunner = { block -> database.withTransaction { block() } }
+                writeBatchRunner = { block -> database.withTransaction { block() } },
+                // #856 (T3) — the same idempotent watch door the manual action
+                // uses; arming it here is what makes the watch automatic.
+                watchSource = { mergeKey, workId -> sourceWatchStore.watch(mergeKey, workId) }
             )
         }
 

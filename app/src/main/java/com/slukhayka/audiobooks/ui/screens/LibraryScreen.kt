@@ -915,6 +915,17 @@ fun LibraryScreen(
                     manualAddOpen = false
                     scope.launch { viewModel.addTrackedWork(title, author, coverUrl) }
                 },
+                // #857 (T4) — the search goes through the bibliography chain;
+                // a Deferred/Unavailable answer is an honest empty list here,
+                // never a fabricated candidate (the sheet says so).
+                onSearchBibliography = { query ->
+                    val outcome = com.slukhayka.audiobooks.App.instance
+                        .bibliographyChain.search(query)
+                    // A Deferred/Unavailable answer is an honest empty list
+                    // here, never a fabricated candidate (the sheet says so).
+                    (outcome as? com.slukhayka.audiobooks.data.bibliography.BibliographyOutcome.Found)
+                        ?.value ?: emptyList()
+                },
                 onDismiss = { manualAddOpen = false }
             )
         }

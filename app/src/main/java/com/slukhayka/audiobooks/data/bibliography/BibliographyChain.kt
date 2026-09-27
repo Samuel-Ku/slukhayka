@@ -43,7 +43,13 @@ package com.slukhayka.audiobooks.data.bibliography
  */
 class BibliographyChain(
     private val primary: OpenLibraryBibliography,
-    private val fallback: GoogleBooksBibliography
+    /**
+     * The ISBN fallback. Null while no Web Transport origin is configured —
+     * the provider cannot exist without one (#858 hides the Google Books key
+     * behind that worker, and a keyless GB answers 429), so an unconfigured
+     * install has an honest primary-only chain rather than a fabricated base.
+     */
+    private val fallback: GoogleBooksBibliography? = null
 ) {
 
     /**
@@ -55,6 +61,25 @@ class BibliographyChain(
         val primaryOutcome = primary.isbn(raw)
         if (primaryOutcome !is BibliographyOutcome.Found) return primaryOutcome
         if (primaryOutcome.value.isNotEmpty()) return primaryOutcome
-        return fallback.isbn(raw)
+        return fallback?.isbn(raw) ?: primaryOutcome
     }
+
+    /**
+     * #857 (T4) — the search door of the corner: a title and/or author the
+     * listener typed, answered by the PRIMARY alone.
+     *
+     * There is deliberately no fallback here, and that is the scoped decision
+     * rather than an omission: #858 confines Google Books to the ISBN fallback,
+     * because without a key it answers 429. A search that quietly fell through
+     * to a keyless GB would spend the listener's wait on a request that cannot
+     * succeed, so an honest primary-only answer is the correct composition.
+     *
+     * A partial answer under a spent budget stays partial
+     * ([BibliographyOutcome.Deferred]/`Unavailable`), never a fabricated or
+     * silently widened list — the ADR-0040 rule the provider already follows.
+     */
+    suspend fun search(
+        query: String,
+        limit: Int = OpenLibraryBibliography.DEFAULT_LIMIT
+    ): BibliographyOutcome<List<BibliographyCandidate>> = primary.search(query, limit)
 }

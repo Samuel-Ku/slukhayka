@@ -1,5 +1,11 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import com.slukhayka.audiobooks.data.bibliography.BibliographyCandidate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,6 +63,13 @@ fun ManualBookAddSheet(
     onDismiss: () -> Unit,
     /** ADR-0053 / #854 — title + author of a tracked Work (no audio yet). */
     onAddTracked: (title: String, author: String, coverUrl: String?) -> Unit,
+    /**
+     * #857 (T4) — the external-bibliography door: given a query, the provider
+     * answers candidates (title, authors, year, cover). Null hides the search
+     * row entirely, so every existing host and test keeps today's sheet
+     * byte-for-byte.
+     */
+    onSearchBibliography: (suspend (String) -> List<BibliographyCandidate>)? = null,
     now: Long = System.currentTimeMillis()
 ) {
     var title by rememberSaveable { mutableStateOf("") }
@@ -66,6 +79,13 @@ fun ManualBookAddSheet(
     var coverUrl by rememberSaveable { mutableStateOf("") }
     var wantsToRead by rememberSaveable { mutableStateOf(false) }
     var importedOwnFile by rememberSaveable { mutableStateOf(false) }
+    // #857 — the corner's search: a query, its candidates and the honest
+    // "partly answered / nothing found" state.
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var candidates by remember { mutableStateOf<List<BibliographyCandidate>>(emptyList()) }
+    var searched by remember { mutableStateOf(false) }
+    var searching by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val canAdd = title.isNotBlank() && author.isNotBlank()
 
@@ -79,6 +99,89 @@ fun ManualBookAddSheet(
                     .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState())
             ) {
+                // #857 (T4) — the search door sits ABOVE the fields: its whole
+                // point is that the listener need not type metadata by hand.
+                // Selecting a candidate FILLS the fields rather than replacing
+                // the form, so a wrong pick stays correctable.
+                if (onSearchBibliography != null) {
+                    // Stacked, not side by side: beside the button the field
+                    // collapsed to three wrapped lines and the hint became
+                    // unreadable (seen on the emulator). Full width first.
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text(stringResource(R.string.manual_add_search_hint)) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("manual_add_search_query")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            enabled = searchQuery.isNotBlank() && !searching,
+                            onClick = {
+                                searching = true
+                                // The bibliography door is a NETWORK call:
+                                // on the main dispatcher OkHttp throws
+                                // NetworkOnMainThreadException and the surface
+                                // would report an honest-looking "nothing
+                                // found" for a request that never left the
+                                // device. Found on the emulator, not in JVM
+                                // tests — hence the explicit IO dispatcher.
+                                scope.launch(Dispatchers.IO) {
+                                    val found = runCatching {
+                                        onSearchBibliography(searchQuery)
+                                    }.getOrDefault(emptyList())
+                                    withContext(Dispatchers.Main) {
+                                        candidates = found
+                                        searched = true
+                                        searching = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.testTag("manual_add_search_go")
+                        ) { Text(stringResource(R.string.manual_add_search)) }
+                    }
+                    if (searched && candidates.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.manual_add_search_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("manual_add_search_empty")
+                        )
+                    }
+                    // A bounded list, not the whole answer: the sheet caps its
+                    // body at 420 dp, so ten candidates pushed the Title,
+                    // Author and cover fields out of reach and the rows were
+                    // clipped mid-height (seen on the emulator). Five is what
+                    // stays tappable next to the form; the provider already
+                    // answers at most DEFAULT_LIMIT.
+                    candidates.take(MAX_VISIBLE_CANDIDATES).forEach { candidate ->
+                        OutlinedButton(
+                            onClick = {
+                                title = candidate.title
+                                candidate.authors.firstOrNull()?.let { author = it }
+                                candidate.coverImageUrl?.let { coverUrl = it }
+                                tracked = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("manual_add_candidate_${candidate.workKey ?: candidate.title}")
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(candidate.title)
+                                val meta = listOfNotNull(
+                                    candidate.authors.firstOrNull(),
+                                    candidate.firstPublishYear?.toString()
+                                ).joinToString(" · ")
+                                if (meta.isNotBlank()) {
+                                    Text(meta, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -235,3 +338,6 @@ private fun ChoiceRow(
         Text(text = label, style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+/** #857 — how many bibliography candidates stay tappable inside the sheet. */
+private const val MAX_VISIBLE_CANDIDATES = 5

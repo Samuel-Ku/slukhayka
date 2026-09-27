@@ -471,6 +471,12 @@
     <string name="manual_add_name">Title</string>
     <string name="manual_add_author">Author</string>
     <string name="manual_add_cover">Cover (URL, optional)</string>
+    <!-- #857 (T4) — the external-bibliography search door in the corner. -->
+    <string name="manual_add_search">Search the library</string>
+    <string name="manual_add_search_hint">Search by title or author</string>
+    <string name="manual_add_search_empty">Nothing found</string>
+    <string name="manual_add_search_partial">The base answered only partly — showing what it managed</string>
+    <string name="a11y_manual_add_candidate">Pick candidate %1$s</string>
     <string name="manual_add_format">Format</string>
     <string name="manual_add_format_paper">Paper</string>
     <string name="manual_add_format_ebook">E-book</string>

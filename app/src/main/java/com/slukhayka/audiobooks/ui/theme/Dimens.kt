@@ -22,17 +22,33 @@ object AppDimens {
     // Page sides (16–20 dp)
     val PageSides = 16.dp
 
-    // Radii — cards sit in the 10–14 dp band. Every radius the UI uses is a
-    // named token here (MD3: no magic corner numbers); components reference
-    // these so shapes stay consistent with theming.
+    // Radii. Every radius the UI uses is a named token here (MD3: no magic
+    // corner numbers); components reference these so shapes stay consistent
+    // with theming.
+    //
+    // #885 (wave 1) — the values now follow the «Нічна бібліотека» spec
+    // (спека:99): «постер 10–12 dp, головний блок 24 dp, форма/панель 24 dp,
+    // основна кнопка повністю заокруглена». The prototype states the same two
+    // numbers it can (`border-radius:10px` on a poster, `--sl-radius:24px` for
+    // the main block). Before this, panels sat at 16 and the hero at 20 — a
+    // value NEITHER source names, which is why the surfaces read as a slightly
+    // different dialect rather than as the written design.
     val RadiusProgress = 2.dp   // progress-bar rounded caps
     val RadiusXs = 6.dp         // tiny badges / compact chips
     val RadiusInner = 8.dp      // chips, text fields, inner surfaces
     val RadiusCover = 10.dp     // small covers inside rows
-    val RadiusCard = 12.dp      // standard cards
+    val RadiusCard = 12.dp      // standard cards, posters (spec band 10–12)
     val RadiusCardLg = 14.dp    // larger cards / list rows
-    val RadiusPanel = 16.dp     // panels, sheets, buttons
-    val RadiusHero = 20.dp      // hero covers, dialogs
+    val RadiusPanel = 24.dp     // panels, sheets, forms (spec: 24 dp)
+    val RadiusHero = 24.dp      // hero covers, dialogs (spec: main block 24 dp)
+
+    /**
+     * A fully-rounded action («основна кнопка повністю заокруглена», спека:99;
+     * the prototype writes `border-radius:999px`). Large enough to exceed any
+     * height the app gives a button, so the sides are semicircles at any size —
+     * which is why it is a token rather than a per-call-site guess.
+     */
+    val RadiusPill = 999.dp
 
     // Touch targets (ADR-0044). The ENFORCED floor is 24 dp — WCAG 2.2 AA
     // «Target Size (Minimum)». 48 dp stays the recommended size for a

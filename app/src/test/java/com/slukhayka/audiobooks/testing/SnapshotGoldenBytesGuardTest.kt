@@ -227,37 +227,52 @@ class SnapshotGoldenBytesGuardTest {
          * Measured, not eyeballed: both versions of
          * `library_redesign_dense.png` are 1078×2399, so the collapse did not
          * move the layout — only the type did.
+         *
+         * ## Six re-pinned a fourth time on 2026-09-29 (#885, wave 3 — tonal actions)
+         *
+         * Header actions stopped being bare `IconButton` glyphs and became the
+         * canonical `AppHeaderAction`: a 48 dp tonal circle, which is the
+         * prototype's `.sl-icon.sl-tonal` (`background:var(--sl-card)`, and
+         * `--sl-card` IS this theme's `surfaceContainer` — no new colour).
+         *
+         * Only goldens that show a root header move, and six of the nine do.
+         * The visible change was read on a crop of `library_redesign_grid.png`:
+         * the ⋮ and «+» gained their circle, and «+» kept its primary tint — the
+         * collapse preserved what the surface already meant instead of
+         * flattening it.
+         *
+         * Both versions are 1078×2399, so the header did not grow.
          */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "3b8372a5bb96b601c016bb89ec99463e" + "d0c930a75828f11ed0b0e7c66750e173"
+                "91f02bc4ff64fe1ccfa79c86186fac02" + "176fd073992b9aff7843db5a2a083533"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "b6063665422bea5bd27e4aca46fdacf1" + "bed690c83b3b311270200b3c086eaf70"
+                "8ffceeaa25334731ae730394b1b03d9f" + "c5ed04e7c0a92bb88d33867212b9ba55"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "e592b8447af53925d00936725dd0caca" + "a8d21260d5376d8c89913e3b6afd66e7"
+                "81faeaf31b3bf5d323bf49c80602d016" + "9cb580e954a2a866dc3b80d5e82fde2c"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "0ceef4667ebe599d75f89bfffa8322e9" + "f5f6b86634c3c1435c1ecfcd89bd6545"
+                "af13ca576ca83bfe83bd223a8cb7ae64" + "6a93a4ebf71012110cbaa44a073cef53"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "9831a7b525e32335fd0f3b18b0fd84c4" + "9ff0ba31895902d42dbad2a2626b1638"
+                "f2553b72ba0b85f82aa4a541089f446c" + "8ff75b9ce05d16b3b11873882975d156"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "70cf36dd469ca87cb367d7a711602004" + "10d69f8f5858828312c441f619ced9bc"
+                "e03fa102e719e5d7cf8428974be76a14" + "94c32052e2f9b94323e18535195fa2c5"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

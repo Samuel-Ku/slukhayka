@@ -76,6 +76,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.AppHeaderAction
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -1163,17 +1164,12 @@ internal fun LibraryHeaderActionsInner(
     importFocusRequester: FocusRequester
 ) {
     Box {
-        IconButton(
+        AppHeaderAction(
+            icon = Icons.Default.MoreVert,
+            contentDescription = stringResource(R.string.a11y_library_more_actions),
             onClick = { onMenuOpenChange(true) },
-            modifier = Modifier
-                .size(AppDimens.TouchTarget)
-                .testTag("library_sections_menu")
-        ) {
-            Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = stringResource(R.string.a11y_library_more_actions)
-            )
-        }
+            testTag = "library_sections_menu"
+        )
         DropdownMenu(
             expanded = menuOpen,
             onDismissRequest = { onMenuOpenChange(false) }
@@ -1239,19 +1235,14 @@ internal fun LibraryHeaderActionsInner(
     // UI (v1.5 review): the import action is the compact «+» icon in the
     // top-end corner — three equal 48 dp targets, no labelled pill stealing
     // the width the title needs.
-    IconButton(
+    AppHeaderAction(
+        icon = Icons.Default.Add,
+        contentDescription = stringResource(R.string.a11y_library_add),
         onClick = onAdd,
-        modifier = Modifier
-            .size(AppDimens.TouchTarget)
-            .focusRequester(importFocusRequester)
-            .testTag("library_add_button")
-    ) {
-        Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = stringResource(R.string.a11y_library_add),
-            tint = MaterialTheme.colorScheme.primary
-        )
-    }
+        modifier = Modifier.focusRequester(importFocusRequester),
+        testTag = "library_add_button",
+        tint = MaterialTheme.colorScheme.primary
+    )
 }
 
 /**

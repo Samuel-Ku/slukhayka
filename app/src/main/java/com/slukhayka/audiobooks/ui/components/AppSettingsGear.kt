@@ -3,6 +3,11 @@ package com.slukhayka.audiobooks.ui.components
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -26,13 +31,13 @@ fun AppSettingsGear(
     modifier: Modifier = Modifier,
     testTag: String = "settings_gear"
 ) {
-    IconButton(
+    // #885 (wave 3) — the same tonal header action as every other root action,
+    // so the gear cannot drift from the ⋮, «+» and refresh beside it.
+    AppHeaderAction(
+        icon = Icons.Filled.Settings,
+        contentDescription = stringResource(R.string.a11y_open_settings),
         onClick = onClick,
-        modifier = modifier.size(AppDimens.TouchTarget).testTag(testTag)
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Settings,
-            contentDescription = stringResource(R.string.a11y_open_settings)
-        )
-    }
+        modifier = modifier,
+        testTag = testTag
+    )
 }

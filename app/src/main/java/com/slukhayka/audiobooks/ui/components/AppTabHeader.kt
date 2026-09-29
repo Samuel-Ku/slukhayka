@@ -29,7 +29,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
@@ -100,13 +99,15 @@ fun AppTabHeader(
             ) {
                 Text(
                     text = title,
+                    // #885 (wave 2) — the ONE screen-title style. The brand
+                    // lockup no longer adds POSITIVE tracking (+1 sp): the
+                    // prototype sets `letter-spacing:-1.2px` on this heading,
+                    // and tightening is what makes an expressive name read as
+                    // one word rather than letters standing apart.
                     style = if (compact) {
                         MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                     } else {
-                        MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = if (showBrandMark) FontWeight.ExtraBold else FontWeight.Bold,
-                            letterSpacing = if (showBrandMark) 1.sp else 0.sp
-                        )
+                        com.slukhayka.audiobooks.ui.theme.ScreenTitleStyle
                     },
                     color = MaterialTheme.colorScheme.onSurface
                 )

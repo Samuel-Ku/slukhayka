@@ -190,37 +190,56 @@ class SnapshotGoldenBytesGuardTest {
          * A fresh forced re-record (`--rerun-tasks --no-build-cache`)
          * reproduced every golden byte-for-byte, so these digests are stable,
          * not merely current.
+         *
+         * ## Six re-pinned again on 2026-09-29 (#885, wave 2 — headings)
+         *
+         * The screen title stopped sharing `headlineSmall` with the group
+         * heading: the screen title is now `ScreenTitleStyle` (32 sp,
+         * ExtraBold, −1.2 sp tracking — the prototype's own numbers) and the
+         * group heading `SectionGroupTitleStyle` (20 sp, −0.5 sp), and the
+         * SECTION level lost its POSITIVE +1 sp tracking.
+         *
+         * The six that moved are the six that render a screen title:
+         * `explore_header_*`, `home_feed_phone_fold`, `library_redesign_*`.
+         * The three player ones kept their bytes — the player title still uses
+         * `headlineSmall`, which this change does not touch, which is itself
+         * evidence the pin set is being read rather than blanket-refreshed.
+         *
+         * Checked, not assumed: the before/after pair for
+         * `library_redesign_dense.png` is 1078×2399 in BOTH versions, so the
+         * layout did not move — only text metrics did, which is the whole
+         * expected class of a typography change.
          */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "9f4ddd44b0db48788b4f34402f2a452e" + "5a570ba03fa220c911074a7d65a559d1"
+                "3b8372a5bb96b601c016bb89ec99463e" + "d0c930a75828f11ed0b0e7c66750e173"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "917506171e242ea5bf6300370c87659f" + "f72ebf3ba64609642d7b8b03553b2664"
+                "b6063665422bea5bd27e4aca46fdacf1" + "bed690c83b3b311270200b3c086eaf70"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "8bc8711458679fe1f3e3025bd9f8f197" + "fc5f392118ceb93d428f0b96c43a046b"
+                "e592b8447af53925d00936725dd0caca" + "a8d21260d5376d8c89913e3b6afd66e7"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "216f5b8233368ed8be4abbbed9c26e19" + "5f79a5bed361d9f1e5741fa1167cd54f"
+                "92a62ab3422d62dbb23d3260c0d7ddbb" + "1ea24a5b3dcc332be654073c8c19fae4"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "6644ba90731e429ab6793d36a475693e" + "085da3cd4856d00f706980fe9739448a"
+                "50e04a3b43b8fdd7603d5c07065d08f5" + "9ce051f3559fb12eead5912a965fec9a"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "20b51a5625be021318d113ab388cc3f9" + "830ca726fc5f3a1b0a15cfc568607590"
+                "0a1bfb17ddaa0608db26bd30552fa57c" + "9fecb0d4ede59a14ee91bc4011ece8b1"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

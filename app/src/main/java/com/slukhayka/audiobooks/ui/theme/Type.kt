@@ -111,6 +111,42 @@ val Typography = Typography(
 )
 
 /**
+ * #885 (wave 2) — the SCREEN title of a root tab («Слухати», «Огляд», …).
+ *
+ * The prototype gives it `font-size:32px; letter-spacing:-1.2px;
+ * font-weight:800`, and the spec agrees on the band («28–32 sp», спека:90).
+ * The app used `headlineSmall` (24 sp) with POSITIVE tracking on the brand
+ * lockup — below both sources, and tighter sets read as a different voice.
+ *
+ * Why this is a style of its own rather than a bigger `headlineSmall`:
+ * `headlineSmall` also styled the GROUP section heading, which the prototype
+ * sizes far smaller (~20 px). Raising the one token would have fixed the
+ * screen title and broken every shelf heading underneath it. The two roles
+ * were sharing a token; this splits them.
+ */
+val ScreenTitleStyle = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.ExtraBold,
+    fontSize = 32.sp,
+    lineHeight = 40.sp,
+    letterSpacing = (-1.2).sp
+)
+
+/**
+ * #885 (wave 2) — the GROUP heading above a shelf or a block («Для вас»,
+ * «Нещодавно додані»). The prototype writes `h2` at 20 px / 800 / −0.5 px:
+ * quieter than the screen title it sits under, so the screen still reads as
+ * one headline with sections beneath it, not as five competing ones.
+ */
+val SectionGroupTitleStyle = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.ExtraBold,
+    fontSize = 20.sp,
+    lineHeight = 26.sp,
+    letterSpacing = (-0.5).sp
+)
+
+/**
  * Tabular numerals for playback timers (spec-22 T1/T2). Monospace digits keep
  * a fixed advance width, so counting seconds never shifts the layout.
  */

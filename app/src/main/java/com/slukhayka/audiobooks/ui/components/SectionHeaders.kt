@@ -15,7 +15,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
@@ -70,13 +69,16 @@ fun AppSectionHeader(
     subtitle: String? = null,
     action: (@Composable RowScope.() -> Unit)? = null
 ) {
+    // #885 (wave 2) — each level gets ITS OWN style. Before this, GROUP and the
+    // screen title shared `headlineSmall`; the prototype sizes them far apart
+    // (a screen title at 32 px, a shelf heading at 20 px), so one of the two
+    // was always wrong. The SECTION level also carried +1 sp tracking, while
+    // the prototype tightens (−0.5 px) — expressive headings read as one
+    // phrase, not as letters standing apart.
     val titleStyle = when (level) {
-        SectionHeaderLevel.GROUP -> MaterialTheme.typography.headlineSmall.copy(
-            fontWeight = FontWeight.ExtraBold
-        )
+        SectionHeaderLevel.GROUP -> com.slukhayka.audiobooks.ui.theme.SectionGroupTitleStyle
         SectionHeaderLevel.SECTION -> MaterialTheme.typography.titleSmall.copy(
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
+            fontWeight = FontWeight.Bold
         )
     }
     Row(

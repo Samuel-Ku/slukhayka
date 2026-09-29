@@ -130,14 +130,20 @@ fun PosterCard(
                     title = title,
                     semantics = BookCoverSemantics.Decorative,
                     genre = genre,
+                    // #885 (wave 1) — `RadiusCard` (12 dp), not
+                    // `RadiusCardLg` (14). The spec puts a poster in the
+                    // 10–12 dp band and the prototype writes
+                    // `border-radius:10px`; 14 dp belonged to neither, so every
+                    // poster sat outside the written design. `RadiusCardLg`
+                    // stays for the larger list rows it was named for.
                     modifier = Modifier
                         .width(PosterWidth)
                         .height(PosterHeight)
-                        .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                        .clip(RoundedCornerShape(AppDimens.RadiusCard))
                         .border(
                             1.dp,
                             MaterialTheme.colorScheme.outlineVariant,
-                            RoundedCornerShape(AppDimens.RadiusCardLg)
+                            RoundedCornerShape(AppDimens.RadiusCard)
                         )
                 )
                 if (progress != null && progress > 0f) {
@@ -146,7 +152,9 @@ fun PosterCard(
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
                             .height(PosterProgressHairlineHeight)
-                            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                            // Same corner as the poster it sits on, so the
+                            // hairline cannot disagree with the card edge.
+                            .clip(RoundedCornerShape(AppDimens.RadiusCard))
                             .then(if (progressTestTag != null) Modifier.testTag(progressTestTag) else Modifier)
                     ) {
                         Box(

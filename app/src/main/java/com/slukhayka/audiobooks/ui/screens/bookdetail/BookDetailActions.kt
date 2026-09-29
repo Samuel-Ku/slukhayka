@@ -234,7 +234,10 @@ private fun BookDetailPlayButton(
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        // #885 (wave 1) — «основна кнопка повністю заокруглена» (спека:99);
+        // прототип пише `border-radius:999px`. Це Головна дія сторінки, тож
+        // вона бере пігулку, а не радіус панелі.
+        shape = RoundedCornerShape(AppDimens.RadiusPill),
         // #382: дефолтні 24dp по горизонталі плюс іконка з'їдали ширину слова
         // «Продовжити»; паддінг однаковий з download-кнопкою, підлога ширини
         // тримає найдовший лейбл на вузьких панелях.

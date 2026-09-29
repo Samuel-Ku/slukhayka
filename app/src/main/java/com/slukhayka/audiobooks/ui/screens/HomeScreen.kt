@@ -727,15 +727,12 @@ fun HomeHeader(
             actions = {
                 // #860 — the gear sits in the SAME place on every root.
                 com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
-                IconButton(
+                com.slukhayka.audiobooks.ui.components.AppHeaderAction(
+                    icon = Icons.Default.Refresh,
+                    contentDescription = stringResource(R.string.a11y_refresh_catalogue),
                     onClick = onRefresh,
-                    modifier = Modifier.size(AppDimens.TouchTarget).testTag("home_refresh")
-                ) {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = stringResource(R.string.a11y_refresh_catalogue)
-                    )
-                }
+                    testTag = "home_refresh"
+                )
             }
         )
 

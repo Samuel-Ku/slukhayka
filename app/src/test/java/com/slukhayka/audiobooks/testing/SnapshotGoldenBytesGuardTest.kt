@@ -171,27 +171,46 @@ class SnapshotGoldenBytesGuardTest {
          * name, and the SHA-256 of the bytes committed at the time of writing.
          * Every fragment is split so no complete name or digest is spelled out
          * in this file.
+         *
+         * ## Why eight of the nine were re-pinned on 2026-09-29 (#885, wave 1)
+         *
+         * The shape tokens moved to the «Нічна бібліотека» spec: `RadiusHero`
+         * 20→24 dp, `RadiusPanel` 16→24 dp, `PosterCard` 14→12 dp, and the
+         * primary action button became `RadiusPill`. Eight of these nine
+         * goldens show a poster, a hero, a panel or that button, so all eight
+         * changed for that one reason and none for any other.
+         *
+         * Confirmed, not assumed: the commit touched 39 goldens, and that set
+         * is exactly the surfaces using the four changed tokens — no unrelated
+         * image is in it. `library_redesign_dense.png` keeps its old digest
+         * because that surface has none of the four. The diff was read on a
+         * representative pair (`library_redesign_grid.png`): the only visible
+         * change is the button's ends going from ~24 dp corners to a pill.
+         *
+         * A fresh forced re-record (`--rerun-tasks --no-build-cache`)
+         * reproduced every golden byte-for-byte, so these digests are stable,
+         * not merely current.
          */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "bd0300814faa1f06b7c2846687e67c06" + "fac2e143d800dda8dd162ffb162aafdd"
+                "9f4ddd44b0db48788b4f34402f2a452e" + "5a570ba03fa220c911074a7d65a559d1"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "da0b2d0b30a41c95ee378c08fea9b441" + "80bca54a8bf9c17c754fc99b40d3003c"
+                "917506171e242ea5bf6300370c87659f" + "f72ebf3ba64609642d7b8b03553b2664"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "15ea919abc8b7b130247fbed53ef1ffa" + "0559c67c8b979c10f816b278d6a95cd1"
+                "8bc8711458679fe1f3e3025bd9f8f197" + "fc5f392118ceb93d428f0b96c43a046b"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "5ce36ce18c1534b7cf4cdcbae12c9bea" + "7ef3413598b087a3df9f7279b7c9bef0"
+                "216f5b8233368ed8be4abbbed9c26e19" + "5f79a5bed361d9f1e5741fa1167cd54f"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
@@ -201,22 +220,22 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "137bf568875d0b82f8374543b3cdd24e" + "a8a7f0834719e2076aeeb64f93329208"
+                "20b51a5625be021318d113ab388cc3f9" + "830ca726fc5f3a1b0a15cfc568607590"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "36161dd3bbb5d9e5c02b613489e84d8c" + "de2a6aada62a59bb1c261854c5afdf83"
+                "3ff2fcc3f1dd50b676ce76039efcafb1" + "04cbd351132bafaf602ddbd904891470"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "acfa047b4c428fbc3c90020b9ed753b5" + "0501677f970f89e7dfadad4e5abb3bfa"
+                "1983802efdef62a1dc75bbfa55a4420d" + "b134d1aff9797dd262245de74abd0bd1"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "8b2a96c9f1bd064dbb6185baeec2cb04" + "afbbbbaaf625f4c965fe6945479b618b"
+                "7d6f42a6d10cf9520a6096fc8fa0b9ec" + "fc0547a45e440b2067898d3b7f383b3d"
             )
         )
     }

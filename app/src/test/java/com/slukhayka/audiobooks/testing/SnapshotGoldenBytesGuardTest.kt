@@ -209,6 +209,24 @@ class SnapshotGoldenBytesGuardTest {
          * `library_redesign_dense.png` is 1078×2399 in BOTH versions, so the
          * layout did not move — only text metrics did, which is the whole
          * expected class of a typography change.
+         *
+         * ## Three re-pinned a third time on 2026-09-29 (#885, wave 2 — dialects)
+         *
+         * `SearchSectionHeader` and `LibrarySectionHeader` — two bespoke twins
+         * of `AppSectionHeader` — were deleted and their call sites moved onto
+         * the canonical component. The three `library_redesign_*` goldens show
+         * a `LibraryGridEntry.Section`, so their shelf heading changed from
+         * `titleMedium.SemiBold` (~16 sp) to the canonical GROUP style
+         * (20 sp, ExtraBold, −0.5 sp) and its count line from `labelSmall` to
+         * the header's own `labelMedium` secondary.
+         *
+         * The four `global_search_result_*` goldens also changed, but no pin
+         * covers them — which is why the guard moved three and not seven.
+         * Another read-not-refreshed signal.
+         *
+         * Measured, not eyeballed: both versions of
+         * `library_redesign_dense.png` are 1078×2399, so the collapse did not
+         * move the layout — only the type did.
          */
         val PINS = listOf(
             Pin(
@@ -229,17 +247,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "92a62ab3422d62dbb23d3260c0d7ddbb" + "1ea24a5b3dcc332be654073c8c19fae4"
+                "0ceef4667ebe599d75f89bfffa8322e9" + "f5f6b86634c3c1435c1ecfcd89bd6545"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "50e04a3b43b8fdd7603d5c07065d08f5" + "9ce051f3559fb12eead5912a965fec9a"
+                "9831a7b525e32335fd0f3b18b0fd84c4" + "9ff0ba31895902d42dbad2a2626b1638"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "0a1bfb17ddaa0608db26bd30552fa57c" + "9fecb0d4ede59a14ee91bc4011ece8b1"
+                "70cf36dd469ca87cb367d7a711602004" + "10d69f8f5858828312c441f619ced9bc"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

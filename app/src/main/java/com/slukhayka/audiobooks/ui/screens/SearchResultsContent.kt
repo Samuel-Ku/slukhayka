@@ -26,6 +26,8 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.MetadataChip
@@ -68,9 +70,11 @@ fun LazyListScope.searchResultsContent(
     val nothingAnywhere = localEmpty && (!liveSearchActive || liveSettledEmpty)
 
     item(key = "library_results_header") {
-        SearchSectionHeader(
-            text = stringResource(R.string.home_library_results, localBooks.size),
-            testTag = "search_library_header"
+        // #885 (wave 2) — one canonical header instead of a private twin.
+        AppSectionHeader(
+            title = stringResource(R.string.home_library_results, localBooks.size),
+            level = SectionHeaderLevel.SECTION,
+            modifier = Modifier.testTag("search_library_header")
         )
     }
     if (localEmpty) {
@@ -99,9 +103,10 @@ fun LazyListScope.searchResultsContent(
 
     if (liveSearchActive) {
         item(key = "all_sources_header") {
-            SearchSectionHeader(
-                text = stringResource(R.string.home_all_sources, globalResults.size),
-                testTag = "search_sources_header"
+            AppSectionHeader(
+                title = stringResource(R.string.home_all_sources, globalResults.size),
+                level = SectionHeaderLevel.SECTION,
+                modifier = Modifier.testTag("search_sources_header")
             )
         }
         if (globalResults.isEmpty() && !nothingAnywhere) {
@@ -162,16 +167,3 @@ fun LazyListScope.searchResultsContent(
     }
 }
 
-@Composable
-private fun SearchSectionHeader(text: String, testTag: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .testTag(testTag)
-            .semantics { heading() }
-    )
-}

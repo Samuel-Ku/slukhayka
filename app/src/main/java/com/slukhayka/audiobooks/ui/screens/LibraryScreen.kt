@@ -76,6 +76,8 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.SubmissionBadge
@@ -1530,10 +1532,27 @@ internal fun LazyGridScope.libraryGridContent(
                 onPlay = { onPlayClick(gridEntry.book.book) }
             )
 
-            is LibraryGridEntry.Section -> LibrarySectionHeader(
+            // #885 (wave 2) — the canonical GROUP header, not a bespoke twin:
+            // its count is the header's own secondary line and the trailing
+            // text is its action slot. Collapsing first means the sizes set in
+            // wave 1 land in ONE place instead of five.
+            is LibraryGridEntry.Section -> AppSectionHeader(
                 title = gridEntry.title,
-                count = gridEntry.count,
-                trailingText = gridEntry.trailing
+                level = SectionHeaderLevel.GROUP,
+                count = pluralStringResource(
+                    R.plurals.book_count, gridEntry.count, gridEntry.count
+                ),
+                action = if (gridEntry.trailing.isNotBlank()) {
+                    {
+                        Text(
+                            text = gridEntry.trailing,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    null
+                }
             )
 
             is LibraryGridEntry.Shelf -> LibraryShelf(gridEntry.books) { card(it, true) }
@@ -1635,45 +1654,6 @@ private fun libraryRemainingTotal(books: List<LibraryBook>): String {
  * (design guide §6.3's section style), with no page padding of its own — the
  * grid already carries it.
  */
-@Composable
-internal fun LibrarySectionHeader(
-    title: String,
-    count: Int,
-    trailingText: String = ""
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = AppDimens.SpaceSm, bottom = AppDimens.SpaceXs),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                // #885 — the prototype writes section titles as a sentence
-                // («Читаю та слухаю зараз»), not as shouted caps: sentence case,
-                // a step larger, no tracking.
-                text = title,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.SemiBold
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { heading() }
-            )
-            Text(
-                text = pluralStringResource(R.plurals.book_count, count, count),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (trailingText.isNotBlank()) {
-            Text(
-                text = trailingText,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
 
 /** A full-width, horizontally scrolling shelf of cover tiles. */
 @Composable

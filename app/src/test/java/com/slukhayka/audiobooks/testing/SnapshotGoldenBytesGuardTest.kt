@@ -242,6 +242,19 @@ class SnapshotGoldenBytesGuardTest {
          * flattening it.
          *
          * Both versions are 1078×2399, so the header did not grow.
+         *
+         * ## One re-pinned on 2026-09-29 (#885, wave 3 — poster ratio)
+         *
+         * The canonical poster went 120×168 → 120×**180** so its ratio is the
+         * spec's vertical 2:3 (спека:97); 168 is 5:7, i.e. a squatter poster
+         * than the written design on every screen that shows one.
+         *
+         * Exactly ONE of the nine moved — `home_feed_phone_fold.png`. The three
+         * `library_redesign_*` goldens did NOT, and that is informative rather
+         * than surprising: the library grid draws its own 124 dp tile inside
+         * `LibraryShelf`, not the canonical `PosterCard`, so a poster change is
+         * not expected to reach it. A pin set that moved only where the change
+         * actually lands is the point of reading it.
          */
         val PINS = listOf(
             Pin(
@@ -257,7 +270,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "81faeaf31b3bf5d323bf49c80602d016" + "9cb580e954a2a866dc3b80d5e82fde2c"
+                "93b9bc94da5c1b558d88fdb782689298" + "a8af48066e5b5e12538630e8538034af"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

@@ -46,9 +46,16 @@ import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
-/** v1.4 C2 (ADR-0033): the one poster is 120×168; the one cycle is 132×78. */
+/**
+ * v1.4 C2 (ADR-0033): the ONE poster, and the one cycle is 132×78.
+ *
+ * #885 (wave 3) — 120×**180**, not 120×168. The spec asks for a vertical
+ * **2:3** poster (спека:97) and 168 is 5:7, so every poster in the app sat at
+ * a slightly squatter ratio than the written design. 180 makes 120 wide land
+ * exactly on 2:3, and the cover is cropped (never stretched) either way.
+ */
 internal val PosterWidth = 120.dp
-internal val PosterHeight = 168.dp
+internal val PosterHeight = 180.dp
 internal val PosterProgressHairlineHeight = 3.dp
 internal val PosterDismissVisualSize = 18.dp
 private val CycleWidth = 132.dp

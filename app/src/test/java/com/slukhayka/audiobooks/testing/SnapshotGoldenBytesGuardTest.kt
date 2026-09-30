@@ -265,6 +265,14 @@ class SnapshotGoldenBytesGuardTest {
          * `HardcodedColorGuardTest` refuses colour outside `ui/themes` — and
          * that guard scans file TEXT, so a comment naming the constructor trips
          * it too. Again exactly one pin moved, the same `home_feed_phone_fold`.
+         *
+         * The highlight is DRAWN (`drawWithContent`), not a sibling `Box` with
+         * `fillMaxHeight()`: the Box version took part in the card's
+         * measurement, grew it, and pushed the source badge out of the fixed
+         * 420x600 fixture in `ExploreAccessibilityTest` — which passed on main
+         * and failed on that branch, so the regression was real and reproduced
+         * locally, not a flake. Drawing cannot change layout, which is why it
+         * matches the border it replaced.
          */
         val PINS = listOf(
             Pin(
@@ -280,7 +288,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "21d83fc227b59456475a1b9aec1a1fea" + "e9d44dc448edc58949db5a1d39ced7d6"
+                "64721dde4aec648ac101575825d85399" + "7930a85b64de48bd911cd96721280b50"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

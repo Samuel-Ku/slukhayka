@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -164,15 +165,25 @@ fun PosterCard(
                         // background. Dropping the border WITHOUT the highlight
                         // would have been a regression, not a closer match.
                         .clip(RoundedCornerShape(AppDimens.RadiusCard))
-                )
-                // A sibling of the cover, so it keeps the frame's rounded edge
-                // and sits over the artwork rather than behind it.
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .width(PosterEdgeHighlightWidth)
-                        .fillMaxHeight()
-                        .background(AppPosterEdgeHighlight)
+                        // DRAWN, not a sibling Box. A `fillMaxHeight()` child
+                        // takes part in the parent Box's measurement, so the
+                        // card grew and pushed the source badge out of a fixed
+                        // 420x600 fixture — caught by
+                        // `ExploreAccessibilityTest.libraryNewArrivalsRail…`,
+                        // which passed on main and failed with that version.
+                        // `drawWithContent` paints over the cover without
+                        // touching the measured size, exactly like the border
+                        // it replaces did.
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(
+                                color = AppPosterEdgeHighlight,
+                                size = androidx.compose.ui.geometry.Size(
+                                    PosterEdgeHighlightWidth.toPx(),
+                                    size.height
+                                )
+                            )
+                        }
                 )
                 if (progress != null && progress > 0f) {
                     Box(

@@ -698,12 +698,14 @@ fun ListenHeroCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Progress bar
+            // Progress bar. #885 (wave 3) — the prototype's hero bar is
+            // `height:4px`, a hairline under the cover rather than a 6 dp
+            // rule; the bar reads as a whisper of progress, not as a divider.
             LinearProgressIndicator(
                 progress = { progressFraction },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
+                    .height(4.dp)
                     .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant

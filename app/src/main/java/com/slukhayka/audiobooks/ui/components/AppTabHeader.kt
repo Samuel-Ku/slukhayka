@@ -2,6 +2,11 @@ package com.slukhayka.audiobooks.ui.components
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.sp
+import com.slukhayka.audiobooks.R
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -68,23 +73,6 @@ fun AppTabHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            if (showBrandMark) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Headphones,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-            }
             Column(
                 modifier = Modifier
                     .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
@@ -97,6 +85,32 @@ fun AppTabHeader(
                     )
                     .semantics { heading() }
             ) {
+                // #885 (wave 3) — the prototype's brand lockup is a small
+                // muted EYEBROW ABOVE the title (`.sl-wordmark`: 12 px, 800,
+                // `.35px` tracking, `--sl-muted`, with a 15 px accent icon),
+                // not a filled circle beside it. The circle was a shape the
+                // prototype never had, so it is replaced rather than restyled.
+                if (showBrandMark && !compact) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.35.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 Text(
                     text = title,
                     // #885 (wave 2) — the ONE screen-title style. The brand

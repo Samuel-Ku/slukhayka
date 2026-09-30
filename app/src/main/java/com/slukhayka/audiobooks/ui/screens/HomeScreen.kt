@@ -1232,6 +1232,11 @@ fun WorkFeedFilters(
                     }
                 }
                 FilterChip(
+                    // #885 (wave 3) — same pill as the other chips; this
+                    // trigger sits in the same row and had the same M3 8 dp
+                    // default, so leaving it would have made the row disagree
+                    // with itself.
+                    shape = RoundedCornerShape(AppDimens.RadiusPill),
                     selected = selectedGenreIds.isNotEmpty() || selectedDurationBucketIds.isNotEmpty(),
                     onClick = {
                         if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
@@ -1330,6 +1335,11 @@ fun WorkFeedFilterSheet(
                         .verticalScroll(rememberScrollState())
                 ) {
                     FilterChip(
+                        // #885 (wave 3) — the prototype's chips are PILLS
+                        // (`.sl-chip`, :1134-1135, radius 999). M3's default
+                        // 8 dp was the only reason these read as a different
+                        // control from every other chip in the app.
+                        shape = RoundedCornerShape(AppDimens.RadiusPill),
                         selected = selectedGenreIds.isEmpty(),
                         onClick = { onGenresChange(emptySet()) },
                         label = { Text(stringResource(R.string.feed_all_genres)) },
@@ -1339,6 +1349,11 @@ fun WorkFeedFilterSheet(
                     )
                     genres.forEach { genre ->
                         FilterChip(
+                        // #885 (wave 3) — the prototype's chips are PILLS
+                        // (`.sl-chip`, :1134-1135, radius 999). M3's default
+                        // 8 dp was the only reason these read as a different
+                        // control from every other chip in the app.
+                        shape = RoundedCornerShape(AppDimens.RadiusPill),
                             selected = genre.id in selectedGenreIds,
                             onClick = {
                                 onGenresChange(
@@ -1362,6 +1377,11 @@ fun WorkFeedFilterSheet(
                 ) {
                     EditionDurationPolicy.buckets.forEach { bucket ->
                         FilterChip(
+                        // #885 (wave 3) — the prototype's chips are PILLS
+                        // (`.sl-chip`, :1134-1135, radius 999). M3's default
+                        // 8 dp was the only reason these read as a different
+                        // control from every other chip in the app.
+                        shape = RoundedCornerShape(AppDimens.RadiusPill),
                             selected = bucket.wireName in selectedDurationBucketIds,
                             onClick = {
                                 onDurationBucketsChange(

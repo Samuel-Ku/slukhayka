@@ -76,3 +76,15 @@ val CyberTextPrimary = AppTextPrimaryDark
 val CyberTextSecondary = AppTextMutedDark
 val CyberCardBg = AppCardDark
 val CyberCardBorder = AppBorderDark
+
+/**
+ * #885 (wave 3) — the poster's inner edge, replacing the 1 dp ring the
+ * prototype never had. `#FFFFFF12` is the prototype's own value: white at
+ * ~7 % alpha, which reads as "the cover catches a little light" rather than as
+ * a drawn line. It lives HERE, in the palette, because
+ * `HardcodedColorGuardTest` refuses colour anywhere else — and it is right to:
+ * a colour that only exists at one call site cannot be reviewed, themed or
+ * contrasted. It is scheme-independent on purpose (it sits on artwork, not on
+ * a surface), which is why it is not part of a light/dark pair.
+ */
+val AppPosterEdgeHighlight = Color.White.copy(alpha = 0.07f)

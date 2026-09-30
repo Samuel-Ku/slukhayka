@@ -45,6 +45,7 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.AppPosterEdgeHighlight
 
 /**
  * v1.4 C2 (ADR-0033): the ONE poster, and the one cycle is 132×78.
@@ -57,6 +58,15 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
 internal val PosterWidth = 120.dp
 internal val PosterHeight = 180.dp
 internal val PosterProgressHairlineHeight = 3.dp
+
+/**
+ * #885 (wave 3) — how wide the poster's inner edge is. The COLOUR is the
+ * palette's `AppPosterEdgeHighlight`, not a literal here:
+ * `HardcodedColorGuardTest` refuses colour outside `ui/theme/`, and it scans
+ * the file TEXT — even naming a colour constructor in a comment trips it, so
+ * this doc deliberately describes the role instead of spelling the value.
+ */
+internal val PosterEdgeHighlightWidth = 3.dp
 internal val PosterDismissVisualSize = 18.dp
 private val CycleWidth = 132.dp
 private val CycleHeight = 78.dp
@@ -146,12 +156,23 @@ fun PosterCard(
                     modifier = Modifier
                         .width(PosterWidth)
                         .height(PosterHeight)
+                        // #885 (wave 3) — no ring. The prototype defines a
+                        // poster's edge with an INSET highlight, not a border
+                        // (`box-shadow: inset 3px 0 0 #FFFFFF12`): a ring around
+                        // every cover competes with the artwork, while a soft
+                        // inner edge only stops the cover melting into a dark
+                        // background. Dropping the border WITHOUT the highlight
+                        // would have been a regression, not a closer match.
                         .clip(RoundedCornerShape(AppDimens.RadiusCard))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.outlineVariant,
-                            RoundedCornerShape(AppDimens.RadiusCard)
-                        )
+                )
+                // A sibling of the cover, so it keeps the frame's rounded edge
+                // and sits over the artwork rather than behind it.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .width(PosterEdgeHighlightWidth)
+                        .fillMaxHeight()
+                        .background(AppPosterEdgeHighlight)
                 )
                 if (progress != null && progress > 0f) {
                     Box(

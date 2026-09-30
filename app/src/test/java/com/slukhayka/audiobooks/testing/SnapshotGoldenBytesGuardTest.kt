@@ -255,6 +255,16 @@ class SnapshotGoldenBytesGuardTest {
          * `LibraryShelf`, not the canonical `PosterCard`, so a poster change is
          * not expected to reach it. A pin set that moved only where the change
          * actually lands is the point of reading it.
+         *
+         * ## One re-pinned again on 2026-09-30 (#885, wave 3 — poster edge)
+         *
+         * The poster's 1 dp ring was replaced by the prototype's inset edge
+         * highlight (`box-shadow: inset 3px 0 0 #FFFFFF12`), i.e. no border plus
+         * a soft inner light so the cover does not melt into a dark background.
+         * The colour is a palette role (`AppPosterEdgeHighlight`), because
+         * `HardcodedColorGuardTest` refuses colour outside `ui/themes` — and
+         * that guard scans file TEXT, so a comment naming the constructor trips
+         * it too. Again exactly one pin moved, the same `home_feed_phone_fold`.
          */
         val PINS = listOf(
             Pin(
@@ -270,7 +280,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "93b9bc94da5c1b558d88fdb782689298" + "a8af48066e5b5e12538630e8538034af"
+                "21d83fc227b59456475a1b9aec1a1fea" + "e9d44dc448edc58949db5a1d39ced7d6"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

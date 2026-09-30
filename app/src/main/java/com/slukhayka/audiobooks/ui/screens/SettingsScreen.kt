@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -71,12 +72,21 @@ internal fun SettingsScreen(
         )
         Column(Modifier.padding(horizontal = 16.dp)) {
             groups.forEach { group ->
+                // #885 (wave 3) — the prototype's settings group is a small
+                // MUTED CAPS label (`.sl-setting-group > h2`: 12 px,
+                // `text-transform:uppercase`, `.8px` tracking, `--sl-muted`),
+                // not a 14 sp primary-coloured title. A settings list is an
+                // index, so its group names label rather than announce; the
+                // primary colour made every group compete with the rows.
                 Text(
-                    text = stringResource(group.titleRes),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = stringResource(group.titleRes).uppercase(),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 12.sp,
+                        letterSpacing = 0.8.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
-                        .padding(top = 16.dp, bottom = 4.dp)
+                        .padding(top = 16.dp, bottom = 8.dp)
                         .testTag("settings_group_${group.titleRes}")
                         .semantics { heading() }
                 )

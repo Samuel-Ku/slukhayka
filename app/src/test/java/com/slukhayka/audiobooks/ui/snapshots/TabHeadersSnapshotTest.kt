@@ -65,10 +65,17 @@ class TabHeadersSnapshotTest {
 
     // The four roots, in bottom-bar order. Titles match nav_* exactly.
     private val fixtures = listOf(
-        TabHeaderFixture("listen", "Слухати", "listen_heading"),
+        // #885 (wave 3) — EVERY root sets `brandMark`, because the prototype
+        // gates its wordmark on `isRoot` (line 1318), not on Огляд. Before
+        // this only the Огляд fixture set it, so the Listen, Library and
+        // Friends headers had NO golden covering their wordmark: a change could
+        // land on three roots and move only the Explore images. The gap was
+        // found by noticing exactly that while shipping the wordmark, and it is
+        // closed here rather than left as a note.
+        TabHeaderFixture("listen", "Слухати", "listen_heading", brandMark = true),
         TabHeaderFixture("explore", "Огляд", "explore_heading", brandMark = true),
-        TabHeaderFixture("library", "Мої книги", "library_heading", subtitle = "12 книг"),
-        TabHeaderFixture("friends", "Друзі", "friends_heading")
+        TabHeaderFixture("library", "Мої книги", "library_heading", subtitle = "12 книг", brandMark = true),
+        TabHeaderFixture("friends", "Друзі", "friends_heading", brandMark = true)
     )
 
     /**

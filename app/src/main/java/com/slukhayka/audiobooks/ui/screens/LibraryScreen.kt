@@ -1291,7 +1291,15 @@ internal fun LibrarySearchField(
             }
         } else null,
         singleLine = true,
-        shape = RoundedCornerShape(AppDimens.RadiusCard)
+        // #885 (wave 3) — ONE search field, ONE shape. The prototype draws it
+        // as a pill (`:1141-1143`, radius 999), and the app had the same
+        // control at 12 dp here and 24 dp in Огляд — two answers to one
+        // question. `RadiusPill` is the token wave 1 added for exactly this.
+        //
+        // Still open from the same prototype rule (item 2 of Огляд): the field
+        // should be FILLED with no border, and 54 px tall. This change fixes
+        // the disagreement between the two fields, not yet the border.
+        shape = RoundedCornerShape(AppDimens.RadiusPill)
     )
 }
 

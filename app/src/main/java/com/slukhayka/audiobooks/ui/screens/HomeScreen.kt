@@ -768,7 +768,9 @@ fun HomeHeader(
                 .fillMaxWidth()
                 .padding(horizontal = AppDimens.PageSides)
                 .testTag("home_search_input"),
-            shape = RoundedCornerShape(AppDimens.RadiusPanel),
+            // #885 (wave 3) — the same pill as «Мої книги»; the two roots had
+            // this one control at 12 dp and 24 dp.
+            shape = RoundedCornerShape(AppDimens.RadiusPill),
             colors = OutlinedTextFieldDefaults.colors(
                 // MD3: input fills sit on the highest tonal container.
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,

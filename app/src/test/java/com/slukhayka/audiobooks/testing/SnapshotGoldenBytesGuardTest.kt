@@ -261,6 +261,23 @@ class SnapshotGoldenBytesGuardTest {
          *
          * Both versions are 1078×2399, so the header did not grow.
          *
+         * ## Six re-pinned on 2026-09-30 (#885, wave 3 — one search field)
+         *
+         * The search field existed TWICE with two different shapes: 12 dp in
+         * «Мої книги» (`RadiusCard`) and 24 dp in Огляд (`RadiusPanel`). One
+         * control, two answers. Both are now the prototype's pill
+         * (`:1141-1143`, radius 999) via `RadiusPill` — the token wave 1 added.
+         *
+         * Note the numbers had DRIFTED from the audit: it recorded 12 vs 16,
+         * but wave 1 changed `RadiusPanel` itself, so by the time this was
+         * fixed the pair was 12 vs 24. That is why the audit now says to
+         * re-measure rather than trust its figures — this re-pin is the
+         * measurement.
+         *
+         * Still open from the same prototype rule: the field should be FILLED
+         * with no border and 54 px tall. This change settles the disagreement
+         * between the two fields, not yet the border.
+         *
          * ## One re-pinned on 2026-09-29 (#885, wave 3 — poster ratio)
          *
          * The canonical poster went 120×168 → 120×**180** so its ratio is the
@@ -311,32 +328,32 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "ba6829fff5731a0192ac99dc2d341ba9" + "d36f48985f03f1731bf858828b7e3bc0"
+                "7d71d8e9f36a21b6df6a5c60b6873a2d" + "12d056828a409271b07711e8da6792a3"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "a849d9c747316e6176bde31165ad3bea" + "1154cfab3bb49143a37cd47db0339fff"
+                "fcba9e895e727c91737b5e792ad76e21" + "2fd96cf5586e3421a434efda5d26691f"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "5c4ea9760d032089cdc89e28e651f62b" + "53c424737ae29b053f258549d1cfbe1c"
+                "ffa80251f3db443a6b65307561d4efd6" + "445b79d5c874206010fe6c1608675952"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "af13ca576ca83bfe83bd223a8cb7ae64" + "6a93a4ebf71012110cbaa44a073cef53"
+                "5aa9327765b057c1ec2b9329abe219c9" + "c70d21be5bceabce3ae465bb40a3153f"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "f2553b72ba0b85f82aa4a541089f446c" + "8ff75b9ce05d16b3b11873882975d156"
+                "af5a1351d72966913a7b064227bbdef7" + "2448bb57536d5eb08bce2f7534da1a0e"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "e03fa102e719e5d7cf8428974be76a14" + "94c32052e2f9b94323e18535195fa2c5"
+                "96ef23e45800386f8ab09a2fa9cf900e" + "36e259f89f4967325c797187416bf611"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

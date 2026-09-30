@@ -3200,7 +3200,10 @@ private fun LibraryYearHero(goal: com.slukhayka.audiobooks.data.entries.YearlyRe
 
 /** #885 — Книги | Полиці | Збережене, the prototype's top-level switch. */
 @Composable
-private fun LibrarySectionTabs(
+// `internal`, not `private`: the tab switcher had NO golden at all, so its
+// shape (equal tabs, 48 dp, underline inset 22 % each side) could be changed
+// with nothing noticing. Visibility only — no behaviour change.
+internal fun LibrarySectionTabs(
     booksSelected: Boolean,
     savedSelected: Boolean,
     onBooks: () -> Unit,
@@ -3219,10 +3222,18 @@ private fun LibrarySectionTabs(
         verticalAlignment = Alignment.CenterVertically
     ) {
         items.forEach { (label, selected, action) ->
+            // #885 (wave 3) — the prototype's tabs are EQUAL, 48 px tall, with
+            // the underline inset 22 % from each side (`:1137-1140`), i.e. 56 %
+            // of the tab. The app had wrap-content tabs with no minimum height
+            // and a fixed 24 dp underline, so the mark bore no relation to the
+            // tab it marked. `weight(1f)` is what makes "equal" true — and it is
+            // also what gives the underline a tab width to be a fraction OF.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .padding(end = 20.dp)
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
                     .testTag(action.first)
                     .clickable(onClick = action.second)
             ) {
@@ -3239,7 +3250,11 @@ private fun LibrarySectionTabs(
                 Box(
                     modifier = Modifier
                         .height(3.dp)
-                        .width(if (selected) 24.dp else 0.dp)
+                        // 22 % inset on each side = 56 % of the tab, centred.
+                        .then(
+                            if (selected) Modifier.fillMaxWidth(0.56f)
+                            else Modifier.width(0.dp)
+                        )
                         .background(
                             if (selected) MaterialTheme.colorScheme.primary
                             else Color.Transparent

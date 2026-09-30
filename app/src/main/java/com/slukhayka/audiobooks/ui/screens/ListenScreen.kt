@@ -205,6 +205,21 @@ fun ListenScreen(
             }
         }
 
+        // #885 (wave 3) — every shelf hidden (or emptied by dedup) is a
+        // STATE, not a blank screen. Before this the tab rendered only its
+        // header and the manage door, so a listener who hid all shelves saw
+        // what looked like a broken screen rather than a choice they had made.
+        // The door below stays visible either way — it is the way back.
+        if (dedupedBlocks.isEmpty()) {
+            item(key = "all-shelves-hidden") {
+                EmptyState(
+                    icon = Icons.Default.VisibilityOff,
+                    title = stringResource(R.string.listen_all_shelves_hidden_title),
+                    body = stringResource(R.string.listen_all_shelves_hidden_body)
+                )
+            }
+        }
+
         // v1.4 E1 / UI: the ONE shelf-management door — always the LAST
         // element of the tab, after every shelf. Раніше воно стояло одразу
         // під hero, через що внизу лишалася порожня чорна смуга, а сама

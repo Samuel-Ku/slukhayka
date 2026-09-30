@@ -278,6 +278,20 @@ class SnapshotGoldenBytesGuardTest {
          * with no border and 54 px tall. This change settles the disagreement
          * between the two fields, not yet the border.
          *
+         *
+         * ## Three re-pinned on 2026-09-30 (#885, wave 3 — status chip pill)
+         *
+         * The status chips were M3 `FilterChip`s with the default 8 dp shape and
+         * a primary border when selected. The prototype draws a PILL
+         * (`:1239-1241`, radius 999) and gives the selected one NO border — the
+         * tonal fill marks it on its own.
+         *
+         * These three moved because the chips sit on the library grid. The
+         * chip-specific goldens `library_status_row*.png` also moved but are NOT
+         * pinned here, which is the useful part: this change is covered by
+         * images that exist precisely for the surface it touched, unlike the
+         * earlier gaps where nothing watched the thing being changed.
+         *
          * ## One re-pinned on 2026-09-29 (#885, wave 3 — poster ratio)
          *
          * The canonical poster went 120×168 → 120×**180** so its ratio is the
@@ -343,17 +357,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "5aa9327765b057c1ec2b9329abe219c9" + "c70d21be5bceabce3ae465bb40a3153f"
+                "f3989163cddf2ef7b6646713f3dfb012" + "9aa874f80f1123ebe388e5682f4023f6"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "af5a1351d72966913a7b064227bbdef7" + "2448bb57536d5eb08bce2f7534da1a0e"
+                "afd75c1214f56b0a6680a3da6d062651" + "6816eecad88d96bd9bbaf37895602c24"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "96ef23e45800386f8ab09a2fa9cf900e" + "36e259f89f4967325c797187416bf611"
+                "3e3e27a5037f938792fd7ec0e278b1ea" + "a7819467df919098c2c331ae00d985c2"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

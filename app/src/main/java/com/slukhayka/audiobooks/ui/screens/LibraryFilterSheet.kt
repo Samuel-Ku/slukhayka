@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
@@ -122,12 +123,22 @@ fun LibraryStatusRow(
                 onClick = { onSelect(f) },
                 label = { Text(stringResource(f.labelRes)) },
                 colors = FilterChipAccentColors,
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
-                    selected = isSelected,
-                    borderColor = MaterialTheme.colorScheme.outlineVariant,
-                    selectedBorderColor = MaterialTheme.colorScheme.primary
-                ),
+                // #885 (wave 3) — the prototype draws a status chip as a PILL
+                // (`:1239-1241`, radius 999) and gives the SELECTED one no
+                // border at all: the tonal fill alone marks it. M3's default
+                // 8 dp shape was the only reason these read as a different
+                // control from every other chip in the app.
+                shape = RoundedCornerShape(AppDimens.RadiusPill),
+                border = if (isSelected) {
+                    // Selected is tonal WITHOUT a border, per the prototype.
+                    null
+                } else {
+                    FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = false,
+                        borderColor = MaterialTheme.colorScheme.outlineVariant
+                    )
+                },
                 modifier = Modifier
                     .heightIn(min = 36.dp)
                     .testTag("library_status_${f.name.lowercase()}")

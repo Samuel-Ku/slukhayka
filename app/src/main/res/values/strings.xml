@@ -195,6 +195,9 @@
     <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
     <string name="listen_manage_shelves">Керувати полицями</string>
     <string name="listen_shelves_hidden">Приховано</string>
+    <!-- #885 (wave 3) — every shelf hidden is a STATE, not a blank screen. -->
+    <string name="listen_all_shelves_hidden_title">Усі полиці приховано</string>
+    <string name="listen_all_shelves_hidden_body">Ваші книги на місці — поверніть потрібну полицю, і вона знову з\'явиться тут.</string>
     <string name="collection_with_book_title">Добірки з цією книгою</string>
     <string name="collection_by_pseudonym">добірка слухача %1$s</string>
     <string name="collection_no_ratings">Ще без оцінок</string>

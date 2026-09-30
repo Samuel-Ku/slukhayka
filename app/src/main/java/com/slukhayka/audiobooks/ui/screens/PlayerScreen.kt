@@ -1084,7 +1084,13 @@ private fun ColumnScope.PlayerArtworkPane(
     ) {
         Text(
             text = book.title,
-            style = MaterialTheme.typography.headlineSmall,
+            // #885 (wave 3) — the prototype's player title is its own `h1` at
+            // 29 px (`.sl-player h1`, :1197), not the 24 sp `headlineSmall` the
+            // root screens share. `headlineMedium` (28 sp) is the canonical
+            // style one step up, so this moves to the written design WITHOUT
+            // inventing a size — a one-off `29.sp` would be exactly the new
+            // variation ADR-0033 calls a defect.
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = if (largeFont) 3 else 2,

@@ -201,14 +201,32 @@ class SnapshotGoldenBytesGuardTest {
          *
          * The six that moved are the six that render a screen title:
          * `explore_header_*`, `home_feed_phone_fold`, `library_redesign_*`.
-         * The three player ones kept their bytes — the player title still uses
-         * `headlineSmall`, which this change does not touch, which is itself
-         * evidence the pin set is being read rather than blanket-refreshed.
+         * The three player ones kept their bytes AT THE TIME — the player
+         * title then still used `headlineSmall`, which that change did not
+         * touch, which is itself evidence the pin set is being read rather
+         * than blanket-refreshed. (Superseded later: the player title moved to
+         * `headlineMedium`, so all three DID move then — see below.)
          *
          * Checked, not assumed: the before/after pair for
          * `library_redesign_dense.png` is 1078×2399 in BOTH versions, so the
          * layout did not move — only text metrics did, which is the whole
          * expected class of a typography change.
+         *
+         *
+         * ## Three re-pinned on 2026-09-30 (#885, wave 3 — player title)
+         *
+         * The player's title is its own `h1` in the prototype at 29 px
+         * (`.sl-player h1`, :1197), not the 24 sp `headlineSmall` the root
+         * screens share. It moved to `headlineMedium` (28 sp) — the canonical
+         * style one step up — rather than to a one-off `29.sp`, because a new
+         * size is exactly the "new variation without collapsing the old" that
+         * ADR-0033 calls a defect.
+         *
+         * All THREE player goldens moved, which is the correction of the note
+         * above: they had been evidence that a typography change can be
+         * targeted, and they are now evidence that the pin set follows the
+         * surface that actually changed. Both readings are the point of
+         * reading the diff instead of refreshing in bulk.
          *
          * ## Three re-pinned a third time on 2026-09-29 (#885, wave 2 — dialects)
          *
@@ -323,17 +341,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "3ff2fcc3f1dd50b676ce76039efcafb1" + "04cbd351132bafaf602ddbd904891470"
+                "a974c53f9ddf9dcaadf0904be12fe54d" + "8b1a71a7c0efde72ac8cdbb1f32d0f85"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "1983802efdef62a1dc75bbfa55a4420d" + "b134d1aff9797dd262245de74abd0bd1"
+                "5a6d95bb61ffbdb613843f0c8476092f" + "44225640f0a027e2d5dfa906b82b3a89"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "7d6f42a6d10cf9520a6096fc8fa0b9ec" + "fc0547a45e440b2067898d3b7f383b3d"
+                "119649234ba8fa9ce847863d0dfec198" + "6f6e8bad3ba1e291b575030084c1944a"
             )
         )
     }

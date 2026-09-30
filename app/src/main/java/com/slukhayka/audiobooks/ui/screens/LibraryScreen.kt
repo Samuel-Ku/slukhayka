@@ -463,6 +463,8 @@ fun LibraryScreen(
                 // bottom bar also uses; a hardcoded literal could drift from it.
                 title = if (activeTab == 0) stringResource(R.string.nav_library) else sectionTitle,
                 subtitle = if (activeTab == 0) librarySubtitle else null,
+                // #885 (wave 3) — wordmark on every root, per the prototype.
+                showBrandMark = activeTab == 0,
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 compact = landscapePhone,

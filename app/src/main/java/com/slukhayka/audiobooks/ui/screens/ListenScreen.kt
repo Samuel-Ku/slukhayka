@@ -122,6 +122,9 @@ fun ListenScreen(
         item {
             AppTabHeader(
                 title = stringResource(R.string.nav_listen),
+                // #885 (wave 3) — the prototype puts the wordmark on EVERY
+                // root (`isRoot`), not only on Огляд.
+                showBrandMark = true,
                 headingTestTag = "listen_heading",
                 compact = landscapePhone,
                 actions = {

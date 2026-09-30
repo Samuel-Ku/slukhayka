@@ -273,22 +273,37 @@ class SnapshotGoldenBytesGuardTest {
          * and failed on that branch, so the regression was real and reproduced
          * locally, not a flake. Drawing cannot change layout, which is why it
          * matches the border it replaced.
+         *
+         * ## Three re-pinned on 2026-09-30 (#885, wave 3 — brand wordmark)
+         *
+         * `showBrandMark` used to draw a filled circle BESIDE the title; the
+         * prototype's lockup is a small muted wordmark ABOVE it
+         * (`.sl-wordmark`: 12 px, 800, `.35px`, `--sl-muted`, 15 px accent
+         * icon). The circle was a shape the prototype never had, so it was
+         * replaced, and the wordmark now renders on every root because the
+         * prototype gates it on `isRoot` (line 1318) rather than on Огляд.
+         *
+         * Three pins moved and all three are Огляд/home surfaces — which is
+         * itself the finding: only the Explore fixture sets `brandMark` in
+         * `TabHeadersSnapshotTest`, so the Listen, Library and Friends headers
+         * have NO golden covering their wordmark. That coverage hole is
+         * recorded on #885 rather than papered over here.
          */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "91f02bc4ff64fe1ccfa79c86186fac02" + "176fd073992b9aff7843db5a2a083533"
+                "ba6829fff5731a0192ac99dc2d341ba9" + "d36f48985f03f1731bf858828b7e3bc0"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "8ffceeaa25334731ae730394b1b03d9f" + "c5ed04e7c0a92bb88d33867212b9ba55"
+                "a849d9c747316e6176bde31165ad3bea" + "1154cfab3bb49143a37cd47db0339fff"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "64721dde4aec648ac101575825d85399" + "7930a85b64de48bd911cd96721280b50"
+                "5c4ea9760d032089cdc89e28e651f62b" + "53c424737ae29b053f258549d1cfbe1c"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

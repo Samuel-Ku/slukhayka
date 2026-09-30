@@ -126,6 +126,7 @@ fun FriendsScreen(
                 // The root's name is the ONE resource the bottom bar also uses
                 // (spec-54 T06 / #873): a literal here could drift from the tab.
                 title = stringResource(R.string.nav_friends),
+                showBrandMark = true,
                 headingTestTag = "friends_heading",
                 actions = { AppSettingsGear(onClick = onOpenSettings) }
             )

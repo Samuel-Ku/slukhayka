@@ -599,7 +599,10 @@ fun ListenHeroCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        // #885 (wave 3) — the prototype's hero is `padding:24px`, and its
+        // corners are the spec's 24 dp main block; 16 dp made the hero read as
+        // a tight card rather than the roomy "continue listening" panel.
+        Column(modifier = Modifier.padding(24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Headphones,

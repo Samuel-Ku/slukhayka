@@ -1,5 +1,10 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -45,7 +50,9 @@ class SettingsScreenSnapshotTest {
     fun dark_theme_pins_the_group_header_and_the_screen() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
-                SettingsScreen(onOpen = {})
+                ScreenSurface {
+                    SettingsScreen(onOpen = {})
+                }
             }
         }
 
@@ -59,7 +66,9 @@ class SettingsScreenSnapshotTest {
     fun light_theme_pins_the_group_header_and_the_screen() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = false) {
-                SettingsScreen(onOpen = {})
+                ScreenSurface {
+                    SettingsScreen(onOpen = {})
+                }
             }
         }
 
@@ -81,4 +90,29 @@ class SettingsScreenSnapshotTest {
         composeTestRule.onNodeWithText("ПРОФІЛЬ").assertIsDisplayed()
         composeTestRule.onNodeWithText("ДАНІ ТА ПАМʼЯТЬ").assertIsDisplayed()
     }
+
+    /**
+     * The screen MUST sit on a painted background.
+     *
+     * The first version of this test rendered [SettingsScreen] straight into
+     * `AudiobookTheme`, and nothing painted the surface behind it. The result
+     * LOOKED like a settings bug — «Налаштування» came out as pale cream on
+     * white, apparently low-contrast — and I reported it as one before
+     * checking. It was this test: `onSurface` is near-white in the dark scheme,
+     * and without a background it landed on the snapshot's default white.
+     *
+     * [com.slukhayka.audiobooks.ui.snapshots.TabHeadersSnapshotTest] had it
+     * right all along; this mirrors it. A golden that renders the screen on a
+     * background the app never shows is worse than no golden, because it
+     * invents defects.
+     */
+    @Composable
+    private fun ScreenSurface(content: @Composable () -> Unit) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            content = content
+        )
+    }
+
 }

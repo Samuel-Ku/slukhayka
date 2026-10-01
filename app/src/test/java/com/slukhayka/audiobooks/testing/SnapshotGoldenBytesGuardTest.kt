@@ -228,6 +228,21 @@ class SnapshotGoldenBytesGuardTest {
          * surface that actually changed. Both readings are the point of
          * reading the diff instead of refreshing in bulk.
          *
+         *
+         * ## Three re-pinned on 2026-10-01 (#885, wave 3 — play button shape)
+         *
+         * The prototype's play control is not a circle: `.sl-play { width:80px;
+         * height:72px; border-radius:26px }` (`:1201`). M3's `FilledIconButton`
+         * default is `CornerFull`, i.e. a 72 dp circle — a FAB, not this.
+         *
+         * The shape uses `RadiusPanel` (24 dp) rather than the prototype's 26,
+         * for the same reason the player title used `headlineMedium` (28 sp)
+         * against 29 px: 2 dp on a 72 dp control is imperceptible, and a
+         * one-off size is the "new variation" ADR-0033 calls a defect.
+         *
+         * All three player goldens moved, as they did for the title — the
+         * player is the surface, and these three are what watch it.
+         *
          * ## Three re-pinned a third time on 2026-09-29 (#885, wave 2 — dialects)
          *
          * `SearchSectionHeader` and `LibrarySectionHeader` — two bespoke twins
@@ -372,17 +387,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "a974c53f9ddf9dcaadf0904be12fe54d" + "8b1a71a7c0efde72ac8cdbb1f32d0f85"
+                "9c446e0bf6f3e14307e8b1190170edfc" + "5456ce4016985edb3cbacf63e973e4e4"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "5a6d95bb61ffbdb613843f0c8476092f" + "44225640f0a027e2d5dfa906b82b3a89"
+                "d696ad49b13350e1b8812f1cb314b753" + "a67a6046b2aba74520eaf969b6b468f3"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "119649234ba8fa9ce847863d0dfec198" + "6f6e8bad3ba1e291b575030084c1944a"
+                "9cbdbbd9c1909a42cf0bcfe11e45fb71" + "c69350ed2789054cf1bd43469f3ffbf6"
             )
         )
     }

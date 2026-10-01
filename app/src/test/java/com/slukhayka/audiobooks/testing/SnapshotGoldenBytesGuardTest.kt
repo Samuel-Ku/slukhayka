@@ -243,6 +243,21 @@ class SnapshotGoldenBytesGuardTest {
          * All three player goldens moved, as they did for the title — the
          * player is the surface, and these three are what watch it.
          *
+         *
+         * ## Two re-pinned on 2026-10-01 (#885, wave 3 — cover width)
+         *
+         * The prototype sizes the art as `max-width:215px; width:67%`
+         * (`:1193`) — a fraction CAPPED at 215. The app had it inverted: 76 %
+         * of `min(272, container)`, a different curve at every width.
+         *
+         * Only TWO of the three moved. `player_tight_viewport` did NOT, and
+         * that is the useful part rather than a gap: in the tight viewport the
+         * cover's width is derived from a HEIGHT clamp
+         * (`coverHeight = (coverWidth / aspect).coerceAtMost(maxHeight)`), so
+         * the width formula never reaches it. The golden that pins the
+         * spec-24 T6 / #385 responsive contract therefore stayed put — which is
+         * evidence the contract survived, not that nothing was checked.
+         *
          * ## Three re-pinned a third time on 2026-09-29 (#885, wave 2 — dialects)
          *
          * `SearchSectionHeader` and `LibrarySectionHeader` — two bespoke twins
@@ -387,12 +402,12 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "9c446e0bf6f3e14307e8b1190170edfc" + "5456ce4016985edb3cbacf63e973e4e4"
+                "efcedd9f06495624794da7a2984feecb" + "67f2a45b3eca8d93ef01ed16ba5f298e"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "d696ad49b13350e1b8812f1cb314b753" + "a67a6046b2aba74520eaf969b6b468f3"
+                "f19810bdb00679fe6bbb315a10e23947" + "15ccbc9212951ccf99893d7ae4b5d9cb"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

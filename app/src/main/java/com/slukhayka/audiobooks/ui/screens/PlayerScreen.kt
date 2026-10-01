@@ -1045,7 +1045,17 @@ private fun ColumnScope.PlayerArtworkPane(
         // clamps to the slot (ratio kept) when the loading status
         // squeezes the column — so the artwork can never
         // outgrow its slot into the title.
-        val coverWidth = (272.dp).coerceAtMost(maxWidth) * 0.76f
+        // #885 (wave 3) — the prototype sizes the art as
+        // `max-width:215px; width:67%` (`:1193`), i.e. 67 % of the container
+        // CAPPED at 215. The app had it the other way round — 76 % of
+        // min(272, container) — which is a different curve at every width:
+        // at 400 dp it gave 207 against the prototype's 215, and at 300 dp
+        // 207 against 201. The cap now applies AFTER the fraction, as written.
+        //
+        // The responsive contract from spec-24 T6 / #385 is preserved: the
+        // cover still shrinks with the container and stays inside its slot
+        // (`player_tight_viewport` pins it).
+        val coverWidth = (maxWidth * 0.67f).coerceAtMost(215.dp)
         val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
         Surface(
             shape = RoundedCornerShape(AppDimens.RadiusHero),

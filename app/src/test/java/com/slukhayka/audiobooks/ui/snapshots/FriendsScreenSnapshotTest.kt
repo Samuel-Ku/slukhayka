@@ -14,6 +14,9 @@ import com.slukhayka.audiobooks.ui.screens.FriendsFeedRow
 import com.slukhayka.audiobooks.ui.screens.FriendsFeedState
 import com.slukhayka.audiobooks.ui.screens.FriendsScreen
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import org.junit.After
+import org.junit.Before
+import java.util.TimeZone
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,6 +45,33 @@ class FriendsScreenSnapshotTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    /**
+     * The post shows a timestamp, and `formatFriendsPostTime` renders it with
+     * `SimpleDateFormat`, which reads the **JVM default time zone**.
+     *
+     * That made the first version of this golden environment-dependent: the
+     * same fixed instant rendered «14 лист., 23:13» locally (UTC+1) and
+     * «14 лист., 22:13» in CI (UTC), so the snapshot gate failed on a fresh
+     * record with a diff of 24 bytes. A golden that depends on where it was
+     * recorded is not a golden.
+     *
+     * Pinning UTC makes the rendered time a property of the FIXTURE rather
+     * than of the machine. Restored afterwards so this file cannot leak a
+     * default into other tests in the same JVM.
+     */
+    private lateinit var originalTimeZone: TimeZone
+
+    @Before
+    fun pinTimeZone() {
+        originalTimeZone = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    }
+
+    @After
+    fun restoreTimeZone() {
+        TimeZone.setDefault(originalTimeZone)
+    }
 
     private val friend = "Оксана"
 

@@ -106,6 +106,13 @@ internal fun SettingsScreen(
                             )
                         },
                         headlineContent = { Text(stringResource(destination.titleRes)) },
+                        supportingContent = {
+                            Text(
+                                text = stringResource(destination.descriptionRes),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
                         trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
                         colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)

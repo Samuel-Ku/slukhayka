@@ -448,6 +448,14 @@
     <string name="a11y_close_page">Close the page</string>
     <string name="person_work_in_library">In the library</string>
     <string name="settings_group_profile">Profile</string>
+    <!-- #885 (wave 3) — the prototype's row carries a 12 px description. -->
+    <string name="settings_desc_profile">Name, avatar and public profile</string>
+    <string name="settings_desc_data">Downloads, storage and offline books</string>
+    <string name="settings_desc_network">What the app does with the network</string>
+    <string name="settings_desc_source_refusal">Sources we never fetch audio from</string>
+    <string name="settings_desc_recommendations">How recommendations are picked</string>
+    <string name="settings_desc_content_languages">Languages to show books in</string>
+    <string name="settings_desc_app_locale">Separate from the books’ language</string>
     <string name="settings_group_data">Data and storage</string>
     <string name="settings_group_network">Network and privacy</string>
     <string name="settings_group_recommendations">Recommendations</string>

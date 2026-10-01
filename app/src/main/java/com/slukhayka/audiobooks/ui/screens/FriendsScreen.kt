@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -185,10 +186,16 @@ private fun FriendsPostCard(
     val sourceId = post.sourceId
     val openable = sourceId != null && bookTitle != null
 
-    Card(
+    // #885 (wave 3) — a post is a FLAT block with a bottom rule, not an
+    // elevated card: `.sl-social-post { padding:20px 0; border-bottom:1px
+    // solid var(--sl-line) }` (`:1259`). A feed of raised cards reads as a
+    // stack of separate objects; a rule-separated list reads as one stream,
+    // which is what a feed is. Same "less elevation, more structure" line as
+    // the chips (#1088, #1090).
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppDimens.SpaceLg, vertical = 6.dp)
+            .padding(horizontal = AppDimens.SpaceLg)
             .testTag("friends_post_${post.id}")
             .then(
                 if (openable) {
@@ -200,12 +207,11 @@ private fun FriendsPostCard(
                 } else {
                     Modifier.semantics(mergeDescendants = true) {}
                 }
-            ),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
+            )
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        // The prototype's `padding:20px 0` — the horizontal inset comes from
+        // the block itself, so the rule below spans the full post width.
+        Column(modifier = Modifier.padding(vertical = 20.dp)) {
             Text(
                 text = post.authorPseudonym,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
@@ -247,6 +253,7 @@ private fun FriendsPostCard(
                 )
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

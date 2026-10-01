@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,32 +37,42 @@ import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 internal enum class SettingsDestination(
     val titleRes: Int,
+    // #885 (wave 3) — the prototype's settings row carries a LEADING ICON
+    // (`.sl-list-row > svg`, `:1148-1153`, 21 px, muted). The app's rows had
+    // none, so a settings list of seven rows was a wall of text with no
+    // landmarks.
+    val icon: ImageVector,
     val paneTag: String,
     val headingTag: String
 ) {
     Profile(
+        icon = Icons.Default.Person,
         titleRes = R.string.profile_title,
         paneTag = "profile_screen_pane",
         headingTag = "profile_screen_heading"
     ),
     NetworkPrivacy(
+        icon = Icons.Default.Shield,
         titleRes = R.string.privacy_title,
         paneTag = "network_privacy_screen_pane",
         headingTag = "network_privacy_screen_heading"
     ),
     Recommendations(
+        icon = Icons.Default.Star,
         titleRes = R.string.recommendations_title,
         paneTag = "recommendations_screen_pane",
         headingTag = "recommendations_screen_heading"
     ),
     // Spec-45 (#405) T6 (#494): the «Мови контенту» destination.
     ContentLanguages(
+        icon = Icons.Default.Language,
         titleRes = R.string.content_languages_title,
         paneTag = "content_languages_screen_pane",
         headingTag = "content_languages_screen_heading"
     ),
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination.
     AppLocale(
+        icon = Icons.Default.Translate,
         titleRes = R.string.app_locale_title,
         paneTag = "app_locale_screen_pane",
         headingTag = "app_locale_screen_heading"
@@ -68,11 +80,13 @@ internal enum class SettingsDestination(
     // ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
     // Source Audio Refusal switch.
     SourceAudioRefusal(
+        icon = Icons.Default.VolumeOff,
         titleRes = R.string.source_audio_refusal_title,
         paneTag = "source_audio_refusal_screen_pane",
         headingTag = "source_audio_refusal_screen_heading"
     ),
     Storage(
+        icon = Icons.Default.SdCard,
         titleRes = R.string.storage_title,
         paneTag = "storage_destination_screen_pane",
         headingTag = "storage_destination_screen_heading"

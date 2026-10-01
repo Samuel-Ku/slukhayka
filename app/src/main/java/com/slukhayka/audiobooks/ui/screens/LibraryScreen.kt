@@ -1290,6 +1290,23 @@ internal fun LibrarySearchField(
                 }
             }
         } else null,
+        // #885 (wave 3) — the same FILL as Огляд. #1087 unified the radius,
+        // but the two fields still looked different: this one had no explicit
+        // colours, so M3's default gave it a transparent container, while
+        // Огляд was filled (`surfaceContainerHighest`). The prototype fills
+        // the field (`.sl-search`, `:1141-1143`), so the filled variant is the
+        // written design and this one was the outlier.
+        //
+        // The BORDER stays for now: it is the focus indicator, and removing it
+        // (the prototype draws no border) needs a decision about what replaces
+        // it. So this change removes the drift without answering that.
+        colors = OutlinedTextFieldDefaults.colors(
+            // MD3: input fills sit on the highest tonal container.
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+        ),
         singleLine = true,
         // #885 (wave 3) — ONE search field, ONE shape. The prototype draws it
         // as a pill (`:1141-1143`, radius 999), and the app had the same

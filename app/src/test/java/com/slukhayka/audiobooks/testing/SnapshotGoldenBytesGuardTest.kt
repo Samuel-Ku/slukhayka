@@ -337,6 +337,21 @@ class SnapshotGoldenBytesGuardTest {
          * images that exist precisely for the surface it touched, unlike the
          * earlier gaps where nothing watched the thing being changed.
          *
+         *
+         * ## Three re-pinned on 2026-10-01 (#885, wave 3 — search field FILL)
+         *
+         * #1087 unified the two search fields' RADIUS and stopped there, which
+         * was not enough: `LibraryScreen` set no `colors`, so M3's default gave
+         * it a transparent container while Огляд was explicitly filled
+         * (`surfaceContainerHighest`). The two roots therefore still looked
+         * different — the divergence had merely moved from the corner to the
+         * fill.
+         *
+         * The prototype fills the field (`.sl-search`, `:1141-1143`), so the
+         * filled variant is the written design. The BORDER is deliberately left
+         * alone: it is the focus indicator, and the prototype draws none, so
+         * removing it needs a decision about what replaces it.
+         *
          * ## One re-pinned on 2026-09-29 (#885, wave 3 — poster ratio)
          *
          * The canonical poster went 120×168 → 120×**180** so its ratio is the
@@ -402,17 +417,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "f3989163cddf2ef7b6646713f3dfb012" + "9aa874f80f1123ebe388e5682f4023f6"
+                "79d05d13c1887cbc9e1e150e42605fb4" + "0d6ebe0033864802baaff45c010a75a8"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "afd75c1214f56b0a6680a3da6d062651" + "6816eecad88d96bd9bbaf37895602c24"
+                "35f82b14b6380bd01e35e587445179ce" + "373120021a73cf33fb52ef76be14e47b"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "3e3e27a5037f938792fd7ec0e278b1ea" + "a7819467df919098c2c331ae00d985c2"
+                "86268f78b89aca9656a6bc7b51813c71" + "7fd2d53eb6ed6fd93f7b84fe3db3864c"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -92,6 +93,18 @@ internal fun SettingsScreen(
                 )
                 group.destinations.forEach { destination ->
                     ListItem(
+                        // #885 (wave 3) — the prototype's row has a leading
+                        // icon (`.sl-list-row > svg`, 21 px, muted). It is
+                        // what makes seven rows scannable: the eye finds
+                        // «Мова» by shape before it reads the word.
+                        leadingContent = {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        },
                         headlineContent = { Text(stringResource(destination.titleRes)) },
                         trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
                         colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),

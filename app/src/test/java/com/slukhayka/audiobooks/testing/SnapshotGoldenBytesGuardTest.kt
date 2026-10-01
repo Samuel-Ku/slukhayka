@@ -258,6 +258,21 @@ class SnapshotGoldenBytesGuardTest {
          * spec-24 T6 / #385 responsive contract therefore stayed put — which is
          * evidence the contract survived, not that nothing was checked.
          *
+         *
+         * ## Three re-pinned on 2026-10-01 (#885, wave 3 — cover shadow)
+         *
+         * The prototype gives the art ONE shadow (`box-shadow: 0 12px 34px
+         * #0002`, `:1194`); the app had two effects — a 1 dp tonal tint and a
+         * 6 dp drop shadow — i.e. a different recipe for the same intent.
+         *
+         * Compose cannot express a CSS offset/blur pair, so the 12 dp
+         * `shadowElevation` APPROXIMATES the prototype's 12 px offset rather
+         * than reproducing it. Recorded as such on purpose: a later reader
+         * should know this pin moved for a "closer", not an "identical".
+         *
+         * All three moved, unlike the width change where the tight viewport
+         * held — a shadow is not clamped by the height the way the width is.
+         *
          * ## Three re-pinned a third time on 2026-09-29 (#885, wave 2 — dialects)
          *
          * `SearchSectionHeader` and `LibrarySectionHeader` — two bespoke twins
@@ -402,17 +417,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "efcedd9f06495624794da7a2984feecb" + "67f2a45b3eca8d93ef01ed16ba5f298e"
+                "e1501cf3f4d878d70cea7215be1bf293" + "3e906b3a78dfa83f998d033af9bfab6d"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "f19810bdb00679fe6bbb315a10e23947" + "15ccbc9212951ccf99893d7ae4b5d9cb"
+                "caf0f77275e1844ffaf75dfce0d70e19" + "c6985434afa135cab7227f04a3990fca"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "9cbdbbd9c1909a42cf0bcfe11e45fb71" + "c69350ed2789054cf1bd43469f3ffbf6"
+                "9b57c91c82089623e67ba75e61ac6c74" + "090c33d1fa38fe83732a84b3e3248b3b"
             )
         )
     }

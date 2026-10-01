@@ -1059,8 +1059,17 @@ private fun ColumnScope.PlayerArtworkPane(
         val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
         Surface(
             shape = RoundedCornerShape(AppDimens.RadiusHero),
-            tonalElevation = 1.dp,
-            shadowElevation = 6.dp,
+            // #885 (wave 3) — the prototype gives the art ONE shadow:
+            // `box-shadow: 0 12px 34px #0002` (`:1194`). The app had two
+            // effects (a 1 dp tonal tint plus a 6 dp drop shadow), which is a
+            // different recipe for the same intent.
+            //
+            // Compose cannot express a CSS offset/blur pair, so
+            // `shadowElevation` is an APPROXIMATION — the 12 dp carries the
+            // prototype's 12 px offset. This is "closer to the written
+            // design", not "identical to it", and the golden shows which.
+            tonalElevation = 0.dp,
+            shadowElevation = 12.dp,
             // Test seam: the tight-viewport snapshot measures the
             // cover to pin that it shrinks while keeping its aspect
             // ratio (spec-24 T6) — and, since #385, that it stays

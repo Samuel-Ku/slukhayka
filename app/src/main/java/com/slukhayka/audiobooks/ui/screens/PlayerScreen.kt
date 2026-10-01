@@ -1476,8 +1476,21 @@ private fun TransportControls(
         SeekButton(Icons.Default.Replay, backDescription, seekBackLabel, onBack)
         FilledIconButton(
             onClick = onPlayPause,
+            // #885 (wave 3) — the prototype's play control is NOT a circle:
+            // `.sl-play { width:80px; height:72px; border-radius:26px }`
+            // (`:1201`). The 80×72 box is the point — a wider-than-tall
+            // squircle reads as a deliberate control rather than as the M3
+            // default FAB, which is what `CornerFull` gave it.
+            //
+            // 26 px is not in the app's vocabulary, so this uses `RadiusPanel`
+            // (24 dp) — 2 dp on a 72 dp button is not perceptible, and
+            // inventing a size for it would be the "new variation without
+            // collapsing the old" ADR-0033 calls a defect. Same reasoning as
+            // the player title's 28 sp against the prototype's 29 px.
+            shape = RoundedCornerShape(AppDimens.RadiusPanel),
             modifier = Modifier
-                .size(72.dp)
+                .width(80.dp)
+                .height(72.dp)
                 .semantics {
                     contentDescription = playDescription
                     stateDescription = playbackStateDescription

@@ -498,6 +498,16 @@
     <string name="a11y_close_page">Закрити сторінку</string>
     <string name="person_work_in_library">У Медіатеці</string>
     <string name="settings_group_profile">Профіль</string>
+    <!-- #885 (wave 3) — the prototype's row carries a 12 px description
+         (`.sl-list-row small`, :1153). One short line each: what the row
+         opens, not what it "empowers" you to do. -->
+    <string name="settings_desc_profile">Імʼя, аватар і публічний профіль</string>
+    <string name="settings_desc_data">Завантаження, памʼять і офлайн-книги</string>
+    <string name="settings_desc_network">Що застосунок робить із мережею</string>
+    <string name="settings_desc_source_refusal">Джерела, з яких не тягнемо аудіо</string>
+    <string name="settings_desc_recommendations">Як добираються поради</string>
+    <string name="settings_desc_content_languages">Якими мовами показувати книги</string>
+    <string name="settings_desc_app_locale">Окремо від мови книг</string>
     <string name="settings_group_data">Дані та памʼять</string>
     <string name="settings_group_network">Мережа й приватність</string>
     <string name="settings_group_recommendations">Рекомендації</string>

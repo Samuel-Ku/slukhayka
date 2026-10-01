@@ -42,22 +42,29 @@ internal enum class SettingsDestination(
     // none, so a settings list of seven rows was a wall of text with no
     // landmarks.
     val icon: ImageVector,
+    // #885 (wave 3) — the prototype's row has a 12 px description under the
+    // title (`.sl-list-row small`, :1153). It answers "what is behind this
+    // row" without making the listener open it to find out.
+    val descriptionRes: Int,
     val paneTag: String,
     val headingTag: String
 ) {
     Profile(
+        descriptionRes = R.string.settings_desc_profile,
         icon = Icons.Default.Person,
         titleRes = R.string.profile_title,
         paneTag = "profile_screen_pane",
         headingTag = "profile_screen_heading"
     ),
     NetworkPrivacy(
+        descriptionRes = R.string.settings_desc_network,
         icon = Icons.Default.Shield,
         titleRes = R.string.privacy_title,
         paneTag = "network_privacy_screen_pane",
         headingTag = "network_privacy_screen_heading"
     ),
     Recommendations(
+        descriptionRes = R.string.settings_desc_recommendations,
         icon = Icons.Default.Star,
         titleRes = R.string.recommendations_title,
         paneTag = "recommendations_screen_pane",
@@ -65,6 +72,7 @@ internal enum class SettingsDestination(
     ),
     // Spec-45 (#405) T6 (#494): the «Мови контенту» destination.
     ContentLanguages(
+        descriptionRes = R.string.settings_desc_content_languages,
         icon = Icons.Default.Language,
         titleRes = R.string.content_languages_title,
         paneTag = "content_languages_screen_pane",
@@ -72,6 +80,7 @@ internal enum class SettingsDestination(
     ),
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination.
     AppLocale(
+        descriptionRes = R.string.settings_desc_app_locale,
         icon = Icons.Default.Translate,
         titleRes = R.string.app_locale_title,
         paneTag = "app_locale_screen_pane",
@@ -80,12 +89,14 @@ internal enum class SettingsDestination(
     // ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
     // Source Audio Refusal switch.
     SourceAudioRefusal(
+        descriptionRes = R.string.settings_desc_source_refusal,
         icon = Icons.Default.VolumeOff,
         titleRes = R.string.source_audio_refusal_title,
         paneTag = "source_audio_refusal_screen_pane",
         headingTag = "source_audio_refusal_screen_heading"
     ),
     Storage(
+        descriptionRes = R.string.settings_desc_data,
         icon = Icons.Default.SdCard,
         titleRes = R.string.storage_title,
         paneTag = "storage_destination_screen_pane",

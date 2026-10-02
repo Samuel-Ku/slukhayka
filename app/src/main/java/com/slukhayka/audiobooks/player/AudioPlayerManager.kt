@@ -411,6 +411,14 @@ class AudioPlayerManager(
             // in-app and widget seek controls (-15 s / +30 s).
             .setSeekBackIncrementMs(SEEK_BACK_INCREMENT_MS)
             .setSeekForwardIncrementMs(SEEK_FORWARD_INCREMENT_MS)
+            // #1050 — the Bluetooth output can vanish (headset off, walk out
+            // of range, car shuts down). Without this Media3 keeps rendering
+            // into a device that is gone: the listener hears nothing and the
+            // app still claims it is playing. The platform behaviour for this
+            // flag is PAUSE, which is what the report asked for and what the
+            // listener expects — switching to the phone speaker instead would
+            // need a custom AudioDeviceCallback and a device-picking policy.
+            .setHandleAudioBecomingNoisy(true)
             .build()
     }
 
@@ -678,6 +686,26 @@ class AudioPlayerManager(
      * of closing over a chapter local.
      */
     private val playerListener = object : Player.Listener {
+        /**
+         * #1050 — Media3 pauses on its own when the output device disappears
+         * (`setHandleAudioBecomingNoisy`), and that pause does NOT go through
+         * [pause]. Without this the app kept `isPlaying = true` and the
+         * transport button showed "playing" over silence.
+         *
+         * Deliberately NOT recording [pausedAtEpochMs] and NOT recording a
+         * PAUSE event: the listener did not step away, their headphones did.
+         * Smart Rewind answers "how long was I away", and a dead battery is not
+         * an absence — rewinding for it would be a surprise, not a courtesy.
+         * Leaving both untouched makes that true by construction.
+         */
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady &&
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+            ) {
+                _playerState.value = _playerState.value.copy(isPlaying = false)
+            }
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (!isPlaying) return
             val bookId = _playerState.value.currentBook?.id ?: return

@@ -43,8 +43,9 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
 // slots. This file keeps the canonical empty states.
 
 /**
- * Full-size empty state: 56 dp icon, title, explanation and (per the house
- * standard) one or two next actions. Pass an [actions] block to render the
+ * Full-size empty state: a 35 dp muted icon (the prototype's `.sl-empty`
+ * glyph, #885), title, explanation and (per the house standard) one or two
+ * next actions. Pass an [actions] block to render the
  * CTA column; without one the column is omitted entirely.
  *
  * v1.4 C4 (ADR-0033): [stateDescription] lets a transient state announce its
@@ -71,23 +72,23 @@ fun EmptyState(
             .padding(horizontal = AppDimens.SpaceXl, vertical = AppDimens.SpaceSection),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-            modifier = Modifier.size(56.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                if (iconContent != null) {
-                    iconContent()
-                } else {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = contentDescription,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
+        // #885 (wave 3) — the prototype's empty state is a bare muted glyph:
+        // `.sl-empty svg { width:35px; height:35px; color:var(--sl-muted) }`
+        // (`:1215-1217`). The app wrapped it in a 56 dp tonal circle, which
+        // made an absence look like a decorated feature. Removed rather than
+        // restyled: the circle was a shape the prototype never had.
+        //
+        // `iconContent` still replaces the glyph (the loading facade) — the
+        // spinner needs no circle to read as "working".
+        if (iconContent != null) {
+            iconContent()
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(EmptyStateIconSize)
+            )
         }
         Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
         // v1.4 C4 (ADR-0033): an empty state is transient — it announces
@@ -167,3 +168,10 @@ fun EmptyStateRow(
         if (action != null) action()
     }
 }
+
+/**
+ * #885 (wave 3) — the empty-state glyph size, from the prototype's
+ * `.sl-empty svg` (`:1215-1217`). One constant, because there is one empty
+ * state app-wide (ADR-0033) and a second size would be a second shape.
+ */
+private val EmptyStateIconSize = 35.dp

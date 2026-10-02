@@ -101,6 +101,11 @@ class WorkFeedFilterAccessibilityTest {
                     "Фільтри каталогу"
                 )
             )
+        // #831 AC6 — «Походження» is a section HEADING for a screen reader,
+        // not just bold text: a listener navigating by headings must land on
+        // it, exactly as they land on «Жанри».
+        compose.onNodeWithText("Походження", useUnmergedTree = true)
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
 
         compose.onNodeWithText("Готово").performClick()
         compose.onNodeWithTag("feed_filters").assertIsFocused()
@@ -145,6 +150,11 @@ class WorkFeedFilterAccessibilityTest {
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithTag("feed_filter_done")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(24.dp)
+        // #831 AC6 — the origin control belongs to the same contract: it is a
+        // real target at 200% font scale, not a shrunken row that merely fits.
+        compose.onNodeWithTag("feed_origin_only_shared")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
     }

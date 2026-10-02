@@ -241,100 +241,98 @@ class WorkFeedFilterWiringTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         lateinit var feed: LazyPagingItems<WorkFeedRow>
 
-        val writer = Thread {
-            var batch = 0
-            while (!Thread.currentThread().isInterrupted) {
-                try {
-                    kotlinx.coroutines.runBlocking {
-                        // One crawled page's worth of merge-on-write rows —
-                        // the burst shape the catalogue sync actually
-                        // produces (batched into one transaction, exactly as
-                        // the composition root's writeBatchRunner does).
-                        db.withTransaction {
-                            repeat(10) { k ->
-                                catalog.writeWorkEdition(
-                                    "soundbooks", "Фонова ${batch}_$k", "Автор В", "",
-                                    "https://sound-books.net/bg${batch}_$k.html"
-                                )
-                            }
-                        }
-                    }
-                } catch (_: Exception) {
-                    return@Thread
-                }
-                batch++
-                Thread.sleep(600)
-            }
-        }.apply { isDaemon = true }
-
-        try {
-            compose.setContent {
-                AudiobookTheme(darkTheme = true) {
-                    feed = remember { feedChain(genreFilters, sortByTitle, scope) }.collectAsLazyPagingItems()
-                    val fg by genreFilters.collectAsState()
-                    val st by sortByTitle.collectAsState()
-                    LazyColumn {
-                        homeFeedContent(
-                            isCatalogLoading = false,
-                            hasLibraryBooks = false,
-                            sections = emptyList(),
-                            genreFacetOptions = listOf(
-                                GenreFacetOption("science-fiction", "Фантастика", 6),
-                                GenreFacetOption("detective", "Детективи", 6)
-                            ),
-                            collections = emptyList(),
-                            newArrivals = emptyList(),
-                            recommendedBooks = emptyList(),
-                            personalCycles = emptyList(),
-                            shortBooks = emptyList(),
-                            longBooks = emptyList(),
-                            workFeedItems = feed,
-                            feedGenreFilters = fg,
-                            feedSortByTitle = st,
-                            onRefreshCatalog = {},
-                            onGoToLibrary = {},
-                            onOpenTop100 = {},
-                            onOpenPeople = {},
-                            onOpenSeriesIndex = {},
-                            onOpenCollectionsIndex = {},
-                            onOpenSeries = { _, _ -> },
-                            onOpenRecommendedBook = {},
-                            onOpenWorkFeedRow = {},
-                            onBookClick = {},
-                            onSetFeedGenreFilters = { genreFilters.value = it },
-                            onSetFeedSortByTitle = { sortByTitle.value = it }
-                        )
-                    }
+        // #1054 — this used to be a background Thread that wrote batches
+        // every 600 ms WHILE Compose read. That "storm" killed the test JVM
+        // (no exception, no hs_err, in BOTH the native and the Robolectric Room
+        // cohorts), so the method never passed AND it broke any package run
+        // that included it — `--tests "…ui.*"`, the documented way to check a
+        // localized change.
+        //
+        // The CONTRACT is unchanged: a filter switch must still present the
+        // filtered rows when the catalogue changes right after it. What changed
+        // is that the writes now happen at defined points instead of racing the
+        // reader. Same user-visible situation, deterministic execution.
+        fun writeBatch(genre: String) {
+            kotlinx.coroutines.runBlocking {
+                repeat(10) { k ->
+                    catalog.writeWorkEdition(
+                        "4read", "Фонова $k", "Автор В", "",
+                        "https://4read.org/bg$k.html",
+                        genreTexts = listOf(genre)
+                    )
                 }
             }
-
-            compose.waitUntil(30_000) { feed.itemCount >= 12 }
-
-            writer.start()
-            kotlinx.coroutines.delay(100)
-            compose.onNodeWithTag("feed_filters").performClick()
-            compose.waitUntil(5_000) {
-                compose.onAllNodesWithTag("feed_genre_science-fiction").fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("feed_genre_science-fiction").performClick()
-            // The tap lands MID-STORM (the user's exact moment); then the
-            // sync settles and the switched generation MUST present exactly
-            // the filtered rows — never a permanently blank feed.
-            kotlinx.coroutines.delay(1_500)
-            writer.interrupt()
-            writer.join(3_000)
-            compose.waitUntil(30_000) {
-                feed.loadState.refresh !is androidx.paging.LoadState.Loading &&
-                    compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().isNotEmpty() &&
-                    compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().isEmpty()
-            }
-            assertTrue(
-                "фід не відновився під фоновими записами: count=${feed.itemCount} state=${feed.loadState.refresh}",
-                compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().isNotEmpty()
-            )
-        } finally {
-            writer.interrupt()
         }
+
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                feed = remember { feedChain(genreFilters, sortByTitle, scope) }.collectAsLazyPagingItems()
+                val fg by genreFilters.collectAsState()
+                val st by sortByTitle.collectAsState()
+                LazyColumn {
+                    homeFeedContent(
+                        isCatalogLoading = false,
+                        hasLibraryBooks = false,
+                        sections = emptyList(),
+                        genreFacetOptions = listOf(
+                            GenreFacetOption("science-fiction", "Фантастика", 6),
+                            GenreFacetOption("detective", "Детективи", 6)
+                        ),
+                        collections = emptyList(),
+                        newArrivals = emptyList(),
+                        recommendedBooks = emptyList(),
+                        personalCycles = emptyList(),
+                        shortBooks = emptyList(),
+                        longBooks = emptyList(),
+                        workFeedItems = feed,
+                        feedGenreFilters = fg,
+                        feedSortByTitle = st,
+                        onRefreshCatalog = {},
+                        onGoToLibrary = {},
+                        onOpenTop100 = {},
+                        onOpenPeople = {},
+                        onOpenSeriesIndex = {},
+                        onOpenCollectionsIndex = {},
+                        onOpenSeries = { _, _ -> },
+                        onOpenRecommendedBook = {},
+                        onOpenWorkFeedRow = {},
+                        onBookClick = {},
+                        onSetFeedGenreFilters = { genreFilters.value = it },
+                        onSetFeedSortByTitle = { sortByTitle.value = it }
+                    )
+                }
+            }
+        }
+
+        compose.waitUntil(30_000) { feed.itemCount >= 12 }
+
+        compose.onNodeWithTag("feed_filters").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("feed_genre_science-fiction").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("feed_genre_science-fiction").performClick()
+        // The catalogue moves right after the tap — the moment the report is
+        // about. The 10 new rows belong to the ACTIVE genre, so a switched
+        // generation that never reloads cannot pass this: they have to arrive
+        // while the other genre stays out. `refresh !is Loading` alone is not
+        // enough — it is briefly true before `flatMapLatest` restarts the
+        // Pager, so the assertion waits for the rendered rows themselves.
+        writeBatch("Фантастика")
+        compose.waitUntil(30_000) {
+            feed.loadState.refresh !is androidx.paging.LoadState.Loading &&
+                compose.onAllNodesWithText("Фонова 0").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().isEmpty()
+        }
+        assertTrue(
+            "після запису в каталог фід не показав новий рядок активного жанру: " +
+                "count=${feed.itemCount} state=${feed.loadState.refresh}",
+            compose.onAllNodesWithText("Фонова 0").fetchSemanticsNodes().isNotEmpty()
+        )
+        assertTrue(
+            "інший жанр просочився після запису в каталог",
+            compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().isEmpty()
+        )
     }
 
     @Test

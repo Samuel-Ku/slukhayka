@@ -66,7 +66,7 @@ class SocialStorageMigrationTest {
     }
 
     @Test
-    fun `the database is at version 49 and registers the social tables`() {
+    fun `the database is at the current version and registers the social tables`() {
         // Room's @Database annotation is CLASS-retained, so the version is read
         // from the opened database itself — the same fact Room writes.
         val db = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
@@ -76,7 +76,14 @@ class SocialStorageMigrationTest {
             val sqlite = db.openHelper.writableDatabase
             sqlite.query("PRAGMA user_version").use { cursor ->
                 cursor.moveToFirst()
-                assertEquals(49, cursor.getInt(0))
+                // #1101 bumped the version to 50 (the orphan repair). The
+                // expected number comes from the export, not from a literal
+                // here: the point is that Room really wrote the DECLARED
+                // version, not that the declaration is any particular number.
+                // (`@Database` is SOURCE-retained, so it cannot be read by
+                // reflection — the highest exported schema is the same fact.)
+                val declared = exportedSchemaVersions().max()
+                assertEquals(declared, cursor.getInt(0))
             }
             // The two new entities are registered Room tables, not only SQL.
             assertTrue(tableExists(sqlite, "friendship_states"))
@@ -84,6 +91,20 @@ class SocialStorageMigrationTest {
         } finally {
             db.close()
         }
+    }
+
+    /**
+     * The versions of the exported schemas on disk — the same number the
+     * `@Database` annotation declares, which is SOURCE-retained and therefore
+     * not readable by reflection.
+     */
+    private fun exportedSchemaVersions(): List<Int> {
+        val dir = listOf(
+            java.io.File("schemas/com.slukhayka.audiobooks.data.db.AudiobookDatabase"),
+            java.io.File("app/schemas/com.slukhayka.audiobooks.data.db.AudiobookDatabase")
+        ).first { it.isDirectory }
+        return dir.listFiles().orEmpty()
+            .mapNotNull { it.name.removeSuffix(".json").toIntOrNull() }
     }
 
     private fun openV48(): SupportSQLiteDatabase {

@@ -1224,6 +1224,35 @@ interface AudiobookDao {
     @Query("DELETE FROM playback_events WHERE bookId = :bookId")
     suspend fun deletePlaybackEventsForBook(bookId: String)
 
+    // --- #1101: the orphan repair ------------------------------------------
+
+    /**
+     * #1101 — the raw 4read purge in the v32→v42 migrations deleted
+     * `audiobooks` rows without their dependants, and `bookmarks` /
+     * Listening State / the event trail carry no foreign key, so those rows
+     * outlive their book forever. The repair pass uses exactly these three
+     * deletes and nothing else: a row goes only when its `bookId` resolves to
+     * no book. The `count*` twins state the same predicate without acting on
+     * it.
+     */
+    @Query("DELETE FROM bookmarks WHERE bookId NOT IN (SELECT id FROM audiobooks)")
+    suspend fun deleteOrphanBookmarks(): Int
+
+    @Query("DELETE FROM playback_progress WHERE bookId NOT IN (SELECT id FROM audiobooks)")
+    suspend fun deleteOrphanPlaybackProgress(): Int
+
+    @Query("DELETE FROM playback_events WHERE bookId NOT IN (SELECT id FROM audiobooks)")
+    suspend fun deleteOrphanPlaybackEvents(): Int
+
+    @Query("SELECT COUNT(*) FROM bookmarks WHERE bookId NOT IN (SELECT id FROM audiobooks)")
+    suspend fun countOrphanBookmarks(): Int
+
+    @Query("SELECT COUNT(*) FROM playback_progress WHERE bookId NOT IN (SELECT id FROM audiobooks)")
+    suspend fun countOrphanPlaybackProgress(): Int
+
+    @Query("SELECT COUNT(*) FROM playback_events WHERE bookId NOT IN (SELECT id FROM audiobooks)")
+    suspend fun countOrphanPlaybackEvents(): Int
+
     // --- Tombstones (wayfinder #55 Q8, stage-2 S1) -------------------------
 
     /**

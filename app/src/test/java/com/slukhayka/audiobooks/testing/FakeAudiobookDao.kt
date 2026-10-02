@@ -714,6 +714,44 @@ class FakeAudiobookDao(
         progressState.update { current -> current.filterNot { it.editionId == editionId } }
     }
 
+    // #1101 — the orphan repair. "Resolves to no book" is the whole predicate,
+    // so the fake applies exactly that and nothing else.
+    override suspend fun deleteOrphanBookmarks(): Int {
+        val bookIds = booksState.value.map { it.id }.toSet()
+        val before = bookmarksState.value.size
+        bookmarksState.update { current -> current.filter { it.bookId in bookIds } }
+        return before - bookmarksState.value.size
+    }
+
+    override suspend fun deleteOrphanPlaybackProgress(): Int {
+        val bookIds = booksState.value.map { it.id }.toSet()
+        val before = progressState.value.size
+        progressState.update { current -> current.filter { it.bookId in bookIds } }
+        return before - progressState.value.size
+    }
+
+    override suspend fun deleteOrphanPlaybackEvents(): Int {
+        val bookIds = booksState.value.map { it.id }.toSet()
+        val before = eventsState.value.size
+        eventsState.update { current -> current.filter { it.bookId in bookIds } }
+        return before - eventsState.value.size
+    }
+
+    override suspend fun countOrphanBookmarks(): Int {
+        val bookIds = booksState.value.map { it.id }.toSet()
+        return bookmarksState.value.count { it.bookId !in bookIds }
+    }
+
+    override suspend fun countOrphanPlaybackProgress(): Int {
+        val bookIds = booksState.value.map { it.id }.toSet()
+        return progressState.value.count { it.bookId !in bookIds }
+    }
+
+    override suspend fun countOrphanPlaybackEvents(): Int {
+        val bookIds = booksState.value.map { it.id }.toSet()
+        return eventsState.value.count { it.bookId !in bookIds }
+    }
+
     override suspend fun deleteAudiobook(bookId: String) {
         booksState.update { current -> current.filterNot { it.id == bookId } }
     }

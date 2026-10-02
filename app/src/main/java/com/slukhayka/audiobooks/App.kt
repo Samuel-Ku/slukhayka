@@ -1317,6 +1317,18 @@ class App : Application() {
     }
 
     /**
+     * #1101 — the repair pass for rows whose book is gone: bookmarks,
+     * Listening State and the event trail left behind by the raw 4read purge
+     * in the v32→v42 migrations, which deleted `audiobooks` rows without their
+     * dependants and left no foreign key to catch them. Idempotent — a second
+     * run finds no row whose `bookId` fails to resolve.
+     */
+    val orphanListeningStatePurge:
+        com.slukhayka.audiobooks.data.listening.OrphanListeningStatePurge by lazy {
+        com.slukhayka.audiobooks.data.listening.OrphanListeningStatePurge(database.audiobookDao())
+    }
+
+    /**
      * Spec-30 T3 (#218) — the library cover pass: fills the Медіатека rows
      * with NO local cover from the shared canonical base through the
      * existing cover write path. A startup one-shot (the library flow
@@ -1491,6 +1503,10 @@ class App : Application() {
             runCatching { duplicateWorkMerger.mergeOnce() }
             // Scam rows leave before anything can read them as a book.
             runCatching { scamSourcePurge.purgeOnce() }
+            // #1101 — the scam purge cleans by Edition, so it cannot see the
+            // rows the raw v32→v42 migrations orphaned: those have no book at
+            // all. The repair pass runs after it and takes exactly those.
+            runCatching { orphanListeningStatePurge.purgeOnce() }
         }
         // Spec-26 T6 (#180): pour the curated universe asset into the shared
         // base (one document per curated series, idempotent — a re-seed on a

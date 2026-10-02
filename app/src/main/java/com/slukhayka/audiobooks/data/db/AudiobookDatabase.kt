@@ -58,7 +58,7 @@ import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
         FriendshipStateEntity::class,
         BlockEntity::class,
     ],
-    version = 49,
+    version = 50,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -105,7 +105,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50
                     )
                     .build()
                 INSTANCE = instance
@@ -1565,6 +1565,46 @@ abstract class AudiobookDatabase : RoomDatabase() {
                          "`direction` TEXT NOT NULL, " +
                          "`blockedAt` INTEGER NOT NULL, " +
                          "PRIMARY KEY(`pseudonym`, `direction`))"
+                 )
+             }
+         }
+
+         /**
+          * #1101 — the repair half of the 4read purge.
+          *
+          * Nine migrations between v32 and v42 ran
+          * `DELETE FROM audiobooks WHERE sourceUrl LIKE '%4read.org%' OR
+          * sourceUrl LIKE '%reasd.org%'` and cleaned `sources`,
+          * `source_tracks`, `work_sources` and `feed_snapshots` alongside —
+          * but never `bookmarks`, `playback_progress` or `playback_events`,
+          * and none of those three carries a foreign key. Every bookmark the
+          * purge orphaned is therefore still on the device, showing as a
+          * «Збережене» row labelled «Аудіокнига» whose tap silently does
+          * nothing (#1081, reproduced on the device).
+          *
+          * A `LIKE` on the source URL would repeat the purge's own guess about
+          * which books were fake. The subquery is the honest predicate — a
+          * row is removed when, and only when, its `bookId` resolves to no
+          * book — so a real bookmark can never be caught by it, whatever the
+          * book's URL says. Exactly three deletes, exactly one column each;
+          * books, Works, Sources and Library Entries are untouched.
+          *
+          * The same predicate also runs at every start
+          * ([com.slukhayka.audiobooks.data.listening.OrphanListeningStatePurge]):
+          * this migration heals the installs that already crossed v32→v42,
+          * the startup pass keeps healing whatever else leaves a dependant
+          * behind.
+          */
+         internal val MIGRATION_49_50 = object : Migration(49, 50) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+                 db.execSQL(
+                     "DELETE FROM `bookmarks` WHERE `bookId` NOT IN (SELECT `id` FROM `audiobooks`)"
+                 )
+                 db.execSQL(
+                     "DELETE FROM `playback_progress` WHERE `bookId` NOT IN (SELECT `id` FROM `audiobooks`)"
+                 )
+                 db.execSQL(
+                     "DELETE FROM `playback_events` WHERE `bookId` NOT IN (SELECT `id` FROM `audiobooks`)"
                  )
              }
          }

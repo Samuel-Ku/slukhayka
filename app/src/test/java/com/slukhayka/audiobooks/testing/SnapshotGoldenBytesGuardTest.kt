@@ -273,6 +273,22 @@ class SnapshotGoldenBytesGuardTest {
          * All three moved, unlike the width change where the tight viewport
          * held — a shadow is not clamped by the height the way the width is.
          *
+         *
+         * ## Three re-pinned on 2026-10-02 (#885, wave 3 — tool slot sizes)
+         *
+         * The prototype's quick-tool slot is `min-height:60px` with a 21 px
+         * glyph (`:1205-1207`); the app used 72 dp and 24 dp. 60 dp stays well
+         * above the 48 dp floor (ADR-0044), so this is density, not a smaller
+         * target.
+         *
+         * The cast button also moved OUT of this row into the player header,
+         * where the prototype puts it (`:1318`) — but that is INVISIBLE here,
+         * and the reason is worth keeping: `CastButton` returns early unless
+         * cast is available, and it never is under Robolectric. The row was
+         * therefore already four nodes wide in every golden, so relocating the
+         * fifth fixed cast-capable devices only. Zero goldens moving was the
+         * honest result of that half, not a coverage gap.
+         *
          * ## Three re-pinned a third time on 2026-09-29 (#885, wave 2 — dialects)
          *
          * `SearchSectionHeader` and `LibrarySectionHeader` — two bespoke twins
@@ -432,17 +448,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "e1501cf3f4d878d70cea7215be1bf293" + "3e906b3a78dfa83f998d033af9bfab6d"
+                "74cc8649413aee187f363030e7e5c43e" + "be9d3b23384c390ae1cb734ff8fdd1c6"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "caf0f77275e1844ffaf75dfce0d70e19" + "c6985434afa135cab7227f04a3990fca"
+                "328233261b4c1d4f0f6c937f7c3b773f" + "7025cb4a1cbf7952bb55ea531546b4cb"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "9b57c91c82089623e67ba75e61ac6c74" + "090c33d1fa38fe83732a84b3e3248b3b"
+                "6fa28eb1d92d09c8e8526b8f8468bd14" + "f8daad92f622bf28cdbbc27d9ada5d32"
             )
         )
     }

@@ -197,6 +197,8 @@
     <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
     <string name="listen_manage_shelves">Manage shelves</string>
     <string name="listen_shelves_hidden">Hidden</string>
+    <!-- #1081 — a bookmark can outlive its book (merge, re-import, repair). -->
+    <string name="bookmark_book_unavailable">This book is no longer in the library — the bookmark is left over from an earlier copy.</string>
     <!-- #885 (wave 3) — every shelf hidden is a STATE, not a blank screen. -->
     <string name="listen_all_shelves_hidden_title">All shelves are hidden</string>
     <string name="listen_all_shelves_hidden_body">Your books are still here — bring a shelf back and it appears here again.</string>

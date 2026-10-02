@@ -222,6 +222,15 @@ fun LibraryScreen(
             viewModel.consumeImportMessage()
         }
     }
+    // #1081 — a dead bookmark says so instead of doing nothing. The report was
+    // «тап по закладці не робить нічого взагалі»; silence is the bug.
+    val bookmarkMessage by viewModel.bookmarkMessage.collectAsState()
+    LaunchedEffect(bookmarkMessage) {
+        bookmarkMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeBookmarkMessage()
+        }
+    }
 
     // wayfinder #29: the smart-import preview — scan → plan → confirm → apply.
     // The plan is pure data; confirming calls apply, dismissing leaves zero

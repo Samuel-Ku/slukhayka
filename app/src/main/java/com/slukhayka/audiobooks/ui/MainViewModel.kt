@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import com.slukhayka.audiobooks.R
 import androidx.lifecycle.viewModelScope
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -5026,7 +5027,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun jumpToBookmark(bookmark: BookmarkEntity) {
         viewModelScope.launch(Dispatchers.IO) {
-            val book = libraryEntries.getBookSync(bookmark.bookId) ?: return@launch
+            val book = libraryEntries.getBookSync(bookmark.bookId)
+            if (book == null) {
+                // #1081 — the bookmark outlived its book. The row may have been
+                // merged away, re-imported under a new id or repaired (#470),
+                // while the bookmark still points at the old one. The bookmarks
+                // list has no join, so a dead entry looks alive and leads
+                // nowhere. Say it instead of returning in silence.
+                _bookmarkMessage.value = bookmarkUnavailableMessage
+                return@launch
+            }
             // ADR-0007: chapter→track pairing rides the same fetch.
             val playable = sourceCatalog.getPlayableChapters(bookmark.bookId)
             val chapters = playable.map { it.chapter }
@@ -5627,12 +5637,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
 
+    /**
+     * #1081 — a bookmark whose book no longer resolves used to fail in silence:
+     * [jumpToBookmark] returned before opening anything, so the listener tapped
+     * and NOTHING happened — no player, no message, no crash. That reads as a
+     * broken app, and the report is exactly that («тап по закладці не робить
+     * нічого взагалі»). One-shot, consumed by the screen like [importMessage].
+     */
+    private val _bookmarkMessage = MutableStateFlow<String?>(null)
+    val bookmarkMessage: StateFlow<String?> = _bookmarkMessage.asStateFlow()
+
+    /** #1081 — rides resources, not code: this is text a listener reads. */
+    private val bookmarkUnavailableMessage: String
+        get() = getApplication<Application>().getString(R.string.bookmark_book_unavailable)
+
     /** The pending smart-import preview (wayfinder #29), null when none. */
     private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)
     val importPreview: StateFlow<ImportPreviewState?> = _importPreview.asStateFlow()
 
     fun consumeImportMessage() {
         _importMessage.value = null
+    }
+
+    /** #1081 — clears the one-shot bookmark notice once it has been shown. */
+    fun consumeBookmarkMessage() {
+        _bookmarkMessage.value = null
     }
 
     // The captured-page import doors remain repository seams; 4read's release

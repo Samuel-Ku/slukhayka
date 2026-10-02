@@ -624,6 +624,12 @@
     <string name="lib_import_will_merge">Буде з\'єднано з «%1$s»</string>
     <string name="lib_import_existing_book">книгою в бібліотеці</string>
     <string name="lib_import_confirm_merged">Імпортувати (%1$d нових, %2$d з\'єднати)</string>
+    <string name="lib_import_rename_book">Назва книги</string>
+    <string name="lib_import_chapter_order">Порядок розділів</string>
+    <string name="lib_import_move_up">Вгору</string>
+    <string name="lib_import_move_down">Вниз</string>
+    <string name="lib_import_title_label">Назва</string>
+    <string name="lib_import_save">Зберегти</string>
     <string name="lib_import_confirm">Імпортувати %1$d</string>
     <string name="lib_person_role_author">Автор</string>
     <string name="lib_person_role_narrator">Виконавець</string>

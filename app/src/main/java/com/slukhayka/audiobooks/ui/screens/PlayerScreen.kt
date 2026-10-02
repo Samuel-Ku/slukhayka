@@ -629,6 +629,7 @@ fun PlayerScreenContent(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             PlayerTopBar(
+                castReady = castReady,
                 bookTitle = book.title,
                 isFavorite = book.isFavorite,
                 isOffline = playerState.isOfflineMode,
@@ -732,7 +733,6 @@ fun PlayerScreenContent(
                                         QuickTools(
                                             speed = playerState.playbackSpeed,
                                             timerMinutes = playerState.sleepTimerMinutes,
-                                            castReady = castReady,
                                             onSpeed = onSpeed,
                                             onTimer = onTimer,
                                             onBookmark = onBookmark,
@@ -941,7 +941,6 @@ fun PlayerScreenContent(
                 QuickTools(
                     speed = playerState.playbackSpeed,
                     timerMinutes = playerState.sleepTimerMinutes,
-                    castReady = castReady,
                     onSpeed = onSpeed,
                     onTimer = onTimer,
                     onBookmark = onBookmark,
@@ -1151,6 +1150,13 @@ private fun ColumnScope.PlayerArtworkPane(
 @Composable
 private fun PlayerTopBar(
     bookTitle: String,
+    // #885 (wave 3) — cast lives HERE, in the header, exactly as the prototype
+    // puts it (`:1318`: for the player route the header renders the cast
+    // button). It used to sit in the quick-tools row, which is why that row
+    // held FIVE children and could never be the prototype's four equal
+    // columns — the row now has four, and `QuickTool`'s existing `weight(1f)`
+    // makes them equal without further work.
+    castReady: Boolean,
     isFavorite: Boolean,
     isOffline: Boolean,
     onDismiss: () -> Unit,
@@ -1188,6 +1194,9 @@ private fun PlayerTopBar(
                 Text(stringResource(R.string.book_detail_offline_short), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        // The transport's cast, in the header beside the overflow — the
+        // prototype's own arrangement for the player route.
+        CastButton(castReady = castReady)
         Box {
             IconButton(
                 onClick = { showMenu = true },
@@ -1582,7 +1591,6 @@ private fun SeekButton(
 private fun QuickTools(
     speed: Float,
     timerMinutes: Int,
-    castReady: Boolean,
     onSpeed: () -> Unit,
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
@@ -1636,7 +1644,6 @@ private fun QuickTools(
             timerFocusRequester,
             onTimer
         )
-        CastButton(castReady = castReady)
         QuickTool(
             Icons.Default.BookmarkAdd,
             stringResource(R.string.a11y_player_tool_bookmark),
@@ -1677,7 +1684,12 @@ private fun RowScope.QuickTool(
     Column(
         modifier = Modifier
             .weight(1f)
-            .heightIn(min = 72.dp)
+            // #885 (wave 3) — the prototype's tool slot is `min-height:60px`
+            // with a 21 px glyph (`.sl-tools button`, `:1205-1207`). The app
+            // used 72 dp and 24 dp: a markedly heavier row for four small
+            // controls. 60 dp stays well above the 48 dp floor (ADR-0044),
+            // so this is density, not a smaller target.
+            .heightIn(min = 60.dp)
             .focusRequester(focusRequester)
             // A physical Android FocusRequester needs an explicit target;
             // clickable alone is not sufficient for modal return focus.
@@ -1692,7 +1704,7 @@ private fun RowScope.QuickTool(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(21.dp))
         Spacer(Modifier.height(AppDimens.SpaceXs))
         Text(
             visualValue ?: visualLabel,

@@ -5607,6 +5607,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * #1049 — manual chapter order, the promise made to Andrii_Bryzh in the
+     * community chat («в майбутньому додам можливість редагування
+     * послідовності вже доданої книги»). The first slice is the preview the
+     * plan is still editable in: `ImportPlanner.reorderChapters` has existed
+     * since wayfinder #29 but nothing called it.
+     *
+     * [newOrder] holds the CURRENT indices in their new order — the same
+     * contract as the planner, so the two never disagree about direction.
+     * A permutation of the wrong size or with repeats is refused by the
+     * planner itself (it returns the plan unchanged), not by a guess here.
+     */
+    fun reorderChaptersInPreview(bookId: String, newOrder: List<Int>) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(
+            plan = ImportPlanner.reorderChapters(preview.plan, bookId, newOrder)
+        )
+    }
+
+    /**
+     * #1052 — «Додати папку» on a folder whose files lie in it gave a heap of
+     * one-chapter books instead of one book with chapters, because the planner
+     * treats the tree root as a container of books. The listener chose a folder
+     * that IS a book, so the preview must be able to say so.
+     *
+     * This splits [bookId] at [chapterIndex] — the same shape as
+     * [ImportPlanner.splitBook] — and the UI drives it to merge the loose root
+     * files back into one book.
+     */
+    fun splitBookInPreview(bookId: String, chapterIndex: Int) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(
+            plan = ImportPlanner.splitBook(preview.plan, bookId, chapterIndex)
+        )
+    }
+
+    /**
+     * #1049/#1052 — the preview's metadata correction. `ImportPlanner.editBook`
+     * also records a remembered FIELD correction, so the listener's title (or
+     * the book name they confirm for a folder) survives the next rescan instead
+     * of being overwritten by the source's.
+     */
+    fun editBookInPreview(
+        bookId: String,
+        title: String? = null,
+        author: String? = null,
+        narrator: String? = null,
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null
+    ) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(
+            plan = ImportPlanner.editBook(
+                plan = preview.plan,
+                bookId = bookId,
+                title = title,
+                author = author,
+                narrator = narrator,
+                seriesTitle = seriesTitle,
+                seriesIndex = seriesIndex
+            )
+        )
+    }
+
+    /**
      * Re-scans every previously imported local folder (wayfinder #42): walks
      * the SAF trees, diffs by content hash, adds new chapters/books, and
      * reports missing/moved/duplicate files. Nothing is ever deleted.

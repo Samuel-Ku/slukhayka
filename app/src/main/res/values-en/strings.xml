@@ -571,6 +571,12 @@
     <string name="lib_import_will_merge">Will be merged with «%1$s»</string>
     <string name="lib_import_existing_book">a book in the library</string>
     <string name="lib_import_confirm_merged">Import (%1$d new, %2$d merged)</string>
+    <string name="lib_import_rename_book">Book name</string>
+    <string name="lib_import_chapter_order">Chapter order</string>
+    <string name="lib_import_move_up">Up</string>
+    <string name="lib_import_move_down">Down</string>
+    <string name="lib_import_title_label">Title</string>
+    <string name="lib_import_save">Save</string>
     <string name="lib_import_confirm">Import %1$d</string>
     <string name="lib_person_role_author">Author</string>
     <string name="lib_person_role_narrator">Narrator</string>

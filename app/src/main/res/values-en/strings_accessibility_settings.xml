@@ -85,6 +85,9 @@
     <string name="app_locale_english">English</string>
 
     <string name="storage_title">Downloads and storage</string>
+    <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`. -->
+    <string name="storage_stat_audio_on_device">Audio on device</string>
+    <string name="storage_stat_free">Free</string>
     <string name="storage_device_heading">Device storage</string>
     <string name="storage_rescan_action">Rescan local files</string>
     <string name="storage_danger_heading">Danger zone</string>

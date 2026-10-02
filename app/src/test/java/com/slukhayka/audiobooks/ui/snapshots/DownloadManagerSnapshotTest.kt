@@ -83,7 +83,8 @@ class DownloadManagerSnapshotTest {
                                 DownloadQueueStatus.DONE, 9, 9, 1f, 305L * 1024 * 1024
                             )
                         ),
-                        storageText = "1,2 ГБ зайнято · 42,6 ГБ вільно · 1 аудіокнига офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = true,
                         bookCount = 1,
@@ -114,7 +115,8 @@ class DownloadManagerSnapshotTest {
                 ManagerSurface {
                     DownloadManagerPane(
                         items = emptyList(),
-                        storageText = "0 МБ зайнято · 42,6 ГБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,

@@ -76,7 +76,8 @@ class DownloadManagerScreenTest {
                 TestSurface {
                     DownloadManagerPane(
                         items = emptyList(),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -114,7 +115,8 @@ class DownloadManagerScreenTest {
                             item("error", status = DownloadQueueStatus.ERROR, downloadedChapters = 2),
                             item("done", status = DownloadQueueStatus.DONE, downloadedChapters = 10, progress = 1f)
                         ),
-                        storageText = "350 МБ зайнято · 8,0 ГБ вільно · 1 аудіокнига офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 1,
@@ -158,7 +160,8 @@ class DownloadManagerScreenTest {
                 TestSurface {
                     DownloadManagerPane(
                         items = listOf(item("b1", status = DownloadQueueStatus.DOWNLOADING)),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -195,7 +198,8 @@ class DownloadManagerScreenTest {
                             item("queued", status = DownloadQueueStatus.QUEUED),
                             item("paused", status = DownloadQueueStatus.PAUSED)
                         ),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -238,7 +242,8 @@ class DownloadManagerScreenTest {
                             item("done", status = DownloadQueueStatus.DONE, downloadedChapters = 10),
                             item("error", status = DownloadQueueStatus.ERROR)
                         ),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -275,7 +280,8 @@ class DownloadManagerScreenTest {
                 TestSurface {
                     DownloadManagerPane(
                         items = listOf(item("b1", title = "Тіні забутих предків", status = DownloadQueueStatus.PAUSED)),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -316,7 +322,8 @@ class DownloadManagerScreenTest {
                 TestSurface {
                     DownloadManagerPane(
                         items = listOf(item("b1")),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -351,7 +358,8 @@ class DownloadManagerScreenTest {
                             item("done2", status = DownloadQueueStatus.DONE, downloadedChapters = 10),
                             item("paused", status = DownloadQueueStatus.PAUSED)
                         ),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -385,7 +393,8 @@ class DownloadManagerScreenTest {
                 TestSurface {
                     DownloadManagerPane(
                         items = listOf(item("paused", status = DownloadQueueStatus.PAUSED)),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -412,7 +421,8 @@ class DownloadManagerScreenTest {
                 TestSurface {
                     DownloadManagerPane(
                         items = listOf(item("b1", status = DownloadQueueStatus.DOWNLOADING)),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -456,7 +466,8 @@ class DownloadManagerScreenTest {
                             item("queued", status = DownloadQueueStatus.QUEUED),
                             item("paused", status = DownloadQueueStatus.PAUSED)
                         ),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,
@@ -498,7 +509,8 @@ class DownloadManagerScreenTest {
                         items = listOf(
                             item("done", status = DownloadQueueStatus.DONE, downloadedChapters = 10, progress = 1f)
                         ),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 1 аудіокнига офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = true,
                         bookCount = 1,
@@ -539,7 +551,8 @@ class DownloadManagerScreenTest {
                 TestSurface {
                     DownloadManagerPane(
                         items = listOf(item("b1", status = DownloadQueueStatus.PAUSED)),
-                        storageText = "0 МБ зайнято · 0 МБ вільно · 0 аудіокниг офлайн",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         bookCount = 0,

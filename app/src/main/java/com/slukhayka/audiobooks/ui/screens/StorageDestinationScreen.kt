@@ -23,6 +23,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.sp
+import com.slukhayka.audiobooks.ui.library.formatBytes
+import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -60,7 +64,10 @@ import com.slukhayka.audiobooks.ui.theme.*
  */
 @Composable
 fun StorageDestinationPane(
-    storageText: String,
+    // #885 (wave 3) — the two numbers separately, not a pre-joined line: the
+    // prototype shows them as a stat PAIR (`.sl-stat-pair`, `:1218-1220`).
+    occupiedBytes: Long,
+    freeBytes: Long,
     hasLocalBooks: Boolean,
     showDelete: Boolean,
     bookCount: Int,
@@ -87,7 +94,8 @@ fun StorageDestinationPane(
     }
 
     StorageDestinationContent(
-        storageText = storageText,
+        occupiedBytes = occupiedBytes,
+        freeBytes = freeBytes,
         hasLocalBooks = hasLocalBooks,
         showDelete = showDelete,
         onRescan = onRescan,
@@ -129,7 +137,8 @@ fun StorageDestinationPane(
  */
 @Composable
 fun StorageDestinationContent(
-    storageText: String,
+    occupiedBytes: Long,
+    freeBytes: Long,
     hasLocalBooks: Boolean,
     showDelete: Boolean,
     onRescan: () -> Unit,
@@ -168,11 +177,31 @@ fun StorageDestinationContent(
                             .testTag("storage_device_heading")
                             .semantics { heading() }
                     )
-                    Text(
-                        text = storageText,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    // The prototype's pair: a 32 px number over a 12 px muted
+                    // label, two equal columns (`:1218-1220`). The first stat
+                    // is the audio on device — `getAudioCacheSizeBytes()` is
+                    // what fills it, so the label says exactly that rather
+                    // than the vaguer «зайнято». The second is FREE SPACE,
+                    // which is the pair that answers «чи стане місця» — the
+                    // prototype's own second slot measures the cover cache,
+                    // which the app does not track at all.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = AppDimens.SpaceSm),
+                        horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceLg)
+                    ) {
+                        StorageStat(
+                            value = formatBytes(occupiedBytes),
+                            label = stringResource(R.string.storage_stat_audio_on_device),
+                            modifier = Modifier.weight(1f)
+                        )
+                        StorageStat(
+                            value = formatBytes(freeBytes),
+                            label = stringResource(R.string.storage_stat_free),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -235,4 +264,30 @@ fun StorageDestinationContent(
 private enum class StorageDialogFocusTarget {
     DeleteAction,
     StorageSummary
+}
+
+/**
+ * #885 (wave 3) — one column of the storage stat pair, from the prototype's
+ * `.sl-stat-pair`: the number at 32 px with tight tracking, the label 12 px and
+ * muted. Two of these side by side are the README the listener needs — how
+ * much is here, how much is left.
+ */
+@Composable
+private fun StorageStat(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-1).sp
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }

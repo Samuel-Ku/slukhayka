@@ -298,7 +298,8 @@ class SettingsAccessibilityTest {
                 AudiobookTheme(darkTheme = true) {
                     Box(Modifier.width(320.dp).height(480.dp)) {
                         StorageDestinationPane(
-                            storageText = "1,2 ГБ · 5 аудіокниг офлайн",
+                            occupiedBytes = 1_200_000_000L,
+                            freeBytes = 8_400_000_000L,
                             hasLocalBooks = false,
                             showDelete = showDelete.value,
                             bookCount = 5,

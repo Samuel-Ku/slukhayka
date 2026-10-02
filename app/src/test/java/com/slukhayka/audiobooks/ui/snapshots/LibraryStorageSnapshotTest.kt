@@ -94,7 +94,8 @@ class LibraryStorageSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 StorageSurface {
                     StorageDestinationContent(
-                        storageText = "1,2 ГБ · 5 аудіокниг offline",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = true,
                         showDelete = true,
                         onRescan = {},
@@ -120,7 +121,8 @@ class LibraryStorageSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 StorageSurface {
                     StorageDestinationContent(
-                        storageText = "0 Б · 0 аудіокниг offline",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = false,
                         onRescan = {},
@@ -147,7 +149,8 @@ class LibraryStorageSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 StorageSurface {
                     StorageDestinationContent(
-                        storageText = "1,2 ГБ · 5 аудіокниг offline",
+                        occupiedBytes = 1_200_000_000L,
+                        freeBytes = 42_600_000_000L,
                         hasLocalBooks = false,
                         showDelete = true,
                         onRescan = {},

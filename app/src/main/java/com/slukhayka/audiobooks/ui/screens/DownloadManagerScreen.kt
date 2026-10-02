@@ -98,7 +98,8 @@ fun DownloadManagerScreen(
     ) { padding ->
         DownloadManagerPane(
             items = queue,
-            storageText = downloadMemorySummaryText(cacheSizeBytes, freeBytes, offlineCount),
+            occupiedBytes = cacheSizeBytes,
+            freeBytes = freeBytes,
             hasLocalBooks = hasLocalBooks,
             showDelete = offlineCount > 0 || cacheSizeBytes > 0L,
             bookCount = offlineCount,
@@ -130,7 +131,8 @@ fun DownloadManagerScreen(
 @Composable
 fun DownloadManagerPane(
     items: List<DownloadQueueItem>,
-    storageText: String,
+    occupiedBytes: Long,
+    freeBytes: Long,
     hasLocalBooks: Boolean,
     showDelete: Boolean,
     bookCount: Int,
@@ -174,7 +176,8 @@ fun DownloadManagerPane(
         // spec-28 (#194) tools, unchanged: summary card, local rescan and the
         // destructive delete behind its exact-scope confirmation.
         StorageDestinationPane(
-            storageText = storageText,
+            occupiedBytes = occupiedBytes,
+            freeBytes = freeBytes,
             hasLocalBooks = hasLocalBooks,
             showDelete = showDelete,
             bookCount = bookCount,

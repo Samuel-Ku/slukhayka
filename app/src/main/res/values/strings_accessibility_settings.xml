@@ -92,6 +92,9 @@
     <string name="app_locale_english">English</string>
 
     <string name="storage_title">Завантаження та пам\'ять</string>
+    <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`. -->
+    <string name="storage_stat_audio_on_device">Аудіо на пристрої</string>
+    <string name="storage_stat_free">Вільно</string>
     <string name="storage_device_heading">Пам\'ять пристрою</string>
     <string name="storage_rescan_action">Пересканувати локальні файли</string>
     <string name="storage_danger_heading">Небезпечна зона</string>

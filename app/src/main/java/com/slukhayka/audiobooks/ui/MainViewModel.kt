@@ -5041,21 +5041,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val playable = sourceCatalog.getPlayableChapters(bookmark.bookId)
             val chapters = playable.map { it.chapter }
 
+            // #1081 — a chapter index is not durable. A bookmark made before
+            // the Chapter list shrank (short `/play` answers cut it — cf. the
+            // closed #1035 / #1037) points past the end, and `loadAndPlayBook`
+            // merely clamps it: the listener lands at the very end of the last
+            // chapter and the audio never starts. When the anchor no longer
+            // fits, open the book honestly at its saved position instead of
+            // pretending the anchor still means something.
+            val anchorChapter: Int
+            val anchorPosition: Long
+            if (bookmark.chapterIndex in chapters.indices) {
+                anchorChapter = bookmark.chapterIndex
+                anchorPosition = bookmark.timestampSeconds
+            } else {
+                val progress = listeningState.getProgressSync(bookmark.bookId)
+                anchorChapter = progress?.currentChapterIndex?.takeIf { it in chapters.indices } ?: 0
+                anchorPosition = progress?.currentPositionSeconds ?: 0L
+                _bookmarkMessage.value = bookmarkChapterGoneMessage
+            }
+
+            // #1081 — a bookmark tap used to be a SECOND, weaker door into the
+            // player: it skipped the two guards every normal start passes
+            // through, so a session that had failed before kept its stale
+            // error on screen, and the automatic-recovery gate was never armed
+            // for the attempt this tap installs. Both now happen here too.
+            // (The preferred source is not resolved: the anchor the listener
+            // chose IS the anchor — `(editionId, chapterIndex, time)` per the
+            // ticket's «не вгадувати джерело чи розділ замість якоря».)
             viewModelScope.launch(Dispatchers.Main) {
                 if (playerState.value.currentBook?.id != bookmark.bookId) {
+                    playerManager.clearPlaybackFailureForNewAttempt()
+                    automaticPlaybackRecoveryGate.arm(book.id)
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,
                         playable = playable,
-                        initialChapterIndex = bookmark.chapterIndex,
-                        initialPositionSeconds = bookmark.timestampSeconds,
+                        initialChapterIndex = anchorChapter,
+                        initialPositionSeconds = anchorPosition,
                         autoPlay = true
                     )
                 } else {
-                    if (playerState.value.currentChapterIndex != bookmark.chapterIndex) {
-                        playerManager.selectChapter(bookmark.chapterIndex)
+                    if (playerState.value.currentChapterIndex != anchorChapter) {
+                        playerManager.selectChapter(anchorChapter)
                     }
-                    playerManager.seekTo(bookmark.timestampSeconds * 1000L)
+                    playerManager.seekTo(anchorPosition * 1000L)
                     playerManager.play()
                 }
                 _showFullPlayer.value = true
@@ -5650,6 +5679,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** #1081 — rides resources, not code: this is text a listener reads. */
     private val bookmarkUnavailableMessage: String
         get() = getApplication<Application>().getString(R.string.bookmark_book_unavailable)
+
+    /**
+     * #1081 — the anchor's chapter no longer exists (the Chapter list shrank
+     * after the bookmark was made). The book still opens, at its saved
+     * position; this says why the tap did not land where it said.
+     */
+    private val bookmarkChapterGoneMessage: String
+        get() = getApplication<Application>().getString(R.string.bookmark_chapter_gone)
 
     /** The pending smart-import preview (wayfinder #29), null when none. */
     private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)

@@ -195,6 +195,8 @@
     <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
     <string name="listen_manage_shelves">Керувати полицями</string>
     <string name="listen_shelves_hidden">Приховано</string>
+    <!-- #1081 — a bookmark can outlive its book (merge, re-import, repair). -->
+    <string name="bookmark_book_unavailable">Цю книгу більше не знайдено в бібліотеці — закладка лишилася від попередньої копії.</string>
     <!-- #885 (wave 3) — every shelf hidden is a STATE, not a blank screen. -->
     <string name="listen_all_shelves_hidden_title">Усі полиці приховано</string>
     <string name="listen_all_shelves_hidden_body">Ваші книги на місці — поверніть потрібну полицю, і вона знову з\'явиться тут.</string>

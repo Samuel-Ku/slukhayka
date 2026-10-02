@@ -41,6 +41,25 @@ class OrphanBookmarkTest {
         note = ""
     )
 
+    /**
+     * Waits for the message instead of assuming it has arrived.
+     *
+     * `jumpToBookmark` launches on `Dispatchers.IO`, and
+     * `shadowOf(Looper.getMainLooper()).idle()` drains the MAIN looper — it
+     * does not wait for IO. The first version of this test idled once and
+     * asserted, which passed locally and FAILED in CI: a race, not a fix.
+     * CI caught it, and this is the correction.
+     */
+    private fun awaitBookmarkMessage(viewModel: MainViewModel): String? {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            viewModel.bookmarkMessage.value?.let { return it }
+            Thread.sleep(20)
+        }
+        return viewModel.bookmarkMessage.value
+    }
+
     @Test
     fun `a bookmark whose book is gone SAYS SO instead of doing nothing`() {
         val app = ApplicationProvider.getApplicationContext<App>()
@@ -49,11 +68,10 @@ class OrphanBookmarkTest {
         // The app's database is empty in this test, so the book cannot resolve —
         // exactly the state the listener was in.
         viewModel.jumpToBookmark(orphanBookmark())
-        shadowOf(Looper.getMainLooper()).idle()
 
         assertNotNull(
             "the tap must produce a message — silence is what the report called broken",
-            viewModel.bookmarkMessage.value
+            awaitBookmarkMessage(viewModel)
         )
     }
 
@@ -66,7 +84,7 @@ class OrphanBookmarkTest {
         val viewModel = MainViewModel(app)
 
         viewModel.jumpToBookmark(orphanBookmark())
-        shadowOf(Looper.getMainLooper()).idle()
+        awaitBookmarkMessage(viewModel)
 
         assertFalse(
             "there is no book to play, so the player must not open",
@@ -80,8 +98,7 @@ class OrphanBookmarkTest {
         val viewModel = MainViewModel(app)
 
         viewModel.jumpToBookmark(orphanBookmark())
-        shadowOf(Looper.getMainLooper()).idle()
-        assertNotNull(viewModel.bookmarkMessage.value)
+        assertNotNull(awaitBookmarkMessage(viewModel))
 
         viewModel.consumeBookmarkMessage()
         assertFalse(

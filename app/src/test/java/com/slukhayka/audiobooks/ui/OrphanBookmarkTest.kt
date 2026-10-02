@@ -4,6 +4,8 @@ import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Test
@@ -104,6 +106,67 @@ class OrphanBookmarkTest {
         assertFalse(
             "the message must clear, or the snackbar reappears on every recomposition",
             viewModel.bookmarkMessage.value != null
+        )
+    }
+
+    /**
+     * #1081 — the anchor's chapter can stop existing.
+     *
+     * A bookmark records `(bookId, chapterIndex, time)`, but a Chapter list is
+     * not immutable: a short `/play` answer cuts it (cf. the closed #1035 and
+     * #1037). `loadAndPlayBook` merely clamps an out-of-range index —
+     * `coerceIn(0, size-1)` — so the listener landed at the very end of the
+     * LAST chapter and the audio never started: the same "tap does nothing"
+     * symptom, by a different route.
+     *
+     * The book here has no playable chapters at all, which is the degenerate
+     * case of the same condition (every index is out of range). The tap must
+     * still not be silent, and the notice must be the CHAPTER one — the book
+     * resolves fine, so blaming the library would be a lie.
+     */
+    @Test
+    fun `a bookmark whose chapter no longer exists says so`() {
+        val app = ApplicationProvider.getApplicationContext<App>()
+        val viewModel = MainViewModel(app)
+
+        // A REAL book row, so `getBookSync` resolves and the chapter check is
+        // the one under test (the orphan path is covered above).
+        runBlocking {
+            com.slukhayka.audiobooks.data.db.AudiobookDatabase.getDatabase(app)
+                .audiobookDao()
+                .insertAudiobooks(
+                listOf(
+                    com.slukhayka.audiobooks.data.db.AudiobookEntity(
+                        id = "book-without-chapters",
+                        title = "Книга без розділів",
+                        author = "Автор",
+                        narrator = "",
+                        description = "",
+                        coverDrawableRes = 0,
+                        genre = "",
+                        sourceUrl = "https://sound-books.net/x"
+                    )
+                )
+            )
+        }
+
+        viewModel.jumpToBookmark(
+            BookmarkEntity(
+                bookId = "book-without-chapters",
+                chapterIndex = 7,
+                chapterTitle = "Розділ 8",
+                timestampSeconds = 60,
+                note = ""
+            )
+        )
+
+        val message = awaitBookmarkMessage(viewModel)
+        assertNotNull("тап не має бути тихим і тут", message)
+        val expected = app.getString(com.slukhayka.audiobooks.R.string.bookmark_chapter_gone)
+        assertEquals(
+            "книга резолвиться, тож повідомлення має бути про розділ, а не про бібліотеку",
+            expected,
+            message
         )
     }
 }

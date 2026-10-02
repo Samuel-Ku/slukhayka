@@ -148,6 +148,8 @@ fun HomeScreen(
     val feedGenreFilters by viewModel.feedGenreFilters.collectAsState()
     val feedDurationFilters by viewModel.feedDurationFilters.collectAsState()
     val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
+    // #831 AC3 — «Лише зі спільної бібліотеки» narrows the SAME feed.
+    val feedSharedLibraryOnly by viewModel.feedSharedLibraryOnly.collectAsState()
     // Spec-45 (#405) T6 (#494): the «Мова» chip state — both on = «Усі»;
     // a single-language selection renders as that language and marks the
     // chip selected (the filter is active).
@@ -413,6 +415,7 @@ fun HomeScreen(
                 feedGenreFilters = feedGenreFilters,
                 feedDurationFilters = feedDurationFilters,
                 feedSortByTitle = feedSortByTitle,
+                feedSharedLibraryOnly = feedSharedLibraryOnly,
                 // Spec-45 (#405) T6 (#494): the «Мова» chip mirrors the ONE
                 // persisted preference (both on = «Усі»); one tap cycles it.
                 contentLanguages = contentLanguages,
@@ -451,6 +454,7 @@ fun HomeScreen(
                 onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
                 onSetFeedDurationFilters = { viewModel.setFeedDurationFilters(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
+                onSetFeedSharedLibraryOnly = { viewModel.setFeedSharedLibraryOnly(it) },
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
@@ -1166,6 +1170,10 @@ fun WorkFeedFilters(
     onSortChange: (Boolean) -> Unit,
     selectedDurationBucketIds: Set<String> = emptySet(),
     onDurationBucketsChange: (Set<String>) -> Unit = {},
+    // #831 AC3 — the origin narrowing, IN this sheet rather than a rail of
+    // its own (ADR-0015: no second shelf, «Слухати» untouched).
+    sharedLibraryOnly: Boolean = false,
+    onSharedLibraryOnlyChange: (Boolean) -> Unit = {},
     onOpenFilters: (() -> Unit)? = null,
     filterTriggerModifier: Modifier = Modifier,
     // Spec-45 (#405) T6 (#494): the «Мова» chip — one tap cycles the
@@ -1272,7 +1280,9 @@ fun WorkFeedFilters(
             onGenresChange = onGenresChange,
             onDismiss = { showFilterSheet = false },
             selectedDurationBucketIds = selectedDurationBucketIds,
-            onDurationBucketsChange = onDurationBucketsChange
+            onDurationBucketsChange = onDurationBucketsChange,
+            sharedLibraryOnly = sharedLibraryOnly,
+            onSharedLibraryOnlyChange = onSharedLibraryOnlyChange
         )
     }
 }
@@ -1286,7 +1296,10 @@ fun WorkFeedFilterSheet(
     onGenresChange: (Set<String>) -> Unit,
     onDismiss: () -> Unit,
     selectedDurationBucketIds: Set<String> = emptySet(),
-    onDurationBucketsChange: (Set<String>) -> Unit = {}
+    onDurationBucketsChange: (Set<String>) -> Unit = {},
+    // #831 AC3 — «Лише зі спільної бібліотеки».
+    sharedLibraryOnly: Boolean = false,
+    onSharedLibraryOnlyChange: (Boolean) -> Unit = {}
 ) {
     val paneTitle = stringResource(R.string.a11y_work_feed_filter_pane)
     val headingFocusRequester = remember { FocusRequester() }
@@ -1367,6 +1380,32 @@ fun WorkFeedFilterSheet(
                                 .testTag("feed_genre_${genre.id}")
                         )
                     }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                // #831 AC3 — provenance is a FILTER of the same feed, not a
+                // second rail: the ticket forbids another shelf and ADR-0015
+                // keeps «Слухати» untouched. It is a single switch rather than
+                // a chip echoed into the toolbar, because a sticky narrowing is
+                // easy to forget — it says so in words above the switch.
+                Text(
+                    text = stringResource(R.string.feed_origin_filter_heading),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.feed_origin_only_shared),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = sharedLibraryOnly,
+                        onCheckedChange = onSharedLibraryOnlyChange,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("feed_origin_only_shared")
+                    )
                 }
                 Spacer(modifier = Modifier.height(20.dp))
                 Text(text = stringResource(R.string.feed_duration), style = MaterialTheme.typography.titleMedium)

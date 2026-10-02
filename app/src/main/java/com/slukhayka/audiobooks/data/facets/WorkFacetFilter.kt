@@ -12,7 +12,18 @@ data class WorkFacetFilter(
      * (US17). An EMPTY selection is inactive — everything shows (the "both
      * content languages on" state maps to this at the preference layer).
      */
-    val languages: Set<String> = emptySet()
+    val languages: Set<String> = emptySet(),
+    /**
+     * #831 AC3 — «Лише зі спільної бібліотеки»: keep only Works whose audio
+     * came from the registered community group. A BOOLEAN, not a set: the
+     * ticket asks for one narrowing, and a second dimension of provenance
+     * values would invent a taxonomy the sources do not state (ADR-0014).
+     *
+     * `false` (the default) is INACTIVE — everything shows, matching the
+     * language dimension's contract, so "off" never means "hide foreign
+     * entries".
+     */
+    val sharedLibraryOnly: Boolean = false
 ) {
     init {
         require(genreIds.size <= MAX_VALUES_PER_DIMENSION)

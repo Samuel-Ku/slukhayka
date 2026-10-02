@@ -76,6 +76,26 @@ class WorkFeedOriginQueryTest {
         )
     }
 
+    /** Titles returned when the «Лише зі спільної бібліотеки» narrowing is on. */
+    private fun titlesWithSharedOnly(only: Boolean): List<String> = runBlocking {
+        db.audiobookDao()
+            .pagedWorksFeedRecent(
+                emptyList(), 0, emptyList(), 0, emptyList(), 0, emptyList(), 0,
+                if (only) 1 else 0
+            )
+            .load(
+                androidx.paging.PagingSource.LoadParams.Refresh(
+                    key = null,
+                    loadSize = 50,
+                    placeholdersEnabled = false
+                )
+            )
+            .let { result ->
+                check(result is androidx.paging.PagingSource.LoadResult.Page)
+                result.data.map { it.title }
+            }
+    }
+
     private fun flagFor(workId: String): Boolean = runBlocking {
         db.audiobookDao()
             .pagedWorksFeedRecent(emptyList(), 0, emptyList(), 0, emptyList(), 0, emptyList(), 0)
@@ -143,5 +163,43 @@ class WorkFeedOriginQueryTest {
         }
         assertTrue("сортування за назвою не міняє походження", byTitle)
         assertEquals(flagFor("sorted"), byTitle)
+    }
+
+    /**
+     * #831 AC3 — «Лише зі спільної бібліотеки» as a NARROWING of the same feed.
+     *
+     * The ticket is explicit that no second rail is created and the «Слухати»
+     * ninth block is untouched (ADR-0015), so the filter is the whole visible
+     * surface: it must hide foreign entries and keep the group's own.
+     */
+    @Test
+    fun `the origin filter keeps only shared-library works`() {
+        seedWork("from-group", "https://t.me/slukhayka")
+        seedWork("foreign", "https://sound-books.net/book")
+
+        val unfiltered = titlesWithSharedOnly(only = false)
+        assertTrue("без фільтра видно обидві книги", unfiltered.contains("Книга from-group"))
+        assertTrue("без фільтра видно обидві книги", unfiltered.contains("Книга foreign"))
+
+        val filtered = titlesWithSharedOnly(only = true)
+        assertTrue("книга з групи лишається", filtered.contains("Книга from-group"))
+        assertFalse("стороння книга зникає", filtered.contains("Книга foreign"))
+    }
+
+    /**
+     * `false` means «не звужувати», not «показати лише чуже» — the same
+     * contract as the language dimension, where an empty selection is
+     * inactive. Getting this backwards would hide the community's own books
+     * from everyone who never opened the sheet.
+     */
+    @Test
+    fun `an inactive origin filter hides nothing`() {
+        seedWork("only-group", "https://t.me/slukhayka")
+        assertEquals(
+            "вимкнений фільтр не має ховати нічого",
+            titlesWithSharedOnly(only = false),
+            titlesWithSharedOnly(only = false)
+        )
+        assertTrue(titlesWithSharedOnly(only = false).contains("Книга only-group"))
     }
 }

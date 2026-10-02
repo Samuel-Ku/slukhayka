@@ -3311,6 +3311,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _feedSortByTitle = MutableStateFlow(false)
     val feedSortByTitle: StateFlow<Boolean> = _feedSortByTitle.asStateFlow()
 
+    /**
+     * #831 AC3 — «Лише зі спільної бібліотеки». A narrowing of the SAME feed,
+     * not a second rail: the ticket is explicit that no second shelf is
+     * created and the «Слухати» ninth block is untouched (ADR-0015).
+     */
+    private val _feedSharedLibraryOnly = MutableStateFlow(false)
+    val feedSharedLibraryOnly: StateFlow<Boolean> = _feedSharedLibraryOnly.asStateFlow()
+
     val workFeed: Flow<PagingData<WorkFeedRow>> =
         // Spec-45 (#405) T4/T6: the content-language dimension rides the
         // SAME persisted preference flow as every other surface — a change
@@ -3320,16 +3328,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _feedGenreFilters,
             _feedDurationFilters,
             _feedSortByTitle,
-            App.instance.contentLanguagePrefs.languages
-        ) { genres, durations, byTitle, languages ->
-            FilterKey(genres, durations, byTitle, languages)
+            App.instance.contentLanguagePrefs.languages,
+            _feedSharedLibraryOnly
+        ) { genres, durations, byTitle, languages, sharedOnly ->
+            FilterKey(genres, durations, byTitle, languages, sharedOnly)
         }
         .distinctUntilChanged()
         .flatMapLatest { key ->
             val filter = WorkFacetFilter(
                 genreIds = key.genres,
                 durationBucketIds = key.durations,
-                languages = key.languages
+                languages = key.languages,
+                sharedLibraryOnly = key.sharedOnly
             )
             Pager(
                 config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
@@ -3351,7 +3361,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val genres: Set<String>,
         val durations: Set<String>,
         val byTitle: Boolean,
-        val languages: Set<String>
+        val languages: Set<String>,
+        val sharedOnly: Boolean
     )
 
     fun setFeedDurationFilters(durationBucketIds: Set<String>) {
@@ -3360,6 +3371,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setFeedSortByTitle(byTitle: Boolean) {
         _feedSortByTitle.value = byTitle
+    }
+
+    /** #831 AC3 — the «Лише зі спільної бібліотеки» narrowing of the feed. */
+    fun setFeedSharedLibraryOnly(only: Boolean) {
+        _feedSharedLibraryOnly.value = only
     }
 
     /** #453 — the body opens details. It never starts playback. */

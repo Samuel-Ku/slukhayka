@@ -571,6 +571,8 @@
     <string name="lib_import_will_merge">Will be merged with «%1$s»</string>
     <string name="lib_import_existing_book">a book in the library</string>
     <string name="lib_import_confirm_merged">Import (%1$d new, %2$d merged)</string>
+    <string name="feed_origin_filter_heading">Origin</string>
+    <string name="feed_origin_only_shared">Only from the shared library</string>
     <string name="feed_origin_shared_library">From the shared library</string>
     <string name="feed_origin_from_listeners">From listeners</string>
     <string name="lib_import_rename_book">Book name</string>

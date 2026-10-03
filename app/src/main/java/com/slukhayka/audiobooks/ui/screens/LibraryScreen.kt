@@ -985,6 +985,8 @@ fun LibraryScreen(
             val previewSelection by viewModel.previewSelection.collectAsState()
             val previewSeparateBooks by viewModel.previewSeparateBooks.collectAsState()
             val previewRun by viewModel.previewRun.collectAsState()
+            // #1051 — the listener's own chapter order, or null while untouched.
+            val previewOrder by viewModel.previewOrder.collectAsState()
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
@@ -1019,8 +1021,10 @@ fun LibraryScreen(
                     separateBooks = previewSeparateBooks,
                     run = previewRun
                 ),
+                playlistOrder = previewOrder,
                 playlistCallbacks = PlaylistSelectionCallbacks(
                     onToggleEntry = { viewModel.togglePreviewEntry(it) },
+                    onMoveEntry = { watchUrl, delta -> viewModel.movePreviewEntry(watchUrl, delta) },
                     onSelectAll = { viewModel.selectAllPreviewEntries() },
                     onSetSeparateBooks = { viewModel.setPreviewSeparateBooks(it) },
                     onAdd = { edits -> viewModel.addPreviewSelection(edits) },

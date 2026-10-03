@@ -503,7 +503,10 @@ class App : Application() {
                     titleOverride = edits?.title,
                     authorOverride = edits?.author,
                     narratorOverride = edits?.narrator,
-                    selectedWatchUrls = selectedWatchUrls
+                    selectedWatchUrls = selectedWatchUrls,
+                    // #1051 — the listener's own chapter order, carried in
+                    // the preview edits beside their other corrections.
+                    explicitOrder = edits?.chapterOrder
                 )
                 com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
                     result = when (imported.result) {

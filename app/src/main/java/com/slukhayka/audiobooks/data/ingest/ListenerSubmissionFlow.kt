@@ -105,7 +105,17 @@ class ListenerSubmissionFlow(
     data class PreviewEdits(
         val title: String? = null,
         val author: String? = null,
-        val narrator: String? = null
+        val narrator: String? = null,
+        /**
+         * #1051 — the listener's own chapter order: canonical watch URLs in
+         * the order they want, or null when they never touched it.
+         *
+         * It rides the EDITS rather than a new parameter because that is what
+         * it is — a correction made in the preview, next to the title and
+         * author corrected there. Membership stays with the selection, so an
+         * order can never add an entry nobody picked.
+         */
+        val chapterOrder: List<String>? = null
     )
 
     /** Spec-53 T9 — what the pre-add preview may show. */

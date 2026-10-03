@@ -285,7 +285,7 @@ class GlobalSearchRepositoryTest {
     // ---------------------------------------------------------------------
     // spec-33 T2 (#227): the shared search cache in the search flow — a
     // fresh hit suppresses the source adapters, a miss resolves and writes
-    // back, a stale entry re-fetches and refreshes, and the cached path
+    // back, a stale entry re-fetches and refreshes, and repeated queries
     // returns the same result shape as the live path.
     // ---------------------------------------------------------------------
 
@@ -352,9 +352,9 @@ class GlobalSearchRepositoryTest {
     )
 
     @Test
-    fun `a fresh cached search hit suppresses the source adapters`() = runBlocking {
+    fun `a fresh shared cache cannot hide a new book from sources`() = runBlocking {
         val cache = FakeSearchCache()
-        val adapter = CountingAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")))
+        val adapter = CountingAdapter("sluhayua", searchBooks = listOf(book("Кобзареві думи", "Тарас Шевченко", "sluhayua")))
         val repository = repo(adapter, searchCache = cache)
         // The cache holds the merged card for the query — as if another
         // listener resolved it earlier today.
@@ -363,9 +363,9 @@ class GlobalSearchRepositoryTest {
         val results = repository.searchAllSources("кобзар")
 
         assertEquals(1, results.size)
-        assertEquals("Кобзар", results.single().title)
-        // The adapter was never asked — the fresh cached result served the query.
-        assertEquals(0, adapter.searchCalls)
+        assertEquals("Кобзареві думи", results.single().title)
+        // The cached card does not prove that the sources have no other books.
+        assertEquals(1, adapter.searchCalls)
     }
 
     @Test
@@ -379,8 +379,8 @@ class GlobalSearchRepositoryTest {
         val results = repository.searchAllSources("кобзар")
 
         assertEquals(1, results.size)
-        // The merged result was written back under the normalized key, so the
-        // NEXT listener reads it instead of re-resolving.
+        // The merged result is still available to shared-cache consumers
+        // under the normalized key (including replacement mapping).
         val document = cache.documents["кобзар"]
         assertNotNull(document)
         assertEquals(results, SearchResultCodec.fromMap(document!!)?.results)
@@ -418,7 +418,7 @@ class GlobalSearchRepositoryTest {
     }
 
     @Test
-    fun `the cached path returns the same result shape as the live path`() = runBlocking {
+    fun `repeated queries keep their result shape while consulting sources`() = runBlocking {
         val cache = FakeSearchCache()
         val adapter = CountingAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")))
         val repository = repo(adapter, searchCache = cache)
@@ -426,11 +426,11 @@ class GlobalSearchRepositoryTest {
         val live = repository.searchAllSources("кобзар")
         val cached = repository.searchAllSources("кобзар")
 
-        // Identical cards — the cached path serves exactly what the live path
-        // would have produced (spec-33 US-12).
+        // Repeated source answers still produce identical cards; consulting
+        // sources must not introduce duplicates from the local preview.
         assertEquals(live, cached)
-        // The second search never reached the source — it was a cache hit.
-        assertEquals(1, adapter.searchCalls)
+        // Each query consults sources, even when its result shape is unchanged.
+        assertEquals(2, adapter.searchCalls)
     }
 
     @Test

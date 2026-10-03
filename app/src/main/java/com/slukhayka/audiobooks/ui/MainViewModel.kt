@@ -3127,13 +3127,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _globalSearchError = MutableStateFlow(false)
     val globalSearchError: StateFlow<Boolean> = _globalSearchError.asStateFlow()
 
+    private val searchGeneration = java.util.concurrent.atomic.AtomicLong()
     private var globalSearchJob: kotlinx.coroutines.Job? = null
-    private var authorSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
+        val generation = searchGeneration.incrementAndGet()
         _searchQuery.value = query
         globalSearchJob?.cancel()
-        authorSearchJob?.cancel()
         val clean = query.trim()
         _globalSearchError.value = false
         if (clean.length < 2) {
@@ -3143,10 +3143,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _authorSearchResults.value = emptyList()
-        authorSearchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(350)
-            _authorSearchResults.value = authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) }
-        }
         // Do not leave a previous query's Works visible under a new query;
         // the screen now presents the truthful loading state instead.
         _globalSearchResults.value = emptyList()
@@ -3156,17 +3152,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // overwriting a newer one.
             delay(350)
             try {
-                val results = sourceCatalog.searchAllSources(clean)
-                if (_searchQuery.value.trim() == clean) {
-                    _globalSearchResults.value = results
-                    _globalSearchError.value = false
-                    _isGlobalSearchLoading.value = false
-                }
+                searchWithAuthorRefresh(
+                    readAuthors = { authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) } },
+                    publishAuthors = { authors ->
+                        if (searchGeneration.get() == generation) _authorSearchResults.value = authors
+                    },
+                    searchSources = {
+                        sourceCatalog.searchAllSources(clean) { update ->
+                            if (searchGeneration.get() == generation) {
+                                _globalSearchResults.value = update.results
+                                _globalSearchError.value = update.hasSourceFailures
+                                _isGlobalSearchLoading.value = update.isSearchingSources
+                            }
+                        }
+                    }
+                )
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (_searchQuery.value.trim() == clean) {
-                    _globalSearchResults.value = emptyList()
+                if (searchGeneration.get() == generation) {
+                    // Keep the local preview usable when a later stage fails.
                     _globalSearchError.value = true
                     _isGlobalSearchLoading.value = false
                 }

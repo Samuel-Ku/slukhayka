@@ -193,4 +193,210 @@ class YouTubeSubmissionPlannerTest {
         assertEquals("https://i.ytimg.com/vi/x/hqdefault.jpg", withCover.coverUrl)
         assertNull(YouTubeSubmissionPlanner.parseMetadata(singleVideoJson)!!.coverUrl)
     }
+
+    // --- #1051 — the listener's own order ----------------------------------
+
+    /**
+     * #1051 — a playlist that arrives newest-first can be put right by hand.
+     *
+     * The report: «остання частина книги це 1 розділ в додатку». The source
+     * order is OBSERVED (ADR-0014) and we reproduce it faithfully, so the cure
+     * is the listener's explicit order — never a guess from titles, which is
+     * what ADR-0035 forbids.
+     */
+    @Test
+    fun `an explicit order decides which entry is read first`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+        val reversed = listOf(
+            "https://www.youtube.com/watch?v=DEADBEEF123",
+            "https://www.youtube.com/watch?v=biwxkjI06KA",
+            "https://www.youtube.com/watch?v=6XIPkMFZf-0"
+        )
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234",
+            metadata,
+            "@youtube",
+            explicitOrder = reversed
+        )
+
+        assertEquals(
+            listOf("DEADBEEF123", "biwxkjI06KA", "6XIPkMFZf-0"),
+            plan.chapters.map { it.watchUrl.substringAfter("v=") }
+        )
+    }
+
+    /**
+     * The numbering rule the ticket left open, and the answer: a REORDER takes
+     * the new position, because a label that contradicted the hand would be
+     * the app arguing with the listener. Filtering keeps the observed one —
+     * the test below pins that half, so the two rules are provably distinct.
+     */
+    @Test
+    fun `a reordered untitled entry is numbered by its NEW position`() {
+        val untitled = """
+            {
+              "_type": "playlist",
+              "id": "PLx",
+              "title": "Книга",
+              "entries": [
+                {"_type": "url", "id": "AAA", "url": "https://www.youtube.com/watch?v=AAA", "title": ""},
+                {"_type": "url", "id": "BBB", "url": "https://www.youtube.com/watch?v=BBB", "title": ""}
+              ]
+            }
+        """.trimIndent()
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(untitled)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLx",
+            metadata,
+            "@youtube",
+            explicitOrder = listOf(
+                "https://www.youtube.com/watch?v=BBB",
+                "https://www.youtube.com/watch?v=AAA"
+            )
+        )
+
+        // BBB now plays first, so it must READ as the first.
+        assertEquals("Розділ 1", plan.chapters[0].title)
+        assertEquals("https://www.youtube.com/watch?v=BBB", plan.chapters[0].watchUrl)
+        assertEquals("Розділ 2", plan.chapters[1].title)
+    }
+
+    /**
+     * The contrast that gives the rule above its meaning, and the half that
+     * must NOT change: filtering alone keeps the OBSERVED position, so a
+     * picked «Розділ 3» still reads as the third and the listener recognises
+     * the part they chose.
+     */
+    @Test
+    fun `filtering alone still numbers by the OBSERVED position`() {
+        val untitled = """
+            {
+              "_type": "playlist",
+              "id": "PLx",
+              "title": "Книга",
+              "entries": [
+                {"_type": "url", "id": "AAA", "url": "https://www.youtube.com/watch?v=AAA", "title": ""},
+                {"_type": "url", "id": "BBB", "url": "https://www.youtube.com/watch?v=BBB", "title": ""},
+                {"_type": "url", "id": "CCC", "url": "https://www.youtube.com/watch?v=CCC", "title": ""}
+              ]
+            }
+        """.trimIndent()
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(untitled)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLx",
+            metadata,
+            "@youtube",
+            // Pick the LAST position only — the number must not collapse to 1.
+            selectedWatchUrls = setOf("https://www.youtube.com/watch?v=CCC")
+        )
+
+        assertEquals(1, plan.chapters.size)
+        assertEquals("Розділ 3", plan.chapters[0].title)
+    }
+
+    /**
+     * A reorder is NOT a way to smuggle in an entry the listener never picked:
+     * membership still comes from the selection, so the two inputs stay
+     * independent.
+     */
+    @Test
+    fun `an order never adds an entry the selection excluded`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234",
+            metadata,
+            "@youtube",
+            selectedWatchUrls = setOf("https://www.youtube.com/watch?v=6XIPkMFZf-0"),
+            explicitOrder = listOf(
+                "https://www.youtube.com/watch?v=DEADBEEF123",
+                "https://www.youtube.com/watch?v=6XIPkMFZf-0"
+            )
+        )
+
+        assertEquals(1, plan.chapters.size)
+        assertEquals("https://www.youtube.com/watch?v=6XIPkMFZf-0", plan.chapters[0].watchUrl)
+    }
+
+    /**
+     * A partial order narrows nothing: an entry the list does not mention keeps
+     * its observed place AFTER the ordered ones, so a dropped look can never
+     * silently drop a chapter.
+     */
+    @Test
+    fun `an entry missing from the order keeps its place after the ordered ones`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234",
+            metadata,
+            "@youtube",
+            explicitOrder = listOf("https://www.youtube.com/watch?v=biwxkjI06KA")
+        )
+
+        assertEquals(3, plan.chapters.size)
+        assertEquals("https://www.youtube.com/watch?v=biwxkjI06KA", plan.chapters[0].watchUrl)
+        assertEquals(
+            listOf("6XIPkMFZf-0", "DEADBEEF123"),
+            plan.chapters.drop(1).map { it.watchUrl.substringAfter("v=") }
+        )
+    }
+
+    /** No order given = the observed order, exactly as before. */
+    @Test
+    fun `no explicit order keeps the observed order`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(playlistJson)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLabcd1234", metadata, "@youtube"
+        )
+
+        assertEquals(
+            listOf("6XIPkMFZf-0", "biwxkjI06KA", "DEADBEEF123"),
+            plan.chapters.map { it.watchUrl.substringAfter("v=") }
+        )
+    }
+
+    /**
+     * An entry carrying NEITHER a url NOR an id is skipped — "never
+     * fabricated", the planner's oldest rule. It must stay skipped when an
+     * explicit order is present too: `watchUrlOf` returns null for it, and a
+     * careless `null !in order` test would quietly let it through as an
+     * "unmentioned" entry.
+     */
+    @Test
+    fun `an entry without a url is still skipped when an order is given`() {
+        val withGhost = """
+            {
+              "_type": "playlist",
+              "id": "PLx",
+              "title": "Книга",
+              "entries": [
+                {"_type": "url", "id": "AAA", "url": "https://www.youtube.com/watch?v=AAA", "title": "Перша"},
+                {"_type": "url", "title": "Без url і id"},
+                {"_type": "url", "id": "BBB", "url": "https://www.youtube.com/watch?v=BBB", "title": "Друга"}
+              ]
+            }
+        """.trimIndent()
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(withGhost)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLx",
+            metadata,
+            "@youtube",
+            explicitOrder = listOf(
+                "https://www.youtube.com/watch?v=BBB",
+                "https://www.youtube.com/watch?v=AAA"
+            )
+        )
+
+        assertEquals(2, plan.chapters.size)
+        assertEquals(
+            listOf("BBB", "AAA"),
+            plan.chapters.map { it.watchUrl.substringAfter("v=") }
+        )
+    }
 }

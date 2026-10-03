@@ -116,7 +116,13 @@ fun SubmissionSheet(
     channelCallbacks: ChannelCardCallbacks? = null,
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
     playlistSelection: PlaylistSelectionState? = null,
-    playlistCallbacks: PlaylistSelectionCallbacks? = null
+    playlistCallbacks: PlaylistSelectionCallbacks? = null,
+    /**
+     * #1051 — the listener's own chapter order (canonical watch URLs), or null
+     * while they never touched it. The card renders in this order, so the list
+     * the listener is looking at IS the list that will be imported.
+     */
+    playlistOrder: List<String>? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -145,6 +151,7 @@ fun SubmissionSheet(
             channelCallbacks = channelCallbacks,
             playlistSelection = playlistSelection,
             playlistCallbacks = playlistCallbacks,
+            playlistOrder = playlistOrder,
             includePaneSemantics = false
         )
     }
@@ -176,6 +183,12 @@ fun SubmissionSheetContent(
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
     playlistSelection: PlaylistSelectionState? = null,
     playlistCallbacks: PlaylistSelectionCallbacks? = null,
+    /**
+     * #1051 — the listener's own chapter order (canonical watch URLs), or null
+     * while they never touched it. The card renders in this order, so the list
+     * the listener is looking at IS the list that will be imported.
+     */
+    playlistOrder: List<String>? = null,
     includePaneSemantics: Boolean = true
 ) {
     var url by rememberSaveable(prefillUrl) { mutableStateOf(prefillUrl.orEmpty()) }
@@ -460,7 +473,15 @@ fun SubmissionSheetContent(
             // one-book / separate-books choice.
             if (preview.entries.isNotEmpty() && playlistSelection != null && playlistCallbacks != null) {
                 PlaylistSelectionCard(
-                    entries = preview.entries,
+                    entries = playlistOrder
+                        ?.let { order ->
+                            // Rank by the listener's list; anything it does not
+                            // mention keeps the observed tail rather than
+                            // vanishing.
+                            val rank = order.withIndex().associate { (i, url) -> url to i }
+                            preview.entries.sortedBy { rank[it.watchUrl] ?: Int.MAX_VALUE }
+                        }
+                        ?: preview.entries,
                     state = playlistSelection,
                     edits = previewEdits ?: ListenerSubmissionFlow.PreviewEdits(),
                     callbacks = playlistCallbacks

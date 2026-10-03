@@ -1736,4 +1736,16 @@ class FakeAudiobookDao(
             submissionStates[sourceId] = existing.copy(state = state, reason = reason, updatedAt = updatedAt)
         }
     }
+
+    // #1049 — the reorder seam. The fake records nothing about indices: these
+    // exist so the DAO contract stays implementable in tests, and so a future
+    // signature change breaks the build here rather than only at runtime.
+    override suspend fun reorderChaptersByIndex(
+        chapterIdsInOrder: List<String>,
+        trackIdsInOrder: List<String>
+    ) = Unit
+
+    override suspend fun setChapterIndex(chapterId: String, chapterIndex: Int) = Unit
+
+    override suspend fun setTrackIndex(trackId: String, trackIndex: Int) = Unit
 }

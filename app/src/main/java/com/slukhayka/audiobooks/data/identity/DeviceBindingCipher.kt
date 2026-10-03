@@ -8,18 +8,14 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Spec-40 #276 (t2) — seals the recovery material for the `device_bindings`
- * document so a fresh install on the SAME phone can silently sign back in.
+ * Seals the local, backup-included password on the same device. The device id
+ * is an identifier, not a secret: ciphertext must never be published beside
+ * it. Public cloud bindings are retired (ADR-0055). This only protects a local
+ * backup when its reader does not also know the device id; hardware-backed
+ * keys would additionally protect against a compromised backup plus id, but
+ * cannot preserve this same-device reinstall contract.
  *
- * The binding document is publicly readable by design (pre-auth lookup), so
- * the credential pair inside it is encrypted with a key derived from the
- * device's own ANDROID_ID (+ a constant app salt): the same phone derives
- * the same key after reinstall and decrypts; any other device — including a
- * leaked database copy — gets only ciphertext it cannot open. IMEI and
- * other hardware identifiers are forbidden by the ticket; ANDROID_ID is the
- * app-scoped 64-bit identifier that survives uninstall but not factory
- * reset. Pure JVM (the device id is a parameter): AES-GCM over javax.crypto,
- * round-trip / wrong-key / tamper pinned by tests.
+ * AES-GCM authenticates the blob; wrong-device and tampered input return null.
  */
 object DeviceBindingCipher {
 

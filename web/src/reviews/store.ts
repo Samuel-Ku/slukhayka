@@ -11,9 +11,8 @@
  * Work/Edition, idempotently replaced on edit), exactly as on Android.
  *
  * App Check: the web installs App Check when a site key is configured
- * (`src/firebase/appCheck.ts`) and Firestore rules refuse token-less
- * writes, so the write path is App Check-gated server-side — the same
- * contract as Android. Without a Firebase config the store is null and the
+ * (`src/firebase/appCheck.ts`). Attestation requires service Enforcement;
+ * rules alone do not establish it (ADR-0055). Without a Firebase config the store is null and the
  * book page renders NO reviews block (honest absence, never a fake state).
  */
 import {

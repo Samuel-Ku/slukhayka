@@ -123,8 +123,10 @@ class PlaybackProxy(
             startedInfo = info
             info
         } catch (e: IOException) {
+            fresh.stop()
             null
         } catch (e: RuntimeException) {
+            fresh.stop()
             null
         }
     }
@@ -142,6 +144,7 @@ class PlaybackProxy(
         }
         server = null
         startedInfo = null
+        pathPrefix = null
     }
 
     /**
@@ -170,6 +173,10 @@ class PlaybackProxy(
      */
     private inner class Server : NanoHTTPD(bindAddress.hostAddress, EPHEMERAL_PORT) {
 
+        init {
+            setAsyncRunner(BoundedAsyncRunner())
+        }
+
         /** Set once the listener bound successfully; cleared by [PlaybackProxy.stop]. */
         @Volatile
         var alive: Boolean = false
@@ -180,6 +187,31 @@ class PlaybackProxy(
             } catch (e: Exception) {
                 emptyResponse(INTERNAL_ERROR)
             }
+    }
+
+    /**
+     * Admission happens before HTTP parsing and the token gate. NanoHTTPD's
+     * default runner starts one thread per socket, including idle unauthenticated
+     * connections. Keep a small fixed ceiling and close excess sockets without
+     * queuing them. A stopped runner cannot admit a late accept during teardown.
+     */
+    private class BoundedAsyncRunner : NanoHTTPD.DefaultAsyncRunner() {
+        private var stopping = false
+
+        @Synchronized
+        override fun exec(clientHandler: NanoHTTPD.ClientHandler) {
+            if (stopping || running.size >= MAX_CLIENT_CONNECTIONS) {
+                clientHandler.close()
+            } else {
+                super.exec(clientHandler)
+            }
+        }
+
+        @Synchronized
+        override fun closeAll() {
+            stopping = true
+            super.closeAll()
+        }
     }
 
     private fun respond(uri: String?, rangeHeader: String?): NanoHTTPD.Response {
@@ -321,6 +353,7 @@ class PlaybackProxy(
 
     private companion object {
         private const val EPHEMERAL_PORT = 0
+        private const val MAX_CLIENT_CONNECTIONS = 16
 
         /** The two statuses the [Upstream] seam documents. */
         private const val STATUS_OK = 200

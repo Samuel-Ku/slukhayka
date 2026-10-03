@@ -11,6 +11,9 @@ import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.Socket
+import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.net.URL
 
 /**
@@ -183,6 +186,47 @@ class PlaybackProxyTest {
 
         assertEquals(200, response.code)
         assertNull(response.header("Content-Type"))
+    }
+
+    @Test
+    fun `idle unauthenticated connections are capped before parsing or upstream access`() {
+        val idleClients = (1..16).map { Socket("127.0.0.1", started.port) }
+        try {
+            Socket("127.0.0.1", started.port).use { overflow ->
+                assertConnectionClosed(overflow)
+            }
+            assertNull("idle sockets must never reach upstream", fakeUpstream.lastRangeHeaderSeen)
+        } finally {
+            idleClients.forEach(Socket::close)
+        }
+        // Teardown must also discard the old runner's admission state.
+        restart()
+        assertEquals(200, httpGet(url("ch0")).code)
+    }
+
+    @Test
+    fun `stopping the proxy closes idle clients and a restart rejects the old token`() {
+        val oldUrl = url("ch0")
+        Socket("127.0.0.1", started.port).use { idle ->
+            proxy.stop()
+            assertConnectionClosed(idle)
+        }
+        restart()
+        val staleTokenUrl = oldUrl.replace(Regex(":\\d+/"), ":${started.port}/")
+        assertEquals(403, httpGet(staleTokenUrl).code)
+        assertEquals(200, httpGet(url("ch0")).code)
+    }
+
+    private fun assertConnectionClosed(socket: Socket) {
+        socket.soTimeout = 2_000
+        try {
+            assertEquals("server must close the socket without waiting for HTTP input", -1,
+                socket.getInputStream().read())
+        } catch (timeout: SocketTimeoutException) {
+            throw AssertionError("server left an idle socket open", timeout)
+        } catch (_: SocketException) {
+            // A connection reset is also an immediate refusal.
+        }
     }
 
     /** Stops the previous instance and starts a fresh one for this test only. */

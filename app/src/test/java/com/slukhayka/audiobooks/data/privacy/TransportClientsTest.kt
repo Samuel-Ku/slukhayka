@@ -15,6 +15,33 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class TransportClientsTest {
 
+    @Test
+    fun `page and audio redirects never send explicit cookies to another origin`() {
+        TransportPrivacy.install(PrivacyPrefs(dohEnabled = false))
+        try {
+            Origin().use { destination ->
+                Origin("HTTP/1.1 302 Found\r\nLocation: ${destination.url}\r\nContent-Length: 0\r\n\r\n").use { origin ->
+                    for (calls in listOf(TransportClients.calls, TransportClients.audioCalls, TransportClients.playbackCalls)) {
+                        calls.newCall(Request.Builder().url(origin.url)
+                            .header("Cookie", "session=private")
+                            .header("Authorization", "Bearer private")
+                            .header("Referer", origin.url)
+                            .header("Range", "bytes=0-1")
+                            .build()).execute().close()
+                    }
+                    assertEquals(3, destination.requestHeaders.size)
+                    origin.requestHeaders.forEach { assertEquals("session=private", it["cookie"]) }
+                    destination.requestHeaders.forEach {
+                        assertNull(it["cookie"])
+                        assertNull(it["authorization"])
+                        assertNull(it["referer"])
+                        assertEquals("bytes=0-1", it["range"])
+                    }
+                }
+            }
+        } finally { TransportPrivacy.install(PrivacyPrefs()) }
+    }
+
     /** NewPipe's own extraction identity — deliberately not a mobile token. */
     private companion object {
         const val NEWPIPE_USER_AGENT =

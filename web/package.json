@@ -11,13 +11,14 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "test:security-rules": "node scripts/test-security-rules.mjs"
   },
   "dependencies": {
     "css-select": "^7.0.0",
     "domhandler": "^6.0.1",
     "domutils": "^4.0.2",
-    "firebase": "^10.14.1",
+    "firebase": "^12.19.0",
     "htmlparser2": "^12.0.0",
     "js-sha256": "^1.0.0",
     "react": "^18.3.1",
@@ -28,12 +29,18 @@
     "@testing-library/user-event": "^14.6.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^5.2.0",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11",
-    "vite-plugin-pwa": "^0.20.5",
-    "vitest": "^2.1.8"
+    "vite": "^7.3.6",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.5"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   }
 }

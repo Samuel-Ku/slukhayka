@@ -11,23 +11,18 @@ rules_version = '2';
 // degrade-never client expects. Writes are the only attack surface and are
 // limited to App Check-validated installs of the Слухайка app.
 //
-// Two layers gate the writes:
-//  1. App Check enforcement is ALSO enabled per service in the Firebase
-//     console (App Check → Firestore → Enforce). That layer rejects requests
-//     without a valid App Check token BEFORE these rules run — the primary
-//     verifier (the rules language only sees the token, it cannot verify it).
-//  2. The rules below are the defense-in-depth gate: a request that carries
-//     no App Check token at all is denied here regardless of the console
-//     setting. The client SDK attaches a token once App Check is installed
-//     (App.installAppCheckIfConfigured); until then the app's own writes
-//     degrade silently (best-effort fire-and-forget, never a crash).
+// App Check must be enforced by the Firebase service configuration BEFORE
+// these rules run. Its state is not established by this repository.
+// ADR-0055: request.appCheck below is an unsupported legacy guard, NOT proof
+// of attestation. It fails closed in the emulator. Do not relax it until the
+// owner verifies service Enforcement and tests real tokens in the target
+// project. The authorization tests open it only in emulator memory.
 //
 // Deploy: `firebase deploy --only firestore` (or the console Rules tab).
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // True when the request carries an App Check token (defense in depth —
-    // signature verification happens at the enforcement layer above).
+    // Legacy fail-closed guard; see ADR-0055 and the deployment note above.
     function isAppCheckValid() {
       return request.appCheck.token != null;
     }
@@ -37,7 +32,8 @@ service cloud.firestore {
     // limits when present, timestamps numeric. Mirrors the client codec's
     // bounds so a document the rules accept is one the app can decode.
     function isWellFormedReview(d) {
-      return d.workId is string && d.workId.size() > 0 && d.workId.size() <= 300
+      return d.keys().hasOnly(['workId', 'uid', 'authorName', 'rating', 'createdAt', 'body', 'editionTag', 'editedAt'])
+        && d.workId is string && d.workId.size() > 0 && d.workId.size() <= 300
         && d.uid is string && d.uid.size() > 0
         && d.authorName is string && d.authorName.size() > 0 && d.authorName.size() <= 100
         && d.rating is int && d.rating >= 1 && d.rating <= 5
@@ -347,11 +343,13 @@ service cloud.firestore {
       allow create: if isAppCheckValid()
         && request.auth != null
         && request.resource.data.uid == request.auth.uid
+        && document == request.resource.data.workId + '_' + request.auth.uid
         && isWellFormedReview(request.resource.data);
       allow update: if isAppCheckValid()
         && request.auth != null
         && resource.data.uid == request.auth.uid
         && request.resource.data.uid == request.auth.uid
+        && document == request.resource.data.workId + '_' + request.auth.uid
         && isWellFormedReview(request.resource.data);
       allow delete: if isAppCheckValid()
         && request.auth != null
@@ -363,7 +361,8 @@ service cloud.firestore {
     // Mirrors the client codec's bounds so a document the rules accept is
     // one the app can decode.
     function isWellFormedNarrationRating(d) {
-      return d.workId is string && d.workId.size() > 0 && d.workId.size() <= 300
+      return d.keys().hasOnly(['workId', 'uid', 'editionId', 'rating', 'createdAt', 'editedAt'])
+        && d.workId is string && d.workId.size() > 0 && d.workId.size() <= 300
         && d.uid is string && d.uid.size() > 0
         && d.editionId is string && d.editionId.size() > 0 && d.editionId.size() <= 200
         && d.rating is int && d.rating >= 1 && d.rating <= 5
@@ -381,11 +380,13 @@ service cloud.firestore {
       allow create: if isAppCheckValid()
         && request.auth != null
         && request.resource.data.uid == request.auth.uid
+        && document == request.resource.data.workId + '_' + request.auth.uid + '_' + request.resource.data.editionId
         && isWellFormedNarrationRating(request.resource.data);
       allow update: if isAppCheckValid()
         && request.auth != null
         && resource.data.uid == request.auth.uid
         && request.resource.data.uid == request.auth.uid
+        && document == request.resource.data.workId + '_' + request.auth.uid + '_' + request.resource.data.editionId
         && isWellFormedNarrationRating(request.resource.data);
       allow delete: if isAppCheckValid()
         && request.auth != null
@@ -485,19 +486,11 @@ service cloud.firestore {
       allow write: if isAppCheckValid();
     }
 
-    // Spec-40 #276 (t2) — the silent same-phone restore. One document per
-    // device (`{ANDROID_ID} → { uid, cred }`), written only by the owner of
-    // that uid. Reads are public BY DESIGN: the fresh-install lookup happens
-    // before any auth exists. The `cred` payload is sealed client-side with
-    // a key derived from the device's ANDROID_ID (DeviceBindingCipher), so
-    // the publicly readable document yields usable credentials on THIS
-    // phone alone; another reader gets opaque bytes and a pseudonymous uid.
+    // Retired: the public document id also revealed the input to its
+    // credential-encryption key. No client may recover or publish secrets.
+    // Existing rows require an Admin SDK purge after these rules deploy.
     match /device_bindings/{deviceId} {
-      allow read: if true;
-      allow write: if isAppCheckValid()
-        && request.auth != null
-        && request.auth.uid == request.resource.data.uid
-        && request.resource.data.uid is string;
+      allow read, write: if false;
     }
 
     // ADR-0051 (spec-43 T6) — Progress Sync: one Listening State mirror per
@@ -507,7 +500,8 @@ service cloud.firestore {
     // mirrors ProgressSyncCodec's bounds; `updatedAt` must be a server
     // timestamp, so a client can never forge the LWW ordering clock.
     function isWellFormedListeningState(d) {
-      return d.editionId is string && d.editionId.size() > 0 && d.editionId.size() <= 300
+      return d.keys().hasOnly(['editionId', 'uid', 'chapterIndex', 'positionSeconds', 'isCompleted', 'preferredSpeed', 'updatedAt'])
+        && d.editionId is string && d.editionId.size() > 0 && d.editionId.size() <= 300
         && d.uid is string && d.uid.size() > 0
         && d.chapterIndex is int && d.chapterIndex >= 0
         && d.positionSeconds is number && d.positionSeconds >= 0 && d.positionSeconds < 86400000
@@ -523,10 +517,12 @@ service cloud.firestore {
       allow create: if isAppCheckValid()
         && request.auth != null
         && request.resource.data.uid == request.auth.uid
+        && document == request.auth.uid + '_' + request.resource.data.editionId
         && isWellFormedListeningState(request.resource.data);
       allow update: if isAppCheckValid()
         && request.auth != null
         && request.resource.data.uid == request.auth.uid
+        && document == request.auth.uid + '_' + request.resource.data.editionId
         && resource.data.uid == request.auth.uid
         && isWellFormedListeningState(request.resource.data);
       allow delete: if false;
@@ -556,10 +552,12 @@ service cloud.firestore {
       allow create: if isAppCheckValid()
         && request.auth != null
         && request.resource.data.uid == request.auth.uid
+        && document == request.auth.uid + '_' + request.resource.data.mergeKey
         && isWellFormedWorkRelationship(request.resource.data);
       allow update: if isAppCheckValid()
         && request.auth != null
         && request.resource.data.uid == request.auth.uid
+        && document == request.auth.uid + '_' + request.resource.data.mergeKey
         && resource.data.uid == request.auth.uid
         && isWellFormedWorkRelationship(request.resource.data);
       allow delete: if false;
@@ -636,7 +634,10 @@ service cloud.firestore {
     match /pending_submissions/{document} {
       allow read: if true;
       allow create: if isAppCheckValid() && request.auth != null
-        && isWellFormedSubmissionCandidate(request.resource.data);
+        && isWellFormedSubmissionCandidate(request.resource.data)
+        && request.resource.data.submitterHash == hashing.sha256(request.auth.uid.toUtf8()).toHexString().lower()
+        && document == hashing.sha256(request.resource.data.canonicalUrl.toUtf8()).toHexString().lower()
+        && !exists(/databases/$(database)/documents/rejected_submissions/$(document));
       allow update, delete: if false;
     }
 
@@ -647,33 +648,73 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // #691 — published listener collections: an anonymous PUBLIC fact (read is
-    // open, like the catalogue), written only in the well-formed shape above
-    // and never deleted by a client. Ownership is CLIENT TRUST by decision:
-    // authorId is a hash of the caller's uid and cannot be verified by rules
-    // alone, so a curator deletes their own profile through the app; the rules
-    // guarantee shape, App Check and an authenticated author, not authorship.
+    // Hashes are computed on the server as well as the client. A valid
+    // installation is not permission to act as another listener.
+    function ownsCollection(d) {
+      return d.authorId == hashing.sha256(request.auth.uid.toUtf8()).toHexString().lower();
+    }
+
+    function voteKey(collectionId) {
+      return hashing.sha256((request.auth.uid + collectionId).toUtf8()).toHexString().lower();
+    }
+
+    function collectionPath(document) {
+      return /databases/$(database)/documents/curator_collections/$(document);
+    }
+
+    function votePath(collectionId) {
+      return /databases/$(database)/documents/curator_collection_votes/$(voteKey(collectionId));
+    }
+
+    function reportPath(collectionId) {
+      return /databases/$(database)/documents/curator_collection_reports/$(voteKey(collectionId));
+    }
+
+    function validVoteChange(document, before, after) {
+      let path = votePath(before.collectionId);
+      let vote = getAfter(path).data;
+      let previous = exists(path) ? get(path).data.stars : 0;
+      return isWellFormedCollectionVote(vote)
+        && vote.documentId == document
+        && after.diff(before).affectedKeys().hasOnly(['ratingSum', 'ratingCount'])
+        && after.get('ratingSum', 0) == before.get('ratingSum', 0) - previous + vote.stars
+        && after.get('ratingCount', 0) == before.get('ratingCount', 0) + (exists(path) ? 0 : 1);
+    }
+
+    function validReportChange(document, before, after) {
+      let path = reportPath(before.collectionId);
+      let report = getAfter(path).data;
+      let count = before.get('reportCount', 0) + 1;
+      return !exists(path)
+        && isWellFormedCollectionReport(report)
+        && report.documentId == document
+        && after.diff(before).affectedKeys().hasOnly(['reportCount', 'hidden'])
+        && after.reportCount == count
+        && after.hidden == (before.get('hidden', false) || count >= 3);
+    }
+
     match /curator_collections/{document} {
       allow read: if true;
       allow create: if isAppCheckValid() && request.auth != null
-        && isWellFormedCuratorCollection(request.resource.data);
-      // #696 — hidden is ONE-WAY: once the community hid a collection, no
-      // client call can bring it back (`false -> true` only). A document that
-      // never carried the flag may still be updated normally.
+        && isWellFormedCuratorCollection(request.resource.data)
+        && ownsCollection(request.resource.data)
+        && document == request.resource.data.authorId + '-' + request.resource.data.collectionId
+        && request.resource.data.get('ratingSum', 0) == 0
+        && request.resource.data.get('ratingCount', 0) == 0
+        && request.resource.data.get('reportCount', 0) == 0
+        && request.resource.data.get('hidden', false) == false;
       allow update: if isAppCheckValid() && request.auth != null
         && isWellFormedCuratorCollection(request.resource.data)
-        && (!resource.data.keys().hasAny(['hidden'])
-            || resource.data.hidden == false
-            || request.resource.data.hidden == true);
+        && ((ownsCollection(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'pseudonym', 'title', 'description', 'bookIds', 'reasons', 'items', 'publishedAt'
+          ]))
+          || validVoteChange(document, resource.data, request.resource.data)
+          || validReportChange(document, resource.data, request.resource.data));
       allow delete: if isAppCheckValid() && request.auth != null
-        && isWellFormedCuratorCollection(resource.data);
+        && ownsCollection(resource.data);
     }
 
-    // #696 — one anonymous complaint per (person, collection), addressed by
-    // the same sha256(uid + collectionId) key as a vote. The THIRD unique
-    // complaint sets `hidden` on the collection (client-side, under the
-    // one-way rule above); the rules guarantee shape, App Check and an
-    // authenticated reporter.
     function isWellFormedCollectionReport(d) {
       return d.keys().hasOnly(['documentId', 'createdAt'])
         && d.documentId is string && d.documentId.size() > 0 && d.documentId.size() <= 200
@@ -681,20 +722,20 @@ service cloud.firestore {
     }
 
     match /curator_collection_reports/{document} {
-      allow read: if isAppCheckValid() && request.auth != null;
+      // Nonexistent keyed reads are needed by the transaction, but no
+      // listener may read another listener's existing report or list them.
+      allow get: if isAppCheckValid() && request.auth != null
+        && (resource == null || document == voteKey(get(collectionPath(resource.data.documentId)).data.collectionId));
+      allow list: if false;
       allow create: if isAppCheckValid() && request.auth != null
-        && isWellFormedCollectionReport(request.resource.data);
-      allow update: if false;
-      allow delete: if false;
+        && isWellFormedCollectionReport(request.resource.data)
+        && document == voteKey(get(collectionPath(request.resource.data.documentId)).data.collectionId)
+        && validReportChange(request.resource.data.documentId,
+          get(collectionPath(request.resource.data.documentId)).data,
+          getAfter(collectionPath(request.resource.data.documentId)).data);
+      allow update, delete: if false;
     }
 
-    // #694 — one anonymous vote per (person, collection): the document id is
-    // sha256(uid + collectionId), so a raw uid never appears. Reading requires
-    // auth + App Check (a vote is a private fact, unlike a published
-    // collection); the aggregate on the collection document is updated by the
-    // client's transaction under the shape rule above. App Check + auth, not
-    // authorship, is what the rules can guarantee (the same client-trust
-    // decision as publishing).
     function isWellFormedCollectionVote(d) {
       return d.keys().hasOnly(['documentId', 'stars', 'createdAt'])
         && d.documentId is string && d.documentId.size() > 0 && d.documentId.size() <= 200
@@ -703,9 +744,17 @@ service cloud.firestore {
     }
 
     match /curator_collection_votes/{document} {
-      allow read: if isAppCheckValid() && request.auth != null;
+      allow get: if isAppCheckValid() && request.auth != null
+        && (resource == null || document == voteKey(get(collectionPath(resource.data.documentId)).data.collectionId));
+      allow list: if false;
       allow create, update: if isAppCheckValid() && request.auth != null
-        && isWellFormedCollectionVote(request.resource.data);
+        && isWellFormedCollectionVote(request.resource.data)
+        && document == voteKey(get(collectionPath(request.resource.data.documentId)).data.collectionId)
+        && (!exists(/databases/$(database)/documents/curator_collection_votes/$(document))
+          || request.resource.data.documentId == resource.data.documentId)
+        && validVoteChange(request.resource.data.documentId,
+          get(collectionPath(request.resource.data.documentId)).data,
+          getAfter(collectionPath(request.resource.data.documentId)).data);
       allow delete: if false;
     }
   }

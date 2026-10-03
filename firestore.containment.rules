@@ -1,0 +1,35 @@
+rules_version = '2';
+
+// Emergency containment for the deployed permissive rules, 2026-10-03.
+// This freezes ALL client writes. It is not a normal release configuration.
+// Public catalogue reads and owner-only private reads remain available.
+// Admin SDK bypasses these rules; no records or credentials are deleted.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{collection}/{document} {
+      allow read: if collection in [
+        'search_results', 'book_durations', 'book_covers', 'book_profiles',
+        'universe_resolutions', 'book_facets', 'book_tombstones',
+        'book_duration_conflicts', 'source_refusals', 'source_refusal_votes',
+        'book_reviews', 'edition_ratings', 'catalog_blocks', 'catalog_cards',
+        'pending_submissions', 'rejected_submissions', 'curator_collections'
+      ];
+      allow write: if false;
+    }
+    match /listening_state/{document} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+    match /person_bookmarks/{document} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+    match /work_relationships/{document} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+    match /device_bindings/{document} {
+      allow read, write: if false;
+    }
+  }
+}

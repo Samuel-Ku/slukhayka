@@ -2,6 +2,7 @@ import com.android.build.api.artifact.SingleArtifact
 import com.android.build.api.variant.BuiltArtifactsLoader
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 import java.io.File
+import java.security.MessageDigest
 import java.util.Properties
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
@@ -85,6 +86,16 @@ android {
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
     versionCode = 30
     versionName = "1.4.2"
+
+    // Public Android-type reCAPTCHA Enterprise key, supplied explicitly by
+    // the operator. google-services.json does not supply this provider key.
+    val appCheckSiteKey = providers.environmentVariable("APP_CHECK_RECAPTCHA_SITE_KEY")
+      .orElse(providers.gradleProperty("appCheckRecaptchaSiteKey"))
+      .getOrElse("").trim()
+    require(appCheckSiteKey.isEmpty() || appCheckSiteKey.matches(Regex("[A-Za-z0-9_-]{1,256}"))) {
+      "APP_CHECK_RECAPTCHA_SITE_KEY must be an Android reCAPTCHA public site key"
+    }
+    buildConfigField("String", "APP_CHECK_RECAPTCHA_SITE_KEY", "\"$appCheckSiteKey\"")
 
     // Device tests run against their OWN database file (see the runner):
     // a test that wipes and reseeds the database for determinism must never
@@ -215,6 +226,12 @@ secrets {
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
+val e5AssetRevision = "761b726dd34fb83930e26aab4e9ac3899aa1fa78"
+val e5AssetHashes = mapOf(
+  "model.onnx" to "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193",
+  "tokenizer.json" to "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+)
+
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
@@ -308,6 +325,8 @@ dependencies {
   // time. Distribution is JitPack; rhino (deobfuscation) needs keep rules
   // under minification (see proguard-rules.pro).
   implementation(libs.newpipe.extractor)
+  // GHSA-pmhh-3w7g-xqp8: keep NewPipe's transitive HTML parser patched.
+  implementation(libs.jsoup)
   implementation(libs.firebase.firestore)
 
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
@@ -343,7 +362,8 @@ dependencies {
 }
 
 // spec-19 T3: fetches the ONNX model (int8 multilingual-e5-small, ~118 MB)
-// into app/src/main/assets/models/e5/. Not committed (GitHub's 100 MB
+// into app/src/main/assets/models/e5/. Revision and checksums are pinned;
+// cached files are checked too. Not committed (GitHub's 100 MB
 // file limit); the embedder degrades to the keyword baseline when absent.
 val downloadE5Model by tasks.registering(Exec::class) {
   group = "verification"
@@ -353,7 +373,7 @@ val downloadE5Model by tasks.registering(Exec::class) {
   doFirst {
     assetsDir.mkdirs()
     if (modelFile.exists()) {
-      logger.lifecycle("model.onnx already present — skipping download")
+      logger.lifecycle("model.onnx already present — verifying pinned checksum")
     } else {
       logger.lifecycle("downloading multilingual-e5-small int8 ONNX (~118 MB)...")
     }
@@ -361,16 +381,17 @@ val downloadE5Model by tasks.registering(Exec::class) {
   commandLine(
     "bash", "-c",
     """
-      set -e
-      mkdir -p "${'$'}(pwd)/src/main/assets/models/e5"
-      if [ ! -f src/main/assets/models/e5/model.onnx ]; then
-        curl -sL --max-time 1200 -o src/main/assets/models/e5/model.onnx \
-          "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/onnx/model_quantized.onnx"
-      fi
-      if [ ! -f src/main/assets/models/e5/tokenizer.json ]; then
-        curl -sL --max-time 120 -o src/main/assets/models/e5/tokenizer.json \
-          "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/tokenizer.json"
-      fi
+      set -euo pipefail
+      revision="$e5AssetRevision"
+      base="https://huggingface.co/Xenova/multilingual-e5-small/resolve/${'$'}revision"
+      bash ../scripts/fetch-pinned-asset.sh \
+        "${'$'}base/onnx/model_quantized.onnx" \
+        ${e5AssetHashes.getValue("model.onnx")} \
+        src/main/assets/models/e5/model.onnx
+      bash ../scripts/fetch-pinned-asset.sh \
+        "${'$'}base/tokenizer.json" \
+        ${e5AssetHashes.getValue("tokenizer.json")} \
+        src/main/assets/models/e5/tokenizer.json 120
     """.trimIndent()
   )
 }
@@ -661,7 +682,7 @@ tasks.matching { it.javaClass.name.startsWith("com.chaquo.python") }
 // release pipeline so the failure is mechanical instead of invisible.
 val verifyE5ModelAssets = tasks.register("verifyE5ModelAssets") {
     group = "verification"
-    description = "Fails when a release build lacks the E5 model + tokenizer assets (#487)"
+    description = "Fails when a release build lacks the pinned E5 model + tokenizer assets (#487)"
     val modelFile = file("src/main/assets/models/e5/model.onnx")
     val tokenizerFile = file("src/main/assets/models/e5/tokenizer.json")
     inputs.files(modelFile, tokenizerFile).optional()
@@ -669,6 +690,20 @@ val verifyE5ModelAssets = tasks.register("verifyE5ModelAssets") {
         val missing = listOf(modelFile, tokenizerFile).filterNot { it.isFile }
         check(missing.isEmpty()) {
             "Release build requires the E5 model assets; run ./gradlew downloadE5Model. Missing: $missing"
+        }
+        e5AssetHashes.forEach { (name, expected) ->
+            val asset = file("src/main/assets/models/e5/$name")
+            val digest = MessageDigest.getInstance("SHA-256")
+            asset.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            check(actual == expected) { "Release asset checksum mismatch: $name" }
         }
     }
 }
@@ -689,27 +724,16 @@ val downloadTdlib by tasks.registering(Exec::class) {
   val aarFile = libsDir.resolve("tdlib-1.8.67-d1085f9.aar")
   doFirst {
     libsDir.mkdirs()
-    if (aarFile.exists()) logger.lifecycle("tdlib AAR already present — skipping download")
+    if (aarFile.exists()) logger.lifecycle("tdlib AAR already present — verifying pinned checksum")
   }
   commandLine(
     "bash", "-c",
     """
       set -euo pipefail
-      mkdir -p "${'$'}(pwd)/libs"
-      target="libs/tdlib-1.8.67-d1085f9.aar"
-      if [ -f "${'$'}target" ]; then exit 0; fi
-      url="https://github.com/FaiBah/TDLibAndroidPrebuilt/releases/download/v1.8.67-d1085f9-Java/tdlib.aar"
-      expected="d54097da1ff2d8ed32cbf2dbe42ef4ce59b14d0bb7d4561d267a968d63135c91"
-      tmp="${'$'}(mktemp)"
-      curl -sL --max-time 1200 -o "${'$'}tmp" "${'$'}url"
-      actual="${'$'}(sha256sum "${'$'}tmp" | awk '{print ${'$'}1}')"
-      if [ "${'$'}actual" != "${'$'}expected" ]; then
-        echo "TDLib AAR sha256 mismatch: got ${'$'}actual, expected ${'$'}expected" >&2
-        rm -f "${'$'}tmp"
-        exit 1
-      fi
-      mv "${'$'}tmp" "${'$'}target"
-      echo "TDLib AAR verified (${'$'}expected)"
+      bash ../scripts/fetch-pinned-asset.sh \
+        https://github.com/FaiBah/TDLibAndroidPrebuilt/releases/download/v1.8.67-d1085f9-Java/tdlib.aar \
+        d54097da1ff2d8ed32cbf2dbe42ef4ce59b14d0bb7d4561d267a968d63135c91 \
+        libs/tdlib-1.8.67-d1085f9.aar
     """.trimIndent()
   )
 }

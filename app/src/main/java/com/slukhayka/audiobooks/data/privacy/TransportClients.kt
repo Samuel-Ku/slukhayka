@@ -26,6 +26,19 @@ object TransportClients {
             // redirect before its target is requested (also covers downloads).
             .addInterceptor(AudioNoticePolicy.interceptor())
             .addNetworkInterceptor(AudioNoticePolicy.interceptor())
+            .addNetworkInterceptor { chain ->
+                // OkHttp strips Authorization on redirects, but explicitly
+                // supplied Cookie and Referer headers otherwise travel to the
+                // next host. Apply the origin boundary on every network hop.
+                val initial = chain.call().request().url
+                val request = chain.request()
+                val crossesOrigin = initial.scheme != request.url.scheme ||
+                    PlaybackRedirects.crossesOrigin(initial, request.url)
+                chain.proceed(request.newBuilder().apply {
+                    PlaybackRedirects.headersToDrop(crossesOrigin).forEach { removeHeader(it) }
+                }.build())
+            }
+            .followSslRedirects(false)
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(18, TimeUnit.SECONDS)
             .proxy(when (route) {

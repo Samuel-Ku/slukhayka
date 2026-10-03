@@ -54,7 +54,9 @@ export interface SourceEntry {
 
 function hostAllowed(allowed: readonly string[], url: string): boolean {
   try {
-    const host = new URL(url).hostname
+    const target = new URL(url)
+    if (target.protocol !== 'https:' || target.username || target.password || (target.port && target.port !== '443')) return false
+    const host = target.hostname
     return allowed.some((pattern) => host === pattern || host.endsWith(`.${pattern}`))
   } catch {
     return false
@@ -247,7 +249,7 @@ export function sourceEntry(id: string): SourceEntry | null {
   // A scam source (4read) is never dispatched: no catalog, search, feed or
   // book fetch — its clean-client audio is a 52-second artefact.
   if (isScamSourceKey(id)) return null
-  return (REGISTRY as Record<string, SourceEntry | undefined>)[id] ?? null
+  return Object.hasOwn(REGISTRY, id) ? (REGISTRY as Record<string, SourceEntry>)[id] : null
 }
 
 /** The served registry — scam sources are excluded from every worker fan-out. */

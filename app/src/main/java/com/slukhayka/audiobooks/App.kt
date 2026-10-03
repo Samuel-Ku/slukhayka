@@ -1456,6 +1456,8 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Install before Crashlytics, background work, Auth or Firestore.
+        installAppCheckIfConfigured()
         // ADR-0039 / spec #681 T3 (#684): the ONE politeness gate for every
         // HTML/API request to a Source host, with the persisted per-domain
         // budget. Installed before any module can touch the network.
@@ -1465,9 +1467,6 @@ class App : Application() {
         crashReporting.start()
         unexpectedExitReporter.inspectLatest()
         PeopleNewArrivalWorker.schedule(this)
-        // Install the attestation provider before any background module may
-        // open Firestore; bookmark sync starts immediately below.
-        installAppCheckIfConfigured()
         CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
         // ADR-0042 — warm the local Work index on start (BACKGROUND traffic
         // through the Source Request Gate); the per-Work checks are driven by
@@ -1582,32 +1581,26 @@ class App : Application() {
     }
 
     /**
-     * Spec-30 T1 (#216) — install the reCAPTCHA Enterprise App Check provider
-     * on the default Firebase app when the app is configured for it
-     * (google-services.json present AND its `app_check` section carries the
-     * reCAPTCHA site key — [FirebaseOptions.getRecaptchaSiteKey], written by
-     * the Firebase console when App Check is configured).
-     *
-     * Either way the call is a silent no-op: without Firebase there is no
-     * Firestore at all; without the site key the provider factory would throw
-     * on first use, so it is not installed — Firestore reads stay public and
-     * the shared-cache writes degrade through the stores' existing
-     * best-effort paths (denied by the rules, dropped, never a crash).
+     * Install the Android reCAPTCHA Enterprise provider using the explicit
+     * public key configured for this package in Firebase App Check. The SDK
+     * does not obtain that key from google-services.json. A missing key leaves
+     * the local app usable; service Enforcement will reject unattested cloud
+     * requests once enabled. Installing a provider alone is not enforcement.
      */
     private fun installAppCheckIfConfigured() {
-        val app = FirebaseApp.getApps(this).firstOrNull()
+        val app = runCatching { FirebaseApp.getInstance() }.getOrNull()
             ?: FirebaseApp.initializeApp(this)
             ?: return
-        if (app.options.recaptchaSiteKey.isNullOrBlank()) {
+        val siteKey = BuildConfig.APP_CHECK_RECAPTCHA_SITE_KEY
+        if (siteKey.isBlank()) {
             Log.w(
                 "AppCheck",
-                "No reCAPTCHA site key in google-services.json — App Check skipped; " +
-                    "shared-cache writes will be denied by the Firestore rules (silent degrade)."
+                "No Android reCAPTCHA site key configured — App Check provider not installed."
             )
             return
         }
         FirebaseAppCheck.getInstance(app).installAppCheckProviderFactory(
-            RecaptchaAppCheckProviderFactory.getInstance()
+            RecaptchaAppCheckProviderFactory.getInstance(siteKey)
         )
     }
 

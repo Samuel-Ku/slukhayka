@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.data.identity
 
 import kotlin.random.Random
+import kotlin.random.asKotlinRandom
+import java.security.SecureRandom
 
 /**
  * Spec-40 #275 (t1) — the GENERATED permanent credentials behind the silent
@@ -9,7 +11,7 @@ import kotlin.random.Random
  * accounts), so the anonymous session is immediately elevated with these
  * credentials via linkWithCredential — public Firebase API only, no custom
  * backend. The pair never leaves the device except encoded as the t2
- * recovery code / encrypted device binding; at rest and in Auto Backup the
+ * recovery code; at rest and in Auto Backup the
  * password travels only as a DeviceBindingCipher-sealed blob. Pure: seeded
  * Random makes tests deterministic.
  */
@@ -25,7 +27,9 @@ object GeneratedCredentials {
     /** One generated (email, password) pair. */
     data class Pair(val email: String, val password: String)
 
-    fun generate(random: Random = Random.Default): Pair = Pair(
+    private val secureRandom: Random = SecureRandom().asKotlinRandom()
+
+    fun generate(random: Random = secureRandom): Pair = Pair(
         email = "${random.localPart()}@$EMAIL_DOMAIN",
         password = random.token(PASSWORD_LENGTH)
     )

@@ -202,6 +202,9 @@ fun BookDetailScreen(
     // Spec-53 T7 — the correction dialog and the shared-base gate.
     val bookPublishedSubmission by viewModel.bookPublishedSubmission.collectAsState()
     var showMetadataDialog by remember(currentBook.id) { mutableStateOf(false) }
+    // #1049 — the reorder dialog's own flag, keyed to the book like the others
+    // so switching books never leaves a stale dialog open.
+    var showReorderDialog by remember(currentBook.id) { mutableStateOf(false) }
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
     val isDownloadPaused = currentBook.downloadState == DownloadState.PAUSED
@@ -722,6 +725,23 @@ fun BookDetailScreen(
                                     showMetadataDialog = true
                                 }
                             )
+                            // #1049 — the ORDER is fixable the same way. Offered
+                            // only when the book actually has several chapters:
+                            // a one-chapter book has no order to change, and a
+                            // dead menu entry teaches the wrong thing.
+                            if (chapters.size > 1) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_detail_reorder_chapters)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.SwapVert, contentDescription = null)
+                                    },
+                                    modifier = Modifier.testTag("book_detail_reorder_chapters"),
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showReorderDialog = true
+                                    }
+                                )
+                            }
                             // …and only a published submission can be corrected
                             // in the shared base; otherwise the action is absent.
                             if (bookPublishedSubmission) {
@@ -1576,6 +1596,22 @@ fun BookDetailScreen(
         )
     }
 
+    // #1049 — the reorder dialog. Reordering is an INDEX SWAP, not a rebuild:
+    // it changes where a chapter sits, never which chapters exist, so the
+    // listener's position and bookmarks survive it untouched. That is why this
+    // is a separate action from editing metadata, and why it never touches the
+    // repair door that would wipe progress.
+    if (showReorderDialog) {
+        ReorderChaptersDialog(
+            chapters = chapters,
+            onDismiss = { showReorderDialog = false },
+            onConfirm = { orderedIds ->
+                showReorderDialog = false
+                viewModel.reorderChapters(currentBook.id, orderedIds)
+            }
+        )
+    }
+
     // Three-level deletion (wayfinder #28): removing from the library must
     // never silently destroy the user's audio files. This owner also keeps
     // focus on the exact launcher across sheet -> confirmation transitions.
@@ -1706,3 +1742,105 @@ data class PersonBookmarkControl(
     val onToggleNotify: (Boolean) -> Unit = {}
 )
 
+/**
+ * #1049 — put the chapters in the listener's order.
+ *
+ * Buttons, not drag: the list is short, and arrows say the same thing without a
+ * gesture anyone has to discover first. This mirrors the submission preview's
+ * reorder (#1122), so the app has ONE way of doing this rather than two
+ * (ADR-0033: one vocabulary).
+ *
+ * Nothing is written until [onConfirm] — the dialog works on a local copy, so
+ * closing it leaves the book exactly as it was.
+ */
+@Composable
+fun ReorderChaptersDialog(
+    chapters: List<ChapterEntity>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit
+) {
+    // Keyed to the incoming order so a different book never shows a stale list.
+    val working = remember(chapters.map { it.id }) { mutableStateListOf(*chapters.toTypedArray()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.book_detail_reorder_chapters)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    text = stringResource(R.string.book_detail_reorder_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                working.forEachIndexed { index, chapter ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("reorder_row_${chapter.id}")
+                    ) {
+                        Text(
+                            text = "${index + 1}. ${chapter.title}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        // Moving past either end is disabled rather than
+                        // wrapping: a silent wrap would put the first chapter
+                        // last, which is the complaint this exists to fix.
+                        IconButton(
+                            onClick = {
+                                val from = working.indexOf(chapter)
+                                if (from > 0) working.add(from - 1, working.removeAt(from))
+                            },
+                            enabled = index > 0,
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .testTag("reorder_up_${chapter.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = stringResource(R.string.submission_move_up),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                val from = working.indexOf(chapter)
+                                if (from < working.lastIndex) working.add(from + 1, working.removeAt(from))
+                            },
+                            enabled = index < working.lastIndex,
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .testTag("reorder_down_${chapter.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = stringResource(R.string.submission_move_down),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(working.map { it.id }) },
+                modifier = Modifier.testTag("reorder_confirm")
+            ) {
+                Text(stringResource(R.string.book_detail_metadata_save))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("reorder_cancel")
+            ) {
+                Text(stringResource(R.string.book_detail_cancel))
+            }
+        }
+    )
+}

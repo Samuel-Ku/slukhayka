@@ -60,6 +60,7 @@ jobs:
         run: |
           set -eu
           test -n "$APP_CHECK_RECAPTCHA_SITE_KEY"
+          ./gradlew :app:downloadE5Model --no-daemon
           ./gradlew :app:assembleRelease -I "$RUNNER_TEMP/security-build.init.gradle" --no-daemon
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify app/build/outputs/apk/release/app-release.apk
           sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/app-release.apk.sha256

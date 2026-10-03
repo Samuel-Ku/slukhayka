@@ -43,6 +43,8 @@ import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.player.SmartRetryPolicy
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.metadata.CoverOverride
+import com.slukhayka.audiobooks.data.metadata.CoverOverrideStore
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.search.GlobalSearchUpdate
@@ -137,11 +139,9 @@ class SourceCatalog(
     // the existing cover write path). Null in tests that don't exercise
     // covers — search then behaves exactly as before.
     private val coverResolver: SearchCoverResolver? = null,
-    // Spec-33 T2 (#227): the shared search-result cache. Search consults it
-    // first — a fresh hit returns the merged result without touching the
-    // source adapters; a miss or a stale entry resolves live and writes the
-    // result back best-effort. Null without Firebase keys (or in tests that
-    // don't exercise the cache): search then behaves exactly as before.
+    // #1119: the shared result cache still receives resolved answers for
+    // other consumers, but never suppresses this query's source volley.
+    // HTTP/feed caches own transport freshness. Null without Firebase keys.
     private val searchCache: SearchCache? = null,
     // Catalogue-hydration batch seam: a crawl runs each page's merge-on-write
     // block through this runner so N upserts land as ONE Room transaction —
@@ -964,7 +964,7 @@ class SourceCatalog(
                         book.author.contains(clean, ignoreCase = true)
                 }
                 .map { book ->
-                    if (book.author.isBlank()) enrichFeedMatch(adapter, book).effectiveFor(adapter) else book
+                    if (book.author.isBlank()) enrichFeedMatch(adapter, book, onFailure = { failed = true }).effectiveFor(adapter) else book
                 }
         }
         currentCoroutineContext().ensureActive()
@@ -1088,6 +1088,7 @@ class SourceCatalog(
         val ids = dao.matchWorkSearch(match, localSearchLimit)
         if (ids.isEmpty()) return emptyList()
         data class LocalHit(val order: Int, val rank: Int, val books: List<SourceBook>)
+        val coverOverrides = CoverOverrideStore(dao)
         val hits = ids.mapIndexedNotNull { order, workId ->
             val work = dao.getWorkById(workId) ?: return@mapIndexedNotNull null
             // ADR-0005: a tombstoned Work never resurfaces — including
@@ -1102,8 +1103,13 @@ class SourceCatalog(
             val narrator = dao.firstEditionNarrator(workId)
                 ?: dao.firstFacetNarrator(workId).orEmpty()
             val language = dao.editionLanguagesForWork(workId).singleOrNull().orEmpty()
-            val cover = work.coverImageUrl
-                ?: sources.firstNotNullOfOrNull { it.coverImageUrl }
+            // Local preview must respect the listener's cover decision too,
+            // including pinned absence, without consulting any shared store.
+            val cover = CoverOverride.over(
+                pinned = coverOverrides.pinned(work.mergeKey),
+                local = work.coverImageUrl,
+                claimed = sources.firstNotNullOfOrNull { it.coverImageUrl }
+            )
             val books = sources.map { source ->
                 SourceBook(
                     title = work.title,
@@ -1198,23 +1204,28 @@ class SourceCatalog(
      * transliterated title) with the metadata parsed from its own book page.
      * Best-effort: any failure keeps the original entry.
      */
-    private suspend fun enrichFeedMatch(adapter: SourceAdapter, book: SourceBook): SourceBook {        return try {
-            val detail = adapter.fetchBookPage(book.url)
-            if (detail.title.isBlank() && detail.author.isBlank() && detail.narrator.isBlank()) {
-                book
-            } else {
-                book.copy(
-                    title = detail.title.ifBlank { book.title },
-                    author = detail.author.ifBlank { book.author },
-                    narrator = detail.narrator.ifBlank { book.narrator },
-                    coverImageUrl = detail.coverImageUrl ?: book.coverImageUrl
-                )
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
+    private suspend fun enrichFeedMatch(
+        adapter: SourceAdapter,
+        book: SourceBook,
+        onFailure: () -> Unit
+    ): SourceBook = try {
+        val detail = adapter.fetchBookPage(book.url)
+        if (detail.title.isBlank() && detail.author.isBlank() && detail.narrator.isBlank()) {
             book
+        } else {
+            book.copy(
+                title = detail.title.ifBlank { book.title },
+                author = detail.author.ifBlank { book.author },
+                narrator = detail.narrator.ifBlank { book.narrator },
+                coverImageUrl = detail.coverImageUrl ?: book.coverImageUrl
+            )
         }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        onFailure()
+        Log.w("SourceCatalog", "search source=${adapter.sourceId} enrichment failed=${failure.javaClass.simpleName}")
+        book
     }
 
     /**

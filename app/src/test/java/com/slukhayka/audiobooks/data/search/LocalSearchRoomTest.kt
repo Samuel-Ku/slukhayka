@@ -8,6 +8,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.TombstoneEntity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.metadata.CoverOverrideStore
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
@@ -368,6 +369,21 @@ class LocalSearchRoomTest {
     }
 
     @Test
+    fun `failed feed enrichment keeps the card but reports partial source results`() = runBlocking {
+        val feedBook = book("Кобзар", "", "https://t1.example/kobzar")
+        val failed = object : SourceAdapter by LiveAdapter("t1", emptyList()) {
+            override suspend fun fetchNew(limit: Int): List<SourceBook> = listOf(feedBook)
+            override suspend fun fetchBookPage(url: String): SourceBookDetail = error("offline detail")
+        }
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        val results = catalog(failed).searchAllSources("кобзар") { updates += it }
+
+        assertEquals(listOf("Кобзар"), results.map { it.title })
+        assertTrue(updates.last().hasSourceFailures)
+        assertTrue(!updates.last().isSearchingSources)
+    }
+
+    @Test
     fun `cancelled search cannot publish or mirror a late source answer`() = runBlocking {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -393,6 +409,31 @@ class LocalSearchRoomTest {
         assertTrue(repository.searchAuthors("шевченко").isEmpty())
     }
 
+
+    @Test
+    fun `local preview respects a pinned cover before sources settle`() = runBlocking {
+        assertPreviewCover("https://mine.example/cover.jpg")
+    }
+
+    @Test
+    fun `local preview respects pinned absence rather than restoring a source cover`() = runBlocking {
+        assertPreviewCover(null)
+    }
+
+    private suspend fun assertPreviewCover(pinnedCover: String?) {
+        val repository = catalog(LiveAdapter("t1", emptyList()))
+        val written = repository.writeWorkEdition(
+            sourceId = "t1", title = "Кобзар", author = "Тарас Шевченко", narrator = "",
+            sourceUrl = "https://t1.example/kobzar",
+            coverImageUrl = "https://source.example/cover.jpg", language = "uk"
+        )
+        CoverOverrideStore(dao).pin(written.work.id, written.work.mergeKey, pinnedCover)
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        repository.searchAllSources("кобзар") { updates += it }
+
+        assertTrue(updates.first().isSearchingSources)
+        assertEquals(pinnedCover, updates.first().results.single().coverImageUrl)
+    }
 
     @Test
     fun `diagnostics distinguish local preview from live gather without query text`() = runBlocking {

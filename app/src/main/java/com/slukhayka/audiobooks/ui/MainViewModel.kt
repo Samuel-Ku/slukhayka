@@ -3089,13 +3089,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val searchGeneration = java.util.concurrent.atomic.AtomicLong()
     private var globalSearchJob: kotlinx.coroutines.Job? = null
-    private var authorSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
         val generation = searchGeneration.incrementAndGet()
         _searchQuery.value = query
         globalSearchJob?.cancel()
-        authorSearchJob?.cancel()
         val clean = query.trim()
         _globalSearchError.value = false
         if (clean.length < 2) {
@@ -3105,11 +3103,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _authorSearchResults.value = emptyList()
-        authorSearchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(350)
-            val authors = authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) }
-            if (searchGeneration.get() == generation) _authorSearchResults.value = authors
-        }
         // Do not leave a previous query's Works visible under a new query;
         // the screen now presents the truthful loading state instead.
         _globalSearchResults.value = emptyList()
@@ -3119,17 +3112,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // overwriting a newer one.
             delay(350)
             try {
-                sourceCatalog.searchAllSources(clean) { update ->
-                    if (searchGeneration.get() == generation) {
-                        _globalSearchResults.value = update.results
-                        _globalSearchError.value = update.hasSourceFailures
-                        _isGlobalSearchLoading.value = update.isSearchingSources
+                searchWithAuthorRefresh(
+                    readAuthors = { authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) } },
+                    publishAuthors = { authors ->
+                        if (searchGeneration.get() == generation) _authorSearchResults.value = authors
+                    },
+                    searchSources = {
+                        sourceCatalog.searchAllSources(clean) { update ->
+                            if (searchGeneration.get() == generation) {
+                                _globalSearchResults.value = update.results
+                                _globalSearchError.value = update.hasSourceFailures
+                                _isGlobalSearchLoading.value = update.isSearchingSources
+                            }
+                        }
                     }
-                }
-                // Gap-fill also grows the author's local catalogue. Refresh
-                // the author cards so their counts reflect this search.
-                val authors = authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) }
-                if (searchGeneration.get() == generation) _authorSearchResults.value = authors
+                )
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {

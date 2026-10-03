@@ -1835,7 +1835,10 @@ fun ReorderChaptersDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("reorder_cancel")
+            ) {
                 Text(stringResource(R.string.book_detail_cancel))
             }
         }

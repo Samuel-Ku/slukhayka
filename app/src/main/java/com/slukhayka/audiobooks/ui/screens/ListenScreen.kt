@@ -28,6 +28,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -591,6 +592,13 @@ fun ListenHeroCard(
     val hasDuration = totalSec > 0
     val progressFraction = if (hasDuration) (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f) else 0f
 
+    // #885 (wave 3) — the accessible name of the primary action. The VISIBLE
+    // text is the generic «Слухати далі», which does not say WHICH book, so a
+    // screen reader would hear the same four words on every hero in the app.
+    // The contextual description is therefore carried explicitly, exactly as
+    // the previous icon-only button did.
+    val resumeDescription = stringResource(R.string.a11y_resume_work, book.title)
+
     // #885 (wave 3) — the hero is a COMPOSITION, not a card with values.
     //
     // The prototype's `.sl-hero` (:1078-1090) is a full-width panel with a
@@ -774,6 +782,9 @@ fun ListenHeroCard(
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = AppDimens.TouchTarget)
+                        // The accessible name carries the WORK, not just the
+                        // verb — see `resumeDescription` above.
+                        .semantics { contentDescription = resumeDescription }
                         .testTag("listen_hero_resume")
                 ) {
                     Icon(

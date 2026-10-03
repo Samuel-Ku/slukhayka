@@ -60,10 +60,24 @@ jobs:
   # remaining cohorts, and four cold --no-daemon Gradle starts dominated the
   # critical path (~23 of the ~30 end-to-end minutes). One cohort per runner
   # pins the wall clock at the slowest cohort and always reports every cohort.
+  #
+  # #1115 — the cap is 60, not 40. Measured: the `Room Robolectric-only` leg
+  # needs ~20 min when it is fast (19m17s and 20m07s on release/v1.5) and ran
+  # past 40 on a PR FOUR times in a row, each time ending `cancelled` with NO
+  # step reporting `failure`. A 40-minute cap sitting on the boundary turned a
+  # slow-but-honest run into a red gate that looked like a test failure, and
+  # every re-run cost another 40 minutes on the critical path.
+  #
+  # Raising the cap can only ever let an honest run finish: it never turns a
+  # failing test green, never skips a cohort, and `fail-fast: false` still
+  # reports every leg. The cause of the slow path is NOT established (a
+  # Gradle-cache hypothesis was measured and REFUTED — `compileDebugUnitTestKotlin`
+  # really executes on the fast release run too), so this is a mitigation, not
+  # a diagnosis. #1115 keeps the investigation.
   jvm-partitions:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     needs: timing-start
     strategy:
       fail-fast: false

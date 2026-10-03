@@ -2234,6 +2234,56 @@ class LibraryImport(
      * The library entry and its private copies survive every outcome
      * (wayfinder #59): nothing here ever deletes a row or a file.
      */
+    /**
+     * #1049 — applies the listener's chapter order to an ALREADY ADDED book.
+     *
+     * An INDEX SWAP, never a rebuild: the repair door
+     * ([AudiobookDao.replaceConfirmedChapterStructure]) deletes progress and
+     * bookmarks first, which is right when the structure is wrong and wrong
+     * when the listener merely moved a chapter. Here the stored chapters stay
+     * the same rows; only where they sit changes, so the listener keeps the
+     * place they were listening from.
+     *
+     * The track order is derived from the chapter order through the stored
+     * rows, so the caller passes ONE list and cannot desynchronise the pairing
+     * ADR-0007 depends on. Returns false when the order is not a permutation of
+     * what is stored, or when a chapter has no track to travel with — refusing
+     * beats half-moving a book.
+     */
+    suspend fun reorderAddedBookChapters(
+        bookId: String,
+        chapterIdsInOrder: List<String>
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val chapters = dao.getChaptersListForBook(bookId)
+            if (chapters.size < 2) return@withContext false
+            val byId = chapters.associateBy { it.id }
+            // A partial list would silently drop chapters; an unknown id would
+            // move something that does not exist.
+            if (chapterIdsInOrder.size != chapters.size) return@withContext false
+            if (chapterIdsInOrder.any { it !in byId }) return@withContext false
+            if (chapters.any { it.id !in chapterIdsInOrder.toSet() }) return@withContext false
+
+            val orderedChapters = chapterIdsInOrder.map { byId.getValue(it) }
+            val allTracks = dao.getTracksForBookSync(bookId)
+            val tracksInOrder = orderedChapters.mapNotNull { chapter ->
+                allTracks.firstOrNull { it.trackIndex == chapter.chapterIndex }
+            }
+            // Every chapter must bring its track: moving a chapter without one
+            // would leave that track pointing at another chapter's audio.
+            if (tracksInOrder.size != orderedChapters.size) return@withContext false
+
+            dao.reorderChaptersByIndex(
+                chapterIdsInOrder = orderedChapters.map { it.id },
+                trackIdsInOrder = tracksInOrder.map { it.id }
+            )
+            true
+        } catch (e: Exception) {
+            Log.w("AudiobookRepo", "Chapter reorder failed", e)
+            false
+        }
+    }
+
     suspend fun rescanLocalFolder(treeUri: String): RescanReport = withContext(Dispatchers.IO) {
         val ctx = context ?: return@withContext RescanReport(treeUri)
         val entries = runCatching { LocalFolderScanner.scan(ctx, Uri.parse(treeUri)) }.getOrElse {

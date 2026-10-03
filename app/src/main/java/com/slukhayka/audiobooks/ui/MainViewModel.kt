@@ -5643,6 +5643,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * sort, merge suggestions) and shown to the user; only
      * [confirmImportPreview] writes to Room.
      */
+    /**
+     * #1049 — applies the listener's chapter order to an ALREADY ADDED book.
+     *
+     * This is an INDEX SWAP, never a rebuild. The pairing matters: ADR-0007
+     * ties a chapter to its track BY INDEX, so both lists are permuted in the
+     * same call and one transaction. Progress and bookmarks are deliberately
+     * left alone — the listener moved a chapter, they did not repair the book,
+     * and losing their place for a reorder would be the app's fault, not theirs.
+     *
+     * The track order is derived from the chapter order through the stored
+     * rows, so the caller passes ONE list and cannot desynchronise the two.
+     */
+    /**
+     * #1049 — applies the listener's chapter order to an ALREADY ADDED book.
+     *
+     * The work lives in [LibraryImport] beside the other chapter mutations;
+     * this is the UI door.
+     */
+    fun reorderChapters(bookId: String, chapterIdsInOrder: List<String>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = libraryImport.reorderAddedBookChapters(bookId, chapterIdsInOrder)
+            if (!ok) _importMessage.value = "Не вдалося змінити порядок розділів"
+        }
+    }
+
     fun importLocalAudioFolder(uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             try {

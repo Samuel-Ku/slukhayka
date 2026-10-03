@@ -23,10 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -590,150 +592,247 @@ fun ListenHeroCard(
     val hasDuration = totalSec > 0
     val progressFraction = if (hasDuration) (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f) else 0f
 
-    Card(
+    // #885 (wave 3) — the accessible name of the primary action. The VISIBLE
+    // text is the generic «Слухати далі», which does not say WHICH book, so a
+    // screen reader would hear the same four words on every hero in the app.
+    // The contextual description is therefore carried explicitly, exactly as
+    // the previous icon-only button did.
+    val resumeDescription = stringResource(R.string.a11y_resume_work, book.title)
+
+    // #885 (wave 3) — the hero is a COMPOSITION, not a card with values.
+    //
+    // The prototype's `.sl-hero` (:1078-1090) is a full-width panel with a
+    // gradient ground, the cover hanging ROTATED in the top-right corner, and
+    // the title pinned to the BOTTOM — which is exactly why its title can be
+    // large: there are 332 px of height and the full width under it. The old
+    // shape here was a compact card (88 dp cover on the left, text column on
+    // the right), and dropping the prototype's 40 px title into that column
+    // would have produced two 40 sp lines (~100 dp) beside an 88 dp cover — a
+    // broken card, not a closer match. So the whole structure moves, not one
+    // number.
+    //
+    // The panel carries its OWN foreground palette (`AppHeroOnPanel` and
+    // friends): its ground is a warm brown-black, and measuring the theme's
+    // `onSurface` against it would be measuring the wrong backdrop. Every pair
+    // clears 4.5:1 (title 13.26:1, eyebrow 10.20:1, author 10.08:1).
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
+            .heightIn(min = HeroPanelMinHeight)
+            .clip(RoundedCornerShape(AppDimens.RadiusHero))
+            .background(AppHeroPanel)
             .semantics(mergeDescendants = true) { }
-            .clip(RoundedCornerShape(AppDimens.RadiusHero)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            .testTag("listen_hero_panel")
     ) {
-        // #885 (wave 3) — the prototype's hero is `padding:24px`, and its
-        // corners are the spec's 24 dp main block; 16 dp made the hero read as
-        // a tight card rather than the roomy "continue listening" panel.
-        Column(modifier = Modifier.padding(24.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Headphones,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.listen_hero_overline),
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.semantics { heading() }
-                )
-            }
+        // The decorative cover, rotated and corner-anchored. `Decorative`
+        // semantics: it repeats the title that the panel states in words, so
+        // announcing it would read the book twice.
+        com.slukhayka.audiobooks.ui.components.BookCoverImage(
+            book = book,
+            semantics = com.slukhayka.audiobooks.ui.components.BookCoverSemantics.Decorative,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = HeroCoverTop, end = HeroCoverEnd)
+                .width(HeroCoverWidth)
+                .aspectRatio(2f / 3f)
+                .graphicsLayer { rotationZ = HeroCoverRotation }
+                .clip(RoundedCornerShape(AppDimens.RadiusCard))
+                .testTag("listen_hero_cover"),
+            contentScale = ContentScale.Crop
+        )
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                com.slukhayka.audiobooks.ui.components.BookCoverImage(
-                    book = book,
-                    semantics = com.slukhayka.audiobooks.ui.components.BookCoverSemantics.Decorative,
-                    modifier = Modifier
-                        .size(88.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusCardLg)),
-                    contentScale = ContentScale.Crop
-                )
-
-                Spacer(modifier = Modifier.width(14.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = book.title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = book.displayAuthor,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = stringResource(
-                            R.string.listen_chapter_of,
-                            progress.currentChapterIndex + 1,
-                            book.totalChapters.coerceAtLeast(1)
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = if (hasDuration) {
-                            stringResource(
-                                R.string.listen_progress_percent_remaining,
-                                (progressFraction * 100).toInt(),
-                                formatRemainingLocalized((totalSec - positionSec).coerceAtLeast(0L))
-                            )
-                        } else {
-                            MainViewModel.formatTime(positionSec)
-                        },
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(
-                        onClick = onResumeClick,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        colors = IconButtonDefaults.iconButtonColors()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = stringResource(R.string.a11y_resume_work, book.title),
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    IconButton(
-                        onClick = onBookClick,
-                        modifier = Modifier.size(AppDimens.TouchTarget)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = stringResource(R.string.a11y_open_work, book.title),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Progress bar. #885 (wave 3) — the prototype's hero bar is
-            // `height:4px`, a hairline under the cover rather than a 6 dp
-            // rule; the bar reads as a whisper of progress, not as a divider.
-            LinearProgressIndicator(
-                progress = { progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant
+        // The eyebrow sits top-LEFT, opposite the cover — the prototype's
+        // absolute `.sl-eyebrow` (:1081). It is a heading: a screen reader
+        // navigating by headings must land on "Продовжити слухати".
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                // The eyebrow may use everything LEFT of the cover. The
+                // prototype caps it at 100 px (:1081), but that is sized for a
+                // short English eyebrow; «ПРОДОВЖИТИ СЛУХАТИ» is two long
+                // Ukrainian words and wrapped onto three lines at that width,
+                // colliding with the cover. The honest bound is geometric —
+                // stop before the cover starts — not a literal.
+                .padding(start = HeroSides, top = HeroSides, end = HeroCoverWidth + HeroCoverEnd)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Headphones,
+                contentDescription = null,
+                tint = AppHeroEyebrow,
+                modifier = Modifier.size(18.dp)
             )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = stringResource(R.string.listen_hero_overline),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                ),
+                color = AppHeroEyebrow,
+                modifier = Modifier
+                    .semantics { heading() }
+                    .testTag("listen_hero_heading")
+            )
+        }
+
+        // Everything that carries meaning is bottom-anchored, in the
+        // prototype's order: progress row → title → chapter → actions.
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(HeroSides)
+        ) {
+            // The prototype's order (markup :1319) is title → author →
+            // progress → actions, top to bottom inside the bottom-anchored
+            // block. The percent rides the PROGRESS row there, not a line of
+            // its own above the title.
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-1.5).sp
+                ),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = AppHeroOnPanel,
+                modifier = Modifier.testTag("listen_hero_title")
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = stringResource(
+                    R.string.listen_chapter_of,
+                    progress.currentChapterIndex + 1,
+                    book.totalChapters.coerceAtLeast(1)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = AppHeroOnPanelMuted
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Progress row: a hairline track with the remaining time beside it
+            // (`.sl-hero-progress`, :1086). The percent leads the row so the
+            // listener sees "84%" before the bar, exactly as before — the
+            // fact is unchanged, only its shape (one glued string → two nodes)
+            // follows the prototype.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (hasDuration) {
+                        stringResource(
+                            R.string.listen_progress_percent,
+                            (progressFraction * 100).toInt()
+                        )
+                    } else {
+                        MainViewModel.formatTime(positionSec)
+                    },
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = AppHeroOnPanel,
+                    // Never ellipsised: a half-shown "84…" is worse than a
+                    // shorter track. The track absorbs the squeeze.
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                // 4 dp hairline: a whisper of progress, not a divider
+                // (#1065). Its track is white-on-panel, not a theme outline,
+                // because the panel is not a themed surface. It sits at
+                // `z-index:-1` in the prototype, i.e. the rotated cover may
+                // pass over it — faithful, not a collision.
+                LinearProgressIndicator(
+                    progress = { progressFraction },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = AppHeroTrack
+                )
+                if (hasDuration) {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = formatRemainingLocalized((totalSec - positionSec).coerceAtLeast(0L)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = AppHeroOnPanelMuted,
+                        // Same rule as the percent: the time is the fact the
+                        // listener came for, so it is never the thing that
+                        // gets cut.
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The prototype's primary action FILLS the row
+                // (`.sl-actions > .sl-primary {flex:1}`) and is a pill with
+                // its own on-colour.
+                Button(
+                    onClick = onResumeClick,
+                    shape = RoundedCornerShape(AppDimens.RadiusPill),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = AppDimens.TouchTarget)
+                        // The accessible name carries the WORK, not just the
+                        // verb — see `resumeDescription` above.
+                        .semantics { contentDescription = resumeDescription }
+                        .testTag("listen_hero_resume")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.lib_listen_continue),
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                // The secondary action rides a translucent scrim on the panel
+                // (`.sl-icon {background:#FFFFFF16}`), never a theme surface.
+                IconButton(
+                    onClick = onBookClick,
+                    modifier = Modifier
+                        .size(AppDimens.TouchTarget)
+                        .clip(CircleShape)
+                        .background(AppHeroIconScrim)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = stringResource(R.string.a11y_open_work, book.title),
+                        tint = AppHeroOnPanel,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
     }
 }
+
+/**
+ * #885 (wave 3) — the hero panel's composition constants.
+ *
+ * Named here rather than inlined so the prototype's numbers have one home and
+ * a test can state the CONTRACT ("the panel is at least this tall", "the cover
+ * hangs in the corner") instead of a magic value appearing twice.
+ */
+private val HeroSides = 24.dp
+private val HeroPanelMinHeight = 332.dp
+private val HeroCoverWidth = 128.dp
+private val HeroCoverTop = 22.dp
+private val HeroCoverEnd = 28.dp
+private const val HeroCoverRotation = 9f
 
 /** One recently-listened book with its resume progress. */
 @Composable

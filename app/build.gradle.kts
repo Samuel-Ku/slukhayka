@@ -83,8 +83,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 30
-    versionName = "1.4.2"
+    versionCode = 31
+    versionName = "1.5"
 
     // Device tests run against their OWN database file (see the runner):
     // a test that wipes and reseeds the database for determinism must never

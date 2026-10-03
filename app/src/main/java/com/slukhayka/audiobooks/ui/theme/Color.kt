@@ -88,3 +88,40 @@ val CyberCardBorder = AppBorderDark
  * a surface), which is why it is not part of a light/dark pair.
  */
 val AppPosterEdgeHighlight = Color.White.copy(alpha = 0.07f)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #885 (wave 3) — the HERO panel palette.
+//
+// The prototype's hero is not a card on the app's surface: it is a full-width
+// gradient panel (`.sl-hero`, prototype :1078-1090) that carries its OWN text
+// colours, because its background is a warm brown-black rather than
+// `AppSurface*`. A panel with its own ground needs its own foreground, or the
+// theme's `onSurface` would be measured against the wrong backdrop.
+//
+// Contrast measured against the panel base `#302821` (WCAG 2.1, AA is 4.5:1):
+// title 13.26:1 · eyebrow 10.20:1 · author 10.08:1 · accent 6.63:1. Every one
+// clears the bar with room to spare, and `ThemeContrastTest` checks them.
+//
+// The light theme reuses the same panel palette on purpose: the hero is a
+// "now playing" statement panel, and the prototype gives it one identity in
+// both themes — it is a branded block, not a themed surface (ADR-0033: one
+// vocabulary, and this role has one value).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The hero panel's ground — the prototype's `#302821`. */
+val AppHeroPanel = Color(0xFF302821)
+
+/** Hero title and body text on [AppHeroPanel] — the prototype's `#FFF4DE`. */
+val AppHeroOnPanel = Color(0xFFFFF4DE)
+
+/** The hero's eyebrow ("ПРОДОВЖИТИ СЛУХАТИ") — the prototype's `#F1D5A5`. */
+val AppHeroEyebrow = Color(0xFFF1D5A5)
+
+/** Secondary hero text (author) on [AppHeroPanel] — the prototype's `#E1D6C5`. */
+val AppHeroOnPanelMuted = Color(0xFFE1D6C5)
+
+/** Hero progress track: white at 16 % (`#FFFFFF28`), never a theme outline. */
+val AppHeroTrack = Color.White.copy(alpha = 0.16f)
+
+/** Hero icon chip background: white at 9 % (`#FFFFFF16`). */
+val AppHeroIconScrim = Color.White.copy(alpha = 0.09f)

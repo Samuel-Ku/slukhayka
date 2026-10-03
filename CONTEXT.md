@@ -122,6 +122,14 @@ _Avoid_: Track, file
 **Manual Chapter Order**:
 A listener's local permutation of an Edition's Chapter/SourceTrack pairs. It survives local rescan and source refresh. It changes neither source identity nor stored bookmark/progress timestamps. New Source tracks arrive in provider order and are projected inside the DAO write transaction; updates to existing track ids retain their current slots. Shared profiles keep provider order. Confirmed topology replacement clears order memory.
 
+**Local Folder Grouping**:
+The listener’s explicit choice for audio files directly inside a picked SAF tree: one book with chapters or separate books. Each subfolder remains its own book. The choice and actual folder name travel with the durable grant; older grants default to separate books. Preview, direct import and rescan share the same grouping rule (ADR-0057).
+_Avoid_: guessing a book from similar filenames, choosing a title from the first file
+
+**Local Folder Provenance**:
+Local memory linking a book to the physical groups, relative paths and content hashes observed in each SAF tree. It survives metadata corrections, splitting, merging and folder renames. It is written in the Edition’s Room transaction and re-anchored during a confirmed narration claim. Live tracks from explicit import take precedence; removed owners’ remembered bytes prevent automatic resurrection. Ambiguous new files require an explicit decision (ADR-0057).
+_Avoid_: editable title as folder identity, logical Chapter title as physical filename, second import writer
+
 **Series**:
 A named bibliographic sequence or cycle containing ordered Works.
 _Avoid_: Collection, shelf

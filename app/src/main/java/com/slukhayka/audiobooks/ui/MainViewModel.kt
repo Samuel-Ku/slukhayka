@@ -5713,6 +5713,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             result
         }
 
+    /** Joins two explicit preview selections; the destination keeps its metadata. */
+    fun mergePlannedBooksInPreview(sourceBookId: String, targetBookId: String) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(plan = ImportPlanner.mergePlannedBooks(preview.plan, sourceBookId, targetBookId))
+    }
+
+    /** Changes only the root-file grouping of the isolated preview. */
+    fun changeFolderGroupingInPreview(grouping: com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(plan = ImportPlanner.changeFolderGrouping(preview.plan, grouping))
+    }
+
     /** Reorders the isolated import draft; [newOrder] contains its current indices. */
     fun reorderChaptersInPreview(bookId: String, newOrder: List<Int>) {
         val preview = _importPreview.value ?: return
@@ -5721,16 +5733,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /**
-     * #1052 — «Додати папку» on a folder whose files lie in it gave a heap of
-     * one-chapter books instead of one book with chapters, because the planner
-     * treats the tree root as a container of books. The listener chose a folder
-     * that IS a book, so the preview must be able to say so.
-     *
-     * This splits [bookId] at [chapterIndex] — the same shape as
-     * [ImportPlanner.splitBook] — and the UI drives it to merge the loose root
-     * files back into one book.
-     */
+    /** Splits the chosen preview book at [chapterIndex] without reading audio. */
     fun splitBookInPreview(bookId: String, chapterIndex: Int) {
         val preview = _importPreview.value ?: return
         _importPreview.value = preview.copy(
@@ -5784,6 +5787,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         missingFiles = acc.missingFiles + r.missingFiles,
                         movedFiles = acc.movedFiles + r.movedFiles,
                         duplicateFiles = acc.duplicateFiles + r.duplicateFiles,
+                        skippedFiles = acc.skippedFiles + r.skippedFiles,
                         structuralChangeRejected = acc.structuralChangeRejected || r.structuralChangeRejected
                     )
                 }

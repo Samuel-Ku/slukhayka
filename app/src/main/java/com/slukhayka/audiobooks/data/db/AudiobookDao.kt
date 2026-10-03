@@ -1503,6 +1503,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM corrections WHERE mergeKey = :mergeKey ORDER BY updatedAt DESC")
     suspend fun getCorrectionsForMergeKey(mergeKey: String): List<CorrectionEntity>
 
+    /** Physical local-folder owners, for re-anchoring a listener's narration claim. */
+    @Query("SELECT * FROM corrections WHERE kind = 'FIELD' AND mergeKey LIKE 'local-folder:%' ORDER BY updatedAt DESC")
+    suspend fun getLocalFolderCorrections(): List<CorrectionEntity>
+
     /** The NEVER_MATCH pairs involving one Work, newest first. */
     @Query(
         "SELECT * FROM corrections WHERE kind = 'NEVER_MATCH' AND (mergeKey = :mergeKey OR value = :mergeKey) " +

@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -75,6 +77,9 @@ import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.bookPersonPath
+import com.slukhayka.audiobooks.data.imports.ImportPlanner
+import com.slukhayka.audiobooks.data.imports.LocalFolderGrouping
+import com.slukhayka.audiobooks.data.imports.SourceRef
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppHeaderAction
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
@@ -972,6 +977,8 @@ fun LibraryScreen(
                 onReorderChapters = viewModel::reorderChaptersInPreview,
                 onEditBookTitle = { bookId, title -> viewModel.editBookInPreview(bookId, title = title) },
                 onSplitBook = viewModel::splitBookInPreview,
+                onFolderGroupingChange = viewModel::changeFolderGroupingInPreview,
+                onMergePlannedBooks = viewModel::mergePlannedBooksInPreview,
                 onEditBookMetadata = { id, book ->
                     viewModel.editBookInPreview(id, book.title, book.author, book.narrator, book.seriesTitle.orEmpty(), book.seriesIndex, clearSeriesIndex = true)
                 },
@@ -2671,15 +2678,27 @@ fun ImportPreviewDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     onSplitBook: (String, Int) -> Unit = { _, _ -> },
-    onEditBookMetadata: (String, com.slukhayka.audiobooks.data.imports.PlannedBook) -> Unit = { id, book -> onEditBookTitle(id, book.title) }
+    onEditBookMetadata: (String, com.slukhayka.audiobooks.data.imports.PlannedBook) -> Unit = { id, book -> onEditBookTitle(id, book.title) },
+    onFolderGroupingChange: (com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) -> Unit = {},
+    onMergePlannedBooks: (String, String) -> Unit = { _, _ -> }
 ) {
     val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
+    val folder = preview.plan.source as? SourceRef.Folder
+    val hasRootFiles = preview.plan.books.any { book -> book.chapters.any { it.file.parentFolder.isNullOrBlank() } }
     val headingFocusRequester = remember { FocusRequester() }
     // #1049 — which planned book the rename field is open for, if any.
     var renamingBookId by remember { mutableStateOf<String?>(null) }
     var lastEditingBookId by remember { mutableStateOf<String?>(null) }
     val editFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
-    if (renamingBookId == null) AlertDialog(
+    val groupingFocusRequesters = remember { mutableMapOf<LocalFolderGrouping, FocusRequester>() }
+    val resetHeadingFocusRequester = remember { FocusRequester() }
+    var pendingGrouping by remember { mutableStateOf<LocalFolderGrouping?>(null) }
+    var lastGroupingMode by remember { mutableStateOf<LocalFolderGrouping?>(null) }
+    var mergingBookId by remember { mutableStateOf<String?>(null) }
+    var lastMergingBookId by remember { mutableStateOf<String?>(null) }
+    val mergeFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val mergeHeadingFocusRequester = remember { FocusRequester() }
+    if (renamingBookId == null && pendingGrouping == null && mergingBookId == null) AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
             .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
@@ -2688,13 +2707,17 @@ fun ImportPreviewDialog(
             LaunchedEffect(headingFocusRequester) {
                 // The preview window is recreated after editing. Its controls
                 // must be attached to this window before focus can return.
-                val target = editFocusRequesters[lastEditingBookId] ?: headingFocusRequester
+                val target = lastGroupingMode?.let { groupingFocusRequesters[it] }
+                    ?: mergeFocusRequesters[lastMergingBookId]
+                    ?: editFocusRequesters[lastEditingBookId] ?: headingFocusRequester
                 withFrameNanos { }
                 runCatching { target.requestFocus() }
                 withFrameNanos { }
                 val restored = runCatching { target.requestFocus() }.getOrDefault(false)
                 if (!restored) headingFocusRequester.requestFocus()
                 lastEditingBookId = null
+                lastGroupingMode = null
+                lastMergingBookId = null
             }
             Text(
                 stringResource(R.string.a11y_library_import_preview_title),
@@ -2720,6 +2743,39 @@ fun ImportPreviewDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (folder != null && hasRootFiles) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        if (folder.displayName.isNullOrBlank()) stringResource(R.string.lib_import_folder_unknown)
+                        else stringResource(R.string.lib_import_folder_name, folder.displayName),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(stringResource(R.string.lib_import_folder_grouping_hint), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.fillMaxWidth().selectableGroup()) {
+                        LocalFolderGrouping.entries.forEach { mode ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    .focusRequester(groupingFocusRequesters.getOrPut(mode) { FocusRequester() })
+                                    .focusProperties { canFocus = true }
+                                    .selectable(selected = folder.grouping == mode, role = Role.RadioButton,
+                                        onClick = {
+                                            if (folder.grouping != mode) {
+                                                if (ImportPlanner.groupingChangeDiscardsCorrections(preview.plan)) {
+                                                    lastGroupingMode = mode
+                                                    pendingGrouping = mode
+                                                } else onFolderGroupingChange(mode)
+                                            }
+                                        })
+                                    .testTag(if (mode == LocalFolderGrouping.ONE_BOOK) "import_folder_grouping_one" else "import_folder_grouping_separate"),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = folder.grouping == mode, onClick = null)
+                                Text(stringResource(if (mode == LocalFolderGrouping.ONE_BOOK) R.string.submission_playlist_one_book else R.string.submission_playlist_separate))
+                            }
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 val untitled = stringResource(R.string.lib_untitled)
                 val existingBook = stringResource(R.string.lib_import_existing_book)
@@ -2747,6 +2803,10 @@ fun ImportPreviewDialog(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                            if (book.title.isBlank() && book.mergedIntoBookId == null) {
+                                Text(stringResource(R.string.lib_import_title_required),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                             val metadata = buildList {
                                 if (book.author.isNotBlank()) add(stringResource(R.string.book_detail_author_label, book.author))
@@ -2778,6 +2838,15 @@ fun ImportPreviewDialog(
                                 editFocusRequester = editFocusRequesters.getOrPut(book.id) { FocusRequester() },
                                 onSplit = { index -> onSplitBook(book.id, index) }
                             )
+                            if (preview.plan.books.size > 1) {
+                                TextButton(
+                                    onClick = { lastMergingBookId = book.id; mergingBookId = book.id },
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                        .focusRequester(mergeFocusRequesters.getOrPut(book.id) { FocusRequester() })
+                                        .focusProperties { canFocus = true }
+                                        .testTag("import_preview_merge_${book.id}")
+                                ) { Text(stringResource(R.string.lib_import_merge_planned)) }
+                            }
                             val suggestion = book.suggestion
                             if (suggestion != null && book.mergedIntoBookId == null) {
                                 Text(
@@ -2815,6 +2884,7 @@ fun ImportPreviewDialog(
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
+                enabled = preview.plan.books.isNotEmpty() && preview.plan.books.none { it.title.isBlank() && it.mergedIntoBookId == null },
                 modifier = Modifier
                     .heightIn(min = 48.dp)
                     .testTag("library_import_preview_confirm")
@@ -2841,6 +2911,81 @@ fun ImportPreviewDialog(
             }
         }
     )
+
+    mergingBookId?.let { sourceId ->
+        AlertDialog(
+            onDismissRequest = { mergingBookId = null },
+            modifier = Modifier.accessibilityPane(stringResource(R.string.lib_import_merge_choose_title))
+                .testTag("import_preview_merge_dialog"),
+            title = {
+                LaunchedEffect(sourceId) { mergeHeadingFocusRequester.requestFocus() }
+                Text(stringResource(R.string.lib_import_merge_choose_title),
+                    modifier = Modifier.focusRequester(mergeHeadingFocusRequester).focusable().semantics { heading() })
+            },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.lib_import_merge_choose_hint), style = MaterialTheme.typography.bodySmall)
+                    preview.plan.books.filter { it.id != sourceId }.forEach { target ->
+                        TextButton(
+                            onClick = {
+                                onMergePlannedBooks(sourceId, target.id)
+                                lastMergingBookId = null
+                                lastEditingBookId = target.id
+                                mergingBookId = null
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .testTag("import_preview_merge_target_${target.id}")
+                        ) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(target.title.ifBlank { stringResource(R.string.lib_untitled) },
+                                    style = MaterialTheme.typography.titleSmall)
+                                if (target.author.isNotBlank()) Text(target.author, style = MaterialTheme.typography.bodySmall)
+                                Text(pluralStringResource(R.plurals.lib_import_file_count, target.chapters.size, target.chapters.size),
+                                    style = MaterialTheme.typography.labelSmall)
+                                Text(target.chapters.joinToString("\n") { chapter ->
+                                    listOfNotNull(chapter.file.parentFolder?.takeIf { it.isNotBlank() }, chapter.file.fileName).joinToString("/")
+                                }, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { mergingBookId = null },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("import_preview_merge_cancel")) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
+
+    pendingGrouping?.let { mode ->
+        AlertDialog(
+            onDismissRequest = { pendingGrouping = null },
+            modifier = Modifier.accessibilityPane(stringResource(R.string.lib_import_grouping_reset_title))
+                .testTag("import_folder_grouping_reset_dialog"),
+            title = {
+                LaunchedEffect(mode) { resetHeadingFocusRequester.requestFocus() }
+                Text(stringResource(R.string.lib_import_grouping_reset_title),
+                    modifier = Modifier.focusRequester(resetHeadingFocusRequester).focusable().semantics { heading() })
+            },
+            text = { Text(stringResource(R.string.lib_import_grouping_reset_message)) },
+            confirmButton = {
+                TextButton(onClick = { onFolderGroupingChange(mode); pendingGrouping = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("import_folder_grouping_reset_confirm")) {
+                    Text(stringResource(R.string.lib_import_grouping_reset_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingGrouping = null },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("import_folder_grouping_reset_cancel")) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
 
     renamingBookId?.let { bookId ->
         val book = preview.plan.books.firstOrNull { it.id == bookId }

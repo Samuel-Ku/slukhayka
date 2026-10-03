@@ -61,6 +61,31 @@ class ImportCorrectionsTest {
         compose.onNodeWithTag("chapter_order_error").assertTextContains("Список розділів змінився")
     }
 
+    @Test fun `folder choice names the root book and explains the subfolder scope`() {
+        fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { ByteArrayInputStream(byteArrayOf(1)) }
+        val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар", LocalFolderGrouping.ONE_BOOK),
+            listOf(file("03.mp3"), file("01.mp3"), file("02.mp3"), file("01.mp3", "Інша")))
+        compose.setContent { AudiobookTheme {
+            ImportPreviewDialog(MainViewModel.ImportPreviewState(plan, "content://tree"), {}, {}, { _, _ -> }, { _, _ -> }, {}, {})
+        } }
+        compose.onNodeWithTag("import_folder_grouping_one").assertIsSelected()
+        compose.onRoot().captureRoboImage("src/test/snapshots/import_folder_grouping.png")
+    }
+
+    @Test fun `planned merge targets with the same title show their physical paths`() {
+        fun file(folder: String? = null) = LocalAudioEntry("01.mp3", folder) { ByteArrayInputStream(byteArrayOf(1)) }
+        var plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), listOf(file(), file("A"), file("B")))
+        plan = ImportPlanner.editBook(plan, "folder:A", title = "Поезії", author = "Автор A")
+        plan = ImportPlanner.editBook(plan, "folder:B", title = "Поезії", author = "Автор B")
+        compose.setContent { AudiobookTheme {
+            ImportPreviewDialog(MainViewModel.ImportPreviewState(plan, "content://tree"), {}, {}, { _, _ -> }, { _, _ -> }, {}, {})
+        } }
+        compose.onNodeWithTag("import_preview_merge_root:01.mp3").performScrollTo().performClick()
+        compose.onNodeWithTag("import_preview_merge_target_folder:A").assertTextContains("A/01.mp3")
+        compose.onNodeWithTag("import_preview_merge_target_folder:B").assertTextContains("B/01.mp3")
+        compose.onRoot().captureRoboImage("src/test/snapshots/import_planned_merge_targets.png")
+    }
+
     @Test fun `confirmed metadata remains visible on both split preview cards`() {
         val files = listOf("01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, "Кобзар") { ByteArrayInputStream(byteArrayOf(1)) } }
         var plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), files)

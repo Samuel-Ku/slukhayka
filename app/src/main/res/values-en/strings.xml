@@ -629,4 +629,14 @@
     <string name="lib_import_split_here">Split before this chapter</string>
     <string name="metadata_edit_series">Series</string>
     <string name="metadata_edit_series_index">Volume number</string>
+    <string name="lib_import_folder_unknown">Selected folder</string>
+    <string name="lib_import_folder_name">Folder “%1$s”</string>
+    <string name="lib_import_folder_grouping_hint">This choice applies to files directly inside the folder. Subfolders remain separate books.</string>
+    <string name="lib_import_grouping_reset_title">Change grouping?</string>
+    <string name="lib_import_grouping_reset_message">Names, chapter order, splits and merges of books containing root files will be reset. Edits to other subfolders will remain.</string>
+    <string name="lib_import_grouping_reset_confirm">Change and reset edits</string>
+    <string name="lib_import_merge_planned">Merge with another book</string>
+    <string name="lib_import_merge_choose_title">Which book should receive these chapters?</string>
+    <string name="lib_import_merge_choose_hint">The selected book keeps its title and other details. These chapters will be appended to it.</string>
+    <string name="lib_import_title_required">Enter a book title before importing.</string>
 </resources>

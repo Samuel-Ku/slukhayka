@@ -972,6 +972,10 @@ class FakeAudiobookDao(
     override suspend fun getCorrectionsForMergeKey(mergeKey: String): List<CorrectionEntity> =
         correctionsState.value.filter { it.mergeKey == mergeKey }.sortedByDescending { it.updatedAt }
 
+    override suspend fun getLocalFolderCorrections(): List<CorrectionEntity> =
+        correctionsState.value.filter { it.kind == "FIELD" && it.mergeKey.startsWith("local-folder:") }
+            .sortedByDescending { it.updatedAt }
+
     override suspend fun getNeverMatchPairs(mergeKey: String): List<CorrectionEntity> =
         correctionsState.value
             .filter { it.kind == "NEVER_MATCH" && (it.mergeKey == mergeKey || it.value == mergeKey) }

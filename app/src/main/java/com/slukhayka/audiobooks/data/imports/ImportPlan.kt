@@ -17,9 +17,15 @@ data class ImportPlan(
     val corrections: List<CorrectionDraft> = emptyList()
 )
 
+enum class LocalFolderGrouping { ONE_BOOK, SEPARATE_BOOKS }
+
 /** Where the scanned entries came from (the Step 1 source sheet). */
 sealed class SourceRef {
-    data class Folder(val treeUri: String) : SourceRef()
+    data class Folder(
+        val treeUri: String,
+        val displayName: String? = null,
+        val grouping: LocalFolderGrouping = LocalFolderGrouping.SEPARATE_BOOKS
+    ) : SourceRef()
     data class Files(val uris: List<String>) : SourceRef()
     data class Rescan(val treeUri: String) : SourceRef()
 }
@@ -71,5 +77,7 @@ data class CorrectionDraft(
     val mergeKey: String,
     val kind: String,
     val value: String = "",
-    val origin: String = "USER_MADE"
+    val origin: String = "USER_MADE",
+    // Draft identity lets regroup discard only decisions for rebuilt books.
+    val plannedBookId: String? = null
 )

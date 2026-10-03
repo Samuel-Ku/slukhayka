@@ -3,18 +3,24 @@ package com.slukhayka.audiobooks.data.imports
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
-import java.util.Base64
+import okio.ByteString.Companion.decodeBase64
+import okio.ByteString.Companion.encodeUtf8
 
 /** A listener's display order; persisted anchors and provider indices remain in original order. */
 enum class ChapterReorderResult { APPLIED, UNCHANGED, STALE, INVALID_ORDER, INVALID_TRACKS }
 
 internal object ChapterOrder {
+    private val URL_SAFE_TOKEN = Regex("[A-Za-z0-9_-]*={0,2}")
+
     fun key(bookId: String) = "chapter-order:$bookId"
     fun encode(ids: List<String>): String = ids.joinToString(".") {
-        Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray(Charsets.UTF_8))
+        it.encodeUtf8().base64Url().trimEnd('=')
     }
     fun decode(value: String): List<String>? = runCatching {
-        value.split('.').map { String(Base64.getUrlDecoder().decode(it), Charsets.UTF_8) }
+        value.split('.').map {
+            require(it.matches(URL_SAFE_TOKEN))
+            requireNotNull(it.decodeBase64()).utf8()
+        }
             .takeIf { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
     }.getOrNull()
 

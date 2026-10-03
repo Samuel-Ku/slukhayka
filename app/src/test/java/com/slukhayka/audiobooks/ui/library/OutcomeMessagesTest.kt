@@ -14,6 +14,26 @@ import org.junit.Test
  */
 class OutcomeMessagesTest {
 
+    @Test
+    fun `partial import outcomes report additions rejections and unreadable files together`() {
+        assertEquals(
+            "Пересканування завершено: +1 глав — додано в кінець · структурну зміну відхилено — підтвердьте новий перелік розділів · 1 файлів не вдалося перевірити",
+            OutcomeMessages.rescanOutcome(LibraryImport.RescanReport("content://tree", newChapters = 1, structuralChangeRejected = true, skippedFiles = 1))
+        )
+        assertEquals(
+            "Пересканування завершено: перевірено частково · 1 файлів не вдалося перевірити",
+            OutcomeMessages.rescanOutcome(LibraryImport.RescanReport("content://tree", skippedFiles = 1))
+        )
+        assertEquals(
+            "Додано 2 файлів до наявних книг · 3 дублікатів пропущено · 1 файлів не вдалося додати",
+            OutcomeMessages.importOutcome(LocalImportResult(booksImported = 0, filesImported = 2, duplicateFiles = 3, skippedFiles = 1))
+        )
+        assertEquals(
+            "Імпорт завершено · 3 дублікатів пропущено · 2 файлів не вдалося додати",
+            OutcomeMessages.importOutcome(LocalImportResult(booksImported = 0, filesImported = 0, duplicateFiles = 3, skippedFiles = 2))
+        )
+    }
+
     // --- download outcomes (table-driven matrix) ---------------------------
 
     /**
@@ -62,7 +82,7 @@ class OutcomeMessagesTest {
         val cases = listOf(
             ImportCase(
                 3, 25, 2, 4,
-                "Імпортовано 3 книг (25 файлів) · 4 дублікатів пропущено · 2 не вдалося прочитати"
+                "Імпортовано 3 книг (25 файлів) · 4 дублікатів пропущено · 2 файлів не вдалося додати"
             ),
             ImportCase(1, 5, 0, 0, "Імпортовано 1 книг (5 файлів)"),
             ImportCase(0, 0, 0, 6, "Всі файли вже в бібліотеці (6 дублікатів пропущено)"),

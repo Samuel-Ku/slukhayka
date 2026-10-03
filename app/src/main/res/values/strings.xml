@@ -683,4 +683,14 @@
     <string name="lib_import_split_here">Розділити перед цим розділом</string>
     <string name="metadata_edit_series">Серія</string>
     <string name="metadata_edit_series_index">Номер у серії</string>
+    <string name="lib_import_folder_unknown">Вибрана папка</string>
+    <string name="lib_import_folder_name">Папка «%1$s»</string>
+    <string name="lib_import_folder_grouping_hint">Цей вибір стосується файлів безпосередньо в папці. Підпапки — окремі книги.</string>
+    <string name="lib_import_grouping_reset_title">Змінити групування?</string>
+    <string name="lib_import_grouping_reset_message">Назви, порядок розділів, поділ і об’єднання книг із файлами в корені буде скинуто. Правки інших підпапок збережуться.</string>
+    <string name="lib_import_grouping_reset_confirm">Змінити й скинути правки</string>
+    <string name="lib_import_merge_planned">Об’єднати з іншою книгою</string>
+    <string name="lib_import_merge_choose_title">До якої книги додати розділи?</string>
+    <string name="lib_import_merge_choose_hint">Вибрана книга збереже назву й інші дані. Розділи цієї книги додадуться в кінець.</string>
+    <string name="lib_import_title_required">Вкажи назву книги перед імпортом.</string>
 </resources>

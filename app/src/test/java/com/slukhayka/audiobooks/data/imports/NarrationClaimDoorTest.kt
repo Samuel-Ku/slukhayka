@@ -168,6 +168,35 @@ class NarrationClaimDoorTest {
     }
 
     @Test
+    fun `claim keeps local folder rescan attached to surviving narration`() = runBlocking {
+        seed()
+        val tree = "content://tree/narration-local"
+        fun file(number: Int) = LocalAudioEntry("0$number.mp3", null) {
+            java.io.ByteArrayInputStream(ByteArray(16) { number.toByte() })
+        }
+        val files = (1..3).map(::file)
+        var plan = ImportPlanner.buildPlan(SourceRef.Folder(tree, "Лісова пісня", LocalFolderGrouping.ONE_BOOK), files)
+        plan = ImportPlanner.editBook(plan, plan.books.single().id, author = "Леся Українка", narrator = "Локальна начитка")
+        assertEquals(1, libraryImport.applyImportPlan(plan).booksImported)
+        val local = dao.getAudiobooksBySourceTree(tree).single()
+        val chapters = dao.getChaptersListForBook(currentId)
+        assertNotNull(libraryImport.claimSameNarration(currentId, local.id, "Локальна начитка"))
+        assertNull(dao.getAudiobookById(local.id))
+        val progress = dao.getPlaybackProgressSync(currentId)
+        val recreated = LibraryImport(dao, context, emptyList(), writeBatchRunner = { block -> db.withTransaction { block() } })
+        val unchanged = recreated.rescanAudioEntries(files, tree)
+        assertEquals(0, unchanged.newBooks)
+        assertEquals(0, unchanged.missingFiles)
+        assertEquals(0, unchanged.movedFiles)
+        val expanded = recreated.rescanAudioEntries(files + file(4), tree)
+        assertTrue("the surviving mixed-source Edition must receive an explicit structural rejection", expanded.structuralChangeRejected)
+        assertEquals(0, expanded.newBooks)
+        assertEquals(0, expanded.newChapters)
+        assertEquals(chapters.map { it.id }, dao.getChaptersListForBook(currentId).map { it.id })
+        assertEquals(progress, dao.getPlaybackProgressSync(currentId))
+    }
+
+    @Test
     fun `claim re-anchors the sibling source and fills the narrator`() = runBlocking {
         seed()
         val merged = libraryImport.claimSameNarration(currentId, siblingId, "Степан Бандура")

@@ -336,6 +336,78 @@ class UiSurfaceAuditTest {
             onRetryPlayback = onRetry, onFindAnotherSource = onAlternative
         )
     }
+    @Test fun plannedMergeAtLargeTextDistinguishesMatchingTitlesAndRestoresFocus() {
+        var reads = 0
+        fun file(folder: String? = null) = LocalAudioEntry("01.mp3", folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        var draft = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), listOf(file(), file("A"), file("B")))
+        draft = ImportPlanner.editBook(draft, "folder:A", title = "Поезії", author = "Автор A")
+        draft = ImportPlanner.editBook(draft, "folder:B", title = "Поезії", author = "Автор B")
+        val before = draft
+        var plan by mutableStateOf(before)
+        var confirmed: ImportPlan? = null
+        rule.setContent { AudiobookTheme {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                ImportPreviewDialog(
+                    MainViewModel.ImportPreviewState(plan, "content://tree"), {}, {}, { _, _ -> }, { _, _ -> }, { confirmed = plan }, {},
+                    onMergePlannedBooks = { source, target -> plan = ImportPlanner.mergePlannedBooks(plan, source, target) }
+                )
+            }
+        } }
+        rule.onNodeWithTag("import_preview_merge_root:01.mp3").performScrollTo().performClick()
+        rule.onNodeWithTag("import_preview_merge_target_folder:A").assertTextContains("A/01.mp3")
+        rule.onNodeWithTag("import_preview_merge_target_folder:B").assertTextContains("B/01.mp3")
+        screenshot("1052-merge-large-text.png")
+        assertEquals(before, plan)
+        rule.onNodeWithTag("import_preview_merge_cancel").performClick()
+        rule.onNodeWithTag("import_preview_merge_root:01.mp3").assertIsFocused().performScrollTo().performClick()
+        rule.onNodeWithTag("import_preview_merge_target_folder:B").performScrollTo().performClick()
+        rule.onNodeWithTag("import_preview_rename_folder:B").assertIsFocused()
+        assertEquals(before.books.single { it.id == "folder:A" }, plan.books.single { it.id == "folder:A" })
+        assertEquals("Автор B", plan.books.single { it.id == "folder:B" }.author)
+        assertEquals(2, plan.books.single { it.id == "folder:B" }.chapters.size)
+        assertEquals(0, reads)
+        assertNull(confirmed)
+        rule.onNodeWithTag("library_import_preview_confirm").performClick()
+        assertEquals(plan, confirmed)
+    }
+
+    @Test fun folderGroupingConsentAtLargeTextKeepsDraftAndFocus() {
+        var reads = 0
+        fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        var draft = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), listOf(file("01.mp3"), file("02.mp3"), file("01.mp3", "Інша")))
+        draft = ImportPlanner.editBook(draft, "root:01.mp3", title = "Мій вступ")
+        val before = draft
+        val unrelated = before.books.single { it.id == "folder:Інша" }
+        var plan by mutableStateOf(before)
+        var confirmed: ImportPlan? = null
+        rule.setContent { AudiobookTheme {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                ImportPreviewDialog(
+                    MainViewModel.ImportPreviewState(plan, "content://tree"), {}, {}, { _, _ -> }, { _, _ -> }, { confirmed = plan }, {},
+                    onFolderGroupingChange = { plan = ImportPlanner.changeFolderGrouping(plan, it) }
+                )
+            }
+        } }
+        rule.onNodeWithTag("import_folder_grouping_separate").assertIsSelected()
+        rule.onNodeWithTag("import_folder_grouping_one").performScrollTo().performClick()
+        assertEquals(before, plan)
+        rule.onNodeWithTag("import_folder_grouping_reset_dialog").assertExists()
+        rule.onNodeWithTag("import_folder_grouping_reset_cancel").performClick()
+        rule.onNodeWithTag("import_folder_grouping_one").assertIsFocused().performScrollTo().performClick()
+        rule.onNodeWithTag("import_folder_grouping_reset_confirm").performClick()
+        rule.onNodeWithTag("import_folder_grouping_one").assertIsSelected().assertIsFocused()
+        screenshot("1052-grouping-large-text.png")
+        assertEquals(2, plan.books.size)
+        assertEquals("Кобзар", plan.books.first().title)
+        assertEquals(listOf("01.mp3", "02.mp3"), plan.books.first().chapters.map { it.file.fileName })
+        assertEquals(unrelated, plan.books.last())
+        assertEquals(0, reads)
+        assertNull(confirmed)
+        rule.onNodeWithTag("library_import_preview_confirm").performClick()
+        assertEquals(plan, confirmed)
+        assertEquals(0, reads)
+    }
+
     @Test fun editMetadataAndSplitBeforeImport() {
         var streamReads = 0
         val files = listOf("01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, "Кобзар") { streamReads++; ByteArrayInputStream(byteArrayOf(1)) } }

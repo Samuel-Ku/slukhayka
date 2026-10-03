@@ -56,16 +56,19 @@ object OutcomeMessages {
      * instead of pretending new books arrived; a no-op plan falls back to the
      * neutral completion line.
      */
-    fun importOutcome(result: LocalImportResult): String = if (result.booksImported > 0) {
-        buildString {
-            append("Імпортовано ${result.booksImported} книг (${result.filesImported} файлів)")
-            if (result.duplicateFiles > 0) append(" · ${result.duplicateFiles} дублікатів пропущено")
-            if (result.skippedFiles > 0) append(" · ${result.skippedFiles} не вдалося прочитати")
+    fun importOutcome(result: LocalImportResult): String {
+        if (result.booksImported == 0 && result.filesImported == 0 && result.duplicateFiles > 0 && result.skippedFiles == 0) {
+            return "Всі файли вже в бібліотеці (${result.duplicateFiles} дублікатів пропущено)"
         }
-    } else if (result.duplicateFiles > 0) {
-        "Всі файли вже в бібліотеці (${result.duplicateFiles} дублікатів пропущено)"
-    } else {
-        "Імпорт завершено"
+        return buildString {
+            append(when {
+                result.booksImported > 0 -> "Імпортовано ${result.booksImported} книг (${result.filesImported} файлів)"
+                result.filesImported > 0 -> "Додано ${result.filesImported} файлів до наявних книг"
+                else -> "Імпорт завершено"
+            })
+            if (result.duplicateFiles > 0) append(" · ${result.duplicateFiles} дублікатів пропущено")
+            if (result.skippedFiles > 0) append(" · ${result.skippedFiles} файлів не вдалося додати")
+        }
     }
 
     /**
@@ -87,10 +90,15 @@ object OutcomeMessages {
             }
             totals.structuralChangeRejected ->
                 append(": структурну зміну відхилено — підтвердьте новий перелік розділів")
+            totals.skippedFiles > 0 -> append(": перевірено частково")
             else -> append(" — змін не знайдено")
+        }
+        if (totals.structuralChangeRejected && (totals.newChapters > 0 || totals.newBooks > 0)) {
+            append(" · структурну зміну відхилено — підтвердьте новий перелік розділів")
         }
         if (totals.missingFiles > 0) append(" · ${totals.missingFiles} файлів зникло")
         if (totals.movedFiles > 0) append(" · ${totals.movedFiles} перейменовано")
         if (totals.duplicateFiles > 0) append(" · ${totals.duplicateFiles} дублікатів пропущено")
+        if (totals.skippedFiles > 0) append(" · ${totals.skippedFiles} файлів не вдалося перевірити")
     }
 }

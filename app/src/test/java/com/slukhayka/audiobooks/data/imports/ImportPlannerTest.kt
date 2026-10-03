@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.imports
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -50,6 +51,54 @@ class ImportPlannerTest {
         assertNull(renamed.books.single().mergedIntoBookId)
         assertNull(renamed.books.single().suggestion)
         assertTrue(ImportPlanner.splitBook(accepted, "folder:Кобзар", 1).books.all { it.mergedIntoBookId == null && it.suggestion == null })
+    }
+
+    @Test
+    fun `changing root grouping preserves corrections to unrelated subfolder books`() {
+        val entries = listOf(entry("02.mp3"), entry("01.mp3"), entry("01.mp3", "Інша"))
+        var plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), entries)
+        plan = ImportPlanner.editBook(plan, "folder:Інша", title = "Інша назва", author = "Автор", narrator = "Диктор", seriesTitle = "Твори", seriesIndex = 3)
+        plan = ImportPlanner.editBook(plan, "root:01.mp3", title = "Моя вступна частина")
+        val untouched = plan.books.first { it.id == "folder:Інша" }
+        val grouped = ImportPlanner.changeFolderGrouping(plan, LocalFolderGrouping.ONE_BOOK)
+        assertEquals(2, grouped.books.size)
+        assertEquals(LocalFolderGrouping.ONE_BOOK, (grouped.source as SourceRef.Folder).grouping)
+        assertEquals("Кобзар", grouped.books.first().title)
+        assertEquals(listOf("01.mp3", "02.mp3"), grouped.books.first().chapters.map { it.file.fileName })
+        assertEquals(untouched, grouped.books.last())
+        assertTrue(grouped.corrections.any { it.value == "title=Інша назва" })
+        assertFalse(grouped.corrections.any { it.value == "title=Моя вступна частина" })
+        val separated = ImportPlanner.changeFolderGrouping(grouped, LocalFolderGrouping.SEPARATE_BOOKS)
+        assertEquals(listOf("01", "02", "Інша назва"), separated.books.map { it.title })
+        assertEquals(untouched, separated.books.last())
+        assertEquals(grouped, ImportPlanner.changeFolderGrouping(grouped, LocalFolderGrouping.ONE_BOOK))
+    }
+
+    @Test
+    fun `joining planned books preserves target metadata and every chapter but renews merge consent`() {
+        var reads = 0
+        fun lazyFile(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        var plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"),
+            listOf(lazyFile("Збірка.mp3"), lazyFile("Інший файл.mp3"), lazyFile("02.mp3", "Інша"), lazyFile("01.mp3", "Інша")),
+            listOf(ImportPlanner.ExistingWork("existing", "Збірка", "збірка|локальний файл")))
+        plan = ImportPlanner.editBook(plan, "root:Збірка.mp3", seriesTitle = "Твори", seriesIndex = 2)
+        plan = ImportPlanner.acceptMerge(plan, "root:Збірка.mp3")
+        assertEquals("existing", plan.books.first { it.id == "root:Збірка.mp3" }.mergedIntoBookId)
+        val untouched = plan.books.first { it.id == "root:Інший файл.mp3" }
+        val merged = ImportPlanner.mergePlannedBooks(plan, "folder:Інша", "root:Збірка.mp3")
+        assertEquals(2, merged.books.size)
+        val book = merged.books.first { it.id == "root:Збірка.mp3" }
+        assertEquals("Збірка", book.title)
+        assertEquals("Локальний файл", book.author)
+        assertEquals("Твори", book.seriesTitle)
+        assertEquals(2, book.seriesIndex)
+        assertEquals(listOf("Збірка.mp3", "01.mp3", "02.mp3"), book.chapters.map { it.file.fileName })
+        assertNull(book.mergedIntoBookId)
+        assertNull(book.suggestion)
+        assertEquals(untouched, merged.books.first { it.id == untouched.id })
+        assertEquals(0, reads)
+        assertEquals(plan, ImportPlanner.mergePlannedBooks(plan, "folder:Інша", "missing"))
+        assertEquals(plan, ImportPlanner.mergePlannedBooks(plan, "folder:Інша", "folder:Інша"))
     }
 
     @Test
@@ -186,4 +235,17 @@ class ImportPlannerTest {
         val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), emptyList())
         assertTrue(plan.books.isEmpty())
     }
+    @Test fun `one book groups only root chapters with the confirmed folder name`() {
+        val plan = ImportPlanner.buildPlan(
+            SourceRef.Folder("content://root", displayName = "Кобзар", grouping = LocalFolderGrouping.ONE_BOOK),
+            listOf(entry("03.mp3"), entry("01.mp3"), entry("02.mp3"), entry("01.mp3", "Інша книга"))
+        )
+        assertEquals(2, plan.books.size)
+        val root = plan.books.first()
+        assertEquals("Кобзар", root.title)
+        assertEquals(listOf("01.mp3", "02.mp3", "03.mp3"), root.chapters.map { it.file.fileName })
+        assertEquals("Інша книга", plan.books.last().title)
+        assertEquals(1, plan.books.last().chapters.size)
+    }
+
 }

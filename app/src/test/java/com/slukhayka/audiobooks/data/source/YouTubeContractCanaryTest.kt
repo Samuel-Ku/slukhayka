@@ -7,6 +7,7 @@ import org.junit.Test
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.downloader.Downloader
+import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -56,7 +57,36 @@ class YouTubeContractCanaryTest {
         assumeTrue(gate())
         val url = System.getProperty("youtube.canary.video") ?: DEFAULT_VIDEO
         NewPipe.init(PlainDownloader)
-        val info = StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+
+        // #1116 — an IP-reputation block is NOT a contract break, and the two
+        // must not look alike.
+        //
+        // `SignInConfirmNotBotException` means YouTube challenged THIS address,
+        // not that the engine rotted. Upstream says so in the exception's own
+        // javadoc: «Can usually only be solved by changing IP (e.g. in the
+        // case of YouTube)». GitHub runners sit in datacenters, so this canary
+        // is red EVERY DAY from a runner while it passes on a residential
+        // connection — with identical code and an engine at `latest`.
+        //
+        // Skipping (not failing) is the honest outcome: the canary cannot
+        // judge the contract from an address YouTube refuses to serve, and a
+        // permanent red teaches everyone to ignore the signal. Everything
+        // else still fails loudly below.
+        val info = try {
+            StreamInfo.getInfo(ServiceList.YouTube.getStreamExtractor(url))
+        } catch (blocked: SignInConfirmNotBotException) {
+            println(
+                "CANARY SKIPPED — this address is bot-challenged, not the engine: " +
+                    "${blocked.message}"
+            )
+            assumeTrue(
+                "YouTube challenged this runner's IP (SignInConfirmNotBotException) — " +
+                    "the canary cannot read the contract from here. Run it from a " +
+                    "non-datacenter address (or through the privacy relay) to get a verdict.",
+                false
+            )
+            return
+        }
 
         check(info.name.isNotBlank()) { "canary: video name is blank — extraction is broken" }
         check(info.duration > 0) { "canary: duration is unknown — extraction is broken" }

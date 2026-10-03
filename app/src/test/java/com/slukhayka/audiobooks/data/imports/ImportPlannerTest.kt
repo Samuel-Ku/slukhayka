@@ -154,4 +154,99 @@ class ImportPlannerTest {
         val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), emptyList())
         assertTrue(plan.books.isEmpty())
     }
+
+    // --- #1052 — the root IS the book, when the listener says so -----------
+
+    /**
+     * The report: «не зрозумів як додати папку з файлами, щоб вона була як
+     * одна книга а не купа окремих файлів». With the mode on, the loose root
+     * files become chapters of ONE book.
+     */
+    @Test
+    fun `root files become ONE book with chapters when the listener says so`() {
+        val plan = ImportPlanner.buildPlan(
+            source = SourceRef.Folder("content://tree"),
+            entries = (1..4).map { entry("%02d.mp3".format(it)) },
+            rootFilesAsOneBook = true
+        )
+
+        assertEquals(1, plan.books.size)
+        assertEquals(4, plan.books.single().chapters.size)
+        // Natural sort still holds: 1, 2, 3, 4 — not 1, 10, 2.
+        assertEquals(
+            listOf("01", "02", "03", "04"),
+            plan.books.single().chapters.map { it.file.fileName.substringBefore('.') }
+        )
+    }
+
+    /**
+     * The title is NOT invented from the first file: the ticket forbids
+     * «вигадувати назву книги з першого файлу без підтвердження слухача».
+     * It starts empty for them to fill in the preview.
+     */
+    @Test
+    fun `the one-book title is left for the listener to confirm`() {
+        val plan = ImportPlanner.buildPlan(
+            source = SourceRef.Folder("content://tree"),
+            entries = listOf(entry("01.mp3"), entry("02.mp3")),
+            rootFilesAsOneBook = true
+        )
+
+        assertTrue(
+            "назву не вигадуємо з першого файлу — її підтверджує слухач",
+            plan.books.single().title.isBlank()
+        )
+    }
+
+    /**
+     * The DEFAULT must not move: without the flag the root is still a container
+     * of books. This is the rule `FolderRescan` also assumes, and changing it
+     * silently would make a rescan see a structural change that never happened.
+     */
+    @Test
+    fun `without the mode the root stays a container of books`() {
+        val plan = ImportPlanner.buildPlan(
+            source = SourceRef.Folder("content://tree"),
+            entries = listOf(entry("01.mp3"), entry("02.mp3"))
+        )
+
+        assertEquals(2, plan.books.size)
+        assertTrue(plan.books.all { it.chapters.size == 1 })
+    }
+
+    /**
+     * A folder with BOTH loose files and sub-folders: the mode applies to the
+     * root files only, and the sub-folder still becomes its own book — the
+     * mixed case the ticket asked about, answered without a second rule.
+     */
+    @Test
+    fun `the mode leaves sub-folders as their own books`() {
+        val plan = ImportPlanner.buildPlan(
+            source = SourceRef.Folder("content://tree"),
+            entries = listOf(
+                entry("01.mp3"),
+                entry("02.mp3"),
+                entry("a.mp3", "Інша книга"),
+                entry("b.mp3", "Інша книга")
+            ),
+            rootFilesAsOneBook = true
+        )
+
+        assertEquals(2, plan.books.size)
+        assertEquals(2, plan.books.first { it.id == "root-folder" }.chapters.size)
+        assertEquals(2, plan.books.first { it.id != "root-folder" }.chapters.size)
+    }
+
+    /** An empty root must not produce a phantom empty book. */
+    @Test
+    fun `the mode creates no book when the root has no files`() {
+        val plan = ImportPlanner.buildPlan(
+            source = SourceRef.Folder("content://tree"),
+            entries = listOf(entry("a.mp3", "Книга")),
+            rootFilesAsOneBook = true
+        )
+
+        assertEquals(1, plan.books.size)
+        assertTrue("жодної книги з порожнього кореня", plan.books.none { it.id == "root-folder" })
+    }
 }

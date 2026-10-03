@@ -633,6 +633,8 @@
     <string name="feed_origin_only_shared">Лише зі спільної бібліотеки</string>
     <string name="feed_origin_shared_library">Зі спільної бібліотеки</string>
     <string name="feed_origin_from_listeners">Від слухачів</string>
+    <string name="lib_import_folder_one_book">Уся тека — одна книга</string>
+    <string name="lib_import_folder_one_book_hint">Файли стануть розділами. Назву підтвердите нижче.</string>
     <string name="lib_import_rename_book">Назва книги</string>
     <string name="lib_import_chapter_order">Порядок розділів</string>
     <string name="lib_import_move_up">Вгору</string>

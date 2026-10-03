@@ -1677,14 +1677,20 @@ class LibraryImport(
      * Room. The user reviews and edits this plan; only [applyImportPlan]
      * writes.
      */
-    suspend fun planLocalAudioFolder(treeUri: Uri): ImportPlan = withContext(Dispatchers.IO) {
+    suspend fun planLocalAudioFolder(
+        treeUri: Uri,
+        // #1052 — the listener's answer to «що означає вибрана тека?»: a
+        // container of books (default), or the book itself.
+        rootFilesAsOneBook: Boolean = false
+    ): ImportPlan = withContext(Dispatchers.IO) {
         val ctx = context ?: throw IllegalStateException("planLocalAudioFolder called without Context")
         val entries = LocalFolderScanner.scan(ctx, treeUri)
         val works = dao.getAllAudiobooksOnce().map { ImportPlanner.ExistingWork(id = it.id, title = it.title, mergeKey = it.mergeKey ?: "") }
         ImportPlanner.buildPlan(
             source = SourceRef.Folder(treeUri.toString()),
             entries = entries,
-            existingWorks = works
+            existingWorks = works,
+            rootFilesAsOneBook = rootFilesAsOneBook
         )
     }
 

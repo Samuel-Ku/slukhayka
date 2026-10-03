@@ -581,6 +581,8 @@
     <string name="feed_origin_only_shared">Only from the shared library</string>
     <string name="feed_origin_shared_library">From the shared library</string>
     <string name="feed_origin_from_listeners">From listeners</string>
+    <string name="lib_import_folder_one_book">The whole folder is one book</string>
+    <string name="lib_import_folder_one_book_hint">Its files become chapters. Confirm the title below.</string>
     <string name="lib_import_rename_book">Book name</string>
     <string name="lib_import_chapter_order">Chapter order</string>
     <string name="lib_import_move_up">Up</string>

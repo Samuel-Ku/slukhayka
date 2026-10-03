@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
+import androidx.media3.common.Player
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -1808,5 +1809,128 @@ class AudioPlayerManagerTest {
         const val HEALED_URL = "https://cdn.sound-books.net/kobzar/healed-1.mp3"
         const val HEALED_URL_2 = "https://cdn.sound-books.net/kobzar/healed-2.mp3"
         const val FALLBACK_URL = "https://sound-books.net/kobzar/fallback-1.mp3"
+    }
+
+    /**
+     * #1050 — a headset that walks out of range stops playback, and that stop
+     * is NOT an absence.
+     *
+     * Media3 pauses by itself when the output device disappears
+     * (`setHandleAudioBecomingNoisy(true)`) and **never routes that through
+     * `pause()`** — which is why the app needs the listener at all: without it
+     * `isPlaying` stayed `true` and the transport button showed "playing" over
+     * silence, the most common daily defect in the report.
+     *
+     * The second half is the part that could silently regress. The app's Smart
+     * Rewind answers "how long was I away", and a flat battery is not an
+     * absence: rewinding for it would be a surprise, not a courtesy. So this
+     * handler must set `isPlaying = false` and touch **nothing else** — no
+     * pause marker, no PAUSE event. Both halves are asserted below, because a
+     * fix that only flipped the flag would pass a one-line test while quietly
+     * arming a rewind nobody asked for.
+     */
+    @Test
+    fun `a disappearing output device stops playback WITHOUT arming smart rewind`() =
+        playerTest { manager, factory ->
+            manager.loadAndPlayBook(
+                book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true
+            )
+            val engine = factory.current
+            // The engine must reach READY before anything is "playing" — the
+            // same two-step every other test in this file uses.
+            engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            engine.notifyIsPlayingChanged(true)
+            // Advance playback so a `playback_progress` row EXISTS: `pause()`
+            // persists through `UPDATE … WHERE bookId = ?`, which would match
+            // zero rows (and write nothing) without a row to update.
+            engine.simulatePlayback(30_000L)
+            manager.seekTo(30_000L)
+            assertTrue("передумова: книга грає", manager.playerState.value.isPlaying)
+
+            // The pause marker BEFORE the disconnect, so we can prove the
+            // handler did not write a new one. The event log is read the same
+            // way — and note that STARTING playback legitimately records a
+            // RESUME event, which is why the assertion below counts PAUSE
+            // events rather than the whole log (an earlier version compared
+            // raw sizes and blamed the handler for the test's own setup).
+            val before = listeningState.getProgressSync(book.id)?.lastPausedAtEpochMs
+            val pausesBefore = dao.getPlaybackEventsForBookSource(book.id, "")
+                .count { it.kind == PlaybackEventKind.PAUSE }
+
+            // Act — the device disappears. Media3 raises this itself.
+            engine.emitPlayWhenReadyChanged(
+                playWhenReady = false,
+                reason = Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+            )
+
+            // It IS a stop: the transport must not claim to be playing.
+            assertFalse(
+                "після зникнення пристрою стан не має казати «грає»",
+                manager.playerState.value.isPlaying
+            )
+            // …and it is NOT an absence: Smart Rewind must stay disarmed.
+            //
+            // The wait is what makes this assertion real. `persistPausedAt`
+            // writes on the IO dispatcher, so a handler that DID arm the
+            // rewind would still look innocent at the instant we checked —
+            // the write simply had not landed yet. That is exactly how the
+            // first version of this test passed against a mutated handler:
+            // it compared too early and proved nothing. Waiting gives the
+            // wrong implementation time to incriminate itself.
+            var after = before
+            val deadline = System.currentTimeMillis() + 2_000
+            while (System.currentTimeMillis() < deadline) {
+                after = listeningState.getProgressSync(book.id)?.lastPausedAtEpochMs
+                if (after != before) break
+                kotlinx.coroutines.delay(20)
+            }
+            assertEquals(
+                "від'єднання гарнітури не має ставити мітку паузи",
+                before,
+                after
+            )
+            assertEquals(
+                "від'єднання гарнітури не має писати подію PAUSE",
+                pausesBefore,
+                dao.getPlaybackEventsForBookSource(book.id, "")
+                    .count { it.kind == PlaybackEventKind.PAUSE }
+            )
+        }
+
+    /**
+     * The contrast that gives the test above its meaning: an ORDINARY pause
+     * DOES arm Smart Rewind. Without this, a handler that simply did nothing
+     * would satisfy the assertions above.
+     */
+    @Test
+    fun `an ordinary pause DOES arm smart rewind`() = playerTest { manager, factory ->
+        manager.loadAndPlayBook(
+            book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true
+        )
+        val engine = factory.current
+        engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+        engine.notifyIsPlayingChanged(true)
+        // Same session shape as the disconnect test, so the two differ ONLY in
+        // what caused the stop.
+        engine.simulatePlayback(30_000L)
+        manager.seekTo(30_000L)
+
+        manager.pause()
+
+        // `persistPausedAt` launches the write on the IO dispatcher, so the
+        // read must WAIT for it — asserting straight after `pause()` is a race
+        // that passes or fails by timing, not by behaviour. (Same class of
+        // mistake the earlier #1081 test made with `Dispatchers.IO`.)
+        val deadline = System.currentTimeMillis() + 5_000
+        var marker: Long? = null
+        while (System.currentTimeMillis() < deadline) {
+            marker = listeningState.getProgressSync(book.id)?.lastPausedAtEpochMs
+            if (marker != null) break
+            kotlinx.coroutines.delay(20)
+        }
+        assertNotNull(
+            "звичайна пауза мусить поставити мітку — інакше Smart Rewind не працює взагалі",
+            marker
+        )
     }
 }

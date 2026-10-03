@@ -93,6 +93,20 @@ class FakePlayerEngine(
         listeners.remove(p0)
     }
 
+    /**
+     * #1050 — deliver a `playWhenReady` change to every registered listener,
+     * exactly as Media3 does when the output device disappears.
+     *
+     * The real player raises this ITSELF (via
+     * `setHandleAudioBecomingNoisy(true)`) and never routes it through
+     * `pause()`, which is the whole reason the app needs a listener at all:
+     * without one it kept `isPlaying = true` and showed "playing" over
+     * silence. This emitter is the only way to exercise that path in a test.
+     */
+    fun emitPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        listeners.toList().forEach { it.onPlayWhenReadyChanged(playWhenReady, reason) }
+    }
+
     override fun setMediaItem(p0: MediaItem) {
         recordedMediaItems.add(p0)
     }

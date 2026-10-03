@@ -5643,6 +5643,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * sort, merge suggestions) and shown to the user; only
      * [confirmImportPreview] writes to Room.
      */
+    /**
+     * #1052 — re-reads the folder with the other grouping answer. The plan is
+     * rebuilt from the SAME tree, so the listener's edit is a change of reading,
+     * not a new import: nothing is written until they confirm.
+     */
+    fun setPreviewRootFilesAsOneBook(asOneBook: Boolean) {
+        val preview = _importPreview.value ?: return
+        if (preview.rootFilesAsOneBook == asOneBook) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val plan = libraryImport.planLocalAudioFolder(
+                    android.net.Uri.parse(preview.treeUri),
+                    rootFilesAsOneBook = asOneBook
+                )
+                // Only apply if the preview is still the one we re-planned —
+                // the listener may have dismissed it while the scan ran.
+                val current = _importPreview.value ?: return@launch
+                if (current.treeUri != preview.treeUri) return@launch
+                // Edits already made in the preview (reorder, rename) belong to
+                // the OLD grouping and are dropped with it: keeping them would
+                // attach a correction to a book that no longer exists.
+                _importPreview.value = current.copy(
+                    plan = plan,
+                    rootFilesAsOneBook = asOneBook
+                )
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Folder re-plan failed", e)
+                _importMessage.value = "Не вдалося перечитати папку"
+            }
+        }
+    }
+
     fun importLocalAudioFolder(uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -5836,7 +5868,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** The pending smart-import preview (wayfinder #29) plus its tree uri. */
     data class ImportPreviewState(
         val plan: ImportPlan,
-        val treeUri: String
+        val treeUri: String,
+        /**
+         * #1052 — the listener's answer to «що означає вибрана тека?».
+         * Kept in the state so the dialog shows the CURRENT choice, and so a
+         * second tap re-plans from the same tree rather than re-asking for it.
+         */
+        val rootFilesAsOneBook: Boolean = false
     )
 
     companion object {

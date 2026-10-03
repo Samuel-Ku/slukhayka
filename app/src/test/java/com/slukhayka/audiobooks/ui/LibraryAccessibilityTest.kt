@@ -292,6 +292,7 @@ class LibraryAccessibilityTest {
                             onRejectMerge = {},
                             onReorderChapters = { _, _ -> },
                             onEditBookTitle = { _, _ -> },
+                            onSetRootFilesAsOneBook = {},
                             onConfirm = { activeModal = null },
                             onDismiss = { activeModal = null }
                         )

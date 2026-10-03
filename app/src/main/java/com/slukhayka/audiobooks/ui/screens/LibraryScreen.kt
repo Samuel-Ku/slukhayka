@@ -12,6 +12,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -971,6 +972,7 @@ fun LibraryScreen(
                 onRejectMerge = viewModel::rejectMergeInPreview,
                 onReorderChapters = viewModel::reorderChaptersInPreview,
                 onEditBookTitle = { bookId, title -> viewModel.editBookInPreview(bookId, title = title) },
+                onSetRootFilesAsOneBook = viewModel::setPreviewRootFilesAsOneBook,
                 onConfirm = viewModel::confirmImportPreview,
                 onDismiss = viewModel::dismissImportPreview
             )
@@ -2668,6 +2670,8 @@ fun ImportPreviewDialog(
     onRejectMerge: (String) -> Unit,
     onReorderChapters: (String, List<Int>) -> Unit,
     onEditBookTitle: (String, String) -> Unit,
+    // #1052 — the listener's answer to «що означає вибрана тека?».
+    onSetRootFilesAsOneBook: (Boolean) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -2709,6 +2713,41 @@ fun ImportPreviewDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // #1052 — the folder question, answered by the listener and
+                // placed ABOVE the list because it changes how the whole plan
+                // reads: the same files are either several books or the
+                // chapters of one. The whole row is the target, not the switch
+                // inside it (ADR-0044: an 18 dp switch is not what a finger
+                // hits), and one node carries one state and one role.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .toggleable(
+                            value = preview.rootFilesAsOneBook,
+                            role = Role.Switch,
+                            onValueChange = onSetRootFilesAsOneBook
+                        )
+                        .testTag("import_preview_one_book")
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.lib_import_folder_one_book),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = stringResource(R.string.lib_import_folder_one_book_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = preview.rootFilesAsOneBook,
+                        onCheckedChange = null
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 val untitled = stringResource(R.string.lib_untitled)
                 val existingBook = stringResource(R.string.lib_import_existing_book)

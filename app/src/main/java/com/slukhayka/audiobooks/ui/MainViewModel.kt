@@ -681,6 +681,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (watchUrl in current) current - watchUrl else current + watchUrl
     }
 
+    /**
+     * #1051 — the listener's own order, or null while they never touched it.
+     *
+     * Held separately from the SELECTION on purpose: picking is a set ("which
+     * positions"), ordering is a list ("in what sequence"), and collapsing the
+     * two would let a reorder silently change membership. Null keeps the
+     * observed order, so an untouched preview behaves exactly as before.
+     */
+    private val _previewOrder = MutableStateFlow<List<String>?>(null)
+    val previewOrder: StateFlow<List<String>?> = _previewOrder.asStateFlow()
+
+    /**
+     * Moves one position one step. The list is materialised from the current
+     * preview on first use, so a caller never has to seed it, and moving past
+     * either end is a no-op rather than a wrap — a silent wrap would put the
+     * first chapter last, which is the very complaint #1051 is about.
+     */
+    fun movePreviewEntry(watchUrl: String, delta: Int) {
+        if (_previewRun.value.running) return
+        val entries = _submissionPreview.value?.entries ?: return
+        val current = _previewOrder.value ?: entries.map { it.watchUrl }
+        val from = current.indexOf(watchUrl)
+        if (from < 0) return
+        val to = from + delta
+        if (to !in current.indices) return
+        _previewOrder.value = current.toMutableList().apply {
+            add(to, removeAt(from))
+        }
+    }
+
     fun selectAllPreviewEntries() {
         if (_previewRun.value.running) return
         _previewSelection.value = _submissionPreview.value?.entries?.map { it.watchUrl }?.toSet().orEmpty()
@@ -703,12 +733,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val selected = _previewSelection.value
         if (selected.isEmpty() || _previewRun.value.running) return
 
+        // #1051 — the listener's order rides the edits. Null (never touched)
+        // is passed as null, so the planner keeps the observed order and the
+        // untouched path is byte-for-byte what it was.
+        val orderedEdits = edits.copy(chapterOrder = _previewOrder.value)
         if (!_previewSeparateBooks.value) {
             clearSubmissionPreview()
-            submitLink(preview.url, edits, selected)
+            submitLink(preview.url, orderedEdits, selected)
             return
         }
-        val picked = preview.entries.filter { it.watchUrl in selected }
+        val picked = preview.entries
+            .filter { it.watchUrl in selected }
+            .let { list ->
+                val order = _previewOrder.value ?: return@let list
+                val rank = order.withIndex().associate { (i, url) -> url to i }
+                list.sortedBy { rank[it.watchUrl] ?: Int.MAX_VALUE }
+            }
         if (picked.isEmpty()) return
 
         previewSessionJob?.cancel()

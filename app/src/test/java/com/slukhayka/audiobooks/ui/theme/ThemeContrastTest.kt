@@ -42,6 +42,33 @@ class ThemeContrastTest {
         assertFloor("dark", "onSecondary/secondary", dark.onSecondary, dark.secondary)
     }
 
+    /**
+     * #885 (wave 3) — the HERO panel carries its own foreground palette.
+     *
+     * These pairs are new and they are NOT part of either `ColorScheme`: the
+     * panel's ground is a warm brown-black (`AppHeroPanel`), so measuring the
+     * theme's `onSurface` against it would measure the wrong backdrop. Adding
+     * the palette without this test would leave the one surface in the app
+     * whose contrast nobody checks — and it is the largest text on screen.
+     */
+    @Test
+    fun `the hero panel text is readable on the hero panel`() {
+        assertFloor("hero", "onPanel/panel", AppHeroOnPanel, AppHeroPanel)
+        assertFloor("hero", "eyebrow/panel", AppHeroEyebrow, AppHeroPanel)
+        assertFloor("hero", "onPanelMuted/panel", AppHeroOnPanelMuted, AppHeroPanel)
+    }
+
+    /**
+     * The hero's progress bar is the accent drawn ON the panel, and the button
+     * is the accent with its own on-colour — both must hold on the panel's
+     * ground rather than on a theme surface.
+     */
+    @Test
+    fun `the hero panel accent and button hold on the panel ground`() {
+        assertFloor("hero", "primary/panel", dark.primary, AppHeroPanel)
+        assertFloor("hero", "onPrimary/primary", dark.onPrimary, dark.primary)
+    }
+
     @Test
     fun `the schemes keep the SAME role hierarchy`() {
         val lightSurfaces = listOf(light.surface, light.surfaceVariant, light.surfaceContainer)

@@ -192,6 +192,7 @@
     <string name="listen_hero_overline">RESUME LISTENING</string>
     <string name="listen_chapter_of">Chapter %1$d of %2$d</string>
     <string name="listen_chapter_position">Chapter %1$d · %2$s</string>
+    <string name="listen_progress_percent">%1$d%%</string>
     <string name="listen_progress_percent_remaining">%1$d%% · %2$s</string>
     <string name="listen_remaining_hm">%1$d h %2$d min left</string>
     <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->

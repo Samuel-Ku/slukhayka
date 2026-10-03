@@ -84,8 +84,14 @@ class ListenScreenBlocksSnapshotTest {
         // Spec-24 T5 (#166): the mid-book hero shows the CUMULATIVE percent
         // (1680 / 1980 s = 84 %), never the in-chapter offset (420 s = 21 %)
         // that would read as 0 % early in a long chapter.
-        composeTestRule.onNodeWithText("84% · Залишилося 5 хв").assertExists()
-        composeTestRule.onNodeWithText("21% · Залишилося 26 хв").assertDoesNotExist()
+        //
+        // #885 (wave 3) — the prototype's hero puts the percent, the track and
+        // the remaining time in ONE row (`.sl-hero-progress`, :1086), so the
+        // two facts are now separate nodes rather than one glued string. The
+        // contract is unchanged and still asserted: the percent is the
+        // cumulative one, and the in-chapter 21 % appears nowhere.
+        composeTestRule.onNodeWithText("84%").assertExists()
+        composeTestRule.onNodeWithText("21%").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_hero_card.png"
         )

@@ -359,4 +359,44 @@ class YouTubeSubmissionPlannerTest {
             plan.chapters.map { it.watchUrl.substringAfter("v=") }
         )
     }
+
+    /**
+     * An entry carrying NEITHER a url NOR an id is skipped — "never
+     * fabricated", the planner's oldest rule. It must stay skipped when an
+     * explicit order is present too: `watchUrlOf` returns null for it, and a
+     * careless `null !in order` test would quietly let it through as an
+     * "unmentioned" entry.
+     */
+    @Test
+    fun `an entry without a url is still skipped when an order is given`() {
+        val withGhost = """
+            {
+              "_type": "playlist",
+              "id": "PLx",
+              "title": "Книга",
+              "entries": [
+                {"_type": "url", "id": "AAA", "url": "https://www.youtube.com/watch?v=AAA", "title": "Перша"},
+                {"_type": "url", "title": "Без url і id"},
+                {"_type": "url", "id": "BBB", "url": "https://www.youtube.com/watch?v=BBB", "title": "Друга"}
+              ]
+            }
+        """.trimIndent()
+        val metadata = YouTubeSubmissionPlanner.parseMetadata(withGhost)!!
+
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLx",
+            metadata,
+            "@youtube",
+            explicitOrder = listOf(
+                "https://www.youtube.com/watch?v=BBB",
+                "https://www.youtube.com/watch?v=AAA"
+            )
+        )
+
+        assertEquals(2, plan.chapters.size)
+        assertEquals(
+            listOf("BBB", "AAA"),
+            plan.chapters.map { it.watchUrl.substringAfter("v=") }
+        )
+    }
 }

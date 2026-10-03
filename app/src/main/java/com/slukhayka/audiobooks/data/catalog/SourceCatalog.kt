@@ -45,6 +45,7 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
+import com.slukhayka.audiobooks.data.search.GlobalSearchUpdate
 import com.slukhayka.audiobooks.data.search.SearchCache
 import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
@@ -78,6 +79,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * ADR-0002 — Source Catalog: the deep module that owns browse and sync —
@@ -330,10 +333,6 @@ class SourceCatalog(
 
     /** TTL of the in-memory live-collections cache (spec-10 T4 shape). */
     private val newFeedTtlMs = 15 * 60 * 1000L
-    // #824 — the local search leg: a MATCH answer of at least this many
-    // SourceBook rows returns with zero network requests; below it the live
-    // volley fills the gap behind the local rows.
-    private val localSearchSufficientCount = 3
     // #824 — MATCH cap per query (cards, before source fan-out) and the
     // bound on live hits mirrored per search gap-fill.
     private val localSearchLimit = 50
@@ -761,7 +760,8 @@ class SourceCatalog(
     private suspend fun newFeedFor(
         adapter: SourceAdapter,
         skipCache: Boolean = false,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        onFailure: () -> Unit = {}
     ): List<SourceBook> {
         if (com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(adapter.sourceId)) return emptyList()
         return when (
@@ -775,7 +775,10 @@ class SourceCatalog(
         ) {
             is FeedRefreshOutcome.Data -> outcome.books
             FeedRefreshOutcome.Empty -> emptyList()
-            FeedRefreshOutcome.Failure -> emptyList()
+            FeedRefreshOutcome.Failure -> {
+                onFailure()
+                emptyList()
+            }
         }
     }
 
@@ -933,157 +936,138 @@ class SourceCatalog(
      * semantics per direct source — an auto-map must never be weaker than
      * the global search the listener sees.
      */
-    suspend fun searchSource(adapter: SourceAdapter, query: String): List<SourceBook> {
+    suspend fun searchSource(adapter: SourceAdapter, query: String): List<SourceBook> =
+        searchSourceWithStatus(adapter, query).books
+
+    private data class SourceSearchOutcome(val books: List<SourceBook>, val failed: Boolean)
+
+    private suspend fun searchSourceWithStatus(adapter: SourceAdapter, query: String): SourceSearchOutcome {
         val clean = query.trim()
-        if (clean.isBlank()) return emptyList()
+        if (clean.isBlank()) return SourceSearchOutcome(emptyList(), failed = false)
+        var failed = false
         val direct = try {
             adapter.search(clean)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            failed = true
+            Log.w("SourceCatalog", "search source=${adapter.sourceId} endpoint failed=${failure.javaClass.simpleName}")
             emptyList()
         }
-        if (direct.isNotEmpty()) {
-            // Spec-45 (#405) T5 (#493): search results carry their effective
-            // language before merging — the merge derives the card language
-            // from the member claims.
-            return direct.map { it.effectiveFor(adapter) }
+        val books = if (direct.isNotEmpty()) {
+            direct.map { it.effectiveFor(adapter) }
+        } else {
+            newFeedFor(adapter, onFailure = { failed = true })
+                .map { it.effectiveFor(adapter) }
+                .filter { book ->
+                    book.title.contains(clean, ignoreCase = true) ||
+                        book.author.contains(clean, ignoreCase = true)
+                }
+                .map { book ->
+                    if (book.author.isBlank()) enrichFeedMatch(adapter, book).effectiveFor(adapter) else book
+                }
         }
-        return newFeedFor(adapter)
-            .map { it.effectiveFor(adapter) }
-            .filter { book ->
-                book.title.contains(clean, ignoreCase = true) ||
-                    book.author.contains(clean, ignoreCase = true)
-            }
-            // A feed entry with a blank author can't form a merge key — fetch
-            // its book page once and use the real title/author/narrator so
-            // the Work-level merge with other sources actually composes.
-            .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book).effectiveFor(adapter) else book }
+        currentCoroutineContext().ensureActive()
+        Log.d("SourceCatalog", "search source=${adapter.sourceId} path=${if (direct.isEmpty()) "feed" else "endpoint"} matches=${books.size} failed=$failed")
+        return SourceSearchOutcome(books, failed)
     }
 
     /**
-     * Spec-10 T4 — aggregated search across every verified source.
+     * #1119 — local cards publish first; EVERY query then consults all current
+     * sources in one parallel volley. Neither the local count nor a shared
+     * result cache can suppress that volley. HTTP/feed caches and the Source
+     * Request Gate still own transport freshness and politeness.
      *
-     * Each adapter is queried through its `search()` endpoint (4read); sources
-     * without a usable search endpoint (soundbooks, audiobookmp3, lihtar per
-     * the T1 verdicts) are discovered by filtering their recent feed. Results
-     * are merged by the Work-level [MergeKey] — one card per Work with all
-     * matching sources (see [mergeGlobalSearchResults]). Ephemeral: nothing is
-     * imported into Room until the user taps a result — EXCEPT the search
-     * gap-fill below, which mirrors live hits into the Catalog Mirror (and
-     * hence the search index) so the next identical query answers locally.
-     *
-     * Spec-33 T2 (#227): a FRESH shared-cache hit ([searchCache]) returns the
-     * cached merged result without touching any source; a miss or a stale
-     * entry resolves live and writes the result back best-effort.
-     *
-     * #822/#824 — the local search index answers FIRST: a sufficient local
-     * hit returns merged cards with zero network requests; the live volley
-     * fires only as a gap-fill behind a thin local answer.
+     * Live hits fill the bounded Catalog Mirror gap without importing a
+     * Library Entry. [onUpdate] distinguishes the first local answer from the
+     * settled source answer, which can be partial. Query text is never logged.
      */
-    suspend fun searchAllSources(query: String): List<GlobalSearchResult> =
-        withContext(Dispatchers.IO) {
-            val cleanQuery = query.trim()
-            if (cleanQuery.isBlank()) return@withContext emptyList()
+    suspend fun searchAllSources(
+        query: String,
+        onUpdate: (GlobalSearchUpdate) -> Unit = {}
+    ): List<GlobalSearchResult> = withContext(Dispatchers.IO) {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return@withContext emptyList()
 
-            // Spec-33 T2 (#227): the shared cache answers first. A FRESH hit
-            // returns the post-merge result (covers, narrators, durations
-            // included — the exact shape the UI renders) without touching any
-            // source adapter; a miss or a stale entry falls through to the
-            // live resolution below, whose result is written back.
-            // Spec-45 (#405) R5 (#512): the cache stores the selection-independent
-            // result (per-source languages included); EVERY read re-filters — a
-            // hidden language never leaks back through a fresh cache hit, and a
-            // preference change re-filters search with no cache invalidation.
-            searchCache?.getResults(cleanQuery)?.let { cached ->
-                return@withContext cached.visibleInContentLanguages(contentLanguageSelection.value)
-            }
+        val localSelection = contentLanguageSelection.value
+        val localBooks = searchLocalBooks(cleanQuery)
+            .filter { contentLanguageVisible(it.language, localSelection) }
+        val localCards = orderSearchResults(mergeGlobalSearchResults(localBooks), cleanQuery, localBooks.isNotEmpty())
+            .visibleInContentLanguages(localSelection)
+        currentCoroutineContext().ensureActive()
+        Log.d("SourceCatalog", "search path=local_pending local=${localBooks.size} visible=${localCards.size}")
+        onUpdate(GlobalSearchUpdate(localCards, isSearchingSources = true))
 
-            // #824 — the folded local index first: zero requests. The ticket
-            // fixes the order as FTS → content-language filter → live gather
-            // (<3 local), so the SAME visibility rule the published surfaces
-            // apply runs HERE, before the sufficiency decision: a local row the
-            // listener's selection hides is not an answer to them, so it neither
-            // counts toward sufficiency nor rides into the merge. A sufficient
-            // answer (at least LOCAL_SEARCH_SUFFICIENT_COUNT visible cards) never
-            // touches the network; a thin one falls through to the volley, whose
-            // own hits are filtered by the same rule at the tail of this method.
-            val localSelection = contentLanguageSelection.value
-            val localBooks = searchLocalBooks(cleanQuery)
-                .filter { contentLanguageVisible(it.language, localSelection) }
-            val matched = if (localBooks.size >= localSearchSufficientCount) {
-                localBooks
-            } else {
-                // Spec-49 follow-up (#722) — one parallel volley across every
-                // source, never a sequential crawl: each adapter answers through
-                // the same search-with-feed-fallback seam the replacement
-                // resolver consumes (#721); awaitAll preserves source order, so
-                // the merged rows are unchanged.
-                val live = sourceAdapters
-                    // #741: a scam source (4read) never appears in search results.
-                    .filterNot { SourceRegistry.isScam(it.sourceId) }
-                    .map { adapter -> async { searchSource(adapter, cleanQuery) } }
-                    .awaitAll()
-                    .flatten()
-                // #824 — gap-fill: live hits mirror into the Catalog Mirror
-                // (guarded like any enumeration write) so the next identical
-                // query answers locally. Best-effort and silent — a failing
-                // write never breaks or delays search.
-                try {
-                    persistSearchGapFill(live)
-                } catch (e: Exception) {
-                    Log.w("SourceCatalog", "search gap-fill skipped", e)
-                }
-                localBooks + live
-            }
-            // ADR-0040 — search cards carrying a claimed genre land a
-            // SEARCH-rank genre document through the one facet door (fill-gap;
-            // an enumeration document always supersedes it by provenance rank,
-            // never the other way). Best-effort and silent — facet
-            // bookkeeping never breaks or delays search.
-            try {
-                persistSearchGenreAssertions(matched)
-            } catch (e: Exception) {
-                Log.w("SourceCatalog", "search genre assertions skipped", e)
-            }
-            val merged = mergeGlobalSearchResults(matched)
-            // #824 — the local rank rides over the merge's alphabetical
-            // order whenever the index contributed a row: exact folded title
-            // → title/author prefix → MATCH order (stable — rank ties keep
-            // the merge order). A live-only answer keeps its historic order.
-            val ordered = if (localBooks.isNotEmpty()) {
-                val foldedQuery = SearchIndexNormalize.titleField(cleanQuery)
-                merged.sortedBy { card ->
-                    SearchIndexNormalize.rankMatch(
-                        SearchIndexNormalize.titleField(card.title),
-                        SearchIndexNormalize.personField(card.author),
-                        foldedQuery
-                    )
-                }
-            } else {
-                merged
-            }
-            // Spec-30 T2 (#217): attach the resolved durations (local DB →
-            // shared cache) to the visible cards. Best-effort and silent — a
-            // resolver-less or failing path leaves the cards unchanged.
-            // Spec-30 T3 (#218): attach the canonical covers the same way —
-            // a locally known cover wins, the shared cache fills the gap and
-            // mirrors hits into the local database (the existing cover write
-            // path), and the source's own claim is the last resort.
-            val resolved = durationResolver?.let { it.resolve(ordered) }
-                ?.let { coverResolver?.resolve(it) } ?: ordered
-            // Spec-33 T2 (#227): write the merged result back best-effort so
-            // the next listener with the same query reads the cache instead
-            // of re-resolving (US-1/US-2). Negatives are never written — the
-            // seam's no-negative rule keeps the long tail of unique misses
-            // unbounded-free; a failing write contributes nothing (US-11).
-            searchCache?.putResults(cleanQuery, resolved)
-            // Spec-45 (#405) T5 (#493): the cache stores the UNFILTERED
-            // resolved result (selection-independent content), and the filter
-            // applies on every read — a preference change re-filters search
-            // without any cache invalidation.
-            resolved.visibleInContentLanguages(contentLanguageSelection.value)
+        val outcomes = sourceAdapters
+            .filterNot { SourceRegistry.isScam(it.sourceId) }
+            .map { adapter -> async { searchSourceWithStatus(adapter, cleanQuery) } }
+            .awaitAll()
+        val live = outcomes.flatMap { it.books }
+        val failures = outcomes.count { it.failed }
+        currentCoroutineContext().ensureActive()
+        Log.d("SourceCatalog", "search path=live local=${localBooks.size} live=${live.size} sources=${outcomes.size} failed=$failures")
+        try {
+            persistSearchGapFill(live)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("SourceCatalog", "search gap-fill skipped", failure)
         }
+        val matched = localBooks + live
+        // ADR-0040 — search cards carrying a claimed genre land a
+        // SEARCH-rank genre document through the one facet door (fill-gap;
+        // an enumeration document always supersedes it by provenance rank,
+        // never the other way). Best-effort and silent — facet
+        // bookkeeping never breaks or delays search.
+        try {
+            persistSearchGenreAssertions(live)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("SourceCatalog", "search genre assertions skipped", e)
+        }
+        val merged = mergeGlobalSearchResults(matched)
+        val ordered = orderSearchResults(merged, cleanQuery, localBooks.isNotEmpty())
+        // Spec-30 T2 (#217): attach the resolved durations (local DB →
+        // shared cache) to the visible cards. Best-effort and silent — a
+        // resolver-less or failing path leaves the cards unchanged.
+        // Spec-30 T3 (#218): attach the canonical covers the same way —
+        // a locally known cover wins, the shared cache fills the gap and
+        // mirrors hits into the local database (the existing cover write
+        // path), and the source's own claim is the last resort.
+        val resolved = durationResolver?.let { it.resolve(ordered) }
+            ?.let { coverResolver?.resolve(it) } ?: ordered
+        // Keep the cache useful to replacement mapping, but never let a
+        // previous local-only document masquerade as an exhaustive answer.
+        try {
+            searchCache?.putResults(cleanQuery, resolved)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("SourceCatalog", "search cache write skipped", failure)
+        }
+        val visible = resolved.visibleInContentLanguages(contentLanguageSelection.value)
+        currentCoroutineContext().ensureActive()
+        Log.d("SourceCatalog", "search path=settled local=${localBooks.size} live=${live.size} merged=${merged.size} visible=${visible.size} failed=$failures")
+        onUpdate(GlobalSearchUpdate(visible, isSearchingSources = false, hasSourceFailures = failures > 0))
+        visible
+    }
+
+    private fun orderSearchResults(
+        cards: List<GlobalSearchResult>,
+        query: String,
+        hasLocalMatches: Boolean
+    ): List<GlobalSearchResult> {
+        if (!hasLocalMatches) return cards
+        val foldedQuery = SearchIndexNormalize.titleField(query)
+        return cards.sortedBy { card ->
+            SearchIndexNormalize.rankMatch(
+                SearchIndexNormalize.titleField(card.title),
+                SearchIndexNormalize.personField(card.author),
+                foldedQuery
+            )
+        }
+    }
 
     /**
      * #822/#824 — the local leg of aggregated search: folded MATCH over the
@@ -1226,6 +1210,8 @@ class SourceCatalog(
                     coverImageUrl = detail.coverImageUrl ?: book.coverImageUrl
                 )
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             book
         }

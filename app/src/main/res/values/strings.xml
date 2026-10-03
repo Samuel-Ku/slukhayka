@@ -63,7 +63,7 @@
     <string name="home_more_books_on">Більше книг на %1$s</string>
     <string name="home_library_results">У вашій медіатеці (%1$d)</string>
     <string name="home_library_no_matches">Немає у вашій медіатеці</string>
-    <string name="home_all_sources">Усі джерела (%1$d)</string>
+    <string name="home_all_sources">Знайдені книги (%1$d)</string>
     <string name="home_open">Відкрити</string>
     <string name="home_recommendation_updated">Рекомендацію оновлено</string>
     <string name="library_remaining">Залишилось %1$s</string>
@@ -675,4 +675,7 @@
         <item quantity="many">%1$d файлів</item>
         <item quantity="other">%1$d файлів</item>
     </plurals>
+    <string name="home_search_partial_catalogue">Джерела можуть показувати лише частину своїх книг.</string>
+    <string name="home_search_partial_failure">Частина джерел не відповіла. Показано доступні результати.</string>
+    <string name="home_search_retry">Спробувати ще раз</string>
 </resources>

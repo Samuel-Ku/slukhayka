@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -40,7 +41,7 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * their honest empty states are testable without a ViewModel:
  *
  * 1. «У вашій медіатеці» — the listener's own rows, always first, offline.
- * 2. «Усі джерела» — the live Source Catalog results, BELOW the local ones;
+ * 2. «Знайдені книги» — the local index preview, supplemented by every source;
  *    this is the only surface that renders a live source card directly.
  *
  * A source hit is imported through the ordinary door on tap (the caller's
@@ -60,7 +61,8 @@ fun LazyListScope.searchResultsContent(
     onOpenGlobalResult: (GlobalSearchResult) -> Unit,
     catalogCardActionState: CatalogCardActionState,
     onOpenCatalogBrowser: () -> Unit,
-    onPreflightGlobalResult: (GlobalSearchResult) -> Unit
+    onPreflightGlobalResult: (GlobalSearchResult) -> Unit,
+    onRetrySearch: (() -> Unit)? = null
 ) {
     val localEmpty = localBooks.isEmpty()
     // The live lane has settled on a real, honest zero (no spinner, no error).
@@ -109,12 +111,32 @@ fun LazyListScope.searchResultsContent(
                 modifier = Modifier.testTag("search_sources_header")
             )
         }
-        if (globalResults.isEmpty() && !nothingAnywhere) {
+        if (isGlobalLoading || globalError || (globalResults.isEmpty() && !nothingAnywhere)) {
             item(key = "all_sources_status") {
                 GlobalSearchStatus(
                     isLoading = isGlobalLoading,
                     hasError = globalError,
-                    resultsEmpty = true
+                    resultsEmpty = globalResults.isEmpty()
+                )
+                if (globalError && onRetrySearch != null) {
+                    TextButton(
+                        onClick = onRetrySearch,
+                        modifier = Modifier.padding(horizontal = 16.dp).testTag("search_retry")
+                    ) { Text(stringResource(R.string.home_search_retry)) }
+                }
+            }
+        }
+        if (!isGlobalLoading && !globalError) {
+            item(key = "search_scope_note") {
+                Text(
+                    text = stringResource(R.string.home_search_partial_catalogue),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("search_scope_note")
+                        .semantics { liveRegion = LiveRegionMode.Polite }
                 )
             }
         }

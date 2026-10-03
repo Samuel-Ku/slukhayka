@@ -14,6 +14,11 @@ import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -23,12 +28,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 
 /**
- * #824 — the local leg of aggregated search: a sufficient index answer
- * returns merged cards with zero network requests; a thin answer keeps its
- * rows while the live volley fills the gap; live hits mirror (guarded) so
- * the next identical query answers locally.
+ * #1119 — the local index is an immediate preview, never a reason to skip
+ * sources. Every query gathers live hits and fills the guarded mirror gap.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -50,18 +54,6 @@ class LocalSearchRoomTest {
     @After
     fun tearDown() {
         db.close()
-    }
-
-    /** Any request through this adapter fails the test — zero network proof. */
-    private class SilentAdapter(override val sourceId: String) : SourceAdapter {
-        override val contentLanguage: String = "uk"
-        override suspend fun search(query: String): List<SourceBook> =
-            throw AssertionError("network search on a sufficient local hit")
-        override suspend fun fetchBookPage(url: String): SourceBookDetail =
-            throw AssertionError("network page on a sufficient local hit")
-        override suspend fun fetchNew(limit: Int): List<SourceBook> =
-            throw AssertionError("network feed on a sufficient local hit")
-        override suspend fun fetchCatalog(limit: Int): List<SourceBook> = emptyList()
     }
 
     private class LiveAdapter(
@@ -113,17 +105,21 @@ class LocalSearchRoomTest {
         SourceBook(title = title, author = author, url = url, sourceId = sourceId, language = "uk")
 
     @Test
-    fun `sufficient local answer fires zero requests`() = runBlocking {
+    fun `three local matches cannot hide books from any live source`() = runBlocking {
         write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/kobzar")
         write("t2", "Кобза", "Автор А", "https://t2.example/kobza")
         write("t3", "Кобзареві думи", "Автор Б", "https://t3.example/dumy")
         write("t1", "Лісова пісня", "Леся Українка", "https://t1.example/lisova")
 
-        val cards = catalog(SilentAdapter("t1"), SilentAdapter("t2"))
-            .searchAllSources("кобз")
+        val cards = catalog(
+            LiveAdapter("t1", listOf(book("Кобзарик", "Автор В", "https://t1.example/new"))),
+            LiveAdapter("t2", listOf(book("Кобзареві шляхи", "Автор Г", "https://t2.example/new", "t2")))
+        ).searchAllSources("кобз")
 
-        assertEquals(3, cards.size)
-        assertTrue(cards.map { it.title }.containsAll(listOf("Кобзар", "Кобза", "Кобзареві думи")))
+        assertEquals(
+            setOf("Кобзар", "Кобза", "Кобзареві думи", "Кобзарик", "Кобзареві шляхи"),
+            cards.map { it.title }.toSet()
+        )
     }
 
     @Test
@@ -153,7 +149,7 @@ class LocalSearchRoomTest {
     }
 
     @Test
-    fun `mirrored live hits answer the next query locally`() = runBlocking {
+    fun `mirrored live hits remain available offline on the next query`() = runBlocking {
         val live = listOf(
             book("Кобзар", "Тарас Шевченко", "https://t1.example/kobzar"),
             book("Кобза", "Автор А", "https://t1.example/kobza"),
@@ -162,7 +158,7 @@ class LocalSearchRoomTest {
         val first = catalog(LiveAdapter("t1", live)).searchAllSources("кобз")
         assertEquals(3, first.size)
 
-        val second = catalog(SilentAdapter("t1")).searchAllSources("кобз")
+        val second = catalog(LiveAdapter("t1", emptyList())).searchAllSources("кобз")
         assertEquals(3, second.size)
     }
 
@@ -186,23 +182,21 @@ class LocalSearchRoomTest {
         write("t1", "Oxford Echoes", "Author F", "https://t1.example/ox2", language = "en")
         write("t1", "Oxford Nights", "Author G", "https://t1.example/ox3", language = "en")
 
-        val unfiltered = catalog(SilentAdapter("t1")).searchAllSources("oxford")
+        val unfiltered = catalog(LiveAdapter("t1", emptyList())).searchAllSources("oxford")
         assertEquals(3, unfiltered.size)
         assertTrue(unfiltered.all { it.language == "en" })
 
-        // Under a uk selection every local row is hidden, so the answer is thin
-        // and the live leg runs (#824 order: FTS → language filter → gather).
-        // The live leg answers empty here — the surface stays honestly empty.
+        // The uk selection hides all en cards in both the preview and the
+        // settled answer. The empty live leg adds no visible book.
         val ukOnly = catalog(LiveAdapter("t1", emptyList()), selection = setOf("uk"))
             .searchAllSources("oxford")
         assertTrue(ukOnly.isEmpty())
     }
 
     @Test
-    fun `hidden-language local rows never satisfy sufficiency so live fills the gap`() = runBlocking {
-        // Three indexed en works — enough rows to look "sufficient", but none of
-        // them is visible to a uk-only listener, so they must not suppress the
-        // live gather (ticket #824: FTS → language filter → live <3).
+    fun `hidden-language local rows stay hidden while live fills the gap`() = runBlocking {
+        // The uk-only listener sees none of these three indexed en Works;
+        // the live answer supplies the only visible match.
         write("t1", "Oxford Tales", "Author E", "https://t1.example/ox", language = "en")
         write("t1", "Oxford Echoes", "Author F", "https://t1.example/ox2", language = "en")
         write("t1", "Oxford Nights", "Author G", "https://t1.example/ox3", language = "en")
@@ -215,18 +209,18 @@ class LocalSearchRoomTest {
         assertEquals("Oxford Ukrainian", cards.single().title)
         assertTrue(cards.single().sources.all { it.language == "uk" })
         // The live hit mirrored into the index, so the next uk query answers
-        // locally instead of firing the same volley again.
+        // in the first local preview of the next query.
         val mirrored = dao.matchWorkSearch(SearchIndexNormalize.matchQuery("oxford")!!, 50)
         assertTrue(mirrored.contains(MergeKey.keyFor("Oxford Ukrainian", "Автор У")))
     }
 
     @Test
-    fun `sufficient language-visible local answer still fires zero requests`() = runBlocking {
+    fun `language-visible local matches survive an empty live answer`() = runBlocking {
         write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/kobzar", language = "uk")
         write("t2", "Кобза", "Автор А", "https://t2.example/kobza", language = "uk")
         write("t3", "Кобзареві думи", "Автор Б", "https://t3.example/dumy", language = "uk")
 
-        val cards = catalog(SilentAdapter("t1"), SilentAdapter("t2"), selection = setOf("uk"))
+        val cards = catalog(LiveAdapter("t1", emptyList()), LiveAdapter("t2", emptyList()), selection = setOf("uk"))
             .searchAllSources("кобз")
 
         assertEquals(3, cards.size)
@@ -241,7 +235,7 @@ class LocalSearchRoomTest {
         val tombstonedId = MergeKey.keyFor("Кобза", "Автор А")
         dao.insertTombstone(TombstoneEntity(bookId = tombstonedId))
 
-        val cards = catalog(SilentAdapter("t1"), SilentAdapter("t2")).searchAllSources("кобз")
+        val cards = catalog(LiveAdapter("t1", emptyList()), LiveAdapter("t2", emptyList())).searchAllSources("кобз")
 
         assertEquals(3, cards.size)
         assertTrue(cards.none { it.mergeKey == tombstonedId })
@@ -258,7 +252,7 @@ class LocalSearchRoomTest {
         write("t3", "Кобзарик", "Автор В", "https://t3.example/kobzaryk")
         write("4read", "Кобза", "Скам Автор", "https://4read.org/scam")
 
-        val cards = catalog(SilentAdapter("t1")).searchAllSources("кобз")
+        val cards = catalog(LiveAdapter("t1", emptyList())).searchAllSources("кобз")
 
         assertEquals(3, cards.size)
         assertTrue(cards.flatMap { it.sources }.none { it.sourceId == "4read" })
@@ -270,14 +264,14 @@ class LocalSearchRoomTest {
         write("t1", "Кобза", "Автор А", "https://t1.example/kobza")
         write("t2", "Кобзареві думи", "Автор Б", "https://t2.example/dumy")
 
-        // No session: the session-backed row is skipped; the thin answer
-        // falls through to the (empty) live leg instead of dead data.
+        // No session: the session-backed row is skipped in the local preview.
+        // The live leg adds no usable data in this fixture.
         val noSession = catalog(LiveAdapter("t1", emptyList())).searchAllSources("кобз")
         assertEquals(2, noSession.size)
         assertTrue(noSession.flatMap { it.sources }.none { it.sourceId == "sluhay" })
 
-        // A live first-party session makes the same row usable — zero requests.
-        val withSession = catalog(SilentAdapter("t1"), sessionAlive = { true }).searchAllSources("кобз")
+        // A live first-party session makes the same local row usable.
+        val withSession = catalog(LiveAdapter("t1", emptyList()), sessionAlive = { true }).searchAllSources("кобз")
         assertEquals(3, withSession.size)
         assertTrue(withSession.flatMap { it.sources }.any { it.sourceId == "sluhay" })
     }
@@ -290,8 +284,128 @@ class LocalSearchRoomTest {
 
         // ADR-0037: refusal gates playable pairing, never metadata — the
         // local leg shows the same cards the live leg shows; Play filters.
-        val cards = catalog(SilentAdapter("t1"), refused = setOf("t1")).searchAllSources("кобз")
+        val cards = catalog(LiveAdapter("t1", emptyList()), refused = setOf("t1")).searchAllSources("кобз")
 
         assertEquals(3, cards.size)
     }
+
+    @Test
+    fun `local preview arrives before a slow source and is then supplemented`() = runBlocking {
+        write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/kobzar")
+        val preview = CompletableDeferred<GlobalSearchUpdate>()
+        val release = CompletableDeferred<Unit>()
+        val delayed = object : SourceAdapter by LiveAdapter("t1", emptyList()) {
+            override suspend fun search(query: String): List<SourceBook> {
+                release.await()
+                return listOf(book("Кобза", "Автор А", "https://t1.example/new"))
+            }
+        }
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        val job = async {
+            catalog(delayed).searchAllSources("кобз") {
+                updates += it
+                if (it.isSearchingSources) preview.complete(it)
+            }
+        }
+        try {
+            val first = withTimeout(10_000) { preview.await() }
+            assertEquals(listOf("Кобзар"), first.results.map { it.title })
+            assertTrue(first.isSearchingSources)
+            assertTrue(!job.isCompleted)
+        } finally {
+            release.complete(Unit)
+        }
+        val final = job.await()
+        assertEquals(setOf("Кобзар", "Кобза"), final.map { it.title }.toSet())
+        assertEquals(final, updates.last().results)
+        assertTrue(!updates.last().isSearchingSources)
+    }
+
+    @Test
+    fun `search fills author catalogue even after three local matches`() = runBlocking {
+        write("t1", "Воно", "Стівен Кінг", "https://t1.example/it")
+        write("t1", "Сяйво", "Стівен Кінг", "https://t1.example/shining")
+        write("t1", "Керрі", "Стівен Кінг", "https://t1.example/carrie")
+        val repository = catalog(LiveAdapter("t1", listOf(
+            book("Мізері", "Стівен Кінг", "https://t1.example/misery"),
+            book("Зелена миля", "Стівен Кінг", "https://t1.example/mile")
+        )))
+
+        repository.searchAllSources("кінг")
+
+        val author = repository.searchAuthors("кінг").single()
+        assertEquals(5, author.workCount)
+        assertEquals(setOf("Воно", "Сяйво", "Керрі", "Мізері", "Зелена миля"),
+            repository.authorWorks(author.id).map { it.title }.toSet())
+    }
+
+    @Test
+    fun `source failure keeps local and successful source results with a partial verdict`() = runBlocking {
+        write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/kobzar")
+        val failed = object : SourceAdapter by LiveAdapter("t2", emptyList()) {
+            override suspend fun search(query: String): List<SourceBook> = error("offline")
+        }
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        val results = catalog(failed, LiveAdapter("t1", listOf(
+            book("Кобза", "Автор А", "https://t1.example/new")
+        ))).searchAllSources("кобз") { updates += it }
+
+        assertEquals(setOf("Кобзар", "Кобза"), results.map { it.title }.toSet())
+        assertTrue(updates.last().hasSourceFailures)
+        assertTrue(!updates.last().isSearchingSources)
+    }
+
+    @Test
+    fun `failed feed fallback is not reported as a successful empty search`() = runBlocking {
+        val failed = object : SourceAdapter by LiveAdapter("t1", emptyList()) {
+            override suspend fun fetchNew(limit: Int): List<SourceBook> = error("offline feed")
+        }
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        catalog(failed).searchAllSources("кінг") { updates += it }
+
+        assertTrue(updates.last().results.isEmpty())
+        assertTrue(updates.last().hasSourceFailures)
+    }
+
+    @Test
+    fun `cancelled search cannot publish or mirror a late source answer`() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val delayed = object : SourceAdapter by LiveAdapter("t1", emptyList()) {
+            override suspend fun search(query: String): List<SourceBook> = withContext(NonCancellable) {
+                started.complete(Unit)
+                release.await()
+                listOf(book("Кобзар", "Тарас Шевченко", "https://t1.example/late"))
+            }
+        }
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        val repository = catalog(delayed)
+        val job = async { repository.searchAllSources("кобз") { updates += it } }
+        try {
+            withTimeout(10_000) { started.await() }
+            job.cancel()
+        } finally {
+            release.complete(Unit)
+        }
+        job.join()
+        assertEquals(1, updates.size)
+        assertTrue(updates.single().isSearchingSources)
+        assertTrue(repository.searchAuthors("шевченко").isEmpty())
+    }
+
+
+    @Test
+    fun `diagnostics distinguish local preview from live gather without query text`() = runBlocking {
+        ShadowLog.clear()
+        catalog(LiveAdapter("t1", listOf(
+            book("Кобзар", "Тарас Шевченко", "https://t1.example/kobzar")
+        ))).searchAllSources("кобз")
+
+        val messages = ShadowLog.getLogsForTag("SourceCatalog").map { it.msg }
+        assertTrue(messages.any { it.contains("path=local_pending local=0 visible=0") })
+        assertTrue(messages.any { it.contains("path=live local=0 live=1 sources=1 failed=0") })
+        assertTrue(messages.any { it.contains("path=settled local=0 live=1 merged=1 visible=1 failed=0") })
+        assertTrue(messages.none { it.contains("кобз", ignoreCase = true) || it.contains("https://") })
+    }
+
 }

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -94,24 +95,31 @@ fun AppLocaleScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Column(modifier = Modifier.selectableGroup()) {
-                SettingsRadioOption(
+            // #885 — three SHORT labels, so the pill form fits here. The
+            // network screen keeps rows: its options carry descriptions a pill
+            // would drop. Siblings stay inside `selectableGroup()` so a screen
+            // reader can still say "2 of 3" (the pill carries the same role,
+            // target size and state description as the row did).
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SettingsRadioPill(
                     title = stringResource(R.string.app_locale_system),
-                    description = "",
                     selected = current == AppLocale.SYSTEM,
                     onSelect = { choose(AppLocale.SYSTEM) },
                     testTag = "app_locale_system_option"
                 )
-                SettingsRadioOption(
+                SettingsRadioPill(
                     title = stringResource(R.string.app_locale_ukrainian),
-                    description = "",
                     selected = current == AppLocale.UKRAINIAN,
                     onSelect = { choose(AppLocale.UKRAINIAN) },
                     testTag = "app_locale_ukrainian_option"
                 )
-                SettingsRadioOption(
+                SettingsRadioPill(
                     title = stringResource(R.string.app_locale_english),
-                    description = "",
                     selected = current == AppLocale.ENGLISH,
                     onSelect = { choose(AppLocale.ENGLISH) },
                     testTag = "app_locale_english_option"

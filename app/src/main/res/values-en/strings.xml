@@ -67,7 +67,7 @@
     <string name="home_more_books_on">More books on %1$s</string>
     <string name="home_library_results">In your library (%1$d)</string>
     <string name="home_library_no_matches">Not in your library</string>
-    <string name="home_all_sources">All sources (%1$d)</string>
+    <string name="home_all_sources">Books found (%1$d)</string>
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>
     <string name="library_remaining">%1$s left</string>
@@ -623,4 +623,7 @@
         <item quantity="one">%1$d file</item>
         <item quantity="other">%1$d files</item>
     </plurals>
+    <string name="home_search_partial_catalogue">Sources may show only part of their catalogue.</string>
+    <string name="home_search_partial_failure">Some sources did not respond. Available results are shown.</string>
+    <string name="home_search_retry">Try again</string>
 </resources>

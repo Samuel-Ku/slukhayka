@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -65,7 +66,8 @@ class SearchResultsContentTest {
         globalResults: List<GlobalSearchResult>,
         liveSearchActive: Boolean = true,
         isGlobalLoading: Boolean = false,
-        globalError: Boolean = false
+        globalError: Boolean = false,
+        onRetrySearch: (() -> Unit)? = null
     ) {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -82,7 +84,8 @@ class SearchResultsContentTest {
                             onOpenGlobalResult = {},
                             catalogCardActionState = CatalogCardActionState.Idle,
                             onOpenCatalogBrowser = {},
-                            onPreflightGlobalResult = {}
+                            onPreflightGlobalResult = {},
+                            onRetrySearch = onRetrySearch
                         )
                     }
                 }
@@ -144,4 +147,38 @@ class SearchResultsContentTest {
         compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
         assertEquals(1, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
     }
+
+    @Test
+    fun localPreviewRemainsVisibleWhileAllSourcesAreStillSearching() {
+        setSearchContent(localBooks = emptyList(), globalResults = listOf(sourceHit), isGlobalLoading = true)
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Шукаємо в усіх джерелах").assertExists()
+        compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
+        compose.onNodeWithText("Нічого не знайдено").assertDoesNotExist()
+    }
+
+    @Test
+    fun settledSourceResultsDoNotClaimAnExhaustiveCatalogue() {
+        setSearchContent(localBooks = emptyList(), globalResults = listOf(sourceHit))
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Джерела можуть показувати лише частину своїх книг.").assertExists()
+        compose.onNodeWithText("Знайдені книги (1)").assertExists()
+    }
+
+    @Test
+    fun sourceFailureKeepsCardsVisibleAndExplainsPartialResults() {
+        var retries = 0
+        setSearchContent(localBooks = emptyList(), globalResults = listOf(sourceHit), globalError = true,
+            onRetrySearch = { retries++ })
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Частина джерел не відповіла. Показано доступні результати.").assertExists()
+        compose.onNodeWithText("Спробувати ще раз").performClick()
+        assertEquals(1, retries)
+        compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
+        compose.onNodeWithText("Нічого не знайдено").assertDoesNotExist()
+    }
+
 }

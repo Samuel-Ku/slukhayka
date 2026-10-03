@@ -43,3 +43,53 @@ Debug provider чи debug tokens у реліз не додавати.
 Збірка й локальні тести не доводять, що хмарна реєстрація працює.
 Provider може не видати токен на непідтримуваному пристрої або з чужим
 типом ключа. До живої перевірки хмарні записи лишаються закритими.
+
+## Стан підготовки 2026-10-03
+
+reCAPTCHA Enterprise API увімкнено після підтвердження власника. Створено
+production Android-ключ `Slukhayka Android App Check`: лише пакет
+`com.slukhayka.audiobooks`, перевірка назви пакета увімкнена, поширення
+поза Google Play дозволене. Android provider у Firebase має статус
+**Registered**. Публічний ключ збережено у GitHub repository variable
+`ANDROID_APP_CHECK_RECAPTCHA_SITE_KEY`.
+
+Окремий workflow `security-recovery.yml` у гілці
+`codex/security-cloud-recovery` перевіряє тільки змінені Android-межі,
+будує APK із наявним release-підписом і перевіряє його `apksigner`.
+Артефакт зберігається в Actions на 3 дні. Публічного релізу чи тега цей
+workflow не створює. У ньому підготовка E5 передує checksum-гейту.
+
+[Підписана CI-збірка](https://github.com/Samuel-Ku/slukhayka/actions/runs/37148317723)
+успішна. Локально перевірено APK: checksum збігається, `apksigner` підтверджує
+підпис, сертифікат збігається з опублікованою v1.4.2. Ключ присутній у DEX,
+старий `FirestoreDeviceBindings` відсутній, cleartext заборонено,
+довіра лише до system CA, `debuggable` не увімкнено.
+SHA-256 кандидата:
+`b15f05f0ee521455b59f67f3502ac0904bd9b1d2fdbed4a2e54abd7f620253ff`.
+Локальна копія — `app/build/outputs/security-recovery/app-release.apk`.
+Це кандидат для перевірки: versionName 1.4.2, versionCode 30;
+нового публічного релізу не створено. На телефоні ще не встановлювався.
+
+Auth-кандидат правил перевіряється окремо:
+
+```sh
+SECURITY_RULES_PHASE=auth-candidate npx --yes --ignore-scripts --package=firebase-tools@15.32.1 -- firebase emulators:exec --only firestore --project demo-slukhayka-security --config firebase.security-tests.json 'npm --prefix web run test:security-rules'
+```
+
+106 перевірок цього кандидата пройшли. Це перевірка Auth, схем і авторства
+лише на localhost; вихідний legacy guard у `firestore.rules` та аварійні
+правила продакшену лишаються закритими. Кандидат не можна розгортати до
+підтвердження service Enforcement і плану для старих профілів.
+
+Admin-авторизацію для Firestore поновлено, UID-інвентар отримано без поля
+`cred`: 156 bindings, 156 різних UID. Firebase Auth Admin не приймає
+стандартний gcloud OAuth client ID; це
+[документоване обмеження](https://firebase.google.com/docs/admin/setup#test_with_gcloud_end_user_credentials).
+Наявний service account не дозволяє власнику отримувати impersonated token.
+Новий приватний ключ та IAM-грант не створювалися. Вхід Firebase CLI з
+його запитуваними правами потребує окремого підтвердження власника.
+
+Веб-застосунків у Firebase-проєкті наразі немає. Перед підключенням живого
+веб-клієнта треба визначити його домен, зареєструвати його й перевірити
+власний provider; Android-ключ не підходить для web. На цьому Mac
+підключені лише емулятори, тож живий Android-тест ще потребує телефона.

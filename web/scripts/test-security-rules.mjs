@@ -1,6 +1,7 @@
 // Local-only authorization regression suite. Never connects to a live project.
-// App Check is NOT emulated: first prove the real deny gate, then open it only
-// in emulator memory to exercise ownership and transactional validation.
+// App Check is NOT emulated. Default: prove the legacy deny gate, then open
+// it only in emulator memory. auth-candidate: test the prepared Auth guard;
+// it still requires real service Enforcement before any production deploy.
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import assert from 'node:assert/strict'
@@ -10,6 +11,10 @@ import { getFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, getDocs, c
 const project = 'demo-slukhayka-security'
 const endpoint = 'http://127.0.0.1:8185'
 const rules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8')
+const phase = process.env.SECURITY_RULES_PHASE ?? 'legacy'
+assert.ok(['legacy', 'auth-candidate'].includes(phase), 'Unknown security rules phase')
+assert.ok(rules.includes('return request.appCheck.token != null;'), 'Legacy guard changed: review restoration explicitly')
+const authCandidate = rules.replace('return request.appCheck.token != null;', 'return request.auth != null; // AUTH CANDIDATE: service App Check must be enforced')
 const clients = []
 const hash = (s) => createHash('sha256').update(s).digest('hex')
 let passed = 0
@@ -56,14 +61,18 @@ async function report(db, uid, count, hidden, key = hash(uid + 'c1')) {
 try {
   const cleared = await fetch(`${endpoint}/emulator/v1/projects/${project}/databases/(default)/documents`, { method: 'DELETE' })
   assert.equal(cleared.status, 200)
-  await load(rules)
+  await load(phase === 'auth-candidate' ? authCandidate : rules)
   await check('legacy binding unauthenticated get denied', false, () => getDoc(ref(anon, 'device_bindings/device-id')))
   await check('legacy binding authenticated get denied', false, () => getDoc(ref(alice, 'device_bindings/device-id')))
   await check('legacy binding enumeration denied', false, () => getDocs(collection(alice, 'device_bindings')))
   await check('legacy binding credential upload denied', false, () => setDoc(ref(alice, 'device_bindings/device-id'), { uid: 'alice', cred: 'opaque' }))
-  await check('production App Check gate still denies ordinary emulator write', false, () => setDoc(ref(alice, path), base))
-  assert.ok(rules.includes('return request.appCheck.token != null;'))
-  await load(rules.replace('return request.appCheck.token != null;', 'return true; // EMULATOR ONLY'))
+  if (phase === 'legacy') {
+    await check('legacy guard denies ordinary emulator write', false, () => setDoc(ref(alice, path), base))
+    await load(rules.replace('return request.appCheck.token != null;', 'return true; // EMULATOR ONLY'))
+  } else {
+    await check('Auth candidate denies unauthenticated writes', false, () => setDoc(ref(anon, path), base))
+    await check('Auth candidate denies unauthenticated shared cache writes', false, () => setDoc(ref(anon, 'book_durations/probe'), { durationSeconds: 3600, source: '4read', method: 'source_metadata', derivedAt: 1, schemaVersion: 2 }))
+  }
   await check('retired binding remains closed with gate open', false, () => setDoc(ref(alice, 'device_bindings/device-id'), { uid: 'alice', cred: 'opaque' }))
   await check('anonymous collection creation denied', false, () => setDoc(ref(anon, path), base))
   await check('author impersonation denied', false, () => setDoc(ref(bob, path), base))

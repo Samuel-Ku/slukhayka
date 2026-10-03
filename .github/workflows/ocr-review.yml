@@ -1,0 +1,115 @@
+# OCR (OpenCodeReview) — рев'ю PR на вимогу.
+#
+# Репозиторій публічний, тому запуск навмисно НЕ автоматичний: рев'ю стартує
+# лише з коментаря мейнтейнера `/open-code-review`, або вручну через
+# workflow_dispatch. Будь-який форковий PR, що відкривається сам по собі, не
+# витрачає квоту LLM.
+#
+# Секрети (Settings → Secrets and variables → Actions):
+#   secret  OCR_LLM_AUTH_TOKEN — ключ LLM-endpoint (env OCR_LLM_TOKEN)
+#
+# URL і модель не є секретами, тому лежать тут явно.
+
+name: OCR Review
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Номер PR для рев'ю
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# GitHub оцінює concurrency ДО job-level if. З пласким групуванням будь-який
+# сторонній коментар у PR потрапив би в ту саму групу і з cancel-in-progress
+# скасував би активне рев'ю. Тому коментарі, що не проходять гейт, ідуть в
+# унікальну групу noop-<run_id> і не можуть нічого скасувати.
+concurrency:
+  group: >-
+    ${{
+      (
+        github.event_name == 'workflow_dispatch'
+        || (
+          github.event_name == 'issue_comment'
+          && github.event.issue.pull_request
+          && github.event.comment.user.type != 'Bot'
+          && (
+            github.event.comment.author_association == 'MEMBER'
+            || github.event.comment.author_association == 'OWNER'
+            || github.event.comment.author_association == 'COLLABORATOR'
+          )
+          && startsWith(github.event.comment.body, '/open-code-review')
+        )
+      )
+      && format('ocr-{0}', github.event.issue.number || inputs.pr_number)
+      || format('noop-{0}', github.run_id)
+    }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      github.event_name == 'workflow_dispatch'
+      || (
+        github.event_name == 'issue_comment'
+        && github.event.issue.pull_request
+        && github.event.comment.user.type != 'Bot'
+        && (
+          github.event.comment.author_association == 'MEMBER'
+          || github.event.comment.author_association == 'OWNER'
+          || github.event.comment.author_association == 'COLLABORATOR'
+        )
+        && startsWith(github.event.comment.body, '/open-code-review')
+      )
+    steps:
+      # issue_comment не несе полів pull_request, тому base/head доводиться
+      # резолвити через API. Код PR при цьому не виконується.
+      - name: Resolve PR refs
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.eventName === 'issue_comment'
+              ? context.issue.number
+              : Number('${{ inputs.pr_number }}');
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('head_sha', pr.head.sha);
+
+      - name: Run OpenCodeReview
+        uses: alibaba/open-code-review@v1.12.9
+        with:
+          llm_url: https://opencode.ai/zen/go/v1
+          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: deepseek-v4.1-flash
+          # llm_protocol явно перемагає llm_use_anthropic, а сам
+          # llm_use_anthropic — обов'язковий вхід, де ПОРОЖНІЙ рядок означає
+          # Anthropic. Тому задаємо обидва: openai + не-антропічне значення.
+          llm_protocol: openai
+          llm_use_anthropic: 'false'
+          # Endpoint вимагає цей заголовок, інакше 400 MissingSessionID.
+          llm_extra_headers: x-opencode-session=ocr-github-actions
+          # Дефолт action — {"thinking":{"type":"disabled"}}, це Anthropic-поле;
+          # OpenAI-сумісний endpoint може його відкинути, тому тіло порожнє.
+          llm_extra_body: '{}'
+          language: Ukrainian
+          ocr_version: 1.12.9
+          base_ref: ${{ steps.pr.outputs.base_ref }}
+          head_sha: ${{ steps.pr.outputs.head_sha }}
+          # Знайдені low-рівня не засмічують інлайн, але й не губляться —
+          # переїжджають у підсумок PR (fail-open).
+          route_severity_below: low
+          # Запобіжник від несподівано великого PR.
+          max_tokens_budget: '1000000'

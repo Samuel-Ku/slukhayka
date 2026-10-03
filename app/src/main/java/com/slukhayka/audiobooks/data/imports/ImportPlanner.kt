@@ -31,29 +31,67 @@ object ImportPlanner {
     /**
      * Builds the plan for a scan result. [existingWorks] drives the T0 merge
      * suggestions; an empty list means "no merge suggestions" (e.g. rescan).
+     *
+     * #1052 — [rootFilesAsOneBook] answers the question the ticket left open:
+     * «що означає вибрана тека?». When the listener says the folder IS the
+     * book, its loose root files become chapters of ONE book instead of a pile
+     * of one-chapter books. The default stays `false`, so every existing caller
+     * — and `FolderRescan` — keeps the rule it had: the tree root is a
+     * container of books. **No rule changes; a mode is added.**
      */
     fun buildPlan(
         source: SourceRef,
         entries: List<LocalAudioEntry>,
-        existingWorks: List<ExistingWork> = emptyList()
+        existingWorks: List<ExistingWork> = emptyList(),
+        rootFilesAsOneBook: Boolean = false
     ): ImportPlan {
         val byKey = existingWorks.associateBy { it.mergeKey }
         val byTitle = existingWorks.associateBy { MergeKey.normalizeTitle(it.title) }
         val books = mutableListOf<PlannedBook>()
 
-        // 1) Loose files at the root → one single-chapter book each.
-        for (entry in entries.filter { it.parentFolder.isNullOrBlank() }) {
-            val title = sanitize(entry.fileName)
-            val suggestion = suggest(title, "Локальний файл", byKey, byTitle)
+        // 1) Loose files at the root.
+        //
+        // #1052 — two honest readings, and only the listener can choose:
+        //  - a CONTAINER (default): each file is its own book, which is right
+        //    when the tree holds several unrelated single-file books;
+        //  - a BOOK ([rootFilesAsOneBook]): the files are its chapters, which
+        //    is right when they are «01.mp3 … 12.mp3» of one novel — the report
+        //    that opened this ticket.
+        // Names cannot tell those apart (ADR-0035: no guessing from text), so
+        // the listener says it. The title is likewise NOT invented from the
+        // first file: it starts empty for them to confirm in the preview, and
+        // the review row shows the files so the choice is visible.
+        val rootFiles = entries.filter { it.parentFolder.isNullOrBlank() }
+        if (rootFilesAsOneBook && rootFiles.isNotEmpty()) {
+            val chapters = rootFiles
+                .sortedWith(Comparator { a, b -> compareNatural(a.fileName, b.fileName) })
+                .map { entry ->
+                    // The planner's OWN sanitizer: it stays pure and free of
+                    // a dependency on the import layer's file-name rules.
+                    val chapterTitle = sanitize(entry.fileName).ifBlank { entry.fileName }
+                    PlannedChapter(file = entry, title = chapterTitle)
+                }
             books += PlannedBook(
-                id = "root:${entry.fileName}",
-                title = title,
+                id = "root-folder",
+                title = "",
                 author = "Локальний файл",
-                chapters = listOf(
-                    PlannedChapter(file = entry, title = title)
-                ),
-                suggestion = suggestion
+                chapters = chapters,
+                suggestion = suggest(chapters.first().title, "Локальний файл", byKey, byTitle)
             )
+        } else {
+            for (entry in rootFiles) {
+                val title = sanitize(entry.fileName)
+                val suggestion = suggest(title, "Локальний файл", byKey, byTitle)
+                books += PlannedBook(
+                    id = "root:${entry.fileName}",
+                    title = title,
+                    author = "Локальний файл",
+                    chapters = listOf(
+                        PlannedChapter(file = entry, title = title)
+                    ),
+                    suggestion = suggestion
+                )
+            }
         }
 
         // 2) Each sub-folder → one book; files become naturally-sorted chapters.

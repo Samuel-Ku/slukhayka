@@ -694,7 +694,21 @@ data class WorkFeedRow(
     /** Longest known eligible Edition duration; equals [durationSeconds] for one value. */
     val durationMaxSeconds: Long? = null,
     /** Matching Edition chosen by the active duration context, null when unfiltered. */
-    val matchingEditionId: String? = null
+    val matchingEditionId: String? = null,
+    /**
+     * #831 AC2/AC3 — true when one of the Work's Sources carries the link of
+     * the REGISTERED community group, i.e. the audio came from the shared
+     * library rather than from a listener's own submission.
+     *
+     * This is the shared-library half of [com.slukhayka.audiobooks.data.ingest.CommunityOriginClassifier]
+     * and it is resolved in the page query on purpose: the badge is rendered
+     * per row, so a per-row lookup would be an N+1 (AC5). The listener half
+     * (FROM_LISTENERS) needs a persisted playback verdict, which does not
+     * exist yet — the write-back is #605, a separate ticket — so it is
+     * deliberately NOT guessed here; an entry that is not from the group
+     * renders no origin badge rather than a false one (ADR-0035).
+     */
+    val fromSharedLibrary: Boolean = false
 )
 
 /**

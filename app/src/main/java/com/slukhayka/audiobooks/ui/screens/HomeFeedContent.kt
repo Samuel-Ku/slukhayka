@@ -103,6 +103,8 @@ fun LazyListScope.homeFeedContent(
     onBookClick: (String) -> Unit,
     onSetFeedGenreFilters: (Set<String>) -> Unit,
     onSetFeedSortByTitle: (Boolean) -> Unit,
+    feedSharedLibraryOnly: Boolean = false,
+    onSetFeedSharedLibraryOnly: (Boolean) -> Unit = {},
     feedDurationFilters: Set<String> = emptySet(),
     onSetFeedDurationFilters: (Set<String>) -> Unit = {},
     onOpenFeedFilters: (() -> Unit)? = null,
@@ -488,6 +490,8 @@ fun LazyListScope.homeFeedContent(
             onGenresChange = onSetFeedGenreFilters,
             onDurationBucketsChange = onSetFeedDurationFilters,
             onSortChange = onSetFeedSortByTitle,
+            sharedLibraryOnly = feedSharedLibraryOnly,
+            onSharedLibraryOnlyChange = onSetFeedSharedLibraryOnly,
             onOpenFilters = onOpenFeedFilters,
             filterTriggerModifier = feedFilterTriggerModifier,
             contentLanguages = contentLanguages,
@@ -552,6 +556,26 @@ fun LazyListScope.homeFeedContent(
                     }
                 },
                 badges = {
+                    // #831 AC2 — the provenance chip rides the SAME canonical
+                    // `MetadataChip` slot as the language chips (ADR-0033: one
+                    // vocabulary, no second badge component). It states a FACT
+                    // of origin, never a quality rank: «Зі спільної бібліотеки»
+                    // means the audio came from the registered community group,
+                    // which is all it claims.
+                    //
+                    // Only the shared-library half can be shown today: the
+                    // listener half needs a PERSISTED playback verdict, and
+                    // that write-back is #605 (`SubmissionVerification` is
+                    // in-memory per process). An entry that is not from the
+                    // group therefore renders NO origin chip rather than a
+                    // guessed one — ADR-0035 forbids inventing the claim.
+                    //
+                    // The flag is resolved in the page query, so this costs
+                    // no extra read per row (AC5).
+                    if (row.fromSharedLibrary) {
+                        MetadataChip(text = stringResource(R.string.feed_origin_shared_library))
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
                     // Spec-45 (#405) T7 (#495): the rendition's known
                     // languages — one EN/UA chip per language, sorted; unknown
                     // renders nothing (US3).

@@ -276,6 +276,66 @@ object ImportPlanner {
     private fun bookKey(book: PlannedBook): String =
         MergeKey.keyFor(book.title, book.author)
 
+    /**
+     * #1052 — the ONE grouping rule, shared by the import plan and the folder
+     * rescan.
+     *
+     * They used to decide this separately, and that divergence is exactly how
+     * a folder imported as ONE book would have been re-read as N one-file
+     * books on the next scan: the rescan's own copy of the rule knew nothing
+     * about the listener's choice. A rule that lives twice drifts; this one
+     * lives here.
+     *
+     * [rootFilesAsOneBook] is the listener's answer to «що означає вибрана
+     * тека?» — the tree root is either a container of books (default) or the
+     * book itself. Sub-folders are always one book each.
+     *
+     * Each group carries the key the writers pair on, the title to show, and
+     * the member file names in NATURAL order (track2 before track10) — the
+     * same order the plan and the rescan both need.
+     */
+    data class FileGroup(val key: String, val title: String, val fileNames: List<String>)
+
+    fun groupFiles(
+        files: List<Pair<String, String?>>,
+        rootFilesAsOneBook: Boolean = false
+    ): List<FileGroup> {
+        val root = files.filter { it.second.isNullOrBlank() }
+        val grouped = mutableListOf<FileGroup>()
+        if (root.isNotEmpty()) {
+            if (rootFilesAsOneBook) {
+                // One book. The title is deliberately EMPTY: the listener
+                // confirms it, the app never invents it from the first file.
+                grouped += FileGroup(
+                    key = ROOT_ONE_BOOK_KEY,
+                    title = "",
+                    fileNames = root.map { it.first }.sortedWith { a, b -> compareNatural(a, b) }
+                )
+            } else {
+                for ((name, _) in root) {
+                    grouped += FileGroup(
+                        key = "root:${sanitize(name)}",
+                        title = sanitize(name),
+                        fileNames = listOf(name)
+                    )
+                }
+            }
+        }
+        files.filter { !it.second.isNullOrBlank() }
+            .groupBy { it.second!! }
+            .forEach { (folder, inFolder) ->
+                grouped += FileGroup(
+                    key = "folder:$folder",
+                    title = folder.substringAfterLast('/'),
+                    fileNames = inFolder.map { it.first }.sortedWith { a, b -> compareNatural(a, b) }
+                )
+            }
+        return grouped
+    }
+
+    /** The plan-level id and the rescan-level key for the one-book root mode. */
+    const val ROOT_ONE_BOOK_KEY = "root-folder"
+
     private fun sanitize(displayName: String): String =
         displayName.substringBeforeLast('.').trim().ifBlank { displayName }
 

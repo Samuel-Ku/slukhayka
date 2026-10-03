@@ -11,6 +11,14 @@ import kotlinx.coroutines.flow.Flow
 interface AudiobookDao {
     companion object {
         /**
+         * #1049 — a temporary index shift for the two-pass reorder. Large
+         * enough that no real index reaches it (a book with a million chapters
+         * would be the first), so the interim values can never collide with a
+         * final one.
+         */
+        const val TEMP_INDEX_OFFSET: Int = 1_000_000
+
+        /**
          * ADR-0009 — the read projection of the split book row. Every DAO read
          * of [AudiobookEntity] joins the Work / Library Entry / Listening State
          * rows and fills the @Ignore projections: series + workId + mergeKey
@@ -236,6 +244,53 @@ interface AudiobookDao {
     /** Real chapter duration discovered during playback (replaces placeholder 0). */
     @Query("UPDATE chapters SET durationSeconds = :durationSeconds WHERE id = :chapterId")
     suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long)
+
+    /**
+     * #1049 — reorder an ALREADY ADDED book by swapping indices.
+     *
+     * Deliberately NOT [replaceConfirmedChapterStructure]: that repair door
+     * deletes `playback_progress` and `bookmarks` first, which is right when
+     * the stored structure is wrong and catastrophic when the listener merely
+     * moved a chapter — they would lose the place they were listening from.
+     * Reordering changes WHERE a chapter sits, not WHICH chapters exist, so
+     * the listener's position and marks must survive untouched.
+     *
+     * [chapterIdsInOrder] and [trackIdsInOrder] are the SAME reordering applied
+     * to both halves of the pairing: ADR-0007 pairs a chapter with its track by
+     * INDEX, so moving a chapter without its track would play the wrong audio.
+     *
+     * The whole pass is ONE transaction: a process death halfway cannot leave
+     * new chapter indices beside old track indices.
+     */
+    @Transaction
+    suspend fun reorderChaptersByIndex(
+        chapterIdsInOrder: List<String>,
+        trackIdsInOrder: List<String>
+    ) {
+        // A temporary offset keeps the swap collision-free even when
+        // (bookId, chapterIndex) or (sourceId, trackIndex) is UNIQUE: writing
+        // the final indices directly could hit a row that still holds the
+        // value being written. Two passes, one transaction, no window.
+        val offset = TEMP_INDEX_OFFSET
+        chapterIdsInOrder.forEachIndexed { index, id ->
+            setChapterIndex(id, index + offset)
+        }
+        trackIdsInOrder.forEachIndexed { index, id ->
+            setTrackIndex(id, index + offset)
+        }
+        chapterIdsInOrder.forEachIndexed { index, id ->
+            setChapterIndex(id, index)
+        }
+        trackIdsInOrder.forEachIndexed { index, id ->
+            setTrackIndex(id, index)
+        }
+    }
+
+    @Query("UPDATE chapters SET chapterIndex = :chapterIndex WHERE id = :chapterId")
+    suspend fun setChapterIndex(chapterId: String, chapterIndex: Int)
+
+    @Query("UPDATE source_tracks SET trackIndex = :trackIndex WHERE id = :trackId")
+    suspend fun setTrackIndex(trackId: String, trackIndex: Int)
 
     /** Real chapter/duration counts once the book's chapters are known. */
     @Query("UPDATE audiobooks SET totalChapters = :totalChapters, totalDurationSeconds = :totalDurationSeconds WHERE id = :bookId")

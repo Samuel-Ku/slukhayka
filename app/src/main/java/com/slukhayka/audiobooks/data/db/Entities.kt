@@ -211,8 +211,8 @@ data class SourceEntity(
 /**
  * A listener bookmark anchored to one Edition (ADR-0007). [bookId] is kept
  * during the expand phase; [editionId] is the key new code reads and writes.
- * The chapterIndex/title anchors are unchanged — the Edition's logical
- * chapter list is the anchor, not any source's track numbering.
+ * Persisted indices use the Edition's original Chapter order (ADR-0056).
+ * ListeningStateStore projects them into the listener's display order.
  */
 @Entity(tableName = "bookmarks", indices = [Index("bookId"), Index("editionId")])
 data class BookmarkEntity(
@@ -232,7 +232,8 @@ data class BookmarkEntity(
  * sourceKey) to [editionId]: progress belongs to the rendition, not to the
  * source that happened to play it — switching sources mid-book keeps the
  * position. [bookId] is kept during the expand phase so legacy book-scoped
- * reads still resolve.
+ * reads still resolve. Persisted chapter indices use the original order;
+ * ListeningStateStore projects the display order (ADR-0056).
  */
 @Entity(tableName = "playback_progress", indices = [Index("bookId")])
 data class PlaybackProgressEntity(

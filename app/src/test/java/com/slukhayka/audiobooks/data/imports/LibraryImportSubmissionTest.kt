@@ -87,6 +87,19 @@ class LibraryImportSubmissionTest {
     private val videoUrl = "https://www.youtube.com/watch?v=6XIPkMFZf-0"
 
     @Test
+    fun `second YouTube source respects the existing listener order`() = runBlocking {
+        val first = libraryImport.importSubmittedYouTube(playlistUrl, playlistJson, "@youtube", titleOverride = "Кобзар", authorOverride = "Тарас Шевченко", narratorOverride = "Диктор")
+        val id = first.bookId!!
+        val chapters = dao.getChaptersListForBook(id)
+        assertEquals(ChapterReorderResult.APPLIED, libraryImport.reorderChapters(id, chapters.map { it.id }, chapters.reversed().map { it.id }))
+        val second = libraryImport.importSubmittedYouTube("https://www.youtube.com/playlist?list=PLvariant", playlistJson, "@youtube", titleOverride = "Кобзар", authorOverride = "Тарас Шевченко", narratorOverride = "Диктор")
+        assertEquals(id, second.bookId)
+        val tracks = dao.getTracksForSourceSync(second.sourceId!!)
+        assertEquals(listOf("https://www.youtube.com/watch?v=biwxkjI06KA", "https://www.youtube.com/watch?v=6XIPkMFZf-0"), tracks.map { it.url })
+        assertEquals(chapters.reversed().map { it.id }, dao.getChaptersListForBook(id).map { it.id })
+    }
+
+    @Test
     fun `playlist imports a book with chapters from observed entries`() = runBlocking {
         val result = libraryImport.importSubmittedYouTube(playlistUrl, playlistJson, "@youtube")
 

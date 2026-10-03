@@ -120,7 +120,8 @@ data class PlayerState(
 data class PlaybackStarted(
     val bookId: String,
     val chapterIndex: Int,
-    val mediaUrl: String
+    val mediaUrl: String,
+    val chapterId: String? = null
 )
 
 /**
@@ -719,7 +720,8 @@ class AudioPlayerManager(
                 PlaybackStarted(
                     bookId = bookId,
                     chapterIndex = _playerState.value.currentChapterIndex,
-                    mediaUrl = mediaUrl
+                    mediaUrl = mediaUrl,
+                    chapterId = _playerState.value.chapters.getOrNull(_playerState.value.currentChapterIndex)?.id
                 )
             )
         }
@@ -1112,8 +1114,14 @@ class AudioPlayerManager(
         // RELISTEN even when the stored end position alone would not trip the
         // position-based rule (e.g. a multi-chapter book whose saved position
         // is the last chapter's in-chapter seconds, below the book total).
-        forceRelisten: Boolean = false
+        forceRelisten: Boolean = false,
+        initialChapterId: String? = null
     ) {
+        val requestedChapterId = initialChapterId ?: chapters.getOrNull(initialChapterIndex)?.id
+        val loadPlayable = applyCommittedChapterOrder(book.id, playable.ifEmpty {
+            chapters.map { SourceCatalog.PlayableChapter(chapter = it, track = null) }
+        })
+        val loadChapters = loadPlayable.map { it.chapter }
         // 2026-08-26 device bug («грає попередня книга»): a book whose
         // chapters never resolved — the source page carries no playerjs audio
         // at all — must never reach the engine. The old code faked a
@@ -1122,18 +1130,15 @@ class AudioPlayerManager(
         // user heard the previous book while the screen showed the new one.
         // ADR-0019's honest failure applies BEFORE any prepare: stop the
         // engine, surface the unavailable state, record nothing.
-        if (chapters.isEmpty()) {
+        if (loadChapters.isEmpty()) {
             stopEngineForUnavailableBook(book)
             return
         }
         // ADR-0007: keep the chapter→track pairing for prepare/build; the
         // display list stays the logical chapters.
-        playableChapters = if (playable.isEmpty()) {
-            chapters.map { SourceCatalog.PlayableChapter(chapter = it, track = null) }
-        } else {
-            playable
-        }
-        var chapterIdx = initialChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+        playableChapters = loadPlayable
+        var chapterIdx = loadChapters.indexOfFirst { it.id == requestedChapterId }
+            .takeIf { it >= 0 } ?: initialChapterIndex.coerceIn(0, (loadChapters.size - 1).coerceAtLeast(0))
         var positionSeconds = initialPositionSeconds
         // Spec-16 T4: starting playback of a finished book is a re-listen — it
         // resets to the beginning (chapter 0, position 0) and logs RELISTEN
@@ -1141,7 +1146,7 @@ class AudioPlayerManager(
         // the library card uses (AC4): only a start at/after the very end of
         // the book triggers it, so explicit chapter or bookmark navigation
         // (which never asks to start at the end) is untouched.
-        val totalDurationSeconds = chapters.sumOf { it.durationSeconds }
+        val totalDurationSeconds = loadChapters.sumOf { it.durationSeconds }
         val relisten = forceRelisten ||
             (autoPlay && totalDurationSeconds > 0L && positionSeconds >= totalDurationSeconds)
         if (relisten) {
@@ -1154,10 +1159,10 @@ class AudioPlayerManager(
         lastLoadedBookId = book.id
         _playerState.value = _playerState.value.copy(
             currentBook = book,
-            chapters = chapters,
+            chapters = loadChapters,
             currentChapterIndex = chapterIdx,
             currentPositionMs = positionSeconds * 1000L,
-            durationMs = if (chapters.isNotEmpty()) chapters[chapterIdx].durationSeconds * 1000L else 1000L,
+            durationMs = if (loadChapters.isNotEmpty()) loadChapters[chapterIdx].durationSeconds * 1000L else 1000L,
             isOfflineMode = book.isDownloaded,
             // Per-book speed memory (wayfinder #26): the book's own speed if it
             // has one, otherwise the global default. Applied to the engine once
@@ -1206,22 +1211,21 @@ class AudioPlayerManager(
         // (latest candidate wins) or the candidate is stale or far away. The
         // position used is the post-relisten one (0), so a finished book's
         // stale candidate never re-offers.
-        val restoredPositionSeconds = positionSeconds
         scope.launch(ioDispatcher) {
-            val candidate = listeningState.lastUndoCandidate(book.id)
-            if (candidate != null &&
-                !seekHistory.canUndo() &&
-                !PlaybackEventPolicy.isStaleUndoCandidate(candidate, now()) &&
-                PlaybackEventPolicy.isAtUndoPosition(candidate, restoredPositionSeconds)
-            ) {
-                val from = candidate.fromPositionSeconds ?: return@launch
-                seekHistory.restore(
-                    SeekJump(from * 1000L, candidate.positionSeconds * 1000L, candidate.chapterIndex)
-                )
-                _playerState.value = _playerState.value.copy(
-                    canUndoSeek = true,
-                    undoFromPositionMs = from * 1000L
-                )
+            val anchor = listeningState.lastAnchoredUndoCandidate(book.id) ?: return@launch
+            withContext(Dispatchers.Main.immediate) {
+                val state = _playerState.value
+                val candidate = anchor.event
+                val index = state.chapters.indexOfFirst { it.id == anchor.chapterId }
+                if (state.currentBook?.id == book.id && index == state.currentChapterIndex && index >= 0 &&
+                    !seekHistory.canUndo() &&
+                    !PlaybackEventPolicy.isStaleUndoCandidate(candidate, now()) &&
+                    PlaybackEventPolicy.isAtUndoPosition(candidate, state.currentPositionMs / 1000L)
+                ) {
+                    val from = candidate.fromPositionSeconds ?: return@withContext
+                    seekHistory.restore(SeekJump(from * 1000L, candidate.positionSeconds * 1000L, index))
+                    _playerState.value = state.copy(canUndoSeek = true, undoFromPositionMs = from * 1000L)
+                }
             }
         }
 
@@ -1286,6 +1290,66 @@ class AudioPlayerManager(
     }
 
     private var prepareRequestId = 0L
+
+    // A pending Play may still hold a queue resolved before the database commit.
+    // Keep the last saved stable ids so both sides of that race use the same order.
+    private val committedChapterOrders = mutableMapOf<String, List<String>>()
+
+    private fun applyCommittedChapterOrder(bookId: String, playable: List<SourceCatalog.PlayableChapter>): List<SourceCatalog.PlayableChapter> {
+        val ids = committedChapterOrders[bookId] ?: return playable
+        val byId = playable.associateBy { it.chapter.id }
+        if (!byId.keys.containsAll(ids)) {
+            committedChapterOrders.remove(bookId)
+            return playable
+        }
+        val known = ids.toSet()
+        return (ids + playable.map { it.chapter.id }.filter { it !in known }).mapIndexed { index, id ->
+            val item = byId.getValue(id)
+            item.copy(chapter = item.chapter.copy(chapterIndex = index), track = item.track?.copy(trackIndex = index))
+        }
+    }
+
+    /** Confirmed topology replacement invalidates even reused deterministic Chapter IDs. */
+    fun clearCommittedChapterOrder(bookId: String) {
+        committedChapterOrders.remove(bookId)
+    }
+
+    /** Called on Main after the Room commit, even when another book is playing. */
+    fun commitChapterOrder(bookId: String, chapterIds: List<String>) {
+        committedChapterOrders[bookId] = chapterIds.toList()
+        if (_playerState.value.currentBook?.id == bookId) {
+            updateChapterOrder(bookId, applyCommittedChapterOrder(bookId, playableChapters))
+        }
+    }
+
+    /** Rebuilds the queue around the same stable Chapter, preserving time and timer. */
+    private fun updateChapterOrder(bookId: String, playable: List<SourceCatalog.PlayableChapter>) {
+        committedChapterOrders[bookId] = playable.map { it.chapter.id }
+        val state = _playerState.value
+        if (state.currentBook?.id != bookId) return
+        val currentId = state.chapters.getOrNull(state.currentChapterIndex)?.id ?: return
+        val index = playable.indexOfFirst { it.chapter.id == currentId }
+        if (index < 0) return
+        val previousIds = state.chapters.map { it.id }
+        seekHistory.lastJump?.let { jump ->
+            val chapterId = previousIds.getOrNull(jump.chapterIndex)
+            val newIndex = playable.indexOfFirst { it.chapter.id == chapterId }
+            if (newIndex >= 0) seekHistory.restore(jump.copy(chapterIndex = newIndex)) else seekHistory.clear()
+        }
+        // Retain per-chapter fallback choices already installed in this session.
+        val installed = playableChapters.associateBy { it.chapter.id }
+        playableChapters = playable.map { fresh ->
+            val old = installed[fresh.chapter.id]
+            if (old?.sourceId != null && old.sourceId != fresh.sourceId) {
+                old.copy(chapter = fresh.chapter, track = old.track?.copy(trackIndex = fresh.chapter.chapterIndex))
+            } else fresh
+        }
+        _playerState.value = state.copy(chapters = playable.map { it.chapter }, currentChapterIndex = index)
+        lastPreparedChapterIndex = index
+        prepareChapter(index, state.currentPositionMs, state.isPlaying, resetHealBudget = false)
+        val jump = seekHistory.lastJump
+        _playerState.value = _playerState.value.copy(canUndoSeek = jump != null, undoFromPositionMs = jump?.fromPositionMs ?: 0L)
+    }
 
     fun prepareChapter(
         chapterIndex: Int,
@@ -2103,7 +2167,8 @@ class AudioPlayerManager(
                                 chapterTitle = chapterTitle,
                                 timestampSeconds = posSec,
                                 note = "Авто-закладка (Таймер сну)"
-                            )
+                            ),
+                            chapterId = chapters.getOrNull(chapterIdx)?.id
                         )
                     }
                 }
@@ -2232,10 +2297,11 @@ class AudioPlayerManager(
     private fun saveCurrentProgressToDb(immediateSync: Boolean = false) {
         val book = _playerState.value.currentBook ?: return
         val currentChapter = _playerState.value.currentChapterIndex
+        val chapterId = _playerState.value.chapters.getOrNull(currentChapter)?.id ?: return
         val posSec = _playerState.value.currentPositionMs / 1000L
         scope.launch(ioDispatcher) {
             // ADR-0007: progress is keyed by the Edition — no source key.
-            listeningState.updateProgress(book.id, currentChapter, posSec)
+            listeningState.updateProgressForChapter(book.id, chapterId, posSec)
             listeningState.recordListeningTime(5L)
             // ADR-0051 (spec-43 T6): pauses/completions push at once, periodic
             // ticks ride the pacing window; failures stay silent.
@@ -2258,6 +2324,7 @@ class AudioPlayerManager(
     ) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
+        val chapterId = _playerState.value.chapters.getOrNull(chapterIndex)?.id
         scope.launch(ioDispatcher) {
             // ADR-0007: the event log is history — rows are written with
             // sourceKey = "" (the store's default).
@@ -2267,7 +2334,8 @@ class AudioPlayerManager(
                 chapterIndex = chapterIndex,
                 positionSeconds = positionSeconds,
                 fromPositionSeconds = fromPositionSeconds,
-                timestampMs = now()
+                timestampMs = now(),
+                chapterId = chapterId
             )
         }
     }

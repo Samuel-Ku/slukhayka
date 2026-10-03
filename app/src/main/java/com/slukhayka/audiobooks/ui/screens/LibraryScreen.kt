@@ -971,6 +971,10 @@ fun LibraryScreen(
                 onRejectMerge = viewModel::rejectMergeInPreview,
                 onReorderChapters = viewModel::reorderChaptersInPreview,
                 onEditBookTitle = { bookId, title -> viewModel.editBookInPreview(bookId, title = title) },
+                onSplitBook = viewModel::splitBookInPreview,
+                onEditBookMetadata = { id, book ->
+                    viewModel.editBookInPreview(id, book.title, book.author, book.narrator, book.seriesTitle.orEmpty(), book.seriesIndex, clearSeriesIndex = true)
+                },
                 onConfirm = viewModel::confirmImportPreview,
                 onDismiss = viewModel::dismissImportPreview
             )
@@ -2665,21 +2669,32 @@ fun ImportPreviewDialog(
     onReorderChapters: (String, List<Int>) -> Unit,
     onEditBookTitle: (String, String) -> Unit,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSplitBook: (String, Int) -> Unit = { _, _ -> },
+    onEditBookMetadata: (String, com.slukhayka.audiobooks.data.imports.PlannedBook) -> Unit = { id, book -> onEditBookTitle(id, book.title) }
 ) {
     val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
     val headingFocusRequester = remember { FocusRequester() }
     // #1049 — which planned book the rename field is open for, if any.
     var renamingBookId by remember { mutableStateOf<String?>(null) }
-    AlertDialog(
+    var lastEditingBookId by remember { mutableStateOf<String?>(null) }
+    val editFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    if (renamingBookId == null) AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
             .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
             .testTag("library_import_preview_dialog"),
         title = {
             LaunchedEffect(headingFocusRequester) {
+                // The preview window is recreated after editing. Its controls
+                // must be attached to this window before focus can return.
+                val target = editFocusRequesters[lastEditingBookId] ?: headingFocusRequester
                 withFrameNanos { }
-                headingFocusRequester.requestFocus()
+                runCatching { target.requestFocus() }
+                withFrameNanos { }
+                val restored = runCatching { target.requestFocus() }.getOrDefault(false)
+                if (!restored) headingFocusRequester.requestFocus()
+                lastEditingBookId = null
             }
             Text(
                 stringResource(R.string.a11y_library_import_preview_title),
@@ -2733,6 +2748,17 @@ fun ImportPreviewDialog(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            val metadata = buildList {
+                                if (book.author.isNotBlank()) add(stringResource(R.string.book_detail_author_label, book.author))
+                                if (book.narrator.isNotBlank()) add(stringResource(R.string.book_detail_narrator_label, book.narrator))
+                                book.seriesTitle?.takeIf { it.isNotBlank() }?.let { series ->
+                                    add(if (book.seriesIndex != null) stringResource(R.string.book_detail_series_pill_index, series, book.seriesIndex)
+                                        else stringResource(R.string.book_detail_series_pill, series))
+                                }
+                            }
+                            if (metadata.isNotEmpty()) {
+                                Text(metadata.joinToString("\n"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             // #1049 / #1052 — the plan is still editable here,
                             // which is the whole point of a preview: the order
                             // the source gave can be wrong (a YouTube playlist
@@ -2748,7 +2774,9 @@ fun ImportPreviewDialog(
                                         movedOrder(book.chapters.size, from, to)
                                     )
                                 },
-                                onRename = { renamingBookId = book.id }
+                                onRename = { lastEditingBookId = book.id; renamingBookId = book.id },
+                                editFocusRequester = editFocusRequesters.getOrPut(book.id) { FocusRequester() },
+                                onSplit = { index -> onSplitBook(book.id, index) }
                             )
                             val suggestion = book.suggestion
                             if (suggestion != null && book.mergedIntoBookId == null) {
@@ -2817,10 +2845,15 @@ fun ImportPreviewDialog(
     renamingBookId?.let { bookId ->
         val book = preview.plan.books.firstOrNull { it.id == bookId }
         if (book != null) {
-            RenameBookDialog(
+            com.slukhayka.audiobooks.ui.components.MetadataCorrectionDialog(
                 initialTitle = book.title,
-                onConfirm = { title ->
-                    onEditBookTitle(bookId, title)
+                initialAuthor = book.author,
+                initialNarrator = book.narrator,
+                initialSeriesTitle = book.seriesTitle,
+                initialSeriesIndex = book.seriesIndex,
+                onSave = { _, _, _, _ -> },
+                onSaveWithSeries = { title, author, narrator, series, volume ->
+                    onEditBookMetadata(bookId, book.copy(title = title, author = author, narrator = narrator, seriesTitle = series, seriesIndex = volume))
                     renamingBookId = null
                 },
                 onDismiss = { renamingBookId = null }
@@ -2845,16 +2878,20 @@ fun ImportPreviewDialog(
 private fun BookCorrectionRow(
     book: com.slukhayka.audiobooks.data.imports.PlannedBook,
     onMoveChapter: (Int, Int) -> Unit,
-    onRename: () -> Unit
+    onRename: () -> Unit,
+    editFocusRequester: FocusRequester,
+    onSplit: (Int) -> Unit
 ) {
     Column(modifier = Modifier.padding(top = 4.dp)) {
         TextButton(
             onClick = onRename,
             modifier = Modifier
                 .heightIn(min = 48.dp)
+                .focusRequester(editFocusRequester)
+                .focusProperties { canFocus = true }
                 .testTag("import_preview_rename_${book.id}")
         ) {
-            Text(stringResource(R.string.lib_import_rename_book))
+            Text(stringResource(R.string.book_detail_correct_metadata))
         }
         if (book.chapters.size > 1) {
             Text(
@@ -2889,6 +2926,12 @@ private fun BookCorrectionRow(
                         Text(stringResource(R.string.lib_import_move_down))
                     }
                 }
+                if (index > 0) {
+                    TextButton(
+                        onClick = { onSplit(index) },
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("import_preview_split_${book.id}_$index")
+                    ) { Text(stringResource(R.string.lib_import_split_here)) }
+                }
             }
         }
     }
@@ -2906,48 +2949,6 @@ internal fun movedOrder(size: Int, from: Int, to: Int): List<Int> {
     val moved = order.removeAt(from)
     order.add(to, moved)
     return order
-}
-
-/** #1049 — renaming a planned book; the planner remembers it as a FIELD correction. */
-@Composable
-private fun RenameBookDialog(
-    initialTitle: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var title by remember { mutableStateOf(initialTitle) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.testTag("import_preview_rename_dialog"),
-        title = { Text(stringResource(R.string.lib_import_rename_book)) },
-        text = {
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                singleLine = true,
-                label = { Text(stringResource(R.string.lib_import_title_label)) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("import_preview_rename_field")
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(title.trim()) },
-                enabled = title.isNotBlank(),
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("import_preview_rename_confirm")
-            ) {
-                Text(stringResource(R.string.lib_import_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        }
-    )
 }
 
 /**

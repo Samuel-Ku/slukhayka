@@ -675,4 +675,12 @@
         <item quantity="many">%1$d файлів</item>
         <item quantity="other">%1$d файлів</item>
     </plurals>
+    <string name="chapter_order_edit">Редагувати порядок розділів</string>
+    <string name="chapter_order_reverse">Зворотний порядок</string>
+    <string name="chapter_order_saving">Зберігаємо…</string>
+    <string name="chapter_order_changed">Список розділів змінився. Закрийте редактор і відкрийте його знову.</string>
+    <string name="chapter_order_failed">Не вдалося зберегти порядок розділів. Спробуйте ще раз.</string>
+    <string name="lib_import_split_here">Розділити перед цим розділом</string>
+    <string name="metadata_edit_series">Серія</string>
+    <string name="metadata_edit_series_index">Номер у серії</string>
 </resources>

@@ -31,6 +31,13 @@ import com.slukhayka.audiobooks.AppBottomBar
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.imports.ImportPlan
+import com.slukhayka.audiobooks.data.imports.ImportPlanner
+import com.slukhayka.audiobooks.data.imports.LocalAudioEntry
+import com.slukhayka.audiobooks.data.imports.SourceRef
+import com.slukhayka.audiobooks.ui.MainViewModel
+import java.io.ByteArrayInputStream
+import org.junit.Assert.assertNull
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -328,5 +335,45 @@ class UiSurfaceAuditTest {
             onSpeed = {}, onTimer = {}, onBookmark = {}, onChapters = {},
             onRetryPlayback = onRetry, onFindAnotherSource = onAlternative
         )
+    }
+    @Test fun editMetadataAndSplitBeforeImport() {
+        var streamReads = 0
+        val files = listOf("01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, "Кобзар") { streamReads++; ByteArrayInputStream(byteArrayOf(1)) } }
+        var plan by mutableStateOf(ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), files))
+        var confirmed: ImportPlan? = null
+        rule.setContent {
+            AudiobookTheme {
+                ImportPreviewDialog(
+                    preview = MainViewModel.ImportPreviewState(plan, "content://tree"),
+                    onAcceptMerge = {}, onRejectMerge = {}, onReorderChapters = { id, order -> plan = ImportPlanner.reorderChapters(plan, id, order) },
+                    onEditBookTitle = { _, _ -> }, onConfirm = { confirmed = plan }, onDismiss = {},
+                    onSplitBook = { id, index -> plan = ImportPlanner.splitBook(plan, id, index) },
+                    onEditBookMetadata = { id, book -> plan = ImportPlanner.editBook(plan, id, book.title, book.author, book.narrator, book.seriesTitle.orEmpty(), book.seriesIndex, clearSeriesIndex = true) }
+                )
+            }
+        }
+        rule.onNodeWithTag("import_preview_rename_folder:Кобзар").performScrollTo().performClick()
+        rule.onNodeWithTag("metadata_correction_dialog").assertExists()
+        rule.onNodeWithTag("metadata_edit_title").performTextReplacement("Поезії")
+        rule.onNodeWithTag("metadata_edit_author").performTextReplacement("Тарас Шевченко")
+        rule.onNodeWithTag("metadata_edit_narrator").performScrollTo().performTextReplacement("Диктор")
+        rule.onNodeWithTag("metadata_edit_series").performScrollTo().performTextReplacement("Збірки")
+        rule.onNodeWithTag("metadata_edit_series_index").performScrollTo().performTextReplacement("2")
+        rule.onNodeWithTag("metadata_edit_save").performClick()
+        rule.onNodeWithTag("import_preview_rename_folder:Кобзар").assertIsFocused()
+        val edited = plan.books.single()
+        assertEquals("Поезії", edited.title)
+        assertEquals("Тарас Шевченко", edited.author)
+        assertEquals("Диктор", edited.narrator)
+        assertEquals("Збірки", edited.seriesTitle)
+        assertEquals(2, edited.seriesIndex)
+        assertNull(confirmed)
+        assertEquals(0, streamReads)
+        rule.onNodeWithTag("import_preview_split_folder:Кобзар_1").performScrollTo().performClick()
+        assertEquals(listOf(1, 1), plan.books.map { it.chapters.size })
+        rule.onNodeWithTag("import_preview_rename_folder:Кобзар#2").assertExists()
+        rule.onNodeWithTag("library_import_preview_confirm").performClick()
+        assertEquals(2, confirmed!!.books.size)
+        assertEquals(0, streamReads)
     }
 }

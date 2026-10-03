@@ -119,10 +119,14 @@ object ImportPlanner {
         if (chapterIndex <= 0 || chapterIndex >= book.chapters.size) return plan
         val first = book.copy(
             title = "${book.title} (1)",
-            chapters = book.chapters.take(chapterIndex)
+            chapters = book.chapters.take(chapterIndex),
+            suggestion = null,
+            mergedIntoBookId = null
         )
+        var suffix = 2
+        while (plan.books.any { it.id == "${book.id}#$suffix" }) suffix++
         val second = book.copy(
-            id = "${book.id}#2",
+            id = "${book.id}#$suffix",
             title = "${book.title} (2)",
             chapters = book.chapters.drop(chapterIndex),
             suggestion = null,
@@ -156,7 +160,8 @@ object ImportPlanner {
         author: String? = null,
         narrator: String? = null,
         seriesTitle: String? = null,
-        seriesIndex: Int? = null
+        seriesIndex: Int? = null,
+        clearSeriesIndex: Boolean = false
     ): ImportPlan {
         val book = plan.books.firstOrNull { it.id == bookId } ?: return plan
         val fieldCorrections = mutableListOf<CorrectionDraft>()
@@ -172,10 +177,12 @@ object ImportPlanner {
         if (seriesTitle != null && seriesTitle != book.seriesTitle) {
             fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "series=$seriesTitle")
         }
-        if (seriesIndex != null && seriesIndex != book.seriesIndex) {
-            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "seriesIndex=$seriesIndex")
+        if ((seriesIndex != null || clearSeriesIndex) && seriesIndex != book.seriesIndex) {
+            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "seriesIndex=${seriesIndex ?: ""}")
         }
         if (fieldCorrections.isEmpty()) return plan
+        val identityChanged = (title != null && title != book.title) ||
+            (author != null && author != book.author) || (narrator != null && narrator != book.narrator)
         return plan.copy(
             books = plan.books.map {
                 if (it.id == bookId) it.copy(
@@ -183,7 +190,9 @@ object ImportPlanner {
                     author = author ?: it.author,
                     narrator = narrator ?: it.narrator,
                     seriesTitle = seriesTitle ?: it.seriesTitle,
-                    seriesIndex = seriesIndex ?: it.seriesIndex
+                    seriesIndex = if (clearSeriesIndex) seriesIndex else seriesIndex ?: it.seriesIndex,
+                    suggestion = if (identityChanged) null else it.suggestion,
+                    mergedIntoBookId = if (identityChanged) null else it.mergedIntoBookId
                 ) else it
             },
             corrections = plan.corrections + fieldCorrections

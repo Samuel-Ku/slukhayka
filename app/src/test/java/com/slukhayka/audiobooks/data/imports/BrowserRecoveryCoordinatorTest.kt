@@ -71,6 +71,29 @@ class BrowserRecoveryCoordinatorTest {
         assertEquals("https://other.invalid/0.mp3", dao.getTracksForSourceSync("alternative").first().url)
     }
 
+    @Test
+    fun `recovery follows a stable chapter and publishes provider order after manual reverse`() = runBlocking {
+        val page = "https://4read.org/kobzar.html"
+        val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/old1.mp3", "Глава 2" to "https://s1.reasd.org/old2.mp3"))
+        val bookId = seedBook(original)
+        val ids = dao.getChaptersListForBook(bookId).map { it.id }
+        val fresh = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/new1.mp3", "Глава 2" to "https://s1.reasd.org/new2.mp3"))
+        val imports = LibraryImport(dao, context, listOf(fakeAdapter(mapOf("cap" to fresh))))
+        assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(bookId, ids, ids.reversed()))
+        val store = FakeProfileStore()
+        var verified = ""
+        val coordinator = BrowserRecoveryCoordinator(dao, imports, profileStore = store,
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, url -> verified = url; true },
+            cleanProbe = BrowserRecoveryCoordinator.CleanProbe { true })
+        val result = coordinator.recover(bookId, "4read", page, "cap", requestedChapterIndex = 0,
+            requestedPositionMs = 42_000L, requestedChapterId = ids[0]) as BrowserRecoveryCoordinator.Outcome.Success
+        assertEquals("https://s1.reasd.org/new1.mp3", verified)
+        assertEquals(1, result.resumeChapterIndex)
+        assertEquals(42_000L, result.resumePositionMs)
+        assertEquals(listOf("Глава 1", "Глава 2"), store.puts.single().second.chapters.map { it.title })
+        assertEquals(listOf("https://s1.reasd.org/new1.mp3", "https://s1.reasd.org/new2.mp3"), store.puts.single().second.chapters.map { it.streamUrl })
+    }
+
     private lateinit var context: Context
     private lateinit var db: AudiobookDatabase
     private lateinit var dao: AudiobookDao

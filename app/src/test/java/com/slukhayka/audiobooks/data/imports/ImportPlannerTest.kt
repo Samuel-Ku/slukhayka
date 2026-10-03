@@ -21,6 +21,38 @@ class ImportPlannerTest {
     )
 
     @Test
+    fun `repeated splits keep unique plan identities and every audio chapter`() {
+        var plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), listOf(entry("01.mp3", "Книга"), entry("02.mp3", "Книга"), entry("03.mp3", "Книга"), entry("04.mp3", "Книга")))
+        plan = ImportPlanner.splitBook(plan, "folder:Книга", 3)
+        plan = ImportPlanner.splitBook(plan, "folder:Книга", 1)
+        assertEquals(3, plan.books.size)
+        assertEquals(3, plan.books.map { it.id }.distinct().size)
+        assertEquals(listOf("01.mp3", "02.mp3", "03.mp3", "04.mp3"), plan.books.flatMap { it.chapters }.map { it.file.fileName })
+    }
+
+    @Test
+    fun `metadata editor can clear a previously set series volume`() {
+        val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), listOf(entry("01.mp3", "Книга")))
+        val withSeries = ImportPlanner.editBook(plan, "folder:Книга", seriesTitle = "Серія", seriesIndex = 2)
+        val cleared = ImportPlanner.editBook(withSeries, "folder:Книга", seriesTitle = "", seriesIndex = null, clearSeriesIndex = true)
+        assertEquals("", cleared.books.single().seriesTitle)
+        assertEquals(null, cleared.books.single().seriesIndex)
+        assertTrue(cleared.corrections.any { it.kind == "FIELD" && it.value == "seriesIndex=" })
+    }
+
+    @Test
+    fun `changing identity or splitting invalidates an earlier merge consent`() {
+        val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), listOf(entry("01.mp3", "Кобзар"), entry("02.mp3", "Кобзар")),
+            listOf(ImportPlanner.ExistingWork("existing", "Кобзар", "кобзар|локальна папка")))
+        val accepted = ImportPlanner.acceptMerge(plan, "folder:Кобзар")
+        assertEquals("existing", accepted.books.single().mergedIntoBookId)
+        val renamed = ImportPlanner.editBook(accepted, "folder:Кобзар", title = "Інша книга")
+        assertNull(renamed.books.single().mergedIntoBookId)
+        assertNull(renamed.books.single().suggestion)
+        assertTrue(ImportPlanner.splitBook(accepted, "folder:Кобзар", 1).books.all { it.mergedIntoBookId == null && it.suggestion == null })
+    }
+
+    @Test
     fun `root files become single-chapter books, folders become multi-chapter books`() {
         val plan = ImportPlanner.buildPlan(
             source = SourceRef.Folder("content://tree"),

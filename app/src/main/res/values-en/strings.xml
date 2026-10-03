@@ -621,4 +621,12 @@
         <item quantity="one">%1$d file</item>
         <item quantity="other">%1$d files</item>
     </plurals>
+    <string name="chapter_order_edit">Edit chapter order</string>
+    <string name="chapter_order_reverse">Reverse order</string>
+    <string name="chapter_order_saving">Saving…</string>
+    <string name="chapter_order_changed">The chapter list changed. Close the editor and open it again.</string>
+    <string name="chapter_order_failed">Could not save chapter order. Try again.</string>
+    <string name="lib_import_split_here">Split before this chapter</string>
+    <string name="metadata_edit_series">Series</string>
+    <string name="metadata_edit_series_index">Volume number</string>
 </resources>

@@ -207,8 +207,8 @@ class SourceCatalog(
         dao, sourceAdapters.firstOrNull { it.sourceId == "lihtar" }, { "lihtar" in refusedAudioSources() }
     )
 
-    private suspend fun audioTracks(source: SourceEntity): List<SourceTrackEntity> =
-        dao.getTracksForSourceSync(source.id).filterNot {
+    private fun audioTracks(tracks: List<SourceTrackEntity>): List<SourceTrackEntity> =
+        tracks.filterNot {
             com.slukhayka.audiobooks.data.source.LihtarAudio.isNavigationAudio(it.url) ||
                 it.url.toHttpUrlOrNull()?.let(com.slukhayka.audiobooks.data.privacy.AudioNoticePolicy::isBlockedAudio) == true
         }
@@ -1399,13 +1399,14 @@ class SourceCatalog(
 
     /** Local alternatives already bound to this Edition; no probing or re-import. */
     suspend fun storedEditionSources(bookId: String): List<List<PlayableChapter>> {
-        val edition = dao.getEditionForWork(bookId) ?: return emptyList()
-        val chapters = dao.getChaptersListForEdition(edition.id)
+        val snapshot = dao.getChapterPlaybackSnapshot(bookId)
+        val edition = snapshot.edition ?: return emptyList()
+        val chapters = snapshot.editionChapters
         if (chapters.isEmpty()) return emptyList()
-        return dao.getSourcesForEditionSync(edition.id)
+        return snapshot.sources.filter { it.editionId == edition.id }
             .filter { it.type !in refusedAudioSources() }
             .map { source ->
-                val tracks = audioTracks(source).associateBy { it.trackIndex }
+                val tracks = audioTracks(snapshot.tracks.filter { it.sourceId == source.id }).associateBy { it.trackIndex }
                 chapters.map { chapter ->
                     PlayableChapter(chapter, tracks[chapter.chapterIndex], source.type, source.url)
                 }
@@ -1628,8 +1629,10 @@ class SourceCatalog(
         // sources are last. Browser-backed tracks are still usable after the
         // listener explicitly imported the page in WebView; the browser is not
         // opened as a side effect here.
-        val editionId = dao.getEditionForWork(bookId)?.id
-        val sources = dao.getSourcesForBookSync(bookId).filter { source ->
+        val snapshot = dao.getChapterPlaybackSnapshot(bookId)
+        chapters = snapshot.chapters
+        val editionId = snapshot.edition?.id
+        val sources = snapshot.sources.filter { it.bookId == bookId }.filter { source ->
             // ADR-0037: audio of a refused source never pairs — its streams
             // and its downloads vanish from this Edition. The local
             // pseudo-source ("local", the listener's own files) is exempt
@@ -1637,7 +1640,7 @@ class SourceCatalog(
             (editionId == null || source.editionId == null || source.editionId == editionId) &&
                 source.type !in refusedAudioSources()
         }
-        val tracksBySource = sources.associateWith { audioTracks(it) }
+        val tracksBySource = sources.associateWith { source -> audioTracks(snapshot.tracks.filter { it.sourceId == source.id }) }
         val orderedSources = SourceAccessPolicy.order(
             sources.map { source ->
                 val tracks = tracksBySource[source].orEmpty()

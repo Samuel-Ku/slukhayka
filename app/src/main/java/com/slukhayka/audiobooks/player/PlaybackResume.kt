@@ -4,7 +4,6 @@ import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -56,9 +55,8 @@ object PlaybackResume {
         // A loaded player is already the listener's choice — never replace it.
         if (playerManager.playerState.value.currentBook != null) return false
 
-        val latest = withContext(ioDispatcher) {
-            libraryEntries.recentProgress.first().maxByOrNull { it.lastListenedAt }
-        } ?: return false
+        val anchor = withContext(ioDispatcher) { libraryEntries.mostRecentListeningAnchor() } ?: return false
+        val latest = anchor.progress
 
         val book = withContext(ioDispatcher) { libraryEntries.getBookSync(latest.bookId) }
             ?: return false
@@ -74,6 +72,7 @@ object PlaybackResume {
                 chapters = playable.map { it.chapter },
                 playable = playable,
                 initialChapterIndex = latest.currentChapterIndex,
+                initialChapterId = anchor.chapterId,
                 initialPositionSeconds = latest.currentPositionSeconds,
                 autoPlay = autoPlay
             )

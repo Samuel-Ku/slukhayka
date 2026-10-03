@@ -116,7 +116,11 @@ _Avoid_: друга база творів, живе джерело істини,
 
 **Chapter**:
 An ordered logical subdivision of one Edition to which positions and bookmarks can be anchored, independent of how a Source divides its files. A Chapter row carries order, title, and duration only — stream URLs, file paths, and content hashes belong to Source tracks.
+Manual chapter order changes Chapter and all SourceTrack indices atomically while retaining their stable ids. Persisted Listening State indices remain in the original order; displayed indices are projected through local order memory (ADR-0056). Progress Sync keeps the original anchor, so devices with different display orders resume the same audio.
 _Avoid_: Track, file
+
+**Manual Chapter Order**:
+A listener's local permutation of an Edition's Chapter/SourceTrack pairs. It survives local rescan and source refresh. It changes neither source identity nor stored bookmark/progress timestamps. New Source tracks arrive in provider order and are projected inside the DAO write transaction; updates to existing track ids retain their current slots. Shared profiles keep provider order. Confirmed topology replacement clears order memory.
 
 **Series**:
 A named bibliographic sequence or cycle containing ordered Works.

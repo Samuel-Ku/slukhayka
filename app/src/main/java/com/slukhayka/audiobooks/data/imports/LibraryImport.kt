@@ -570,11 +570,31 @@ class LibraryImport(
         siblingBookId: String,
         claimedNarrator: String
     ): AudiobookEntity? = withContext(Dispatchers.IO) {
-        if (currentBookId == siblingBookId) return@withContext null
+        val siblingMergeKey = dao.getAudiobookById(siblingBookId)?.mergeKey
+        val merged = localWriteMutex.withLock {
+            var result: AudiobookEntity? = null
+            // The sibling mapping and physical tracks must describe one snapshot.
+            // Room serializes this batch with reorder, attachment and recovery writes.
+            writeBatchRunner { result = claimSameNarrationRows(currentBookId, siblingBookId, claimedNarrator) }
+            result
+        }
+        if (merged != null) runCatching {
+            siblingMergeKey?.takeIf { it.isNotBlank() }?.let { workRelationshipsSync?.pushTombstone(it) }
+        }
+        merged
+    }
+
+    private suspend fun claimSameNarrationRows(
+        currentBookId: String, siblingBookId: String, claimedNarrator: String
+    ): AudiobookEntity? {
+        if (currentBookId == siblingBookId) return null
         val current = dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
-            ?: return@withContext null
-        val sibling = dao.getAudiobookById(siblingBookId)?.toAudiobookEntity()
-            ?: return@withContext null
+            ?: return null
+        if (dao.getAudiobookById(siblingBookId) == null) return null
+        val siblingChapters = dao.getChaptersListForBook(siblingBookId)
+        val siblingOriginalIds = ChapterOrder.originalIds(dao, siblingBookId, siblingChapters)
+            ?: return null
+        val siblingProviderIndices = siblingChapters.associate { it.chapterIndex to siblingOriginalIds.indexOf(it.id) }
         val currentEdition = dao.getEditionForWork(currentBookId)
             ?: EditionEntity(
                 id = EditionId.forBook(current.mergeKey, currentBookId, current.narrator, ""),
@@ -654,6 +674,11 @@ class LibraryImport(
         // sibling's own chapters list stays FIRST-source-logical on the
         // target Edition (ADR-0007 — one Edition owns one list, and the
         // sibling's physical tracks already pair 1:1 by index with it).
+        // Narration claims re-parent the Edition; the target's existing Sources
+        // keep their identities and follow the same rendition.
+        dao.getSourcesForBookSync(currentBookId).forEach { source ->
+            dao.insertSources(listOf(source.copy(editionId = targetEditionId)))
+        }
         val siblingSources = dao.getSourcesForBookSync(siblingBookId)
         val reAnchored = siblingSources.map { source ->
             source.copy(id = "${source.type}-$targetEditionId", bookId = currentBookId, editionId = targetEditionId)
@@ -662,7 +687,8 @@ class LibraryImport(
         val tracks = dao.getTracksForBookSync(siblingBookId).map { track ->
             val sourceId = track.sourceId
             val newSourceId = reAnchoredIdsOldToNew.firstOrNull { it.first == sourceId }?.second ?: sourceId
-            track.copy(id = MetadataAssertions.trackId(newSourceId, track.trackIndex), sourceId = newSourceId)
+            val providerIndex = siblingProviderIndices[track.trackIndex] ?: track.trackIndex
+            track.copy(id = MetadataAssertions.trackId(newSourceId, providerIndex), sourceId = newSourceId, trackIndex = providerIndex)
         }
         dao.insertSources(reAnchored)
         dao.insertTracks(tracks)
@@ -675,9 +701,6 @@ class LibraryImport(
         // row identity hidden from catalogue refreshes (re-imports of the
         // same page re-anchor onto the surviving card instead of spawning a
         // duplicate narration).
-        runCatching {
-            sibling.mergeKey?.takeIf { it.isNotBlank() }?.let { workRelationshipsSync?.pushTombstone(it) }
-        }
         dao.deleteTracksForBook(siblingBookId)
         dao.deleteSourcesForBook(siblingBookId)
         dao.deleteChaptersForBook(siblingBookId)
@@ -688,7 +711,7 @@ class LibraryImport(
         dao.deleteLibraryEntry(siblingBookId)
         dao.deleteAudiobook(siblingBookId)
 
-        dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
+        return dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
     }
 
     /**
@@ -726,6 +749,13 @@ class LibraryImport(
         description = MetadataAssertions.normalizeDescription(profile.description)
     )
 
+    /** Reorders existing Chapter/SourceTrack pairs without rebuilding Listening State. */
+    suspend fun reorderChapters(
+        bookId: String, expectedChapterIds: List<String>, chapterIds: List<String>
+    ): ChapterReorderResult = localWriteMutex.withLock {
+        dao.reorderChapterPairs(bookId, expectedChapterIds, chapterIds)
+    }
+
     /**
      * Spec-32 T4 (#234) — the self-healing door: a 404/403 stream failure
      * during playback re-resolves the book's source page and swaps the fresh
@@ -750,6 +780,7 @@ class LibraryImport(
                 ?: return@withContext null
             // Fail-open: a dead page contributes nothing — the player keeps
             // the honest failure instead of a fabricated retry.
+            val expectedChapterIds = dao.getChaptersListForBook(bookId).map { it.id }
             val detail = try {
                 adapter.fetchBookPage(sourceUrl)
             } catch (e: CancellationException) {
@@ -768,6 +799,10 @@ class LibraryImport(
             if (edition != null && primary.editionId != null && primary.editionId != edition.id) {
                 return@withContext null
             }
+            val chapters = dao.getChaptersListForBook(bookId)
+            if (chapters.map { it.id } != expectedChapterIds) return@withContext null
+            val originalIds = ChapterOrder.originalIds(dao, bookId, chapters) ?: return@withContext null
+            fun providerIndex(index: Int): Int = chapters.getOrNull(index)?.id?.let { originalIds.indexOf(it) } ?: -1
             val tracks = dao.getTracksForSourceSync(primary.id)
             // Order-stability guard (spec-32 T4): the index pairing is only
             // sound while the page still serves the OTHER chapters at their
@@ -778,12 +813,12 @@ class LibraryImport(
             // still heals — no URL survived, nothing to confuse.
             val others = tracks.filter { it.trackIndex != chapterIndex }
             val reordered = others.any { other ->
-                if (detail.chapters.getOrNull(other.trackIndex)?.streamUrl == other.url) return@any false
+                if (detail.chapters.getOrNull(providerIndex(other.trackIndex))?.streamUrl == other.url) return@any false
                 // The old URL survived but sits at another index — a swap.
                 detail.chapters.any { it.streamUrl == other.url }
             }
             if (reordered) return@withContext null
-            val fresh = detail.chapters.getOrNull(chapterIndex) ?: return@withContext null
+            val fresh = detail.chapters.getOrNull(providerIndex(chapterIndex)) ?: return@withContext null
             // The page still serves the same dead link (or a non-http one) —
             // nothing to heal, and no pointless retry.
             val freshHttpUrl = fresh.streamUrl.toHttpUrlOrNull()
@@ -793,7 +828,7 @@ class LibraryImport(
             val track = tracks.firstOrNull { it.trackIndex == chapterIndex }
                 ?: return@withContext null
             if (track.url != failedUrl) return@withContext null
-            dao.insertTracks(listOf(track.copy(url = fresh.streamUrl)))
+            if (!dao.healTrackUrl(bookId, expectedChapterIds, track, fresh.streamUrl)) return@withContext null
             // A successfully re-resolved page refreshes the shared profile,
             // rolling its freshness — best-effort, silent on failure. Keyed by
             // the STORED source id (the same key the import doors use), so an
@@ -1022,12 +1057,14 @@ class LibraryImport(
             return@withContext null
         }
         val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
+        val originalIds = ChapterOrder.originalIds(dao, bookId, logicalChapters) ?: return@withContext null
+        val originalChapters = originalIds.map { id -> logicalChapters.first { it.id == id } }
         if (!RecoveryIdentityGuard.matches(
                 storedTitle = storedBook.title,
                 storedAuthor = storedBook.author,
                 storedNarrator = edition?.narrator.orEmpty(),
                 storedLanguage = edition?.language.orEmpty(),
-                storedChapterTitles = logicalChapters.map { it.title },
+                storedChapterTitles = originalChapters.map { it.title },
                 captured = detail
             )) {
             // Same-count pages can still be reordered. Refuse the update rather
@@ -1039,10 +1076,11 @@ class LibraryImport(
         if (tracks.map { it.trackIndex } != detail.chapters.indices.toList()) return@withContext null
 
         // All guards passed — refresh the physical URLs in place.
-        val refreshed = detail.chapters.mapIndexed { index, chapter ->
-            tracks[index].copy(url = chapter.streamUrl)
+        val urls = tracks.map { track ->
+            val chapterId = logicalChapters[track.trackIndex].id
+            detail.chapters[originalIds.indexOf(chapterId)].streamUrl
         }
-        dao.insertTracks(refreshed)
+        if (!dao.refreshTrackUrls(bookId, logicalChapters.map { it.id }, tracks, urls)) return@withContext null
         dao.getAudiobookById(bookId)?.toAudiobookEntity()
     }
 
@@ -1809,10 +1847,13 @@ class LibraryImport(
                 } else {
                     insertLocalBook(
                         title = book.title.ifBlank { "Аудіокнига" },
-                        author = book.author.ifBlank { LOCAL_FILE_AUTHOR },
+                        author = book.author,
                         description = "Імпортовано через прев'ю — ${chapters.size} файл(ів)",
                         chapters = chapters,
-                        sourceTreeUri = sourceTreeUri
+                        sourceTreeUri = sourceTreeUri,
+                        narrator = book.narrator,
+                        seriesTitle = book.seriesTitle,
+                        seriesIndex = book.seriesIndex
                     )
                     booksImported++
                 }
@@ -2061,12 +2102,15 @@ class LibraryImport(
         author: String,
         description: String,
         chapters: List<LocalChapterInput>,
-        sourceTreeUri: String? = null
+        sourceTreeUri: String? = null,
+        narrator: String = "Локальний аудіофайл",
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null
     ): AudiobookEntity {
         var created: AudiobookEntity? = null
         try {
             writeBatchRunner {
-                created = writeLocalBookRows(title, author, description, chapters, sourceTreeUri)
+                created = writeLocalBookRows(title, author, description, chapters, sourceTreeUri, narrator, seriesTitle, seriesIndex)
             }
         } catch (e: Exception) {
             // Roll back the promoted copies of THIS attempt; a cleanup failure
@@ -2082,7 +2126,10 @@ class LibraryImport(
         author: String,
         description: String,
         chapters: List<LocalChapterInput>,
-        sourceTreeUri: String? = null
+        sourceTreeUri: String? = null,
+        narrator: String = "Локальний аудіофайл",
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null
     ): AudiobookEntity {
         val bookId = "local-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
         // ADR-0009: downloadProgress is a Library Entry concern — written to
@@ -2091,7 +2138,7 @@ class LibraryImport(
             id = bookId,
             title = title,
             author = author,
-            narrator = "Локальний аудіофайл",
+            narrator = narrator,
             description = description,
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
             coverImageUrl = null,
@@ -2104,6 +2151,9 @@ class LibraryImport(
             sourceTreeUri = sourceTreeUri
         )
         dao.insertAudiobooks(listOf(book))
+        if (!seriesTitle.isNullOrBlank()) {
+            dao.upsertWork(WorkEntity(id = bookId, mergeKey = "", title = title, author = author, seriesTitle = seriesTitle, seriesIndex = seriesIndex))
+        }
         // ADR-0009: a local book is a Library Entry anchored to its own id
         // (blank identity — no Works row), carrying the download progress the
         // audiobooks row no longer holds.

@@ -72,12 +72,13 @@ class SpeedAndRewindManagerTest {
 
     private fun managerTest(
         settings: PlaybackSettings? = null,
+        listening: ListeningStateStore = listeningState,
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
         val manager = AudioPlayerManager(
             context,
-            listeningState,
+            listening,
             // ADR-0007: the fetcher yields chapter→track pairs (chapter rows
             // carry no stream URLs); these tests only assert positions/speeds.
             { dao.getChaptersListForBook(it).map { ch -> com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(ch, null) } },
@@ -97,6 +98,103 @@ class SpeedAndRewindManagerTest {
     // ---------------------------------------------------------------------
     // Wayfinder #26: per-book speed memory and the global default
     // ---------------------------------------------------------------------
+
+    @Test
+    fun `editing chapter order retains the active audio position speed timer and seek undo`() = managerTest { manager, factory ->
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 42L, autoPlay = false)
+        factory.current.simulateReady(1_800_000L)
+        manager.setPlaybackSpeed(1.5f)
+        manager.setSleepTimer(10)
+        manager.seekTo(600_000L)
+        val before = manager.playerState.value
+        val reversed = playable.reversed().mapIndexed { index, item -> item.copy(chapter = item.chapter.copy(chapterIndex = index), track = item.track?.copy(trackIndex = index)) }
+        manager.commitChapterOrder(book.id, reversed.map { it.chapter.id })
+        factory.current.simulateReady(1_800_000L)
+        val after = manager.playerState.value
+        assertEquals(chapters[0].id, after.chapters[after.currentChapterIndex].id)
+        assertEquals(before.currentPositionMs, after.currentPositionMs)
+        assertEquals(before.isPlaying, after.isPlaying)
+        assertEquals(before.sleepTimerMinutes, after.sleepTimerMinutes)
+        assertEquals(before.playbackSpeed, after.playbackSpeed, SPEED_TOLERANCE)
+        manager.undoLastSeek()
+        assertEquals(42_000L, manager.playerState.value.currentPositionMs)
+        assertEquals(chapters[0].id, manager.playerState.value.chapters[manager.playerState.value.currentChapterIndex].id)
+    }
+
+    @Test
+    fun `a load resolved before saving uses the committed order and the same chapter`() = managerTest { manager, factory ->
+        val reversed = playable.reversed().mapIndexed { index, item ->
+            item.copy(chapter = item.chapter.copy(chapterIndex = index), track = item.track?.copy(trackIndex = index))
+        }
+        // Save completes before the outstanding source read hands its stale queue to Play.
+        manager.commitChapterOrder(book.id, reversed.map { it.chapter.id })
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 42L, autoPlay = false)
+        factory.current.simulateReady(1_800_000L)
+        val state = manager.playerState.value
+        assertEquals(reversed.map { it.chapter.id }, state.chapters.map { it.id })
+        assertEquals(chapters[0].id, state.chapters[state.currentChapterIndex].id)
+        assertEquals(42_000L, state.currentPositionMs)
+        assertEquals(playable[0].track!!.url, state.currentStreamUrl)
+    }
+
+    @Test
+    fun `a fresh resume anchor and an older queue still start the same audio`() = managerTest { manager, factory ->
+        manager.commitChapterOrder(book.id, chapters.reversed().map { it.id })
+        // Progress was read after commit (display 0), while the queue was read before it.
+        val resumeId = chapters.last().id
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0,
+            initialChapterId = resumeId, initialPositionSeconds = 42L, autoPlay = false)
+        factory.current.simulateReady(1_800_000L)
+        val state = manager.playerState.value
+        assertEquals(resumeId, state.chapters[state.currentChapterIndex].id)
+        assertEquals(playable.last().track!!.url, state.currentStreamUrl)
+        assertEquals(42_000L, state.currentPositionMs)
+    }
+
+    @Test
+    fun `confirmed structure repair discards manual order even when chapter ids are reused`() = managerTest { manager, _ ->
+        manager.commitChapterOrder(book.id, chapters.reversed().map { it.id })
+        manager.clearCommittedChapterOrder(book.id)
+        val extra = playable.last().copy(chapter = chapters.last().copy(id = "repaired-extra", chapterIndex = chapters.size), track = playable.last().track?.copy(id = "extra-track", trackIndex = chapters.size, url = "https://cdn.test/extra.mp3"))
+        val repaired = playable + extra
+        manager.loadAndPlayBook(book, repaired.map { it.chapter }, playable = repaired, autoPlay = false)
+        assertEquals(repaired.map { it.chapter.id }, manager.playerState.value.chapters.map { it.id })
+        assertEquals(0, manager.playerState.value.currentChapterIndex)
+    }
+
+    @Test
+    fun `persisted seek undo arriving after reorder retains its stable chapter`() {
+        var target: AudioPlayerManager? = null
+        var crossed = false
+        val delayedDao = object : com.slukhayka.audiobooks.data.db.AudiobookDao by dao {
+            override suspend fun getChapterOrderRows(bookId: String): List<com.slukhayka.audiobooks.data.db.ChapterOrderRow> {
+                val before = dao.getChapterOrderRows(bookId)
+                if (!crossed && bookId == book.id) {
+                    crossed = true
+                    before.reversed().forEachIndexed { index, row -> dao.updateChapterIndex(row.chapter.id, index) }
+                    dao.upsertCorrection(com.slukhayka.audiobooks.data.db.CorrectionEntity(
+                        mergeKey = "chapter-order:${book.id}", kind = "FIELD", value = com.slukhayka.audiobooks.data.imports.ChapterOrder.encode(before.map { it.chapter.id })))
+                    target!!.commitChapterOrder(book.id, before.reversed().map { it.chapter.id })
+                }
+                return before
+            }
+        }
+        managerTest(listening = ListeningStateStore(delayedDao, dispatcher)) { manager, factory ->
+            target = manager
+            dao.insertPlaybackEvent(com.slukhayka.audiobooks.data.db.PlaybackEventEntity(bookId = book.id,
+                kind = "SEEK", chapterIndex = 0, positionSeconds = 600L, fromPositionSeconds = 42L, timestamp = clockMs))
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialPositionSeconds = 600L, autoPlay = false)
+            testScheduler.runCurrent()
+            assertTrue(crossed)
+            assertTrue(manager.playerState.value.canUndoSeek)
+            manager.undoLastSeek()
+            factory.current.simulateReady(1_800_000L)
+            val state = manager.playerState.value
+            assertEquals(chapters[0].id, state.chapters[state.currentChapterIndex].id)
+            assertEquals(playable[0].track!!.url, state.currentStreamUrl)
+            assertEquals(42_000L, state.currentPositionMs)
+        }
+    }
 
     @Test
     fun `load applies the book's preferred speed`() = managerTest { manager, _ ->

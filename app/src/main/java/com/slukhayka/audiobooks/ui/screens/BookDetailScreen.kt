@@ -202,6 +202,13 @@ fun BookDetailScreen(
     // Spec-53 T7 — the correction dialog and the shared-base gate.
     val bookPublishedSubmission by viewModel.bookPublishedSubmission.collectAsState()
     var showMetadataDialog by remember(currentBook.id) { mutableStateOf(false) }
+    var chapterOrderSnapshot by remember(currentBook.id) { mutableStateOf<List<ChapterEntity>?>(null) }
+    var savingChapterOrder by remember { mutableStateOf(false) }
+    var chapterOrderError by remember { mutableStateOf<String?>(null) }
+    val chapterOrderScope = rememberCoroutineScope()
+    RestoreFocusAfterModal(modalVisible = chapterOrderSnapshot != null, returnFocusRequester = deleteTriggerFocusRequester)
+    val chapterOrderChangedMessage = stringResource(R.string.chapter_order_changed)
+    val chapterOrderFailedMessage = stringResource(R.string.chapter_order_failed)
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
     val isDownloadPaused = currentBook.downloadState == DownloadState.PAUSED
@@ -541,7 +548,7 @@ fun BookDetailScreen(
         modifier = Modifier.accessibilityModalBackground(
             modalVisible = showAddToCollection || showAddBookmarkDialog || showDeleteSheet || showDeleteDialog ||
                 showReviewForm || bookmarkToDelete != null || reviewToDelete != null ||
-                showNarrationRatingDeleteConfirm
+                showNarrationRatingDeleteConfirm || chapterOrderSnapshot != null || showMetadataDialog
         ),
         bottomBar = {
             // #396 — the selective-download bar: selected count + priced
@@ -712,6 +719,18 @@ fun BookDetailScreen(
                                     viewModel.setCompleted(currentBook.id, !isListenedThis)
                                 }
                             )
+                            if (chapters.size > 1) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.chapter_order_edit)) },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                    modifier = Modifier.testTag("book_detail_chapter_order"),
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        chapterOrderError = null
+                                        chapterOrderSnapshot = chapters.toList()
+                                    }
+                                )
+                            }
                             // Spec-53 T7 — a bad parse is fixable, locally…
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.book_detail_correct_metadata)) },
@@ -1171,7 +1190,7 @@ fun BookDetailScreen(
                             if (isCurrentChapter) {
                                 viewModel.playerManager.play()
                             } else {
-                                viewModel.playAudiobook(currentBook, chapterIndex = index)
+                                viewModel.playAudiobook(currentBook, chapterIndex = index, chapterId = chapter.id)
                             }
                             viewModel.setShowFullPlayer(true)
                         },
@@ -1555,6 +1574,35 @@ fun BookDetailScreen(
             dismissButton = {
                 TextButton(onClick = { pendingChapterDeleteIndex = null }) {
                     Text(stringResource(R.string.book_detail_cancel))
+                }
+            }
+        )
+    }
+
+    chapterOrderSnapshot?.let { snapshot ->
+        com.slukhayka.audiobooks.ui.components.ChapterOrderDialog(
+            chapters = snapshot,
+            saving = savingChapterOrder,
+            errorMessage = chapterOrderError,
+            onDismiss = { chapterOrderSnapshot = null },
+            onSave = { ids ->
+                chapterOrderScope.launch {
+                    savingChapterOrder = true
+                    chapterOrderError = null
+                    try {
+                        when (viewModel.reorderImportedChapters(currentBook.id, snapshot.map { it.id }, ids)) {
+                            com.slukhayka.audiobooks.data.imports.ChapterReorderResult.APPLIED,
+                            com.slukhayka.audiobooks.data.imports.ChapterReorderResult.UNCHANGED -> chapterOrderSnapshot = null
+                            com.slukhayka.audiobooks.data.imports.ChapterReorderResult.STALE -> chapterOrderError = chapterOrderChangedMessage
+                            else -> chapterOrderError = chapterOrderFailedMessage
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        chapterOrderError = chapterOrderFailedMessage
+                    } finally {
+                        savingChapterOrder = false
+                    }
                 }
             }
         )

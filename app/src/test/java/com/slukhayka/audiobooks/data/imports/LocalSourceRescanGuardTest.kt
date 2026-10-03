@@ -67,6 +67,38 @@ class LocalSourceRescanGuardTest {
     }
 
     @Test
+    fun `confirmed preview installs all metadata including narrator series and volume`() = runBlocking {
+        val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree/books"), listOf(entry("01.mp3", 1), entry("02.mp3", 2)))
+        val edited = ImportPlanner.editBook(plan, plan.books.single().id, title = "Поезії", author = "Тарас Шевченко", narrator = "Диктор", seriesTitle = "Збірки", seriesIndex = 2)
+        assertTrue(dao.getAllAudiobooksOnce().isEmpty())
+        assertEquals(1, imports().applyImportPlan(edited, "content://tree/books").booksImported)
+        val book = dao.getAllAudiobooksOnce().single()
+        assertEquals("Поезії", book.title)
+        assertEquals("Тарас Шевченко", book.author)
+        assertEquals("Диктор", book.narrator)
+        assertEquals("Збірки", book.seriesTitle)
+        assertEquals(2, book.seriesIndex)
+        assertEquals("Диктор", dao.getEditionForWork(book.id)!!.narrator)
+    }
+
+    @Test
+    fun `rescan retains manual order and extends original anchors only for appended chapters`() = runBlocking {
+        val id = importTwoChapters()
+        val before = dao.getChaptersListForBook(id)
+        val listening = com.slukhayka.audiobooks.data.listening.ListeningStateStore(dao)
+        listening.updateProgress(id, 0, 42L)
+        val saved = dao.getPlaybackProgressSync(id)
+        assertEquals(ChapterReorderResult.APPLIED, imports().reorderChapters(id, before.map { it.id }, before.reversed().map { it.id }))
+        val report = imports().rescanAudioEntries(listOf(entry("01.mp3", 1), entry("02.mp3", 2), entry("00.mp3", 3)), "content://tree/books")
+        assertEquals(1, report.newChapters)
+        assertEquals(before.reversed().map { it.id }, dao.getChaptersListForBook(id).take(2).map { it.id })
+        assertEquals(saved, dao.getPlaybackProgressSync(id))
+        assertEquals(1, listening.getProgressSync(id)!!.currentChapterIndex)
+        listening.updateProgress(id, 2, 7L)
+        assertEquals(2, dao.getPlaybackProgressSync(id)!!.currentChapterIndex)
+    }
+
+    @Test
     fun `a structural change on a mixed-Source Edition is rejected with zero writes`() = runBlocking {
         val bookId = importTwoChapters()
         val edition = dao.getEditionForWork(bookId)!!

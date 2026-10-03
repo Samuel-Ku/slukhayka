@@ -12,6 +12,8 @@ import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import com.slukhayka.audiobooks.data.imports.ChapterOrder
 import kotlinx.coroutines.withContext
 
 /**
@@ -53,9 +55,18 @@ class ListeningStateStore(
                 EditionId.forBook(it.mergeKey ?: "", bookId, it.narrator)
             }
 
-    fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> = dao.getPlaybackProgress(bookId)
+    fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> =
+        combine(dao.getPlaybackProgress(bookId), dao.observeChapterOrderRows()) { row, orderRows ->
+            val rows = orderRows.filter { it.chapter.bookId == bookId }
+            val indices = ChapterOrder.displayedIndices(rows.map { it.chapter }, rows.firstOrNull()?.orderMemory)
+            row?.copy(currentChapterIndex = indices?.getOrNull(row.currentChapterIndex) ?: row.currentChapterIndex)
+        }
 
-    suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = dao.getPlaybackProgressSync(bookId)
+    /** Stable resume identity survives an order commit between this read and Play. */
+    suspend fun getAnchoredProgress(bookId: String): AnchoredProgress? =
+        dao.getPlaybackProgressSync(bookId)?.let { ChapterOrder.anchorProgress(dao, it) }
+
+    suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = getAnchoredProgress(bookId)?.progress
 
     /**
      * Persists the playback position of one Edition (ADR-0007). The source is
@@ -63,9 +74,18 @@ class ListeningStateStore(
      * rendition, so a source switch mid-book keeps the position.
      */
     suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long) =
+        saveAnchoredProgress(bookId, ChapterOrder.anchorIndex(dao, bookId, chapterIndex), positionSeconds)
+
+    /** Capture the stable Chapter before launching an asynchronous player save. */
+    suspend fun updateProgressForChapter(bookId: String, chapterId: String, positionSeconds: Long) {
+        val anchor = ChapterOrder.anchorIndexForChapter(dao, bookId, chapterId) ?: return
+        saveAnchoredProgress(bookId, anchor, positionSeconds)
+    }
+
+    private suspend fun saveAnchoredProgress(bookId: String, anchorIndex: Int, positionSeconds: Long) =
         updateRow(bookId) { row ->
             row.copy(
-                currentChapterIndex = chapterIndex,
+                currentChapterIndex = anchorIndex,
                 currentPositionSeconds = positionSeconds,
                 lastListenedAt = System.currentTimeMillis()
             )
@@ -156,17 +176,21 @@ class ListeningStateStore(
         positionSeconds: Long,
         sourceKey: String = "",
         fromPositionSeconds: Long? = null,
-        timestampMs: Long = System.currentTimeMillis()
+        timestampMs: Long = System.currentTimeMillis(),
+        chapterId: String? = null
     ) {
         // ADR-0007: the event log is HISTORY — new rows write sourceKey = ""
         // (progress re-keyed to the Edition; the source is not part of the
         // listening identity anymore).
+        val anchorIndex = if (chapterId == null) ChapterOrder.anchorIndex(dao, bookId, chapterIndex) else {
+            ChapterOrder.anchorIndexForChapter(dao, bookId, chapterId) ?: return
+        }
         dao.insertPlaybackEvent(
             PlaybackEventEntity(
                 bookId = bookId,
                 sourceKey = "",
                 kind = kind,
-                chapterIndex = chapterIndex,
+                chapterIndex = anchorIndex,
                 positionSeconds = positionSeconds,
                 fromPositionSeconds = fromPositionSeconds,
                 timestamp = timestampMs,
@@ -181,9 +205,13 @@ class ListeningStateStore(
      * event whose jump met the threshold (pure policy). Null when there is
      * nothing undoable — the caller shows no «Повернутися» offer.
      */
-    suspend fun lastUndoCandidate(bookId: String, sourceKey: String = ""): PlaybackEventEntity? {
-        val latest = dao.getLatestUndoCandidate(bookId, sourceKey) ?: return null
-        return if (PlaybackEventPolicy.isUndoCandidate(latest)) latest else null
+    suspend fun lastUndoCandidate(bookId: String, sourceKey: String = ""): PlaybackEventEntity? =
+        lastAnchoredUndoCandidate(bookId, sourceKey)?.event
+
+    suspend fun lastAnchoredUndoCandidate(bookId: String, sourceKey: String = ""): AnchoredPlaybackEvent? {
+        val latest = dao.getLatestUndoCandidate(bookId, sourceKey)?.takeIf(PlaybackEventPolicy::isUndoCandidate) ?: return null
+        val anchor = ChapterOrder.resolveAnchor(dao, bookId, latest.chapterIndex)
+        return AnchoredPlaybackEvent(latest.copy(chapterIndex = anchor.displayedIndex), anchor.chapterId)
     }
 
     /**
@@ -242,12 +270,29 @@ class ListeningStateStore(
 
     // --- Bookmarks (anchored to the Edition, ADR-0007) ---------------------
 
-    fun observeBookmarks(bookId: String): Flow<List<BookmarkEntity>> = dao.getBookmarksForBook(bookId)
+    fun observeBookmarks(bookId: String): Flow<List<BookmarkEntity>> =
+        combine(dao.getBookmarksForBook(bookId), dao.observeChapterOrderRows()) { rows, orderRows ->
+            val bookRows = orderRows.filter { it.chapter.bookId == bookId }
+            val indices = ChapterOrder.displayedIndices(bookRows.map { it.chapter }, bookRows.firstOrNull()?.orderMemory)
+            rows.map { it.copy(chapterIndex = indices?.getOrNull(it.chapterIndex) ?: it.chapterIndex) }
+        }
+
+    /** Resolve the stored anchor, rather than a possibly stale display row from the UI. */
+    suspend fun chapterIdForBookmark(bookmark: BookmarkEntity): String? {
+        val stored = dao.getBookmarkById(bookmark.id)?.takeIf { it.bookId == bookmark.bookId } ?: return null
+        val rows = dao.getChapterOrderRows(stored.bookId)
+        return ChapterOrder.originalIds(rows.map { it.chapter }, rows.firstOrNull()?.orderMemory)?.getOrNull(stored.chapterIndex)
+    }
 
     /** Inserts a bookmark, filling the Edition anchor when the caller didn't. */
-    suspend fun addBookmark(bookmark: BookmarkEntity) {
+    suspend fun addBookmark(bookmark: BookmarkEntity, chapterId: String? = null) {
         val editionId = bookmark.editionId ?: editionIdOf(bookmark.bookId)
-        dao.insertBookmark(if (editionId != null) bookmark.copy(editionId = editionId) else bookmark)
+        val anchorIndex = if (chapterId == null) {
+            ChapterOrder.anchorIndex(dao, bookmark.bookId, bookmark.chapterIndex)
+        } else {
+            ChapterOrder.anchorIndexForChapter(dao, bookmark.bookId, chapterId) ?: return
+        }
+        dao.insertBookmark(bookmark.copy(editionId = editionId, chapterIndex = anchorIndex))
     }
 
     suspend fun deleteBookmark(bookmarkId: Long) = dao.deleteBookmark(bookmarkId)

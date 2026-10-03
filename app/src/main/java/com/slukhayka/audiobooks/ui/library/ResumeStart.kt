@@ -33,12 +33,14 @@ data class ResumeStart(
 fun computeResumeStart(
     requestedChapter: Int?,
     progress: PlaybackProgressEntity?,
-    nowEpochMs: Long
+    nowEpochMs: Long,
+    requestedChapterId: String? = null,
+    progressChapterId: String? = null
 ): ResumeStart {
     val startChapter = requestedChapter ?: progress?.currentChapterIndex ?: 0
     val startPositionSec = when {
         requestedChapter != null ->
-            if (progress != null && progress.currentChapterIndex == requestedChapter) {
+            if (progress != null && (if (requestedChapterId != null) requestedChapterId == progressChapterId else progress.currentChapterIndex == requestedChapter)) {
                 progress.currentPositionSeconds
             } else 0L
         else -> progress?.currentPositionSeconds ?: 0L

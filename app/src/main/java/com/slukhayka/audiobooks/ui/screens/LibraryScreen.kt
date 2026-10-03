@@ -969,6 +969,8 @@ fun LibraryScreen(
                 preview = preview,
                 onAcceptMerge = viewModel::acceptMergeInPreview,
                 onRejectMerge = viewModel::rejectMergeInPreview,
+                onReorderChapters = viewModel::reorderChaptersInPreview,
+                onEditBookTitle = { bookId, title -> viewModel.editBookInPreview(bookId, title = title) },
                 onConfirm = viewModel::confirmImportPreview,
                 onDismiss = viewModel::dismissImportPreview
             )
@@ -2660,11 +2662,15 @@ fun ImportPreviewDialog(
     preview: com.slukhayka.audiobooks.ui.MainViewModel.ImportPreviewState,
     onAcceptMerge: (String) -> Unit,
     onRejectMerge: (String) -> Unit,
+    onReorderChapters: (String, List<Int>) -> Unit,
+    onEditBookTitle: (String, String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
     val headingFocusRequester = remember { FocusRequester() }
+    // #1049 — which planned book the rename field is open for, if any.
+    var renamingBookId by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
@@ -2727,6 +2733,23 @@ fun ImportPreviewDialog(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            // #1049 / #1052 — the plan is still editable here,
+                            // which is the whole point of a preview: the order
+                            // the source gave can be wrong (a YouTube playlist
+                            // arrives newest-first, #1051) and a folder of
+                            // loose files becomes a heap of one-chapter books
+                            // (#1052). Both are the listener's call, never a
+                            // guess of ours.
+                            BookCorrectionRow(
+                                book = book,
+                                onMoveChapter = { from, to ->
+                                    onReorderChapters(
+                                        book.id,
+                                        movedOrder(book.chapters.size, from, to)
+                                    )
+                                },
+                                onRename = { renamingBookId = book.id }
+                            )
                             val suggestion = book.suggestion
                             if (suggestion != null && book.mergedIntoBookId == null) {
                                 Text(
@@ -2786,6 +2809,141 @@ fun ImportPreviewDialog(
                 onClick = onDismiss,
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
+
+    renamingBookId?.let { bookId ->
+        val book = preview.plan.books.firstOrNull { it.id == bookId }
+        if (book != null) {
+            RenameBookDialog(
+                initialTitle = book.title,
+                onConfirm = { title ->
+                    onEditBookTitle(bookId, title)
+                    renamingBookId = null
+                },
+                onDismiss = { renamingBookId = null }
+            )
+        }
+    }
+}
+
+/**
+ * #1049 — the order control for one planned book. Moving a chapter moves it
+ * **with its track**: `ImportPlanner.reorderChapters` reorders the planned
+ * `chapters` list, and ADR-0007 pairs chapter→track by index, so a change that
+ * touched only a title would play the wrong audio (the same reason
+ * `LibraryImport.refreshStreamUrl` refuses to heal a reordered page at all).
+ *
+ * The buttons are the honest minimum for a preview: one step up, one step
+ * down. A drag handle would need the whole row to be a drag target inside a
+ * bounded, scrolled dialog — arrows say the same thing without a gesture the
+ * listener has to discover.
+ */
+@Composable
+private fun BookCorrectionRow(
+    book: com.slukhayka.audiobooks.data.imports.PlannedBook,
+    onMoveChapter: (Int, Int) -> Unit,
+    onRename: () -> Unit
+) {
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        TextButton(
+            onClick = onRename,
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("import_preview_rename_${book.id}")
+        ) {
+            Text(stringResource(R.string.lib_import_rename_book))
+        }
+        if (book.chapters.size > 1) {
+            Text(
+                text = stringResource(R.string.lib_import_chapter_order),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            book.chapters.forEachIndexed { index, chapter ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${index + 1}. ${chapter.title.ifBlank { chapter.file.fileName }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = { onMoveChapter(index, index - 1) },
+                        enabled = index > 0,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("import_preview_up_${book.id}_$index")
+                    ) {
+                        Text(stringResource(R.string.lib_import_move_up))
+                    }
+                    TextButton(
+                        onClick = { onMoveChapter(index, index + 1) },
+                        enabled = index < book.chapters.size - 1,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("import_preview_down_${book.id}_$index")
+                    ) {
+                        Text(stringResource(R.string.lib_import_move_down))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The permutation that moves the chapter at [from] one step toward [to],
+ * leaving every other position untouched. Built here so the UI never has to
+ * reason about index arithmetic, and so the planner keeps receiving a plain
+ * permutation of the CURRENT indices (its own contract).
+ */
+internal fun movedOrder(size: Int, from: Int, to: Int): List<Int> {
+    if (from !in 0 until size || to !in 0 until size || from == to) return List(size) { it }
+    val order = MutableList(size) { it }
+    val moved = order.removeAt(from)
+    order.add(to, moved)
+    return order
+}
+
+/** #1049 — renaming a planned book; the planner remembers it as a FIELD correction. */
+@Composable
+private fun RenameBookDialog(
+    initialTitle: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var title by remember { mutableStateOf(initialTitle) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("import_preview_rename_dialog"),
+        title = { Text(stringResource(R.string.lib_import_rename_book)) },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.lib_import_title_label)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("import_preview_rename_field")
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(title.trim()) },
+                enabled = title.isNotBlank(),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("import_preview_rename_confirm")
+            ) {
+                Text(stringResource(R.string.lib_import_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(stringResource(R.string.action_cancel))
             }
         }

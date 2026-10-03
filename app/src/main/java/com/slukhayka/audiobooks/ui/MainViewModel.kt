@@ -5057,21 +5057,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val playable = sourceCatalog.getPlayableChapters(bookmark.bookId)
             val chapters = playable.map { it.chapter }
 
+            // #1081 — a chapter index is not durable. A bookmark made before
+            // the Chapter list shrank (short `/play` answers cut it — cf. the
+            // closed #1035 / #1037) points past the end, and `loadAndPlayBook`
+            // merely clamps it: the listener lands at the very end of the last
+            // chapter and the audio never starts. When the anchor no longer
+            // fits, open the book honestly at its saved position instead of
+            // pretending the anchor still means something.
+            val anchorChapter: Int
+            val anchorPosition: Long
+            if (bookmark.chapterIndex in chapters.indices) {
+                anchorChapter = bookmark.chapterIndex
+                anchorPosition = bookmark.timestampSeconds
+            } else {
+                val progress = listeningState.getProgressSync(bookmark.bookId)
+                anchorChapter = progress?.currentChapterIndex?.takeIf { it in chapters.indices } ?: 0
+                anchorPosition = progress?.currentPositionSeconds ?: 0L
+                _bookmarkMessage.value = bookmarkChapterGoneMessage
+            }
+
+            // #1081 — a bookmark tap used to be a SECOND, weaker door into the
+            // player: it skipped the two guards every normal start passes
+            // through, so a session that had failed before kept its stale
+            // error on screen, and the automatic-recovery gate was never armed
+            // for the attempt this tap installs. Both now happen here too.
+            // (The preferred source is not resolved: the anchor the listener
+            // chose IS the anchor — `(editionId, chapterIndex, time)` per the
+            // ticket's «не вгадувати джерело чи розділ замість якоря».)
             viewModelScope.launch(Dispatchers.Main) {
                 if (playerState.value.currentBook?.id != bookmark.bookId) {
+                    playerManager.clearPlaybackFailureForNewAttempt()
+                    automaticPlaybackRecoveryGate.arm(book.id)
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,
                         playable = playable,
-                        initialChapterIndex = bookmark.chapterIndex,
-                        initialPositionSeconds = bookmark.timestampSeconds,
+                        initialChapterIndex = anchorChapter,
+                        initialPositionSeconds = anchorPosition,
                         autoPlay = true
                     )
                 } else {
-                    if (playerState.value.currentChapterIndex != bookmark.chapterIndex) {
-                        playerManager.selectChapter(bookmark.chapterIndex)
+                    if (playerState.value.currentChapterIndex != anchorChapter) {
+                        playerManager.selectChapter(anchorChapter)
                     }
-                    playerManager.seekTo(bookmark.timestampSeconds * 1000L)
+                    playerManager.seekTo(anchorPosition * 1000L)
                     playerManager.play()
                 }
                 _showFullPlayer.value = true
@@ -5623,6 +5652,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * #1049 — manual chapter order, the promise made to Andrii_Bryzh in the
+     * community chat («в майбутньому додам можливість редагування
+     * послідовності вже доданої книги»). The first slice is the preview the
+     * plan is still editable in: `ImportPlanner.reorderChapters` has existed
+     * since wayfinder #29 but nothing called it.
+     *
+     * [newOrder] holds the CURRENT indices in their new order — the same
+     * contract as the planner, so the two never disagree about direction.
+     * A permutation of the wrong size or with repeats is refused by the
+     * planner itself (it returns the plan unchanged), not by a guess here.
+     */
+    fun reorderChaptersInPreview(bookId: String, newOrder: List<Int>) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(
+            plan = ImportPlanner.reorderChapters(preview.plan, bookId, newOrder)
+        )
+    }
+
+    /**
+     * #1052 — «Додати папку» on a folder whose files lie in it gave a heap of
+     * one-chapter books instead of one book with chapters, because the planner
+     * treats the tree root as a container of books. The listener chose a folder
+     * that IS a book, so the preview must be able to say so.
+     *
+     * This splits [bookId] at [chapterIndex] — the same shape as
+     * [ImportPlanner.splitBook] — and the UI drives it to merge the loose root
+     * files back into one book.
+     */
+    fun splitBookInPreview(bookId: String, chapterIndex: Int) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(
+            plan = ImportPlanner.splitBook(preview.plan, bookId, chapterIndex)
+        )
+    }
+
+    /**
+     * #1049/#1052 — the preview's metadata correction. `ImportPlanner.editBook`
+     * also records a remembered FIELD correction, so the listener's title (or
+     * the book name they confirm for a folder) survives the next rescan instead
+     * of being overwritten by the source's.
+     */
+    fun editBookInPreview(
+        bookId: String,
+        title: String? = null,
+        author: String? = null,
+        narrator: String? = null,
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null
+    ) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(
+            plan = ImportPlanner.editBook(
+                plan = preview.plan,
+                bookId = bookId,
+                title = title,
+                author = author,
+                narrator = narrator,
+                seriesTitle = seriesTitle,
+                seriesIndex = seriesIndex
+            )
+        )
+    }
+
+    /**
      * Re-scans every previously imported local folder (wayfinder #42): walks
      * the SAF trees, diffs by content hash, adds new chapters/books, and
      * reports missing/moved/duplicate files. Nothing is ever deleted.
@@ -5666,6 +5759,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** #1081 — rides resources, not code: this is text a listener reads. */
     private val bookmarkUnavailableMessage: String
         get() = getApplication<Application>().getString(R.string.bookmark_book_unavailable)
+
+    /**
+     * #1081 — the anchor's chapter no longer exists (the Chapter list shrank
+     * after the bookmark was made). The book still opens, at its saved
+     * position; this says why the tap did not land where it said.
+     */
+    private val bookmarkChapterGoneMessage: String
+        get() = getApplication<Application>().getString(R.string.bookmark_chapter_gone)
 
     /** The pending smart-import preview (wayfinder #29), null when none. */
     private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)

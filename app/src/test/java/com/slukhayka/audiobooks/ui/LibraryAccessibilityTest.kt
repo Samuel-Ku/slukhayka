@@ -290,6 +290,8 @@ class LibraryAccessibilityTest {
                             preview = preview,
                             onAcceptMerge = {},
                             onRejectMerge = {},
+                            onReorderChapters = { _, _ -> },
+                            onEditBookTitle = { _, _ -> },
                             onConfirm = { activeModal = null },
                             onDismiss = { activeModal = null }
                         )

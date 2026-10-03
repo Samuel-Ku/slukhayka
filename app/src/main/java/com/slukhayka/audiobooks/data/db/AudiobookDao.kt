@@ -797,6 +797,22 @@ interface AudiobookDao {
                    (SELECT MAX(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL),
                    (SELECT MAX(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
                ) AS durationMaxSeconds,
+               -- #831 AC2/AC3 — the shared-library origin, resolved IN the
+               -- page query. `CommunityOriginClassifier` is the policy; this
+               -- is only the fact it classifies: does ANY of the Work's
+               -- Sources carry the registered community group's link? The
+               -- comparison is canonical (lower-case, no trailing slash), the
+               -- same shape `isRegisteredGroupLink` accepts, so the two never
+               -- disagree about what "the group link" means.
+               EXISTS (
+                   SELECT 1 FROM work_sources ws2
+                   WHERE ws2.workId = w.id
+                     AND ws2.sourceUrl IS NOT NULL
+                     AND LOWER(RTRIM(ws2.sourceUrl, '/')) IN (
+                         'https://t.me/slukhayka', 'http://t.me/slukhayka',
+                         't.me/slukhayka'
+                     )
+               ) AS fromSharedLibrary,
                CASE WHEN :durationActive=1 THEN (
                    SELECT ef.editionId FROM edition_facets ef
                    WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)
@@ -807,6 +823,18 @@ interface AudiobookDao {
         -- Mirror — a Work whose every Source claim was removed (scam purge,
         -- shared tombstone) can never be opened and is not publishable.
         WHERE EXISTS (SELECT 1 FROM work_sources ws0 WHERE ws0.workId = w.id)
+          -- #831 AC3 — «Лише зі спільної бібліотеки». `:sharedLibraryOnly = 0`
+          -- is INACTIVE, the same contract as the language dimension: off
+          -- never means "hide foreign entries", it means "do not narrow".
+          AND (:sharedLibraryOnly = 0 OR EXISTS (
+              SELECT 1 FROM work_sources ws3
+              WHERE ws3.workId = w.id
+                AND ws3.sourceUrl IS NOT NULL
+                AND LOWER(RTRIM(ws3.sourceUrl, '/')) IN (
+                    'https://t.me/slukhayka', 'http://t.me/slukhayka',
+                    't.me/slukhayka'
+                )
+          ))
           AND (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
@@ -831,7 +859,8 @@ interface AudiobookDao {
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
         authorIds: List<String>, authorActive: Int,
-        languages: List<String>, langActive: Int
+        languages: List<String>, langActive: Int,
+        sharedLibraryOnly: Int = 0
     ): PagingSource<Int, WorkFeedRow>
 
     /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
@@ -854,6 +883,22 @@ interface AudiobookDao {
                    (SELECT MAX(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL),
                    (SELECT MAX(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
                ) AS durationMaxSeconds,
+               -- #831 AC2/AC3 — the shared-library origin, resolved IN the
+               -- page query. `CommunityOriginClassifier` is the policy; this
+               -- is only the fact it classifies: does ANY of the Work's
+               -- Sources carry the registered community group's link? The
+               -- comparison is canonical (lower-case, no trailing slash), the
+               -- same shape `isRegisteredGroupLink` accepts, so the two never
+               -- disagree about what "the group link" means.
+               EXISTS (
+                   SELECT 1 FROM work_sources ws2
+                   WHERE ws2.workId = w.id
+                     AND ws2.sourceUrl IS NOT NULL
+                     AND LOWER(RTRIM(ws2.sourceUrl, '/')) IN (
+                         'https://t.me/slukhayka', 'http://t.me/slukhayka',
+                         't.me/slukhayka'
+                     )
+               ) AS fromSharedLibrary,
                CASE WHEN :durationActive=1 THEN (
                    SELECT ef.editionId FROM edition_facets ef
                    WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)
@@ -864,6 +909,18 @@ interface AudiobookDao {
         -- Mirror — a Work whose every Source claim was removed (scam purge,
         -- shared tombstone) can never be opened and is not publishable.
         WHERE EXISTS (SELECT 1 FROM work_sources ws0 WHERE ws0.workId = w.id)
+          -- #831 AC3 — «Лише зі спільної бібліотеки». `:sharedLibraryOnly = 0`
+          -- is INACTIVE, the same contract as the language dimension: off
+          -- never means "hide foreign entries", it means "do not narrow".
+          AND (:sharedLibraryOnly = 0 OR EXISTS (
+              SELECT 1 FROM work_sources ws3
+              WHERE ws3.workId = w.id
+                AND ws3.sourceUrl IS NOT NULL
+                AND LOWER(RTRIM(ws3.sourceUrl, '/')) IN (
+                    'https://t.me/slukhayka', 'http://t.me/slukhayka',
+                    't.me/slukhayka'
+                )
+          ))
           AND (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
@@ -888,7 +945,8 @@ interface AudiobookDao {
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
         authorIds: List<String>, authorActive: Int,
-        languages: List<String>, langActive: Int
+        languages: List<String>, langActive: Int,
+        sharedLibraryOnly: Int = 0
     ): PagingSource<Int, WorkFeedRow>
 
     // Bookmarks (ADR-0007: anchored to the Edition)

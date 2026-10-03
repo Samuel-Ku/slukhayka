@@ -10,6 +10,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -26,6 +28,8 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -148,7 +152,9 @@ class WorkFeedToolbarSnapshotTest {
         ),
         onGenresChange: (Set<String>) -> Unit = {},
         onDurationsChange: (Set<String>) -> Unit = {},
-        onSortChange: (Boolean) -> Unit = {}
+        onSortChange: (Boolean) -> Unit = {},
+        sharedLibraryOnly: () -> Boolean = { false },
+        onSharedLibraryOnlyChange: (Boolean) -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -160,10 +166,39 @@ class WorkFeedToolbarSnapshotTest {
                         genres = genres,
                         onGenresChange = onGenresChange,
                         onDurationBucketsChange = onDurationsChange,
-                        onSortChange = onSortChange
+                        onSortChange = onSortChange,
+                        sharedLibraryOnly = sharedLibraryOnly(),
+                        onSharedLibraryOnlyChange = onSharedLibraryOnlyChange
                     )
                 }
             }
         }
+    }
+
+    /**
+     * #831 AC3 — the origin filter is a control IN this sheet, not a second
+     * rail (ADR-0015), so the assertion is that it is reachable from the same
+     * trigger every other filter uses and that it reports its own state.
+     */
+    @Test
+    fun origin_filter_toggles_from_the_same_sheet() {
+        var onlyShared by mutableStateOf(false)
+        setToolbar(
+            sortByTitle = false,
+            selectedGenres = { emptySet() },
+            sharedLibraryOnly = { onlyShared },
+            onSharedLibraryOnlyChange = { onlyShared = it }
+        )
+
+        composeTestRule.onNodeWithTag("feed_filters").performClick()
+        composeTestRule.onNodeWithText("Походження").assertExists()
+        composeTestRule.onNodeWithTag("feed_origin_only_shared")
+            .assertIsOff()
+            .performClick()
+            .assertIsOn()
+        assertTrue("перемикач мусить повідомити власника", onlyShared)
+
+        composeTestRule.onNodeWithTag("feed_origin_only_shared").performClick().assertIsOff()
+        assertFalse(onlyShared)
     }
 }

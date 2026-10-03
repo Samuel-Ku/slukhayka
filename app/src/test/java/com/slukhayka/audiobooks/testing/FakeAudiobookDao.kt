@@ -1192,17 +1192,19 @@ class FakeAudiobookDao(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
         authorIds: List<String>, authorActive: Int,
-        languages: List<String>, langActive: Int
+        languages: List<String>, langActive: Int,
+        sharedLibraryOnly: Int
     ): PagingSource<Int, WorkFeedRow> =
-        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, languages, langActive, sortByTitle = false)
+        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, languages, langActive, sharedLibraryOnly, sortByTitle = false)
 
     override fun pagedWorksFeedByTitle(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
         authorIds: List<String>, authorActive: Int,
-        languages: List<String>, langActive: Int
+        languages: List<String>, langActive: Int,
+        sharedLibraryOnly: Int
     ): PagingSource<Int, WorkFeedRow> =
-        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, languages, langActive, sortByTitle = true)
+        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, languages, langActive, sharedLibraryOnly, sortByTitle = true)
 
     /** In-memory PagingSource over the same state the fake DAO owns. */
     private fun fakeFeed(
@@ -1210,6 +1212,7 @@ class FakeAudiobookDao(
         durationBucketIds: List<String>, durationActive: Int,
         authorIds: List<String>, authorActive: Int,
         languages: List<String>, langActive: Int,
+        sharedLibraryOnly: Int,
         sortByTitle: Boolean
     ): PagingSource<Int, WorkFeedRow> {
         // Spec-45 (#405) T4 (#492): mirrors the real feed SQL — a Work hides
@@ -1235,6 +1238,17 @@ class FakeAudiobookDao(
                 val known = knownLanguagesOf(work)
                 val hidden = known.isNotEmpty() && known.none { it in languages }
                 if (hidden) return@mapNotNull null
+            }
+            // #831 AC3 — mirrors the real feed SQL: `0` is INACTIVE, and when
+            // active only Works whose Source carries the registered community
+            // group's link survive.
+            if (sharedLibraryOnly != 0) {
+                val fromGroup = workSourcesState.value.any { source ->
+                    source.workId == work.id &&
+                        source.sourceUrl.lowercase().trimEnd('/') in
+                        setOf("https://t.me/slukhayka", "http://t.me/slukhayka", "t.me/slukhayka")
+                }
+                if (!fromGroup) return@mapNotNull null
             }
             val libraryBook = booksState.value.firstOrNull { it.workId == work.id }
             val libraryGenre = workGenresState.value.firstOrNull { it.workId == work.id }

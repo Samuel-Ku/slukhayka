@@ -10,6 +10,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -38,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -148,6 +150,8 @@ fun HomeScreen(
     val feedGenreFilters by viewModel.feedGenreFilters.collectAsState()
     val feedDurationFilters by viewModel.feedDurationFilters.collectAsState()
     val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
+    // #831 AC3 — «Лише зі спільної бібліотеки» narrows the SAME feed.
+    val feedSharedLibraryOnly by viewModel.feedSharedLibraryOnly.collectAsState()
     // Spec-45 (#405) T6 (#494): the «Мова» chip state — both on = «Усі»;
     // a single-language selection renders as that language and marks the
     // chip selected (the filter is active).
@@ -413,6 +417,7 @@ fun HomeScreen(
                 feedGenreFilters = feedGenreFilters,
                 feedDurationFilters = feedDurationFilters,
                 feedSortByTitle = feedSortByTitle,
+                feedSharedLibraryOnly = feedSharedLibraryOnly,
                 // Spec-45 (#405) T6 (#494): the «Мова» chip mirrors the ONE
                 // persisted preference (both on = «Усі»); one tap cycles it.
                 contentLanguages = contentLanguages,
@@ -451,6 +456,7 @@ fun HomeScreen(
                 onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
                 onSetFeedDurationFilters = { viewModel.setFeedDurationFilters(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
+                onSetFeedSharedLibraryOnly = { viewModel.setFeedSharedLibraryOnly(it) },
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
@@ -1166,6 +1172,10 @@ fun WorkFeedFilters(
     onSortChange: (Boolean) -> Unit,
     selectedDurationBucketIds: Set<String> = emptySet(),
     onDurationBucketsChange: (Set<String>) -> Unit = {},
+    // #831 AC3 — the origin narrowing, IN this sheet rather than a rail of
+    // its own (ADR-0015: no second shelf, «Слухати» untouched).
+    sharedLibraryOnly: Boolean = false,
+    onSharedLibraryOnlyChange: (Boolean) -> Unit = {},
     onOpenFilters: (() -> Unit)? = null,
     filterTriggerModifier: Modifier = Modifier,
     // Spec-45 (#405) T6 (#494): the «Мова» chip — one tap cycles the
@@ -1272,7 +1282,9 @@ fun WorkFeedFilters(
             onGenresChange = onGenresChange,
             onDismiss = { showFilterSheet = false },
             selectedDurationBucketIds = selectedDurationBucketIds,
-            onDurationBucketsChange = onDurationBucketsChange
+            onDurationBucketsChange = onDurationBucketsChange,
+            sharedLibraryOnly = sharedLibraryOnly,
+            onSharedLibraryOnlyChange = onSharedLibraryOnlyChange
         )
     }
 }
@@ -1286,7 +1298,10 @@ fun WorkFeedFilterSheet(
     onGenresChange: (Set<String>) -> Unit,
     onDismiss: () -> Unit,
     selectedDurationBucketIds: Set<String> = emptySet(),
-    onDurationBucketsChange: (Set<String>) -> Unit = {}
+    onDurationBucketsChange: (Set<String>) -> Unit = {},
+    // #831 AC3 — «Лише зі спільної бібліотеки».
+    sharedLibraryOnly: Boolean = false,
+    onSharedLibraryOnlyChange: (Boolean) -> Unit = {}
 ) {
     val paneTitle = stringResource(R.string.a11y_work_feed_filter_pane)
     val headingFocusRequester = remember { FocusRequester() }
@@ -1312,6 +1327,14 @@ fun WorkFeedFilterSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // #831 AC6 — the sheet body scrolls. At 200% font scale the
+                    // sections no longer fit the sheet's height, and without
+                    // this the LAST one is not merely off-screen: it is
+                    // measured as a clipped 18 dp row, i.e. a control below
+                    // even the dense-chrome floor (ADR-0044) and unreachable
+                    // by scrolling. The genre list keeps its own inner scroll
+                    // cap, so a long genre list cannot push the rest away.
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp)
                     .navigationBarsPadding()
             ) {
@@ -1369,7 +1392,60 @@ fun WorkFeedFilterSheet(
                     }
                 }
                 Spacer(modifier = Modifier.height(20.dp))
-                Text(text = stringResource(R.string.feed_duration), style = MaterialTheme.typography.titleMedium)
+                // #831 AC3 — provenance is a FILTER of the same feed, not a
+                // second rail: the ticket forbids another shelf and ADR-0015
+                // keeps «Слухати» untouched. It is a single switch rather than
+                // a chip echoed into the toolbar, because a sticky narrowing is
+                // easy to forget — it says so in words above the switch.
+                Text(
+                    text = stringResource(R.string.feed_origin_filter_heading),
+                    style = MaterialTheme.typography.titleMedium,
+                    // #831 AC6 — a section heading is a heading for a screen
+                    // reader too, the same contract the «Жанри» title follows.
+                    modifier = Modifier.semantics { heading() }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                // The WHOLE row is the target, not the 18 dp switch inside it:
+                // a Switch is a fixed-size M3 control and `heightIn` on it
+                // grows the layout box without growing what the finger can
+                // actually hit (ADR-0044). `toggleable` puts the label and the
+                // switch on one target with one state and one role, which is
+                // also what a screen reader should read out — a bare switch
+                // with a label beside it would be two nodes.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .toggleable(
+                            value = sharedLibraryOnly,
+                            role = Role.Switch,
+                            onValueChange = onSharedLibraryOnlyChange
+                        )
+                        .testTag("feed_origin_only_shared")
+                ) {
+                    Text(
+                        text = stringResource(R.string.feed_origin_only_shared),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Presentational: the row above owns the state and the
+                    // click, so this must not be a second target for either.
+                    Switch(
+                        checked = sharedLibraryOnly,
+                        onCheckedChange = null
+                    )
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = stringResource(R.string.feed_duration),
+                    style = MaterialTheme.typography.titleMedium,
+                    // #831 AC6 — «Тривалість» was the one section title with
+                    // no heading semantics; the origin section above it made
+                    // the omission visible.
+                    modifier = Modifier.semantics { heading() }
+                )
                 Spacer(modifier = Modifier.height(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

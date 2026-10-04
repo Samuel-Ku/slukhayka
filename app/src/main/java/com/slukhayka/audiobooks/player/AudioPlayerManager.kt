@@ -248,6 +248,8 @@ class AudioPlayerManager(
     private val streamUrlResolver: suspend (String) -> String? = { url -> url },
     /** Local WebView cookies, scoped by the source header policy. */
     private val cookieProvider: () -> String = { "" },
+    /** Fresh metadata for a Play invalidated by confirmed topology replacement. */
+    private val bookFetcher: (suspend (String) -> AudiobookEntity?)? = null,
     private val onBookCompleted: (String) -> Unit = {}
 ) {
 
@@ -1115,8 +1117,15 @@ class AudioPlayerManager(
         // position-based rule (e.g. a multi-chapter book whose saved position
         // is the last chapter's in-chapter seconds, below the book total).
         forceRelisten: Boolean = false,
-        initialChapterId: String? = null
+        initialChapterId: String? = null,
+        expectedChapterStructureVersion: Long? = null
     ) {
+        val request = ++loadRequestSequence
+        if (expectedChapterStructureVersion != null &&
+            expectedChapterStructureVersion != chapterStructureVersion(book.id)) {
+            reloadAfterStructureChange(book, request)
+            return
+        }
         val requestedChapterId = initialChapterId ?: chapters.getOrNull(initialChapterIndex)?.id
         val loadPlayable = applyCommittedChapterOrder(book.id, playable.ifEmpty {
             chapters.map { SourceCatalog.PlayableChapter(chapter = it, track = null) }
@@ -1289,6 +1298,38 @@ class AudioPlayerManager(
         )
     }
 
+    private var loadRequestSequence = 0L
+
+    private fun reloadAfterStructureChange(book: AudiobookEntity, request: Long) {
+        scope.launch(ioDispatcher) {
+            try {
+                val version = chapterStructureVersion(book.id)
+                val freshBook = if (bookFetcher != null) bookFetcher.invoke(book.id) ?: return@launch else book
+                val freshPlayable = chapterFetcher(book.id)
+                withContext(Dispatchers.Main.immediate) {
+                    if (request != loadRequestSequence) return@withContext
+                    // The later repair invalidated both the old locator and the
+                    // old position. Install its fresh structure at the beginning,
+                    // paused, exactly as the active-book repair callback does.
+                    loadAndPlayBook(
+                        book = freshBook,
+                        chapters = freshPlayable.map { it.chapter },
+                        playable = freshPlayable,
+                        autoPlay = false,
+                        expectedChapterStructureVersion = version
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.e("AudioPlayer", "Could not reload repaired chapter structure", error)
+                withContext(Dispatchers.Main.immediate) {
+                    if (request == loadRequestSequence) stopEngineForUnavailableBook(book)
+                }
+            }
+        }
+    }
+
     private var prepareRequestId = 0L
 
     // A pending Play may still hold a queue resolved before the database commit.
@@ -1310,8 +1351,14 @@ class AudioPlayerManager(
     }
 
     /** Confirmed topology replacement invalidates even reused deterministic Chapter IDs. */
+    private val chapterStructureVersions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** Captured before IO resolves a queue; committed repairs invalidate older reads. */
+    fun chapterStructureVersion(bookId: String): Long = chapterStructureVersions[bookId] ?: 0L
+
     fun clearCommittedChapterOrder(bookId: String) {
         committedChapterOrders.remove(bookId)
+        chapterStructureVersions[bookId] = chapterStructureVersion(bookId) + 1L
     }
 
     /** Called on Main after the Room commit, even when another book is playing. */
@@ -2369,6 +2416,7 @@ class AudioPlayerManager(
      * next book the user picks.
      */
     fun stopAndClear() {
+        loadRequestSequence++
         prepareRequestId++
         sleepTimer?.cancel()
         sleepTimer = null

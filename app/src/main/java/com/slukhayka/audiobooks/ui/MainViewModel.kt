@@ -682,6 +682,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (watchUrl in current) current - watchUrl else current + watchUrl
     }
 
+    /**
+     * #1051 — the listener's own order, or null while they never touched it.
+     *
+     * Held separately from the SELECTION on purpose: picking is a set ("which
+     * positions"), ordering is a list ("in what sequence"), and collapsing the
+     * two would let a reorder silently change membership. Null keeps the
+     * observed order, so an untouched preview behaves exactly as before.
+     */
+    private val _previewOrder = MutableStateFlow<List<String>?>(null)
+    val previewOrder: StateFlow<List<String>?> = _previewOrder.asStateFlow()
+
+    /**
+     * Moves one position one step. The list is materialised from the current
+     * preview on first use, so a caller never has to seed it, and moving past
+     * either end is a no-op rather than a wrap — a silent wrap would put the
+     * first chapter last, which is the very complaint #1051 is about.
+     */
+    fun movePreviewEntry(watchUrl: String, delta: Int) {
+        if (_previewRun.value.running) return
+        val entries = _submissionPreview.value?.entries ?: return
+        val current = _previewOrder.value ?: entries.map { it.watchUrl }
+        val from = current.indexOf(watchUrl)
+        if (from < 0) return
+        val to = from + delta
+        if (to !in current.indices) return
+        _previewOrder.value = current.toMutableList().apply {
+            add(to, removeAt(from))
+        }
+    }
+
     fun selectAllPreviewEntries() {
         if (_previewRun.value.running) return
         _previewSelection.value = _submissionPreview.value?.entries?.map { it.watchUrl }?.toSet().orEmpty()
@@ -704,12 +734,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val selected = _previewSelection.value
         if (selected.isEmpty() || _previewRun.value.running) return
 
+        // #1051 — the listener's order rides the edits. Null (never touched)
+        // is passed as null, so the planner keeps the observed order and the
+        // untouched path is byte-for-byte what it was.
+        val orderedEdits = edits.copy(chapterOrder = _previewOrder.value)
         if (!_previewSeparateBooks.value) {
             clearSubmissionPreview()
-            submitLink(preview.url, edits, selected)
+            submitLink(preview.url, orderedEdits, selected)
             return
         }
-        val picked = preview.entries.filter { it.watchUrl in selected }
+        val picked = preview.entries
+            .filter { it.watchUrl in selected }
+            .let { list ->
+                val order = _previewOrder.value ?: return@let list
+                val rank = order.withIndex().associate { (i, url) -> url to i }
+                list.sortedBy { rank[it.watchUrl] ?: Int.MAX_VALUE }
+            }
         if (picked.isEmpty()) return
 
         previewSessionJob?.cancel()
@@ -773,6 +813,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val preview = runCatching { listenerSubmissionFlow.previewSubmission(rawUrl) }.getOrNull()
             if (preview != null) {
+                _previewOrder.value = null
                 _submissionPreview.value = preview
                 // Spec-53 T11 — a fresh card starts with EVERY position picked
                 // ("додати всі") and the default mode: one book of chapters.
@@ -787,6 +828,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         previewSessionJob?.cancel()
         previewSessionJob = null
         _submissionPreview.value = null
+        _previewOrder.value = null
         _previewSelection.value = emptySet()
         _previewRun.value = PreviewRunState()
     }
@@ -1879,6 +1921,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         smartRetryMemo.recordSuccess(bookId)
+        val chapterStructureVersion = playerManager.chapterStructureVersion(bookId)
         val freshPlayable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
         if (freshPlayable.isEmpty()) {
             withContext(Dispatchers.Main) {
@@ -1894,7 +1937,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 initialChapterIndex = chapterIndex.coerceIn(0, (freshPlayable.size - 1).coerceAtLeast(0)),
                 initialPositionSeconds = positionMs / 1000L,
                 initialChapterId = chapterId,
-                autoPlay = true
+                autoPlay = true,
+                expectedChapterStructureVersion = chapterStructureVersion
             )
             _showFullPlayer.value = true
         }
@@ -2104,29 +2148,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (_: Exception) {
                 null
             }
-            val repairedPlayable = (outcome as? com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success)
-                ?.takeIf { it.autoRepairedStructure }
-                ?.let { sourceCatalog.getPlayableChapters(it.book.id) }
             withContext(Dispatchers.Main) {
                 when (outcome) {
                     is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success -> {
-                        if (outcome.autoRepairedStructure) {
-                            playerManager.clearCommittedChapterOrder(outcome.book.id)
-                            if (playerState.value.currentBook?.id == outcome.book.id && repairedPlayable != null) {
-                                playerManager.loadAndPlayBook(
-                                    book = outcome.book,
-                                    chapters = repairedPlayable.map { it.chapter },
-                                    playable = repairedPlayable,
-                                    initialChapterIndex = 0,
-                                    initialPositionSeconds = 0,
-                                    autoPlay = false
-                                )
-                            }
-                        }
-                        // The verifier already started this exact media item
-                        // and observed Player.onIsPlayingChanged(true). Do not
-                        // prepare it a second time: that could close the
-                        // browser before the replacement prepare really plays.
+                        // A topology repair was already published paused by
+                        // LibraryImport. Ordinary URL recovery has a factual
+                        // playback verdict; keep that opened track installed.
                         _showFullPlayer.value = true
                         if (sourceId == "4read") {
                             offlineDownloads.confirmBrowserRefresh(outcome.book.id)
@@ -2185,7 +2212,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onComplete: (Boolean) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val activeBookId = playerState.value.currentBook?.id
             val repaired = try {
                 libraryImport.repairConfirmedWebSourceStructure(bookId, sourceId, url, html, capturedAudioUrls)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -2194,27 +2220,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (repaired != null) probeDurationsAfterImport(repaired.id)
-            val repairedPlayable = repaired
-                ?.takeIf { it.id == activeBookId }
-                ?.let { repairedBook ->
-                    sourceCatalog.getPlayableChapters(repairedBook.id)
-                }
             withContext(Dispatchers.Main) {
-                if (repaired != null) playerManager.clearCommittedChapterOrder(repaired.id)
-                // A confirmed topology repair replaces the tracks under this
-                // Edition. If it is already loaded, the manager still holds
-                // the old playlist/URLs in memory; reload it paused so the
-                // mini-player cannot retry a removed stale track.
-                if (repaired != null && repairedPlayable != null) {
-                    playerManager.loadAndPlayBook(
-                        book = repaired,
-                        chapters = repairedPlayable.map { it.chapter },
-                        playable = repairedPlayable,
-                        initialChapterIndex = 0,
-                        initialPositionSeconds = 0,
-                        autoPlay = false
-                    )
-                }
                 onComplete(repaired != null)
             }
         }
@@ -3116,13 +3122,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _globalSearchError = MutableStateFlow(false)
     val globalSearchError: StateFlow<Boolean> = _globalSearchError.asStateFlow()
 
+    private val searchGeneration = java.util.concurrent.atomic.AtomicLong()
     private var globalSearchJob: kotlinx.coroutines.Job? = null
-    private var authorSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
+        val generation = searchGeneration.incrementAndGet()
         _searchQuery.value = query
         globalSearchJob?.cancel()
-        authorSearchJob?.cancel()
         val clean = query.trim()
         _globalSearchError.value = false
         if (clean.length < 2) {
@@ -3132,10 +3138,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _authorSearchResults.value = emptyList()
-        authorSearchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(350)
-            _authorSearchResults.value = authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) }
-        }
         // Do not leave a previous query's Works visible under a new query;
         // the screen now presents the truthful loading state instead.
         _globalSearchResults.value = emptyList()
@@ -3145,17 +3147,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // overwriting a newer one.
             delay(350)
             try {
-                val results = sourceCatalog.searchAllSources(clean)
-                if (_searchQuery.value.trim() == clean) {
-                    _globalSearchResults.value = results
-                    _globalSearchError.value = false
-                    _isGlobalSearchLoading.value = false
-                }
+                searchWithAuthorRefresh(
+                    readAuthors = { authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) } },
+                    publishAuthors = { authors ->
+                        if (searchGeneration.get() == generation) _authorSearchResults.value = authors
+                    },
+                    searchSources = {
+                        sourceCatalog.searchAllSources(clean) { update ->
+                            if (searchGeneration.get() == generation) {
+                                _globalSearchResults.value = update.results
+                                _globalSearchError.value = update.hasSourceFailures
+                                _isGlobalSearchLoading.value = update.isSearchingSources
+                            }
+                        }
+                    }
+                )
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (_searchQuery.value.trim() == clean) {
-                    _globalSearchResults.value = emptyList()
+                if (searchGeneration.get() == generation) {
+                    // Keep the local preview usable when a later stage fails.
                     _globalSearchError.value = true
                     _isGlobalSearchLoading.value = false
                 }
@@ -3578,6 +3589,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sourceUrl: String,
         positionMs: Long
     ): Boolean {
+        val chapterStructureVersion = playerManager.chapterStructureVersion(bookId)
         val book = App.instance.audiobookDao.getAudiobookById(bookId)
             ?.toAudiobookEntity()
             ?: return false
@@ -3609,7 +3621,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     playable = playable,
                     initialChapterIndex = chapterIndex,
                     initialPositionSeconds = positionMs / 1000L,
-                    autoPlay = true
+                    autoPlay = true,
+                    expectedChapterStructureVersion = chapterStructureVersion
                 )
                 verdict.await().also { started ->
                     if (!started && playerState.value.currentBook?.id == bookId) {
@@ -4955,6 +4968,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chapterId: String? = null
     ) {
             if (autoPlay) automaticPlaybackRecoveryGate.beginAttempt(book.id)
+            var chapterStructureVersion = playerManager.chapterStructureVersion(book.id)
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
             // player resolves chapter → track 1:1 by index.
@@ -4989,6 +5003,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             }
             if (playbackBook.id != updatedBook.id) {
+                chapterStructureVersion = playerManager.chapterStructureVersion(playbackBook.id)
                 playable = try {
                     sourceCatalog.getPlayableChapters(
                         playbackBook.id,
@@ -5052,7 +5067,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     initialPositionSeconds = resume.positionSeconds,
                     autoPlay = autoPlay,
                     forceRelisten = forceRelisten,
-                    initialChapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId
+                    initialChapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
+                    expectedChapterStructureVersion = chapterStructureVersion
                 )
             }
 
@@ -5086,6 +5102,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun jumpToBookmark(bookmark: BookmarkEntity) {
         viewModelScope.launch(Dispatchers.IO) {
+            val chapterStructureVersion = playerManager.chapterStructureVersion(bookmark.bookId)
             val book = libraryEntries.getBookSync(bookmark.bookId)
             if (book == null) {
                 // #1081 — the bookmark outlived its book. The row may have been
@@ -5133,7 +5150,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // chose IS the anchor — `(editionId, chapterIndex, time)` per the
             // ticket's «не вгадувати джерело чи розділ замість якоря».)
             viewModelScope.launch(Dispatchers.Main) {
-                if (playerState.value.currentBook?.id != bookmark.bookId) {
+                if (playerState.value.currentBook?.id != bookmark.bookId ||
+                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
                     playerManager.clearPlaybackFailureForNewAttempt()
                     automaticPlaybackRecoveryGate.arm(book.id)
                     playerManager.loadAndPlayBook(
@@ -5143,7 +5161,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         initialChapterIndex = anchorChapter,
                         initialChapterId = anchorId,
                         initialPositionSeconds = anchorPosition,
-                        autoPlay = true
+                        autoPlay = true,
+                        expectedChapterStructureVersion = chapterStructureVersion
                     )
                 } else {
                     val activeIndex = playerState.value.chapters.indexOfFirst { it.id == anchorId }.takeIf { it >= 0 } ?: anchorChapter
@@ -5704,13 +5723,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Applies the library mutation and preserves the playing Chapter, including a pending Play. */
     suspend fun reorderImportedChapters(bookId: String, expectedIds: List<String>, newIds: List<String>): com.slukhayka.audiobooks.data.imports.ChapterReorderResult =
         withContext(kotlinx.coroutines.NonCancellable) {
-            val result = withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 libraryImport.reorderChapters(bookId, expectedIds, newIds)
             }
-            if (result == com.slukhayka.audiobooks.data.imports.ChapterReorderResult.APPLIED) {
-                withContext(Dispatchers.Main) { playerManager.commitChapterOrder(bookId, newIds) }
-            }
-            result
         }
 
     /** Joins two explicit preview selections; the destination keeps its metadata. */

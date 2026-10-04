@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -73,6 +74,8 @@ class SpeedAndRewindManagerTest {
     private fun managerTest(
         settings: PlaybackSettings? = null,
         listening: ListeningStateStore = listeningState,
+        reloadPlayable: (suspend (String) -> List<SourceCatalog.PlayableChapter>)? = null,
+        reloadBook: (suspend (String) -> AudiobookEntity?)? = null,
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
@@ -81,7 +84,8 @@ class SpeedAndRewindManagerTest {
             listening,
             // ADR-0007: the fetcher yields chapter→track pairs (chapter rows
             // carry no stream URLs); these tests only assert positions/speeds.
-            { dao.getChaptersListForBook(it).map { ch -> com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(ch, null) } },
+            reloadPlayable ?: { id -> dao.getChaptersListForBook(id).map { ch -> SourceCatalog.PlayableChapter(ch, null) } },
+            bookFetcher = reloadBook,
             injectedPlayerFactory = factory,
             now = { clockMs },
             settings = settings,
@@ -149,6 +153,56 @@ class SpeedAndRewindManagerTest {
         assertEquals(resumeId, state.chapters[state.currentChapterIndex].id)
         assertEquals(playable.last().track!!.url, state.currentStreamUrl)
         assertEquals(42_000L, state.currentPositionMs)
+    }
+
+    @Test
+    fun `a pending Play for another book reloads the repaired topology instead of old audio`() {
+        val extra = playable.last().copy(
+            chapter = chapters.last().copy(id = "repaired-extra", chapterIndex = chapters.size),
+            track = playable.last().track!!.copy(id = "extra-track", trackIndex = chapters.size)
+        )
+        val repaired = (playable + extra).mapIndexed { index, pair ->
+            pair.copy(track = pair.track!!.copy(url = "https://cdn.test/repaired/$index.mp3"))
+        }
+        val freshBook = book.copy(totalChapters = repaired.size)
+        managerTest(reloadPlayable = { repaired }, reloadBook = { freshBook }) { manager, factory ->
+            val other = book.copy(id = book.id + "-other")
+            manager.loadAndPlayBook(other, chapters, playable = playable, autoPlay = false)
+            // B's queue is captured before an intervening repair, while A remains loaded.
+            val version = manager.chapterStructureVersion(book.id)
+            manager.clearCommittedChapterOrder(book.id)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialPositionSeconds = 42,
+                autoPlay = true, expectedChapterStructureVersion = version)
+            testScheduler.runCurrent()
+            factory.current.simulateReady(1_800_000L)
+            val state = manager.playerState.value
+            assertEquals(freshBook, state.currentBook)
+            assertEquals(repaired.map { it.chapter.id }, state.chapters.map { it.id })
+            assertEquals("https://cdn.test/repaired/0.mp3", state.currentStreamUrl)
+            assertEquals(0L, state.currentPositionMs)
+            assertFalse("the later repair keeps the invalidated Play paused", state.isPlaying)
+        }
+    }
+
+    @Test
+    fun `a newer Play wins over an invalidated queue reload`() = managerTest(reloadPlayable = { playable }) { manager, _ ->
+        val version = manager.chapterStructureVersion(book.id)
+        manager.clearCommittedChapterOrder(book.id)
+        manager.loadAndPlayBook(book, chapters, playable = playable, expectedChapterStructureVersion = version)
+        val newer = book.copy(id = book.id + "-newer")
+        manager.loadAndPlayBook(newer, chapters, playable = playable, autoPlay = false)
+        testScheduler.runCurrent()
+        assertEquals(newer, manager.playerState.value.currentBook)
+    }
+
+    @Test
+    fun `clearing playback discards an invalidated queue reload`() = managerTest(reloadPlayable = { playable }) { manager, _ ->
+        val version = manager.chapterStructureVersion(book.id)
+        manager.clearCommittedChapterOrder(book.id)
+        manager.loadAndPlayBook(book, chapters, playable = playable, expectedChapterStructureVersion = version)
+        manager.stopAndClear()
+        testScheduler.runCurrent()
+        assertNull(manager.playerState.value.currentBook)
     }
 
     @Test

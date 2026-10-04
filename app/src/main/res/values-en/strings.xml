@@ -67,7 +67,7 @@
     <string name="home_more_books_on">More books on %1$s</string>
     <string name="home_library_results">In your library (%1$d)</string>
     <string name="home_library_no_matches">Not in your library</string>
-    <string name="home_all_sources">All sources (%1$d)</string>
+    <string name="home_all_sources">Books found (%1$d)</string>
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>
     <string name="library_remaining">%1$s left</string>
@@ -135,6 +135,8 @@
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
     <!-- Spec-53 T7 — correcting a badly parsed book. -->
+    <string name="book_detail_reorder_chapters">Chapter order</string>
+    <string name="book_detail_reorder_hint">Move chapters with the arrows. Your position and bookmarks stay as they are.</string>
     <string name="book_detail_correct_metadata">Correct metadata</string>
     <string name="book_detail_update_published">Update in the shared base</string>
     <string name="book_detail_metadata_title">Title</string>
@@ -421,6 +423,8 @@
     <string name="submission_channel_stopped">Stopped · added %1$d of %2$d</string>
     <string name="submission_channel_add_selected">Add selected (%1$d)</string>
     <!-- Spec-53 T11 — playlist position selection. -->
+    <string name="submission_move_up">Move up</string>
+    <string name="submission_move_down">Move down</string>
     <string name="submission_playlist_one_book">One book (chapters)</string>
     <string name="submission_playlist_separate">Separate books</string>
     <string name="submission_playlist_selected">Selected %1$d of %2$d</string>
@@ -577,6 +581,8 @@
     <string name="feed_origin_only_shared">Only from the shared library</string>
     <string name="feed_origin_shared_library">From the shared library</string>
     <string name="feed_origin_from_listeners">From listeners</string>
+    <string name="lib_import_folder_one_book">The whole folder is one book</string>
+    <string name="lib_import_folder_one_book_hint">Its files become chapters. Confirm the title below.</string>
     <string name="lib_import_rename_book">Book name</string>
     <string name="lib_import_chapter_order">Chapter order</string>
     <string name="lib_import_move_up">Up</string>
@@ -639,4 +645,7 @@
     <string name="lib_import_merge_choose_title">Which book should receive these chapters?</string>
     <string name="lib_import_merge_choose_hint">The selected book keeps its title and other details. These chapters will be appended to it.</string>
     <string name="lib_import_title_required">Enter a book title before importing.</string>
+    <string name="home_search_partial_catalogue">Sources may show only part of their catalogue.</string>
+    <string name="home_search_partial_failure">Some sources did not respond. Available results are shown.</string>
+    <string name="home_search_retry">Try again</string>
 </resources>

@@ -12,8 +12,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.PreviewRunState
 
@@ -45,6 +51,12 @@ data class PlaylistSelectionState(
 
 data class PlaylistSelectionCallbacks(
     val onToggleEntry: (String) -> Unit,
+    /**
+     * #1051 — move one position one step up or down. Null when the card is
+     * used by a caller that offers no reordering (kept optional so the existing
+     * call sites and their tests keep working unchanged).
+     */
+    val onMoveEntry: ((String, Int) -> Unit)? = null,
     val onSelectAll: () -> Unit,
     val onSetSeparateBooks: (Boolean) -> Unit,
     val onAdd: (ListenerSubmissionFlow.PreviewEdits) -> Unit,
@@ -136,6 +148,38 @@ fun PlaylistSelectionCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                    // #1051 — the listener's own order. Buttons, not drag: the
+                    // list is short and scrolled, and arrows say the same thing
+                    // without a gesture anyone has to discover.
+                    callbacks.onMoveEntry?.let { move ->
+                        val index = entries.indexOf(entry)
+                        IconButton(
+                            onClick = { move(entry.watchUrl, -1) },
+                            enabled = !state.run.running && index > 0,
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .testTag("playlist_entry_up_${entry.watchUrl}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = stringResource(R.string.submission_move_up),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(
+                            onClick = { move(entry.watchUrl, 1) },
+                            enabled = !state.run.running && index < entries.lastIndex,
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .testTag("playlist_entry_down_${entry.watchUrl}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = stringResource(R.string.submission_move_down),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

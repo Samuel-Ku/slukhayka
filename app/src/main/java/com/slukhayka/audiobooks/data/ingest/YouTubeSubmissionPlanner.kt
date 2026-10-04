@@ -127,12 +127,30 @@ object YouTubeSubmissionPlanner {
      * write path never creates a track for it). Chapter numbering keeps the
      * entry's ORIGINAL position — "Розділ 7" stays the seventh, not the
      * second after filtering.
+     *
+     * #1051 — [explicitOrder] is the listener's own reordering: the canonical
+     * watch URLs in the order they want the chapters to play, or null when they
+     * never touched the order. It exists because the source order is OBSERVED
+     * (ADR-0014), not always right: a playlist ordered newest-first arrives
+     * with the last part as «Розділ 1», and the honest cure is the listener's
+     * hand, never a guess from titles (ADR-0035). Only the ORDER changes —
+     * membership still comes from [selectedWatchUrls], so reordering can never
+     * smuggle in an entry the listener did not pick.
+     *
+     * The two numbering rules the ticket asked about, kept apart on purpose:
+     *  - FILTERING keeps the original position, so a picked «Розділ 7» still
+     *    reads as the seventh and the listener recognises it;
+     *  - REORDERING takes the new position, because after a deliberate move a
+     *    label that contradicted it would be the app arguing with the hand.
+     * An entry that carries its own title is unaffected either way: the title
+     * travels with its chapter.
      */
     fun plan(
         sourceUrl: String,
         metadata: Metadata,
         channelId: String,
-        selectedWatchUrls: Set<String>? = null
+        selectedWatchUrls: Set<String>? = null,
+        explicitOrder: List<String>? = null
     ): SubmissionPlan {
         // Spec-53 (T9 follow-up) — a channel-post pattern wins when it
         // declares an author; otherwise a single-line YouTube title gets the
@@ -148,13 +166,39 @@ object YouTubeSubmissionPlanner {
         }
         val title = identity.title.ifBlank { metadata.title }
         val chapters = if (metadata.entries.isNotEmpty()) {
-            metadata.entries.mapIndexedNotNull { index, entry ->
+            // #1051 — the listener's order, when they gave one, decides which
+            // entry is read first. An unknown URL in the list is ignored
+            // rather than invented, and any entry the order does not mention
+            // keeps its observed place AFTER the ordered ones — a partial
+            // order narrows nothing, and a dropped look must never silently
+            // drop a chapter.
+            val orderedEntries = if (explicitOrder.isNullOrEmpty()) {
+                metadata.entries.withIndex().toList()
+            } else {
+                val byUrl = metadata.entries.withIndex()
+                    .groupBy { watchUrlOf(it.value.url, it.value.id) }
+                    .mapValues { (_, occurrences) -> occurrences.iterator() }
+                val listed = explicitOrder.mapNotNull { url ->
+                    byUrl[url]?.let { if (it.hasNext()) it.next() else null }
+                }
+                val listedIndices = listed.map { it.index }.toSet()
+                listed + metadata.entries.withIndex().filter { it.index !in listedIndices }
+            }
+            // Filtering keeps the OBSERVED position for the label; reordering
+            // takes the new one. Both are the same rule — "the label matches
+            // where the listener found it" — applied to two different hand
+            // movements.
+            val reordered = !explicitOrder.isNullOrEmpty()
+            orderedEntries.mapIndexedNotNull { position, observed ->
+                val entry = observed.value
                 val watchUrl = watchUrlOf(entry.url, entry.id) ?: return@mapIndexedNotNull null
                 if (selectedWatchUrls != null && watchUrl !in selectedWatchUrls) {
                     return@mapIndexedNotNull null
                 }
+                val observedPosition = observed.index + 1
                 SubmittedChapter(
-                    title = entry.title?.trim()?.takeIf { it.isNotBlank() } ?: "Розділ ${index + 1}",
+                    title = entry.title?.trim()?.takeIf { it.isNotBlank() }
+                        ?: "Розділ ${if (reordered) position + 1 else observedPosition}",
                     watchUrl = watchUrl,
                     durationSeconds = entry.durationSeconds ?: 0L
                 )

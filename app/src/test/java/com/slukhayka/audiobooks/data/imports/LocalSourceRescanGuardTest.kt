@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.imports
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
@@ -55,6 +56,10 @@ class LocalSourceRescanGuardTest {
 
     private fun imports() = LibraryImport(dao, context, emptyList())
 
+    /** #1052 — loose files at the TREE ROOT: no parent folder. */
+    private fun rootEntry(name: String, byte: Int) =
+        LocalAudioEntry(name, null) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+
     private fun entry(name: String, byte: Int) =
         LocalAudioEntry(name, "Кобзар") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
 
@@ -64,6 +69,28 @@ class LocalSourceRescanGuardTest {
             sourceTreeUri = "content://tree/books"
         )
         return dao.getAllAudiobooks().first().first { it.title == "Кобзар" }.id
+    }
+
+    @Test
+    fun `duplicate only explicit merge remembers the removed owners folder before any rescan`() = runBlocking {
+        val targetId = importTwoChapters()
+        val tree = "content://tree/duplicate-consent"
+        val files = listOf(rootEntry("01.mp3", 1), rootEntry("02.mp3", 2))
+        val plan = ImportPlanner.buildPlan(
+            SourceRef.Folder(tree, "Кобзар", LocalFolderGrouping.ONE_BOOK), files,
+            existingWorks = listOf(ImportPlanner.ExistingWork(targetId, "Кобзар", ""))
+        )
+        val confirmed = ImportPlanner.acceptMerge(plan, "root-folder")
+        assertEquals(targetId, confirmed.books.single().mergedIntoBookId)
+        val result = LibraryImport(dao, context, emptyList(), writeBatchRunner = { block -> db.withTransaction { block() } }).applyImportPlan(confirmed)
+        assertEquals(0, result.filesImported)
+        assertEquals(2, result.duplicateFiles)
+        assertEquals(LocalFolderGrouping.ONE_BOOK, ImportGrantStore(context).folder(tree).grouping)
+        com.slukhayka.audiobooks.data.entries.LibraryEntries(dao, emptyList()).deleteBook(targetId)
+        val rescan = imports().rescanAudioEntries(files, tree)
+        assertEquals("confirmed removed bytes must not come back", 0, rescan.newBooks)
+        assertEquals(0, rescan.newChapters)
+        assertTrue(dao.getAllAudiobooksOnce().isEmpty())
     }
 
     @Test
@@ -446,5 +473,56 @@ class LocalSourceRescanGuardTest {
         assertTrue("the tombstone stays", dao.isBookTombstoned(bookId))
         assertEquals(chaptersBefore, dao.getChaptersListForBook(bookId).map { it.id })
         assertEquals(1, dao.getAllAudiobooks().first().size)
+    }
+
+    /** A persisted one-book preview remains one book on an unchanged rescan. */
+    @Test
+    fun `a folder imported as ONE book is not re-created by the rescan`() = runBlocking {
+        val files = listOf(rootEntry("01.mp3", 1), rootEntry("02.mp3", 2), rootEntry("03.mp3", 3))
+        // The REAL path: the preview plans, the listener confirms, the plan is
+        // applied. `importAudioEntries` is the older direct door and has its
+        // own grouping — testing it here would prove nothing about the feature
+        // that ships.
+        val plan = ImportPlanner.buildPlan(
+            source = SourceRef.Folder("content://tree/one", "Книга", LocalFolderGrouping.ONE_BOOK),
+            entries = files
+        )
+        imports().applyImportPlan(plan, "content://tree/one")
+
+        val before = dao.getAllAudiobooksOnce()
+        assertEquals("одна книга з трьох файлів", 1, before.size)
+        assertEquals(3, dao.getChaptersListForBook(before.single().id).size)
+
+        val report = imports().rescanAudioEntries(files, "content://tree/one")
+
+        assertEquals(
+            "повторний скан не створює книг — жодної структурної зміни не було",
+            0, report.newBooks
+        )
+        assertEquals("і не додає розділів", 0, report.newChapters)
+        assertEquals("кількість книг не змінилась", 1, dao.getAllAudiobooksOnce().size)
+    }
+
+    /**
+     * The container reading must keep working: root files that were imported
+     * as separate books are still separate books after a rescan. Without this
+     * half, "fix the one-book case" could quietly collapse every root into one
+     * book instead.
+     */
+    @Test
+    fun `root files imported as separate books stay separate after a rescan`() = runBlocking {
+        val files = listOf(rootEntry("a.mp3", 11), rootEntry("b.mp3", 12))
+        val plan = ImportPlanner.buildPlan(
+            source = SourceRef.Folder("content://tree/many"),
+            entries = files
+        )
+        imports().applyImportPlan(plan, "content://tree/many")
+
+        assertEquals(2, dao.getAllAudiobooksOnce().size)
+
+        val report = imports().rescanAudioEntries(files, "content://tree/many")
+
+        assertEquals(0, report.newBooks)
+        assertEquals("дві книги лишились двома", 2, dao.getAllAudiobooksOnce().size)
     }
 }

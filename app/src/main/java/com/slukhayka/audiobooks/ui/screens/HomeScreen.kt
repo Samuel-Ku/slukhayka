@@ -371,7 +371,8 @@ fun HomeScreen(
                 onOpenGlobalResult = { viewModel.openGlobalSearchResult(it) },
                 catalogCardActionState = catalogCardActionState,
                 onOpenCatalogBrowser = viewModel::openCatalogBrowserRequired,
-                onPreflightGlobalResult = { viewModel.preflightGlobalSearchResult(it) }
+                onPreflightGlobalResult = { viewModel.preflightGlobalSearchResult(it) },
+                onRetrySearch = { viewModel.updateSearchQuery(searchQuery) }
             )
         } else {
             // ---- Netflix feed ---------------------------------------------
@@ -668,9 +669,10 @@ fun GlobalSearchStatus(
     resultsEmpty: Boolean,
     modifier: Modifier = Modifier
 ) {
-    if (!resultsEmpty) return
+    if (!resultsEmpty && !isLoading && !hasError) return
     val message = when {
         isLoading -> stringResource(R.string.a11y_search_loading)
+        hasError && !resultsEmpty -> stringResource(R.string.home_search_partial_failure)
         hasError -> stringResource(R.string.a11y_search_error)
         else -> stringResource(R.string.a11y_search_empty)
     }

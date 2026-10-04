@@ -63,7 +63,7 @@
     <string name="home_more_books_on">Більше книг на %1$s</string>
     <string name="home_library_results">У вашій медіатеці (%1$d)</string>
     <string name="home_library_no_matches">Немає у вашій медіатеці</string>
-    <string name="home_all_sources">Усі джерела (%1$d)</string>
+    <string name="home_all_sources">Знайдені книги (%1$d)</string>
     <string name="home_open">Відкрити</string>
     <string name="home_recommendation_updated">Рекомендацію оновлено</string>
     <string name="library_remaining">Залишилось %1$s</string>
@@ -133,6 +133,8 @@
     <string name="book_detail_mark_listened">Позначити прослуханим</string>
     <string name="book_detail_unmark_listened">Зняти позначку</string>
     <!-- Spec-53 T7 — correcting a badly parsed book. -->
+    <string name="book_detail_reorder_chapters">Порядок розділів</string>
+    <string name="book_detail_reorder_hint">Рухайте розділи стрілками. Позиція слухання й закладки не зміняться.</string>
     <string name="book_detail_correct_metadata">Виправити метадані</string>
     <string name="book_detail_update_published">Оновити в спільній базі</string>
     <string name="book_detail_metadata_title">Назва</string>
@@ -469,6 +471,8 @@
     <string name="submission_channel_stopped">Зупинено · додано %1$d з %2$d</string>
     <string name="submission_channel_add_selected">Додати вибрані (%1$d)</string>
     <!-- Spec-53 T11 — playlist position selection. -->
+    <string name="submission_move_up">Перемістити вище</string>
+    <string name="submission_move_down">Перемістити нижче</string>
     <string name="submission_playlist_one_book">Одна книга (розділи)</string>
     <string name="submission_playlist_separate">Окремі книги</string>
     <string name="submission_playlist_selected">Вибрано %1$d з %2$d</string>
@@ -629,6 +633,8 @@
     <string name="feed_origin_only_shared">Лише зі спільної бібліотеки</string>
     <string name="feed_origin_shared_library">Зі спільної бібліотеки</string>
     <string name="feed_origin_from_listeners">Від слухачів</string>
+    <string name="lib_import_folder_one_book">Уся тека — одна книга</string>
+    <string name="lib_import_folder_one_book_hint">Файли стануть розділами. Назву підтвердите нижче.</string>
     <string name="lib_import_rename_book">Назва книги</string>
     <string name="lib_import_chapter_order">Порядок розділів</string>
     <string name="lib_import_move_up">Вгору</string>
@@ -693,4 +699,7 @@
     <string name="lib_import_merge_choose_title">До якої книги додати розділи?</string>
     <string name="lib_import_merge_choose_hint">Вибрана книга збереже назву й інші дані. Розділи цієї книги додадуться в кінець.</string>
     <string name="lib_import_title_required">Вкажи назву книги перед імпортом.</string>
+    <string name="home_search_partial_catalogue">Джерела можуть показувати лише частину своїх книг.</string>
+    <string name="home_search_partial_failure">Частина джерел не відповіла. Показано доступні результати.</string>
+    <string name="home_search_retry">Спробувати ще раз</string>
 </resources>

@@ -126,6 +126,33 @@ class PlaybackResumeTest {
     }
 
     @Test
+    fun `repair after candidate selection invalidates the old widget resume position`() = resumeTest { manager, _ ->
+        val book = books[1]
+        dao.savePlaybackProgress(PlaybackProgressEntity(book.id, book.id,
+            currentChapterIndex = 0, currentPositionSeconds = 42L, lastListenedAt = 2_000L))
+        var repaired = false
+        val racingDao = object : com.slukhayka.audiobooks.data.db.AudiobookDao by dao {
+            override suspend fun getChapterOrderRows(bookId: String): List<com.slukhayka.audiobooks.data.db.ChapterOrderRow> {
+                val oldRows = dao.getChapterOrderRows(bookId)
+                if (!repaired) {
+                    repaired = true
+                    // Confirmed replacement may reuse IDs, but clears the old
+                    // listening row before publication bumps the player epoch.
+                    dao.deletePlaybackProgressForBook(bookId)
+                    manager.clearCommittedChapterOrder(bookId)
+                }
+                return oldRows
+            }
+        }
+        val resumed = PlaybackResume.resumeMostRecent(manager, LibraryEntries(racingDao, emptyList()),
+            playableFor = { playableFor(it) }, autoPlay = true,
+            ioDispatcher = dispatcher, playerDispatcher = dispatcher)
+        assertTrue(repaired)
+        assertFalse("the candidate's invalidated position must not reach new audio", resumed)
+        assertNull(manager.playerState.value.currentBook)
+    }
+
+    @Test
     fun `never replaces a loaded player`() = resumeTest { manager, _ ->
         val loaded = books[0]
         val other = books[1]

@@ -2,12 +2,14 @@ package com.slukhayka.audiobooks.data.imports
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport.SubmittedImportResult
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -85,6 +87,124 @@ class LibraryImportSubmissionTest {
 
     private val playlistUrl = "https://www.youtube.com/playlist?list=PLabcd1234"
     private val videoUrl = "https://www.youtube.com/watch?v=6XIPkMFZf-0"
+
+    @Test
+    fun `a later manual order waits for the submitted orders player publication`() = runBlocking {
+        val first = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", titleOverride = "Кобзар",
+            authorOverride = "Тарас Шевченко", narratorOverride = "Диктор"
+        )
+        val bookId = first.bookId!!
+        val original = dao.getChaptersListForBook(bookId).map { it.id }
+        val publicationEntered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val releasePublication = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val manualStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val published = java.util.concurrent.atomic.AtomicReference(original)
+        var firstPublication = true
+        val imports = LibraryImport(
+            dao, context, emptyList(), writeBatchRunner = { block -> db.withTransaction { block() } },
+            onChapterOrderCommitted = { id, ids ->
+                assertEquals(bookId, id)
+                if (firstPublication) {
+                    firstPublication = false
+                    publicationEntered.complete(Unit)
+                    releasePublication.await()
+                }
+                published.set(ids)
+            }
+        )
+        val submitted = async(kotlinx.coroutines.Dispatchers.IO) {
+            imports.importSubmittedYouTube(
+                "https://www.youtube.com/playlist?list=PLvariant", playlistJson, "@youtube",
+                titleOverride = "Кобзар", authorOverride = "Тарас Шевченко", narratorOverride = "Диктор",
+                explicitOrder = listOf("https://www.youtube.com/watch?v=biwxkjI06KA", "https://www.youtube.com/watch?v=6XIPkMFZf-0")
+            )
+        }
+        kotlinx.coroutines.withTimeout(10_000) { publicationEntered.await() }
+        assertEquals(original.reversed(), dao.getChaptersListForBook(bookId).map { it.id })
+        val manual = async(kotlinx.coroutines.Dispatchers.IO) {
+            manualStarted.complete(Unit)
+            imports.reorderChapters(bookId, original.reversed(), original)
+        }
+        manualStarted.await()
+        try {
+            assertEquals("the newer commit must wait for the earlier publication", null,
+                kotlinx.coroutines.withTimeoutOrNull(1_500) { manual.await() })
+        } finally {
+            releasePublication.complete(Unit)
+        }
+        assertEquals(SubmittedImportResult.IMPORTED, submitted.await().result)
+        assertEquals(ChapterReorderResult.APPLIED, manual.await())
+        assertEquals(original, dao.getChaptersListForBook(bookId).map { it.id })
+        assertEquals(original, published.get())
+    }
+
+    @Test
+    fun `repeated watch URLs retain their own titles when preview order is untouched`() = runBlocking {
+        val metadata = """{"_type":"playlist","title":"Збірка","entries":[
+            {"id":"6XIPkMFZf-0","title":"Перша","duration":10},
+            {"id":"6XIPkMFZf-0","title":"Повтор","duration":20}
+        ]}"""
+        val result = libraryImport.importSubmittedYouTube(playlistUrl, metadata, "@youtube")
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
+        val chapters = dao.getChaptersListForBook(result.bookId!!)
+        assertEquals(listOf("Перша", "Повтор"), chapters.map { it.title })
+        assertEquals(listOf(10L, 20L), chapters.map { it.durationSeconds })
+        assertEquals(2, dao.getTracksForSourceSync(result.sourceId!!).size)
+    }
+
+    @Test
+    fun `a failed preview order correction rolls back the whole submitted edition`() = runBlocking {
+        db.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER reject_preview_order BEFORE INSERT ON corrections " +
+                "WHEN NEW.mergeKey LIKE 'chapter-order:%' BEGIN SELECT RAISE(ABORT, 'preview-order-write'); END"
+        )
+        val atomicImports = LibraryImport(dao, context, emptyList(), writeBatchRunner = { block -> db.withTransaction { block() } })
+        val failure = runCatching {
+            atomicImports.importSubmittedYouTube(
+                playlistUrl, playlistJson, "@youtube", titleOverride = "Кобзар", authorOverride = "Тарас Шевченко",
+                narratorOverride = "Диктор",
+                explicitOrder = listOf("https://www.youtube.com/watch?v=biwxkjI06KA", "https://www.youtube.com/watch?v=6XIPkMFZf-0")
+            )
+        }.exceptionOrNull()
+        assertNotNull("the correction write was reached and refused", failure)
+        assertTrue(dao.getAllAudiobooksOnce().isEmpty())
+        assertTrue(dao.getSourcesByTypes(listOf("youtube")).isEmpty())
+        assertEquals(null, dao.findWorkByMergeKey(MergeKey.keyFor("Кобзар", "Тарас Шевченко")))
+    }
+
+    @Test
+    fun `preview order preserves provider anchors through a later reorder and second source`() = runBlocking {
+        val observed = listOf("https://www.youtube.com/watch?v=6XIPkMFZf-0", "https://www.youtube.com/watch?v=biwxkjI06KA")
+        val imported = libraryImport.importSubmittedYouTube(
+            playlistUrl, playlistJson, "@youtube", titleOverride = "Кобзар",
+            authorOverride = "Тарас Шевченко", narratorOverride = "Диктор", explicitOrder = observed.reversed()
+        )
+        val id = imported.bookId!!
+        val originalIds = listOf("$id-ch1", "$id-ch2")
+        assertEquals(originalIds.reversed(), dao.getChaptersListForBook(id).map { it.id })
+        assertEquals(observed.reversed(), dao.getTracksForSourceSync(imported.sourceId!!).map { it.url })
+        assertEquals(observed, dao.getChapterPlaybackSnapshot(id).providerPairs(imported.sourceId).map { it.second!!.url })
+        val editionId = dao.getEditionForWork(id)!!.id
+        val progress = com.slukhayka.audiobooks.data.db.PlaybackProgressEntity(
+            editionId = editionId, bookId = id, currentChapterIndex = 0, currentPositionSeconds = 42L
+        )
+        dao.savePlaybackProgress(progress)
+        assertEquals(1, ChapterOrder.anchorProgress(dao, progress).progress.currentChapterIndex)
+        val second = libraryImport.importSubmittedYouTube(
+            "https://www.youtube.com/playlist?list=PLvariant", playlistJson, "@youtube",
+            titleOverride = "Кобзар", authorOverride = "Тарас Шевченко", narratorOverride = "Диктор"
+        )
+        assertEquals(id, second.bookId)
+        assertEquals(observed.reversed(), dao.getTracksForSourceSync(second.sourceId!!).map { it.url })
+        assertEquals(ChapterReorderResult.APPLIED, libraryImport.reorderChapters(id, originalIds.reversed(), originalIds))
+        for (sourceId in listOf(imported.sourceId, second.sourceId)) {
+            assertEquals(observed, dao.getTracksForSourceSync(sourceId).map { it.url })
+            assertEquals(observed, dao.getChapterPlaybackSnapshot(id).providerPairs(sourceId).map { it.second!!.url })
+        }
+        assertEquals(progress, dao.getPlaybackProgressSyncByEdition(editionId))
+        assertEquals(0, ChapterOrder.anchorProgress(dao, progress).progress.currentChapterIndex)
+    }
 
     @Test
     fun `second YouTube source respects the existing listener order`() = runBlocking {

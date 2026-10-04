@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
@@ -14,6 +15,7 @@ import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 import java.io.File
@@ -306,6 +308,100 @@ class BrowserRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `cancellation during repair staging restores every original private file`() = runBlocking {
+        val original = detail(chapters = listOf(
+            "Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3",
+            "Глава 2" to "https://s1.reasd.org/kobzar/old2.mp3"
+        ))
+        val bookId = seedBook(original)
+        val tracks = dao.getTracksForBookSync(bookId)
+        val files = List(2) { index -> File.createTempFile("repair-cancel-$index-", ".mp3").apply {
+            writeBytes(byteArrayOf(index.toByte()))
+        } }
+        try {
+            tracks.forEachIndexed { index, track -> dao.updateTrackDownloadState(track.id, true, files[index].absolutePath) }
+            val before = dao.getChapterPlaybackSnapshot(bookId)
+            val guardedDao = object : AudiobookDao by dao {
+                override suspend fun getTracksByFilePath(path: String): List<com.slukhayka.audiobooks.data.db.SourceTrackEntity> {
+                    if (path == files[1].absolutePath) throw kotlinx.coroutines.CancellationException("second ownership read")
+                    return dao.getTracksByFilePath(path)
+                }
+            }
+            val updated = detail(chapters = listOf(
+                "Глава 1" to "https://s1.reasd.org/kobzar/new1.mp3",
+                "Глава 2" to "https://s1.reasd.org/kobzar/new2.mp3",
+                "Глава 3" to "https://s1.reasd.org/kobzar/new3.mp3"
+            ))
+            val imports = LibraryImport(guardedDao, context, listOf(fakeAdapter(mapOf("updated" to updated))))
+            val failure = runCatching {
+                imports.repairConfirmedWebSourceStructure(bookId, "4read", original.url, "updated")
+            }.exceptionOrNull()
+            assertTrue(failure is kotlinx.coroutines.CancellationException)
+            assertTrue("a quarantined private copy must return to its original path", files.all { it.exists() })
+            files.forEachIndexed { index, file -> assertArrayEquals(byteArrayOf(index.toByte()), file.readBytes()) }
+            assertEquals(before, dao.getChapterPlaybackSnapshot(bookId))
+        } finally {
+            files.forEach { file ->
+                file.delete()
+                file.parentFile?.listFiles()?.filter { it.name.startsWith(file.name + ".repair-") }?.forEach { it.delete() }
+            }
+        }
+    }
+
+    @Test
+    fun `confirmed repair waits for an older order publication before reusing chapter IDs`() = runBlocking {
+        val original = detail(chapters = listOf(
+            "Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3",
+            "Глава 2" to "https://s1.reasd.org/kobzar/old2.mp3"
+        ))
+        val bookId = seedBook(original)
+        val ids = dao.getChaptersListForBook(bookId).map { it.id }
+        val updated = detail(chapters = listOf(
+            "Глава 1" to "https://s1.reasd.org/kobzar/new1.mp3",
+            "Глава 2" to "https://s1.reasd.org/kobzar/new2.mp3",
+            "Глава 3" to "https://s1.reasd.org/kobzar/new3.mp3"
+        ))
+        val publicationEntered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val releasePublication = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val repairStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val published = java.util.concurrent.atomic.AtomicReference(ids)
+        val imports = LibraryImport(
+            dao, context, listOf(fakeAdapter(mapOf("updated" to updated))),
+            onChapterOrderCommitted = { _, order ->
+                publicationEntered.complete(Unit)
+                releasePublication.await()
+                published.set(order)
+            },
+            onChapterStructureCommitted = { repaired ->
+                assertEquals(bookId, repaired.id)
+                published.set(dao.getChaptersListForBook(bookId).map { it.id })
+            }
+        )
+        val manual = async(kotlinx.coroutines.Dispatchers.IO) {
+            imports.reorderChapters(bookId, ids, ids.reversed())
+        }
+        kotlinx.coroutines.withTimeout(10_000) { publicationEntered.await() }
+        val repair = async(kotlinx.coroutines.Dispatchers.IO) {
+            repairStarted.complete(Unit)
+            imports.repairConfirmedWebSourceStructure(bookId, "4read", original.url, "updated")
+        }
+        repairStarted.await()
+        try {
+            assertEquals("repair must not overtake a committed order's publication", null,
+                kotlinx.coroutines.withTimeoutOrNull(1_500) { repair.await() })
+        } finally {
+            releasePublication.complete(Unit)
+        }
+        assertEquals(ChapterReorderResult.APPLIED, manual.await())
+        assertEquals(bookId, repair.await()?.id)
+        val repairedIds = dao.getChaptersListForBook(bookId).map { it.id }
+        assertEquals(ids, repairedIds.take(2))
+        assertEquals(3, repairedIds.size)
+        assertEquals(repairedIds, published.get())
+        assertEquals(listOf("Глава 1", "Глава 2", "Глава 3"), dao.getChaptersListForBook(bookId).map { it.title })
+    }
+
+    @Test
     fun `confirmed structure repair replaces topology and clears only chapter scoped state`() = runBlocking {
         val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
         val bookId = seedBook(original)
@@ -581,23 +677,32 @@ class BrowserRecoveryCoordinatorTest {
     // --- #470: automatic non-destructive structure repair, bounded --------
 
     /** A seed + capture pair whose chapter count differs (same Work identity). */
-    private suspend fun mismatchFixture(): Triple<LibraryImport, String, SourceBookDetail> {
+    private suspend fun mismatchFixture(
+        onStructureCommitted: suspend (AudiobookEntity) -> Unit = {}
+    ): Triple<LibraryImport, String, SourceBookDetail> {
         val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
         val bookId = seedBook(original)
         val refreshed = detail(chapters = listOf(
             "Глава 1" to "https://s1.reasd.org/kobzar/new1.mp3",
             "Глава 2" to "https://s1.reasd.org/kobzar/new2.mp3"
         ))
-        return Triple(LibraryImport(dao, context, listOf(fakeAdapter(mapOf("cap" to refreshed)))), bookId, refreshed)
+        return Triple(LibraryImport(
+            dao, context, listOf(fakeAdapter(mapOf("cap" to refreshed))),
+            onChapterStructureCommitted = onStructureCommitted
+        ), bookId, refreshed)
     }
 
     @Test
     fun `non-destructive structure mismatch repairs automatically without the listener's confirmation`() = runBlocking {
-        val (imports, bookId, _) = mismatchFixture()
+        val events = mutableListOf<String>()
+        val (imports, bookId, _) = mismatchFixture { repaired ->
+            assertEquals(2, dao.getChaptersListForBook(repaired.id).size)
+            events += "replacement"
+        }
         val coordinator = BrowserRecoveryCoordinator(
             dao = dao,
             libraryImport = imports,
-            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> true },
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> events += "verification"; true },
             repairMemo = AutoRepairMemo()
         )
 
@@ -608,6 +713,7 @@ class BrowserRecoveryCoordinatorTest {
         assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.Success)
         val success = outcome as BrowserRecoveryCoordinator.Outcome.Success
         assertTrue(success.autoRepairedStructure)
+        assertEquals(listOf("replacement"), events)
         assertEquals(listOf("Глава 1", "Глава 2"), dao.getChaptersListForBook(bookId).map { it.title })
         val source = requireNotNull(dao.getSourcesForBookSync(bookId).singleOrNull { it.type == "4read" })
         assertEquals(

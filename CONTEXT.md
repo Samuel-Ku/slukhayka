@@ -426,6 +426,7 @@ _Avoid_: друга бібліотека, автосід як пояснення
 
 **Listening State**:
 A listener's progress, bookmarks, completion state, and playback preferences for one Edition. It is independent of the Source currently used to play that Edition — its row is keyed by Edition alone, so a Source switch never forks progress.
+In the Web Client, actual audio position comes from HTMLAudioElement.currentTime, and natural completion from the current confirmed media session's ended fact (ADR-0059). Wall time never advances Chapters or seeks audio; explicit seek/load/Smart Rewind remain commands. An end-of-chapter sleep timer stops at that media boundary before any next Chapter starts.
 _Avoid_: Library Entry, playback progress
 
 **Відстежуваний твір** (Tracked Work):

@@ -50,6 +50,7 @@ class MapStorage implements StorageLike {
  * prove the engine aborted the session).
  */
 class ControllableAudio extends EventTarget {
+  ended = false
   currentTime = 0
   playbackRate = 1
   loads = 0
@@ -68,6 +69,8 @@ class ControllableAudio extends EventTarget {
   }
 
   load(): void {
+    this.ended = false
+    this.currentTime = 0
     this.loads += 1
     this.startSession()
   }
@@ -84,6 +87,11 @@ class ControllableAudio extends EventTarget {
 
   /** A media event of the session that is current right now. */
   emit(type: string): void {
+    if (type === 'ended') {
+      this.dispatchEvent(new Event('playing'))
+      this.ended = true
+      this.currentTime = 600
+    }
     this.dispatchEvent(new Event(type))
   }
 

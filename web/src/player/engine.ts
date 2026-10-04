@@ -1,34 +1,13 @@
 /**
- * spec-43/T5 (pre-work engine slice) — the framework-free playback store for
- * the Web Client: a plain class with a subscribe callback, no React, no DOM.
- * The thin `<audio>` binding that feeds real events arrives with T5; this
- * engine owns state, timing and the two pure policies (ADR-0003 Smart
- * Rewind via `smartRewind`, ADR-0019-spirit attempt budget via
- * `fallbackPolicy`).
+ * Framework-free playback state and policies: Smart Rewind (ADR-0003) and
+ * one direct/relay attempt budget. Actual position is observed from media
+ * (ADR-0059); this store has no playback clock and never advances Chapters.
  *
- * Determinism: all wall-clock reads go through an injected `PlayerClock`,
- * and time itself advances only through explicit `tick(deltaMs)` calls —
- * tests drive both.
- *
- * Semantics worth pinning:
- * - In-session Smart Rewind (ADR-0003): resuming a pause longer than the
- *   tiers allow rewinds the live position via the ONE rule; an unchanged
- *   target skips the rewind. The pause marker clears on load/seek — one
- *   pause never rewinds twice, an expressed seek intent is never undone.
- * - Auto-advance: when a chapter with a known duration runs out, playback
- *   moves to the next chapter at zero as a fresh prepare (its own attempt
- *   budget). The LAST chapter's end parks on 'paused' at the chapter's
- *   duration with `isCompleted = true` in the published payload.
- * - Attempts: `play()` after idle/load/unavailable begins a user-initiated
- *   prepare (fresh DIRECT attempt); pause/resume within one prepare keeps
- *   it. `attemptErrored()` / `attemptPlaying()` feed the fallback policy;
- *   the engine exposes `attemptKind` but never touches media elements.
- * - #614 binding surface: a manual Chapter transition is
- *   `AudioEngine.loadBook(..., { forceChapter: true })` — Next, Previous, the
- *   chapter list and Media Session all share that ONE explicit intent.
- *   `markCompleted()` is the ONE honest completion signal the `<audio>`
- *   binding sends when the LAST Chapter's natural `ended` arrives, whether
- *   the Source gave a duration or not.
+ * The injected wall clock is only a pause-duration input to Smart Rewind.
+ * Load/seek clear that marker so one pause never rewinds twice. Explicit
+ * Chapter transitions belong to AudioEngine.loadBook(forceChapter); natural
+ * end belongs to its current confirmed media generation. markCompleted is
+ * accepted only at the last Chapter and parks at the actual observed end.
  */
 
 import type { Chapter } from '../worker/types'
@@ -118,9 +97,9 @@ export class PlaybackEngine {
     this.publish()
   }
 
-  seek(seconds: number): void {
-    if (this.chapters.length === 0) return
-    const duration = this.currentChapter()?.durationSeconds
+  seek(seconds: number, mediaDuration?: number): void {
+    if (this.chapters.length === 0 || !Number.isFinite(seconds)) return
+    const duration = mediaDuration ?? this.currentChapter()?.durationSeconds
     const upperBound = duration !== undefined ? duration : Number.POSITIVE_INFINITY
     this.positionSeconds = Math.max(0, Math.min(seconds, upperBound))
     this.pausedAtMs = null
@@ -133,49 +112,27 @@ export class PlaybackEngine {
     this.publish()
   }
 
-  tick(deltaMs: number): void {
-    if (this.status !== 'playing') return
-    this.positionSeconds += (deltaMs / 1000) * this.speed
-    const duration = this.currentChapter()?.durationSeconds
-    if (duration === undefined || this.positionSeconds < duration) {
-      this.publish()
-      return
-    }
-    if (this.chapterIndex < this.chapters.length - 1) {
-      this.chapterIndex += 1
-      this.positionSeconds = 0
-      this.isCompleted = false
-      this.attempt = null
-      const decision = decideNext(null, { type: 'started' }, this.directUrl(), this.relayUrlOf)
-      if (!('giveUp' in decision) && decision.next !== null) {
-        this.attempt = decision.next
-      }
-    } else {
-      this.positionSeconds = duration
-      this.status = 'paused'
-      this.isCompleted = true
-      this.attempt = null
-      this.pausedAtMs = null
-    }
+  /** Actual media time is observed, never extrapolated from a timer or speed. */
+  observePosition(seconds: number): void {
+    if (this.chapters.length === 0 || this.isCompleted || !Number.isFinite(seconds) || seconds < 0) return
+    if (this.positionSeconds === seconds) return
+    this.positionSeconds = seconds
     this.publish()
   }
 
   /**
    * #614 — the media adapter reported the natural end of the CURRENT Chapter
    * and there is no next Chapter to prepare: the Edition is completed. Parks
-   * on 'paused' at the Chapter's known end, or at the already-reported
-   * position when the Source never gave a duration — an honest completion
-   * must not depend on metadata that does not exist.
+   * on 'paused' at the already-observed actual media position. Catalog
+   * duration cannot override an actual end, including an unknown duration.
    *
    * This is the ONE completion signal `persist()` and the finish prompt read.
    * A mid-book call is refused: completion is only ever the LAST Chapter's
    * honest end, never a shortcut out of the middle of an Edition.
    */
   markCompleted(): void {
-    if (this.chapters.length === 0) return
+    if (this.chapters.length === 0 || this.isCompleted) return
     if (this.chapterIndex < this.chapters.length - 1) return
-    const duration = this.currentChapter()?.durationSeconds
-    if (duration !== undefined) this.positionSeconds = duration
     this.status = 'paused'
     this.isCompleted = true
     this.attempt = null

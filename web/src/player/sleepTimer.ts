@@ -2,7 +2,8 @@
  * W5.1 — port of Android's sleep timer policy (spec-22 T5, the pure rules
  * behind `AudioPlayerManager.setSleepTimer` / `extendSleepTimerBy15Minutes`
  * / `rearmEndOfChapterTimerIfActive`). One state machine, no DOM, no
- * timers — the transport (AudioEngine's 1s ticker) only feeds it seconds.
+ * timers — AudioEngine feeds elapsed seconds for timed sleep. Chapter-end
+ * sleep follows actual media time and natural end (ADR-0059).
  *
  * Options are Android's exact vocabulary: `0` = off, `-1` = «до кінця
  * розділу», then 5/15/30/45/60/90 minutes. Both timed modes fade the
@@ -67,8 +68,8 @@ export function setSleepTimer(
 /**
  * One tick of the 1s transport clock. Decrements the exact remainder; at
  * zero the timer has FIRED (the caller pauses playback) and the state
- * collapses to off. A paused book never ticks (the ticker only runs while
- * playing, matching Android's countdown on the playing media clock).
+ * collapses to off. Timed sleep keeps counting while paused, matching the
+ * Android CountDownTimer; this function never advances audio position.
  */
 export function tickSleepTimer(state: SleepTimerState, secondsElapsed = 1): SleepTimerState {
   if (!isSleepTimerActive(state)) return state

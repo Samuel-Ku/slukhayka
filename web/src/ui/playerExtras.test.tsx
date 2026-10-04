@@ -170,19 +170,41 @@ describe('SleepTimerPane', () => {
     expect(screen.getByText('Залишилось: 29:00')).toBeTruthy()
   })
 
-  it('the end-of-chapter option counts down to the chapter boundary', async () => {
+  it('the end-of-chapter option counts down to the actual chapter boundary', async () => {
     vi.useFakeTimers()
     const engine = freshEngine()
+    const media = Object.assign(new EventTarget(), {
+      src: '', currentTime: 0, duration: 600, playbackRate: 1, volume: 1,
+      ended: false, paused: true,
+      play(): Promise<void> { this.paused = false; return Promise.resolve() },
+      pause(): void { this.paused = true },
+      load(): void { this.currentTime = 0; this.ended = false },
+      removeAttribute(name: string): void { if (name === 'src') this.src = '' },
+    })
+    engine.attachAudio(media as unknown as HTMLAudioElement)
     await engine.loadBook({ title: 'Книга', chapters: CHAPTERS, editionId: 'e1', workId: 'w1' }, 0, { forceChapter: true })
-    engine.pause()
+    media.dispatchEvent(new Event('playing'))
     engine.seek(90)
     render(<SleepTimerPane engine={engine} />)
     fireEvent.click(screen.getByText('До кінця розділу'))
     expect(screen.getByText('До кінця розділу: 8:30')).toBeTruthy()
-    act(() => vi.advanceTimersByTime(510_000))
-    // The timer fired: the pane collapses to off (no countdown, no extend).
+    act(() => {
+      media.currentTime = 300
+      media.dispatchEvent(new Event('timeupdate'))
+      vi.advanceTimersByTime(1_000)
+    })
+    expect(screen.getByText('До кінця розділу: 5:00')).toBeTruthy()
+    act(() => {
+      media.currentTime = 600
+      media.ended = true
+      media.paused = true
+      media.dispatchEvent(new Event('ended'))
+    })
+    // Natural media end fires the timer: no countdown or extend action.
     expect(screen.queryByText(/Залишилось/)).toBeNull()
     expect(screen.queryByText('Додати 15 хвилин до таймера')).toBeNull()
+    expect(engine.getState()).toMatchObject({ status: 'paused', chapterIndex: 0, positionSeconds: 600 })
+    engine.dispose()
   })
 
   it('extending a countdown preserves the exact remainder (Android`s +15 rule)', async () => {

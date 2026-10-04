@@ -18,6 +18,22 @@ class ImportGrantStore(context: Context) {
         prefs.edit { putStringSet(KEY_TREE_URIS, grantedTreeUris() + treeUri) }
     }
 
+    /** The folder choice travels with its persisted SAF grant. Old grants stay separate. */
+    fun addFolder(source: SourceRef.Folder) {
+        prefs.edit {
+            putStringSet(KEY_TREE_URIS, grantedTreeUris() + source.treeUri)
+            putString("grouping:${source.treeUri}", source.grouping.name)
+            putString("name:${source.treeUri}", source.displayName)
+        }
+    }
+
+    fun folder(treeUri: String): SourceRef.Folder = SourceRef.Folder(
+        treeUri,
+        prefs.getString("name:$treeUri", null),
+        runCatching { LocalFolderGrouping.valueOf(prefs.getString("grouping:$treeUri", null).orEmpty()) }
+            .getOrDefault(LocalFolderGrouping.SEPARATE_BOOKS)
+    )
+
     /** All tree uris the listener has imported from so far. */
     fun grantedTreeUris(): Set<String> =
         prefs.getStringSet(KEY_TREE_URIS, emptySet()) ?: emptySet()

@@ -161,7 +161,8 @@ data class SelectedWebSource(
     val recoveryChapterIndex: Int? = null,
     val recoveryPositionMs: Long = 0L,
     val automaticRecovery: Boolean = false,
-    val cloudflareChallenge: Boolean = false
+    val cloudflareChallenge: Boolean = false,
+    val recoveryChapterId: String? = null
 )
 
 /** A genre (category) opened from the Explore "Жанри" chips row. */
@@ -812,6 +813,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val preview = runCatching { listenerSubmissionFlow.previewSubmission(rawUrl) }.getOrNull()
             if (preview != null) {
+                _previewOrder.value = null
                 _submissionPreview.value = preview
                 // Spec-53 T11 — a fresh card starts with EVERY position picked
                 // ("додати всі") and the default mode: one book of chapters.
@@ -826,6 +828,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         previewSessionJob?.cancel()
         previewSessionJob = null
         _submissionPreview.value = null
+        _previewOrder.value = null
         _previewSelection.value = emptySet()
         _previewRun.value = PreviewRunState()
     }
@@ -1753,7 +1756,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sourceId: String,
         chapterIndex: Int,
         positionMs: Long,
-        automatic: Boolean
+        automatic: Boolean,
+        chapterId: String? = null
     ) {
         // Automatic recovery keeps the ordinary player in front. An explicit
         // browser action still opens the full source surface.
@@ -1779,6 +1783,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     displayName = sourceDisplayName(sourceId),
                     recoveryBookId = bookId,
                     recoveryChapterIndex = chapterIndex,
+                    recoveryChapterId = chapterId,
                     recoveryPositionMs = positionMs,
                     automaticRecovery = automatic
                 )
@@ -1818,9 +1823,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         positionMs: Long,
         automatic: Boolean = false
     ) {
+        val chapterId = playerState.value.takeIf { it.currentBook?.id == bookId }?.chapters?.getOrNull(chapterIndex)?.id
         viewModelScope.launch(Dispatchers.IO) {
             val playable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
-            val track = playable.getOrNull(chapterIndex)?.track
+            val freshIndex = chapterId?.let { id -> playable.indexOfFirst { it.chapter.id == id } } ?: chapterIndex
+            val track = playable.getOrNull(freshIndex)?.track
             when (
                 SmartRetryPolicy.decide(
                     localFileReady = SmartRetryPolicy.localFileReady(track?.localFilePath),
@@ -1830,15 +1837,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 SmartRetryPolicy.Decision.PlayLocal -> withContext(Dispatchers.Main) {
                     // prepare грає локальний файл (buildMediaItem) і ніколи
                     // не стукає у мертвий стрім, поки копія існує.
-                    playerManager.prepareChapter(chapterIndex, positionMs, autoPlay = true)
+                    val state = playerState.value
+                    val currentIndex = chapterId?.let { id -> state.chapters.indexOfFirst { it.id == id } } ?: chapterIndex
+                    if (state.currentBook?.id == bookId && currentIndex >= 0) playerManager.prepareChapter(currentIndex, positionMs, autoPlay = true)
                 }
 
                 SmartRetryPolicy.Decision.Unavailable -> withContext(Dispatchers.Main) {
-                    finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
+                    finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic, chapterId)
                 }
 
                 SmartRetryPolicy.Decision.ReResolve ->
-                    resolveAndReplay(bookId, chapterIndex, positionMs, automatic)
+                    resolveAndReplay(bookId, chapterIndex, positionMs, automatic, chapterId)
             }
         }
     }
@@ -1869,13 +1878,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bookId: String,
         chapterIndex: Int,
         positionMs: Long,
-        automatic: Boolean
+        automatic: Boolean,
+        chapterId: String?
     ) {
         val book = runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
         if (book == null) {
             smartRetryMemo.recordFailure(bookId)
             withContext(Dispatchers.Main) {
-                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
+                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic, chapterId)
             }
             return
         }
@@ -1906,15 +1916,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (resolved == null) {
             smartRetryMemo.recordFailure(bookId)
             withContext(Dispatchers.Main) {
-                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
+                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic, chapterId)
             }
             return
         }
         smartRetryMemo.recordSuccess(bookId)
+        val chapterStructureVersion = playerManager.chapterStructureVersion(bookId)
         val freshPlayable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
         if (freshPlayable.isEmpty()) {
             withContext(Dispatchers.Main) {
-                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
+                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic, chapterId)
             }
             return
         }
@@ -1925,7 +1936,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 playable = freshPlayable,
                 initialChapterIndex = chapterIndex.coerceIn(0, (freshPlayable.size - 1).coerceAtLeast(0)),
                 initialPositionSeconds = positionMs / 1000L,
-                autoPlay = true
+                initialChapterId = chapterId,
+                autoPlay = true,
+                expectedChapterStructureVersion = chapterStructureVersion
             )
             _showFullPlayer.value = true
         }
@@ -1960,7 +1973,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bookId: String,
         chapterIndex: Int,
         positionMs: Long,
-        automatic: Boolean
+        automatic: Boolean,
+        chapterId: String? = null
     ) {
         if (!automatic) {
             playerManager.reportRetryUnavailable()
@@ -1968,7 +1982,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val browserSource = browserRecoverySources(bookId).firstOrNull()
         if (browserSource != null) {
-            openBrowserRecovery(bookId, browserSource, chapterIndex, positionMs, automatic = true)
+            val index = chapterId?.let { id -> playerState.value.chapters.indexOfFirst { it.id == id } }?.takeIf { it >= 0 } ?: chapterIndex
+            openBrowserRecovery(bookId, browserSource, index, positionMs, automatic = true)
             return
         }
         // Stay in Player. The listener decides whether to retry or start the
@@ -2011,6 +2026,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         positionMs: Long,
         automatic: Boolean = false
     ) {
+        val chapterId = playerState.value.takeIf { it.currentBook?.id == bookId }?.chapters?.getOrNull(chapterIndex)?.id
         viewModelScope.launch(Dispatchers.IO) {
             // ADR-0037: a refused source's recovery door does not exist.
             if (sourceId in refusedAudioSourceIdsOf(
@@ -2026,7 +2042,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // session: older in-flight enumerations become unpublishable and
             // the next refresh bypasses the cache.
             App.instance.sourceCatalog.noteBrowserSessionOpened()
-            openBrowserRecoveryInner(bookId, sourceId, chapterIndex, positionMs, automatic)
+            openBrowserRecoveryInner(bookId, sourceId, chapterIndex, positionMs, automatic, chapterId)
         }
     }
 
@@ -2035,10 +2051,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sourceId: String,
         chapterIndex: Int,
         positionMs: Long,
-        automatic: Boolean
+        automatic: Boolean,
+        chapterId: String? = null
     ) {
         if (BrowserRecoveryProfiles.forSource(sourceId).searchDoor != null) {
-            openDoorRecovery(bookId, sourceId, chapterIndex, positionMs, automatic)
+            openDoorRecovery(bookId, sourceId, chapterIndex, positionMs, automatic, chapterId)
             return
         }
         _showFullPlayer.value = automatic
@@ -2063,6 +2080,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     displayName = sourceDisplayName(sourceId),
                     recoveryBookId = bookId,
                     recoveryChapterIndex = chapterIndex,
+                    recoveryChapterId = chapterId,
                     recoveryPositionMs = positionMs,
                     automaticRecovery = automatic
                 )
@@ -2099,6 +2117,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onComplete: (Boolean) -> Unit = {},
         onStructureMismatch: (com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.StructureMismatch) -> Unit = {}
     ) {
+        val chapterId = _selectedWebSource.value?.takeIf { it.recoveryBookId == bookId && it.sourceId == sourceId }?.recoveryChapterId
+            ?: playerState.value.takeIf { it.currentBook?.id == bookId }?.chapters?.getOrNull(chapterIndex)?.id
         viewModelScope.launch(Dispatchers.IO) {
             val coordinator = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator(
                 dao = App.instance.audiobookDao,
@@ -2122,7 +2142,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             )
             val outcome = try {
-                coordinator.recover(bookId, sourceId, url, html, capturedAudioUrls, chapterIndex, positionMs)
+                coordinator.recover(bookId, sourceId, url, html, capturedAudioUrls, chapterIndex, positionMs, requestedChapterId = chapterId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -2131,25 +2151,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Main) {
                 when (outcome) {
                     is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success -> {
-                        // The verifier already started this exact media item
-                        // and observed Player.onIsPlayingChanged(true). Do not
-                        // prepare it a second time: that could close the
-                        // browser before the replacement prepare really plays.
+                        // A topology repair was already published paused by
+                        // LibraryImport. Ordinary URL recovery has a factual
+                        // playback verdict; keep that opened track installed.
                         _showFullPlayer.value = true
                         if (sourceId == "4read") {
                             offlineDownloads.confirmBrowserRefresh(outcome.book.id)
                         }
                         onComplete(true)
                         viewModelScope.launch(Dispatchers.IO) {
-                            val playable = sourceCatalog.getPlayableChapters(
-                                outcome.book.id, preferredSourceType = sourceId, preferredSourceUrl = url
-                            )
+                            val snapshot = App.instance.audiobookDao.getChapterPlaybackSnapshot(outcome.book.id)
                             // #431 — publishing is strictly post-verdict and
                             // best-effort. The publisher repeats a clean,
                             // cookie-free transport probe, so the private WebView
                             // session never becomes shared metadata.
-                            val editionId = editionIdForBook(outcome.book.id)
-                            val recoveredSource = App.instance.audiobookDao.getSourcesForBookSync(outcome.book.id)
+                            val editionId = snapshot.edition?.id
+                            val recoveredSource = snapshot.sources
                                 .firstOrNull { it.type == sourceId && it.url == url }
                             if (editionId != null && recoveredSource != null) {
                                 val profile = BookProfile(
@@ -2157,12 +2174,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     author = outcome.book.author,
                                     narrator = outcome.book.narrator,
                                     description = outcome.book.description,
-                                    chapters = playable.mapNotNull { chapter ->
-                                        chapter.track?.url
-                                            ?.takeIf { it.startsWith("http", ignoreCase = true) }
-                                            ?.let { trackUrl ->
-                                                ProfileChapter(chapter.chapter.title, trackUrl, chapter.chapter.durationSeconds)
-                                            }
+                                    chapters = snapshot.providerPairs(recoveredSource.id).mapNotNull { (chapter, track) ->
+                                        track?.url?.takeIf { it.startsWith("http", ignoreCase = true) }?.let { trackUrl ->
+                                            ProfileChapter(chapter.title, trackUrl, chapter.durationSeconds)
+                                        }
                                     },
                                     totalDurationSeconds = outcome.book.totalDurationSeconds.takeIf { it > 0L }
                                 )
@@ -2197,7 +2212,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onComplete: (Boolean) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val activeBookId = playerState.value.currentBook?.id
             val repaired = try {
                 libraryImport.repairConfirmedWebSourceStructure(bookId, sourceId, url, html, capturedAudioUrls)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -2206,26 +2220,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (repaired != null) probeDurationsAfterImport(repaired.id)
-            val repairedPlayable = repaired
-                ?.takeIf { it.id == activeBookId }
-                ?.let { repairedBook ->
-                    sourceCatalog.getPlayableChapters(repairedBook.id)
-                }
             withContext(Dispatchers.Main) {
-                // A confirmed topology repair replaces the tracks under this
-                // Edition. If it is already loaded, the manager still holds
-                // the old playlist/URLs in memory; reload it paused so the
-                // mini-player cannot retry a removed stale track.
-                if (repaired != null && repairedPlayable != null) {
-                    playerManager.loadAndPlayBook(
-                        book = repaired,
-                        chapters = repairedPlayable.map { it.chapter },
-                        playable = repairedPlayable,
-                        initialChapterIndex = 0,
-                        initialPositionSeconds = 0,
-                        autoPlay = false
-                    )
-                }
                 onComplete(repaired != null)
             }
         }
@@ -3594,6 +3589,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sourceUrl: String,
         positionMs: Long
     ): Boolean {
+        val chapterStructureVersion = playerManager.chapterStructureVersion(bookId)
         val book = App.instance.audiobookDao.getAudiobookById(bookId)
             ?.toAudiobookEntity()
             ?: return false
@@ -3602,6 +3598,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         val chapterIndex = playable.indexOfFirst { it.track?.url == trackUrl }
         if (chapterIndex < 0) return false
+        val chapterId = playable[chapterIndex].chapter.id
         val localPath = playable[chapterIndex].track?.localFilePath
         val expectedMediaUrl = if (SmartRetryPolicy.localFileReady(localPath)) {
             android.net.Uri.fromFile(java.io.File(localPath!!)).toString()
@@ -3613,7 +3610,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
                         playerManager.playbackStarted.first { started ->
                             started.bookId == bookId &&
-                                started.chapterIndex == chapterIndex &&
+                                started.chapterId == chapterId &&
                                 started.mediaUrl == expectedMediaUrl
                         }
                     } != null
@@ -3624,7 +3621,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     playable = playable,
                     initialChapterIndex = chapterIndex,
                     initialPositionSeconds = positionMs / 1000L,
-                    autoPlay = true
+                    autoPlay = true,
+                    expectedChapterStructureVersion = chapterStructureVersion
                 )
                 verdict.await().also { started ->
                     if (!started && playerState.value.currentBook?.id == bookId) {
@@ -4914,7 +4912,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         book: AudiobookEntity,
         chapterIndex: Int? = null,
         autoPlay: Boolean = true,
-        preferredSource: SourceEntity? = null
+        preferredSource: SourceEntity? = null,
+        chapterId: String? = null
     ) {
         withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
             if (autoPlay && pendingRecommendationBookId.compareAndSet(book.id, null)) {
@@ -4925,7 +4924,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 chapterIndex = chapterIndex,
                 autoPlay = autoPlay,
                 forceRelisten = false,
-                preferredSource = preferredSource
+                preferredSource = preferredSource,
+                chapterId = chapterId
             )
         }
     }
@@ -4944,7 +4944,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chapterIndex: Int?,
         autoPlay: Boolean,
         forceRelisten: Boolean,
-        preferredSource: SourceEntity? = null
+        preferredSource: SourceEntity? = null,
+        chapterId: String? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             startAudiobookPlaybackNow(
@@ -4952,7 +4953,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 chapterIndex = chapterIndex,
                 autoPlay = autoPlay,
                 forceRelisten = forceRelisten,
-                preferredSource = preferredSource
+                preferredSource = preferredSource,
+                chapterId = chapterId
             )
         }
     }
@@ -4962,9 +4964,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chapterIndex: Int?,
         autoPlay: Boolean,
         forceRelisten: Boolean,
-        preferredSource: SourceEntity? = null
+        preferredSource: SourceEntity? = null,
+        chapterId: String? = null
     ) {
             if (autoPlay) automaticPlaybackRecoveryGate.beginAttempt(book.id)
+            var chapterStructureVersion = playerManager.chapterStructureVersion(book.id)
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
             // player resolves chapter → track 1:1 by index.
@@ -4999,6 +5003,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw cancelled
             }
             if (playbackBook.id != updatedBook.id) {
+                chapterStructureVersion = playerManager.chapterStructureVersion(playbackBook.id)
                 playable = try {
                     sourceCatalog.getPlayableChapters(
                         playbackBook.id,
@@ -5012,13 +5017,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             val chapters = playable.map { it.chapter }
+            val requestedChapterId = chapterId ?: chapterIndex?.let { chapters.getOrNull(it)?.id }
+            val requestedIndex = requestedChapterId?.let { id -> chapters.indexOfFirst { it.id == id } }
+            if (requestedIndex != null && requestedIndex < 0) return
             // ADR-0051 (spec-43 T6): the cloud mirror lands BEFORE the resume
             // decision — «почав на телефоні — продовж тут». A forced
             // re-listen skips it: the explicit restart intent wins.
             if (!forceRelisten) {
                 runCatching { progressSync.pullBeforeResume(playbackBook.id) }
             }
-            val progress = listeningState.getProgressSync(playbackBook.id)
+            val anchoredProgress = listeningState.getAnchoredProgress(playbackBook.id)
+            val progress = anchoredProgress?.progress
 
             // ADR-0008: the ONE pure resume decision — an explicit chapter
             // request vs. the saved progress, then the ADR-0003 smart rewind
@@ -5029,9 +5038,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ResumeStart(chapterIndex = 0, positionSeconds = 0L)
             } else {
                 computeResumeStart(
-                    requestedChapter = chapterIndex,
+                    requestedChapter = requestedIndex,
                     progress = progress,
-                    nowEpochMs = System.currentTimeMillis()
+                    nowEpochMs = System.currentTimeMillis(),
+                    requestedChapterId = requestedChapterId,
+                    progressChapterId = anchoredProgress?.chapterId
                 )
             }
             // ADR-0007: the pause marker lives on the Edition's progress row;
@@ -5055,7 +5066,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     initialChapterIndex = resume.chapterIndex,
                     initialPositionSeconds = resume.positionSeconds,
                     autoPlay = autoPlay,
-                    forceRelisten = forceRelisten
+                    forceRelisten = forceRelisten,
+                    initialChapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
+                    expectedChapterStructureVersion = chapterStructureVersion
                 )
             }
 
@@ -5081,13 +5094,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     chapterTitle = currentChapterTitle,
                     timestampSeconds = timestampSec,
                     note = note.ifBlank { "Bookmark at ${formatTime(timestampSec)}" }
-                )
+                ),
+                chapterId = currentState.chapters.getOrNull(currentChapterIdx)?.id
             )
         }
     }
 
     fun jumpToBookmark(bookmark: BookmarkEntity) {
         viewModelScope.launch(Dispatchers.IO) {
+            val chapterStructureVersion = playerManager.chapterStructureVersion(bookmark.bookId)
             val book = libraryEntries.getBookSync(bookmark.bookId)
             if (book == null) {
                 // #1081 — the bookmark outlived its book. The row may have been
@@ -5109,15 +5124,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // chapter and the audio never starts. When the anchor no longer
             // fits, open the book honestly at its saved position instead of
             // pretending the anchor still means something.
+            val bookmarkChapterId = listeningState.chapterIdForBookmark(bookmark)
+            val bookmarkIndex = chapters.indexOfFirst { it.id == bookmarkChapterId }
             val anchorChapter: Int
             val anchorPosition: Long
-            if (bookmark.chapterIndex in chapters.indices) {
-                anchorChapter = bookmark.chapterIndex
+            val anchorId: String?
+            if (bookmarkIndex >= 0) {
+                anchorChapter = bookmarkIndex
+                anchorId = bookmarkChapterId
                 anchorPosition = bookmark.timestampSeconds
             } else {
-                val progress = listeningState.getProgressSync(bookmark.bookId)
-                anchorChapter = progress?.currentChapterIndex?.takeIf { it in chapters.indices } ?: 0
-                anchorPosition = progress?.currentPositionSeconds ?: 0L
+                val progress = listeningState.getAnchoredProgress(bookmark.bookId)
+                anchorId = progress?.chapterId
+                anchorChapter = chapters.indexOfFirst { it.id == anchorId }.takeIf { it >= 0 } ?: 0
+                anchorPosition = progress?.progress?.currentPositionSeconds ?: 0L
                 _bookmarkMessage.value = bookmarkChapterGoneMessage
             }
 
@@ -5130,7 +5150,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // chose IS the anchor — `(editionId, chapterIndex, time)` per the
             // ticket's «не вгадувати джерело чи розділ замість якоря».)
             viewModelScope.launch(Dispatchers.Main) {
-                if (playerState.value.currentBook?.id != bookmark.bookId) {
+                if (playerState.value.currentBook?.id != bookmark.bookId ||
+                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
                     playerManager.clearPlaybackFailureForNewAttempt()
                     automaticPlaybackRecoveryGate.arm(book.id)
                     playerManager.loadAndPlayBook(
@@ -5138,12 +5159,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         chapters = chapters,
                         playable = playable,
                         initialChapterIndex = anchorChapter,
+                        initialChapterId = anchorId,
                         initialPositionSeconds = anchorPosition,
-                        autoPlay = true
+                        autoPlay = true,
+                        expectedChapterStructureVersion = chapterStructureVersion
                     )
                 } else {
-                    if (playerState.value.currentChapterIndex != anchorChapter) {
-                        playerManager.selectChapter(anchorChapter)
+                    val activeIndex = playerState.value.chapters.indexOfFirst { it.id == anchorId }.takeIf { it >= 0 } ?: anchorChapter
+                    if (playerState.value.currentChapterIndex != activeIndex) {
+                        playerManager.selectChapter(activeIndex)
                     }
                     playerManager.seekTo(anchorPosition * 1000L)
                     playerManager.play()
@@ -5643,63 +5667,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * sort, merge suggestions) and shown to the user; only
      * [confirmImportPreview] writes to Room.
      */
-    /**
-     * #1049 — applies the listener's chapter order to an ALREADY ADDED book.
-     *
-     * This is an INDEX SWAP, never a rebuild. The pairing matters: ADR-0007
-     * ties a chapter to its track BY INDEX, so both lists are permuted in the
-     * same call and one transaction. Progress and bookmarks are deliberately
-     * left alone — the listener moved a chapter, they did not repair the book,
-     * and losing their place for a reorder would be the app's fault, not theirs.
-     *
-     * The track order is derived from the chapter order through the stored
-     * rows, so the caller passes ONE list and cannot desynchronise the two.
-     */
-    /**
-     * #1049 — applies the listener's chapter order to an ALREADY ADDED book.
-     *
-     * The work lives in [LibraryImport] beside the other chapter mutations;
-     * this is the UI door.
-     */
-    fun reorderChapters(bookId: String, chapterIdsInOrder: List<String>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val ok = libraryImport.reorderAddedBookChapters(bookId, chapterIdsInOrder)
-            if (!ok) _importMessage.value = "Не вдалося змінити порядок розділів"
-        }
-    }
-
-    /**
-     * #1052 — re-reads the folder with the other grouping answer. The plan is
-     * rebuilt from the SAME tree, so the listener's edit is a change of reading,
-     * not a new import: nothing is written until they confirm.
-     */
-    fun setPreviewRootFilesAsOneBook(asOneBook: Boolean) {
-        val preview = _importPreview.value ?: return
-        if (preview.rootFilesAsOneBook == asOneBook) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val plan = libraryImport.planLocalAudioFolder(
-                    android.net.Uri.parse(preview.treeUri),
-                    rootFilesAsOneBook = asOneBook
-                )
-                // Only apply if the preview is still the one we re-planned —
-                // the listener may have dismissed it while the scan ran.
-                val current = _importPreview.value ?: return@launch
-                if (current.treeUri != preview.treeUri) return@launch
-                // Edits already made in the preview (reorder, rename) belong to
-                // the OLD grouping and are dropped with it: keeping them would
-                // attach a correction to a book that no longer exists.
-                _importPreview.value = current.copy(
-                    plan = plan,
-                    rootFilesAsOneBook = asOneBook
-                )
-            } catch (e: Exception) {
-                android.util.Log.w("MainViewModel", "Folder re-plan failed", e)
-                _importMessage.value = "Не вдалося перечитати папку"
-            }
-        }
-    }
-
     fun importLocalAudioFolder(uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -5753,18 +5720,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _importPreview.value = preview.copy(plan = ImportPlanner.rejectMerge(preview.plan, bookId))
     }
 
-    /**
-     * #1049 — manual chapter order, the promise made to Andrii_Bryzh in the
-     * community chat («в майбутньому додам можливість редагування
-     * послідовності вже доданої книги»). The first slice is the preview the
-     * plan is still editable in: `ImportPlanner.reorderChapters` has existed
-     * since wayfinder #29 but nothing called it.
-     *
-     * [newOrder] holds the CURRENT indices in their new order — the same
-     * contract as the planner, so the two never disagree about direction.
-     * A permutation of the wrong size or with repeats is refused by the
-     * planner itself (it returns the plan unchanged), not by a guess here.
-     */
+    /** Applies the library mutation and preserves the playing Chapter, including a pending Play. */
+    suspend fun reorderImportedChapters(bookId: String, expectedIds: List<String>, newIds: List<String>): com.slukhayka.audiobooks.data.imports.ChapterReorderResult =
+        withContext(kotlinx.coroutines.NonCancellable) {
+            withContext(Dispatchers.IO) {
+                libraryImport.reorderChapters(bookId, expectedIds, newIds)
+            }
+        }
+
+    /** Joins two explicit preview selections; the destination keeps its metadata. */
+    fun mergePlannedBooksInPreview(sourceBookId: String, targetBookId: String) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(plan = ImportPlanner.mergePlannedBooks(preview.plan, sourceBookId, targetBookId))
+    }
+
+    /** Changes only the root-file grouping of the isolated preview. */
+    fun changeFolderGroupingInPreview(grouping: com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(plan = ImportPlanner.changeFolderGrouping(preview.plan, grouping))
+    }
+
+    /** Reorders the isolated import draft; [newOrder] contains its current indices. */
     fun reorderChaptersInPreview(bookId: String, newOrder: List<Int>) {
         val preview = _importPreview.value ?: return
         _importPreview.value = preview.copy(
@@ -5772,16 +5748,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /**
-     * #1052 — «Додати папку» on a folder whose files lie in it gave a heap of
-     * one-chapter books instead of one book with chapters, because the planner
-     * treats the tree root as a container of books. The listener chose a folder
-     * that IS a book, so the preview must be able to say so.
-     *
-     * This splits [bookId] at [chapterIndex] — the same shape as
-     * [ImportPlanner.splitBook] — and the UI drives it to merge the loose root
-     * files back into one book.
-     */
+    /** Splits the chosen preview book at [chapterIndex] without reading audio. */
     fun splitBookInPreview(bookId: String, chapterIndex: Int) {
         val preview = _importPreview.value ?: return
         _importPreview.value = preview.copy(
@@ -5801,7 +5768,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         author: String? = null,
         narrator: String? = null,
         seriesTitle: String? = null,
-        seriesIndex: Int? = null
+        seriesIndex: Int? = null,
+        clearSeriesIndex: Boolean = false
     ) {
         val preview = _importPreview.value ?: return
         _importPreview.value = preview.copy(
@@ -5812,7 +5780,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 author = author,
                 narrator = narrator,
                 seriesTitle = seriesTitle,
-                seriesIndex = seriesIndex
+                seriesIndex = seriesIndex,
+                clearSeriesIndex = clearSeriesIndex
             )
         )
     }
@@ -5833,6 +5802,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         missingFiles = acc.missingFiles + r.missingFiles,
                         movedFiles = acc.movedFiles + r.movedFiles,
                         duplicateFiles = acc.duplicateFiles + r.duplicateFiles,
+                        skippedFiles = acc.skippedFiles + r.skippedFiles,
                         structuralChangeRejected = acc.structuralChangeRejected || r.structuralChangeRejected
                     )
                 }
@@ -5893,13 +5863,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** The pending smart-import preview (wayfinder #29) plus its tree uri. */
     data class ImportPreviewState(
         val plan: ImportPlan,
-        val treeUri: String,
-        /**
-         * #1052 — the listener's answer to «що означає вибрана тека?».
-         * Kept in the state so the dialog shows the CURRENT choice, and so a
-         * second tap re-plans from the same tree rather than re-asking for it.
-         */
-        val rootFilesAsOneBook: Boolean = false
+        val treeUri: String
     )
 
     companion object {

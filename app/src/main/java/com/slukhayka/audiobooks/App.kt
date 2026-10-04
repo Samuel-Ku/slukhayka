@@ -496,18 +496,20 @@ class App : Application() {
                 com.slukhayka.audiobooks.data.source.NewPipeMetadata.fetchMetadataJson(url)
             },
             importYouTube = { url, metadataJson, channelId, edits, selectedWatchUrls ->
-                val imported = libraryImport.importSubmittedYouTube(
-                    url,
-                    metadataJson,
-                    channelId,
-                    titleOverride = edits?.title,
-                    authorOverride = edits?.author,
-                    narratorOverride = edits?.narrator,
-                    selectedWatchUrls = selectedWatchUrls,
-                    // #1051 — the listener's own chapter order, carried in
-                    // the preview edits beside their other corrections.
-                    explicitOrder = edits?.chapterOrder
-                )
+                val imported = kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    libraryImport.importSubmittedYouTube(
+                        url,
+                        metadataJson,
+                        channelId,
+                        titleOverride = edits?.title,
+                        authorOverride = edits?.author,
+                        narratorOverride = edits?.narrator,
+                        selectedWatchUrls = selectedWatchUrls,
+                        // #1051 — the listener's own chapter order, carried in
+                        // the preview edits beside their other corrections.
+                        explicitOrder = edits?.chapterOrder
+                    )
+                }
                 com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
                     result = when (imported.result) {
                         LibraryImport.SubmittedImportResult.IMPORTED ->
@@ -986,7 +988,29 @@ class App : Application() {
             // #618 — every local Edition's writes ride ONE Room transaction:
             // an injected failure rolls the whole Edition back instead of
             // leaving a half-written card (and its promoted files are removed).
-            writeBatchRunner = { block -> database.withTransaction { block() } }
+            writeBatchRunner = { block -> database.withTransaction { block() } },
+            onChapterOrderCommitted = { bookId, ids ->
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    playerManager.commitChapterOrder(bookId, ids)
+                }
+            },
+            onChapterStructureCommitted = { repaired ->
+                val playable = sourceCatalog.getPlayableChapters(repaired.id)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    playerManager.clearCommittedChapterOrder(repaired.id)
+                    if (playerManager.playerState.value.currentBook?.id == repaired.id) {
+                        playerManager.loadAndPlayBook(
+                            book = repaired,
+                            chapters = playable.map { it.chapter },
+                            playable = playable,
+                            initialChapterIndex = 0,
+                            initialPositionSeconds = 0,
+                            autoPlay = false,
+                            expectedChapterStructureVersion = playerManager.chapterStructureVersion(repaired.id)
+                        )
+                    }
+                }
+            }
         )
     }
 
@@ -1405,6 +1429,7 @@ class App : Application() {
                 playbackFallbackResolver.resolve(book, chapterCount, chapterIndex, failedSourceId)
             },
             progressSync = progressSync,
+            bookFetcher = libraryEntries::getBookSync,
             onBookCompleted = bookFeedbackStore::completed,
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },

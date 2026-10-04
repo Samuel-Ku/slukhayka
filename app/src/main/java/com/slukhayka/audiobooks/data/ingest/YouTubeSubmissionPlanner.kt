@@ -173,24 +173,29 @@ object YouTubeSubmissionPlanner {
             // order narrows nothing, and a dropped look must never silently
             // drop a chapter.
             val orderedEntries = if (explicitOrder.isNullOrEmpty()) {
-                metadata.entries
+                metadata.entries.withIndex().toList()
             } else {
-                val byUrl = metadata.entries.associateBy { watchUrlOf(it.url, it.id) }
-                val listed = explicitOrder.mapNotNull { byUrl[it] }
-                val listedUrls = explicitOrder.toSet()
-                listed + metadata.entries.filter { watchUrlOf(it.url, it.id) !in listedUrls }
+                val byUrl = metadata.entries.withIndex()
+                    .groupBy { watchUrlOf(it.value.url, it.value.id) }
+                    .mapValues { (_, occurrences) -> occurrences.iterator() }
+                val listed = explicitOrder.mapNotNull { url ->
+                    byUrl[url]?.let { if (it.hasNext()) it.next() else null }
+                }
+                val listedIndices = listed.map { it.index }.toSet()
+                listed + metadata.entries.withIndex().filter { it.index !in listedIndices }
             }
             // Filtering keeps the OBSERVED position for the label; reordering
             // takes the new one. Both are the same rule — "the label matches
             // where the listener found it" — applied to two different hand
             // movements.
             val reordered = !explicitOrder.isNullOrEmpty()
-            orderedEntries.mapIndexedNotNull { position, entry ->
+            orderedEntries.mapIndexedNotNull { position, observed ->
+                val entry = observed.value
                 val watchUrl = watchUrlOf(entry.url, entry.id) ?: return@mapIndexedNotNull null
                 if (selectedWatchUrls != null && watchUrl !in selectedWatchUrls) {
                     return@mapIndexedNotNull null
                 }
-                val observedPosition = metadata.entries.indexOf(entry) + 1
+                val observedPosition = observed.index + 1
                 SubmittedChapter(
                     title = entry.title?.trim()?.takeIf { it.isNotBlank() }
                         ?: "Розділ ${if (reordered) position + 1 else observedPosition}",

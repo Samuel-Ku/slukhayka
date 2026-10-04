@@ -1,9 +1,14 @@
 package com.slukhayka.audiobooks.accessibility
 
+import android.content.Context
+import android.content.SharedPreferences
+import org.junit.rules.ExternalResource
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -12,11 +17,20 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import java.io.File
+import android.os.ParcelFileDescriptor
+import android.provider.Settings
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.KeyCharacterMap
+import android.view.MotionEvent
+import androidx.lifecycle.Lifecycle
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 /**
- * Exercise real routes without changing preferences or library data.
+ * Exercise real routes with the language-onboarding marker restored afterwards.
  *
  * #852: the app asks for `POST_NOTIFICATIONS` on launch
  * ([MainActivity] `onCreate` → `LaunchedEffect`); without the pre-grant the
@@ -28,11 +42,40 @@ import org.junit.Test
  */
 class SettingsNavigationTest {
 
+    // A late initial catalogue sync can show the language-choice sheet over
+    // the route being tested. Its system Back correctly dismisses the sheet,
+    // not that route. Set only the one-time answer marker before Activity
+    // launch; preserve the listener's content languages and restore even an
+    // originally absent marker after the Activity has closed.
     @get:Rule(order = 0)
+    val completedLanguageOnboarding = object : ExternalResource() {
+        private val prefsName = "content_language_prefs"
+        private val answerKey = "bilingual_prompt_answered"
+        private lateinit var prefs: SharedPreferences
+        private var hadAnswer = false
+        private var originalAnswer = false
+
+        override fun before() {
+            prefs = InstrumentationRegistry.getInstrumentation().targetContext
+                .getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            hadAnswer = prefs.contains(answerKey)
+            originalAnswer = prefs.getBoolean(answerKey, false)
+            assertTrue(prefs.edit().putBoolean(answerKey, true).commit())
+        }
+
+        override fun after() {
+            val edit = prefs.edit()
+            if (hadAnswer) edit.putBoolean(answerKey, originalAnswer)
+            else edit.remove(answerKey)
+            assertTrue(edit.commit())
+        }
+    }
+
+    @get:Rule(order = 1)
     val notificationPermission: GrantPermissionRule =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    @get:Rule(order = 1) val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule(order = 2) val rule = createAndroidComposeRule<MainActivity>()
 
     private fun waitFor(tag: String) {
         try {
@@ -50,6 +93,180 @@ class SettingsNavigationTest {
                 .getOrDefault("(no compose root)")
             throw AssertionError("node «$tag» never appeared within 20 s; tree:\n$tree", timeout)
         }
+    }
+
+    /** Real system input: Compose's text-action helpers do not open the IME. */
+    @Test fun systemBackHidesSearchKeyboardBeforeClearingQuery() {
+        val viewModel = ViewModelProvider(rule.activity)[MainViewModel::class.java]
+        for ((tab, rootTag, searchTag) in listOf(
+            Triple(SelectedTab.LIBRARY, "library_screen", "library_search"),
+            Triple(SelectedTab.EXPLORE, "home_screen", "home_search_input")
+        )) {
+            rule.runOnUiThread { viewModel.selectTab(tab) }
+            waitFor(rootTag)
+            rule.onNodeWithTag(searchTag).performTouchInput { click() }
+            rule.waitUntil(20_000) { keyboardVisible() }
+            waitForSystemInputIdle()
+            systemInput("input text z")
+            rule.waitUntil(20_000) {
+                rule.onNodeWithTag(searchTag).fetchSemanticsNode().config
+                    .getOrNull(SemanticsProperties.EditableText)?.text == "z"
+            }
+            rule.onNodeWithTag(searchTag).assertTextContains("z")
+            if (gestureNavigation()) {
+                cancelSystemBack()
+                rule.waitUntil(5_000) { keyboardVisible() }
+                assertTrue("canceled Back keeps the keyboard open on $tab", keyboardVisible())
+                rule.onNodeWithTag(searchTag).assertTextContains("z")
+            }
+            systemBack()
+            rule.waitUntil(20_000) { !keyboardVisible() }
+            // The test clock controls Compose frames that settle animated IME insets.
+            rule.mainClock.advanceTimeBy(500)
+            rule.waitForIdle()
+            rule.onNodeWithTag(rootTag).assertIsDisplayed()
+            rule.onNodeWithTag(searchTag).assertTextContains("z")
+            if (gestureNavigation()) {
+                cancelSystemBack()
+                rule.onNodeWithTag(searchTag).assertTextContains("z")
+            }
+            systemBack()
+            rule.onNodeWithTag(rootTag).assertIsDisplayed()
+            rule.waitUntil(20_000) {
+                rule.onNodeWithTag(searchTag).fetchSemanticsNode().config
+                    .getOrNull(SemanticsProperties.EditableText)?.text == ""
+            }
+        }
+    }
+
+    private fun keyboardVisible(): Boolean {
+        var visible = false
+        rule.runOnUiThread {
+            visible = ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        }
+        return visible
+    }
+
+    private fun systemInput(command: String) {
+        ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+        ).bufferedReader().use { it.readText() }
+    }
+
+    private fun gestureNavigation(): Boolean =
+        Settings.Secure.getInt(rule.activity.contentResolver, "navigation_mode", 0) == 2
+
+    private fun cancelSystemBack() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val metrics = rule.activity.resources.displayMetrics
+        val y = metrics.heightPixels * .45f
+        val startedAt = SystemClock.uptimeMillis()
+        fun pointer(action: Int, x: Float) {
+            val event = MotionEvent.obtain(startedAt, SystemClock.uptimeMillis(), action, x, y, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        pointer(MotionEvent.ACTION_DOWN, 1f)
+        SystemClock.sleep(80)
+        pointer(MotionEvent.ACTION_MOVE, metrics.widthPixels / 3f)
+        SystemClock.sleep(100)
+        pointer(MotionEvent.ACTION_CANCEL, metrics.widthPixels / 3f)
+        // The system's cancel animation outlives the app's main-thread idle.
+        // Wait for the accessibility stream to settle before another gesture.
+        waitForSystemInputIdle()
+    }
+
+    private fun waitForSystemInputIdle() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.waitForIdle(500, 5_000)
+        instrumentation.waitForIdleSync()
+    }
+
+    private fun systemBack() {
+        val activity = rule.activity
+        if (gestureNavigation()) {
+            val width = activity.resources.displayMetrics.widthPixels
+            val height = activity.resources.displayMetrics.heightPixels
+            // Above the keyboard: the swipe belongs to the system edge handler.
+            systemInput("input swipe 1 ${height * 45 / 100} ${width * 40 / 100} ${height * 45 / 100} 300")
+        } else {
+            // Match SystemUI's Back button; shell keyevent omits these system flags.
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            val downTime = SystemClock.uptimeMillis()
+            for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
+                val event = KeyEvent(
+                    downTime, SystemClock.uptimeMillis(), action, KeyEvent.KEYCODE_BACK, 0,
+                    0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0,
+                    KeyEvent.FLAG_FROM_SYSTEM or KeyEvent.FLAG_VIRTUAL_HARD_KEY,
+                    InputDevice.SOURCE_KEYBOARD
+                )
+                assertTrue(automation.injectInputEvent(event, true))
+            }
+        }
+        // A key event returns before the IME's hide animation completes.
+        // Observe the completed action before issuing another Back.
+        waitForSystemInputIdle()
+    }
+
+    @Test fun systemBackClosesLibrarySectionAndCollectionPage() {
+        val viewModel = ViewModelProvider(rule.activity)[MainViewModel::class.java]
+        rule.runOnUiThread { viewModel.selectTab(SelectedTab.LIBRARY) }
+        waitFor("library_screen")
+        rule.onNodeWithTag("library_sections_menu").performClick()
+        rule.onNodeWithTag("library_section_saved").performClick()
+        waitFor("library_saved_people_header")
+        if (gestureNavigation()) {
+            cancelSystemBack()
+            rule.onNodeWithTag("library_saved_people_header").assertIsDisplayed()
+        }
+        systemBack()
+        waitFor("library_search")
+        rule.onNodeWithTag("library_saved_people_header").assertDoesNotExist()
+        // A curator page uses the same CollectionPage BackHandler as a public
+        // collection. Blank author avoids any network dependency for this route.
+        rule.runOnUiThread {
+            viewModel.selectTab(SelectedTab.EXPLORE)
+            viewModel.openCuratorProfile("", "Куратор")
+        }
+        waitFor("curator_profile_page")
+        // Model a late catalogue completion on a fresh install: its language
+        // prompt must be settled before testing the route's own Back handler.
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            val app = com.slukhayka.audiobooks.App.instance
+            app.audiobookDao.insertEdition(com.slukhayka.audiobooks.data.db.EditionEntity(
+                id = "navigation-language-choice", workId = "navigation-language-choice", language = "uk"
+            ))
+            app.firstLanguageChoice.evaluate()
+        }
+        rule.waitForIdle()
+        if (gestureNavigation()) {
+            cancelSystemBack()
+            rule.onNodeWithTag("curator_profile_page").assertIsDisplayed()
+        }
+        systemBack()
+        rule.waitUntil(20_000) {
+            rule.onAllNodesWithTag("curator_profile_page").fetchSemanticsNodes().isEmpty()
+        }
+        rule.onNodeWithTag("home_search_input").assertIsDisplayed()
+        rule.onNodeWithTag("curator_profile_page").assertDoesNotExist()
+    }
+
+    @Test fun systemBackLeavesEmptyRootAfterCanceledGesture() {
+        val viewModel = ViewModelProvider(rule.activity)[MainViewModel::class.java]
+        rule.runOnUiThread {
+            viewModel.updateSearchQuery("")
+            viewModel.selectTab(SelectedTab.EXPLORE)
+        }
+        waitFor("home_screen")
+        assertTrue("root starts without the keyboard", !keyboardVisible())
+        if (gestureNavigation()) {
+            cancelSystemBack()
+            rule.onNodeWithTag("home_screen").assertIsDisplayed()
+        }
+        val activity = rule.activity
+        systemBack()
+        rule.waitUntil(20_000) { !activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
     }
 
     @Test fun allDestinationsReturnToTheirSettingsRow() {
@@ -79,7 +296,11 @@ class SettingsNavigationTest {
                     .assertHeightIsAtLeast(androidx.compose.ui.unit.Dp(48f))
             }
             rule.onNodeWithTag("tab_settings").assertDoesNotExist()
-            rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+            if (gestureNavigation()) {
+                cancelSystemBack()
+                rule.onNodeWithTag("settings_screen").assertIsDisplayed()
+            }
+            systemBack()
             waitFor(rootTag)
             rule.onNodeWithTag(rootTag).assertIsDisplayed()
             rule.onNodeWithTag("settings_screen").assertDoesNotExist()
@@ -103,13 +324,19 @@ class SettingsNavigationTest {
             "AppLocale" to "app_locale_screen_heading"
         )
         routes.forEach { (destination, heading) ->
-            repeat(2) { backMethod ->
+            repeat(3) { backMethod ->
                 rule.onNodeWithTag("settings_$destination").performScrollTo().performClick()
                 waitFor(heading)
                 if (backMethod == 0) {
                     rule.onNodeWithContentDescription(rule.activity.getString(R.string.action_back)).performClick()
-                } else {
+                } else if (backMethod == 1) {
                     rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+                } else {
+                    if (gestureNavigation()) {
+                        cancelSystemBack()
+                        rule.onNodeWithTag(heading).assertIsDisplayed()
+                    }
+                    systemBack()
                 }
                 waitFor("settings_screen")
                 rule.waitUntil(20_000) {

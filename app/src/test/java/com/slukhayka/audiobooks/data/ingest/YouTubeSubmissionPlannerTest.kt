@@ -399,4 +399,19 @@ class YouTubeSubmissionPlannerTest {
             plan.chapters.map { it.watchUrl.substringAfter("v=") }
         )
     }
+    @Test
+    fun `partial order keeps repeated URL occurrences with their own metadata`() {
+        val metadata = YouTubeSubmissionPlanner.parseMetadata("""{"title":"Збірка","entries":[
+            {"id":"AAA","title":"Перша","duration":10},
+            {"id":"AAA","title":"Повтор","duration":20},
+            {"id":"BBB","title":"Остання","duration":30}
+        ]}""")!!
+        val plan = YouTubeSubmissionPlanner.plan(
+            "https://www.youtube.com/playlist?list=PLx", metadata, "@youtube",
+            explicitOrder = listOf("https://www.youtube.com/watch?v=BBB", "https://www.youtube.com/watch?v=AAA")
+        )
+        assertEquals(listOf("Остання", "Перша", "Повтор"), plan.chapters.map { it.title })
+        assertEquals(listOf(30L, 10L, 20L), plan.chapters.map { it.durationSeconds })
+    }
+
 }

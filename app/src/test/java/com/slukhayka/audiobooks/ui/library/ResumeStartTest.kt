@@ -131,4 +131,10 @@ class ResumeStartTest {
             assertEquals(c.name, c.expected, actual)
         }
     }
+    @Test fun `explicit chapter identity wins over indices from different orders`() {
+        val progress = PlaybackProgressEntity(editionId = "edition", bookId = "book", currentChapterIndex = 0, currentPositionSeconds = 42)
+        assertEquals(ResumeStart(0, 0), computeResumeStart(0, progress, 1000, requestedChapterId = "A", progressChapterId = "B"))
+        assertEquals(ResumeStart(1, 42), computeResumeStart(1, progress, 1000, requestedChapterId = "B", progressChapterId = "B"))
+    }
+
 }

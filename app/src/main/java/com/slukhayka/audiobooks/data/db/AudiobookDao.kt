@@ -6,18 +6,12 @@ import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
 import com.slukhayka.audiobooks.data.source.SourceRegistry
 import kotlinx.coroutines.flow.Flow
+import com.slukhayka.audiobooks.data.imports.ChapterOrder
+import com.slukhayka.audiobooks.data.imports.ChapterReorderResult
 
 @Dao
 interface AudiobookDao {
     companion object {
-        /**
-         * #1049 — a temporary index shift for the two-pass reorder. Large
-         * enough that no real index reaches it (a book with a million chapters
-         * would be the first), so the interim values can never collide with a
-         * final one.
-         */
-        const val TEMP_INDEX_OFFSET: Int = 1_000_000
-
         /**
          * ADR-0009 — the read projection of the split book row. Every DAO read
          * of [AudiobookEntity] joins the Work / Library Entry / Listening State
@@ -88,6 +82,20 @@ interface AudiobookDao {
     // its card, a different narration resolves to nothing (a new card).
     @Query(BOOK_SELECT + " JOIN editions e ON e.workId = a.id WHERE e.id = :editionId LIMIT 1")
     suspend fun findBookByEditionId(editionId: String): BookRow?
+
+    /** Pairing must never mix chapters read before reorder with tracks read after it. */
+    @Transaction
+    suspend fun getChapterPlaybackSnapshot(bookId: String): ChapterPlaybackSnapshot {
+        val edition = getEditionForWork(bookId)
+        val chapters = getChaptersListForBook(bookId)
+        val sources = (getSourcesForBookSync(bookId) +
+            edition?.let { getSourcesForEditionSync(it.id) }.orEmpty()).distinctBy { it.id }
+        return ChapterPlaybackSnapshot(
+            chapters, edition?.let { getChaptersListForEdition(it.id) }.orEmpty(), edition,
+            sources, sources.flatMap { getTracksForSourceSync(it.id) },
+            ChapterOrder.originalIds(this, bookId, chapters).orEmpty()
+        )
+    }
 
     // --- Sources (spec-10 T2; re-parented to editionId in ADR-0007) ---
 
@@ -245,53 +253,6 @@ interface AudiobookDao {
     @Query("UPDATE chapters SET durationSeconds = :durationSeconds WHERE id = :chapterId")
     suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long)
 
-    /**
-     * #1049 — reorder an ALREADY ADDED book by swapping indices.
-     *
-     * Deliberately NOT [replaceConfirmedChapterStructure]: that repair door
-     * deletes `playback_progress` and `bookmarks` first, which is right when
-     * the stored structure is wrong and catastrophic when the listener merely
-     * moved a chapter — they would lose the place they were listening from.
-     * Reordering changes WHERE a chapter sits, not WHICH chapters exist, so
-     * the listener's position and marks must survive untouched.
-     *
-     * [chapterIdsInOrder] and [trackIdsInOrder] are the SAME reordering applied
-     * to both halves of the pairing: ADR-0007 pairs a chapter with its track by
-     * INDEX, so moving a chapter without its track would play the wrong audio.
-     *
-     * The whole pass is ONE transaction: a process death halfway cannot leave
-     * new chapter indices beside old track indices.
-     */
-    @Transaction
-    suspend fun reorderChaptersByIndex(
-        chapterIdsInOrder: List<String>,
-        trackIdsInOrder: List<String>
-    ) {
-        // A temporary offset keeps the swap collision-free even when
-        // (bookId, chapterIndex) or (sourceId, trackIndex) is UNIQUE: writing
-        // the final indices directly could hit a row that still holds the
-        // value being written. Two passes, one transaction, no window.
-        val offset = TEMP_INDEX_OFFSET
-        chapterIdsInOrder.forEachIndexed { index, id ->
-            setChapterIndex(id, index + offset)
-        }
-        trackIdsInOrder.forEachIndexed { index, id ->
-            setTrackIndex(id, index + offset)
-        }
-        chapterIdsInOrder.forEachIndexed { index, id ->
-            setChapterIndex(id, index)
-        }
-        trackIdsInOrder.forEachIndexed { index, id ->
-            setTrackIndex(id, index)
-        }
-    }
-
-    @Query("UPDATE chapters SET chapterIndex = :chapterIndex WHERE id = :chapterId")
-    suspend fun setChapterIndex(chapterId: String, chapterIndex: Int)
-
-    @Query("UPDATE source_tracks SET trackIndex = :trackIndex WHERE id = :trackId")
-    suspend fun setTrackIndex(trackId: String, trackIndex: Int)
-
     /** Real chapter/duration counts once the book's chapters are known. */
     @Query("UPDATE audiobooks SET totalChapters = :totalChapters, totalDurationSeconds = :totalDurationSeconds WHERE id = :bookId")
     suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long)
@@ -367,7 +328,21 @@ interface AudiobookDao {
     fun observeBookDownloadCounts(): Flow<List<BookDownloadCount>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTracks(tracks: List<SourceTrackEntity>)
+    suspend fun insertSourceTrackRows(tracks: List<SourceTrackEntity>)
+
+    /** Existing ids retain their current slot; new tracks arrive in provider order.
+     * The projection and write share the reorder transaction boundary, including
+     * background downloads, publication updates and recovery rollback. */
+    @Transaction
+    suspend fun insertTracks(tracks: List<SourceTrackEntity>) {
+        val projected = tracks.groupBy { it.sourceId }.flatMap { (sourceId, incoming) ->
+            val existing = getTracksForSourceSync(sourceId).associateBy { it.id }
+            val bookId = getBookIdBySourceId(sourceId)
+            val fresh = if (bookId != null) ChapterOrder.projectTracks(this, bookId, incoming) else incoming
+            fresh.map { track -> track.copy(trackIndex = existing[track.id]?.trackIndex ?: track.trackIndex) }
+        }
+        insertSourceTrackRows(projected)
+    }
 
     /**
      * Download state lives on the TRACK rows (ADR-0007): chapter rows never
@@ -475,7 +450,7 @@ interface AudiobookDao {
     suspend fun getEditionById(editionId: String): EditionEntity?
 
     /** The single rendition of a library book (one edition per book today). */
-    @Query("SELECT * FROM editions WHERE workId = :bookId LIMIT 1")
+    @Query("SELECT * FROM editions WHERE workId = :bookId OR id IN (SELECT editionId FROM chapters WHERE bookId = :bookId) OR id IN (SELECT editionId FROM sources WHERE bookId = :bookId) ORDER BY CASE WHEN workId = :bookId THEN 0 ELSE 1 END LIMIT 1")
     suspend fun getEditionForWork(bookId: String): EditionEntity?
 
     /**
@@ -1005,6 +980,9 @@ interface AudiobookDao {
     ): PagingSource<Int, WorkFeedRow>
 
     // Bookmarks (ADR-0007: anchored to the Edition)
+    @Query("SELECT * FROM bookmarks WHERE id = :bookmarkId LIMIT 1")
+    suspend fun getBookmarkById(bookmarkId: Long): BookmarkEntity?
+
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY timestampSeconds ASC")
     fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>>
 
@@ -1060,6 +1038,7 @@ interface AudiobookDao {
         totalDurationSeconds: Long,
         edition: EditionEntity
     ) {
+        deleteCorrection(ChapterOrder.key(bookId), "FIELD")
         deletePlaybackProgressForBook(bookId)
         deleteBookmarksForBook(bookId)
         deleteTracksForBook(bookId)
@@ -1444,6 +1423,72 @@ interface AudiobookDao {
     @Query("DELETE FROM tombstones WHERE bookId = :bookId")
     suspend fun deleteTombstone(bookId: String)
 
+    @Query("UPDATE chapters SET chapterIndex = :index WHERE id = :id")
+    suspend fun updateChapterIndex(id: String, index: Int)
+
+    @Query("UPDATE source_tracks SET trackIndex = :index WHERE id = :id")
+    suspend fun updateTrackIndex(id: String, index: Int)
+
+    @Query("UPDATE source_tracks SET url = :url WHERE id = :id AND url = :expectedUrl")
+    suspend fun updateHealedTrackUrl(id: String, expectedUrl: String, url: String): Int
+
+    /** #1049: compare-and-swap over the complete logical order. */
+    @Transaction
+    suspend fun reorderChapterPairs(
+        bookId: String, expectedIds: List<String>, newIds: List<String>
+    ): ChapterReorderResult {
+        val chapters = getChaptersListForBook(bookId)
+        val edition = getEditionForWork(bookId) ?: return ChapterReorderResult.STALE
+        if (chapters.map { it.id } != expectedIds || chapters.isEmpty()) return ChapterReorderResult.STALE
+        if (newIds.size != chapters.size || newIds.toSet() != expectedIds.toSet()) return ChapterReorderResult.INVALID_ORDER
+        if (newIds == expectedIds) return ChapterReorderResult.UNCHANGED
+        if (chapters.map { it.chapterIndex } != chapters.indices.toList() ||
+            chapters.any { it.editionId != edition.id } ||
+            getChaptersListForEdition(edition.id).map { it.id } != expectedIds
+        ) return ChapterReorderResult.INVALID_ORDER
+        val sources = (getSourcesForEditionSync(edition.id) + getSourcesForBookSync(bookId)).distinctBy { it.id }
+        if (sources.any { it.editionId != null && it.editionId != edition.id }) return ChapterReorderResult.INVALID_TRACKS
+        val tracks = sources.flatMap { getTracksForSourceSync(it.id) }
+        if (tracks.any { it.trackIndex !in chapters.indices } ||
+            tracks.groupBy { it.sourceId }.any { (_, rows) -> rows.map { it.trackIndex }.distinct().size != rows.size }
+        ) return ChapterReorderResult.INVALID_TRACKS
+        val originalIds = ChapterOrder.originalIds(this, bookId, chapters) ?: return ChapterReorderResult.INVALID_ORDER
+        val indices = newIds.withIndex().associate { it.value to it.index }
+        val newIndexByOld = chapters.map { indices.getValue(it.id) }
+        chapters.forEach { updateChapterIndex(it.id, newIndexByOld[it.chapterIndex]) }
+        tracks.forEach { updateTrackIndex(it.id, newIndexByOld[it.trackIndex]) }
+        deleteCorrection(ChapterOrder.key(bookId), "FIELD")
+        upsertCorrection(CorrectionEntity(mergeKey = ChapterOrder.key(bookId), kind = "FIELD", value = ChapterOrder.encode(originalIds), origin = "USER_MADE"))
+        return ChapterReorderResult.APPLIED
+    }
+
+    /** A fetch started before an edit cannot heal a different Chapter afterwards. */
+    @Transaction
+    suspend fun healTrackUrl(
+        bookId: String, expectedChapterIds: List<String>, track: SourceTrackEntity, freshUrl: String
+    ): Boolean {
+        if (getChaptersListForBook(bookId).map { it.id } != expectedChapterIds ||
+            getTracksForSourceSync(track.sourceId).firstOrNull { it.trackIndex == track.trackIndex }?.id != track.id
+        ) return false
+        return updateHealedTrackUrl(track.id, track.url, freshUrl) == 1
+    }
+
+    /** All recovered URLs change atomically without replacing download fields. */
+    @Transaction
+    suspend fun refreshTrackUrls(bookId: String, expectedIds: List<String>, tracks: List<SourceTrackEntity>, urls: List<String>): Boolean {
+        if (tracks.isEmpty() || tracks.size != urls.size || getChaptersListForBook(bookId).map { it.id } != expectedIds) return false
+        val current = getTracksForSourceSync(tracks.first().sourceId)
+        if (current != tracks) return false
+        tracks.zip(urls).forEach { (track, url) -> check(updateHealedTrackUrl(track.id, track.url, url) == 1) }
+        return true
+    }
+
+    @Query("SELECT c.*, (SELECT value FROM corrections WHERE kind = 'FIELD' AND mergeKey = 'chapter-order:' || c.bookId ORDER BY updatedAt DESC LIMIT 1) AS orderMemory FROM chapters c ORDER BY c.bookId, c.chapterIndex")
+    fun observeChapterOrderRows(): Flow<List<ChapterOrderRow>>
+
+    @Query("SELECT c.*, (SELECT value FROM corrections WHERE kind = 'FIELD' AND mergeKey = 'chapter-order:' || c.bookId ORDER BY updatedAt DESC LIMIT 1) AS orderMemory FROM chapters c WHERE c.bookId = :bookId ORDER BY c.chapterIndex")
+    suspend fun getChapterOrderRows(bookId: String): List<ChapterOrderRow>
+
     // --- Corrections (wayfinder #54 Q9, stage-2 S1) ------------------------
 
     /**
@@ -1457,6 +1502,10 @@ interface AudiobookDao {
     /** Every correction pinned to one Work, for the #54 review pipeline. */
     @Query("SELECT * FROM corrections WHERE mergeKey = :mergeKey ORDER BY updatedAt DESC")
     suspend fun getCorrectionsForMergeKey(mergeKey: String): List<CorrectionEntity>
+
+    /** Physical local-folder owners, for re-anchoring a listener's narration claim. */
+    @Query("SELECT * FROM corrections WHERE kind = 'FIELD' AND mergeKey LIKE 'local-folder:%' ORDER BY updatedAt DESC")
+    suspend fun getLocalFolderCorrections(): List<CorrectionEntity>
 
     /** The NEVER_MATCH pairs involving one Work, newest first. */
     @Query(

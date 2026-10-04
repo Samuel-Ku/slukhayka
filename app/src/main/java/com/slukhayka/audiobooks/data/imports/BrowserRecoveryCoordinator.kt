@@ -109,7 +109,8 @@ class BrowserRecoveryCoordinator(
         html: String,
         capturedAudioUrls: List<String> = emptyList(),
         requestedChapterIndex: Int = 0,
-        requestedPositionMs: Long = 0L
+        requestedPositionMs: Long = 0L,
+        requestedChapterId: String? = null
     ): Outcome = withContext(Dispatchers.IO) {
         // 1. Capture → parse is inside LibraryImport (which also handles capturedAudioUrls).
         // For new import we use importWebSourcePage, for recovery we use recoverWebSourcePage.
@@ -189,11 +190,14 @@ class BrowserRecoveryCoordinator(
         // 2. Player verdict — http prefix alone is never success.
         val effectiveBookId = book.id
         // Determine which track to verify: for new import it's chapter 0, for recovery it's requested chapter.
-        val verifyChapterIndex = if (isNewImport) 0 else requestedChapterIndex.coerceIn(0, (book.totalChapters - 1).coerceAtLeast(0))
-        val recoveredSource = dao.getSourcesForBookSync(effectiveBookId)
-            .firstOrNull { it.type == sourceId && it.url == url }
-        val tracks = recoveredSource?.let { dao.getTracksForSourceSync(it.id) }
-            .orEmpty().sortedBy { it.trackIndex }
+        val snapshot = dao.getChapterPlaybackSnapshot(effectiveBookId)
+        val verifyChapterIndex = when {
+            isNewImport -> 0
+            requestedChapterId != null -> snapshot.chapters.firstOrNull { it.id == requestedChapterId }?.chapterIndex ?: -1
+            else -> requestedChapterIndex.coerceIn(0, (book.totalChapters - 1).coerceAtLeast(0))
+        }
+        val recoveredSource = snapshot.sources.firstOrNull { it.type == sourceId && it.url == url }
+        val tracks = snapshot.tracks.filter { it.sourceId == recoveredSource?.id }.sortedBy { it.trackIndex }
         val track = tracks.firstOrNull { it.trackIndex == verifyChapterIndex }
         val trackUrl = track?.url.orEmpty()
 
@@ -244,13 +248,10 @@ class BrowserRecoveryCoordinator(
                     // This is best-effort and does not affect outcome.
                     val edition = dao.getEditionForWork(effectiveBookId)
                     if (edition != null) {
-                        val chapters = dao.getChaptersListForBook(effectiveBookId).sortedBy { it.chapterIndex }
-                        val profileChapters = tracks.mapIndexed { idx, t ->
-                            com.slukhayka.audiobooks.data.metadata.ProfileChapter(
-                                title = chapters.getOrNull(idx)?.title ?: "Глава ${idx + 1}",
-                                streamUrl = t.url,
-                                durationSeconds = chapters.getOrNull(idx)?.durationSeconds ?: 0L
-                            )
+                        val profileChapters = snapshot.providerPairs(recoveredSource!!.id).mapNotNull { (chapter, physical) ->
+                            physical?.url?.let { physicalUrl ->
+                                com.slukhayka.audiobooks.data.metadata.ProfileChapter(chapter.title, physicalUrl, chapter.durationSeconds)
+                            }
                         }
                         val profile = com.slukhayka.audiobooks.data.metadata.BookProfile(
                             coverImageUrl = book.coverImageUrl,

@@ -11,4 +11,22 @@
     <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
     <string name="lib_year_hero_units">ukończonych podejść</string>
     <string name="lib_section_books">Książki</string>
+    <string name="lib_import_folder_unknown">Wybrany folder</string>
+    <string name="lib_import_folder_name">Folder „%1$s”</string>
+    <string name="lib_import_folder_grouping_hint">Ten wybór dotyczy plików bezpośrednio w folderze. Podfoldery pozostają osobnymi książkami.</string>
+    <string name="lib_import_grouping_reset_title">Zmienić grupowanie?</string>
+    <string name="lib_import_grouping_reset_message">Nazwy, kolejność rozdziałów, podziały i połączenia książek zawierających pliki w głównym folderze zostaną zresetowane. Zmiany w innych podfolderach pozostaną.</string>
+    <string name="lib_import_grouping_reset_confirm">Zmień i zresetuj zmiany</string>
+    <string name="lib_import_merge_planned">Połącz z inną książką</string>
+    <string name="lib_import_merge_choose_title">Do której książki dodać rozdziały?</string>
+    <string name="lib_import_merge_choose_hint">Wybrana książka zachowa tytuł i pozostałe dane. Te rozdziały zostaną dodane na końcu.</string>
+    <string name="lib_import_title_required">Podaj tytuł książki przed importem.</string>
+    <string name="chapter_order_edit">Edytuj kolejność rozdziałów</string>
+    <string name="chapter_order_reverse">Odwróć kolejność</string>
+    <string name="chapter_order_saving">Zapisywanie…</string>
+    <string name="chapter_order_changed">Lista rozdziałów się zmieniła. Zamknij edytor i otwórz go ponownie.</string>
+    <string name="chapter_order_failed">Nie udało się zapisać kolejności rozdziałów. Spróbuj ponownie.</string>
+    <string name="lib_import_split_here">Podziel przed tym rozdziałem</string>
+    <string name="metadata_edit_series">Seria</string>
+    <string name="metadata_edit_series_index">Numer w serii</string>
 </resources>

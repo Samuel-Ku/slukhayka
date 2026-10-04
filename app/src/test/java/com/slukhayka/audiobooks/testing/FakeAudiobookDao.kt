@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookRow
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.db.ChapterOrderRow
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
 import com.slukhayka.audiobooks.data.db.PopularityAssertionEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
@@ -475,7 +476,7 @@ class FakeAudiobookDao(
                 }
         }
 
-    override suspend fun insertTracks(tracks: List<SourceTrackEntity>) {
+    override suspend fun insertSourceTrackRows(tracks: List<SourceTrackEntity>) {
         val incomingIds = tracks.map { it.id }.toSet()
         tracksState.update { current -> current.filterNot { it.id in incomingIds } + tracks }
     }
@@ -552,6 +553,7 @@ class FakeAudiobookDao(
 
     override suspend fun getEditionForWork(bookId: String): EditionEntity? =
         editionsState.value.firstOrNull { it.workId == bookId }
+            ?: editionsState.value.firstOrNull { edition -> chaptersState.value.any { it.bookId == bookId && it.editionId == edition.id } || sourcesState.value.any { it.bookId == bookId && it.editionId == edition.id } }
 
     // Spec-51 (#742): mirror of the DAO probes — the First Language Choice
     // fires only when some rendition exists, and it offers exactly the
@@ -571,6 +573,8 @@ class FakeAudiobookDao(
     override fun observeEditions(): Flow<List<EditionEntity>> = editionsState
 
     // --- Bookmarks --------------------------------------------------------
+
+    override suspend fun getBookmarkById(bookmarkId: Long): BookmarkEntity? = bookmarksState.value.firstOrNull { it.id == bookmarkId }
 
     override fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>> =
         bookmarksState.map { bookmarks ->
@@ -934,6 +938,29 @@ class FakeAudiobookDao(
         tombstonesState.update { current -> current.filterNot { it.bookId == bookId } }
     }
 
+    override suspend fun updateChapterIndex(id: String, index: Int) {
+        chaptersState.update { rows -> rows.map { if (it.id == id) it.copy(chapterIndex = index) else it } }
+    }
+    override suspend fun updateTrackIndex(id: String, index: Int) {
+        tracksState.update { rows -> rows.map { if (it.id == id) it.copy(trackIndex = index) else it } }
+    }
+    override suspend fun updateHealedTrackUrl(id: String, expectedUrl: String, url: String): Int {
+        val matched = tracksState.value.any { it.id == id && it.url == expectedUrl }
+        tracksState.update { rows -> rows.map { if (it.id == id && it.url == expectedUrl) it.copy(url = url) else it } }
+        return if (matched) 1 else 0
+    }
+
+    private fun chapterOrderRows(chapters: List<ChapterEntity>, corrections: List<CorrectionEntity>): List<ChapterOrderRow> =
+        chapters.sortedWith(compareBy({ it.bookId }, { it.chapterIndex })).map { chapter ->
+            ChapterOrderRow(chapter, corrections.filter { it.kind == "FIELD" && it.mergeKey == "chapter-order:${chapter.bookId}" }.maxByOrNull { it.updatedAt }?.value)
+        }
+
+    override fun observeChapterOrderRows(): Flow<List<ChapterOrderRow>> =
+        kotlinx.coroutines.flow.combine(chaptersState, correctionsState, ::chapterOrderRows)
+
+    override suspend fun getChapterOrderRows(bookId: String): List<ChapterOrderRow> =
+        chapterOrderRows(chaptersState.value.filter { it.bookId == bookId }, correctionsState.value)
+
     // --- Corrections (wayfinder #54 Q9, stage-2 S1) ------------------------
 
     override suspend fun upsertCorrection(correction: CorrectionEntity) {
@@ -944,6 +971,10 @@ class FakeAudiobookDao(
 
     override suspend fun getCorrectionsForMergeKey(mergeKey: String): List<CorrectionEntity> =
         correctionsState.value.filter { it.mergeKey == mergeKey }.sortedByDescending { it.updatedAt }
+
+    override suspend fun getLocalFolderCorrections(): List<CorrectionEntity> =
+        correctionsState.value.filter { it.kind == "FIELD" && it.mergeKey.startsWith("local-folder:") }
+            .sortedByDescending { it.updatedAt }
 
     override suspend fun getNeverMatchPairs(mergeKey: String): List<CorrectionEntity> =
         correctionsState.value
@@ -1736,16 +1767,4 @@ class FakeAudiobookDao(
             submissionStates[sourceId] = existing.copy(state = state, reason = reason, updatedAt = updatedAt)
         }
     }
-
-    // #1049 — the reorder seam. The fake records nothing about indices: these
-    // exist so the DAO contract stays implementable in tests, and so a future
-    // signature change breaks the build here rather than only at runtime.
-    override suspend fun reorderChaptersByIndex(
-        chapterIdsInOrder: List<String>,
-        trackIdsInOrder: List<String>
-    ) = Unit
-
-    override suspend fun setChapterIndex(chapterId: String, chapterIndex: Int) = Unit
-
-    override suspend fun setTrackIndex(trackId: String, trackIndex: Int) = Unit
 }

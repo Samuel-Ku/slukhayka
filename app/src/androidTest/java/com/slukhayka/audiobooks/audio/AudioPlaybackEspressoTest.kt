@@ -351,8 +351,19 @@ class AudioPlaybackEspressoTest {
     }
 
     companion object {
-        /** Budget for `playerState.isPlaying == true` after chapter tap. */
-        private const val PLAY_TIMEOUT_MS: Long = 3_000L
+        /**
+         * Budget for `playerState.isPlaying == true` after the chapter tap.
+         *
+         * #1066 — was 3_000L, and that was the flake: this leg starts ExoPlayer
+         * AND resolves the source on a loaded emulator, which can exceed three
+         * seconds — so the assertion failed for a reason that had nothing to do
+         * with the product. The wait is a BUDGET, not a requirement: nothing in
+         * the specs or #765 promises playback within three seconds, and the
+         * assertion itself (isPlaying must become true) is unchanged. Matching
+         * the navigation budget keeps the check strict while removing the
+         * timing assumption that made the leg red at random.
+         */
+        private const val PLAY_TIMEOUT_MS: Long = 15_000L
 
         /** Budget for navigation nodes to appear after launch/navigation. */
         private const val NAV_TIMEOUT_MS: Long = 15_000L

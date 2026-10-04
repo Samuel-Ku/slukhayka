@@ -52,6 +52,16 @@ jobs:
           mkdir -p app/src/release
           printf '%s' "$GOOGLE_SERVICES_RELEASE_JSON_BASE64" | base64 -d > app/src/release/google-services.json
 
+      # #487 — `assembleRelease` runs `verifyE5ModelAssets`, which FAILS the
+      # build when the model assets are absent. The model is gitignored, so a
+      # clean runner never has it: CI downloads it in three places, and this
+      # workflow did not — v1.5's first tag run died on exactly that, in
+      # "Build release APK", with no other symptom. The fix reached the release
+      # branch so v1.5 could ship, but NOT main — so the next tag would have hit
+      # the same wall. This is that fix, landing where it belongs.
+      - name: Download the E5 model assets
+        run: ./gradlew :app:downloadE5Model --no-daemon
+
       - name: Build release APK
         env:
           KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"

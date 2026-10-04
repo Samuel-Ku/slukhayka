@@ -101,4 +101,55 @@ class AchievementEvaluatorTest {
         assertTrue("books_10 мусить бути в першій видачі", "books_10" in once)
         assertTrue("повторна видача не має нічого додавати", twice.isEmpty())
     }
+
+    /**
+     * #700 (T2) — the SHAPE bands, each at its exact threshold.
+     *
+     * «Коротка форма» is 10 books under three hours; «Епопея» is a single 30+
+     * hour book; «Довгожитель» is five of them. The thresholds are the spec's,
+     * and they are pinned here the same way the book ladder is — one value
+     * wrong in the catalogue must fail this test, not ship.
+     */
+    @Test fun `every books-shape award unlocks at exactly its threshold`() {
+        assertFalse(
+            "«Коротка форма» не має відкриватись на 9 книгах",
+            "short_form_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(shortCompletedBooks = 9), emptySet()
+            ).map { it.id }
+        )
+        assertTrue(
+            "«Коротка форма» мусить відкритись на 10 книгах",
+            "short_form_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(shortCompletedBooks = 10), emptySet()
+            ).map { it.id }
+        )
+
+        assertFalse(
+            "«Епопея» не має відкриватись без жодної епічної книги",
+            "epic_1" in AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+        )
+        val oneEpic = AchievementEvaluator.evaluate(
+            AchievementProgress(epicCompletedBooks = 1), emptySet()
+        ).map { it.id }
+        assertTrue("«Епопея» мусить відкритись на першій", "epic_1" in oneEpic)
+        assertFalse("«Довгожитель» не має відкриватись разом із нею", "long_liver_5" in oneEpic)
+
+        val fiveEpic = AchievementEvaluator.evaluate(
+            AchievementProgress(epicCompletedBooks = 5), emptySet()
+        ).map { it.id }
+        assertTrue("«Довгожитель» мусить відкритись на п'ятій", "long_liver_5" in fiveEpic)
+    }
+
+    /**
+     * The honesty guard that keeps the bands from lying: a book whose duration
+     * is unknown contributes to NEITHER side. The count arrives from the DAO
+     * already filtered, so this pins the evaluator's side — a zero snapshot
+     * earns neither band.
+     */
+    @Test fun `an unknown duration earns no shape award`() {
+        val earned = AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+
+        assertFalse("порожній снапшот не має давати «Коротку форму»", "short_form_10" in earned)
+        assertFalse("порожній снапшот не має давати «Епопею»", "epic_1" in earned)
+    }
 }

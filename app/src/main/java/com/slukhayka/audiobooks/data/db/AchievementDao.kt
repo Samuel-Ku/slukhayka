@@ -17,6 +17,30 @@ interface AchievementDao {
     fun observeNotInterestedChoices(): Flow<Long>
     @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='COMPLETED'")
     fun observeCompletedBooks(): Flow<Long>
+
+    /**
+     * #700 (T2) — completed books SHORTER than three hours.
+     *
+     * A real join: the completion events against the book's own duration. A row
+     * whose `totalDurationSeconds` is 0 counts in NEITHER band — an unknown
+     * duration is not a short book (ADR-0014), and the `> 0` guard is what
+     * keeps that honest.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +
+            "JOIN audiobooks a ON a.id = e.bookId " +
+            "WHERE e.kind='COMPLETED' AND a.totalDurationSeconds > 0 " +
+            "AND a.totalDurationSeconds < 10800"
+    )
+    fun observeShortCompletedBooks(): Flow<Long>
+
+    /** #700 (T2) — completed books of 30+ hours. */
+    @Query(
+        "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +
+            "JOIN audiobooks a ON a.id = e.bookId " +
+            "WHERE e.kind='COMPLETED' AND a.totalDurationSeconds >= 108000"
+    )
+    fun observeEpicCompletedBooks(): Flow<Long>
     @Query("SELECT * FROM series_members")
     fun observeKnownSeriesMemberships(): Flow<List<SeriesMemberEntity>>
     @Query("SELECT s.bookId, s.id AS sourceId, s.type AS sourceType, " +

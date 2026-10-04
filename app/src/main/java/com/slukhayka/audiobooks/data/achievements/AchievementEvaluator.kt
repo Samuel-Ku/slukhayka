@@ -9,6 +9,10 @@ data class AchievementProgress(
     val offlinePlaybackStarts: Long = 0,
     val downloadedBooks: Long = 0,
     val completedBooks: Long = 0,
+    /** #700 — completed books SHORTER than three hours («Коротка форма»). */
+    val shortCompletedBooks: Long = 0,
+    /** #700 — completed books of 30+ hours. */
+    val epicCompletedBooks: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -18,7 +22,8 @@ data class AchievementSeriesMembership(val seriesId: String, val workId: String,
 
 enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
-    SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS;
+    SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
+    SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -29,6 +34,8 @@ enum class AchievementMetric {
         OFFLINE_PLAYBACK_STARTS -> snapshot.offlinePlaybackStarts
         DOWNLOADED_BOOKS -> snapshot.downloadedBooks
         COMPLETED_BOOKS -> snapshot.completedBooks
+        SHORT_COMPLETED_BOOKS -> snapshot.shortCompletedBooks
+        EPIC_COMPLETED_BOOKS -> snapshot.epicCompletedBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -59,7 +66,15 @@ object AchievementCatalog {
         // metric is the SAME real completed count T1 already reads
         // (`observeCompletedBooks`), so nothing here is inferred.
         AchievementDefinition("books_$books", "books", index + 1, AchievementMetric.COMPLETED_BOOKS, books)
-    }
+    } + listOf(
+        // #700 (T2) — shape of the reading, not just its size. Both bands come
+        // from a real join: completed `playback_events` against the book's own
+        // `totalDurationSeconds`. A book whose duration is unknown (0) counts
+        // in NEITHER band — a guess is not a fact (ADR-0014).
+        AchievementDefinition("short_form_10", "books_shape", 1, AchievementMetric.SHORT_COMPLETED_BOOKS, 10),
+        AchievementDefinition("epic_1", "books_shape", 1, AchievementMetric.EPIC_COMPLETED_BOOKS, 1),
+        AchievementDefinition("long_liver_5", "books_shape", 2, AchievementMetric.EPIC_COMPLETED_BOOKS, 5)
+    )
 }
 
 object AchievementEvaluator {

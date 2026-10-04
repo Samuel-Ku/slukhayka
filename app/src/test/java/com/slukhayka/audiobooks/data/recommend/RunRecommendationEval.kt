@@ -26,9 +26,14 @@ object RunRecommendationEval {
         var index = 0
         var assets = File(root, "app/src/main/assets/models/e5")
         if (args.firstOrNull()?.startsWith("--") == false) { assets = File(args[0]); index++ }
-        val allowed = setOf("--snapshot", "--cohorts", "--cache", "--report")
+        val allowed = setOf("--snapshot", "--cohorts", "--cache", "--report", "--identities")
         while (index < args.size) {
             val flag = args[index++]
+            if (flag == "--prepare") {
+                require(flag !in options) { "Duplicate --prepare" }
+                options[flag] = "true"
+                continue
+            }
             require(flag in allowed && index < args.size && flag !in options) { "Unknown, duplicate or incomplete option: $flag" }
             options[flag] = args[index++]
         }
@@ -39,13 +44,26 @@ object RunRecommendationEval {
         val cacheDir = path("--cache", ".gradle/recommendation-eval-cache")
         val snapshot = RecommendationFeedSnapshot.load(snapshotDir)
         val records = RecommendationFeedSnapshot.records(snapshot)
-        val catalog = RecommendationEvalCatalog.fromRecords(records)
+        val identitiesFile = path("--identities", "docs/recommend/real-scale-identity-aliases.json")
+        val identities = RecommendationEvalIdentityAliases.load(identitiesFile, records)
+        val identityMetadata = MiniJson.parse(identitiesFile.readText()) as? Map<*, *> ?: error("Malformed identity manifest")
+        require(identityMetadata["cohortsSha256"] == sha(registryFile) &&
+            identityMetadata["feedManifestSha256"] == sha(File(snapshotDir, "manifest.properties"))) {
+            "Identity audit belongs to different frozen source or relevance labels"
+        }
+        require(Instant.parse(identityMetadata["correctedAt"].toString()).isBefore(Instant.now()))
+        val catalog = RecommendationEvalCatalog.fromRecords(records, identities)
         require(catalog.works.size >= 10_000 && catalog.distinctTitles >= 10_000) {
             "Real catalog gate requires >=10,000 Works and independently >=10,000 distinct titles"
         }
         val registry = MiniJson.parse(registryFile.readText()) as? Map<*, *> ?: error("Malformed registry")
         val k = (registry["k"] as? Number)?.toInt() ?: error("Registry k missing")
         require(k == 20) { "The preregistered gate uses K=20" }
+        val registeredWorks = (registry["cohorts"] as List<*>).flatMap { ((it as Map<*, *>)["works"] as List<*>) }
+            .map { (it as Map<*, *>).let { work -> work["title"].toString() to work["authorSurname"].toString() } }
+        require(registeredWorks.size == 24 && identities.works.map { it.title to it.authorSurname }.toSet() == registeredWorks.toSet()) {
+            "The identity audit must cover exactly all 24 preregistered relevance Works"
+        }
         val cohorts = RecommendationEvalCohorts.load(registryFile, catalog)
         val manifest = File(snapshotDir, "manifest.properties")
         require(registry["frozenFeedManifestSha256"] == sha(manifest)) { "Labels belong to another snapshot" }
@@ -69,12 +87,14 @@ object RunRecommendationEval {
             File(root, "app/src/main/java/com/slukhayka/audiobooks/$it")
         }
         val protocolFiles = identityFiles + listOf("RecommendationEval.kt", "RecommendationEngine.kt", "RecommendationPersonalization.kt", "BookRecommendationText.kt", "TextEmbedder.kt").map { File(sourceDir, it) } +
-            listOf("RecommendationEvalCatalog.kt", "RecommendationEvalCohorts.kt", "RecommendationEvalVectorCache.kt", "RecommendationFeedSnapshot.kt", "RecommendationEvalModelLock.kt", "RunRecommendationEval.kt").map { File(hostDir, it) }
+            listOf("RecommendationEvalCatalog.kt", "RecommendationEvalIdentityAliases.kt", "RecommendationEvalCohorts.kt", "RecommendationEvalVectorCache.kt", "RecommendationFeedSnapshot.kt", "RecommendationEvalModelLock.kt", "RunRecommendationEval.kt").map { File(hostDir, it) }
         val runtimeJar = File(OrtEnvironment::class.java.protectionDomain.codeSource.location.toURI())
         RecommendationEvalModelLock.verifyRuntime(runtimeJar)
         val inputs = linkedMapOf(
             "schemaVersion" to "1", "feedManifestSha256" to sha(manifest),
             "cohortsSha256" to sha(registryFile), "originalCohortsSha256" to sha(original),
+            "identityManifestSha256" to sha(identitiesFile),
+            "previousAttemptInputsSha256" to sha(File(reportFile.parentFile, "real-scale-inputs-pre-dedup-review.properties")),
             "runtimeJarSha256" to sha(runtimeJar), "modelLockSha256" to sha(modelLock), "backendSourceSha256" to backendHash,
             "protocolSourceSha256" to combinedHash(protocolFiles),
             "candidateTextSha256" to textHash(catalog.works), "works" to catalog.works.size.toString(),
@@ -85,6 +105,8 @@ object RunRecommendationEval {
         freeze(freezeFile, inputs)
         println("Frozen before inference: ${sha(freezeFile)}; ${catalog.works.size} Works; ${catalog.distinctTitles} titles; ${inputs["folds"]} folds")
         println("Relevance: expert bibliographic proxy, not listener completion logs")
+        println("Identity audit: ${identities.works.size} Works, ${identities.works.sumOf { it.recordIds.size }} source records, SHA=${sha(identitiesFile)}")
+        if (options["--prepare"] == "true") return
         val model = File(assets, "model.onnx")
         val tokenizer = File(assets, "tokenizer.json")
         RecommendationEvalModelLock.verify(model, tokenizer)
@@ -135,7 +157,7 @@ object RunRecommendationEval {
         } else {
             val temporary = File(file.parentFile, file.name + ".partial")
             val props = Properties().apply { putAll(inputs); setProperty("frozenAt", Instant.now().toString()) }
-            temporary.outputStream().use { props.store(it, "Frozen before any semantic inference or score") }
+            temporary.outputStream().use { props.store(it, "Frozen before renewed inference and any fold score; prior partial attempt archived") }
             require(temporary.renameTo(file))
         }
     }
@@ -174,15 +196,17 @@ object RunRecommendationEval {
 
             ${catalog.rawRecords} реальних карток Archive.org для LibriVox дали ${catalog.works.size} авторських Works і ${catalog.distinctTitles} різних нормалізованих назв. Відкинуто ${catalog.excludedRussian} російськомовних карток і ${catalog.missingIdentity} карток без відомої або однозначної авторської ідентичності. ${catalog.duplicateEditions} повторних записів об'єднано в Works. Це обмежене зіставлення метаданих, а не універсальний довідник ідентичності. 44 збережені відповіді джерела не є атомарним знімком усього світового каталогу.
 
+            Перший прогін обчислив частину векторів і був зупинений із exit 130 до будь-якого fold або метрики. Незалежна перевірка знайшла дублікати одного Work у різних записах. [Старі входи](real-scale-inputs-pre-dedup-review.properties) збережені без змін. Потім до нових оцінок перевірено всі 24 цільові твори: [окремий реєстр тотожності](real-scale-identity-aliases.json) зводить 112 записів, зокрема 22 переклади, зі звіркою exact title, creator та SHA-256 опису. Усі URL збережені; окремі продовження, перекази, п'єси та збірки залишаються окремими Works. Текст представника взятий із справжньої картки, обраної за початковим правилом міток, однаково для обох моделей. Міток, груп і порогів не змінено. Новий протокол і входи зафіксовані до повторного інференсу.
+
             Мітки — **п'ять заздалегідь зафіксованих експертних бібліографічних груп**, ${result.folds.size} відкладені твори. Це офлайн-перевірка релевантності, **не журнал реальних завершень слухачів і не доказ користі під час живого користування**. Початкові 25 міток збережені. The Secret Adversary виключено лише через відсутність у замороженому фіді, до інференсу. Після результатів замін не було.
 
-            Кожен fold навчає профіль на решті творів своєї групи. Єдина релевантна відповідь — відкладений твір. Змагається весь каталог, крім навчальних книг: ${result.folds.minOf { it.candidateCount }}–${result.folds.maxOf { it.candidateCount }} кандидатів. Обидві моделі отримують однакові production тексти, метадані та алгоритм ранжування, включно з diversity та exploration. Кожен Work обчислюється один раз на модель. Випадкових негативних кандидатів, наближеного пошуку та вибору за метриками немає. K=$k. Seed 42 залишений у реєстрі для походження; цей протокол не використовує випадкове семплювання. NDCG для однієї релевантної книги дорівнює 1/log2(rank+1); книга поза top-K дає нуль.
+            Кожен fold навчає профіль на решті творів своєї групи. Єдина релевантна відповідь — відкладений твір. Змагається весь каталог, крім навчальних книг: ${result.folds.minOf { it.candidateCount }}–${result.folds.maxOf { it.candidateCount }} кандидатів. Обидві моделі отримують однакові production тексти, метадані та алгоритм ранжування, включно з diversity та exploration. У поточному контексті кожен Work обчислюється один раз на модель. Часткові вектори скасованого попереднього контексту не використовуються для нових оцінок. Випадкових негативних кандидатів, наближеного пошуку та вибору за метриками немає. K=$k. Seed 42 залишений у реєстрі для походження; цей протокол не використовує випадкове семплювання. NDCG для однієї релевантної книги дорівнює 1/log2(rank+1); книга поза top-K дає нуль.
 
             Ревізія моделі: `${RecommendationEvalModelLock.REVISION}`. Контрольні суми моделі й токенізатора перевіряються до створення backend. Кожен вектор має точну розмірність, скінченні значення та одиничну норму. Підміна keyword-моделлю не може дати семантичний результат. Перевіряється наявний Kotlin токенізатор і ONNX шлях із префіксом passage; тотожність токенізатору Hugging Face не стверджується. JVM: Java ${System.getProperty("java.version")}; ONNX Runtime 1.21.0. SHA-256 JVM jar: `${RecommendationEvalModelLock.RUNTIME_SHA256}`, звірений із [Maven Central](https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.21.0/onnxruntime-1.21.0.jar.sha256). Модель і локальні журнали векторів не закомічені.
 
             Відтворення після встановлення зафіксованих assets: `./gradlew runRecommendationEval --no-configuration-cache`. Наявний JavaExec використовує desktop ONNX backend. Перший запуск наповнює журнал; наступні перевіряють контрольні суми та повторно використовують його. Новий окремий фід можна зібрати через production бюджет: `./gradlew runRecommendationEval --args="--acquire /path/to/new-snapshot" --no-configuration-cache`. Це не замінює закомічені сторінки та мітки. Знімок: `${snapshot.name}`.
 
-            Докази: [зафіксовані входи](real-scale-inputs.properties), [ранги й ID усіх top-K](real-scale-folds.tsv), [походження Works та суми текстів](real-scale-catalog.tsv), [суми результатів](real-scale-results.sha256), [модель](real-scale-model.json), [поточні мітки](real-scale-cohorts.json), [початкові мітки](real-scale-cohorts-original.json). Входи та код протоколу зафіксовані до інференсу. Історичний прогін на 140 книгах із 40 негативними кандидатами не доводить цей гейт; його замінює поточний протокол.
+            Докази: [зафіксовані входи](real-scale-inputs.properties), [ранги й ID усіх top-K](real-scale-folds.tsv), [походження Works та суми текстів](real-scale-catalog.tsv), [суми результатів](real-scale-results.sha256), [модель](real-scale-model.json), [поточні мітки](real-scale-cohorts.json), [початкові мітки](real-scale-cohorts-original.json), [реєстр тотожності](real-scale-identity-aliases.json). Мітки зафіксовані до першого інференсу; виправлений реєстр тотожності, поточні входи та код протоколу — до повторного. Суми локальних журналів включають збережені попередні контексти; поточні оцінки використовують тільки контекст із повною перевіркою поточних текстів і моделі. Історичний прогін на 140 книгах із 40 негативними кандидатами не доводить цей гейт; його замінює поточний протокол.
 
             Межа доказу: авторизованої реальної історії завершень немає. GO на експертній вибірці сам по собі не закриває вимогу про справжні завершення слухачів. Для неї потрібен окремо дозволений і заздалегідь зафіксований набір історій.
         """.trimIndent() + "\n")

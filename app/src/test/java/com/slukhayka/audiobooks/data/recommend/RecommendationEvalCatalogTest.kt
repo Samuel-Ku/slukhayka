@@ -68,4 +68,42 @@ class RecommendationEvalCatalogTest {
         assertEquals(2, catalog.missingIdentity)
     }
 
+    @Test
+    fun `real Moby Dick alternate-title punctuation cannot leak another recording into LOO`() {
+        val catalog = RecommendationEvalCatalog.fromRecords(listOf(
+            mapOf("identifier" to "moby_dick_librivox", "title" to "Moby Dick, or the Whale", "creator" to "Herman Melville", "language" to "eng"),
+            mapOf("identifier" to "mobydick2_2511_librivox", "title" to "Moby Dick; or, The Whale version 2", "creator" to "Herman Melville", "language" to "eng")
+        ))
+        assertEquals(1, catalog.works.size)
+        assertEquals(1, catalog.duplicateEditions)
+        assertEquals(listOf("https://archive.org/details/moby_dick_librivox", "https://archive.org/details/mobydick2_2511_librivox"),
+            catalog.sourceUrls.getValue(catalog.works.single().id))
+    }
+    @Test
+    fun `real Alice declared-author suffix cannot leak another recording into LOO`() {
+        val catalog = RecommendationEvalCatalog.fromRecords(listOf(
+            mapOf("identifier" to "alice_adventures_v_1208_librivox", "title" to "Alice's Adventures in Wonderland", "creator" to "Lewis Carroll", "language" to "eng"),
+            mapOf("identifier" to "alice_in_wonderland_librivox", "title" to "Alice's Adventures in Wonderland, by Lewis Carroll", "creator" to "Lewis Carroll", "language" to "eng")
+        ))
+        assertEquals(1, catalog.works.size)
+        assertEquals(2, catalog.sourceUrls.getValue(catalog.works.single().id).size)
+    }
+    @Test
+    fun `title author suffix cannot be stripped by guessing an unclaimed writer`() {
+        val catalog = RecommendationEvalCatalog.fromRecords(listOf(
+            mapOf("identifier" to "a", "title" to "Letters, by Lewis Carroll", "creator" to "John Smith", "language" to "eng"),
+            mapOf("identifier" to "b", "title" to "Letters", "creator" to "John Smith", "language" to "eng")
+        ))
+        assertEquals(2, catalog.works.size)
+    }
+
+    @Test
+    fun `alternate-title punctuation cannot turn Barrie's distinct stage play into the novel`() {
+        val catalog = RecommendationEvalCatalog.fromRecords(listOf(
+            mapOf("identifier" to "peter_pan_0707_librivox", "title" to "Peter Pan", "creator" to "J. M. Barrie", "language" to "eng"),
+            mapOf("identifier" to "published-stage-play", "title" to "Peter Pan; or, The Boy Who Would Not Grow Up", "creator" to "J. M. Barrie", "language" to "eng"),
+            mapOf("identifier" to "published-stage-play-colon", "title" to "Peter Pan: or, The Boy Who Would Not Grow Up", "creator" to "J. M. Barrie", "language" to "eng")
+        ))
+        assertEquals(2, catalog.works.size)
+    }
 }

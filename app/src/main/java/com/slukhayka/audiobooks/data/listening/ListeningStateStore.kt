@@ -301,13 +301,20 @@ class ListeningStateStore(
 
     fun getAllListeningStats(): Flow<List<ListeningStatEntity>> = dao.getAllListeningStats()
 
+    /** Actual wall listening time, transactionally preserved below millisecond boundaries. */
+    suspend fun recordActualListeningTime(millis: Long) {
+        if (millis <= 0L) return
+        val dateIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        withContext(ioDispatcher) { dao.addVerifiedListeningTime(dateIso, millis) }
+    }
+
     suspend fun recordListeningTime(seconds: Long) {
         if (seconds <= 0) return
         val dateIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
         withContext(ioDispatcher) {
             val current = dao.getListeningStatForDate(dateIso)
             val updatedSeconds = (current?.listenedSeconds ?: 0L) + seconds
-            dao.saveListeningStat(ListeningStatEntity(dateIso, updatedSeconds))
+            dao.saveListeningStat((current ?: ListeningStatEntity(dateIso)).copy(listenedSeconds = updatedSeconds))
         }
     }
 }

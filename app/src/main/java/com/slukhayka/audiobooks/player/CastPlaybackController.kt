@@ -10,6 +10,8 @@ import androidx.media3.cast.CastPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import com.google.android.gms.cast.MediaStatus
+import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import com.google.android.gms.cast.framework.CastContext
 import com.slukhayka.audiobooks.App
 import com.google.android.gms.cast.framework.CastSession
@@ -53,6 +55,10 @@ class CastPlaybackController(
     private var castPlayer: CastPlayer? = null
 
     private var proxy: PlaybackProxy? = null
+    private var receiverClient: RemoteMediaClient? = null
+    private var receiverCallback: RemoteMediaClient.Callback? = null
+    private var receiverChapters: Map<String, Int> = emptyMap()
+    private var lastFinishedReceiverItem: Pair<Int, String>? = null
 
     @Volatile
     private var chapterUrls: List<String?> = emptyList()
@@ -95,15 +101,15 @@ class CastPlaybackController(
     }
 
     override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
-        beginCasting(session)
+        if (isActive) observeReceiver(session.remoteMediaClient, preserveTerminalPosition = true) else beginCasting(session)
     }
 
     override fun onSessionStarting(session: CastSession) = Unit
     override fun onSessionStartFailed(session: CastSession, error: Int) = Unit
-    override fun onSessionEnding(session: CastSession) = Unit
-    override fun onSessionSuspended(session: CastSession, reason: Int) = Unit
+    override fun onSessionEnding(session: CastSession) = clearReceiverObservation(preserveTerminalPosition = true)
+    override fun onSessionSuspended(session: CastSession, reason: Int) = clearReceiverObservation(preserveTerminalPosition = true)
     override fun onSessionResuming(session: CastSession, sessionId: String) = Unit
-    override fun onSessionResumeFailed(session: CastSession, error: Int) = Unit
+    override fun onSessionResumeFailed(session: CastSession, error: Int) = clearReceiverObservation(preserveTerminalPosition = true)
     override fun onSessionEnded(session: CastSession, error: Int) {
         endCasting()
     }
@@ -176,11 +182,14 @@ class CastPlaybackController(
                 mirrorFrom(player)
             }
         })
+        castPlayer = player
+        receiverChapters = items.associate { it.localConfiguration!!.uri.toString() to it.mediaId.toInt() }
+        lastFinishedReceiverItem = null
+        observeReceiver(session.remoteMediaClient)
         player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), state.currentPositionMs)
         player.prepare()
         if (state.isPlaying) player.play()
         player.setPlaybackSpeed(state.playbackSpeed)
-        castPlayer = player
         onActiveChanged(true)
 
         sessionPlayerSwapper?.invoke(player)
@@ -194,12 +203,19 @@ class CastPlaybackController(
     }
 
     private fun endCasting() {
+        val resume = castPlayer?.let { player ->
+            manager.captureCastResumePosition(
+                runCatching { player.currentMediaItemIndex }.getOrDefault(0),
+                runCatching { player.currentPosition }.getOrDefault(0L).coerceAtLeast(0L))
+        }
+        clearReceiverObservation()
+        receiverChapters = emptyMap()
+        lastFinishedReceiverItem = null
         val player = castPlayer ?: return
         castPlayer = null
         onActiveChanged(false)
 
-        val positionMs = runCatching { player.currentPosition }.getOrDefault(0L).coerceAtLeast(0L)
-        val chapterIndex = runCatching { player.currentMediaItemIndex }.getOrDefault(0)
+        val (chapterIndex, positionMs) = resume ?: (0 to 0L)
         val speed = runCatching { player.playbackParameters.speed }.getOrDefault(
             manager.castSnapshot().playbackSpeed
         )
@@ -217,6 +233,62 @@ class CastPlaybackController(
         }
         runCatching { manager.prepareChapter(chapterIndex, positionMs, autoPlay = false) }
         Log.i(TAG, "Cast ended → local paused at ch$chapterIndex @$positionMs")
+    }
+
+    /** CastPlayer masks play requests optimistically. Only a received receiver status is evidence. */
+    private fun observeReceiver(client: RemoteMediaClient?, preserveTerminalPosition: Boolean = false) {
+        clearReceiverObservation(resumingActiveSession = preserveTerminalPosition)
+        if (client == null) return
+        receiverClient = client
+        val callback = object : RemoteMediaClient.Callback() {
+            override fun onStatusUpdated() {
+                if (receiverClient !== client || castPlayer == null) return
+                val status = client.mediaStatus
+                val contentUrl = status?.mediaInfo?.contentUrl
+                val chapterIndex = receiverChapters[contentUrl]
+                val owner = bookId
+                val ownMedia = chapterIndex != null && owner != null &&
+                    manager.castSnapshot().currentBook?.id == owner
+                val actuallyPlaying = ownMedia && status?.playerState == MediaStatus.PLAYER_STATE_PLAYING &&
+                    !client.isPlayingAd
+                if (actuallyPlaying) lastFinishedReceiverItem = null
+                // IDLE commonly resets streamPosition to zero before our callback.
+                // Keep the last raw position of this owned chapter, never a UI/command estimate.
+                val hasPosition = ownMedia && status != null &&
+                    status.playerState in setOf(MediaStatus.PLAYER_STATE_PLAYING,
+                        MediaStatus.PLAYER_STATE_PAUSED, MediaStatus.PLAYER_STATE_BUFFERING) && !client.isPlayingAd
+                manager.reportActualCastPlayback(actuallyPlaying,
+                    status?.playerState == MediaStatus.PLAYER_STATE_BUFFERING,
+                    receiverBookId = owner.takeIf { hasPosition },
+                    receiverChapterIndex = chapterIndex.takeIf { hasPosition },
+                    receiverPositionMs = status?.streamPosition?.takeIf { hasPosition })
+                if (ownMedia && status != null && !client.isPlayingAd &&
+                    status.playerState == MediaStatus.PLAYER_STATE_IDLE && status.idleReason == MediaStatus.IDLE_REASON_FINISHED) {
+                    val finishedItem = status.currentItemId to contentUrl!!
+                    if (lastFinishedReceiverItem != finishedItem) {
+                        lastFinishedReceiverItem = finishedItem
+                        manager.reportActualCastCompletion(owner!!, chapterIndex!!,
+                            receiverDurationMs = status.mediaInfo?.streamDuration ?: 0L,
+                            receiverPositionMs = status.streamPosition)
+                    }
+                }
+            }
+        }
+        receiverCallback = callback
+        client.registerCallback(callback)
+        // requestStatus sends no listening evidence; its received callback above does.
+        client.requestStatus()
+    }
+
+    private fun clearReceiverObservation(preserveTerminalPosition: Boolean = false,
+        resumingActiveSession: Boolean = false) {
+        val client = receiverClient
+        val callback = receiverCallback
+        receiverClient = null
+        receiverCallback = null
+        if (client != null && callback != null) client.unregisterCallback(callback)
+        if (resumingActiveSession) manager.resumeActualCastReceiverObservation()
+        else manager.resetActualCastReceiverEvidence(preserveTerminalPosition)
     }
 
     private fun upstreamFor(subPath: String?, rangeHeader: String?): PlaybackProxy.UpstreamResponse? {

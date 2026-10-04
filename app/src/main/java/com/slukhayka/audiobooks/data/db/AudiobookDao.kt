@@ -1269,6 +1269,17 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveListeningStat(stat: ListeningStatEntity)
 
+    /** One recorder updates both fields; fractional milliseconds survive each checkpoint. */
+    @Transaction
+    suspend fun addVerifiedListeningTime(dateIso: String, millis: Long) {
+        if (millis <= 0L) return
+        val current = getListeningStatForDate(dateIso) ?: ListeningStatEntity(dateIso)
+        val verified = current.verifiedListenedMillis + millis
+        val wholeSeconds = verified / 1000L - current.verifiedListenedMillis / 1000L
+        saveListeningStat(current.copy(verifiedListenedMillis = verified,
+            listenedSeconds = current.listenedSeconds + wholeSeconds))
+    }
+
     @Insert
     suspend fun insertPlaybackFailure(failure: PlaybackFailureEntity)
 

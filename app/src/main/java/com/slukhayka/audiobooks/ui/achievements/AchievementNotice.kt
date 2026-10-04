@@ -1,0 +1,23 @@
+package com.slukhayka.audiobooks.ui.achievements
+
+import android.content.Context
+import com.slukhayka.audiobooks.R
+
+/** Names are resolved only for earned notices; hidden definitions have no pre-announcement. */
+fun achievementNotice(context: Context, id: String): String {
+    val title = when (id) {
+        "first_book" -> context.getString(R.string.achievement_first_book)
+        "first_playback" -> context.getString(R.string.achievement_first_playback)
+        "first_review" -> context.getString(R.string.achievement_first_review)
+        "first_not_interested" -> context.getString(R.string.achievement_first_not_interested)
+        "first_search_import" -> context.getString(R.string.achievement_first_search_import)
+        "first_offline_playback" -> context.getString(R.string.achievement_first_offline_playback)
+        "first_download" -> context.getString(R.string.achievement_first_download)
+        "first_completion" -> context.getString(R.string.achievement_first_completion)
+        else -> {
+            val hours = requireNotNull(id.removePrefix("hours_").toIntOrNull())
+            context.resources.getQuantityString(R.plurals.achievement_hours, hours, hours)
+        }
+    }
+    return context.getString(R.string.achievement_awarded, title)
+}

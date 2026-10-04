@@ -271,4 +271,23 @@ class LibraryProfileSyncTest {
         assertNotNull(book)
         assertEquals(1, adapter.fetchCalls)
     }
+    @Test fun `fresh cached search import acceptance fires only for the successful new book`() = verifySearchAcceptance(System.currentTimeMillis(),0)
+    @Test fun `stale fail open search import acceptance fires only for the successful new book`() = verifySearchAcceptance(System.currentTimeMillis()-ProfileFreshness.FRESHNESS_MILLIS-1,1)
+    private fun verifySearchAcceptance(resolvedAt: Long,expectedFetches: Int) = runBlocking {
+        val store=FakeProfileStore()
+        store.entries[editionKey]=SharedProfileEntry(profileOf(),resolvedAt)
+        val adapter=FakeAdapter(detailOf("x"),throwOnFetch=true)
+        val imports=imports(store,listOf(adapter))
+        val accepted=mutableListOf<String>()
+        val first=imports.importFromSourceUrl("soundbooks","https://sound-books.net/kobzar.html",identity,
+            onNewBookImported={ accepted+=it.id })!!
+        assertEquals(expectedFetches,adapter.fetchCalls)
+        assertEquals(listOf(first.id),accepted)
+        assertEquals("UNKNOWN",dao.libraryEntryById(first.id)!!.origin)
+        val repeated=imports.importFromSourceUrl("soundbooks","https://sound-books.net/kobzar.html",identity,
+            onNewBookImported={ accepted+=it.id })!!
+        assertEquals(first.id,repeated.id)
+        assertEquals(listOf(first.id),accepted)
+    }
+
 }

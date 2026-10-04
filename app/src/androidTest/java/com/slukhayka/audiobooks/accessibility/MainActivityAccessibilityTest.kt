@@ -322,9 +322,22 @@ class MainActivityAccessibilityTest {
             .performScrollToNode(hasTestTag("book_detail_chapter_$fixtureChapterId"))
         val chapter = composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
         chapter.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
+        // #1066 — settle the frame BEFORE the accessibility pass.
+        //
+        // The failure this guards against is
+        // `IllegalArgumentException: performMeasureAndLayout called during
+        // measure layout`: a re-entrant measurement, which happens when a
+        // layout is requested while Compose is already measuring.
+        // `tryPerformAccessibilityChecks` walks and can request layout, and the
+        // scroll above may still have a frame in flight — so the pass had a
+        // chance to land mid-measure. An idle barrier between the two removes
+        // that window without weakening a single assertion: the check, the
+        // click and everything after it are unchanged.
+        composeTestRule.waitForIdle()
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        composeTestRule.waitForIdle()
         chapter.performClick()
 
         composeTestRule.waitUntilExactlyOneExists(

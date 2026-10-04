@@ -34,6 +34,16 @@ OfflinePrimer застосунку. Офлайн-перевірка стосує
 аудіо; кешування всього застосунку вона не підтверджує. WebKit на macOS
 не доводить поведінку Safari після призупинення на фізичному iPhone.
 
-Фактичні snapshots, версії браузерів, commit і хеші перевірених source
-blobs збережено поруч у `2026-10-04-web-player-position.json`. Подальша
-зміна лише цього звіту не змінює перевірений код.
+Перевірений код: `de462e33550134760a22b305f34f48e11c6c41fe`. Подальші зміни лише
+цього звіту не змінюють перевірений код. Хеші Git blobs:
+
+| Файл | Git blob |
+|---|---|
+| `web/src/player/audioEngine.ts` | `fac7ce7b4e0e00a4618a12c394adf51e0f696671` |
+| `web/src/player/engine.ts` | `58170366395df5177857a1286e2a01e6e8054abc` |
+| `web/src/player/sleepTimer.ts` | `8650bba0449becb55620bf6e7ccb972bb0905e9f` |
+| `web/src/player/__tests__/audioEngineMediaPosition.test.ts` | `d1c19c1119f76492136c089a02906e39032f3cec` |
+
+Згідно з ADR-0016, у репозиторії збережено лише цей висновок у Markdown.
+Сирі браузерні snapshots лишаються локальним доказом поза Git.
+SHA-256 повного JSON-звіту: `2ccb21e7665af5a3d2788c2103fa87a974ce429a81ad02e505703e4def749b56`.

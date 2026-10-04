@@ -26,7 +26,8 @@ import okio.Buffer
  */
 class UnigramTokenizer private constructor(
     private val trie: PieceTrie,
-    private val unkId: Int
+    private val unkId: Int,
+    private val modelTemplate: ModelTemplate?
 ) {
 
     /** Encodes [text] into piece ids (no special tokens added). */
@@ -44,6 +45,23 @@ class UnigramTokenizer private constructor(
         }
         return ids.toIntArray()
     }
+
+    /** Applies the declared single-sequence template, retaining EOS after truncation. */
+    fun encodeForModel(text: String, maxLength: Int = 512): IntArray {
+        require(maxLength >= 2) { "Model input needs both declared boundary tokens" }
+        val template = requireNotNull(modelTemplate) { "Tokenizer has no supported model input template" }
+        val raw = encode(text)
+        val contentLength = minOf(raw.size, maxLength - 2)
+        return IntArray(contentLength + 2) { index ->
+            when (index) {
+                0 -> template.startId
+                contentLength + 1 -> template.endId
+                else -> raw[index - 1]
+            }
+        }
+    }
+
+    private data class ModelTemplate(val startToken: String, val startId: Int, val endToken: String, val endId: Int)
 
     /** NFKC + collapse whitespace runs (stands in for the charsmap). */
     private fun normalize(text: String): String =
@@ -106,6 +124,7 @@ class UnigramTokenizer private constructor(
          */
         fun fromJson(reader: JsonReader): UnigramTokenizer {
             var unkId = 3
+            var template: ModelTemplate? = null
             val trie = PieceTrie()
             reader.beginObject()
             while (reader.hasNext()) {
@@ -139,11 +158,44 @@ class UnigramTokenizer private constructor(
                         }
                         reader.endObject()
                     }
+                    "post_processor" -> template = parseTemplate(reader.readJsonValue())
                     else -> reader.skipValue()
                 }
             }
             reader.endObject()
-            return UnigramTokenizer(trie, unkId)
+            template?.let {
+                require(trie.pieceId(it.startToken) == it.startId && trie.pieceId(it.endToken) == it.endId) {
+                    "Tokenizer boundary ids differ from its vocabulary"
+                }
+            }
+            return UnigramTokenizer(trie, unkId, template)
+        }
+
+        private fun parseTemplate(value: Any?): ModelTemplate {
+            val processor = value as? Map<*, *> ?: throw IllegalArgumentException("Missing tokenizer template")
+            require(processor["type"] == "TemplateProcessing") { "Unsupported tokenizer postprocessor" }
+            val single = processor["single"] as? List<*> ?: throw IllegalArgumentException("Missing single template")
+            require(single.size == 3) { "Only boundary / sequence A / boundary is supported" }
+            val sequence = ((single[1] as? Map<*, *>)?.get("Sequence") as? Map<*, *>)
+            require(sequence?.get("id") == "A" && (sequence["type_id"] as? Number)?.toInt() == 0) {
+                "Unsupported tokenizer sequence template"
+            }
+            val tokens = processor["special_tokens"] as? Map<*, *> ?: throw IllegalArgumentException("Missing boundary ids")
+            fun boundary(index: Int): Pair<String, Int> {
+                val special = ((single[index] as? Map<*, *>)?.get("SpecialToken") as? Map<*, *>)
+                    ?: throw IllegalArgumentException("Missing boundary token")
+                val token = special["id"] as? String ?: throw IllegalArgumentException("Missing boundary name")
+                require((special["type_id"] as? Number)?.toInt() == 0)
+                val ids = ((tokens[token] as? Map<*, *>)?.get("ids") as? List<*>)
+                    ?: throw IllegalArgumentException("Missing boundary id")
+                require(ids.size == 1)
+                val id = ids.single() as? Number ?: throw IllegalArgumentException("Invalid boundary id")
+                require(id.toDouble() == id.toInt().toDouble() && id.toInt() >= 0)
+                return token to id.toInt()
+            }
+            val start = boundary(0)
+            val end = boundary(2)
+            return ModelTemplate(start.first, start.second, end.first, end.second)
         }
 
         /** Parses a tokenizer.json file. */

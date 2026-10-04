@@ -3,7 +3,7 @@ package com.slukhayka.audiobooks.data.recommend
 /**
  * The background embedding pass (#482): given a catalogue and the Room-backed
  * [RoomEmbeddingCache], returns the id → vector map, computing ONLY the books
- * whose text hash is new or changed and persisting them. Embeddings are
+ * whose backend/context/text hash is new or changed and persisting them. Embeddings are
  * derived data; the per-book hash means an unchanged book is never computed
  * twice even when the ephemeral union churns.
  *
@@ -27,7 +27,8 @@ class CatalogEmbeddingService(
     ): Map<String, FloatArray> {
         if (catalog.isEmpty()) return emptyMap()
         val texts = catalog.associate { it.id to it.text }
-        val cached = cache.loadFresh(texts)
+        val context = embedder.cacheContext
+        val cached = context?.let { cache.loadFresh(texts, it) }.orEmpty()
         val missing = catalog.filter { it.id !in cached }
         if (missing.isEmpty()) return cached
 
@@ -36,14 +37,17 @@ class CatalogEmbeddingService(
         for (candidate in missing.take(limit)) {
             try {
                 val vector = embedder.embed(candidate.text)
+                val valid = context?.accepts(vector) ?: (vector.isNotEmpty() &&
+                    vector.all { it.isFinite() } && vector.sumOf { it.toDouble() * it } > 1e-12)
+                if (!valid) continue
                 computed[candidate.id] = vector
-                persist[candidate.id] = candidate.text to vector
+                if (context != null) persist[candidate.id] = candidate.text to vector
             } catch (e: Exception) {
                 // One broken embed (or a throwing embedder in tests) must not
                 // take the whole row down — the candidate simply misses.
             }
         }
-        cache.save(persist)
+        if (context != null) cache.save(persist, context)
         return computed
     }
 }

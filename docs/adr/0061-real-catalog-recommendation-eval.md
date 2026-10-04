@@ -1,6 +1,6 @@
 # ADR-0061: перевірка рекомендацій на замороженому реальному каталозі
 
-- Статус: прийнято для офлайн-протоколу; висновок про реальні завершення слухачів потребує окремих даних.
+- Статус: прийнято для офлайн-протоколу з дозволеною експертною вибіркою; він не доводить користь під час живого користування.
 - Дата: 2026-10-04
 - Тікет: #487
 
@@ -40,7 +40,7 @@ GO потребує строго більшого recall@20, ніж keyword base
 
 Офлайн-прогін відтворюється із заморожених сторінок і міток. Живе повторне опитування джерела для кожного fold не потрібне. Перший запуск витрачає час на весь реальний каталог, наступні перевіряють і повторно використовують журнал векторів.
 
-Навіть GO на експертній вибірці не доводить користь для живих слухачів і не замінює реальні завершення. Для такого висновку потрібен окремо авторизований, заздалегідь зафіксований набір історій. Наявний production токенізатор оцінюється як є; тотожність препроцесору Hugging Face тут не стверджується.
+Навіть GO на експертній вибірці не доводить користь для живих слухачів і не замінює реальні завершення. Для такого висновку потрібен окремо авторизований, заздалегідь зафіксований набір історій. Відсутність особистого журналу завершень є межею такого доказу, а не додатковим acceptance criterion: користувач дозволив довільну бібліографічну вибірку.
 
 ## Джерела
 
@@ -51,3 +51,17 @@ GO потребує строго більшого recall@20, ніж keyword base
 - [Peter Pan / Peter and Wendy, первинний текст 1911 року](https://www.gutenberg.org/cache/epub/16/pg16-images.html): 17 розділів роману для зіставлення записів, які мають назву Peter Pan.
 - [Das Geschlecht der Zukunft, титульна сторінка](https://projekt-gutenberg.org/authors/edward-bulwer-lytton/books/das-geschlecht-der-zukunft-2/): наведена оригінальна назва Vril, the Power of the Coming Race.
 - [Aventuras de Arturo Gordon Pym, видання перекладу](https://es.wikisource.org/wiki/Aventuras_de_Arturo_Gordon_Pym): ім'я автора та назва іспанського тексту.
+
+## Версія 2: контракт моделі та derived cache
+
+Повний v1 дав NO-GO: recall@20 та NDCG@20 обох моделей — 0. Його входи, звіт і ранги збережено без змін у `docs/recommend/experiments/2026-10-04-production-tokenizer-v1/`. Виправлення v2 не використовує результати для вибору labels, weights або порогів.
+
+Зафіксований `tokenizer.json` має TemplateProcessing `<s>`/sequence A/`</s>` з IDs 0/2. Production raw encode їх пропускав. Окремий model encode додає перевірені межі та вміщує текст у 510 токенів усередині загального бюджету 512; raw encode зберігається. [Офіційна E5 model card](https://huggingface.co/intfloat/multilingual-e5-small/raw/main/README.md) вимагає `query:` для symmetric similarity. Книга порівнюється з книгою, тому production default стає `query: `; explicit prefix лишається частиною context. Pooling, normalization, assets і метадані книг незмінні. Повна тотожність сегментації Hugging Face не стверджується.
+
+Room schema не змінюється. Context hash містить точний текст, backend identity і dimension. E5 identity походить від фактичних SHA моделі та токенізатора, runtime, prefix і версії preprocessing. Старі text-only rows, інший backend, неправильна dimension, nonfinite чи нульовий вектор стають cache miss. Невідомий custom backend без identity не використовує persistent cache.
+
+Один background pass захоплює один backend для кандидатів, позитивних і негативних сигналів. Публікація містить vectors, context, усі attempted id/text pairs та ready разом; ranking читає цей snapshot без inline embedding. Один вектор на Work зберігає попередній пріоритет: кандидат, потім перший library signal. Невдалий незмінний сигнал не спричиняє нескінченний rerun, змінений текст запитує новий pass.
+
+Generation gate відкидає публікацію старого pass після install, зливає накладені refresh у один наступний і звільняє active ticket навіть при винятку publication. Start, empty, ready і reset публікуються під тим самим monitor. Порядок locks: invalidate тримає gate, далі mutex ViewModel лише для reset; backend loader тримає mutex і ніколи не входить у gate. Повторний pass запускається після звільнення gate.
+
+Новий input ledger включає preprocessing contract, офіційне джерело, E5 input helper у backend hash, а cache/gate/snapshot code — у protocol hash. Заморожування v2 відбувається після незалежного review й до повторного інференсу. Новий context не використовує вектори v1. Мітки 24 творів, 112 identity aliases, 44 сторінки, candidate texts, модель і строгий GO-поріг залишаються незмінними.

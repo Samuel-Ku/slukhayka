@@ -1,5 +1,13 @@
 package com.slukhayka.audiobooks.data.recommend
 
+/** The identity and shape of one compatible derived vector space. */
+data class EmbeddingContext(val identity: String, val dimension: Int) {
+    init { require(identity.isNotBlank() && dimension > 0) }
+
+    fun accepts(vector: FloatArray): Boolean = vector.size == dimension &&
+        vector.all { it.isFinite() } && vector.sumOf { it.toDouble() * it } > 1e-12
+}
+
 /**
  * The embedding seam of the on-device recommendation row (spec-19 Track A,
  * Q4). Anything that turns a text into a fixed-dimension vector plugs in
@@ -8,6 +16,8 @@ package com.slukhayka.audiobooks.data.recommend
  * model behind the same interface. Pure JVM, deterministic, testable.
  */
 interface TextEmbedder {
+    /** Unidentified custom backends cannot safely reuse persistent derived vectors. */
+    val cacheContext: EmbeddingContext? get() = null
     fun embed(text: String): FloatArray
 }
 
@@ -18,6 +28,8 @@ interface TextEmbedder {
  * alphabet. Cheap, stable, and a fair target for the real model to beat.
  */
 class KeywordEmbedder : TextEmbedder {
+    override val cacheContext = EmbeddingContext("keyword-bow-v1", ALPHABET_SIZE)
+
 
     override fun embed(text: String): FloatArray {
         val counts = LinkedHashMap<String, Int>()

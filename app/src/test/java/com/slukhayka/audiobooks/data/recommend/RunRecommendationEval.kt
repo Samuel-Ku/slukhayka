@@ -82,21 +82,28 @@ object RunRecommendationEval {
         }
         val sourceDir = File(root, "app/src/main/java/com/slukhayka/audiobooks/data/recommend")
         val hostDir = File(root, "app/src/test/java/com/slukhayka/audiobooks/data/recommend")
-        val backendHash = combinedHash(listOf(File(sourceDir, "OnnxEmbedder.kt"), File(sourceDir, "UnigramTokenizer.kt")))
+        val backendHash = combinedHash(listOf("OnnxEmbedder.kt", "UnigramTokenizer.kt", "E5RecommendationInput.kt").map { File(sourceDir, it) })
         val identityFiles = listOf("data/merge/MergeKey.kt", "data/metadata/MetadataAssertions.kt", "data/LanguageCode.kt", "data/source/SourceParsing.kt", "data/collections/MiniJson.kt").map {
             File(root, "app/src/main/java/com/slukhayka/audiobooks/$it")
         }
-        val protocolFiles = identityFiles + listOf("RecommendationEval.kt", "RecommendationEngine.kt", "RecommendationPersonalization.kt", "BookRecommendationText.kt", "TextEmbedder.kt").map { File(sourceDir, it) } +
+        val protocolFiles = identityFiles + listOf("RecommendationEval.kt", "RecommendationEngine.kt", "RecommendationPersonalization.kt", "BookRecommendationText.kt", "TextEmbedder.kt", "E5RecommendationInput.kt", "EmbeddingPassGate.kt", "EmbeddingPassSnapshot.kt", "RoomEmbeddingCache.kt", "CatalogEmbeddingService.kt").map { File(sourceDir, it) } +
             listOf("RecommendationEvalCatalog.kt", "RecommendationEvalIdentityAliases.kt", "RecommendationEvalCohorts.kt", "RecommendationEvalVectorCache.kt", "RecommendationFeedSnapshot.kt", "RecommendationEvalModelLock.kt", "RunRecommendationEval.kt").map { File(hostDir, it) }
         val runtimeJar = File(OrtEnvironment::class.java.protectionDomain.codeSource.location.toURI())
         RecommendationEvalModelLock.verifyRuntime(runtimeJar)
+        val semanticContext = E5RecommendationInput.cacheContext(
+            RecommendationEvalModelLock.MODEL_SHA256, RecommendationEvalModelLock.TOKENIZER_SHA256,
+            OrtEnvironment.getEnvironment().version
+        )
         val inputs = linkedMapOf(
-            "schemaVersion" to "1", "feedManifestSha256" to sha(manifest),
+            "schemaVersion" to "2", "feedManifestSha256" to sha(manifest),
             "cohortsSha256" to sha(registryFile), "originalCohortsSha256" to sha(original),
             "identityManifestSha256" to sha(identitiesFile),
             "previousAttemptInputsSha256" to sha(File(reportFile.parentFile, "real-scale-inputs-pre-dedup-review.properties")),
             "runtimeJarSha256" to sha(runtimeJar), "modelLockSha256" to sha(modelLock), "backendSourceSha256" to backendHash,
             "protocolSourceSha256" to combinedHash(protocolFiles),
+            "preprocessingContract" to "e5-input-v2-nfkc-template-mean-l2; query: ; BOS+EOS within 512 tokens",
+            "preprocessingPrimarySource" to "https://huggingface.co/intfloat/multilingual-e5-small/raw/main/README.md",
+            "semanticEmbeddingContext" to semanticContext.identity,
             "candidateTextSha256" to textHash(catalog.works), "works" to catalog.works.size.toString(),
             "distinctTitles" to catalog.distinctTitles.toString(), "folds" to cohorts.sumOf { it.workIds.size }.toString(),
             "k" to k.toString(), "labelProvenance" to "expert bibliographic proxy; no listener completion history"
@@ -111,7 +118,8 @@ object RunRecommendationEval {
         val tokenizer = File(assets, "tokenizer.json")
         RecommendationEvalModelLock.verify(model, tokenizer)
         val semantic = OnnxEmbedder.fromFiles(model, tokenizer) ?: error("Pinned semantic ONNX backend failed to initialize; no fallback is allowed")
-        val semanticIdentity = "onnx-e5:${RecommendationEvalModelLock.RUNTIME_SHA256}:${RecommendationEvalModelLock.MODEL_SHA256}:${RecommendationEvalModelLock.TOKENIZER_SHA256}:$backendHash"
+        require(semantic.cacheContext == semanticContext) { "Actual semantic backend differs from preregistered preprocessing" }
+        val semanticIdentity = "${semanticContext.identity}:${RecommendationEvalModelLock.RUNTIME_SHA256}:$backendHash"
         val semanticVectors = semantic.use {
             RecommendationEvalVectorCache.loadOrCompute(File(cacheDir, "semantic"), semanticIdentity, catalog.works, 384, it)
         }
@@ -202,13 +210,13 @@ object RunRecommendationEval {
 
             Кожен fold навчає профіль на решті творів своєї групи. Єдина релевантна відповідь — відкладений твір. Змагається весь каталог, крім навчальних книг: ${result.folds.minOf { it.candidateCount }}–${result.folds.maxOf { it.candidateCount }} кандидатів. Обидві моделі отримують однакові production тексти, метадані та алгоритм ранжування, включно з diversity та exploration. У поточному контексті кожен Work обчислюється один раз на модель. Часткові вектори скасованого попереднього контексту не використовуються для нових оцінок. Випадкових негативних кандидатів, наближеного пошуку та вибору за метриками немає. K=$k. Seed 42 залишений у реєстрі для походження; цей протокол не використовує випадкове семплювання. NDCG для однієї релевантної книги дорівнює 1/log2(rank+1); книга поза top-K дає нуль.
 
-            Ревізія моделі: `${RecommendationEvalModelLock.REVISION}`. Контрольні суми моделі й токенізатора перевіряються до створення backend. Кожен вектор має точну розмірність, скінченні значення та одиничну норму. Підміна keyword-моделлю не може дати семантичний результат. Перевіряється наявний Kotlin токенізатор і ONNX шлях із префіксом passage; тотожність токенізатору Hugging Face не стверджується. JVM: Java ${System.getProperty("java.version")}; ONNX Runtime 1.21.0. SHA-256 JVM jar: `${RecommendationEvalModelLock.RUNTIME_SHA256}`, звірений із [Maven Central](https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.21.0/onnxruntime-1.21.0.jar.sha256). Модель і локальні журнали векторів не закомічені.
+            Ревізія моделі: `${RecommendationEvalModelLock.REVISION}`. Контрольні суми моделі й токенізатора перевіряються до створення backend. Кожен вектор має точну розмірність, скінченні значення та одиничну норму. Підміна keyword-моделлю не може дати семантичний результат. Перевіряється production Kotlin токенізатор і ONNX шлях v2: query: для симетричного порівняння книг, TemplateProcessing BOS/EOS із зафіксованого tokenizer.json, максимум 512 токенів разом із межами. Це виправлення контракту [офіційної E5 model card](https://huggingface.co/intfloat/multilingual-e5-small/raw/main/README.md), а не вибір префікса за метриками. Повна тотожність сегментації Hugging Face не стверджується. Context кешу включає суми фактичних assets, runtime та препроцесор; нові вектори не змішуються з v1 чи keyword. JVM: Java ${System.getProperty("java.version")}; ONNX Runtime 1.21.0. SHA-256 JVM jar: `${RecommendationEvalModelLock.RUNTIME_SHA256}`, звірений із [Maven Central](https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.21.0/onnxruntime-1.21.0.jar.sha256). Модель і локальні журнали векторів не закомічені.
 
             Відтворення після встановлення зафіксованих assets: `./gradlew runRecommendationEval --no-configuration-cache`. Наявний JavaExec використовує desktop ONNX backend. Перший запуск наповнює журнал; наступні перевіряють контрольні суми та повторно використовують його. Новий окремий фід можна зібрати через production бюджет: `./gradlew runRecommendationEval --args="--acquire /path/to/new-snapshot" --no-configuration-cache`. Це не замінює закомічені сторінки та мітки. Знімок: `${snapshot.name}`.
 
             Докази: [зафіксовані входи](real-scale-inputs.properties), [ранги й ID усіх top-K](real-scale-folds.tsv), [походження Works та суми текстів](real-scale-catalog.tsv), [суми результатів](real-scale-results.sha256), [модель](real-scale-model.json), [поточні мітки](real-scale-cohorts.json), [початкові мітки](real-scale-cohorts-original.json), [реєстр тотожності](real-scale-identity-aliases.json). Мітки зафіксовані до першого інференсу; виправлений реєстр тотожності, поточні входи та код протоколу — до повторного. Суми локальних журналів включають збережені попередні контексти; поточні оцінки використовують тільки контекст із повною перевіркою поточних текстів і моделі. Історичний прогін на 140 книгах із 40 негативними кандидатами не доводить цей гейт; його замінює поточний протокол.
 
-            Межа доказу: авторизованої реальної історії завершень немає. GO на експертній вибірці сам по собі не закриває вимогу про справжні завершення слухачів. Для неї потрібен окремо дозволений і заздалегідь зафіксований набір історій.
+            Межа доказу: користувач дозволив довільну бібліографічну вибірку. Гейт оцінює ці незмінні експертні мітки; відсутність особистого журналу не є окремою вимогою цього експерименту. Навіть GO не доводить користь під час живого користування. Повний v1 збережено без змін у [незмінному архіві](experiments/2026-10-04-production-tokenizer-v1/README.md), разом із його NO-GO та історичним формулюванням межі доказу. v2 змінює лише обґрунтований контракт препроцесору й валідності derived cache; модель, labels, тексти, ranking weights і пороги незмінні.
         """.trimIndent() + "\n")
     }
 

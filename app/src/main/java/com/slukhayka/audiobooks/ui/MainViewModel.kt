@@ -3781,19 +3781,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-19 T2 — the background embedding pass. Embeds every catalogue
     // book's text through the [TextEmbedder] seam on an idle (IO) dispatcher
     // and publishes the id → vector map for the recommendation row. Cache
-    // hits (same catalogue version) are a file read; misses compute and
-    // persist. Never throws: CatalogEmbeddingService degrades failures to a
+    // hits require the same backend/context/text; misses compute and
+    // persist. CatalogEmbeddingService degrades failures to a
     // smaller (or empty) map, so the row just goes quiet — no crash.
-    private val _catalogVectors =
-        MutableStateFlow<Map<String, FloatArray>>(emptyMap())
-    val catalogVectors: StateFlow<Map<String, FloatArray>> =
-        _catalogVectors.asStateFlow()
+    private val embeddingPass = MutableStateFlow(
+        com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot()
+    )
+    val catalogVectors: StateFlow<Map<String, FloatArray>> = embeddingPass
+        .map { it.vectors }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     /** Distinguishes an empty recommendation result from a pass still computing it. */
-    private val _recommendationsReady = MutableStateFlow(false)
-    val recommendationsReady: StateFlow<Boolean> = _recommendationsReady.asStateFlow()
-
-    /** Single-flight guard: a running embedding pass is never re-launched. */
-    private val _embeddingPassInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    val recommendationsReady: StateFlow<Boolean> = embeddingPass
+        .map { it.ready }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val embeddingPassGate = com.slukhayka.audiobooks.data.recommend.EmbeddingPassGate()
     // ADR-0041: recommendations are a discovery surface of the Mirror, so the
     // pool is the CLAIMED Works only — a Work whose every Source was removed
     // can never be opened and must not be offered (the ghost behind the
@@ -3803,25 +3802,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
 
     fun refreshEmbeddingVectors() {
-        if (!_embeddingPassInFlight.compareAndSet(false, true)) return
-        // #483 — a listener interaction with recommendations starts the one-time model install.
+        val ticket = embeddingPassGate.begin {
+            embeddingPass.value = embeddingPass.value.copy(ready = false)
+        } ?: return
+        // #483 — a listener interaction starts the one-time model install.
         if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
-        _recommendationsReady.value = false
         viewModelScope.launch(Dispatchers.IO) {
+            var context: com.slukhayka.audiobooks.data.recommend.EmbeddingContext? = null
+            var vectors: Map<String, FloatArray> = emptyMap()
+            var attempted: Map<String, Set<String>> = emptyMap()
             try {
-                // #484 — the pool is the PERSISTENT Room catalogue, not the
-                // ephemeral union: suggestions are stable across sessions and
-                // cover the whole library. Priority: library works first,
-                // then active-feed (union) works, then the rest.
-                val unionKeys = sourceCatalog.unifiedCatalog.value.mapTo(HashSet()) { it.key }
+                val works = recommendationWorks.value
                 val library = libraryBooks.value
+                val signals = currentSignals(library) + currentFeedbackSignals(works, recommendationPreferences.value)
+                // Record input attempts even when no usable backend can be loaded.
+                // Both texts for one Work stop unchanged failed-input reruns.
+                attempted = signals.groupBy { it.id }.mapValues { (_, values) -> values.mapTo(linkedSetOf()) { it.text } }
+                if (works.isEmpty()) return@launch
+                // Capture one backend after begin releases its monitor. An install
+                // invalidates this ticket, rather than mixing vector spaces.
+                val embedder = currentEmbedder()
+                val capturedContext = embedder.cacheContext ?: return@launch
+                context = capturedContext
+                val unionKeys = sourceCatalog.unifiedCatalog.value.mapTo(HashSet()) { it.key }
                 val libraryKeys = library.mapTo(HashSet()) { lb ->
                     lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } }
-                }
-                val works = recommendationWorks.value
-                if (works.isEmpty()) {
-                    _catalogVectors.value = emptyMap()
-                    return@launch
                 }
                 val candidates = com.slukhayka.audiobooks.data.recommend.orderedForWarmUp(
                     com.slukhayka.audiobooks.data.recommend
@@ -3829,35 +3834,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     libraryKeys = libraryKeys,
                     activeFeedKeys = unionKeys
                 )
-                // Catalogue vectors warm gradually (a bounded batch per pass);
-                // the few library signal vectors embed right here on IO too
-                // (T4: never on the UI thread). The combine only reads the
-                // published map.
-                val vectors = embeddingService
-                    .vectorsFor(candidates, currentEmbedder(), limit = EMBEDDING_BATCH)
-                    .toMutableMap()
-                // #482 — signal vectors go through the SAME per-book cache:
-                // only new/changed signals embed, the rest are a Room read.
-                val signals = currentSignals(library)
-                val signalTexts = signals.associate { it.id to it.text }
-                val cachedSignals = embeddingCache.loadFresh(signalTexts)
+                val computed = embeddingService
+                    .vectorsFor(candidates, embedder, limit = EMBEDDING_BATCH).toMutableMap()
+                // One vector per Work: candidate first, then first library signal.
+                val signalTexts = signals.distinctBy { it.id }.associate { it.id to it.text }
+                val cachedSignals = embeddingCache.loadFresh(signalTexts, capturedContext)
                 val persistSignals = LinkedHashMap<String, Pair<String, FloatArray>>()
-                for (signal in signals) {
-                    if (signal.id in vectors || signal.id in cachedSignals) continue
+                for ((id, text) in signalTexts) {
+                    if (id in computed || id in cachedSignals) continue
                     try {
-                        val vector = currentEmbedder().embed(signal.text)
-                        vectors[signal.id] = vector
-                        persistSignals[signal.id] = signal.text to vector
+                        val vector = embedder.embed(text)
+                        if (capturedContext.accepts(vector)) {
+                            computed[id] = vector
+                            persistSignals[id] = text to vector
+                        }
                     } catch (e: Exception) {
                         // A failing signal simply misses — the row degrades.
                     }
                 }
-                cachedSignals.forEach { (id, vector) -> vectors.putIfAbsent(id, vector) }
-                if (persistSignals.isNotEmpty()) embeddingCache.save(persistSignals)
-                _catalogVectors.value = vectors
+                cachedSignals.forEach { (id, vector) -> computed.putIfAbsent(id, vector) }
+                if (persistSignals.isNotEmpty()) embeddingCache.save(persistSignals, capturedContext)
+                vectors = computed
             } finally {
-                _recommendationsReady.value = true
-                _embeddingPassInFlight.set(false)
+                try {
+                    embeddingPassGate.finish(ticket) {
+                        embeddingPass.value = com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot(
+                            context, vectors, attempted, ready = true
+                        )
+                    }
+                } finally {
+                    if (embeddingPassGate.takePendingRerun()) refreshEmbeddingVectors()
+                }
             }
         }
     }
@@ -3868,9 +3875,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // already-known books are excluded. Pure JVM engine behind the
     // TextEmbedder seam — no network, no telemetry (Q2/Q8).
     //
-    // Q7: catalogue vectors come from the file cache keyed by catalogue
-    // version (CatalogEmbeddingService) — the background pass recomputes
-    // only on a version change; the row reads the cached map.
+    // Derived Room vectors are keyed by exact backend/context/text. The
+    // ranking row reads one coherent background-pass snapshot.
     private val embeddingCache = com.slukhayka.audiobooks.data.recommend.RoomEmbeddingCache(
         App.instance.audiobookDao
     )
@@ -3949,7 +3955,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val state = modelInstaller.ensureInstalled()
                 if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
-                    synchronized(this@MainViewModel) { embedderInstance = null }
+                    embeddingPassGate.invalidate {
+                        synchronized(this@MainViewModel) {
+                            embedderInstance = null
+                            embeddingPass.value = com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot()
+                        }
+                    }
                     refreshEmbeddingVectors()
                 }
             } finally {
@@ -3989,6 +4000,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             },
             nowEpochMs = System.currentTimeMillis()
         )
+    }
+
+    private fun currentFeedbackSignals(
+        works: List<com.slukhayka.audiobooks.data.db.WorkEntity>,
+        preferences: List<RecommendationPreferenceEntity>
+    ): List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal> {
+        val reducedWorkIds = preferences
+            .filter { it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR }
+            .mapTo(mutableSetOf()) { it.targetKey }
+        return works.asSequence()
+            .filter { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) in reducedWorkIds }
+            .map { work ->
+                com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
+                    id = com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(work),
+                    title = work.title,
+                    author = work.author,
+                    weight = -1.0
+                )
+            }
+            .toList()
     }
 
     val recommendationPreferences: StateFlow<List<RecommendationPreferenceEntity>> =
@@ -4033,30 +4064,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
         recommendationLibrarySignals,
         recommendationWorks,
-        catalogVectors,
+        embeddingPass,
         recommendationPreferences,
         recommendationSettings
-    ) { library, works, vectors, preferences, settings ->
+    ) { library, works, snapshot, preferences, settings ->
         if (!settings.localPersonalizationEnabled) return@combine emptyList()
-        // T2: an empty (or not-yet-computed) vector map means the background
-        // pass has not finished — degrade to an empty row, never compute on
-        // the UI thread and never crash.
+        val allSignals = currentSignals(library) + currentFeedbackSignals(works, preferences)
+        if (works.isNotEmpty() && snapshot.needsRefresh(allSignals)) refreshEmbeddingVectors()
+        val vectors = snapshot.vectors
         if (vectors.isEmpty()) return@combine emptyList()
-        val reducedWorkIds = preferences
-            .filter { it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR }
-            .mapTo(mutableSetOf()) { it.targetKey }
-        val feedbackSignals = works.asSequence()
-            .filter { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) in reducedWorkIds }
-            .map { work ->
-                com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
-                    id = com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(work),
-                    title = work.title,
-                    author = work.author,
-                    weight = -1.0
-                )
-            }
-            .toList()
-        val allSignals = currentSignals(library) + feedbackSignals
         // #732 / ADR-0041 — candidates are the Mirror's local Works, including
         // ones the listener has not imported yet: the row needs no union
         // refresh and survives a dead network. The card id is the Work key, so
@@ -4074,20 +4090,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .filter { it.kind == RecommendationPreferenceEntity.HIDE_AUTHOR }
             .mapTo(mutableSetOf()) { it.targetKey }
         if (candidates.isEmpty() || allSignals.isEmpty()) return@combine emptyList()
-        // Catalogue vectors come from the background pass (T2), signal
-        // vectors too (T4) — nothing embeds on the UI thread. With the ONNX
-        // embedder a not-yet-embedded signal is skipped for this emission
-        // and the pass is kicked so the row catches up; the keyword baseline
-        // is cheap enough to embed the few missing signals inline.
-        val merged = vectors.toMutableMap()
-        val missing = allSignals.filter { it.id !in merged }
-        if (missing.isNotEmpty()) {
-            if (currentEmbedder() is com.slukhayka.audiobooks.data.recommend.OnnxEmbedder) {
-                refreshEmbeddingVectors()
-            } else {
-                for (signal in missing) merged[signal.id] = currentEmbedder().embed(signal.text)
-            }
-        }
+        // Ranking reads the coherent published pass; it never embeds inline.
         // #486 — the persisted source signals (#485): fresh rank positions and
         // claimed ratings feed the ONE small popularity component, and the
         // sources' tops name the «джерело радить» slots. Best-effort: a read
@@ -4130,7 +4133,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.rank(
             candidates = candidates,
             signals = allSignals,
-            vectors = merged,
+            vectors = vectors,
             excludedWorkIds = knownIds,
             excludedAuthors = hiddenAuthors,
             weights = settings.weights,

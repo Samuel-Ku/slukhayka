@@ -1,10 +1,12 @@
 // Local-only authorization regression suite. Never connects to a live project.
 // App Check is NOT emulated. Default: prove the legacy deny gate, then open
-// it only in emulator memory. auth-candidate: test the prepared Auth guard;
-// it still requires real service Enforcement before any production deploy.
+// it only in emulator memory. auth-candidate tests Auth; phased-recovery also
+// tests Admin-only UID markers. Both require real service Enforcement and
+// a reviewed rollout before any production deploy.
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import assert from 'node:assert/strict'
+import { prepareCloudRecoveryRules } from '../../scripts/prepare-cloud-recovery-rules.mjs'
 import { initializeApp, deleteApp } from 'firebase/app'
 import { getFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, getDocs, collection, updateDoc, deleteDoc, writeBatch, terminate, serverTimestamp } from 'firebase/firestore'
 
@@ -12,9 +14,10 @@ const project = 'demo-slukhayka-security'
 const endpoint = 'http://127.0.0.1:8185'
 const rules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8')
 const phase = process.env.SECURITY_RULES_PHASE ?? 'legacy'
-assert.ok(['legacy', 'auth-candidate'].includes(phase), 'Unknown security rules phase')
+assert.ok(['legacy', 'auth-candidate', 'phased-recovery'].includes(phase), 'Unknown security rules phase')
 assert.ok(rules.includes('return request.appCheck.token != null;'), 'Legacy guard changed: review restoration explicitly')
 const authCandidate = rules.replace('return request.appCheck.token != null;', 'return request.auth != null; // AUTH CANDIDATE: service App Check must be enforced')
+const phasedRecovery = phase === 'phased-recovery' ? prepareCloudRecoveryRules(rules) : null
 const clients = []
 const hash = (s) => createHash('sha256').update(s).digest('hex')
 let passed = 0
@@ -61,7 +64,7 @@ async function report(db, uid, count, hidden, key = hash(uid + 'c1')) {
 try {
   const cleared = await fetch(`${endpoint}/emulator/v1/projects/${project}/databases/(default)/documents`, { method: 'DELETE' })
   assert.equal(cleared.status, 200)
-  await load(phase === 'auth-candidate' ? authCandidate : rules)
+  await load(phasedRecovery ?? (phase === 'auth-candidate' ? authCandidate : rules))
   await check('legacy binding unauthenticated get denied', false, () => getDoc(ref(anon, 'device_bindings/device-id')))
   await check('legacy binding authenticated get denied', false, () => getDoc(ref(alice, 'device_bindings/device-id')))
   await check('legacy binding enumeration denied', false, () => getDocs(collection(alice, 'device_bindings')))
@@ -131,6 +134,29 @@ try {
   await check('canonical submission accepted', true, () => setDoc(ref(alice, `pending_submissions/${hash(canonicalUrl)}`), candidate))
   await check('client cannot approve submission', false, () => updateDoc(ref(alice, `pending_submissions/${hash(canonicalUrl)}`), { state: 'approved' }))
   await check('owner delete allowed', true, () => deleteDoc(ref(alice, path)))
+  if (phase === 'phased-recovery') {
+    // Emulator Admin bypass seeds a marker after successful owner writes.
+    // Existing tokens keep the SAME UID; no token refresh can bypass exists().
+    const marked = await fetch(`${endpoint}/v1/projects/${project}/databases/(default)/documents/security_recovery_required/alice`, {
+      method: 'PATCH', headers: { authorization: 'Bearer owner', 'content-type': 'application/json' },
+      body: JSON.stringify({ fields: { reason: { stringValue: 'legacy_binding_exposure' } } }),
+    })
+    assert.equal(marked.status, 200)
+    await check('affected owner cannot read private progress', false, () => getDoc(ref(alice, 'listening_state/alice_e1')))
+    await check('affected owner cannot read private relationship', false, () => getDoc(ref(alice, 'work_relationships/alice_w1')))
+    await check('affected owner cannot update private progress', false, () => updateDoc(ref(alice, 'listening_state/alice_e1'), { positionSeconds: 10, updatedAt: serverTimestamp() }))
+    await check('affected owner cannot publish review', false, () => setDoc(ref(alice, 'book_reviews/w2_alice'), { ...review, workId: 'w2' }))
+    await check('affected owner cannot publish collection', false, () => setDoc(ref(alice, path), base))
+    await check('affected owner cannot write shared duration', false, () => setDoc(ref(alice, 'book_durations/recovery-probe'), { durationSeconds: 3600, source: '4read', method: 'source_metadata', derivedAt: 1, schemaVersion: 2 }))
+    await check('affected owner keeps public catalogue reads', true, () => getDoc(ref(alice, 'book_durations/recovery-probe')))
+    await check('affected owner cannot read marker', false, () => getDoc(ref(alice, 'security_recovery_required/alice')))
+    await check('affected owner cannot delete marker', false, () => deleteDoc(ref(alice, 'security_recovery_required/alice')))
+    await check('unaffected owner cannot forge marker', false, () => setDoc(ref(bob, 'security_recovery_required/alice'), { reason: 'replacement' }))
+    await check('marker enumeration denied', false, () => getDocs(collection(bob, 'security_recovery_required')))
+    await check('unaffected owner writes canonical private progress', true, () => setDoc(ref(bob, 'listening_state/bob_e2'), { ...progress, uid: 'bob', editionId: 'e2' }))
+    await check('unaffected owner reads own private progress', true, () => getDoc(ref(bob, 'listening_state/bob_e2')))
+    await check('unaffected owner cannot read affected private progress', false, () => getDoc(ref(bob, 'listening_state/alice_e1')))
+  }
   // Separate, deployable emergency policy: no dependence on the unsupported
   // legacy App Check expression and no opportunity for a broad rule to win.
   const containment = readFileSync(new URL('../../firestore.containment.rules', import.meta.url), 'utf8')

@@ -551,26 +551,84 @@ class AudioPlayerManager(
      * so Listening State stays written from a single place.
      */
     /** Actual receiver status only; transport commands and error/UI mirrors are not evidence. */
-    fun reportActualCastPlayback(isPlaying: Boolean, isBuffering: Boolean) {
-        val playing = castEngineHook?.isActive == true && isPlaying && !isBuffering &&
-            _playerState.value.currentBook != null
+    fun reportActualCastPlayback(isPlaying: Boolean, isBuffering: Boolean,
+        receiverBookId: String? = null, receiverChapterIndex: Int? = null, receiverPositionMs: Long? = null) {
+        val state = _playerState.value
+        val ownChapter = receiverBookId == state.currentBook?.id && receiverBookId != null &&
+            receiverChapterIndex != null && receiverChapterIndex in state.chapters.indices
+        if (isCasting && ownChapter && receiverPositionMs != null && receiverPositionMs >= 0L) {
+            actualCastPosition = CastPositionEvidence(receiverBookId!!, receiverChapterIndex!!,
+                loadRequestSequence, receiverPositionMs)
+            val terminal = actualCastTerminal
+            if (terminal != null && (isPlaying || terminal.chapterIndex != receiverChapterIndex ||
+                    terminal.positionMs != receiverPositionMs)) {
+                actualCastTerminal = null
+                _playerState.value = state.copy(currentChapterIndex = receiverChapterIndex,
+                    currentPositionMs = receiverPositionMs)
+            }
+        }
+        val playing = isCasting && isPlaying && !isBuffering && state.currentBook != null &&
+            (receiverBookId == null || ownChapter)
         val wasPlaying = actualCastPlaying
         actualCastPlaying = playing
-        if (playing) actualCastStartedLoadRequest = loadRequestSequence
+        if (playing) {
+            actualCastStartedLoadRequest = loadRequestSequence
+            actualCastTerminal = null
+        }
         actualListeningClock.update(playing)
         if (playing && !wasPlaying) onActualPlaybackStarted(false)
     }
 
     /** Actual finished receiver media bound to the current book’s logical chapter. */
-    fun reportActualCastCompletion(bookId: String, chapterIndex: Int) {
+    fun reportActualCastCompletion(bookId: String, chapterIndex: Int,
+        receiverDurationMs: Long = 0L, receiverPositionMs: Long = 0L) {
         val state = _playerState.value
         if (!isCasting || state.currentBook?.id != bookId || state.chapters.isEmpty() ||
             actualCastStartedLoadRequest != loadRequestSequence || chapterIndex != state.chapters.lastIndex) return
+        // Consume actual playback evidence, so duplicate FINISHED cannot undo a later seek.
+        // A new owned PLAYING can update the end again; the writer still dedupes history/awards.
+        actualCastStartedLoadRequest = null
+        val confirmed = actualCastPosition?.takeIf {
+            it.bookId == bookId && it.chapterIndex == chapterIndex && it.loadRequest == loadRequestSequence
+        }
+        val finalPosition = when {
+            receiverDurationMs > 0L -> receiverDurationMs
+            receiverPositionMs > 0L -> receiverPositionMs
+            else -> confirmed?.positionMs ?: 0L
+        }
         _playerState.value = state.copy(currentChapterIndex = chapterIndex,
-            durationMs = state.chapters[chapterIndex].durationSeconds * 1000L)
-        onChapterCompleted() // The same completion/progress/event writer as the local engine.
+            durationMs = receiverDurationMs.takeIf { it > 0L }
+                ?: state.durationMs.takeIf { state.currentChapterIndex == chapterIndex } ?: 0L)
+        actualCastTerminal = CastTerminalEvidence(bookId, chapterIndex, loadRequestSequence,
+            finalPosition, _playerState.value.durationMs)
+        onChapterCompleted(finalPosition) // The same completion/progress/event writer as the local engine.
     }
 
+    /** Snapshot the paused local handback before clearing the receiver's evidence. */
+    fun captureCastResumePosition(reportedChapterIndex: Int, reportedPositionMs: Long): Pair<Int, Long> {
+        val terminal = actualCastTerminal?.takeIf {
+            it.bookId == _playerState.value.currentBook?.id && it.loadRequest == loadRequestSequence
+        }
+        return terminal?.let { it.chapterIndex to it.positionMs } ?: (reportedChapterIndex to reportedPositionMs)
+    }
+
+    /** Re-observing the receiver of the same active Cast session, with no fresh playback proof. */
+    fun resumeActualCastReceiverObservation() = resetActualCastReceiverEvidence(preserveTerminalPosition = true)
+
+    /** Early session teardown may retain only the confirmed UI checkpoint until handback. */
+    internal fun resetActualCastReceiverEvidence(preserveTerminalPosition: Boolean = false) {
+        actualCastPosition = null
+        if (!preserveTerminalPosition) actualCastTerminal = null
+        actualCastStartedLoadRequest = null
+        stopActualListening()
+    }
+
+    private data class CastPositionEvidence(val bookId: String, val chapterIndex: Int,
+        val loadRequest: Long, val positionMs: Long)
+    private data class CastTerminalEvidence(val bookId: String, val chapterIndex: Int,
+        val loadRequest: Long, val positionMs: Long, val durationMs: Long)
+    private var actualCastTerminal: CastTerminalEvidence? = null
+    private var actualCastPosition: CastPositionEvidence? = null
     private var actualCastPlaying = false
     private var actualCastStartedLoadRequest: Long? = null
 
@@ -580,7 +638,16 @@ class AudioPlayerManager(
     }
 
     internal fun mirrorCastState(transform: (PlayerState) -> PlayerState) {
-        _playerState.value = transform(_playerState.value)
+        val mirrored = transform(_playerState.value)
+        val terminal = actualCastTerminal?.takeIf {
+            it.bookId == mirrored.currentBook?.id && it.loadRequest == loadRequestSequence
+        }
+        // CastPlayer may emit IDLE/index0/position0 after raw FINISHED. Preserve
+        // the confirmed terminal state until transport intent or real receiver movement.
+        _playerState.value = if (isCasting && terminal != null && !mirrored.isPlaying) {
+            mirrored.copy(currentChapterIndex = terminal.chapterIndex,
+                currentPositionMs = terminal.positionMs, durationMs = terminal.durationMs)
+        } else mirrored
     }
 
     /** Chapter currently loaded on the player; used by the single listener. */
@@ -1170,7 +1237,7 @@ class AudioPlayerManager(
         initialChapterId: String? = null,
         expectedChapterStructureVersion: Long? = null
     ) {
-        stopActualListening()
+        resetActualCastReceiverEvidence()
         val request = ++loadRequestSequence
         if (expectedChapterStructureVersion != null &&
             expectedChapterStructureVersion != chapterStructureVersion(book.id)) {
@@ -1461,6 +1528,7 @@ class AudioPlayerManager(
     ) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
+        actualCastTerminal = null
         stopActualListening()
         val requestId = ++prepareRequestId
         if (resetHealBudget) {
@@ -1821,6 +1889,7 @@ class AudioPlayerManager(
     }
 
     fun play() {
+        actualCastTerminal = null
         val wasPlaying = _playerState.value.isPlaying
         // The user's latest transport action owns the pending READY result.
         // In particular, play while BUFFERING must still start once ready.
@@ -1918,6 +1987,7 @@ class AudioPlayerManager(
     }
 
     fun seekTo(positionMs: Long, recordInHistory: Boolean = true) {
+        actualCastTerminal = null
         actualListeningClock.flush()
         val prevPos = _playerState.value.currentPositionMs
         val chapterIdx = _playerState.value.currentChapterIndex
@@ -2301,14 +2371,15 @@ class AudioPlayerManager(
         }.start()
     }
 
-    private fun onChapterCompleted() {
+    private fun onChapterCompleted(confirmedPositionMs: Long? = null) {
         stopActualListening()
         val nextIdx = _playerState.value.currentChapterIndex + 1
         val chapters = _playerState.value.chapters
         if (nextIdx in chapters.indices) {
             prepareChapter(nextIdx, startPositionMs = 0L, autoPlay = true)
         } else {
-            _playerState.value = _playerState.value.copy(isPlaying = false, currentPositionMs = _playerState.value.durationMs)
+            val finalPosition = confirmedPositionMs?.coerceAtLeast(0L) ?: _playerState.value.durationMs
+            _playerState.value = _playerState.value.copy(isPlaying = false, currentPositionMs = finalPosition)
             // Spec-16 T2: reaching the end of the book is a completion — one
             // discrete event per listening cycle (the listener and the progress
             // tracker can both observe the end; completionLogged dedupes).
@@ -2318,7 +2389,7 @@ class AudioPlayerManager(
                 recordPlaybackEvent(
                     kind = PlaybackEventKind.COMPLETED,
                     chapterIndex = _playerState.value.chapters.lastIndex.coerceAtLeast(0),
-                    positionSeconds = _playerState.value.durationMs / 1000L
+                    positionSeconds = finalPosition / 1000L
                  )
              }
             // ADR-0051 (spec-43 T6): completion is an honest moment too.
@@ -2351,7 +2422,8 @@ class AudioPlayerManager(
                         }
                     }
 
-                    if (newPos >= state.durationMs) {
+                    // Cast ends only on an owned raw receiver FINISHED; UI/site duration is not evidence.
+                    if (!remote && newPos >= state.durationMs) {
                         onChapterCompleted()
                     } else {
                         _playerState.value = state.copy(currentPositionMs = newPos)
@@ -2450,7 +2522,7 @@ class AudioPlayerManager(
     }
 
     fun release() {
-        stopActualListening()
+        resetActualCastReceiverEvidence()
         sleepTimer?.cancel()
         shakeDetector?.stopListening()
         shakeDetector = null
@@ -2479,7 +2551,7 @@ class AudioPlayerManager(
      * next book the user picks.
      */
     fun stopAndClear() {
-        stopActualListening()
+        resetActualCastReceiverEvidence()
         loadRequestSequence++
         prepareRequestId++
         sleepTimer?.cancel()

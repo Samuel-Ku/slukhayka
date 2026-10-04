@@ -64,6 +64,34 @@ proxy contentUrl, прив’язаного до поточної книги й 
 load: старий FINISHED після нового load не завершує новий Listening State.
 Повтор того самого receiver item FINISHED відсікається до наступного
 фактичного PLAYING; пауза, STOP, LOAD interruption і помилка не є фінішем.
+Таймер Cast не виводить завершення з позиції чи тривалості метаданих.
+Кінцева позиція походить із raw receiver duration, далі — positive raw
+position, і лише за їхньої відсутності — з останньої підтвердженої raw
+позиції тієї самої книги, розділу й load. UI IDLE mirror0 не стирає цей
+тимчасовий доказ; новий load, release чи завершення сесії його скидає.
+Позиція попереднього розділу та durationSeconds каталогу не створюють
+поступу останнього. Єдиний writer використовує одну кінцеву позицію для
+Player State, збереженого Listening State й COMPLETED event.
+Пізній CastPlayer IDLE mirror не затирає підтверджені кінцеві index,
+position і duration тієї самої книги й load. Тимчасовий захист знімається
+на явні play, seek, prepare та reset, або на фактичне нове PLAYING чи
+переміщення власного приймача. Команда лише відкриває нову дію, не створює
+часу чи факту playback. UNKNOWN, IDLE та реклама не є доказом нової raw
+позиції. Pause після фінішу зберігає той самий підтверджений кінець.
+Early Ending, Suspended та ResumeFailed зупиняють годинник і скидають raw
+позицію й токен PLAYING, але лишають підтверджену terminal UI-позицію для
+повернення на телефон. Відновлення тієї самої активної сесії також не
+стирає цей checkpoint через повторний IDLE. Це збережений UI-поступ, а
+не доказ нового відтворення чи часу. Нове спостереження після takeover
+скидає все; явні дії й новий load знімають захист як раніше.
+Перед остаточним end сесії handback захоплює кінцеву пару index/position
+поточної книги й load, далі повністю скидає receiver evidence і готує
+локальний рушій на паузі. Коли checkpoint знято ручною дією, використовується
+позиція, яку повідомив приймач. Старий checkpoint не переноситься в нову сесію.
+Прийнятий FINISHED споживає токен фактичного PLAYING. Дубль не може
+переписати наступне ручне перемотування. Після нового фактичного PLAYING
+повторний кінець оновлює позицію через той самий writer; completion/event
+і нагорода не дублюються в тому самому load.
 Контракт спирається на [MediaStatus](https://developers.google.com/android/reference/com/google/android/gms/cast/MediaStatus)
 та [pinned Media3 converter1.3.1](https://github.com/androidx/media/blob/1.3.1/libraries/cast/src/main/java/androidx/media3/cast/DefaultMediaItemConverter.java).
 Старий listenedSeconds зберігається для наявної статистики, без виправлення

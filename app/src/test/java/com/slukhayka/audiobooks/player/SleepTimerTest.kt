@@ -177,10 +177,14 @@ class SleepTimerTest {
             val shortChapter = chapters.first().copy(durationSeconds = 31)
             playerManager.loadAndPlayBook(
                 book = book,
-                chapters = listOf(shortChapter), playable = playable,
+                // The paired queue must carry the same short chapter as the
+                // display list; the original playable list has long chapters.
+                chapters = listOf(shortChapter),
+                playable = listOf(playable.first().copy(chapter = shortChapter)),
                 initialChapterIndex = 0,
                 autoPlay = false
             )
+            assertEquals(31_000L, playerManager.playerState.value.durationMs)
             playerManager.setSleepTimer(-1)
 
             // #1115 — drive the countdown until the warning is actually

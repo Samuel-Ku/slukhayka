@@ -6,11 +6,9 @@ import com.slukhayka.audiobooks.data.merge.MergeKey
  * Pure JVM planner of the smart import (wayfinder #29). Turns scanned
  * [LocalAudioEntry]s into an [ImportPlan] without touching disk or Room:
  *
- * - **Grouping** is the same rule the importer already uses — loose files at
- *   the tree root become one single-chapter book each; every sub-folder
- *   becomes one multi-chapter book whose chapters are its files naturally
- *   sorted (1, 2, 3, 10). A confirmed-but-unedited plan therefore applies
- *   exactly like today's direct import.
+ * - **Grouping** uses the same rule as direct import and rescan. The folder
+ *   choice makes root files one book or separate books; every sub-folder
+ *   remains a book. Chapters are naturally sorted (1, 2, 3, 10).
  * - **Merge suggestions** (#54) surface as review rows, never silent merges:
  *   a planned book whose normalized key matches an existing Work exactly
  *   (T0) is *offered* for joining; T1/T2 near-candidates render with the
@@ -31,86 +29,31 @@ object ImportPlanner {
     /**
      * Builds the plan for a scan result. [existingWorks] drives the T0 merge
      * suggestions; an empty list means "no merge suggestions" (e.g. rescan).
-     *
-     * #1052 — [rootFilesAsOneBook] answers the question the ticket left open:
-     * «що означає вибрана тека?». When the listener says the folder IS the
-     * book, its loose root files become chapters of ONE book instead of a pile
-     * of one-chapter books. The default stays `false`, so every existing caller
-     * — and `FolderRescan` — keeps the rule it had: the tree root is a
-     * container of books. **No rule changes; a mode is added.**
      */
     fun buildPlan(
         source: SourceRef,
         entries: List<LocalAudioEntry>,
-        existingWorks: List<ExistingWork> = emptyList(),
-        rootFilesAsOneBook: Boolean = false
+        existingWorks: List<ExistingWork> = emptyList()
     ): ImportPlan {
         val byKey = existingWorks.associateBy { it.mergeKey }
         val byTitle = existingWorks.associateBy { MergeKey.normalizeTitle(it.title) }
         val books = mutableListOf<PlannedBook>()
 
-        // 1) Loose files at the root.
-        //
-        // #1052 — two honest readings, and only the listener can choose:
-        //  - a CONTAINER (default): each file is its own book, which is right
-        //    when the tree holds several unrelated single-file books;
-        //  - a BOOK ([rootFilesAsOneBook]): the files are its chapters, which
-        //    is right when they are «01.mp3 … 12.mp3» of one novel — the report
-        //    that opened this ticket.
-        // Names cannot tell those apart (ADR-0035: no guessing from text), so
-        // the listener says it. The title is likewise NOT invented from the
-        // first file: it starts empty for them to confirm in the preview, and
-        // the review row shows the files so the choice is visible.
-        val rootFiles = entries.filter { it.parentFolder.isNullOrBlank() }
-        if (rootFilesAsOneBook && rootFiles.isNotEmpty()) {
-            val chapters = rootFiles
-                .sortedWith(Comparator { a, b -> compareNatural(a.fileName, b.fileName) })
-                .map { entry ->
-                    // The planner's OWN sanitizer: it stays pure and free of
-                    // a dependency on the import layer's file-name rules.
-                    val chapterTitle = sanitize(entry.fileName).ifBlank { entry.fileName }
-                    PlannedChapter(file = entry, title = chapterTitle)
-                }
-            books += PlannedBook(
-                id = "root-folder",
-                title = "",
-                author = "Локальний файл",
-                chapters = chapters,
-                suggestion = suggest(chapters.first().title, "Локальний файл", byKey, byTitle)
-            )
-        } else {
-            for (entry in rootFiles) {
-                val title = sanitize(entry.fileName)
-                val suggestion = suggest(title, "Локальний файл", byKey, byTitle)
-                books += PlannedBook(
-                    id = "root:${entry.fileName}",
-                    title = title,
-                    author = "Локальний файл",
-                    chapters = listOf(
-                        PlannedChapter(file = entry, title = title)
-                    ),
-                    suggestion = suggestion
-                )
+        val folder = source as? SourceRef.Folder
+        val grouping = folder?.grouping ?: LocalFolderGrouping.SEPARATE_BOOKS
+        for ((key, files) in LocalImportGrouping.group(entries, grouping)) {
+            val title = when {
+                key == LocalImportGrouping.ROOT_BOOK -> folder?.displayName.orEmpty().trim()
+                key.startsWith("folder:") -> key.removePrefix("folder:").substringAfterLast('/')
+                else -> sanitize(files.single().fileName)
             }
-        }
-
-        // 2) Each sub-folder → one book; files become naturally-sorted chapters.
-        for ((folder, files) in entries.filter { !it.parentFolder.isNullOrBlank() }.groupBy { it.parentFolder }) {
-            val folderName = folder ?: continue
-            // Title from the last path segment so a relative path like
-            // "SeriesA/Кобзар" still yields a clean "Кобзар" book name.
-            val title = sanitize(folderName.substringAfterLast('/')).ifBlank { "Аудіокнига" }
-            val chapters = files
-                .sortedWith(Comparator { a, b -> compareNatural(a.fileName, b.fileName) })
-                .map { PlannedChapter(file = it, title = sanitize(it.fileName).ifBlank { it.fileName }) }
-            if (chapters.isEmpty()) continue
-            val suggestion = suggest(title, "Локальна папка", byKey, byTitle)
+            val author = if (key.startsWith("root:")) "Локальний файл" else "Локальна папка"
             books += PlannedBook(
-                id = "folder:$folderName",
+                id = key,
                 title = title,
-                author = "Локальна папка",
-                chapters = chapters,
-                suggestion = suggestion
+                author = author,
+                chapters = files.map { PlannedChapter(file = it, title = sanitize(it.fileName)) },
+                suggestion = suggest(title, author, byKey, byTitle)
             )
         }
 
@@ -120,6 +63,63 @@ object ImportPlanner {
     // -----------------------------------------------------------------
     // Mutations — pure, return a new plan
     // -----------------------------------------------------------------
+
+    /** Only books with direct root files are rebuilt by a grouping change. */
+    fun groupingChangeDiscardsCorrections(plan: ImportPlan): Boolean {
+        val folder = plan.source as? SourceRef.Folder ?: return false
+        val affected = booksWithRootFiles(plan)
+        val ids = affected.map { it.id }.toSet()
+        val baseline = ImportPlanner.buildPlan(folder, affected.flatMap { book -> book.chapters.map { it.file } }).books
+        return affected.any { it.mergedIntoBookId != null } ||
+            affected.map { it.copy(suggestion = null, mergedIntoBookId = null) } != baseline ||
+            plan.corrections.any { it.plannedBookId in ids }
+    }
+
+    private fun booksWithRootFiles(plan: ImportPlan): List<PlannedBook> =
+        plan.books.filter { book -> book.chapters.any { it.file.parentFolder.isNullOrBlank() } }
+
+    /** Rebuilds only books containing root files; unrelated edits survive. */
+    fun changeFolderGrouping(plan: ImportPlan, grouping: LocalFolderGrouping): ImportPlan {
+        val folder = plan.source as? SourceRef.Folder ?: return plan
+        if (folder.grouping == grouping) return plan
+        val affected = booksWithRootFiles(plan)
+        if (affected.isEmpty()) return plan
+        val affectedIds = affected.map { it.id }.toSet()
+        val remaining = plan.books.filterNot { it.id in affectedIds }
+        val usedIds = remaining.map { it.id }.toMutableSet()
+        val source = folder.copy(grouping = grouping)
+        val rebuilt = buildPlan(source, affected.flatMap { book -> book.chapters.map { it.file } }).books.map { book ->
+            var id = book.id
+            var suffix = 2
+            while (!usedIds.add(id)) id = "${book.id}#${suffix++}"
+            book.copy(id = id)
+        }
+        return plan.copy(
+            source = source,
+            books = rebuilt + remaining,
+            corrections = plan.corrections.filterNot { it.plannedBookId in affectedIds }
+        )
+    }
+
+    /** Joins two explicit preview selections before any audio is copied. */
+    fun mergePlannedBooks(plan: ImportPlan, sourceBookId: String, targetBookId: String): ImportPlan {
+        if (sourceBookId == targetBookId) return plan
+        val source = plan.books.firstOrNull { it.id == sourceBookId } ?: return plan
+        val target = plan.books.firstOrNull { it.id == targetBookId } ?: return plan
+        val merged = target.copy(
+            chapters = target.chapters + source.chapters,
+            suggestion = null,
+            mergedIntoBookId = null
+        )
+        return plan.copy(
+            books = plan.books.filterNot { it.id == sourceBookId }.map { if (it.id == targetBookId) merged else it },
+            corrections = plan.corrections.map { correction ->
+                if (correction.plannedBookId == sourceBookId) correction.copy(plannedBookId = targetBookId) else correction
+            } + CorrectionDraft(
+                mergeKey = bookKey(target), kind = "MERGE", value = "$sourceBookId->$targetBookId", plannedBookId = targetBookId
+            )
+        )
+    }
 
     /** Accepts a suggestion: the planned book will attach to the existing Work. */
     fun acceptMerge(plan: ImportPlan, bookId: String): ImportPlan = plan.copy(
@@ -138,7 +138,8 @@ object ImportPlanner {
         val neverMatch = CorrectionDraft(
             mergeKey = bookKey(book),
             kind = "NEVER_MATCH",
-            value = suggestion.existingBookId
+            value = suggestion.existingBookId,
+            plannedBookId = bookId
         )
         return plan.copy(
             books = plan.books.map { if (it.id == bookId) it.copy(suggestion = null, mergedIntoBookId = null) else it },
@@ -157,10 +158,14 @@ object ImportPlanner {
         if (chapterIndex <= 0 || chapterIndex >= book.chapters.size) return plan
         val first = book.copy(
             title = "${book.title} (1)",
-            chapters = book.chapters.take(chapterIndex)
+            chapters = book.chapters.take(chapterIndex),
+            suggestion = null,
+            mergedIntoBookId = null
         )
+        var suffix = 2
+        while (plan.books.any { it.id == "${book.id}#$suffix" }) suffix++
         val second = book.copy(
-            id = "${book.id}#2",
+            id = "${book.id}#$suffix",
             title = "${book.title} (2)",
             chapters = book.chapters.drop(chapterIndex),
             suggestion = null,
@@ -169,7 +174,8 @@ object ImportPlanner {
         val splitCorrection = CorrectionDraft(
             mergeKey = bookKey(book),
             kind = "SPLIT",
-            value = "${book.title} (2)"
+            value = "${book.title} (2)",
+            plannedBookId = bookId
         )
         val idx = plan.books.indexOf(book)
         val books = plan.books.toMutableList()
@@ -194,26 +200,29 @@ object ImportPlanner {
         author: String? = null,
         narrator: String? = null,
         seriesTitle: String? = null,
-        seriesIndex: Int? = null
+        seriesIndex: Int? = null,
+        clearSeriesIndex: Boolean = false
     ): ImportPlan {
         val book = plan.books.firstOrNull { it.id == bookId } ?: return plan
         val fieldCorrections = mutableListOf<CorrectionDraft>()
         if (title != null && title != book.title) {
-            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "title=$title")
+            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "title=$title", plannedBookId = bookId)
         }
         if (author != null && author != book.author) {
-            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "author=$author")
+            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "author=$author", plannedBookId = bookId)
         }
         if (narrator != null && narrator != book.narrator) {
-            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "narrator=$narrator")
+            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "narrator=$narrator", plannedBookId = bookId)
         }
         if (seriesTitle != null && seriesTitle != book.seriesTitle) {
-            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "series=$seriesTitle")
+            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "series=$seriesTitle", plannedBookId = bookId)
         }
-        if (seriesIndex != null && seriesIndex != book.seriesIndex) {
-            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "seriesIndex=$seriesIndex")
+        if ((seriesIndex != null || clearSeriesIndex) && seriesIndex != book.seriesIndex) {
+            fieldCorrections += CorrectionDraft(mergeKey = bookKey(book), kind = "FIELD", value = "seriesIndex=${seriesIndex ?: ""}", plannedBookId = bookId)
         }
         if (fieldCorrections.isEmpty()) return plan
+        val identityChanged = (title != null && title != book.title) ||
+            (author != null && author != book.author) || (narrator != null && narrator != book.narrator)
         return plan.copy(
             books = plan.books.map {
                 if (it.id == bookId) it.copy(
@@ -221,7 +230,9 @@ object ImportPlanner {
                     author = author ?: it.author,
                     narrator = narrator ?: it.narrator,
                     seriesTitle = seriesTitle ?: it.seriesTitle,
-                    seriesIndex = seriesIndex ?: it.seriesIndex
+                    seriesIndex = if (clearSeriesIndex) seriesIndex else seriesIndex ?: it.seriesIndex,
+                    suggestion = if (identityChanged) null else it.suggestion,
+                    mergedIntoBookId = if (identityChanged) null else it.mergedIntoBookId
                 ) else it
             },
             corrections = plan.corrections + fieldCorrections
@@ -276,85 +287,7 @@ object ImportPlanner {
     private fun bookKey(book: PlannedBook): String =
         MergeKey.keyFor(book.title, book.author)
 
-    /**
-     * #1052 — the ONE grouping rule, shared by the import plan and the folder
-     * rescan.
-     *
-     * They used to decide this separately, and that divergence is exactly how
-     * a folder imported as ONE book would have been re-read as N one-file
-     * books on the next scan: the rescan's own copy of the rule knew nothing
-     * about the listener's choice. A rule that lives twice drifts; this one
-     * lives here.
-     *
-     * [rootFilesAsOneBook] is the listener's answer to «що означає вибрана
-     * тека?» — the tree root is either a container of books (default) or the
-     * book itself. Sub-folders are always one book each.
-     *
-     * Each group carries the key the writers pair on, the title to show, and
-     * the member file names in NATURAL order (track2 before track10) — the
-     * same order the plan and the rescan both need.
-     */
-    data class FileGroup(val key: String, val title: String, val fileNames: List<String>)
-
-    fun groupFiles(
-        files: List<Pair<String, String?>>,
-        rootFilesAsOneBook: Boolean = false
-    ): List<FileGroup> {
-        val root = files.filter { it.second.isNullOrBlank() }
-        val grouped = mutableListOf<FileGroup>()
-        if (root.isNotEmpty()) {
-            if (rootFilesAsOneBook) {
-                // One book. The title is deliberately EMPTY: the listener
-                // confirms it, the app never invents it from the first file.
-                grouped += FileGroup(
-                    key = ROOT_ONE_BOOK_KEY,
-                    title = "",
-                    fileNames = root.map { it.first }.sortedWith { a, b -> compareNatural(a, b) }
-                )
-            } else {
-                for ((name, _) in root) {
-                    grouped += FileGroup(
-                        key = "root:${sanitize(name)}",
-                        title = sanitize(name),
-                        fileNames = listOf(name)
-                    )
-                }
-            }
-        }
-        files.filter { !it.second.isNullOrBlank() }
-            .groupBy { it.second!! }
-            .forEach { (folder, inFolder) ->
-                grouped += FileGroup(
-                    key = "folder:$folder",
-                    title = folder.substringAfterLast('/'),
-                    fileNames = inFolder.map { it.first }.sortedWith { a, b -> compareNatural(a, b) }
-                )
-            }
-        return grouped
-    }
-
-    /** The plan-level id and the rescan-level key for the one-book root mode. */
-    const val ROOT_ONE_BOOK_KEY = "root-folder"
-
     private fun sanitize(displayName: String): String =
         displayName.substringBeforeLast('.').trim().ifBlank { displayName }
 
-    /** Natural (human) file-name comparison: track2 < track10. */
-    private fun compareNatural(a: String, b: String): Int {
-        val chunksA = SPLIT_CHUNKS.findAll(a.lowercase()).map { it.value }.toList()
-        val chunksB = SPLIT_CHUNKS.findAll(b.lowercase()).map { it.value }.toList()
-        for (i in 0 until minOf(chunksA.size, chunksB.size)) {
-            val ca = chunksA[i]
-            val cb = chunksB[i]
-            val cmp = if (ca.first().isDigit() && cb.first().isDigit()) {
-                (ca.toLongOrNull() ?: 0L).compareTo(cb.toLongOrNull() ?: 0L)
-            } else {
-                ca.compareTo(cb)
-            }
-            if (cmp != 0) return cmp
-        }
-        return chunksA.size - chunksB.size
-    }
-
-    private val SPLIT_CHUNKS = Regex("\\d+|\\D+")
 }

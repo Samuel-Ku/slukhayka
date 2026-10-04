@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotEnabled
+import com.slukhayka.audiobooks.ui.components.ChapterOrderDialog
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -40,37 +42,40 @@ class ReorderChaptersDialogTest {
         var confirmed: List<String>? = null
         compose.setContent {
             AudiobookTheme {
-                ReorderChaptersDialog(
+                ChapterOrderDialog(
                     chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
                     onDismiss = {},
-                    onConfirm = { confirmed = it }
+                    onSave = { confirmed = it }
                 )
             }
         }
 
         // Move the LAST chapter one step up: [ch-1, ch-3, ch-2].
-        compose.onNodeWithTag("reorder_up_ch-3").performClick()
-        compose.onNodeWithTag("reorder_confirm").performClick()
+        compose.onNodeWithTag("chapter_order_up_ch-3").performClick()
+        compose.onNodeWithTag("chapter_order_save").performClick()
 
         assertEquals(listOf("ch-1", "ch-3", "ch-2"), confirmed)
     }
 
     @Test
-    fun `confirming without touching anything keeps the original order`() {
+    fun `an unchanged draft cannot write a redundant order`() {
         var confirmed: List<String>? = null
         compose.setContent {
             AudiobookTheme {
-                ReorderChaptersDialog(
+                ChapterOrderDialog(
                     chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
                     onDismiss = {},
-                    onConfirm = { confirmed = it }
+                    onSave = { confirmed = it }
                 )
             }
         }
 
-        compose.onNodeWithTag("reorder_confirm").performClick()
-
-        assertEquals(listOf("ch-1", "ch-2", "ch-3"), confirmed)
+        compose.onNodeWithTag("chapter_order_save").assertIsNotEnabled()
+        assertEquals(null, confirmed)
     }
 
     @Test
@@ -79,16 +84,18 @@ class ReorderChaptersDialogTest {
         var dismissed = false
         compose.setContent {
             AudiobookTheme {
-                ReorderChaptersDialog(
+                ChapterOrderDialog(
                     chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
                     onDismiss = { dismissed = true },
-                    onConfirm = { confirmed = it }
+                    onSave = { confirmed = it }
                 )
             }
         }
 
-        compose.onNodeWithTag("reorder_up_ch-3").performClick()
-        compose.onNodeWithTag("reorder_cancel").performClick()
+        compose.onNodeWithTag("chapter_order_up_ch-3").performClick()
+        compose.onNodeWithTag("chapter_order_cancel").performClick()
 
         // The dialog works on a local copy: no order may reach the caller.
         assertTrue("скасування мусить закрити діалог", dismissed)

@@ -31,6 +31,13 @@ import com.slukhayka.audiobooks.AppBottomBar
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.imports.ImportPlan
+import com.slukhayka.audiobooks.data.imports.ImportPlanner
+import com.slukhayka.audiobooks.data.imports.LocalAudioEntry
+import com.slukhayka.audiobooks.data.imports.SourceRef
+import com.slukhayka.audiobooks.ui.MainViewModel
+import java.io.ByteArrayInputStream
+import org.junit.Assert.assertNull
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -328,5 +335,117 @@ class UiSurfaceAuditTest {
             onSpeed = {}, onTimer = {}, onBookmark = {}, onChapters = {},
             onRetryPlayback = onRetry, onFindAnotherSource = onAlternative
         )
+    }
+    @Test fun plannedMergeAtLargeTextDistinguishesMatchingTitlesAndRestoresFocus() {
+        var reads = 0
+        fun file(folder: String? = null) = LocalAudioEntry("01.mp3", folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        var draft = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), listOf(file(), file("A"), file("B")))
+        draft = ImportPlanner.editBook(draft, "folder:A", title = "Поезії", author = "Автор A")
+        draft = ImportPlanner.editBook(draft, "folder:B", title = "Поезії", author = "Автор B")
+        val before = draft
+        var plan by mutableStateOf(before)
+        var confirmed: ImportPlan? = null
+        rule.setContent { AudiobookTheme {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                ImportPreviewDialog(
+                    MainViewModel.ImportPreviewState(plan, "content://tree"), {}, {}, { _, _ -> }, { _, _ -> }, { confirmed = plan }, {},
+                    onMergePlannedBooks = { source, target -> plan = ImportPlanner.mergePlannedBooks(plan, source, target) }
+                )
+            }
+        } }
+        rule.onNodeWithTag("import_preview_merge_root:01.mp3").performScrollTo().performClick()
+        rule.onNodeWithTag("import_preview_merge_target_folder:A").assertTextContains("A/01.mp3")
+        rule.onNodeWithTag("import_preview_merge_target_folder:B").assertTextContains("B/01.mp3")
+        screenshot("1052-merge-large-text.png")
+        assertEquals(before, plan)
+        rule.onNodeWithTag("import_preview_merge_cancel").performClick()
+        rule.onNodeWithTag("import_preview_merge_root:01.mp3").assertIsFocused().performScrollTo().performClick()
+        rule.onNodeWithTag("import_preview_merge_target_folder:B").performScrollTo().performClick()
+        rule.onNodeWithTag("import_preview_rename_folder:B").assertIsFocused()
+        assertEquals(before.books.single { it.id == "folder:A" }, plan.books.single { it.id == "folder:A" })
+        assertEquals("Автор B", plan.books.single { it.id == "folder:B" }.author)
+        assertEquals(2, plan.books.single { it.id == "folder:B" }.chapters.size)
+        assertEquals(0, reads)
+        assertNull(confirmed)
+        rule.onNodeWithTag("library_import_preview_confirm").performClick()
+        assertEquals(plan, confirmed)
+    }
+
+    @Test fun folderGroupingConsentAtLargeTextKeepsDraftAndFocus() {
+        var reads = 0
+        fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        var draft = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), listOf(file("01.mp3"), file("02.mp3"), file("01.mp3", "Інша")))
+        draft = ImportPlanner.editBook(draft, "root:01.mp3", title = "Мій вступ")
+        val before = draft
+        val unrelated = before.books.single { it.id == "folder:Інша" }
+        var plan by mutableStateOf(before)
+        var confirmed: ImportPlan? = null
+        rule.setContent { AudiobookTheme {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
+                ImportPreviewDialog(
+                    MainViewModel.ImportPreviewState(plan, "content://tree"), {}, {}, { _, _ -> }, { _, _ -> }, { confirmed = plan }, {},
+                    onFolderGroupingChange = { plan = ImportPlanner.changeFolderGrouping(plan, it) }
+                )
+            }
+        } }
+        rule.onNodeWithTag("import_folder_grouping_separate").assertIsSelected()
+        rule.onNodeWithTag("import_folder_grouping_one").performScrollTo().performClick()
+        assertEquals(before, plan)
+        rule.onNodeWithTag("import_folder_grouping_reset_dialog").assertExists()
+        rule.onNodeWithTag("import_folder_grouping_reset_cancel").performClick()
+        rule.onNodeWithTag("import_folder_grouping_one").assertIsFocused().performScrollTo().performClick()
+        rule.onNodeWithTag("import_folder_grouping_reset_confirm").performClick()
+        rule.onNodeWithTag("import_folder_grouping_one").assertIsSelected().assertIsFocused()
+        screenshot("1052-grouping-large-text.png")
+        assertEquals(2, plan.books.size)
+        assertEquals("Кобзар", plan.books.first().title)
+        assertEquals(listOf("01.mp3", "02.mp3"), plan.books.first().chapters.map { it.file.fileName })
+        assertEquals(unrelated, plan.books.last())
+        assertEquals(0, reads)
+        assertNull(confirmed)
+        rule.onNodeWithTag("library_import_preview_confirm").performClick()
+        assertEquals(plan, confirmed)
+        assertEquals(0, reads)
+    }
+
+    @Test fun editMetadataAndSplitBeforeImport() {
+        var streamReads = 0
+        val files = listOf("01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, "Кобзар") { streamReads++; ByteArrayInputStream(byteArrayOf(1)) } }
+        var plan by mutableStateOf(ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), files))
+        var confirmed: ImportPlan? = null
+        rule.setContent {
+            AudiobookTheme {
+                ImportPreviewDialog(
+                    preview = MainViewModel.ImportPreviewState(plan, "content://tree"),
+                    onAcceptMerge = {}, onRejectMerge = {}, onReorderChapters = { id, order -> plan = ImportPlanner.reorderChapters(plan, id, order) },
+                    onEditBookTitle = { _, _ -> }, onConfirm = { confirmed = plan }, onDismiss = {},
+                    onSplitBook = { id, index -> plan = ImportPlanner.splitBook(plan, id, index) },
+                    onEditBookMetadata = { id, book -> plan = ImportPlanner.editBook(plan, id, book.title, book.author, book.narrator, book.seriesTitle.orEmpty(), book.seriesIndex, clearSeriesIndex = true) }
+                )
+            }
+        }
+        rule.onNodeWithTag("import_preview_rename_folder:Кобзар").performScrollTo().performClick()
+        rule.onNodeWithTag("metadata_correction_dialog").assertExists()
+        rule.onNodeWithTag("metadata_edit_title").performTextReplacement("Поезії")
+        rule.onNodeWithTag("metadata_edit_author").performTextReplacement("Тарас Шевченко")
+        rule.onNodeWithTag("metadata_edit_narrator").performScrollTo().performTextReplacement("Диктор")
+        rule.onNodeWithTag("metadata_edit_series").performScrollTo().performTextReplacement("Збірки")
+        rule.onNodeWithTag("metadata_edit_series_index").performScrollTo().performTextReplacement("2")
+        rule.onNodeWithTag("metadata_edit_save").performClick()
+        rule.onNodeWithTag("import_preview_rename_folder:Кобзар").assertIsFocused()
+        val edited = plan.books.single()
+        assertEquals("Поезії", edited.title)
+        assertEquals("Тарас Шевченко", edited.author)
+        assertEquals("Диктор", edited.narrator)
+        assertEquals("Збірки", edited.seriesTitle)
+        assertEquals(2, edited.seriesIndex)
+        assertNull(confirmed)
+        assertEquals(0, streamReads)
+        rule.onNodeWithTag("import_preview_split_folder:Кобзар_1").performScrollTo().performClick()
+        assertEquals(listOf(1, 1), plan.books.map { it.chapters.size })
+        rule.onNodeWithTag("import_preview_rename_folder:Кобзар#2").assertExists()
+        rule.onNodeWithTag("library_import_preview_confirm").performClick()
+        assertEquals(2, confirmed!!.books.size)
+        assertEquals(0, streamReads)
     }
 }

@@ -3,6 +3,12 @@ package com.slukhayka.audiobooks.data.imports
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.db.BookmarkEntity
+import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.db.SourceEntity
+import com.slukhayka.audiobooks.data.db.SourceTrackEntity
+import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import kotlinx.coroutines.flow.first
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.metadata.BookProfile
@@ -74,6 +80,7 @@ class StreamHealDoorTest {
         },
         totalDurationSeconds = urls.size * 100L,
         rating = 4.5,
+        language = "uk",
         genres = listOf("Поезія"),
         description = "Збірка поезій."
     )
@@ -83,14 +90,174 @@ class StreamHealDoorTest {
     ) : SourceAdapter {
         override val sourceId: String = "soundbooks"
         var fetchCalls = 0
+        var beforeFetch: (suspend () -> Unit)? = null
 
         override suspend fun search(query: String): List<SourceBook> = emptyList()
         override suspend fun fetchBookPage(url: String): SourceBookDetail {
             fetchCalls++
+            beforeFetch?.invoke()
             return detail
         }
         override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
         override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail? = null
+    }
+
+    @Test
+    fun `manual reverse moves audio with chapters and refuses a stale editor`() = runBlocking {
+        val adapter = FakeAdapter(detailOf(listOf("https://cdn.test/one.mp3", "https://cdn.test/two.mp3")))
+        val imports = imports(null, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val before = dao.getChaptersListForBook(book.id)
+        val tracks = dao.getTracksForBookSync(book.id)
+        assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(book.id, before.map { it.id }, before.reversed().map { it.id }))
+        assertEquals(before.reversed().map { it.id }, dao.getChaptersListForBook(book.id).map { it.id })
+        val playable = com.slukhayka.audiobooks.data.catalog.SourceCatalog(dao, listOf(adapter), imports).getPlayableChapters(book.id)
+        assertEquals(before.reversed().map { it.title }, playable.map { it.chapter.title })
+        assertEquals(listOf("https://cdn.test/two.mp3", "https://cdn.test/one.mp3"), playable.map { it.track?.url })
+        assertEquals(tracks.reversed().map { it.id }, dao.getTracksForBookSync(book.id).map { it.id })
+        assertEquals(ChapterReorderResult.STALE, imports.reorderChapters(book.id, before.map { it.id }, before.map { it.id }))
+    }
+
+    @Test
+    fun `playback never pairs chapters read before reorder with tracks read after it`() = runBlocking {
+        val adapter = FakeAdapter(detailOf(listOf("https://cdn.test/a.mp3", "https://cdn.test/b.mp3")))
+        val imports = imports(null, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val ids = dao.getChaptersListForBook(book.id).map { it.id }
+        var crossed = false
+        val racingDao = object : AudiobookDao by dao {
+            override suspend fun getChaptersListForBook(bookId: String): List<com.slukhayka.audiobooks.data.db.ChapterEntity> {
+                val before = dao.getChaptersListForBook(bookId)
+                if (!crossed && bookId == book.id) {
+                    crossed = true
+                    assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(bookId, ids, ids.reversed()))
+                }
+                return before
+            }
+        }
+        val catalog = com.slukhayka.audiobooks.data.catalog.SourceCatalog(racingDao, listOf(adapter), imports)
+        val playable = catalog.getPlayableChapters(book.id)
+        assertTrue(crossed)
+        assertEquals(mapOf(ids[0] to "https://cdn.test/a.mp3", ids[1] to "https://cdn.test/b.mp3"), playable.associate { it.chapter.id to it.track?.url })
+        assertEquals(ids.reversed(), playable.map { it.chapter.id })
+        assertEquals(ids.reversed(), catalog.storedEditionSources(book.id).single().map { it.chapter.id })
+    }
+
+    @Test
+    fun `manual order preserves raw anchors and projects the same audio after repeated edits`() = runBlocking {
+        val adapter = FakeAdapter(detailOf(listOf("https://cdn.test/a.mp3", "https://cdn.test/b.mp3", "https://cdn.test/c.mp3")))
+        val imports = imports(null, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val before = dao.getChaptersListForBook(book.id)
+        val edition = dao.getEditionForWork(book.id)!!
+        val progress = PlaybackProgressEntity(edition.id, book.id, currentChapterIndex = 0, currentPositionSeconds = 42L, lastListenedAt = 100L, isCompleted = true, lastPausedAtEpochMs = 90L, preferredSpeed = 1.5f)
+        dao.savePlaybackProgress(progress)
+        dao.insertBookmark(BookmarkEntity(bookId = book.id, editionId = edition.id, chapterIndex = 0, chapterTitle = before[0].title, timestampSeconds = 17L, note = "Якір", createdAt = 100L))
+        val bookmarks = dao.getBookmarksForBookSync(book.id)
+        val sources = dao.getSourcesForBookSync(book.id)
+        val tracks = dao.getTracksForBookSync(book.id)
+        val first = before.map { it.id }
+        assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(book.id, first, first.reversed()))
+        assertEquals(progress, dao.getPlaybackProgressSync(book.id))
+        assertEquals(bookmarks, dao.getBookmarksForBookSync(book.id))
+        assertEquals(edition, dao.getEditionForWork(book.id))
+        assertEquals(sources, dao.getSourcesForBookSync(book.id))
+        assertEquals(tracks.map { it.copy(trackIndex = 2 - it.trackIndex) }.sortedBy { it.trackIndex }, dao.getTracksForBookSync(book.id))
+        val listening = ListeningStateStore(dao)
+        assertEquals(2, listening.getProgressSync(book.id)!!.currentChapterIndex)
+        assertEquals(2, listening.observeBookmarks(book.id).first().single().chapterIndex)
+        assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(book.id, first.reversed(), listOf(first[1], first[0], first[2])))
+        assertEquals(progress, dao.getPlaybackProgressSync(book.id))
+        assertEquals(1, listening.getProgressSync(book.id)!!.currentChapterIndex)
+        assertEquals(before[0].id, listening.getAnchoredProgress(book.id)!!.chapterId)
+        assertEquals(before[0].id, listening.chapterIdForBookmark(bookmarks.first()))
+        listening.updateProgress(book.id, 0, 23L)
+        assertEquals(1, dao.getPlaybackProgressSync(book.id)!!.currentChapterIndex)
+        assertEquals(0, listening.getProgressSync(book.id)!!.currentChapterIndex)
+        listening.addBookmark(BookmarkEntity(bookId = book.id, chapterIndex = 0, chapterTitle = before[1].title, timestampSeconds = 8L, note = "Новий"))
+        assertEquals(1, dao.getBookmarksForBook(book.id).first().first { it.note == "Новий" }.chapterIndex)
+        // A late player save captured the Chapter before either edit.
+        listening.updateProgressForChapter(book.id, before[0].id, 31L)
+        assertEquals(0, dao.getPlaybackProgressSync(book.id)!!.currentChapterIndex)
+        assertEquals(1, listening.getProgressSync(book.id)!!.currentChapterIndex)
+    }
+
+    @Test
+    fun `manual order moves all Edition sources including a partial alternate`() = runBlocking {
+        val adapter = FakeAdapter(detailOf(listOf("https://cdn.test/a.mp3", "https://cdn.test/b.mp3")))
+        val imports = imports(null, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val edition = dao.getEditionForWork(book.id)!!
+        dao.insertSources(listOf(SourceEntity(id = "alternate", bookId = book.id, editionId = edition.id, type = "youtube", url = "https://youtube.com/playlist?list=test")))
+        val alternate = SourceTrackEntity(id = "alternate-1", sourceId = "alternate", trackIndex = 0, url = "https://cdn.test/alt.mp3", localFilePath = "/downloaded.mp3", contentHash = "hash", isDownloaded = true)
+        dao.insertTracks(listOf(alternate))
+        val ids = dao.getChaptersListForBook(book.id).map { it.id }
+        assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(book.id, ids, ids.reversed()))
+        assertEquals(listOf(alternate.copy(trackIndex = 1)), dao.getTracksForSourceSync("alternate"))
+        assertEquals(ChapterReorderResult.INVALID_ORDER, imports.reorderChapters(book.id, ids.reversed(), listOf(ids[0], ids[0])))
+        assertEquals(ids.reversed(), dao.getChaptersListForBook(book.id).map { it.id })
+    }
+
+    @Test
+    fun `a background track copy cannot restore indices read before manual reorder`() = runBlocking {
+        val adapter = FakeAdapter(detailOf(listOf("https://cdn.test/a.mp3", "https://cdn.test/b.mp3")))
+        val imports = imports(null, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val staleTracks = dao.getTracksForBookSync(book.id)
+        val ids = dao.getChaptersListForBook(book.id).map { it.id }
+        assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(book.id, ids, ids.reversed()))
+        dao.insertTracks(staleTracks.map { it.copy(isDownloaded = true, localFilePath = "/downloads/${it.id}.mp3") })
+        val current = dao.getTracksForBookSync(book.id)
+        assertEquals(staleTracks.reversed().map { it.id }, current.map { it.id })
+        assertEquals(staleTracks.reversed().map { it.url }, current.map { it.url })
+        assertTrue(current.all { it.isDownloaded && it.localFilePath == "/downloads/${it.id}.mp3" })
+    }
+
+    @Test
+    fun `heal follows the original provider chapter after manual reverse and publishes raw provider order`() = runBlocking {
+        val old = listOf("https://cdn.test/a.mp3", "https://cdn.test/b.mp3")
+        val adapter = FakeAdapter(detailOf(old))
+        val store = FakeProfileStore()
+        val imports = imports(store, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val ids = dao.getChaptersListForBook(book.id).map { it.id }
+        imports.reorderChapters(book.id, ids, ids.reversed())
+        store.puts.clear()
+        adapter.detail = detailOf(listOf(old[0], "https://cdn.test/new-b.mp3"))
+        assertEquals("https://cdn.test/new-b.mp3", imports.refreshStreamUrl(book.id, 0, old[1]))
+        assertEquals(listOf("https://cdn.test/new-b.mp3", old[0]), dao.getTracksForBookSync(book.id).map { it.url })
+        assertEquals(listOf(old[0], "https://cdn.test/new-b.mp3"), store.puts.single().chapters.map { it.streamUrl })
+        // A genuine provider reorder still fails after a listener correction.
+        adapter.detail = detailOf(listOf("https://cdn.test/new-b.mp3", old[0]))
+        assertNull(imports.refreshStreamUrl(book.id, 1, old[0]))
+    }
+
+    @Test
+    fun `a reorder during the provider fetch never heals a stale chapter request`() = runBlocking {
+        val old = listOf("https://cdn.test/a.mp3", "https://cdn.test/b.mp3")
+        val adapter = FakeAdapter(detailOf(old))
+        val imports = imports(null, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val ids = dao.getChaptersListForBook(book.id).map { it.id }
+        adapter.detail = detailOf(listOf("https://cdn.test/new-a.mp3", old[1]))
+        adapter.beforeFetch = { imports.reorderChapters(book.id, ids, ids.reversed()) }
+        assertNull(imports.refreshStreamUrl(book.id, 0, old[0]))
+        assertEquals(old.reversed(), dao.getTracksForBookSync(book.id).map { it.url })
+    }
+
+    @Test
+    fun `a new source attaches in the listener order without changing its original provider indices`() = runBlocking {
+        val old = detailOf(listOf("https://cdn.test/a.mp3", "https://cdn.test/b.mp3")).copy(narrator = "Спільний диктор")
+        val adapter = FakeAdapter(old)
+        val imports = imports(null, listOf(adapter))
+        val book = imports.importFromSourceUrl("soundbooks", bookUrl, identity)!!
+        val ids = dao.getChaptersListForBook(book.id).map { it.id }
+        imports.reorderChapters(book.id, ids, ids.reversed())
+        val detail = old.copy(url = "https://sluhay.com/kobzar", chapters = listOf(SourceChapter("Розділ 1", "https://cdn.test/alt-a.mp3", 100L), SourceChapter("Розділ 2", "https://cdn.test/alt-b.mp3", 200L)))
+        val attached = imports.importBookFromSource("sluhay", detail)
+        assertEquals(book.id, attached.id)
+        val source = dao.getSourcesForBookSync(book.id).first { it.type == "sluhay" }
+        assertEquals(listOf("https://cdn.test/alt-b.mp3", "https://cdn.test/alt-a.mp3"), dao.getTracksForSourceSync(source.id).map { it.url })
     }
 
     private class ThrowingAdapter : SourceAdapter {

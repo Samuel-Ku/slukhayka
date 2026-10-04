@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.imports
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
@@ -15,6 +16,10 @@ import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -56,7 +61,7 @@ class NarrationClaimDoorTest {
             .allowMainThreadQueries()
             .build()
         dao = db.audiobookDao()
-        libraryImport = LibraryImport(dao, context, emptyList())
+        libraryImport = LibraryImport(dao, context, emptyList(), writeBatchRunner = { block -> db.withTransaction { block() } })
     }
 
     @After
@@ -163,6 +168,35 @@ class NarrationClaimDoorTest {
     }
 
     @Test
+    fun `claim keeps local folder rescan attached to surviving narration`() = runBlocking {
+        seed()
+        val tree = "content://tree/narration-local"
+        fun file(number: Int) = LocalAudioEntry("0$number.mp3", null) {
+            java.io.ByteArrayInputStream(ByteArray(16) { number.toByte() })
+        }
+        val files = (1..3).map(::file)
+        var plan = ImportPlanner.buildPlan(SourceRef.Folder(tree, "Лісова пісня", LocalFolderGrouping.ONE_BOOK), files)
+        plan = ImportPlanner.editBook(plan, plan.books.single().id, author = "Леся Українка", narrator = "Локальна начитка")
+        assertEquals(1, libraryImport.applyImportPlan(plan).booksImported)
+        val local = dao.getAudiobooksBySourceTree(tree).single()
+        val chapters = dao.getChaptersListForBook(currentId)
+        assertNotNull(libraryImport.claimSameNarration(currentId, local.id, "Локальна начитка"))
+        assertNull(dao.getAudiobookById(local.id))
+        val progress = dao.getPlaybackProgressSync(currentId)
+        val recreated = LibraryImport(dao, context, emptyList(), writeBatchRunner = { block -> db.withTransaction { block() } })
+        val unchanged = recreated.rescanAudioEntries(files, tree)
+        assertEquals(0, unchanged.newBooks)
+        assertEquals(0, unchanged.missingFiles)
+        assertEquals(0, unchanged.movedFiles)
+        val expanded = recreated.rescanAudioEntries(files + file(4), tree)
+        assertTrue("the surviving mixed-source Edition must receive an explicit structural rejection", expanded.structuralChangeRejected)
+        assertEquals(0, expanded.newBooks)
+        assertEquals(0, expanded.newChapters)
+        assertEquals(chapters.map { it.id }, dao.getChaptersListForBook(currentId).map { it.id })
+        assertEquals(progress, dao.getPlaybackProgressSync(currentId))
+    }
+
+    @Test
     fun `claim re-anchors the sibling source and fills the narrator`() = runBlocking {
         seed()
         val merged = libraryImport.claimSameNarration(currentId, siblingId, "Степан Бандура")
@@ -194,6 +228,61 @@ class NarrationClaimDoorTest {
         // The browse claim hangs off the shared Work row — untouched.
         val claims = dao.getWorkSourcesForWorkSync(mergeKey)
         assertTrue(claims.any { it.sourceId == "soundbooks" })
+    }
+
+    @Test
+    fun `claim pairs original audio after both renditions were manually reordered`() = runBlocking {
+        seed()
+        val current = dao.getChaptersListForBook(currentId).map { it.id }
+        val sibling = dao.getChaptersListForBook(siblingId).map { it.id }
+        assertEquals(ChapterReorderResult.APPLIED, libraryImport.reorderChapters(currentId, current, current.reversed()))
+        assertEquals(ChapterReorderResult.APPLIED, libraryImport.reorderChapters(siblingId, sibling, listOf(sibling[1], sibling[2], sibling[0])))
+        assertNotNull(libraryImport.claimSameNarration(currentId, siblingId, "Степан Бандура"))
+        val source = dao.getSourcesForBookSync(currentId).first { it.type == "soundbooks" }
+        assertEquals(listOf("track3.mp3", "track2.mp3", "track1.mp3"), dao.getTracksForSourceSync(source.id).map { it.url.substringAfterLast('/') })
+        assertEquals(current.reversed(), dao.getChaptersListForBook(currentId).map { it.id })
+        assertEquals(2, dao.getPlaybackProgressSyncByEdition(source.editionId!!)!!.currentChapterIndex)
+        assertEquals(ChapterReorderResult.APPLIED, libraryImport.reorderChapters(currentId, current.reversed(), current))
+        assertEquals(listOf("track1.mp3", "track2.mp3", "track3.mp3"), dao.getTracksForSourceSync(source.id).map { it.url.substringAfterLast('/') })
+    }
+
+    @Test
+    fun `a sibling reorder cannot interleave the claim snapshot and its tracks`() = runBlocking {
+        seed()
+        val ids = dao.getChaptersListForBook(siblingId).map { it.id }
+        val snapshotRead = CompletableDeferred<Unit>()
+        val reorderAttempted = CompletableDeferred<Unit>()
+        val reorderFinished = CompletableDeferred<Unit>()
+        val claimDao = object : AudiobookDao by dao {
+            override suspend fun getTracksForBookSync(bookId: String): List<SourceTrackEntity> {
+                if (bookId == siblingId) {
+                    snapshotRead.complete(Unit)
+                    reorderAttempted.await()
+                    // A broken, non-transactional claim lets reorder finish here;
+                    // the correct Room batch keeps it waiting until the claim ends.
+                    withTimeoutOrNull(500L) { reorderFinished.await() }
+                }
+                return dao.getTracksForBookSync(bookId)
+            }
+        }
+        val otherDao = object : AudiobookDao by dao {
+            override suspend fun reorderChapterPairs(bookId: String, expectedIds: List<String>, chapterIds: List<String>): ChapterReorderResult {
+                reorderAttempted.complete(Unit)
+                return dao.reorderChapterPairs(bookId, expectedIds, chapterIds)
+            }
+        }
+        val claimImport = LibraryImport(claimDao, context, emptyList(), writeBatchRunner = { block -> db.withTransaction { block() } })
+        val otherImport = LibraryImport(otherDao, context, emptyList())
+        val claim = async(Dispatchers.IO) { claimImport.claimSameNarration(currentId, siblingId, "Степан Бандура") }
+        snapshotRead.await()
+        val reorder = async(Dispatchers.IO) {
+            try { otherImport.reorderChapters(siblingId, ids, ids.reversed()) }
+            finally { reorderFinished.complete(Unit) }
+        }
+        assertNotNull(claim.await())
+        reorder.await()
+        val source = dao.getSourcesForBookSync(currentId).first { it.type == "soundbooks" }
+        assertEquals(listOf("track1.mp3", "track2.mp3", "track3.mp3"), dao.getTracksForSourceSync(source.id).map { it.url.substringAfterLast('/') })
     }
 
     @Test

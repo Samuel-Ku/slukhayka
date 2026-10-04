@@ -22,6 +22,9 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import com.slukhayka.audiobooks.data.imports.ChapterOrder
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -61,12 +64,31 @@ class LibraryEntries(
         dao.getAllAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
     val downloadedBooks: Flow<List<AudiobookEntity>> =
         dao.getDownloadedAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
-    val allBookmarks: Flow<List<BookmarkEntity>> = dao.getAllBookmarks()
-    val recentProgress: Flow<List<PlaybackProgressEntity>> = dao.getAllPlaybackProgress()
+    val allBookmarks: Flow<List<BookmarkEntity>> =
+        combine(dao.getAllBookmarks(), dao.observeChapterOrderRows()) { rows, orderRows ->
+            val mappings = chapterOrderMappings(orderRows)
+            rows.map { it.copy(chapterIndex = mappings[it.bookId]?.getOrNull(it.chapterIndex) ?: it.chapterIndex) }
+        }
+    val recentProgress: Flow<List<PlaybackProgressEntity>> =
+        combine(dao.getAllPlaybackProgress(), dao.observeChapterOrderRows()) { rows, orderRows ->
+            val mappings = chapterOrderMappings(orderRows)
+            rows.map { it.copy(currentChapterIndex = mappings[it.bookId]?.getOrNull(it.currentChapterIndex) ?: it.currentChapterIndex) }
+        }
+
+    /** The widget/media session resumes the freshest stored anchor, independent of display order. */
+    suspend fun mostRecentListeningAnchor(): com.slukhayka.audiobooks.data.listening.AnchoredProgress? =
+        dao.getAllPlaybackProgress().first().maxByOrNull { it.lastListenedAt }
+            ?.let { ChapterOrder.anchorProgress(dao, it) }
 
     // Wayfinder #39: every chapter, for the library's cumulative position and
     // real total durations. One query; recomputed in memory on change.
     val allChapters: Flow<List<ChapterEntity>> = dao.getAllChapters()
+
+    private fun chapterOrderMappings(
+        orderRows: List<com.slukhayka.audiobooks.data.db.ChapterOrderRow>
+    ): Map<String, List<Int>?> = orderRows.groupBy { it.chapter.bookId }.mapValues { (_, rows) ->
+        ChapterOrder.displayedIndices(rows.map { it.chapter }.sortedBy { it.chapterIndex }, rows.firstOrNull()?.orderMemory)
+    }
 
     // ---------------------------------------------------------------------
     // Book reads

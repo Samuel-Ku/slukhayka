@@ -63,6 +63,7 @@ class ReorderAddedBookTest {
                 )
             )
         )
+        dao.insertEdition(EditionEntity(id = editionId, workId = bookId, narrator = "", totalChapters = 3))
         dao.insertChapters(
             (0..2).map { i ->
                 ChapterEntity(
@@ -104,10 +105,7 @@ class ReorderAddedBookTest {
         seedThreeChapters()
 
         // Put chapter 3 first — exactly the playlist complaint, on a saved book.
-        dao.reorderChaptersByIndex(
-            chapterIdsInOrder = listOf("ch-2", "ch-0", "ch-1"),
-            trackIdsInOrder = listOf("tr-2", "tr-0", "tr-1")
-        )
+        assertEquals(com.slukhayka.audiobooks.data.imports.ChapterReorderResult.APPLIED, dao.reorderChapterPairs(bookId, listOf("ch-0", "ch-1", "ch-2"), listOf("ch-2", "ch-0", "ch-1")))
 
         val chapters = dao.getChaptersListForBook(bookId).associateBy { it.id }
         assertEquals(0, chapters.getValue("ch-2").chapterIndex)
@@ -148,10 +146,7 @@ class ReorderAddedBookTest {
             )
         )
 
-        dao.reorderChaptersByIndex(
-            chapterIdsInOrder = listOf("ch-2", "ch-0", "ch-1"),
-            trackIdsInOrder = listOf("tr-2", "tr-0", "tr-1")
-        )
+        assertEquals(com.slukhayka.audiobooks.data.imports.ChapterReorderResult.APPLIED, dao.reorderChapterPairs(bookId, listOf("ch-0", "ch-1", "ch-2"), listOf("ch-2", "ch-0", "ch-1")))
 
         // The WHOLE point: a move is not a repair. If this test ever fails,
         // the listener lost the place they were listening from.
@@ -168,10 +163,7 @@ class ReorderAddedBookTest {
         seedThreeChapters()
 
         // Move the THIRD chapter one step up: [0, 2, 1].
-        dao.reorderChaptersByIndex(
-            chapterIdsInOrder = listOf("ch-0", "ch-2", "ch-1"),
-            trackIdsInOrder = listOf("tr-0", "tr-2", "tr-1")
-        )
+        assertEquals(com.slukhayka.audiobooks.data.imports.ChapterReorderResult.APPLIED, dao.reorderChapterPairs(bookId, listOf("ch-0", "ch-1", "ch-2"), listOf("ch-0", "ch-2", "ch-1")))
 
         val chapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
         assertEquals(listOf("ch-0", "ch-2", "ch-1"), chapters.map { it.id })

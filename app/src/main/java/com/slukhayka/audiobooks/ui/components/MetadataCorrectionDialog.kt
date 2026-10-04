@@ -6,11 +6,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,15 +49,25 @@ fun MetadataCorrectionDialog(
     initialNarrator: String,
     onDismiss: () -> Unit,
     onSave: (title: String, author: String, narrator: String, coverUrl: String?) -> Unit,
-    initialCoverUrl: String? = null
+    initialCoverUrl: String? = null,
+    initialSeriesTitle: String? = null,
+    initialSeriesIndex: Int? = null,
+    onSaveWithSeries: ((String, String, String, String?, Int?) -> Unit)? = null
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var author by remember { mutableStateOf(initialAuthor) }
     var narrator by remember { mutableStateOf(initialNarrator) }
+    var series by remember { mutableStateOf(initialSeriesTitle.orEmpty()) }
+    var seriesIndex by remember { mutableStateOf(initialSeriesIndex?.toString().orEmpty()) }
+    val seriesIndexValid = seriesIndex.isBlank() || (series.isNotBlank() && seriesIndex.toIntOrNull()?.let { it > 0 } == true)
     var cover by remember { mutableStateOf(initialCoverUrl.orEmpty()) }
+    val headingFocus = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.book_detail_correct_metadata)) },
+        title = {
+            LaunchedEffect(headingFocus) { withFrameNanos { }; headingFocus.requestFocus() }
+            Text(stringResource(R.string.book_detail_correct_metadata), modifier = Modifier.focusRequester(headingFocus).focusable().semantics { heading() })
+        },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
@@ -81,6 +100,22 @@ fun MetadataCorrectionDialog(
                         .fillMaxWidth()
                         .testTag("metadata_edit_narrator")
                 )
+                if (onSaveWithSeries != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = series, onValueChange = { series = it },
+                        label = { Text(stringResource(R.string.metadata_edit_series)) },
+                        singleLine = true, modifier = Modifier.fillMaxWidth().testTag("metadata_edit_series")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = seriesIndex, onValueChange = { seriesIndex = it },
+                        label = { Text(stringResource(R.string.metadata_edit_series_index)) },
+                        singleLine = true, isError = !seriesIndexValid,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth().testTag("metadata_edit_series_index")
+                    )
+                }
                 if (initialCoverUrl != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
@@ -98,9 +133,13 @@ fun MetadataCorrectionDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    onSave(title, author, narrator, if (initialCoverUrl != null) cover else null)
+                    if (onSaveWithSeries != null) {
+                        onSaveWithSeries(title.trim(), author.trim(), narrator.trim(), series.trim().ifBlank { null }, seriesIndex.toIntOrNull())
+                    } else {
+                        onSave(title, author, narrator, if (initialCoverUrl != null) cover else null)
+                    }
                 },
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && (onSaveWithSeries == null || seriesIndexValid),
                 modifier = Modifier.testTag("metadata_edit_save")
             ) {
                 Text(stringResource(R.string.book_detail_metadata_save))
@@ -111,6 +150,6 @@ fun MetadataCorrectionDialog(
                 Text(stringResource(R.string.book_detail_cancel))
             }
         },
-        modifier = Modifier.testTag("metadata_correction_dialog")
+        modifier = Modifier.accessibilityPane(stringResource(R.string.book_detail_correct_metadata)).testTag("metadata_correction_dialog")
     )
 }

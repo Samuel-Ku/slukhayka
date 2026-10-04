@@ -88,6 +88,21 @@ class FourReadRecoveryIdentityTest {
     }
 
     @Test
+    fun `captured recovery preserves manual order and refreshes the matching physical audio`() = runBlocking {
+        val page = detail("Кобзар", "Тарас Шевченко", "Диктор", "https://4read.org/kobzar", listOf("Один" to "https://cdn.test/old-one.mp3", "Два" to "https://cdn.test/old-two.mp3"))
+        val id = seedBook(page)
+        val refreshed = page.copy(chapters = listOf(SourceChapter("Один", "https://cdn.test/new-one.mp3"), SourceChapter("Два", "https://cdn.test/new-two.mp3")))
+        val imports = LibraryImport(dao, context, listOf(fakeAdapter("refreshed", refreshed)))
+        val before = dao.getChaptersListForBook(id)
+        val tracks = dao.getTracksForBookSync(id)
+        assertEquals(ChapterReorderResult.APPLIED, imports.reorderChapters(id, before.map { it.id }, before.reversed().map { it.id }))
+        assertNotNull(imports.recoverWebSourcePage(id, "4read", page.url, "refreshed"))
+        assertEquals(before.reversed().map { it.id }, dao.getChaptersListForBook(id).map { it.id })
+        assertEquals(tracks.reversed().map { it.id }, dao.getTracksForBookSync(id).map { it.id })
+        assertEquals(listOf("https://cdn.test/new-two.mp3", "https://cdn.test/new-one.mp3"), dao.getTracksForBookSync(id).map { it.url })
+    }
+
+    @Test
     fun `new language scoped fourread import recovers through real captured parser`() = runBlocking {
         val url = "https://4read.org/123-kobzar.html"
         val html = """

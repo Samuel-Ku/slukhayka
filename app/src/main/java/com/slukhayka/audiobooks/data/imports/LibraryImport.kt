@@ -104,13 +104,20 @@ class LibraryImport(
     // breaks the import.
     private val workRelationshipsSync: WorkRelationshipsSync? = null,
     /**
-     * #618 — the Room transaction seam. Every write of ONE local Edition runs
+     * #618 — the Room transaction seam. Every write of ONE local or submitted Edition runs
      * inside it, so a failure rolls the whole Edition back (no half-written
      * Work/Chapters/Tracks) instead of leaving a partial card. Tests inject
      * an in-memory `withTransaction`; the default is a pass-through for
      * callers that do not exercise atomicity.
      */
-    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() },
+    /**
+     * Publishes the committed order under the writer mutex, after Room commits.
+     * Must not re-enter this import door; an exception cannot undo the commit.
+     */
+    private val onChapterOrderCommitted: suspend (String, List<String>) -> Unit = { _, _ -> },
+    /** Same post-commit publication boundary for confirmed and automatic topology repair. */
+    private val onChapterStructureCommitted: suspend (AudiobookEntity) -> Unit = {}
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
@@ -570,11 +577,31 @@ class LibraryImport(
         siblingBookId: String,
         claimedNarrator: String
     ): AudiobookEntity? = withContext(Dispatchers.IO) {
-        if (currentBookId == siblingBookId) return@withContext null
+        val siblingMergeKey = dao.getAudiobookById(siblingBookId)?.mergeKey
+        val merged = localWriteMutex.withLock {
+            var result: AudiobookEntity? = null
+            // The sibling mapping and physical tracks must describe one snapshot.
+            // Room serializes this batch with reorder, attachment and recovery writes.
+            writeBatchRunner { result = claimSameNarrationRows(currentBookId, siblingBookId, claimedNarrator) }
+            result
+        }
+        if (merged != null) runCatching {
+            siblingMergeKey?.takeIf { it.isNotBlank() }?.let { workRelationshipsSync?.pushTombstone(it) }
+        }
+        merged
+    }
+
+    private suspend fun claimSameNarrationRows(
+        currentBookId: String, siblingBookId: String, claimedNarrator: String
+    ): AudiobookEntity? {
+        if (currentBookId == siblingBookId) return null
         val current = dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
-            ?: return@withContext null
-        val sibling = dao.getAudiobookById(siblingBookId)?.toAudiobookEntity()
-            ?: return@withContext null
+            ?: return null
+        if (dao.getAudiobookById(siblingBookId) == null) return null
+        val siblingChapters = dao.getChaptersListForBook(siblingBookId)
+        val siblingOriginalIds = ChapterOrder.originalIds(dao, siblingBookId, siblingChapters)
+            ?: return null
+        val siblingProviderIndices = siblingChapters.associate { it.chapterIndex to siblingOriginalIds.indexOf(it.id) }
         val currentEdition = dao.getEditionForWork(currentBookId)
             ?: EditionEntity(
                 id = EditionId.forBook(current.mergeKey, currentBookId, current.narrator, ""),
@@ -654,6 +681,11 @@ class LibraryImport(
         // sibling's own chapters list stays FIRST-source-logical on the
         // target Edition (ADR-0007 — one Edition owns one list, and the
         // sibling's physical tracks already pair 1:1 by index with it).
+        // Narration claims re-parent the Edition; the target's existing Sources
+        // keep their identities and follow the same rendition.
+        dao.getSourcesForBookSync(currentBookId).forEach { source ->
+            dao.insertSources(listOf(source.copy(editionId = targetEditionId)))
+        }
         val siblingSources = dao.getSourcesForBookSync(siblingBookId)
         val reAnchored = siblingSources.map { source ->
             source.copy(id = "${source.type}-$targetEditionId", bookId = currentBookId, editionId = targetEditionId)
@@ -662,7 +694,8 @@ class LibraryImport(
         val tracks = dao.getTracksForBookSync(siblingBookId).map { track ->
             val sourceId = track.sourceId
             val newSourceId = reAnchoredIdsOldToNew.firstOrNull { it.first == sourceId }?.second ?: sourceId
-            track.copy(id = MetadataAssertions.trackId(newSourceId, track.trackIndex), sourceId = newSourceId)
+            val providerIndex = siblingProviderIndices[track.trackIndex] ?: track.trackIndex
+            track.copy(id = MetadataAssertions.trackId(newSourceId, providerIndex), sourceId = newSourceId, trackIndex = providerIndex)
         }
         dao.insertSources(reAnchored)
         dao.insertTracks(tracks)
@@ -675,9 +708,7 @@ class LibraryImport(
         // row identity hidden from catalogue refreshes (re-imports of the
         // same page re-anchor onto the surviving card instead of spawning a
         // duplicate narration).
-        runCatching {
-            sibling.mergeKey?.takeIf { it.isNotBlank() }?.let { workRelationshipsSync?.pushTombstone(it) }
-        }
+        LocalFolderMemory(dao).reparent(siblingBookId, currentBookId)
         dao.deleteTracksForBook(siblingBookId)
         dao.deleteSourcesForBook(siblingBookId)
         dao.deleteChaptersForBook(siblingBookId)
@@ -688,7 +719,7 @@ class LibraryImport(
         dao.deleteLibraryEntry(siblingBookId)
         dao.deleteAudiobook(siblingBookId)
 
-        dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
+        return dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
     }
 
     /**
@@ -726,6 +757,15 @@ class LibraryImport(
         description = MetadataAssertions.normalizeDescription(profile.description)
     )
 
+    /** Reorders existing Chapter/SourceTrack pairs without rebuilding Listening State. */
+    suspend fun reorderChapters(
+        bookId: String, expectedChapterIds: List<String>, chapterIds: List<String>
+    ): ChapterReorderResult = localWriteMutex.withLock {
+        val result = dao.reorderChapterPairs(bookId, expectedChapterIds, chapterIds)
+        if (result == ChapterReorderResult.APPLIED) onChapterOrderCommitted(bookId, chapterIds)
+        result
+    }
+
     /**
      * Spec-32 T4 (#234) — the self-healing door: a 404/403 stream failure
      * during playback re-resolves the book's source page and swaps the fresh
@@ -750,6 +790,7 @@ class LibraryImport(
                 ?: return@withContext null
             // Fail-open: a dead page contributes nothing — the player keeps
             // the honest failure instead of a fabricated retry.
+            val expectedChapterIds = dao.getChaptersListForBook(bookId).map { it.id }
             val detail = try {
                 adapter.fetchBookPage(sourceUrl)
             } catch (e: CancellationException) {
@@ -768,6 +809,10 @@ class LibraryImport(
             if (edition != null && primary.editionId != null && primary.editionId != edition.id) {
                 return@withContext null
             }
+            val chapters = dao.getChaptersListForBook(bookId)
+            if (chapters.map { it.id } != expectedChapterIds) return@withContext null
+            val originalIds = ChapterOrder.originalIds(dao, bookId, chapters) ?: return@withContext null
+            fun providerIndex(index: Int): Int = chapters.getOrNull(index)?.id?.let { originalIds.indexOf(it) } ?: -1
             val tracks = dao.getTracksForSourceSync(primary.id)
             // Order-stability guard (spec-32 T4): the index pairing is only
             // sound while the page still serves the OTHER chapters at their
@@ -778,12 +823,12 @@ class LibraryImport(
             // still heals — no URL survived, nothing to confuse.
             val others = tracks.filter { it.trackIndex != chapterIndex }
             val reordered = others.any { other ->
-                if (detail.chapters.getOrNull(other.trackIndex)?.streamUrl == other.url) return@any false
+                if (detail.chapters.getOrNull(providerIndex(other.trackIndex))?.streamUrl == other.url) return@any false
                 // The old URL survived but sits at another index — a swap.
                 detail.chapters.any { it.streamUrl == other.url }
             }
             if (reordered) return@withContext null
-            val fresh = detail.chapters.getOrNull(chapterIndex) ?: return@withContext null
+            val fresh = detail.chapters.getOrNull(providerIndex(chapterIndex)) ?: return@withContext null
             // The page still serves the same dead link (or a non-http one) —
             // nothing to heal, and no pointless retry.
             val freshHttpUrl = fresh.streamUrl.toHttpUrlOrNull()
@@ -793,7 +838,7 @@ class LibraryImport(
             val track = tracks.firstOrNull { it.trackIndex == chapterIndex }
                 ?: return@withContext null
             if (track.url != failedUrl) return@withContext null
-            dao.insertTracks(listOf(track.copy(url = fresh.streamUrl)))
+            if (!dao.healTrackUrl(bookId, expectedChapterIds, track, fresh.streamUrl)) return@withContext null
             // A successfully re-resolved page refreshes the shared profile,
             // rolling its freshness — best-effort, silent on failure. Keyed by
             // the STORED source id (the same key the import doors use), so an
@@ -889,74 +934,86 @@ class LibraryImport(
         capturedAudioUrls: List<String> = emptyList()
     ): AudiobookEntity? = withContext(Dispatchers.IO) {
         val detail = inspectWebSourcePage(sourceId, url, html, capturedAudioUrls) ?: return@withContext null
-        val source = dao.getSourcesForBookSync(bookId)
-            .firstOrNull { it.type == sourceId && it.url == url }
-            ?: return@withContext null
-        val book = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: return@withContext null
-        val edition = dao.getEditionForWork(bookId) ?: return@withContext null
-        if (!RecoveryIdentityGuard.matchesWorkAndEdition(
-                storedTitle = book.title,
-                storedAuthor = book.author,
-                storedNarrator = edition.narrator,
-                storedLanguage = edition.language,
-                captured = detail
-            )) return@withContext null
-        val storedCount = dao.getChaptersListForBook(bookId).size
-        if (storedCount == detail.chapters.size) return@withContext null
+        localWriteMutex.withLock {
+            val source = dao.getSourcesForBookSync(bookId)
+                .firstOrNull { it.type == sourceId && it.url == url }
+                ?: return@withContext null
+            val book = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: return@withContext null
+            val edition = dao.getEditionForWork(bookId) ?: return@withContext null
+            if (!RecoveryIdentityGuard.matchesWorkAndEdition(
+                    storedTitle = book.title,
+                    storedAuthor = book.author,
+                    storedNarrator = edition.narrator,
+                    storedLanguage = edition.language,
+                    captured = detail
+                )) return@withContext null
+            val storedCount = dao.getChaptersListForBook(bookId).size
+            if (storedCount == detail.chapters.size) return@withContext null
 
-        // Chapters belong to the Edition, so every old Source Track of this
-        // book is incompatible with the new topology. Stage unshared local
-        // copies first: a failed Room transaction can restore them, and only
-        // a successful transaction makes their deletion final.
-        val sourceIds = dao.getSourcesForBookSync(bookId).map { it.id }.toSet()
-        val stagedFiles = mutableListOf<Pair<File, File>>()
-        val staged = dao.getTracksForBookSync(bookId)
-            .mapNotNull { it.localFilePath }
-            .distinct()
-            .all { path ->
-                val referencedOutsideBook = dao.getTracksByFilePath(path).any { it.sourceId !in sourceIds }
-                if (referencedOutsideBook) return@all true
-                val original = File(path)
-                if (!original.exists()) return@all true
-                val quarantined = File("${original.absolutePath}.repair-${UUID.randomUUID()}")
-                if (!original.renameTo(quarantined)) return@all false
-                stagedFiles += original to quarantined
-                true
-            }
-        if (!staged) {
-            stagedFiles.asReversed().forEach { (original, quarantined) -> quarantined.renameTo(original) }
-            return@withContext null
-        }
+            // Chapters belong to the Edition, so every old Source Track of this
+            // book is incompatible with the new topology. Stage unshared local
+            // copies first: a failed Room transaction can restore them, and only
+            // a successful transaction makes their deletion final.
+            val sourceIds = dao.getSourcesForBookSync(bookId).map { it.id }.toSet()
+            val stagedFiles = mutableListOf<Pair<File, File>>()
+            var committed = false
+            try {
+                val staged = dao.getTracksForBookSync(bookId)
+                    .mapNotNull { it.localFilePath }
+                    .distinct()
+                    .all { path ->
+                        val referencedOutsideBook = dao.getTracksByFilePath(path).any { it.sourceId !in sourceIds }
+                        if (referencedOutsideBook) return@all true
+                        val original = File(path)
+                        if (!original.exists()) return@all true
+                        val quarantined = File("${original.absolutePath}.repair-${UUID.randomUUID()}")
+                        if (!original.renameTo(quarantined)) return@all false
+                        stagedFiles += original to quarantined
+                        true
+                    }
+                if (!staged) {
+                    stagedFiles.asReversed().forEach { (original, quarantined) -> quarantined.renameTo(original) }
+                    return@withContext null
+                }
 
-        val materialized = MetadataAssertions.materializeChaptersAndTracks(
-            editionId = edition.id,
-            sourceId = source.id,
-            bookId = bookId,
-            bookTitle = book.title,
-            chapters = detail.chapters
-        )
-        val tracks = materialized.tracks.map { track ->
-            track.copy(sourceId = source.id, id = MetadataAssertions.trackId(source.id, track.trackIndex))
-        }
-        val duration = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds)
-            ?: MetadataAssertions.normalizeDurationSeconds(detail.chapters.sumOf { it.durationSeconds })
-            ?: 0L
-        try {
-            dao.replaceConfirmedChapterStructure(bookId, materialized.chapters, tracks, duration, edition)
-        } catch (error: Exception) {
-            stagedFiles.asReversed().forEach { (original, quarantined) -> quarantined.renameTo(original) }
-            throw error
-        }
-        stagedFiles.forEach { (_, quarantined) ->
-            // A media scanner can briefly hold the renamed file. Retry the
-            // final unlink before surfacing success; the DB no longer exposes
-            // the quarantined name, so it must not become a durable cache.
-            repeat(3) {
-                if (!quarantined.exists() || quarantined.delete()) return@forEach
+                val materialized = MetadataAssertions.materializeChaptersAndTracks(
+                    editionId = edition.id,
+                    sourceId = source.id,
+                    bookId = bookId,
+                    bookTitle = book.title,
+                    chapters = detail.chapters
+                )
+                val tracks = materialized.tracks.map { track ->
+                    track.copy(sourceId = source.id, id = MetadataAssertions.trackId(source.id, track.trackIndex))
+                }
+                val duration = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds)
+                    ?: MetadataAssertions.normalizeDurationSeconds(detail.chapters.sumOf { it.durationSeconds })
+                    ?: 0L
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    dao.replaceConfirmedChapterStructure(bookId, materialized.chapters, tracks, duration, edition)
+                    committed = true
+                    stagedFiles.forEach { (_, quarantined) ->
+                        // A media scanner can briefly hold the renamed file. Retry the
+                        // final unlink before surfacing success; the DB no longer exposes
+                        // the quarantined name, so it must not become a durable cache.
+                        repeat(3) {
+                            if (!quarantined.exists() || quarantined.delete()) return@forEach
+                        }
+                        Log.e("LibraryImport", "Could not delete repaired local copy after retries: ${quarantined.name}")
+                    }
+                    val repaired = dao.getAudiobookById(bookId)?.toAudiobookEntity()
+                    if (repaired != null) onChapterStructureCommitted(repaired)
+                    repaired
+                }
+            } catch (error: Exception) {
+                // Ownership reads and materialisation may also be cancelled after
+                // a previous file was quarantined. Restore only before Room commit.
+                if (!committed) {
+                    stagedFiles.asReversed().forEach { (original, quarantined) -> quarantined.renameTo(original) }
+                }
+                throw error
             }
-            Log.e("LibraryImport", "Could not delete repaired local copy after retries: ${quarantined.name}")
         }
-        dao.getAudiobookById(bookId)?.toAudiobookEntity()
     }
 
     /**
@@ -1022,12 +1079,14 @@ class LibraryImport(
             return@withContext null
         }
         val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
+        val originalIds = ChapterOrder.originalIds(dao, bookId, logicalChapters) ?: return@withContext null
+        val originalChapters = originalIds.map { id -> logicalChapters.first { it.id == id } }
         if (!RecoveryIdentityGuard.matches(
                 storedTitle = storedBook.title,
                 storedAuthor = storedBook.author,
                 storedNarrator = edition?.narrator.orEmpty(),
                 storedLanguage = edition?.language.orEmpty(),
-                storedChapterTitles = logicalChapters.map { it.title },
+                storedChapterTitles = originalChapters.map { it.title },
                 captured = detail
             )) {
             // Same-count pages can still be reordered. Refuse the update rather
@@ -1039,10 +1098,11 @@ class LibraryImport(
         if (tracks.map { it.trackIndex } != detail.chapters.indices.toList()) return@withContext null
 
         // All guards passed — refresh the physical URLs in place.
-        val refreshed = detail.chapters.mapIndexed { index, chapter ->
-            tracks[index].copy(url = chapter.streamUrl)
+        val urls = tracks.map { track ->
+            val chapterId = logicalChapters[track.trackIndex].id
+            detail.chapters[originalIds.indexOf(chapterId)].streamUrl
         }
-        dao.insertTracks(refreshed)
+        if (!dao.refreshTrackUrls(bookId, logicalChapters.map { it.id }, tracks, urls)) return@withContext null
         dao.getAudiobookById(bookId)?.toAudiobookEntity()
     }
 
@@ -1158,164 +1218,199 @@ class LibraryImport(
         authorOverride: String? = null,
         narratorOverride: String? = null,
         selectedWatchUrls: Set<String>? = null,
-        // #1051 — the listener's own chapter order (canonical watch URLs), or
-        // null when they never touched it. Membership still comes from
-        // [selectedWatchUrls], so the two inputs stay independent.
         explicitOrder: List<String>? = null
     ): SubmittedImport = withContext(Dispatchers.IO) {
         val metadata = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.parseMetadata(metadataJson)
             ?: return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
-        val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner
+        val observed = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner
+            .plan(url, metadata, channelId, selectedWatchUrls)
+        val requested = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner
             .plan(url, metadata, channelId, selectedWatchUrls, explicitOrder)
-            .let { base ->
-                base.copy(
-                    title = titleOverride?.trim()?.takeIf { it.isNotBlank() } ?: base.title,
-                    author = authorOverride?.trim() ?: base.author,
-                    narrator = narratorOverride?.trim() ?: base.narrator
-                )
+        if (requested.chapters.groupingBy { it.watchUrl }.eachCount() !=
+            observed.chapters.groupingBy { it.watchUrl }.eachCount()
+        ) return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
+        val positions = observed.chapters.withIndex().groupBy { it.value.watchUrl }
+            .mapValues { (_, rows) -> rows.map { it.index }.iterator() }
+        val requestedIndices = requested.chapters.map { positions.getValue(it.watchUrl).next() }
+        val titlesByObservedIndex = requestedIndices.mapIndexed { requestedIndex, observedIndex ->
+            observedIndex to requested.chapters[requestedIndex].title
+        }.toMap()
+        // Stable IDs and tracks are born in provider order. Preview numbering
+        // may change labels; repeated URLs retain each occurrence's own title.
+        val plan = observed.copy(
+            title = titleOverride?.trim()?.takeIf { it.isNotBlank() } ?: observed.title,
+            author = authorOverride?.trim() ?: observed.author,
+            narrator = narratorOverride?.trim() ?: observed.narrator,
+            chapters = observed.chapters.mapIndexed { index, chapter ->
+                chapter.copy(title = titlesByObservedIndex.getValue(index))
             }
+        )
         if (plan.chapters.isEmpty()) return@withContext SubmittedImport(SubmittedImportResult.NO_PLAYABLE_TRACKS)
 
-        val mergeKey = MergeKey.keyFor(plan.title, plan.author.orEmpty())
-        val narrator = plan.narrator?.takeIf { it.isNotBlank() } ?: SUBMISSION_NARRATOR
-        val bookId = "yt-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
-        val editionId = EditionId.forBook(mergeKey, bookId, narrator)
-        val sourceId = "youtube-$editionId-${Integer.toHexString(url.hashCode())}"
-        // Dedup by the submitted URL (ADR-0007): the same link re-submitted
-        // is a no-op even when the edition id — which embeds a fresh bookId
-        // for blank-identity submissions — differs across calls.
-        dao.getSourceByUrl(url.trim())?.let { existing ->
-            return@withContext SubmittedImport(SubmittedImportResult.ALREADY_ADDED, existing.bookId, existing.id)
-        }
+        localWriteMutex.withLock {
+            var imported: SubmittedImport? = null
+            writeBatchRunner {
+                val mergeKey = MergeKey.keyFor(plan.title, plan.author.orEmpty())
+                val narrator = plan.narrator?.takeIf { it.isNotBlank() } ?: SUBMISSION_NARRATOR
+                val bookId = "yt-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
+                val editionId = EditionId.forBook(mergeKey, bookId, narrator)
+                val sourceId = "youtube-$editionId-${Integer.toHexString(url.hashCode())}"
+                // Dedup by the submitted URL (ADR-0007): the same link re-submitted
+                // is a no-op even when the edition id — which embeds a fresh bookId
+                // for blank-identity submissions — differs across calls.
+                dao.getSourceByUrl(url.trim())?.let { existing ->
+                    imported = SubmittedImport(SubmittedImportResult.ALREADY_ADDED, existing.bookId, existing.id)
+                    return@writeBatchRunner
+                }
 
-        // Work: found-or-created by identity; blank identity → no Works row.
-        val workId = if (mergeKey.isNotBlank()) {
-            dao.findWorkByMergeKey(mergeKey)?.id ?: mergeKey.also {
-                dao.upsertWork(
-                    WorkEntity(
-                        id = mergeKey,
-                        mergeKey = mergeKey,
-                        title = MetadataAssertions.normalizeTitle(plan.title, plan.author),
-                        author = plan.author?.trim().orEmpty(),
-                        addedAt = System.currentTimeMillis()
+                // Work: found-or-created by identity; blank identity → no Works row.
+                val workId = if (mergeKey.isNotBlank()) {
+                    dao.findWorkByMergeKey(mergeKey)?.id ?: mergeKey.also {
+                        dao.upsertWork(
+                            WorkEntity(
+                                id = mergeKey,
+                                mergeKey = mergeKey,
+                                title = MetadataAssertions.normalizeTitle(plan.title, plan.author),
+                                author = plan.author?.trim().orEmpty(),
+                                addedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                } else ""
+
+                // Edition: found-or-created by rendition id. When it exists (same
+                // narration, different variant) we add a SECOND Source to the SAME
+                // Edition and re-parent the source rows to the existing library copy.
+                val existingEdition = dao.getEditionById(editionId)
+                val editionBookId: String = if (existingEdition != null) {
+                    dao.findByMergeKey(mergeKey)?.id ?: bookId
+                } else {
+                    bookId
+                }
+                if (existingEdition == null) {
+                    dao.insertEdition(
+                        EditionEntity(
+                            id = editionId,
+                            workId = workId.ifBlank { bookId },
+                            narrator = narrator,
+                            totalChapters = plan.chapters.size,
+                            totalDurationSeconds = 0L,
+                            addedAt = System.currentTimeMillis()
+                        )
                     )
-                )
-            }
-        } else ""
-
-        // Edition: found-or-created by rendition id. When it exists (same
-        // narration, different variant) we add a SECOND Source to the SAME
-        // Edition and re-parent the source rows to the existing library copy.
-        val existingEdition = dao.getEditionById(editionId)
-        val editionBookId: String = if (existingEdition != null) {
-            dao.findByMergeKey(mergeKey)?.id ?: bookId
-        } else {
-            bookId
-        }
-        if (existingEdition == null) {
-            dao.insertEdition(
-                EditionEntity(
-                    id = editionId,
-                    workId = workId.ifBlank { bookId },
-                    narrator = narrator,
-                    totalChapters = plan.chapters.size,
-                    totalDurationSeconds = 0L,
-                    addedAt = System.currentTimeMillis()
-                )
-            )
-            dao.insertAudiobooks(
-                listOf(
-                    AudiobookEntity(
+                    dao.insertAudiobooks(
+                        listOf(
+                            AudiobookEntity(
+                                id = bookId,
+                                // Спец-53 T9: той самий нормалізований заголовок, що й у
+                                // `works` — інакше в медіатеці видно сирий YouTube-заголовок
+                                // із «| Audiobook …» і емодзі.
+                                title = MetadataAssertions.normalizeTitle(plan.title, plan.author),
+                                author = plan.author.orEmpty(),
+                                narrator = narrator,
+                                // Спец-53 T9: стандартний провенанс замість самого лише
+                                // URL — джерело й канал; без каналу лишається чесне
+                                // «звідки книга», без вигадок про зміст.
+                                description = plan.channelName?.trim()?.takeIf { it.isNotBlank() }
+                                    ?.let { "Джерело: YouTube · $it. Додано з посилання." }
+                                    ?: "Джерело: YouTube. Додано з посилання.",
+                                coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+                                // Спец-53 T9: рушій уже віддав найширший thumbnail —
+                                // втрачати його було помилкою. Малюнок лишається лише
+                                // як запасний, коли рушій обкладинки не побачив.
+                                coverImageUrl = metadata?.coverUrl?.takeIf { it.isNotBlank() },
+                                genre = LOCAL_GENRE,
+                                sourceUrl = url,
+                                isDownloaded = false,
+                                totalDurationSeconds = 0L,
+                                totalChapters = plan.chapters.size,
+                                rating = 0f
+                            )
+                        )
+                    )
+                    dao.upsertLibraryEntry(
                         id = bookId,
-                        // Спец-53 T9: той самий нормалізований заголовок, що й у
-                        // `works` — інакше в медіатеці видно сирий YouTube-заголовок
-                        // із «| Audiobook …» і емодзі.
-                        title = MetadataAssertions.normalizeTitle(plan.title, plan.author),
-                        author = plan.author.orEmpty(),
-                        narrator = narrator,
-                        // Спец-53 T9: стандартний провенанс замість самого лише
-                        // URL — джерело й канал; без каналу лишається чесне
-                        // «звідки книга», без вигадок про зміст.
-                        description = plan.channelName?.trim()?.takeIf { it.isNotBlank() }
-                            ?.let { "Джерело: YouTube · $it. Додано з посилання." }
-                            ?: "Джерело: YouTube. Додано з посилання.",
-                        coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-                        // Спец-53 T9: рушій уже віддав найширший thumbnail —
-                        // втрачати його було помилкою. Малюнок лишається лише
-                        // як запасний, коли рушій обкладинки не побачив.
-                        coverImageUrl = metadata?.coverUrl?.takeIf { it.isNotBlank() },
-                        genre = LOCAL_GENRE,
-                        sourceUrl = url,
-                        isDownloaded = false,
-                        totalDurationSeconds = 0L,
-                        totalChapters = plan.chapters.size,
-                        rating = 0f
-                    )
-                )
-            )
-            dao.upsertLibraryEntry(
-                id = bookId,
-                workId = workId.ifBlank { bookId },
-                isFavorite = false,
-                createdAt = System.currentTimeMillis(),
-                downloadProgress = 0f
-            )
-        }
-
-        // Logical chapters: extend to the observed list (chapter → track is
-        // 1:1 by index today, ADR-0007 — per-source topology is future work),
-        // so a variant with more chapters never loses an anchor.
-        val existingChapters = existingEdition?.totalChapters ?: 0
-        if (plan.chapters.size > existingChapters) {
-            dao.insertChapters(
-                plan.chapters.drop(existingChapters).mapIndexed { offset, chapter ->
-                    ChapterEntity(
-                        id = "$editionBookId-ch${existingChapters + offset + 1}",
-                        bookId = editionBookId,
-                        editionId = editionId,
-                        chapterIndex = existingChapters + offset,
-                        title = chapter.title,
-                        // Spec-53 T2 — the engine's real entry duration.
-                        durationSeconds = chapter.durationSeconds
+                        workId = workId.ifBlank { bookId },
+                        isFavorite = false,
+                        createdAt = System.currentTimeMillis(),
+                        downloadProgress = 0f
                     )
                 }
-            )
-            // Keep the Edition's chapter count honest.
-            dao.replaceEdition(
-                (existingEdition ?: EditionEntity(
-                    id = editionId, workId = workId.ifBlank { bookId }, narrator = narrator
-                )).copy(totalChapters = plan.chapters.size)
-            )
-        }
 
-        dao.insertSources(
-            listOf(
-                SourceEntity(
-                    id = sourceId,
-                    bookId = editionBookId,
-                    editionId = editionId,
-                    type = "youtube",
-                    url = url,
-                    addedAt = System.currentTimeMillis()
+                // Logical chapters: extend to the observed list (chapter → track is
+                // 1:1 by index today, ADR-0007 — per-source topology is future work),
+                // so a variant with more chapters never loses an anchor.
+                val existingChapters = existingEdition?.totalChapters ?: 0
+                if (plan.chapters.size > existingChapters) {
+                    dao.insertChapters(
+                        plan.chapters.drop(existingChapters).mapIndexed { offset, chapter ->
+                            ChapterEntity(
+                                id = "$editionBookId-ch${existingChapters + offset + 1}",
+                                bookId = editionBookId,
+                                editionId = editionId,
+                                chapterIndex = existingChapters + offset,
+                                title = chapter.title,
+                                // Spec-53 T2 — the engine's real entry duration.
+                                durationSeconds = chapter.durationSeconds
+                            )
+                        }
+                    )
+                    // Keep the Edition's chapter count honest.
+                    dao.replaceEdition(
+                        (existingEdition ?: EditionEntity(
+                            id = editionId, workId = workId.ifBlank { bookId }, narrator = narrator
+                        )).copy(totalChapters = plan.chapters.size)
+                    )
+                }
+
+                dao.insertSources(
+                    listOf(
+                        SourceEntity(
+                            id = sourceId,
+                            bookId = editionBookId,
+                            editionId = editionId,
+                            type = "youtube",
+                            url = url,
+                            addedAt = System.currentTimeMillis()
+                        )
+                    )
                 )
-            )
-        )
-        dao.insertTracks(
-            plan.chapters.mapIndexed { index, chapter ->
-                SourceTrackEntity(
-                    id = MetadataAssertions.trackId(sourceId, index),
-                    sourceId = sourceId,
-                    trackIndex = index,
-                    url = chapter.watchUrl,
-                    localFilePath = null,
-                    contentHash = null,
-                    isDownloaded = false
+                dao.insertTracks(
+                    plan.chapters.mapIndexed { index, chapter ->
+                        SourceTrackEntity(
+                            id = MetadataAssertions.trackId(sourceId, index),
+                            sourceId = sourceId,
+                            trackIndex = index,
+                            url = chapter.watchUrl,
+                            localFilePath = null,
+                            contentHash = null,
+                            isDownloaded = false
+                        )
+                    }
                 )
+                // An explicit add is a user action: a tombstone of the Work is cleared.
+                dao.deleteTombstone(workId.ifBlank { editionBookId })
+                if (!explicitOrder.isNullOrEmpty()) {
+                    val snapshot = dao.getChapterPlaybackSnapshot(editionBookId)
+                    val originalIds = snapshot.originalChapterIds
+                    require(originalIds.size >= observed.chapters.size) { "Missing provider chapter anchors" }
+                    val selectedIds = requestedIndices.map { originalIds[it] }
+                    val selectedSet = selectedIds.toSet()
+                    val completeOrder = selectedIds + originalIds.filter { it !in selectedSet }
+                    val reordered = dao.reorderChapterPairs(editionBookId, snapshot.chapters.map { it.id }, completeOrder)
+                    check(reordered == ChapterReorderResult.APPLIED || reordered == ChapterReorderResult.UNCHANGED) {
+                        "Submitted chapter order changed during import"
+                    }
+                }
+                imported = SubmittedImport(SubmittedImportResult.IMPORTED, editionBookId, sourceId)
             }
-        )
-        // An explicit add is a user action: a tombstone of the Work is cleared.
-        dao.deleteTombstone(workId.ifBlank { editionBookId })
-        SubmittedImport(SubmittedImportResult.IMPORTED, editionBookId, sourceId)
+            val result = requireNotNull(imported)
+            if (result.result == SubmittedImportResult.IMPORTED && !explicitOrder.isNullOrEmpty()) {
+                val bookId = requireNotNull(result.bookId)
+                onChapterOrderCommitted(bookId, dao.getChapterPlaybackSnapshot(bookId).chapters.map { it.id })
+            }
+            result
+        }
     }
 
     /**
@@ -1677,20 +1772,16 @@ class LibraryImport(
      * Room. The user reviews and edits this plan; only [applyImportPlan]
      * writes.
      */
-    suspend fun planLocalAudioFolder(
-        treeUri: Uri,
-        // #1052 — the listener's answer to «що означає вибрана тека?»: a
-        // container of books (default), or the book itself.
-        rootFilesAsOneBook: Boolean = false
-    ): ImportPlan = withContext(Dispatchers.IO) {
+    suspend fun planLocalAudioFolder(treeUri: Uri): ImportPlan = withContext(Dispatchers.IO) {
         val ctx = context ?: throw IllegalStateException("planLocalAudioFolder called without Context")
         val entries = LocalFolderScanner.scan(ctx, treeUri)
         val works = dao.getAllAudiobooksOnce().map { ImportPlanner.ExistingWork(id = it.id, title = it.title, mergeKey = it.mergeKey ?: "") }
         ImportPlanner.buildPlan(
-            source = SourceRef.Folder(treeUri.toString()),
+            source = ImportGrantStore(ctx).folder(treeUri.toString()).copy(
+                displayName = androidx.documentfile.provider.DocumentFile.fromTreeUri(ctx, treeUri)?.name
+            ),
             entries = entries,
-            existingWorks = works,
-            rootFilesAsOneBook = rootFilesAsOneBook
+            existingWorks = works
         )
     }
 
@@ -1707,272 +1798,248 @@ class LibraryImport(
      */
     suspend fun applyImportPlan(plan: ImportPlan, sourceTreeUri: String? = null): LocalImportResult =
         withContext(Dispatchers.IO) {
-        // #618 — the plan door writes local Editions too: it shares the ONE
-        // local-write lock and sweeps stale staging leftovers like the direct
-        // import and the rescan.
-        localWriteMutex.withLock {
-            cleanupStaging()
-            var booksImported = 0
-            var filesImported = 0
-            var skippedFiles = 0
-            var duplicateFiles = 0
-            val seenHashes = mutableSetOf<String>()
+            // #618 — the plan door writes local Editions too: it shares the ONE
+            // local-write lock and sweeps stale staging leftovers like the direct
+            // import and the rescan.
+            localWriteMutex.withLock {
+                cleanupStaging()
+                var booksImported = 0
+                var filesImported = 0
+                var skippedFiles = 0
+                var duplicateFiles = 0
+                val seenHashes = mutableSetOf<String>()
+                val folder = plan.source as? SourceRef.Folder
+                val treeUri = sourceTreeUri ?: folder?.treeUri ?: (plan.source as? SourceRef.Rescan)?.treeUri
+                val grouping = folder?.grouping ?: LocalFolderGrouping.SEPARATE_BOOKS
 
-            suspend fun copyUnlessDuplicate(
-                baseName: String,
-                chapterTitle: String,
-                extension: String,
-                openStream: () -> java.io.InputStream
-            ): LocalChapterInput? {
-                val dest = try {
-                    copyLocalAudioStream(baseName, extension, openStream())
-                } catch (e: Exception) {
-                    Log.w("AudiobookRepo", "Plan import failed", e)
-                    skippedFiles++
-                    return null
-                }
-                if (!seenHashes.add(dest.sha256Hex) || dao.getTrackByContentHash(dest.sha256Hex) != null) {
-                    File(dest.path).delete()
-                    duplicateFiles++
-                    return null
-                }
-                return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
-            }
-
-            for (book in plan.books) {
-                val targetBookId = book.mergedIntoBookId
-                val chapters = mutableListOf<LocalChapterInput>()
-                for (chapter in book.chapters) {
-                    val chapterTitle = chapter.title.ifBlank { "Розділ ${chapters.size + 1}" }
-                    val base = sanitizeLocalBaseName(chapter.file.fileName)
-                    val copied = copyUnlessDuplicate(
-                        if (targetBookId != null) "$targetBookId-$base" else "${book.title}-$base",
-                        chapterTitle,
-                        localFileExtension(chapter.file.fileName),
-                        chapter.file.openStream
-                    ) ?: continue
-                    chapters += copied
-                    filesImported++
-                }
-                if (chapters.isEmpty()) continue
-
-                if (targetBookId != null) {
-                    // #54 merge: attach the local source to the existing Work —
-                    // no new card, chapters join the existing book's logical
-                    // chapter list, and the tracks carry the copied files
-                    // (ADR-0007: download state lives on tracks, never on
-                    // chapter rows). The Edition is the existing book's
-                    // rendition; a local source already present is reused so
-                    // the merged tracks form one contiguous track list.
-                    val existing = dao.getAudiobookById(targetBookId)
-                    val baseIndex = existing?.totalChapters ?: 0
-                    val storedEdition = dao.getEditionForWork(targetBookId)
-                    val editionId = storedEdition?.id ?: EditionId.forBook(
-                        existing?.mergeKey ?: "", targetBookId, existing?.narrator ?: ""
-                    )
-                    if (storedEdition == null) {
-                        dao.insertEdition(
-                            EditionEntity(
-                                id = editionId,
-                                workId = targetBookId,
-                                narrator = existing?.narrator ?: "",
-                                totalChapters = (baseIndex + chapters.size),
-                                totalDurationSeconds = 0L
-                            )
-                        )
+                suspend fun copyUnlessDuplicate(
+                    baseName: String,
+                    chapterTitle: String,
+                    extension: String,
+                    openStream: () -> java.io.InputStream,
+                    onDuplicate: suspend (String) -> Unit
+                ): LocalChapterInput? {
+                    val dest = try {
+                        copyLocalAudioStream(baseName, extension, openStream())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("AudiobookRepo", "Plan import failed", e)
+                        skippedFiles++
+                        return null
                     }
-                    val localSource = dao.getSourcesForBookSync(targetBookId).firstOrNull { it.type == "local" }
-                        ?: SourceEntity(
-                            id = "local-$editionId",
-                            bookId = targetBookId,
-                            editionId = editionId,
-                            type = "local",
-                            url = "",
-                            streamOnly = false,
-                            addedAt = System.currentTimeMillis()
-                        ).also { dao.insertSources(listOf(it)) }
-                    dao.insertChapters(
-                        chapters.mapIndexed { index, chapter ->
-                            ChapterEntity(
-                                id = "$targetBookId-ch${baseIndex + index + 1}",
-                                bookId = targetBookId,
-                                editionId = editionId,
-                                chapterIndex = baseIndex + index,
-                                title = chapter.title,
-                                durationSeconds = 0L
-                            )
+                    try {
+                        if (!seenHashes.add(dest.sha256Hex) || dao.getTrackByContentHash(dest.sha256Hex) != null) {
+                            onDuplicate(dest.sha256Hex)
+                            File(dest.path).delete()
+                            duplicateFiles++
+                            return null
                         }
-                    )
-                    dao.insertTracks(
-                        chapters.mapIndexed { index, chapter ->
-                            SourceTrackEntity(
-                                id = MetadataAssertions.trackId(localSource.id, baseIndex + index),
-                                sourceId = localSource.id,
-                                trackIndex = baseIndex + index,
-                                url = chapter.filePath,
-                                localFilePath = chapter.filePath,
-                                contentHash = chapter.contentHash,
-                                isDownloaded = true
-                            )
-                        }
-                    )
-                } else {
-                    insertLocalBook(
-                        title = book.title.ifBlank { "Аудіокнига" },
-                        author = book.author.ifBlank { LOCAL_FILE_AUTHOR },
-                        description = "Імпортовано через прев'ю — ${chapters.size} файл(ів)",
-                        chapters = chapters,
-                        sourceTreeUri = sourceTreeUri
-                    )
-                    booksImported++
+                    } catch (e: Exception) {
+                        File(dest.path).delete()
+                        seenHashes.remove(dest.sha256Hex)
+                        throw e
+                    }
+                    return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
                 }
-            }
 
-            // Persist the plan's corrections (MERGE / SPLIT / NEVER_MATCH /
-            // FIELD) — the preview decisions become remembered, synced memory.
-            for (correction in plan.corrections) {
-                if (correction.mergeKey.isBlank()) continue
-                dao.upsertCorrection(
-                    CorrectionEntity(
-                        mergeKey = correction.mergeKey,
-                        kind = correction.kind,
-                        value = correction.value,
-                        origin = correction.origin
+                suspend fun ownsLocalHash(bookId: String, hash: String): Boolean {
+                    val track = dao.getTrackByContentHash(hash) ?: return false
+                    val source = dao.getSourceById(track.sourceId) ?: return false
+                    return source.type == "local" && source.bookId == bookId
+                }
+
+                suspend fun rememberMergedOrigin(
+                    bookId: String,
+                    copiedFiles: List<FolderRescan.RescanFile>,
+                    duplicateObservations: List<FolderRescan.RescanFile>
+                ) {
+                    val tree = treeUri ?: return
+                    // Recheck ownership inside the write transaction. A global
+                    // duplicate from another book never grants this folder.
+                    val verified = duplicateObservations.filter { ownsLocalHash(bookId, it.contentHash) }
+                    val files = copiedFiles + verified
+                    if (files.isNotEmpty()) LocalFolderMemory(dao).remember(
+                        bookId, LocalFolderOrigin(tree, grouping, files)
                     )
+                }
+
+                for (book in plan.books) {
+                    val targetBookId = book.mergedIntoBookId
+                    val chapters = mutableListOf<LocalChapterInput>()
+                    val copiedEntries = mutableListOf<LocalAudioEntry>()
+                    val duplicateEntries = mutableListOf<FolderRescan.RescanFile>()
+                    val skippedBefore = skippedFiles
+                    val duplicatesBefore = duplicateFiles
+                    try {
+                        for (chapter in book.chapters) {
+                            val chapterTitle = chapter.title.ifBlank { "Розділ ${chapters.size + 1}" }
+                            val base = sanitizeLocalBaseName(chapter.file.fileName)
+                            val copied = copyUnlessDuplicate(
+                                if (targetBookId != null) "$targetBookId-$base" else "${book.title}-$base",
+                                chapterTitle,
+                                localFileExtension(chapter.file.fileName),
+                                chapter.file.openStream
+                            ) { hash ->
+                                if (targetBookId != null && ownsLocalHash(targetBookId, hash)) {
+                                    duplicateEntries += FolderRescan.RescanFile(
+                                        chapter.file.fileName, chapter.file.parentFolder, hash
+                                    )
+                                }
+                            } ?: continue
+                            chapters += copied
+                            copiedEntries += chapter.file
+                        }
+                        val copiedFiles = copiedEntries.zip(chapters).map { (entry, copied) ->
+                            FolderRescan.RescanFile(entry.fileName, entry.parentFolder, copied.contentHash)
+                        }
+                        if (chapters.isEmpty()) {
+                            if (targetBookId != null && duplicateEntries.isNotEmpty()) writeBatchRunner {
+                                requireNotNull(dao.getAudiobookById(targetBookId)) { "Merge target was removed" }
+                                check(!dao.isBookTombstoned(targetBookId)) { "Merge target was removed" }
+                                rememberMergedOrigin(targetBookId, emptyList(), duplicateEntries)
+                            }
+                            continue
+                        }
+
+                        val origin = treeUri?.let { LocalFolderOrigin(it, grouping, copiedFiles) }
+                        if (targetBookId != null) {
+                            writeBatchRunner {
+                                // #54 merge: attach the local source to the existing Work —
+                                // no new card, chapters join the existing book's logical
+                                // chapter list, and the tracks carry the copied files
+                                // (ADR-0007: download state lives on tracks, never on
+                                // chapter rows). The Edition is the existing book's
+                                // rendition; a local source already present is reused so
+                                // the merged tracks form one contiguous track list.
+                                val existing = requireNotNull(dao.getAudiobookById(targetBookId)) { "Merge target was removed" }
+                                check(!dao.isBookTombstoned(targetBookId)) { "Merge target was removed" }
+                                val baseIndex = dao.getChaptersListForBook(targetBookId).size
+                                val storedEdition = dao.getEditionForWork(targetBookId)
+                                val editionId = storedEdition?.id ?: EditionId.forBook(
+                                    existing.mergeKey ?: "", targetBookId, existing.narrator
+                                )
+                                if (storedEdition == null) {
+                                    dao.insertEdition(
+                                        EditionEntity(
+                                            id = editionId,
+                                            workId = targetBookId,
+                                            narrator = existing.narrator,
+                                            totalChapters = (baseIndex + chapters.size),
+                                            totalDurationSeconds = 0L
+                                        )
+                                    )
+                                }
+                                val localSource = dao.getSourcesForBookSync(targetBookId).firstOrNull { it.type == "local" }
+                                    ?: SourceEntity(
+                                        id = "local-$editionId",
+                                        bookId = targetBookId,
+                                        editionId = editionId,
+                                        type = "local",
+                                        url = "",
+                                        streamOnly = false,
+                                        addedAt = System.currentTimeMillis()
+                                    ).also { dao.insertSources(listOf(it)) }
+                                dao.insertChapters(
+                                    chapters.mapIndexed { index, chapter ->
+                                        ChapterEntity(
+                                            id = "$targetBookId-ch${baseIndex + index + 1}",
+                                            bookId = targetBookId,
+                                            editionId = editionId,
+                                            chapterIndex = baseIndex + index,
+                                            title = chapter.title,
+                                            durationSeconds = 0L
+                                        )
+                                    }
+                                )
+                                dao.insertTracks(
+                                    chapters.mapIndexed { index, chapter ->
+                                        SourceTrackEntity(
+                                            id = MetadataAssertions.trackId(localSource.id, baseIndex + index),
+                                            sourceId = localSource.id,
+                                            trackIndex = baseIndex + index,
+                                            url = chapter.filePath,
+                                            localFilePath = chapter.filePath,
+                                            contentHash = chapter.contentHash,
+                                            isDownloaded = true
+                                        )
+                                    }
+                                )
+                                dao.updateBookStats(targetBookId, baseIndex + chapters.size, existing.totalDurationSeconds)
+                                storedEdition?.let { dao.insertEdition(it.copy(totalChapters = baseIndex + chapters.size)) }
+                                rememberMergedOrigin(targetBookId, copiedFiles, duplicateEntries)
+                            }
+                        } else {
+                            insertLocalBook(
+                                title = book.title.ifBlank { "Аудіокнига" },
+                                author = book.author,
+                                description = "Імпортовано через прев'ю — ${chapters.size} файл(ів)",
+                                chapters = chapters,
+                                sourceTreeUri = treeUri,
+                                narrator = book.narrator,
+                                seriesTitle = book.seriesTitle,
+                                seriesIndex = book.seriesIndex,
+                                folderOrigin = origin
+                            )
+                            booksImported++
+                        }
+                        filesImported += chapters.size
+                    } catch (e: Exception) {
+                        chapters.forEach { File(it.filePath).delete(); seenHashes.remove(it.contentHash) }
+                        if (e is CancellationException) throw e
+                        // No file of this book committed. Count unreadable,
+                        // rolled-back and unattempted files once; known duplicates
+                        // retain their separate outcome.
+                        skippedFiles = skippedBefore + book.chapters.size - (duplicateFiles - duplicatesBefore)
+                        Log.w("AudiobookRepo", "Confirmed local book rolled back", e)
+                    }
+                }
+                if (folder != null && (filesImported > 0 || duplicateFiles > 0)) {
+                    context?.let { ImportGrantStore(it).addFolder(folder) }
+                }
+
+                // Persist the plan's corrections (MERGE / SPLIT / NEVER_MATCH /
+                // FIELD) — the preview decisions become remembered, synced memory.
+                for (correction in plan.corrections) {
+                    if (correction.mergeKey.isBlank()) continue
+                    dao.upsertCorrection(
+                        CorrectionEntity(
+                            mergeKey = correction.mergeKey,
+                            kind = correction.kind,
+                            value = correction.value,
+                            origin = correction.origin
+                        )
+                    )
+                }
+
+                LocalImportResult(
+                    booksImported = booksImported,
+                    filesImported = filesImported,
+                    skippedFiles = skippedFiles,
+                    duplicateFiles = duplicateFiles
                 )
             }
-
-            LocalImportResult(
-                booksImported = booksImported,
-                filesImported = filesImported,
-                skippedFiles = skippedFiles,
-                duplicateFiles = duplicateFiles
-            )
-        }
         }
 
     /**
      * Core of the local import (T7 single-file + Block 4 folder): groups the
      * scanned files and materialises them as books in Room.
      *
-     * Grouping rule: files at the root of the picked tree become one
-     * single-chapter book each (exactly like the single-file import); every
-     * sub-folder becomes one multi-chapter book whose chapters are its audio
-     * files sorted naturally by file name (track1 → track2 → … → track10).
+     * Uses the persisted folder choice: root files are one book or separate
+     * books (the default), while every sub-folder remains a book. Planning,
+     * direct import and rescan share natural sorting and grouping.
      * Unreadable files are skipped without failing the whole import.
      *
      * Dedupe (wayfinder #48): a file whose bytes already exist in the library
      * is never copied again — the fresh copy is deleted on the spot and
      * counted in [LocalImportResult.duplicateFiles].
      */
-    suspend fun importAudioEntries(entries: List<LocalAudioEntry>, sourceTreeUri: String? = null): LocalImportResult =
-        withContext(Dispatchers.IO) {
-        // #618 — one local write at a time, with stale staging leftovers swept
-        // first: a pass never races another pass for the same bytes, and a
-        // process death never leaves a readable partial file behind.
-        localWriteMutex.withLock {
-            cleanupStaging()
-            var booksImported = 0
-            var filesImported = 0
-            var skippedFiles = 0
-            var duplicateFiles = 0
-            // Hashes seen earlier in THIS run (same-folder repeated files), so
-            // dedupe is consistent even before the folder's chapters hit the DB.
-            val seenHashes = mutableSetOf<String>()
-
-            // Copy-then-hash; when the bytes already exist, delete the copy
-            // and report a duplicate instead of a new chapter. `baseName` is
-            // the copied-file stem; `chapterTitle` is what users see.
-            suspend fun copyUnlessDuplicate(
-                baseName: String,
-                chapterTitle: String,
-                extension: String,
-                openStream: () -> java.io.InputStream
-            ): LocalChapterInput? {
-                val dest = try {
-                    copyLocalAudioStream(baseName, extension, openStream())
-                } catch (e: Exception) {
-                    Log.w("AudiobookRepo", "Local import failed", e)
-                    skippedFiles++
-                    return null
-                }
-                if (!seenHashes.add(dest.sha256Hex) || dao.getTrackByContentHash(dest.sha256Hex) != null) {
-                    File(dest.path).delete()
-                    duplicateFiles++
-                    return null
-                }
-                return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
-            }
-
-            // 1) Loose files at the tree root → one single-chapter book each.
-            for (entry in entries.filter { it.parentFolder.isNullOrBlank() }) {
-                val base = sanitizeLocalBaseName(entry.fileName)
-                val chapter = copyUnlessDuplicate(base, base, localFileExtension(entry.fileName), entry.openStream)
-                    ?: continue
-                try {
-                    insertLocalBook(
-                        title = base,
-                        author = LOCAL_FILE_AUTHOR,
-                        description = "Імпортований аудіофайл: ${entry.fileName}",
-                        chapters = listOf(chapter),
-                        sourceTreeUri = sourceTreeUri
-                    )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // #618 — a failed Edition rolls back alone; the copies of
-                    // other Editions stay committed. Its file was removed by
-                    // the rollback, so the hash is free for a retry.
-                    Log.w("AudiobookRepo", "Local book import rolled back", e)
-                    seenHashes.remove(chapter.contentHash)
-                    continue
-                }
-                booksImported++
-                filesImported++
-            }
-
-            // 2) Each sub-folder → one book; files become naturally-sorted chapters.
-            for ((folder, files) in entries.filter { !it.parentFolder.isNullOrBlank() }.groupBy { it.parentFolder }) {
-                if (folder.isNullOrBlank()) continue
-                // Title from the last path segment so a relative path like
-                // "SeriesA/Кобзар" still yields a clean "Кобзар" book name.
-                val bookTitle = sanitizeLocalBaseName(folder.substringAfterLast('/')).ifBlank { "Аудіокнига" }
-                val chapters = mutableListOf<LocalChapterInput>()
-                for (entry in files.sortedWith(Comparator { a, b -> compareNatural(a.fileName, b.fileName) })) {
-                    val chapterTitle = sanitizeLocalBaseName(entry.fileName).ifBlank { entry.fileName }
-                    val chapter = copyUnlessDuplicate("$bookTitle-$chapterTitle", chapterTitle, localFileExtension(entry.fileName), entry.openStream)
-                        ?: continue
-                    chapters.add(chapter)
-                }
-                if (chapters.isNotEmpty()) {
-                    try {
-                        insertLocalBook(
-                            title = bookTitle,
-                            author = LOCAL_FOLDER_AUTHOR,
-                            description = "Імпортовано з папки «$folder» — ${chapters.size} файл(ів)",
-                            chapters = chapters,
-                            sourceTreeUri = sourceTreeUri
-                        )
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w("AudiobookRepo", "Local folder import rolled back", e)
-                        chapters.forEach { seenHashes.remove(it.contentHash) }
-                        continue
-                    }
-                    booksImported++
-                    filesImported += chapters.size
-                }
-            }
-
-            LocalImportResult(
-                booksImported = booksImported,
-                filesImported = filesImported,
-                skippedFiles = skippedFiles,
-                duplicateFiles = duplicateFiles
-            )
-        }
-        }
+    suspend fun importAudioEntries(entries: List<LocalAudioEntry>, sourceTreeUri: String? = null): LocalImportResult {
+        val source = sourceTreeUri?.let { tree -> context?.let { ImportGrantStore(it).folder(tree) } ?: SourceRef.Folder(tree) }
+            ?: SourceRef.Files(emptyList())
+        val plan = ImportPlanner.buildPlan(source, entries)
+        return applyImportPlan(plan.copy(books = plan.books.map { it.copy(narrator = "Локальний аудіофайл") }), sourceTreeUri)
+    }
 
     /** Strips the extension and unsafe characters from a file/folder display name. */
     private fun sanitizeLocalBaseName(displayName: String): String {
@@ -2006,7 +2073,7 @@ class LibraryImport(
         // Unique suffix (counter-based, unlike the old timestamp-only one) so
         // rapid folder imports never collide within the same millisecond. The
         // original extension is preserved so ExoPlayer detects the container.
-        val fileName = "$baseName-${localImportSeq.incrementAndGet()}.$extension"
+        val fileName = "${sanitizeLocalBaseName(baseName)}-${localImportSeq.incrementAndGet()}.$extension"
         val destFile = File(audioDir, fileName)
         val stagedFile = File(stagingDir, fileName)
         val digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -2071,12 +2138,17 @@ class LibraryImport(
         author: String,
         description: String,
         chapters: List<LocalChapterInput>,
-        sourceTreeUri: String? = null
+        sourceTreeUri: String? = null,
+        narrator: String = "Локальний аудіофайл",
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null,
+        folderOrigin: LocalFolderOrigin? = null
     ): AudiobookEntity {
         var created: AudiobookEntity? = null
         try {
             writeBatchRunner {
-                created = writeLocalBookRows(title, author, description, chapters, sourceTreeUri)
+                created = writeLocalBookRows(title, author, description, chapters, sourceTreeUri, narrator, seriesTitle, seriesIndex)
+                folderOrigin?.let { LocalFolderMemory(dao).remember(created!!.id, it) }
             }
         } catch (e: Exception) {
             // Roll back the promoted copies of THIS attempt; a cleanup failure
@@ -2092,7 +2164,10 @@ class LibraryImport(
         author: String,
         description: String,
         chapters: List<LocalChapterInput>,
-        sourceTreeUri: String? = null
+        sourceTreeUri: String? = null,
+        narrator: String = "Локальний аудіофайл",
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null
     ): AudiobookEntity {
         val bookId = "local-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
         // ADR-0009: downloadProgress is a Library Entry concern — written to
@@ -2101,7 +2176,7 @@ class LibraryImport(
             id = bookId,
             title = title,
             author = author,
-            narrator = "Локальний аудіофайл",
+            narrator = narrator,
             description = description,
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
             coverImageUrl = null,
@@ -2114,6 +2189,9 @@ class LibraryImport(
             sourceTreeUri = sourceTreeUri
         )
         dao.insertAudiobooks(listOf(book))
+        if (!seriesTitle.isNullOrBlank()) {
+            dao.upsertWork(WorkEntity(id = bookId, mergeKey = "", title = title, author = author, seriesTitle = seriesTitle, seriesIndex = seriesIndex))
+        }
         // ADR-0009: a local book is a Library Entry anchored to its own id
         // (blank identity — no Works row), carrying the download progress the
         // audiobooks row no longer holds.
@@ -2182,23 +2260,6 @@ class LibraryImport(
         return book
     }
 
-    /** Natural (human) file-name comparison: track2 < track10. */
-    private fun compareNatural(a: String, b: String): Int {
-        val chunksA = SPLIT_CHUNKS.findAll(a.lowercase()).map { it.value }.toList()
-        val chunksB = SPLIT_CHUNKS.findAll(b.lowercase()).map { it.value }.toList()
-        for (i in 0 until minOf(chunksA.size, chunksB.size)) {
-            val ca = chunksA[i]
-            val cb = chunksB[i]
-            val cmp = if (ca.first().isDigit() && cb.first().isDigit()) {
-                (ca.toLongOrNull() ?: 0L).compareTo(cb.toLongOrNull() ?: 0L)
-            } else {
-                ca.compareTo(cb)
-            }
-            if (cmp != 0) return cmp
-        }
-        return chunksA.size - chunksB.size
-    }
-
     private fun queryDisplayName(ctx: Context, uri: Uri): String? = try {
         ctx.contentResolver.query(
             uri,
@@ -2229,7 +2290,9 @@ class LibraryImport(
          * nothing, so the listener sees an explicit result instead of a
          * reordered Edition.
          */
-        val structuralChangeRejected: Boolean = false
+        val structuralChangeRejected: Boolean = false,
+        /** Unreadable, failed-to-copy or changed-between-reads files; never duplicates. */
+        val skippedFiles: Int = 0
     )
 
     /**
@@ -2240,56 +2303,6 @@ class LibraryImport(
      * The library entry and its private copies survive every outcome
      * (wayfinder #59): nothing here ever deletes a row or a file.
      */
-    /**
-     * #1049 — applies the listener's chapter order to an ALREADY ADDED book.
-     *
-     * An INDEX SWAP, never a rebuild: the repair door
-     * ([AudiobookDao.replaceConfirmedChapterStructure]) deletes progress and
-     * bookmarks first, which is right when the structure is wrong and wrong
-     * when the listener merely moved a chapter. Here the stored chapters stay
-     * the same rows; only where they sit changes, so the listener keeps the
-     * place they were listening from.
-     *
-     * The track order is derived from the chapter order through the stored
-     * rows, so the caller passes ONE list and cannot desynchronise the pairing
-     * ADR-0007 depends on. Returns false when the order is not a permutation of
-     * what is stored, or when a chapter has no track to travel with — refusing
-     * beats half-moving a book.
-     */
-    suspend fun reorderAddedBookChapters(
-        bookId: String,
-        chapterIdsInOrder: List<String>
-    ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val chapters = dao.getChaptersListForBook(bookId)
-            if (chapters.size < 2) return@withContext false
-            val byId = chapters.associateBy { it.id }
-            // A partial list would silently drop chapters; an unknown id would
-            // move something that does not exist.
-            if (chapterIdsInOrder.size != chapters.size) return@withContext false
-            if (chapterIdsInOrder.any { it !in byId }) return@withContext false
-            if (chapters.any { it.id !in chapterIdsInOrder.toSet() }) return@withContext false
-
-            val orderedChapters = chapterIdsInOrder.map { byId.getValue(it) }
-            val allTracks = dao.getTracksForBookSync(bookId)
-            val tracksInOrder = orderedChapters.mapNotNull { chapter ->
-                allTracks.firstOrNull { it.trackIndex == chapter.chapterIndex }
-            }
-            // Every chapter must bring its track: moving a chapter without one
-            // would leave that track pointing at another chapter's audio.
-            if (tracksInOrder.size != orderedChapters.size) return@withContext false
-
-            dao.reorderChaptersByIndex(
-                chapterIdsInOrder = orderedChapters.map { it.id },
-                trackIdsInOrder = tracksInOrder.map { it.id }
-            )
-            true
-        } catch (e: Exception) {
-            Log.w("AudiobookRepo", "Chapter reorder failed", e)
-            false
-        }
-    }
-
     suspend fun rescanLocalFolder(treeUri: String): RescanReport = withContext(Dispatchers.IO) {
         val ctx = context ?: return@withContext RescanReport(treeUri)
         val entries = runCatching { LocalFolderScanner.scan(ctx, Uri.parse(treeUri)) }.getOrElse {
@@ -2310,145 +2323,266 @@ class LibraryImport(
      */
     suspend fun rescanAudioEntries(entries: List<LocalAudioEntry>, treeUri: String): RescanReport =
         withContext(Dispatchers.IO) {
-        // #618 — a rescan is a local write: serialise it with imports and sweep
-        // stale staging leftovers before it runs.
-        localWriteMutex.withLock {
-        cleanupStaging()
-        // Hash every file once — pure stream read, the re-scan baseline.
-        val scanned = entries.mapNotNull { entry ->
-            val hash = runCatching { contentHashOf(entry.openStream()) }.getOrNull()
-            if (hash.isNullOrBlank()) null else FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
-        }
-        if (scanned.isEmpty()) return@withLock RescanReport(treeUri)
+            // #618 — a rescan is a local write: serialise it with imports and sweep
+            // stale staging leftovers before it runs.
+            localWriteMutex.withLock {
+                cleanupStaging()
+                // Hash every file once — pure stream read, the re-scan baseline.
+                val scanned = entries.mapNotNull { entry ->
+                    val hash = try {
+                        contentHashOf(entry.openStream())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("AudiobookRepo", "Re-scan could not hash ${entry.fileName}", e)
+                        null
+                    }
+                    if (hash.isNullOrBlank()) null else FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
+                }
+                if (scanned.isEmpty()) return@withLock RescanReport(treeUri, skippedFiles = entries.size)
 
-        // ADR-0007: hashes live on the track rows — the library-wide dedupe
-        // pool is every track's content hash.
-        val libraryHashSet = dao.getAllTrackContentHashes().toSet()
-        val existingBooks = dao.getAudiobooksBySourceTree(treeUri)
-        var report = RescanReport(treeUri)
+                // ADR-0007: hashes live on the track rows — the library-wide dedupe
+                // pool is every track's content hash.
+                val libraryHashSet = dao.getAllTrackContentHashes().toSet()
+                val memory = LocalFolderMemory(dao).read(treeUri)
+                val existingBooks = (dao.getAudiobooksBySourceTree(treeUri) +
+                    memory.mapNotNull { dao.getAudiobookById(it.bookId) }).distinctBy { it.id }
+                val folder = context?.let { ImportGrantStore(it).folder(treeUri) } ?: SourceRef.Folder(treeUri)
+                val grouping = folder.grouping
+                val snapshots = existingBooks.associate { it.id to dao.getChapterPlaybackSnapshot(it.id) }
+                val hashOwners = mutableMapOf<String, MutableSet<String>>()
+                val rememberedHashOwners = mutableMapOf<String, MutableSet<String>>()
+                val groupOwners = mutableMapOf<String, MutableSet<String>>()
+                val fileOwners = mutableMapOf<String, MutableSet<String>>()
+                fun own(map: MutableMap<String, MutableSet<String>>, key: String, id: String) {
+                    map.getOrPut(key) { mutableSetOf() }.add(id)
+                }
+                for (lineage in memory) {
+                    lineage.hashes.forEach { own(rememberedHashOwners, it, lineage.bookId) }
+                    lineage.groups.forEach { own(groupOwners, it, lineage.bookId) }
+                    lineage.files.keys.forEach { own(fileOwners, it, lineage.bookId) }
+                }
+                val liveBookIds = existingBooks.filterNot { dao.isBookTombstoned(it.id) }.map { it.id }.toSet()
+                // An explicit re-import owns its physical claims ahead of removal
+                // memory. Keep multiple live owners: a split still needs a choice.
+                fun ownersOfClaim(owners: Set<String>?): Set<String> {
+                    val all = owners.orEmpty()
+                    return all.filter { it in liveBookIds }.toSet().ifEmpty { all }
+                }
+                val rememberedGroupOwners = groupOwners.mapValues { ownersOfClaim(it.value) }
+                for ((id, snapshot) in snapshots) {
+                    if (id !in liveBookIds) continue
+                    val localIds = snapshot.sources.filter { it.type == "local" }.map { it.id }.toSet()
+                    snapshot.tracks.filter { it.sourceId in localIds }.forEach { track ->
+                        track.contentHash?.let { own(hashOwners, it, id) }
+                    }
+                }
+                // A live Source from explicit re-import takes precedence over old
+                // removal memory; absent live tracks, remembered bytes still block
+                // resurrection after a rename or move.
+                fun ownersOfHash(hash: String): Set<String> =
+                    hashOwners[hash]?.takeIf { it.isNotEmpty() } ?: rememberedHashOwners[hash].orEmpty()
+                // Renamed folders can still supply new files: known physical bytes
+                // prove the current folder's owner. A split has several owners, so
+                // an unrecognised new file must never choose a part silently.
+                for (file in scanned) {
+                    val key = LocalImportGrouping.key(file.fileName, file.parentFolder, grouping)
+                    if (key !in rememberedGroupOwners) {
+                        ownersOfHash(file.contentHash).forEach { own(groupOwners, key, it) }
+                    }
+                }
+                fun observedOrigin(bookId: String, files: List<FolderRescan.RescanFile>): LocalFolderOrigin =
+                    LocalFolderOrigin(treeUri, grouping, files, claimedGroups = files.map {
+                        LocalImportGrouping.key(it.fileName, it.parentFolder, grouping)
+                    }.filter { key ->
+                        val owners = rememberedGroupOwners[key].orEmpty()
+                        owners.isEmpty() || bookId in owners
+                    }.toSet())
 
-        // Same grouping as the import: root files are single-chapter books,
-        // each sub-folder is one multi-chapter book by its last path segment.
-        val groups = scanned.groupBy { file ->
-            file.parentFolder?.let { "folder:$it" } ?: "root:${sanitizeLocalBaseName(file.fileName)}"
-        }
-        for ((groupKey, files) in groups) {
-            val isRoot = groupKey.startsWith("root:")
-            val title = if (isRoot) groupKey.removePrefix("root:")
-            else files.first().parentFolder?.substringAfterLast('/')?.let { sanitizeLocalBaseName(it) }.orEmpty()
-            // #612 — a removed Work stays removed: the rescan never
-            // resurrects a tombstoned book and never clears its marker.
-            if (existingBooks.any { it.title == title && dao.isBookTombstoned(it.id) }) continue
-            val book = existingBooks.firstOrNull { it.title == title }
-
-            if (book == null) {
-                // A book the library doesn't know from this tree yet: copy its
-                // files through the shared dedupe core, then create the book.
-                val newInputs = mutableListOf<LocalChapterInput>()
-                for (file in files) {
+                var report = RescanReport(treeUri, skippedFiles = entries.size - scanned.size)
+                suspend fun copyForRescan(file: FolderRescan.RescanFile): LocalChapterInput? {
                     val entry = entries.first { it.fileName == file.fileName && it.parentFolder == file.parentFolder }
-                    copyNewLocalChapter(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)?.let { newInputs.add(it) }
+                    return when (val copied = copyNewLocalChapter(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)) {
+                        is LocalChapterCopy.Copied -> copied.input
+                        LocalChapterCopy.Duplicate -> {
+                            report = report.copy(duplicateFiles = report.duplicateFiles + 1)
+                            null
+                        }
+                        LocalChapterCopy.Skipped -> {
+                            report = report.copy(skippedFiles = report.skippedFiles + 1)
+                            null
+                        }
+                    }
                 }
-                if (newInputs.isEmpty()) {
-                    report = report.copy(duplicateFiles = report.duplicateFiles + files.size)
-                    continue
+                suspend fun copyGroup(files: List<FolderRescan.RescanFile>): List<LocalChapterInput> {
+                    val inputs = mutableListOf<LocalChapterInput>()
+                    try {
+                        for (file in files) copyForRescan(file)?.let { inputs.add(it) }
+                        return inputs
+                    } catch (e: Exception) {
+                        inputs.forEach { input -> runCatching { File(input.filePath).delete() } }
+                        throw e
+                    }
                 }
-                val created = try {
-                    insertLocalBook(
-                        title = title,
-                        author = LOCAL_FOLDER_AUTHOR,
-                        description = "Імпортовано з папки «${files.first().parentFolder ?: title}» — ${newInputs.size} файл(ів)",
-                        chapters = newInputs,
-                        sourceTreeUri = treeUri
+                val groups = linkedMapOf<String, MutableList<FolderRescan.RescanFile>>()
+                existingBooks.forEach { groups["book:${it.id}"] = mutableListOf() }
+                val seenLiveHashes = mutableSetOf<String>()
+                for (file in scanned.sortedWith { a, b -> LocalImportGrouping.compareNatural(
+                    LocalImportGrouping.fileKey(a.fileName, a.parentFolder), LocalImportGrouping.fileKey(b.fileName, b.parentFolder)
+                ) }) {
+                    if (!seenLiveHashes.add(file.contentHash)) {
+                        report = report.copy(duplicateFiles = report.duplicateFiles + 1)
+                        continue
+                    }
+                    val key = LocalImportGrouping.key(file.fileName, file.parentFolder, grouping)
+                    val path = LocalImportGrouping.fileKey(file.fileName, file.parentFolder)
+                    val legacyTitle = if (key.startsWith("root:")) file.fileName.substringBeforeLast('.').trim()
+                        else file.parentFolder?.substringAfterLast('/').orEmpty()
+                    val owners = ownersOfHash(file.contentHash).takeIf { it.isNotEmpty() }
+                        ?: ownersOfClaim(fileOwners[path]).takeIf { it.isNotEmpty() }
+                        ?: ownersOfClaim(groupOwners[key]).takeIf { it.isNotEmpty() }
+                        ?: existingBooks.filter { book -> memory.none { it.bookId == book.id } && book.title == legacyTitle }
+                            .map { it.id }.toSet()
+                    if (owners.size > 1) {
+                        report = report.copy(structuralChangeRejected = true)
+                        continue
+                    }
+                    val destination = owners.singleOrNull()?.let { "book:$it" } ?: "new:$key"
+                    groups.getOrPut(destination) { mutableListOf() }.add(file)
+                }
+                for ((destination, files) in groups) {
+                    val book = if (destination.startsWith("book:")) existingBooks.firstOrNull { it.id == destination.removePrefix("book:") } else null
+                    // Provenance of a removed book remains a barrier to resurrection.
+                    if (destination.startsWith("book:") && (book == null || dao.isBookTombstoned(book.id))) continue
+                    val groupKey = destination.removePrefix("new:")
+                    val title = if (groupKey == LocalImportGrouping.ROOT_BOOK) folder.displayName.orEmpty().ifBlank { "Аудіокнига" }
+                        else if (groupKey.startsWith("root:")) files.first().fileName.substringBeforeLast('.').trim()
+                        else groupKey.removePrefix("folder:").substringAfterLast('/')
+
+
+                    if (book == null) {
+                        // A book the library doesn't know from this tree yet: copy its
+                        // files through the shared dedupe core, then create the book.
+                        val newInputs = copyGroup(files)
+                        if (newInputs.isEmpty()) continue
+                        val created = try {
+                            insertLocalBook(
+                                title = title,
+                                author = LOCAL_FOLDER_AUTHOR,
+                                description = "Імпортовано з папки «${files.first().parentFolder ?: title}» — ${newInputs.size} файл(ів)",
+                                chapters = newInputs,
+                                sourceTreeUri = treeUri,
+                                folderOrigin = LocalFolderOrigin(treeUri, grouping, files.filter { file -> newInputs.any { it.contentHash == file.contentHash } })
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // #618 — one Edition's rollback never aborts the rescan.
+                            Log.w("AudiobookRepo", "Re-scan new book rolled back", e)
+                            continue
+                        }
+                        report = report.copy(
+                            newBooks = report.newBooks + 1,
+                            newChapters = report.newChapters + newInputs.size
+                        )
+                        updateFingerprintFor(created.id)
+                        continue
+                    }
+
+                    // Known book: diff its stored tracks against this group's live
+                    // files (ADR-0007: the physical playback data lives on tracks).
+                    // #612 — the baseline is the EXACT local Source: chapters are
+                    // Edition-owned, but a mixed-Source Edition's direct tracks are
+                    // never the baseline, and a chapter index alone is no identity.
+                    val snapshot = snapshots.getValue(book.id)
+                    val localSource = snapshot.sources.firstOrNull { it.type == "local" }
+                    val localTracks = snapshot.tracks.filter { it.sourceId == localSource?.id }
+                    val chapters = snapshot.chapters
+                    val storedTracks = chapters.map { ch ->
+                        FolderRescan.StoredTrack(
+                            title = ch.title,
+                            contentHash = localTracks.firstOrNull { it.trackIndex == ch.chapterIndex }?.contentHash
+                        )
+                    }
+                    val diff = FolderRescan.computeDiff(storedTracks, libraryHashSet, files)
+                    val lineage = memory.firstOrNull { it.bookId == book.id }
+                    val missing = if (lineage == null) diff.missingTracks else diff.missingTracks.filter { it.contentHash in lineage.hashes }
+                    val moved = if (lineage == null) diff.movedFiles else files.filter { file ->
+                        localTracks.any { it.contentHash == file.contentHash } &&
+                            file.contentHash !in lineage.files[LocalImportGrouping.fileKey(file.fileName, file.parentFolder)].orEmpty()
+                    }
+                    report = report.copy(
+                        missingFiles = report.missingFiles + missing.size,
+                        movedFiles = report.movedFiles + moved.size,
+                        duplicateFiles = report.duplicateFiles + diff.duplicateFiles.size
                     )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // #618 — one Edition's rollback never aborts the rescan.
-                    Log.w("AudiobookRepo", "Re-scan new book rolled back", e)
-                    continue
+                    if (diff.newFiles.isEmpty()) {
+                        val proven = files.filter { file -> localTracks.any { it.contentHash == file.contentHash } }
+                        val observed = observedOrigin(book.id, proven)
+                        val newProof = proven.filter { file ->
+                            val key = LocalImportGrouping.key(file.fileName, file.parentFolder, grouping)
+                            file.contentHash !in lineage?.files?.get(LocalImportGrouping.fileKey(file.fileName, file.parentFolder)).orEmpty() ||
+                                (key in observed.claimedGroups && key !in lineage?.groups.orEmpty())
+                        }
+                        if (newProof.isNotEmpty()) {
+                            // A rename is a physical observation, not a logical edit.
+                            // Remember it even when no new Chapter is appended.
+                            try {
+                                writeBatchRunner { LocalFolderMemory(dao).remember(book.id, observedOrigin(book.id, newProof)) }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                // A failed observation rolls back only this owner.
+                                // Other books can still receive their new Chapters.
+                                Log.w("AudiobookRepo", "Re-scan provenance rolled back", e)
+                            }
+                        }
+                        continue
+                    }
+
+                    // A structural change needs a proven mapping. On a mixed-Source
+                    // Edition there is none: reject it whole with zero Room writes.
+                    val editionId = dao.getEditionForWork(book.id)?.id
+                    val otherSources = localSource?.let { own ->
+                        dao.getSourcesForBookSync(book.id).filter { source ->
+                            source.id != own.id &&
+                                (source.editionId == null || source.editionId == editionId)
+                        }
+                    }.orEmpty()
+                    if (localSource == null || otherSources.isNotEmpty()) {
+                        // The new files are neither duplicates nor imported — the
+                        // explicit flag is the whole result (ADR-0014: no fake count).
+                        report = report.copy(structuralChangeRejected = true)
+                        continue
+                    }
+
+                    // Local-only Edition: append the new chapters AFTER every stored
+                    // one — existing ids, indices and Listening State stay untouched.
+                    val newInputs = copyGroup(diff.newFiles)
+                    if (newInputs.isEmpty()) continue
+                    try {
+                        appendLocalChapters(book.id, localSource, chapters, newInputs, observedOrigin(book.id, files.filter { file -> localTracks.any { it.contentHash == file.contentHash } || newInputs.any { it.contentHash == file.contentHash } }))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // #618 — the append rolled back alone; the rest of the rescan
+                        // and every already-committed Edition stay intact.
+                        Log.w("AudiobookRepo", "Re-scan append rolled back", e)
+                        continue
+                    }
+                    report = report.copy(newChapters = report.newChapters + newInputs.size)
+                    updateFingerprintFor(book.id, localSource)
                 }
-                report = report.copy(
-                    newBooks = report.newBooks + 1,
-                    newChapters = report.newChapters + newInputs.size,
-                    duplicateFiles = report.duplicateFiles + (files.size - newInputs.size)
-                )
-                updateFingerprintFor(created.id)
-                continue
+                report
             }
-
-            // Known book: diff its stored tracks against this group's live
-            // files (ADR-0007: the physical playback data lives on tracks).
-            // #612 — the baseline is the EXACT local Source: chapters are
-            // Edition-owned, but a mixed-Source Edition's direct tracks are
-            // never the baseline, and a chapter index alone is no identity.
-            val localSource = dao.getSourcesForBookSync(book.id).firstOrNull { it.type == "local" }
-            val localTracks = localSource?.let { dao.getTracksForSourceSync(it.id) }.orEmpty()
-            val chapters = dao.getChaptersListForBook(book.id)
-            val storedTracks = chapters.map { ch ->
-                FolderRescan.StoredTrack(
-                    title = ch.title,
-                    contentHash = localTracks.firstOrNull { it.trackIndex == ch.chapterIndex }?.contentHash
-                )
-            }
-            val diff = FolderRescan.computeDiff(storedTracks, libraryHashSet, files)
-            report = report.copy(
-                missingFiles = report.missingFiles + diff.missingTracks.size,
-                movedFiles = report.movedFiles + diff.movedFiles.size,
-                duplicateFiles = report.duplicateFiles + diff.duplicateFiles.size
-            )
-            if (diff.newFiles.isEmpty()) continue
-
-            // A structural change needs a proven mapping. On a mixed-Source
-            // Edition there is none: reject it whole with zero Room writes.
-            val editionId = dao.getEditionForWork(book.id)?.id
-            val otherSources = localSource?.let { own ->
-                dao.getSourcesForBookSync(book.id).filter { source ->
-                    source.id != own.id &&
-                        (source.editionId == null || source.editionId == editionId)
-                }
-            }.orEmpty()
-            if (localSource == null || otherSources.isNotEmpty()) {
-                // The new files are neither duplicates nor imported — the
-                // explicit flag is the whole result (ADR-0014: no fake count).
-                report = report.copy(structuralChangeRejected = true)
-                continue
-            }
-
-            // Local-only Edition: append the new chapters AFTER every stored
-            // one — existing ids, indices and Listening State stay untouched.
-            val newInputs = mutableListOf<LocalChapterInput>()
-            for (file in diff.newFiles) {
-                val entry = entries.first { it.fileName == file.fileName && it.parentFolder == file.parentFolder }
-                copyNewLocalChapter(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)?.let { newInputs.add(it) }
-            }
-            if (newInputs.isEmpty()) {
-                report = report.copy(duplicateFiles = report.duplicateFiles + diff.newFiles.size)
-                continue
-            }
-            try {
-                appendLocalChapters(book.id, localSource, chapters, newInputs)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // #618 — the append rolled back alone; the rest of the rescan
-                // and every already-committed Edition stay intact.
-                Log.w("AudiobookRepo", "Re-scan append rolled back", e)
-                continue
-            }
-            report = report.copy(newChapters = report.newChapters + newInputs.size)
-            updateFingerprintFor(book.id, localSource)
         }
-        report
-        }
-    }
 
     /**
      * Re-scans every previously imported local tree, best-effort per tree:
      * one dead SAF grant (moved folder) fails that tree alone, never the rest.
      */
     suspend fun rescanAllLocalFolders(): List<RescanReport> = withContext(Dispatchers.IO) {
-        dao.getImportedSourceTrees().map { tree ->
+        (dao.getImportedSourceTrees() + context?.let { ImportGrantStore(it).grantedTreeUris() }.orEmpty()).distinct().map { tree ->
             runCatching { rescanLocalFolder(tree) }.getOrElse {
                 Log.w("AudiobookRepo", "Re-scan failed for $tree", it)
                 RescanReport(tree)
@@ -2456,24 +2590,47 @@ class LibraryImport(
         }
     }
 
-    /** Copies a NEW local file to private storage, deduped against the library. */
+    private sealed interface LocalChapterCopy {
+        data class Copied(val input: LocalChapterInput) : LocalChapterCopy
+        data object Duplicate : LocalChapterCopy
+        data object Skipped : LocalChapterCopy
+    }
+
+    /** Copies only the exact bytes observed by this rescan. */
     private suspend fun copyNewLocalChapter(
         entry: LocalAudioEntry,
         chapterTitle: String,
         contentHash: String
-    ): LocalChapterInput? {
-        // The diff classified it new, but a concurrent import may have landed
-        // the same bytes — never copy twice (ADR-0007: the hash lives on the
-        // track rows).
-        if (dao.getTrackByContentHash(contentHash) != null) return null
+    ): LocalChapterCopy {
+        if (dao.getTrackByContentHash(contentHash) != null) return LocalChapterCopy.Duplicate
         val base = sanitizeLocalBaseName(entry.fileName)
         val dest = try {
             copyLocalAudioStream("$base-re${localImportSeq.incrementAndGet()}", localFileExtension(entry.fileName), entry.openStream())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w("AudiobookRepo", "Re-scan copy failed for ${entry.fileName}", e)
-            return null
+            return LocalChapterCopy.Skipped
         }
-        return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
+        if (dest.sha256Hex != contentHash) {
+            File(dest.path).delete()
+            Log.w("AudiobookRepo", "Re-scan source changed while copying ${entry.fileName}")
+            return LocalChapterCopy.Skipped
+        }
+        // A remote download may have committed while the bytes were copied.
+        // A lookup failure must not leave an untracked promoted file either.
+        try {
+            if (dao.getTrackByContentHash(contentHash) != null) {
+                File(dest.path).delete()
+                return LocalChapterCopy.Duplicate
+            }
+        } catch (e: Exception) {
+            File(dest.path).delete()
+            if (e is CancellationException) throw e
+            Log.w("AudiobookRepo", "Re-scan copy could not be verified", e)
+            return LocalChapterCopy.Skipped
+        }
+        return LocalChapterCopy.Copied(LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex))
     }
 
     /**
@@ -2490,11 +2647,13 @@ class LibraryImport(
         bookId: String,
         localSource: SourceEntity,
         existingChapters: List<ChapterEntity>,
-        newInputs: List<LocalChapterInput>
+        newInputs: List<LocalChapterInput>,
+        folderOrigin: LocalFolderOrigin? = null
     ) {
         try {
             writeBatchRunner {
                 writeAppendedLocalChapters(bookId, localSource, existingChapters, newInputs)
+                folderOrigin?.let { LocalFolderMemory(dao).remember(bookId, it) }
             }
         } catch (e: Exception) {
             // #618 — the append is one transaction: roll the new rows back and
@@ -2608,8 +2767,6 @@ class LibraryImport(
         /** Monotonic counter guaranteeing unique local ids/names within a burst of imports. */
         private val localImportSeq = java.util.concurrent.atomic.AtomicInteger(0)
 
-        /** Splits a file name into numeric and non-numeric chunks for natural sorting. */
-        private val SPLIT_CHUNKS = Regex("""\d+|\D+""")
     }
 }
 

@@ -31,7 +31,7 @@ scripts/run-instrumented-suites.sh com.slukhayka.audiobooks.accessibility.UiSurf
 | `accessibility.MainActivityAccessibilityTest` | вендорський Google ATF на реальному `MainActivity` + подорож accessibility-вузлами |
 | `audio.AudioPlaybackEspressoTest` | бібліотека → тап по картці → сторінка книги → `isPlaying` за 3 с |
 | `accessibility.UiSurfaceAuditTest` | 21 контрольована сцена × `fontScale` 1f і 2f: твірні розміри, перекриття, порожні стани |
-| `accessibility.SettingsNavigationTest` | чотири корені × шестерня → налаштування → BACK; сім маршрутів двома способами повернення; панель не переживає зміну таба |
+| `accessibility.SettingsNavigationTest` | чотири корені × шестерня → налаштування → BACK; сім маршрутів кнопкою, dispatcher та системним Back; IME перед очищенням пошуку; повернення з підрозділу й сторінки колекцій; вихід із кореня |
 | `accessibility.BottomBarLargeTextLayoutTest` | підписи нижнього бару при 200 % тексту (винесено із `SettingsNavigationTest`) |
 
 Перші чотири — це набір тікета **#852**; `BottomBarLargeTextLayoutTest`

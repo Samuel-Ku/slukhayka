@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.accessibility
 
+import android.content.Context
+import android.content.SharedPreferences
+import org.junit.rules.ExternalResource
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
@@ -27,7 +30,7 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * Exercise real routes without changing preferences or library data.
+ * Exercise real routes with the language-onboarding marker restored afterwards.
  *
  * #852: the app asks for `POST_NOTIFICATIONS` on launch
  * ([MainActivity] `onCreate` → `LaunchedEffect`); without the pre-grant the
@@ -39,11 +42,40 @@ import org.junit.Test
  */
 class SettingsNavigationTest {
 
+    // A late initial catalogue sync can show the language-choice sheet over
+    // the route being tested. Its system Back correctly dismisses the sheet,
+    // not that route. Set only the one-time answer marker before Activity
+    // launch; preserve the listener's content languages and restore even an
+    // originally absent marker after the Activity has closed.
     @get:Rule(order = 0)
+    val completedLanguageOnboarding = object : ExternalResource() {
+        private val prefsName = "content_language_prefs"
+        private val answerKey = "bilingual_prompt_answered"
+        private lateinit var prefs: SharedPreferences
+        private var hadAnswer = false
+        private var originalAnswer = false
+
+        override fun before() {
+            prefs = InstrumentationRegistry.getInstrumentation().targetContext
+                .getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            hadAnswer = prefs.contains(answerKey)
+            originalAnswer = prefs.getBoolean(answerKey, false)
+            assertTrue(prefs.edit().putBoolean(answerKey, true).commit())
+        }
+
+        override fun after() {
+            val edit = prefs.edit()
+            if (hadAnswer) edit.putBoolean(answerKey, originalAnswer)
+            else edit.remove(answerKey)
+            assertTrue(edit.commit())
+        }
+    }
+
+    @get:Rule(order = 1)
     val notificationPermission: GrantPermissionRule =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    @get:Rule(order = 1) val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule(order = 2) val rule = createAndroidComposeRule<MainActivity>()
 
     private fun waitFor(tag: String) {
         try {
@@ -198,6 +230,16 @@ class SettingsNavigationTest {
             viewModel.openCuratorProfile("", "Куратор")
         }
         waitFor("curator_profile_page")
+        // Model a late catalogue completion on a fresh install: its language
+        // prompt must be settled before testing the route's own Back handler.
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            val app = com.slukhayka.audiobooks.App.instance
+            app.audiobookDao.insertEdition(com.slukhayka.audiobooks.data.db.EditionEntity(
+                id = "navigation-language-choice", workId = "navigation-language-choice", language = "uk"
+            ))
+            app.firstLanguageChoice.evaluate()
+        }
+        rule.waitForIdle()
         if (gestureNavigation()) {
             cancelSystemBack()
             rule.onNodeWithTag("curator_profile_page").assertIsDisplayed()

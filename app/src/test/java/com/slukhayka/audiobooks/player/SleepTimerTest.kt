@@ -183,8 +183,22 @@ class SleepTimerTest {
             )
             playerManager.setSleepTimer(-1)
 
-            ShadowLooper.idleMainLooper(5, TimeUnit.SECONDS)
-            runCurrent()
+            // #1115 — drive the countdown until the warning is actually
+            // emitted, instead of assuming ONE fixed advance is enough.
+            //
+            // The warning fires from `CountDownTimer.onTick`, and whether a
+            // tick lands inside a given window depends on how the looper is
+            // scheduled — on a loaded CI runner it did not, so the assertion
+            // saw an empty list and the leg went red for a reason that had
+            // nothing to do with the sleep timer. Advancing in one-second
+            // steps, bounded, makes the test wait for the FACT rather than
+            // for a duration.
+            var guard = 0
+            while (notices.isEmpty() && guard < 40) {
+                ShadowLooper.idleMainLooper(1, TimeUnit.SECONDS)
+                runCurrent()
+                guard++
+            }
 
             assertEquals(listOf(SleepTimerNotice.FadeWarning), notices)
         } finally {

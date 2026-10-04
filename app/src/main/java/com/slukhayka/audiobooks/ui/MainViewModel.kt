@@ -1470,6 +1470,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.slukhayka.audiobooks.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * #1066 — whether [libraryBooks] has delivered its FIRST real value yet.
+     *
+     * The list starts as `emptyList()` and fills in asynchronously, so the
+     * screen cannot tell "the library is empty" from "it has not been read
+     * yet" — it showed the empty state, then the books appeared. That flash is
+     * the same transition that makes a lazy list change size while Compose is
+     * measuring it, which is the crash this ticket is about
+     * (`IndexOutOfBoundsException` inside `LazyListMeasure`).
+     *
+     * The flag follows the existing [isSeriesLoading] / [isGenreLoading] shape:
+     * a plain boolean companion to the list, consumed by the screen.
+     */
+    private val _isLibraryLoaded = MutableStateFlow(false)
+    val isLibraryLoaded: StateFlow<Boolean> = _isLibraryLoaded.asStateFlow()
+
+    init {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // One read just to learn that the data EXISTS — the flow itself
+            // still drives the list. Flips once, and stays true.
+            libraryEntries.allBooks.first()
+            _isLibraryLoaded.value = true
+        }
+    }
+
     // ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
     // projection of the book's own source, the persisted verdicts and the
     // refusal set. Clean books (available audio) are absent from the map, so

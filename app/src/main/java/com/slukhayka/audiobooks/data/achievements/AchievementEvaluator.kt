@@ -54,6 +54,11 @@ object AchievementCatalog {
         AchievementDefinition("first_completion", "first_steps", 1, AchievementMetric.COMPLETED_BOOKS, 1)
     ) + listOf(1L, 10L, 100L, 1000L, 5000L).mapIndexed { index, hours ->
         AchievementDefinition("hours_$hours", "hours", index + 1, AchievementMetric.LISTENING_MILLIS, hours * 3_600_000L)
+    } + listOf(1L, 5L, 10L, 25L, 50L, 100L, 250L, 500L).mapIndexed { index, books ->
+        // #700 (T2) — the book path. Thresholds are the spec's, verbatim; the
+        // metric is the SAME real completed count T1 already reads
+        // (`observeCompletedBooks`), so nothing here is inferred.
+        AchievementDefinition("books_$books", "books", index + 1, AchievementMetric.COMPLETED_BOOKS, books)
     }
 }
 

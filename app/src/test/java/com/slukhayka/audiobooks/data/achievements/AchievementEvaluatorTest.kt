@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.data.achievements
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AchievementEvaluatorTest {
@@ -20,8 +22,18 @@ class AchievementEvaluatorTest {
             AchievementProgress(completedBooks = 1) to "first_completion"
         )
         for ((snapshot, id) in cases) {
-            assertEquals(id, listOf(id), AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id })
-            assertEquals(id, emptyList<String>(), AchievementEvaluator.evaluate(snapshot, setOf(id)).map { it.id })
+            // #700 — a first step earns its own award. For `completedBooks = 1`
+            // the catalogue ALSO opens the first rung of the book ladder
+            // (`books_1`), and that is intended, not duplication: the spec asks
+            // for both «перша завершена книга» (story 8) and a ladder that
+            // starts at 1 (story 18). So this asserts the first-step award is
+            // PRESENT rather than that it is the only one.
+            val earned = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+            assertTrue("$id мусить бути серед виданих: $earned", id in earned)
+            assertTrue(
+                "повторна видача не має нічого додавати",
+                AchievementEvaluator.evaluate(snapshot, earned.toSet()).map { it.id }.isEmpty()
+            )
         }
         assertEquals(emptyList<String>(), AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id })
     }
@@ -51,5 +63,42 @@ class AchievementEvaluatorTest {
         val hidden = listOf(AchievementDefinition("secret", "hidden", 1, AchievementMetric.COMPLETED_BOOKS, 1, hidden = true))
         assertEquals(emptyList<String>(), AchievementEvaluator.evaluate(AchievementProgress(), emptySet(), hidden).map { it.id })
         assertEquals(listOf("secret"), AchievementEvaluator.evaluate(AchievementProgress(completedBooks = 1), emptySet(), hidden).map { it.id })
+    }
+
+    /**
+     * #700 (T2) — the BOOK path. Every level unlocks at EXACTLY its threshold
+     * and not one book earlier, which is the whole point of a level ladder: an
+     * off-by-one here would hand a listener "10 books" at nine.
+     *
+     * Filled with real numbers rather than a count of loops, so a threshold
+     * typed wrong in the catalogue fails here instead of shipping.
+     */
+    @Test fun `every book level unlocks at exactly its threshold`() {
+        val expected = listOf(1L to "books_1", 5L to "books_5", 10L to "books_10", 25L to "books_25",
+            50L to "books_50", 100L to "books_100", 250L to "books_250", 500L to "books_500")
+
+        for ((threshold, id) in expected) {
+            val justBefore = AchievementEvaluator.evaluate(
+                AchievementProgress(completedBooks = threshold - 1), emptySet()
+            ).map { it.id }
+            assertFalse(
+                "$id не має відкриватись на ${threshold - 1} книгах",
+                id in justBefore
+            )
+            val at = AchievementEvaluator.evaluate(
+                AchievementProgress(completedBooks = threshold), emptySet()
+            ).map { it.id }
+            assertTrue("$id мусить відкритись на $threshold книгах", id in at)
+        }
+    }
+
+    /** A repeated evaluation never re-awards what is already earned. */
+    @Test fun `an already earned book level is not awarded twice`() {
+        val snapshot = AchievementProgress(completedBooks = 10)
+        val once = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+        val twice = AchievementEvaluator.evaluate(snapshot, once.toSet()).map { it.id }
+
+        assertTrue("books_10 мусить бути в першій видачі", "books_10" in once)
+        assertTrue("повторна видача не має нічого додавати", twice.isEmpty())
     }
 }

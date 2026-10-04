@@ -302,6 +302,14 @@ class MainActivityAccessibilityTest {
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
+        // #1066 — the same blind-tap trap as the speed chip: the bottom bar
+        // is composed asynchronously, so clicking it before it exists switches
+        // no tab, and the timeout then blames the BOOK for never appearing.
+        // Wait for the tab, then tap it.
+        composeTestRule.waitUntilExactlyOneExists(
+            hasTestTag("tab_library"),
+            timeoutMillis = NAV_TIMEOUT_MS
+        )
         composeTestRule.onNodeWithTag("tab_library").performClick()
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("library_book_item_$fixtureBookId"),
@@ -409,6 +417,17 @@ class MainActivityAccessibilityTest {
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
+        // #1066 — wait for the trigger to EXIST before tapping it, the way
+        // every other interaction in this file does. Tapping blind was the one
+        // place that skipped the discipline: on a loaded CI runner the chip is
+        // not composed yet, the click lands on nothing, and the sheet it should
+        // have opened never appears — which surfaces as
+        // `ComposeTimeoutException: ... 'speed_sheet' still not satisfied`,
+        // blaming the sheet for a tap that never happened.
+        composeTestRule.waitUntilExactlyOneExists(
+            hasTestTag("speed_chip"),
+            timeoutMillis = NAV_TIMEOUT_MS
+        )
         val speedTrigger = composeTestRule.onNodeWithTag("speed_chip")
         speedTrigger.performClick()
         composeTestRule.waitUntilExactlyOneExists(

@@ -364,7 +364,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val achievementSnackbar = remember { SnackbarHostState() }
-    val allowAchievementNotices = !crashReportingState.shouldShowPrompt && !firstChoiceVisible && narrationSwitchPrompt == null
+    val allowAchievementNotices = !crashReportingState.shouldShowPrompt && !firstChoiceVisible &&
+        narrationSwitchPrompt == null && !fullPlayerModalActive && !fullPlayerContentPresent
     LaunchedEffect(lifecycleOwner, allowAchievementNotices) {
         if (allowAchievementNotices) lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             // collect, not collectLatest: committing seenAt must not cancel this snackbar.
@@ -837,6 +838,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt ||
                         firstChoiceVisible || narrationSwitchPrompt != null
                 ),
+            snackbarHost = {
+                SnackbarHost(achievementSnackbar,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
+            },
             bottomBar = {
                 Column {
                     // Floating Persistent Mini Player. Closed by a leftward
@@ -1364,10 +1369,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             }
         )
     }
-
-    SnackbarHost(achievementSnackbar,
-        modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
-            .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp))
 
     com.slukhayka.audiobooks.ui.screens.BookFeedbackHost(
         viewModel.bookFeedback, viewModel.bookFeedbackStore,

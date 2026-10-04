@@ -1753,4 +1753,3 @@ data class PersonBookmarkControl(
     val onToggle: () -> Unit = {},
     val onToggleNotify: (Boolean) -> Unit = {}
 )
-

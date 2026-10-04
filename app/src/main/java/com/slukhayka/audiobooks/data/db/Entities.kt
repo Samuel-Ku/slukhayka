@@ -124,7 +124,9 @@ object DownloadState {
 @Entity(tableName = "listening_stats")
 data class ListeningStatEntity(
     @PrimaryKey val dateIso: String,
-    val listenedSeconds: Long = 0L
+    val listenedSeconds: Long = 0L,
+    // v51 starts at zero: the old five-seconds-per-save counter is not proof.
+    @ColumnInfo(defaultValue = "0") val verifiedListenedMillis: Long = 0L
 )
 
 /**

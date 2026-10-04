@@ -162,7 +162,8 @@ data class SelectedWebSource(
     val recoveryPositionMs: Long = 0L,
     val automaticRecovery: Boolean = false,
     val cloudflareChallenge: Boolean = false,
-    val recoveryChapterId: String? = null
+    val recoveryChapterId: String? = null,
+    val fromGlobalSearch: Boolean = false
 )
 
 /** A genre (category) opened from the Explore "Жанри" chips row. */
@@ -1174,7 +1175,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     author = target.author,
                     narrator = target.narrator,
                     coverImageUrl = target.coverImageUrl
-                )
+                ),
+                onNewBookImported = if (target.fromGlobalSearch) ({ _: AudiobookEntity ->
+                    App.instance.recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.SEARCH_IMPORTED)
+                }) else null
             )
 
             override fun preparationBudgetMs(source: SourceEntity): Long? =
@@ -1267,7 +1271,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     author = target.author,
                     narrator = target.narrator,
                     coverImageUrl = target.coverImageUrl
-                )
+                ),
+                onNewBookImported = if (target.fromGlobalSearch) ({ _: AudiobookEntity ->
+                    App.instance.recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.SEARCH_IMPORTED)
+                }) else null
             )
         },
         sourceProbe = SourceSelectionCoordinator.SourceProbe { source, remainingMs ->
@@ -1656,13 +1663,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         displayName: String,
         recoveryBookId: String? = null,
         recoveryChapterIndex: Int? = null,
-        recoveryPositionMs: Long = 0L
+        recoveryPositionMs: Long = 0L,
+        fromGlobalSearch: Boolean = false
     ) {
         when (browserDestinationFor(com.slukhayka.audiobooks.BuildConfig.DEBUG, sourceId)) {
             BrowserDestination.IN_APP_BROWSER ->
                 _selectedWebSource.value = SelectedWebSource(
                     sourceId, homeUrl, displayName,
-                    recoveryBookId, recoveryChapterIndex, recoveryPositionMs
+                    recoveryBookId, recoveryChapterIndex, recoveryPositionMs, fromGlobalSearch = fromGlobalSearch
                 )
             BrowserDestination.SYSTEM_BROWSER -> openInSystemBrowser(homeUrl)
         }
@@ -1710,7 +1718,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         openWebSource(
             sourceId = required.source.type,
             homeUrl = required.source.url,
-            displayName = sourceDisplayName(required.source.type)
+            displayName = sourceDisplayName(required.source.type),
+            fromGlobalSearch = required.target.fromGlobalSearch
         )
     }
 
@@ -1726,9 +1735,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         capturedAudioUrls: List<String> = emptyList(),
         onComplete: (Boolean) -> Unit = {}
     ) {
+        val searchImport = _selectedWebSource.value?.takeIf { it.sourceId == sourceId }?.fromGlobalSearch == true
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
-                libraryImport.importWebSourcePage(sourceId, url, html, capturedAudioUrls)
+                libraryImport.importWebSourcePage(sourceId, url, html, capturedAudioUrls,
+                    onNewBookImported = if (searchImport) ({ _: AudiobookEntity ->
+                        App.instance.recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.SEARCH_IMPORTED)
+                    }) else null)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -3206,7 +3219,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 editionId = it.editionId.takeIf(String::isNotBlank)
             )
         },
-        cardKey = key
+        cardKey = key,
+        fromGlobalSearch = true
     )
 
     fun openCatalogBook(book: CatalogBook) {
@@ -4612,7 +4626,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Spec-620 (#627) — its OWN Work-scoped lifecycle instance: the
             // completion editor must not clobber the book page's open Work.
             com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(
-                listenerReviews, scope = viewModelScope
+                listenerReviews, scope = viewModelScope,
+                onAccepted = { App.instance.recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.REVIEW_ACCEPTED) }
             ),
             narrationRatingsStore,
             onAccepted = { workId -> loadReviews(workId); loadNarrationRatings(workId) })
@@ -4709,7 +4724,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // there now; MainViewModel only composes it with the local mute list and
     // feeds the screens.
     private val listenerReviewLifecycle =
-        com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(listenerReviews)
+        com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(listenerReviews,
+            onAccepted = { App.instance.recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.REVIEW_ACCEPTED) })
 
     /** Optimistically submitted reviews not yet confirmed online (#280). */
     val pendingReviewKeys: StateFlow<Set<String>> = listenerReviewLifecycle.state

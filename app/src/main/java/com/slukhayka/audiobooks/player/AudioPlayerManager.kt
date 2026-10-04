@@ -250,7 +250,11 @@ class AudioPlayerManager(
     private val cookieProvider: () -> String = { "" },
     /** Fresh metadata for a Play invalidated by confirmed topology replacement. */
     private val bookFetcher: (suspend (String) -> AudiobookEntity?)? = null,
-    private val onBookCompleted: (String) -> Unit = {}
+    private val onBookCompleted: (String) -> Unit = {},
+    /** Actual engine wall time; production persists outside the player session. */
+    private val monotonicNow: () -> Long = android.os.SystemClock::elapsedRealtime,
+    private val onActualListeningDuration: ((Long) -> Unit)? = null,
+    private val onActualPlaybackStarted: (Boolean) -> Unit = {}
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -546,6 +550,35 @@ class AudioPlayerManager(
      * StateFlow the UI, the progress tracker and the persistence path read,
      * so Listening State stays written from a single place.
      */
+    /** Actual receiver status only; transport commands and error/UI mirrors are not evidence. */
+    fun reportActualCastPlayback(isPlaying: Boolean, isBuffering: Boolean) {
+        val playing = castEngineHook?.isActive == true && isPlaying && !isBuffering &&
+            _playerState.value.currentBook != null
+        val wasPlaying = actualCastPlaying
+        actualCastPlaying = playing
+        if (playing) actualCastStartedLoadRequest = loadRequestSequence
+        actualListeningClock.update(playing)
+        if (playing && !wasPlaying) onActualPlaybackStarted(false)
+    }
+
+    /** Actual finished receiver media bound to the current book’s logical chapter. */
+    fun reportActualCastCompletion(bookId: String, chapterIndex: Int) {
+        val state = _playerState.value
+        if (!isCasting || state.currentBook?.id != bookId || state.chapters.isEmpty() ||
+            actualCastStartedLoadRequest != loadRequestSequence || chapterIndex != state.chapters.lastIndex) return
+        _playerState.value = state.copy(currentChapterIndex = chapterIndex,
+            durationMs = state.chapters[chapterIndex].durationSeconds * 1000L)
+        onChapterCompleted() // The same completion/progress/event writer as the local engine.
+    }
+
+    private var actualCastPlaying = false
+    private var actualCastStartedLoadRequest: Long? = null
+
+    private fun stopActualListening() {
+        actualCastPlaying = false
+        actualListeningClock.update(false)
+    }
+
     internal fun mirrorCastState(transform: (PlayerState) -> PlayerState) {
         _playerState.value = transform(_playerState.value)
     }
@@ -611,6 +644,12 @@ class AudioPlayerManager(
     private var pendingResumeSeekMs: Long = -1L
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val actualListeningClock = ActualListeningClock(monotonicNow) { millis ->
+        val recorder = onActualListeningDuration
+        if (recorder != null) recorder(millis)
+        else scope.launch(ioDispatcher) { listeningState.recordActualListeningTime(millis) }
+    }
+
 
     // Spec-22 T4: keep the home-screen widget's progress/transport in sync
     // with playback. Sampled to ~one update per 2 s while playing (widget
@@ -710,7 +749,12 @@ class AudioPlayerManager(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (!isPlaying) return
+            if (isCasting) return // The paused local engine is not the active receiver.
+            val engine = mediaPlayer ?: return
+            // Ignore stale callbacks queued by an earlier prepare/pause.
+            if (engine.isPlaying != isPlaying) return
+            if (!isPlaying) { stopActualListening(); return }
+            if (!_playerState.value.isPlaying || _playerState.value.isBuffering) return
             val bookId = _playerState.value.currentBook?.id ?: return
             val mediaUrl = mediaPlayer?.currentMediaItem
                 ?.localConfiguration
@@ -718,6 +762,11 @@ class AudioPlayerManager(
                 ?.toString()
                 .orEmpty()
             if (mediaUrl.isBlank()) return
+            actualListeningClock.update(true)
+            val localFile = mediaUrl.startsWith("file:") && SmartRetryPolicy.localFileReady(currentTrack?.localFilePath)
+            val localDocument = mediaUrl.startsWith("content:") && mediaUrl == currentTrack?.url &&
+                playableChapters.getOrNull(_playerState.value.currentChapterIndex)?.sourceId == "local"
+            onActualPlaybackStarted(localFile || localDocument)
             _playbackStarted.tryEmit(
                 PlaybackStarted(
                     bookId = bookId,
@@ -729,6 +778,7 @@ class AudioPlayerManager(
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState != Player.STATE_READY && !isCasting) stopActualListening()
             if (playbackState == Player.STATE_READY) {
                 prepareTimeoutJob?.cancel()
                 val mp = mediaPlayer ?: return
@@ -1120,6 +1170,7 @@ class AudioPlayerManager(
         initialChapterId: String? = null,
         expectedChapterStructureVersion: Long? = null
     ) {
+        stopActualListening()
         val request = ++loadRequestSequence
         if (expectedChapterStructureVersion != null &&
             expectedChapterStructureVersion != chapterStructureVersion(book.id)) {
@@ -1260,6 +1311,7 @@ class AudioPlayerManager(
      * consumes it to start the one bounded recovery pass armed by Play.
      */
     private fun stopEngineForUnavailableBook(book: AudiobookEntity) {
+        stopActualListening()
         prepareRequestId++
         sleepTimer?.cancel()
         prepareTimeoutJob?.cancel()
@@ -1409,6 +1461,7 @@ class AudioPlayerManager(
     ) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
+        stopActualListening()
         val requestId = ++prepareRequestId
         if (resetHealBudget) {
             healAttemptsForChapter = 0
@@ -1619,6 +1672,7 @@ class AudioPlayerManager(
         // substring match on the human text.
         kind: PlaybackErrorKind = PlaybackErrorKind.TRANSIENT
     ) {
+        stopActualListening()
         prepareTimeoutJob?.cancel()
         val state = _playerState.value
         prepareRequestId++
@@ -1817,6 +1871,7 @@ class AudioPlayerManager(
     }
 
     fun pause() {
+        stopActualListening()
         // Cancel a prepare-time play request before the buffering early return.
         // Otherwise a later READY callback resurrects playback after the user
         // has already pressed pause.
@@ -1863,6 +1918,7 @@ class AudioPlayerManager(
     }
 
     fun seekTo(positionMs: Long, recordInHistory: Boolean = true) {
+        actualListeningClock.flush()
         val prevPos = _playerState.value.currentPositionMs
         val chapterIdx = _playerState.value.currentChapterIndex
         val targetMs = positionMs.coerceIn(0L, _playerState.value.durationMs)
@@ -1951,6 +2007,7 @@ class AudioPlayerManager(
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        actualListeningClock.flush()
         _playerState.value = _playerState.value.copy(playbackSpeed = speed)
         castEngineHook?.takeIf { it.isActive }?.let { it.setPlaybackSpeed(speed) } ?: applyPlaybackSpeed(speed)
         schedulePreferredSpeedSave(speed)
@@ -2245,6 +2302,7 @@ class AudioPlayerManager(
     }
 
     private fun onChapterCompleted() {
+        stopActualListening()
         val nextIdx = _playerState.value.currentChapterIndex + 1
         val chapters = _playerState.value.chapters
         if (nextIdx in chapters.indices) {
@@ -2274,6 +2332,11 @@ class AudioPlayerManager(
             while (isActive) {
                 delay(1000L)
                 val state = _playerState.value
+                val remote = castEngineHook?.isActive == true
+                val actuallyPlaying = if (remote) actualCastPlaying else
+                    state.isPlaying && !state.isBuffering && mediaPlayer?.isPlaying == true
+                actualListeningClock.update(actuallyPlaying)
+                actualListeningClock.flush()
                 if (state.isPlaying && !state.isBuffering) {
                     var newPos = state.currentPositionMs
                     val mp = mediaPlayer
@@ -2349,7 +2412,6 @@ class AudioPlayerManager(
         scope.launch(ioDispatcher) {
             // ADR-0007: progress is keyed by the Edition — no source key.
             listeningState.updateProgressForChapter(book.id, chapterId, posSec)
-            listeningState.recordListeningTime(5L)
             // ADR-0051 (spec-43 T6): pauses/completions push at once, periodic
             // ticks ride the pacing window; failures stay silent.
             progressSync?.pushAfterSave(book.id, immediate = immediateSync)
@@ -2388,6 +2450,7 @@ class AudioPlayerManager(
     }
 
     fun release() {
+        stopActualListening()
         sleepTimer?.cancel()
         shakeDetector?.stopListening()
         shakeDetector = null
@@ -2416,6 +2479,7 @@ class AudioPlayerManager(
      * next book the user picks.
      */
     fun stopAndClear() {
+        stopActualListening()
         loadRequestSequence++
         prepareRequestId++
         sleepTimer?.cancel()

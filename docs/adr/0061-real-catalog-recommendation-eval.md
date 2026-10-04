@@ -65,3 +65,12 @@ Room schema не змінюється. Context hash містить точний 
 Generation gate відкидає публікацію старого pass після install, зливає накладені refresh у один наступний і звільняє active ticket навіть при винятку publication. Start, empty, ready і reset публікуються під тим самим monitor. Порядок locks: invalidate тримає gate, далі mutex ViewModel лише для reset; backend loader тримає mutex і ніколи не входить у gate. Повторний pass запускається після звільнення gate.
 
 Новий input ledger включає preprocessing contract, офіційне джерело, E5 input helper у backend hash, а cache/gate/snapshot code — у protocol hash. Заморожування v2 відбувається після незалежного review й до повторного інференсу. Новий context не використовує вектори v1. Мітки 24 творів, 112 identity aliases, 44 сторінки, candidate texts, модель і строгий GO-поріг залишаються незмінними.
+
+
+## Версія 3: оголошена сегментація tokenizer
+
+Повний v2 також дав NO-GO 0/0. Його ledger, звіт і ранги збережено без змін у `docs/recommend/experiments/2026-10-04-e5-model-input-v2/`. Після цього окремі тексти, зафіксовані до порівняння IDs і поза relevance cohorts, виявили об'єктивні дефекти tokenizer: відсутній unknown edge обривав відомий суфікс, а NFKC не виконував pinned Precompiled charsmap.
+
+Виправлення v3 виконує оголошений HF 0.22.0 Unigram/normalizer/Metaspace/raw added-token контракт. Unicode 16 grapheme tables зафіксовані з unicode-segmentation 1.12.0, production segmenter перевіряється всіма 1 093 офіційними випадками. Немає залежної від JVM апроксимації Precompiled. Непідтримані конфігурації спричиняють помилку під час parsing, а не іншу мовчазну сегментацію. Первинні джерела, точні суми fixtures, generator і ліцензії записані в [походженні tokenizer](../recommend/tokenizer-provenance.md).
+
+Новий preprocessing context і backend/protocol fingerprints включають усі tokenizer helpers. Ledger v3 фіксується лише після незалежного source review й до нового інференсу; вектори v1/v2 не переходять у нього. Model assets, 24 relevance labels, 112 aliases, 44 raw pages, production candidate texts, ranking weights і строгий quality gate залишаються незмінними. Parity IDs не є GO рекомендацій; нові метрики ще не отримано.

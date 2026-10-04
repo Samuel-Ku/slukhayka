@@ -82,11 +82,12 @@ object RunRecommendationEval {
         }
         val sourceDir = File(root, "app/src/main/java/com/slukhayka/audiobooks/data/recommend")
         val hostDir = File(root, "app/src/test/java/com/slukhayka/audiobooks/data/recommend")
-        val backendHash = combinedHash(listOf("OnnxEmbedder.kt", "UnigramTokenizer.kt", "E5RecommendationInput.kt").map { File(sourceDir, it) })
+        val tokenizerFiles = listOf("UnigramTokenizer.kt", "UnigramTextNormalizer.kt", "UnigramPreTokenizer.kt", "UnicodeGraphemes.kt", "UnicodeGraphemeTables.kt").map { File(sourceDir, it) }
+        val backendHash = combinedHash(tokenizerFiles + listOf("OnnxEmbedder.kt", "E5RecommendationInput.kt").map { File(sourceDir, it) })
         val identityFiles = listOf("data/merge/MergeKey.kt", "data/metadata/MetadataAssertions.kt", "data/LanguageCode.kt", "data/source/SourceParsing.kt", "data/collections/MiniJson.kt").map {
             File(root, "app/src/main/java/com/slukhayka/audiobooks/$it")
         }
-        val protocolFiles = identityFiles + listOf("RecommendationEval.kt", "RecommendationEngine.kt", "RecommendationPersonalization.kt", "BookRecommendationText.kt", "TextEmbedder.kt", "E5RecommendationInput.kt", "EmbeddingPassGate.kt", "EmbeddingPassSnapshot.kt", "RoomEmbeddingCache.kt", "CatalogEmbeddingService.kt").map { File(sourceDir, it) } +
+        val protocolFiles = identityFiles + tokenizerFiles + listOf("RecommendationEval.kt", "RecommendationEngine.kt", "RecommendationPersonalization.kt", "BookRecommendationText.kt", "TextEmbedder.kt", "E5RecommendationInput.kt", "EmbeddingPassGate.kt", "EmbeddingPassSnapshot.kt", "RoomEmbeddingCache.kt", "CatalogEmbeddingService.kt").map { File(sourceDir, it) } +
             listOf("RecommendationEvalCatalog.kt", "RecommendationEvalIdentityAliases.kt", "RecommendationEvalCohorts.kt", "RecommendationEvalVectorCache.kt", "RecommendationFeedSnapshot.kt", "RecommendationEvalModelLock.kt", "RunRecommendationEval.kt").map { File(hostDir, it) }
         val runtimeJar = File(OrtEnvironment::class.java.protectionDomain.codeSource.location.toURI())
         RecommendationEvalModelLock.verifyRuntime(runtimeJar)
@@ -95,14 +96,16 @@ object RunRecommendationEval {
             OrtEnvironment.getEnvironment().version
         )
         val inputs = linkedMapOf(
-            "schemaVersion" to "2", "feedManifestSha256" to sha(manifest),
+            "schemaVersion" to "3", "feedManifestSha256" to sha(manifest),
             "cohortsSha256" to sha(registryFile), "originalCohortsSha256" to sha(original),
             "identityManifestSha256" to sha(identitiesFile),
             "previousAttemptInputsSha256" to sha(File(reportFile.parentFile, "real-scale-inputs-pre-dedup-review.properties")),
             "runtimeJarSha256" to sha(runtimeJar), "modelLockSha256" to sha(modelLock), "backendSourceSha256" to backendHash,
             "protocolSourceSha256" to combinedHash(protocolFiles),
-            "preprocessingContract" to "e5-input-v2-nfkc-template-mean-l2; query: ; BOS+EOS within 512 tokens",
+            "preprocessingContract" to "e5-input-v3-hf022-unicode16-template-mean-l2; parsed HF charsmap/Metaspace/raw added tokens; query: ; BOS+EOS within 512 tokens",
             "preprocessingPrimarySource" to "https://huggingface.co/intfloat/multilingual-e5-small/raw/main/README.md",
+            "tokenizerPrimarySource" to "https://github.com/huggingface/tokenizers/tree/4630f94378998f68df3d021c61a7340b813e264b",
+            "tokenizerReferenceVersion" to "HF tokenizers 0.22.0; spm_precompiled 0.1.4; unicode-segmentation 1.12.0 / Unicode 16.0.0",
             "semanticEmbeddingContext" to semanticContext.identity,
             "candidateTextSha256" to textHash(catalog.works), "works" to catalog.works.size.toString(),
             "distinctTitles" to catalog.distinctTitles.toString(), "folds" to cohorts.sumOf { it.workIds.size }.toString(),

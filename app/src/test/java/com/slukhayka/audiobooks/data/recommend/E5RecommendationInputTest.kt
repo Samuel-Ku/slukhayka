@@ -11,6 +11,7 @@ import org.junit.Test
 class E5RecommendationInputTest {
     private val json = """
         {
+          "pre_tokenizer":{"type":"Metaspace","replacement":"▁","add_prefix_space":true},
           "model": {"type":"Unigram", "unk_id":3, "vocab":[
             ["<s>",0.0], ["<pad>",0.0], ["</s>",0.0], ["<unk>",0.0],
             ["▁query:",-1.0], ["▁passage:",-1.0], ["▁book",-1.0]
@@ -77,4 +78,10 @@ class E5RecommendationInputTest {
             tokenizer().encodeForModel("book", 1)
         }
     }
+    @Test fun `corrected tokenizer never reuses the previous preprocessing vector context`() {
+        // Captured v2 context for exactly these assets, runtime and query prefix.
+        val previous = "onnx-e5-v2:49953d5d0772cbdd53af619cf7461d5ed8954ee999ccdb4cf2b4da756dec45a9"
+        assertNotEquals(previous, E5RecommendationInput.cacheContext("1".repeat(64), "2".repeat(64), "1.21.0").identity)
+    }
+
 }

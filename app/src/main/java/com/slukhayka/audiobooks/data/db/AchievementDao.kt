@@ -34,6 +34,21 @@ interface AchievementDao {
     )
     fun observeShortCompletedBooks(): Flow<Long>
 
+    /**
+     * #700 (T2) — books heard FASTER than 1.5x.
+     *
+     * The speed is the stored per-book preference (ADR-0009). A NULL means
+     * "use the global default" — it is NOT a claim that this book was heard at
+     * 1x, so nulls are excluded from BOTH sides of the ladder rather than
+     * guessed (ADR-0014).
+     */
+    @Query("SELECT COUNT(DISTINCT bookId) FROM playback_progress WHERE preferredSpeed > 1.5")
+    fun observeFastBooks(): Flow<Long>
+
+    /** #700 (T2) — books heard SLOWER than 0.75x. Nulls excluded, as above. */
+    @Query("SELECT COUNT(DISTINCT bookId) FROM playback_progress WHERE preferredSpeed < 0.75")
+    fun observeSlowBooks(): Flow<Long>
+
     /** #700 (T2) — completed books of 30+ hours. */
     @Query(
         "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +

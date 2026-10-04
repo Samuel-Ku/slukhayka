@@ -13,6 +13,10 @@ data class AchievementProgress(
     val shortCompletedBooks: Long = 0,
     /** #700 — completed books of 30+ hours. */
     val epicCompletedBooks: Long = 0,
+    /** #700 — books the listener chose to hear FASTER than 1.5x. */
+    val fastBooks: Long = 0,
+    /** #700 — books the listener chose to hear SLOWER than 0.75x. */
+    val slowBooks: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -23,7 +27,7 @@ data class AchievementSeriesMembership(val seriesId: String, val workId: String,
 enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
-    SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS;
+    SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -36,6 +40,8 @@ enum class AchievementMetric {
         COMPLETED_BOOKS -> snapshot.completedBooks
         SHORT_COMPLETED_BOOKS -> snapshot.shortCompletedBooks
         EPIC_COMPLETED_BOOKS -> snapshot.epicCompletedBooks
+        FAST_BOOKS -> snapshot.fastBooks
+        SLOW_BOOKS -> snapshot.slowBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -73,7 +79,13 @@ object AchievementCatalog {
         // in NEITHER band — a guess is not a fact (ADR-0014).
         AchievementDefinition("short_form_10", "books_shape", 1, AchievementMetric.SHORT_COMPLETED_BOOKS, 10),
         AchievementDefinition("epic_1", "books_shape", 1, AchievementMetric.EPIC_COMPLETED_BOOKS, 1),
-        AchievementDefinition("long_liver_5", "books_shape", 2, AchievementMetric.EPIC_COMPLETED_BOOKS, 5)
+        AchievementDefinition("long_liver_5", "books_shape", 2, AchievementMetric.EPIC_COMPLETED_BOOKS, 5),
+        // #700 (T2) — HOW the listener listens. The speed is the stored
+        // per-book preference (ADR-0009); a book with NO stored preference is
+        // not counted at all, because "no preference" is the global default,
+        // not a claim about this book (ADR-0014).
+        AchievementDefinition("speedster_10", "habits", 1, AchievementMetric.FAST_BOOKS, 10),
+        AchievementDefinition("slow_savour_5", "habits", 1, AchievementMetric.SLOW_BOOKS, 5)
     )
 }
 

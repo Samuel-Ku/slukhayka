@@ -10,6 +10,7 @@ import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -54,5 +55,59 @@ class RoomAchievementProgressSourceTest {
             file.delete()
             assertEquals(0L,source.observe().first().downloadedBooks)
         } finally { database.close(); file.delete() }
+    }
+
+    /**
+     * #700 (T2) — the speed bands must count STORED preferences and nothing
+     * else.
+     *
+     * A NULL `preferredSpeed` means "use the global default", which is not a
+     * claim that the book was heard at 1x — so it belongs to neither band. This
+     * runs the REAL queries against the REAL schema, because the honesty lives
+     * in the SQL (`WHERE preferredSpeed > 1.5`), not in Kotlin.
+     */
+    @Test fun `speed bands count stored preferences and ignore the null default`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val achievementDao = database.achievementDao()
+
+            // Three books: one explicitly fast, one explicitly slow, one with
+            // NO stored preference (the global-default case).
+            // The factory ships three books; the boundary case needs a fourth,
+            // built here from one of them so every non-id column stays valid.
+            val books = TestDataFactory.dataBooks().let { base ->
+                base + listOf(base.first().copy(id = "boundary-book", title = "Межова"))
+            }
+            dao.insertAudiobooks(books)
+            dao.savePlaybackProgress(PlaybackProgressEntity("e0", books[0].id, 0, 0, 1L, false, preferredSpeed = 2.0f))
+            dao.savePlaybackProgress(PlaybackProgressEntity("e1", books[1].id, 0, 0, 1L, false, preferredSpeed = 0.5f))
+            dao.savePlaybackProgress(PlaybackProgressEntity("e2", books[2].id, 0, 0, 1L, false, preferredSpeed = null))
+            // A book BETWEEN the two bands: faster than the slow bound but NOT
+            // above 1.5x. Without it a wrong fast bound (say 0.5) would still
+            // count one book and the test would pass — which is exactly what my
+            // first version of this test did.
+            dao.savePlaybackProgress(PlaybackProgressEntity("e3", books[3].id, 0, 0, 1L, false, preferredSpeed = 1.2f))
+
+            assertEquals("швидких мусить бути рівно одна — 1.2x не швидкий", 1L, achievementDao.observeFastBooks().first())
+            assertEquals("повільних мусить бути рівно одна — 1.2x не повільний", 1L, achievementDao.observeSlowBooks().first())
+
+            // And the ladder does not open on a single book — the thresholds are
+            // the spec's, not mine.
+            val snapshot = RoomAchievementProgressSource(
+                achievementDao, RoomAchievementStore(achievementDao), emptySet()
+            ).observe().first()
+            assertEquals(1L, snapshot.fastBooks)
+            assertTrue(
+                "10 книг — поріг «Швидкісного», одна його не відкриває",
+                AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }.none {
+                    it == "speedster_10"
+                }
+            )
+        } finally {
+            database.close()
+        }
     }
 }

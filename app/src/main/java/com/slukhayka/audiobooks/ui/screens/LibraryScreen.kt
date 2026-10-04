@@ -1276,13 +1276,16 @@ internal fun LibraryHeaderActionsInner(
  * empty field leaves Back to the navigation contract. There is deliberately no
  * auto-focus: opening the root must not raise the keyboard.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LibrarySearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    BackHandler(enabled = query.isNotEmpty()) { onQueryChange("") }
+    // The IME owns the first system Back; only the next one clears the query.
+    val keyboardVisible = WindowInsets.isImeVisible
+    BackHandler(enabled = query.isNotEmpty() && !keyboardVisible) { onQueryChange("") }
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,

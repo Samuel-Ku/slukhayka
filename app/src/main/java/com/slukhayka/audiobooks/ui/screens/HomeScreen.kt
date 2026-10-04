@@ -712,6 +712,7 @@ fun GlobalSearchStatus(
  * v1.4 C5 (ADR-0033): the brand lockup renders through the canonical
  * [AppTabHeader] — one tab-header model across all four tabs.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeHeader(
     searchQuery: String,
@@ -724,7 +725,9 @@ fun HomeHeader(
     val searchFieldLabel = stringResource(R.string.a11y_search_books)
     // The field is not collapsible anymore: Back clears a typed query, while an
     // empty field leaves Back to the navigation contract.
-    BackHandler(enabled = searchQuery.isNotEmpty()) { onSearchQueryChange("") }
+    // The IME owns the first system Back; only the next one clears the query.
+    val keyboardVisible = WindowInsets.isImeVisible
+    BackHandler(enabled = searchQuery.isNotEmpty() && !keyboardVisible) { onSearchQueryChange("") }
 
     Column(modifier = modifier.fillMaxWidth()) {
         AppTabHeader(

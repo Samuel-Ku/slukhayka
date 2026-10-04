@@ -54,7 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.slukhayka.audiobooks.testing.TestDataFactory
-import com.slukhayka.audiobooks.data.imports.ImportPlan
+import com.slukhayka.audiobooks.data.imports.ImportPlanner
+import com.slukhayka.audiobooks.data.imports.LocalAudioEntry
 import com.slukhayka.audiobooks.data.imports.SourceRef
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
@@ -240,7 +241,10 @@ class LibraryAccessibilityTest {
     @Test
     fun libraryModalOwnerHidesUnderlayAndRestoresFilterImportAndPreviewOrigins() {
         val preview = MainViewModel.ImportPreviewState(
-            plan = ImportPlan(SourceRef.Files(emptyList()), emptyList()),
+            plan = ImportPlanner.buildPlan(
+                SourceRef.Files(listOf("content://library-preview/01.mp3")),
+                listOf(LocalAudioEntry("01.mp3", null) { error("Preview must not open audio") })
+            ),
             treeUri = "content://library-preview"
         )
         composeTestRule.setContent {

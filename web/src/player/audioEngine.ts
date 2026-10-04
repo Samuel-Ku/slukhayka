@@ -750,6 +750,12 @@ export class AudioEngine {
 
   private handleAttemptError(): void {
     this.sampleMediaPosition()
+    if (this.attemptConfirmed) {
+      // Checkpoint actual sound before a retry becomes an unconfirmed
+      // prepare. Cancel or terminal failure must retain this reached place.
+      this.persist(true)
+      this.prepareBaseline = this.editionId ? this.store.load(this.editionId) : null
+    }
     this.engine.attemptErrored()
     const state = this.engine.getState()
     if (state.status === 'unavailable') return

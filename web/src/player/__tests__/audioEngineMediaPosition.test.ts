@@ -409,4 +409,25 @@ describe('#934 — media owns position and natural chapter end', () => {
     expect(store.load('edition')).toMatchObject({ chapterIndex: 1, positionSeconds: 7 })
   })
 
+
+  it.each(['pause', 'terminal error'])('checkpoints actual confirmed progress before an unplayed relay %s', async (outcome) => {
+    const { player, media, store } = fixture()
+    await player.loadBook(detail)
+    media.emit('playing')
+    media.currentTime = 7 // no timeupdate, seek or earlier pause to pre-save this position
+    media.emit('error')
+    expect(media.src).toContain('/audio?')
+    if (outcome === 'pause') player.pause()
+    else media.emit('error')
+    expect(store.load('edition')).toMatchObject({ chapterIndex: 0, positionSeconds: 7, isCompleted: false })
+    player.dispose()
+    const restarted = new AudioEngine({ store, relayBase: '/api', offlinePrimer: null })
+    engines.push(restarted)
+    const resumedMedia = new Media()
+    restarted.attachAudio(resumedMedia as unknown as HTMLAudioElement)
+    await restarted.loadBook(detail)
+    expect(restarted.getState()).toMatchObject({ chapterIndex: 0, positionSeconds: 7, isCompleted: false })
+    expect(resumedMedia.currentTime).toBe(7)
+  })
+
 })

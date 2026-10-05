@@ -1,7 +1,5 @@
 package com.slukhayka.audiobooks.data.achievements
 
-import com.slukhayka.audiobooks.data.collections.PublishedCollectionCodec
-
 /**
  * #705 (T7) — what publishing the showcase will actually take off the device.
  *
@@ -31,9 +29,16 @@ object ShowcasePreviewFactory {
     fun of(
         pinnedIds: List<String>,
         pseudonym: String,
+        /**
+         * The published limit, passed IN rather than imported: the constant
+         * belongs to the published-collection codec, and importing it here
+         * would make `achievements` depend on `collections` — which the
+         * publishing side then depends on in turn, closing a package cycle.
+         */
+        maxPseudonymLength: Int,
         nameOf: (String) -> String?
     ): ShowcasePreview? {
-        val cleanPseudonym = pseudonym.trim().take(PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
+        val cleanPseudonym = pseudonym.trim().take(maxPseudonymLength)
         if (cleanPseudonym.isEmpty()) return null
         val awards = ShowcasePublication.of(pinnedIds, nameOf)
         if (awards.isEmpty()) return null

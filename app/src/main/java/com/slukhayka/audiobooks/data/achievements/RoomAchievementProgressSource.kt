@@ -55,8 +55,11 @@ class RoomAchievementProgressSource(
     private val withBrowser = combine(withLanguages, dao.observeBrowserBooks()) { base, browser ->
         base.copy(browserBooks = browser)
     }
-    private val countersWithShape = combine(withBrowser, dao.observeGenreBookCounts()) { base, genres ->
+    private val withGenres = combine(withBrowser, dao.observeGenreBookCounts()) { base, genres ->
         base.copy(genreCounts = genres.associate { it.genreId to it.works })
+    }
+    private val countersWithShape = combine(withGenres, dao.observeSeriesInLibrary()) { base, series ->
+        base.copy(seriesInLibrary = series)
     }
     // Files are inspected only when the track/topology rows change, never on every listening tick.
     private val downloads = dao.observeDownloadedTracks().distinctUntilChanged()

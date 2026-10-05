@@ -53,6 +53,15 @@ data class AchievementProgress(
      * it ask about BREADTH and DEPTH, not about a named genre.
      */
     val genreCounts: Map<String, Long> = emptyMap(),
+    /**
+     * #704 (T6) — how many DISTINCT series the listener has books from.
+     *
+     * Read from `works.seriesTitle` on the library rows, a real bibliographic
+     * property of the books they hold. Deliberately NOT `series_members`: that
+     * table is written only for a Work someone OPENED, so it would undercount
+     * every series they own but never tapped.
+     */
+    val seriesInLibrary: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()

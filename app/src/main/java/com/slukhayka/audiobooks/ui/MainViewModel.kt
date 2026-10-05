@@ -117,6 +117,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -2546,6 +2547,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope, SharingStarted.WhileSubscribed(5000),
                 com.slukhayka.audiobooks.data.achievements.ListenerTitle.LISTENER
             )
+
+    /**
+     * #704 (T6) — put an award on the showcase, or take it off.
+     *
+     * The CURRENT state is read from the store rather than from the screen's
+     * copy: the screen only knows what it last rendered, and a double tap could
+     * otherwise send two pins for an award that is already pinned.
+     */
+    fun toggleAchievementPin(id: String) {
+        viewModelScope.launch {
+            val store = App.instance.achievementStore
+            val alreadyPinned = store.observeShowcase().first().any { it.id == id }
+            if (alreadyPinned) store.unpin(id) else store.pin(id)
+        }
+    }
 
     /** The pinned showcase, newest first. */
     val achievementShowcase: StateFlow<List<String>> =

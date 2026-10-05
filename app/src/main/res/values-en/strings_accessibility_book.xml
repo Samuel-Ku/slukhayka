@@ -100,4 +100,9 @@
     <string name="person_bookmark_off">Not bookmarked</string>
     <string name="person_bookmark_notify_enable">Enable notifications</string>
     <string name="person_bookmark_notify_disable">Disable notifications</string>
+    <!-- #704 (T6) — Showcase pin -->
+    <string name="achievement_pin_add">Put “%1$s” on the showcase</string>
+    <string name="achievement_pin_remove">Remove “%1$s” from the showcase</string>
+    <string name="achievement_pin_on">On the showcase</string>
+    <string name="achievement_pin_off">Not on the showcase</string>
 </resources>

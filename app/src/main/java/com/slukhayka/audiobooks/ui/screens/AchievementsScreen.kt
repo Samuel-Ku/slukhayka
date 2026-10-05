@@ -27,7 +27,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.achievements.AchievementBoard
-import com.slukhayka.audiobooks.data.achievements.AchievementDefinition
 import com.slukhayka.audiobooks.data.achievements.ListenerTitle
 import com.slukhayka.audiobooks.ui.achievements.achievementNotice
 import com.slukhayka.audiobooks.ui.components.EmptyState
@@ -49,7 +48,8 @@ fun AchievementsScreen(
     board: AchievementBoard,
     title: ListenerTitle,
     showcase: List<String>,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onTogglePin: (String) -> Unit = {}
 ) {
     SettingsDestinationScaffold(
         destination = SettingsDestination.Achievements,
@@ -86,7 +86,12 @@ fun AchievementsScreen(
 
             if (board.earned.isNotEmpty()) {
                 SectionHeading(stringResource(R.string.achievements_earned), "achievements_earned_heading")
-                AchievementList(board.earned.map { it.id }, "achievements_earned_item")
+                AchievementList(
+                    ids = board.earned.map { it.id },
+                    tagPrefix = "achievements_earned_item",
+                    pinned = showcase.toSet(),
+                    onTogglePin = onTogglePin
+                )
             }
 
             if (board.upcoming.isNotEmpty()) {
@@ -114,13 +119,21 @@ private fun SectionHeading(text: String, tag: String) {
  * screen and a toast can never disagree about what an award is called.
  */
 @Composable
-private fun AchievementList(ids: List<String>, tagPrefix: String) {
+private fun AchievementList(
+    ids: List<String>,
+    tagPrefix: String,
+    pinned: Set<String> = emptySet(),
+    onTogglePin: ((String) -> Unit)? = null
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         for (id in ids) {
+            // The SAME name the notice uses, so the button cannot describe the
+            // award differently from the card it sits on.
+            val name = achievementNotice(context, id)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -128,16 +141,24 @@ private fun AchievementList(ids: List<String>, tagPrefix: String) {
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = achievementNotice(context, id), style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (onTogglePin != null) {
+                        AchievementPinButton(
+                            isPinned = id in pinned,
+                            awardName = name,
+                            onToggle = { onTogglePin(id) },
+                            testTag = "achievements_pin_$id"
+                        )
+                    }
                 }
             }
         }
     }
 }
-
-/** Kept so the screen and its previews agree on one definition shape. */
-internal fun AchievementDefinition.label(): String = id

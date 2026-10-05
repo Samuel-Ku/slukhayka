@@ -675,6 +675,14 @@
     <string name="achievement_vintage">Vintage</string>
     <string name="achievement_comeback">Comeback</string>
     <string name="achievement_never_too_late">Never too late</string>
+    <string name="achievements_title">Achievements</string>
+    <string name="settings_desc_achievements">Awards for what you have listened to</string>
+    <string name="achievements_tier">Title: %1$s</string>
+    <string name="achievements_showcase">Showcase</string>
+    <string name="achievements_earned">Earned</string>
+    <string name="achievements_upcoming">Ahead</string>
+    <string name="achievements_empty_title">No awards yet</string>
+    <string name="achievements_empty_body">Listen to books and your awards will appear here.</string>
     <string name="achievement_awarded_generic">New award</string>
     <string name="achievement_awarded">Achievement: %1$s</string>
     <string name="achievement_first_book">First book</string>

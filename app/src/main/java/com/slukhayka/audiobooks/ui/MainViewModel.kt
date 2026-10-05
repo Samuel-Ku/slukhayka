@@ -2515,6 +2515,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination (⚙️
     // overflow) — navigation only; the screen reads/writes the App Locale
     // module directly and applies through the platform applier (ADR-0008).
+    // --- #704 (T6) the «Досягнення» destination -----------------------------
+
+    private val _achievementsOpen = MutableStateFlow(false)
+    val achievementsOpen: StateFlow<Boolean> = _achievementsOpen.asStateFlow()
+
+    fun openAchievements() { _achievementsOpen.value = true }
+
+    fun closeAchievements() { _achievementsOpen.value = false }
+
+    /** What the screen shows. The RULE lives in [AchievementBoard], not here. */
+    val achievementsBoard: StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementBoard> =
+        App.instance.achievements.earned
+            .map { earned ->
+                com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(
+                    com.slukhayka.audiobooks.data.achievements.AchievementCatalog.definitions,
+                    earned.map { it.id }.toSet()
+                )
+            }
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(emptyList(), emptySet())
+            )
+
+    /** The title, derived from the same snapshot the evaluator uses. */
+    val listenerTitle: StateFlow<com.slukhayka.audiobooks.data.achievements.ListenerTitle> =
+        App.instance.achievements.snapshot
+            .map { com.slukhayka.audiobooks.data.achievements.AchievementTitle.of(it) }
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.data.achievements.ListenerTitle.LISTENER
+            )
+
+    /** The pinned showcase, newest first. */
+    val achievementShowcase: StateFlow<List<String>> =
+        App.instance.achievementStore.observeShowcase()
+            .map { rows -> rows.map { it.id } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _appLocaleOpen = MutableStateFlow(false)
     val appLocaleOpen: StateFlow<Boolean> = _appLocaleOpen.asStateFlow()
 
@@ -5426,7 +5464,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val book = libraryEntries.getBookSync(bookId)
                 startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
                 offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
-                // CONTEXT.md/ADR-0026: browser recovery never resumes on its
+                // GLOSSARY.md/ADR-0026: browser recovery never resumes on its
                 // own; this explicit Continue is the only door that does.
                 val result = offlineDownloads.resumePendingBrowserRefresh(bookId)
                     ?: offlineDownloads.continueDownload(bookId)

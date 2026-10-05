@@ -75,6 +75,7 @@ import com.slukhayka.audiobooks.ui.screens.SettingsScreen
 import com.slukhayka.audiobooks.ui.screens.SettingsDestination
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
+import com.slukhayka.audiobooks.ui.screens.AchievementsScreen
 import com.slukhayka.audiobooks.ui.screens.AppLocaleScreen
 import com.slukhayka.audiobooks.ui.screens.ContentLanguageScreen
 import com.slukhayka.audiobooks.ui.screens.FirstLanguageChoiceSheet
@@ -496,6 +497,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val contentLanguageOptions by viewModel.contentLanguageOptions.collectAsState()
     val sourceAudioRefusalOpen by viewModel.sourceAudioRefusalOpen.collectAsState()
     val appLocaleOpen by viewModel.appLocaleOpen.collectAsState()
+    // #704 (T6) — the «Досягнення» destination and its three inputs.
+    val achievementsOpen by viewModel.achievementsOpen.collectAsState()
+    val achievementsBoard by viewModel.achievementsBoard.collectAsState()
+    val listenerTitle by viewModel.listenerTitle.collectAsState()
+    val achievementShowcase by viewModel.achievementShowcase.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
@@ -1092,6 +1098,14 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу»
                     // destination — Settings. The choice
                     // applies immediately through the platform applier.
+                    // #704 (T6) — the «Досягнення» destination. What to show
+                    // is decided by the board; the screen only renders it.
+                    achievementsOpen -> AchievementsScreen(
+                        board = achievementsBoard,
+                        title = listenerTitle,
+                        showcase = achievementShowcase,
+                        onBackClick = { viewModel.closeAchievements() }
+                    )
                     appLocaleOpen -> AppLocaleScreen(
                         localePrefs = App.instance.appLocalePrefs,
                         // The choice applies immediately through the platform
@@ -1337,6 +1351,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                     SettingsDestination.ContentLanguages -> viewModel.openContentLanguages()
                                     SettingsDestination.SourceAudioRefusal -> viewModel.openSourceAudioRefusal()
                                     SettingsDestination.AppLocale -> viewModel.openAppLocale()
+                                    SettingsDestination.Achievements -> viewModel.openAchievements()
                                 }
                             }
                         )

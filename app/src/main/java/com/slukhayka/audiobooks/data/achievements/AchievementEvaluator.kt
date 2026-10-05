@@ -76,6 +76,8 @@ data class AchievementProgress(
     val vintageCompletions: Long = 0,
     /** #703 (T5) — books returned to after a six-month break. */
     val returnsAfterBreak: Long = 0,
+    /** #703 (T5) — books finished two years or more after they were opened. */
+    val lateCompletions: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -89,7 +91,7 @@ enum class AchievementMetric {
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
     DISTINCT_GENRES, MAX_GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
-    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK;
+    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -118,6 +120,7 @@ enum class AchievementMetric {
         HOLIDAY_COMPLETIONS -> snapshot.holidayCompletions
         VINTAGE_COMPLETIONS -> snapshot.vintageCompletions
         RETURNS_AFTER_BREAK -> snapshot.returnsAfterBreak
+        LATE_COMPLETIONS -> snapshot.lateCompletions
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -234,7 +237,8 @@ object AchievementCatalog {
         // hours metric rather than adding one: the hundredth hour IS a hundred
         // hours, and a second counter would be the same fact twice.
         AchievementDefinition("vintage", "hidden", 1, AchievementMetric.VINTAGE_COMPLETIONS, 1, hidden = true),
-        AchievementDefinition("comeback", "hidden", 1, AchievementMetric.RETURNS_AFTER_BREAK, 1, hidden = true)
+        AchievementDefinition("comeback", "hidden", 1, AchievementMetric.RETURNS_AFTER_BREAK, 1, hidden = true),
+        AchievementDefinition("never_too_late", "hidden", 1, AchievementMetric.LATE_COMPLETIONS, 1, hidden = true)
         // NOTE: «Ювілей години» (the hundredth hour) is deliberately ABSENT. The
         // hour ladder from T1 already has `hours_100` on the SAME metric at the
         // SAME threshold, so adding it would fire two awards — and two notices —

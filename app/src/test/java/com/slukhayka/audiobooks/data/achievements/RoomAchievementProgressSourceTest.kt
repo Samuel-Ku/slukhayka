@@ -544,4 +544,47 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #703 (T5) — «Ніколи не пізно»: a book finished TWO YEARS after it was
+     * first opened. Its near-miss sits beside it — a book opened a month before
+     * finishing must not qualify.
+     */
+    @Test fun `never too late needs two years between opening and finishing`() = runBlocking {
+        val day = 86_400_000L
+        val base = 1_700_000_000_000L
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val books = TestDataFactory.dataBooks().take(2)
+            dao.insertAudiobooks(books)
+
+            // Book 0: opened, then finished 2.5 years later.
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[0].id,
+                kind = PlaybackEventKind.RESUME, timestamp = base))
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[0].id,
+                kind = PlaybackEventKind.COMPLETED, timestamp = base + 900 * day))
+            // Book 1: opened and finished a month later.
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[1].id,
+                kind = PlaybackEventKind.RESUME, timestamp = base))
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[1].id,
+                kind = PlaybackEventKind.COMPLETED, timestamp = base + 30 * day))
+
+            assertEquals("лише одна книга дочекалась двох років", 1L,
+                database.achievementDao().observeLateCompletions().first())
+
+            val snapshot = RoomAchievementProgressSource(
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet()
+            ).observe().first()
+            assertTrue(
+                "«Ніколи не пізно» мусить відкритись",
+                "never_too_late" in AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+            )
+        } finally {
+            database.close()
+        }
+    }
 }

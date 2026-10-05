@@ -69,6 +69,16 @@ interface AchievementDao {
     fun observeRelistens(): Flow<Long>
 
     /**
+     * #701 (T3) — books imported through the BROWSER door.
+     *
+     * Capped at 1: the award marks having taken the harder path at all, and the
+     * evaluator's threshold is 1, so a larger count would carry no more truth.
+     * The `type` is what `LibraryImport.importSubmittedYouTube` writes.
+     */
+    @Query("SELECT MIN(COUNT(*), 1) FROM sources WHERE type = 'youtube'")
+    fun observeBrowserBooks(): Flow<Long>
+
+    /**
      * #701 (T3) — distinct LANGUAGES the listener has renditions in.
      *
      * Mirrors the established language query in `AudiobookDao` (the First

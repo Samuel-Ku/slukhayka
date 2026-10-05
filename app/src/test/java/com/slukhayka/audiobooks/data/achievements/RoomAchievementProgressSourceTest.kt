@@ -256,4 +256,41 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #701 (T3) — «Гість» is about the BROWSER door specifically.
+     *
+     * The WebView submission path is the only one that writes
+     * `type = "youtube"` (`LibraryImport.importSubmittedYouTube`). A book
+     * imported from a registry source must NOT earn it — otherwise the award
+     * would just mean "you own something", which is what the first-steps
+     * awards already say.
+     */
+    @Test fun `browser guest needs the browser door, not just any source`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val achievementDao = database.achievementDao()
+            val books = TestDataFactory.dataBooks()
+            dao.insertAudiobooks(books)
+            dao.insertSources(listOf(
+                SourceEntity(id = "reg-1", bookId = books[0].id, type = "sluhay", url = "https://a/1"),
+                SourceEntity(id = "reg-2", bookId = books[1].id, type = "librivox", url = "https://b/1")
+            ))
+
+            assertEquals(
+                "без браузерного шляху «Гість» не має відкриватись",
+                0L, achievementDao.observeBrowserBooks().first()
+            )
+
+            dao.insertSources(listOf(
+                SourceEntity(id = "web-1", bookId = books[2].id, type = "youtube", url = "https://c/1")
+            ))
+            assertEquals("після браузерного імпорту — 1", 1L, achievementDao.observeBrowserBooks().first())
+        } finally {
+            database.close()
+        }
+    }
 }

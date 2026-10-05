@@ -39,6 +39,11 @@ data class AchievementProgress(
      * has renditions in. Unknown (empty) is never counted as one.
      */
     val knownLanguages: Long = 0,
+    /**
+     * #701 (T3) — books imported through the BROWSER door. 0 or 1 is enough:
+     * the award says "you went the harder way", and twice is not more true.
+     */
+    val browserBooks: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -50,7 +55,7 @@ enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
-    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES;
+    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -71,6 +76,7 @@ enum class AchievementMetric {
         RELISTENS -> snapshot.relistens
         USED_SOURCE_DOORS -> snapshot.usedSourceDoors
         KNOWN_LANGUAGES -> snapshot.knownLanguages
+        BROWSER_BOOKS -> snapshot.browserBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -150,7 +156,12 @@ object AchievementCatalog {
         // a second language, then three — and they are pinned by tests so a
         // later change is a decision rather than drift.
         AchievementDefinition("bilingual_2", "languages", 1, AchievementMetric.KNOWN_LANGUAGES, 2),
-        AchievementDefinition("polyglot_3", "languages", 2, AchievementMetric.KNOWN_LANGUAGES, 3)
+        AchievementDefinition("polyglot_3", "languages", 2, AchievementMetric.KNOWN_LANGUAGES, 3),
+        // #701 (T3) — «Гість»: a book imported through the BROWSER door. The
+        // WebView submission path records `type = "youtube"`
+        // (`LibraryImport.importSubmittedYouTube`), so this counts that path
+        // rather than any book that merely lives on YouTube.
+        AchievementDefinition("browser_guest", "doors", 2, AchievementMetric.BROWSER_BOOKS, 1)
     )
 }
 

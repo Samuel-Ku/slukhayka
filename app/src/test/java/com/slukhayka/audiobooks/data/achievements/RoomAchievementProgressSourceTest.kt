@@ -346,4 +346,48 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #704 (T6) — the series count is DISTINCT series, and a book with no
+     * series is not a series.
+     *
+     * Two Works in the same series must count once; a Work with a null or blank
+     * `seriesTitle` must not become a nameless one. A row-counting bug would
+     * report 4 here instead of 2.
+     */
+    @Test fun `series count is distinct and ignores books with no series`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val achievementDao = database.achievementDao()
+            val books = TestDataFactory.dataBooks()
+            dao.insertAudiobooks(books)
+            for (book in books) dao.upsertLibraryEntry(book.id, book.id, false, 1L, 0f)
+
+            dao.upsertWork(WorkEntity(id = books[0].id, mergeKey = "k0", title = "Т1",
+                author = "А", seriesTitle = "Відьмак"))
+            dao.upsertWork(WorkEntity(id = books[1].id, mergeKey = "k1", title = "Т2",
+                author = "А", seriesTitle = "Відьмак"))
+            // Same series again — must NOT add a third.
+            dao.upsertWork(WorkEntity(id = books[2].id, mergeKey = "k2", title = "Т3",
+                author = "А", seriesTitle = "Відьмак"))
+
+            assertEquals("три книги однієї серії — це ОДНА серія", 1L,
+                achievementDao.observeSeriesInLibrary().first())
+
+            dao.upsertWork(WorkEntity(id = "no-series", mergeKey = "k3", title = "Без серії",
+                author = "Б", seriesTitle = null))
+            dao.upsertWork(WorkEntity(id = "blank-series", mergeKey = "k4", title = "Порожня",
+                author = "Б", seriesTitle = ""))
+            dao.upsertLibraryEntry("no-series", "no-series", false, 1L, 0f)
+            dao.upsertLibraryEntry("blank-series", "blank-series", false, 1L, 0f)
+
+            assertEquals("книга без серії не має ставати безіменною серією", 1L,
+                achievementDao.observeSeriesInLibrary().first())
+        } finally {
+            database.close()
+        }
+    }
 }

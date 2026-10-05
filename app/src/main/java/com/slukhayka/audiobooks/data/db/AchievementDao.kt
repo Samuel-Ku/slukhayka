@@ -69,6 +69,20 @@ interface AchievementDao {
     fun observeRelistens(): Flow<Long>
 
     /**
+     * #704 (T6) — distinct series the listener has books from.
+     *
+     * `seriesTitle` is a real property of the Work, so this needs no claim to
+     * be true. Works with no series are excluded rather than counted as one
+     * nameless series.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT w.seriesTitle) FROM works w " +
+            "JOIN library_entries le ON le.workId = w.id " +
+            "WHERE w.seriesTitle IS NOT NULL AND w.seriesTitle != ''"
+    )
+    fun observeSeriesInLibrary(): Flow<Long>
+
+    /**
      * #702 (T4) — library Works per normalized genre.
      *
      * The two rules the ticket sets are both in this SQL:

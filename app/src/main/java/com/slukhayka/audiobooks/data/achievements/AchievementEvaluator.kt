@@ -21,6 +21,10 @@ data class AchievementProgress(
     val bookmarks: Long = 0,
     /** #700 — bookmarks that actually carry a written note (non-blank). */
     val notes: Long = 0,
+    /** #700 — sleep-timer stops the listener actually reached. */
+    val timerStops: Long = 0,
+    /** #700 — books the listener came BACK to and heard again. */
+    val relistens: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -31,7 +35,8 @@ data class AchievementSeriesMembership(val seriesId: String, val workId: String,
 enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
-    SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES;
+    SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
+    TIMER_STOPS, RELISTENS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -48,6 +53,8 @@ enum class AchievementMetric {
         SLOW_BOOKS -> snapshot.slowBooks
         BOOKMARKS -> snapshot.bookmarks
         NOTES -> snapshot.notes
+        TIMER_STOPS -> snapshot.timerStops
+        RELISTENS -> snapshot.relistens
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -97,7 +104,13 @@ object AchievementCatalog {
         // stay apart so neither award can claim something the listener did not
         // do (ADR-0014).
         AchievementDefinition("bookmarks_50", "habits", 2, AchievementMetric.BOOKMARKS, 50),
-        AchievementDefinition("notes_10", "habits", 3, AchievementMetric.NOTES, 10)
+        AchievementDefinition("notes_10", "habits", 3, AchievementMetric.NOTES, 10),
+        // #700 (T2) — falling asleep to a book, and coming back to one. Both
+        // are RECORDED events (`TIMER_STOP`, `RELISTEN`), not inferred from
+        // anything else — the app already writes them.
+        AchievementDefinition("sleep_timer_20", "habits", 4, AchievementMetric.TIMER_STOPS, 20),
+        AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
+        AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5)
     )
 }
 

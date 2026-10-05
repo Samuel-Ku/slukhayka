@@ -143,4 +143,46 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #700 (T2) — relistens count BOOKS, not rows.
+     *
+     * Three RELISTEN rows for the SAME book must count as ONE: a listener who
+     * replays one chapter three times returned to one book, and a row count
+     * would let a single chapter satisfy the whole ladder. A second book makes
+     * the difference visible — a broken DISTINCT would report 4, not 2.
+     */
+    @Test fun `relistens count distinct books, and timer stops count events`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val achievementDao = database.achievementDao()
+            val books = TestDataFactory.dataBooks().take(2)
+            dao.insertAudiobooks(books)
+
+            repeat(3) { index ->
+                dao.insertPlaybackEvent(PlaybackEventEntity(
+                    bookId = books[0].id, kind = PlaybackEventKind.RELISTEN, chapterIndex = index
+                ))
+            }
+            dao.insertPlaybackEvent(PlaybackEventEntity(
+                bookId = books[1].id, kind = PlaybackEventKind.RELISTEN, chapterIndex = 0
+            ))
+            repeat(4) {
+                dao.insertPlaybackEvent(PlaybackEventEntity(
+                    bookId = books[0].id, kind = PlaybackEventKind.TIMER_STOP, chapterIndex = 0
+                ))
+            }
+
+            assertEquals(
+                "чотири рядки RELISTEN — це ДВІ книги, а не чотири",
+                2L, achievementDao.observeRelistens().first()
+            )
+            assertEquals("таймер мусить порахувати всі чотири зупинки", 4L, achievementDao.observeTimerStops().first())
+        } finally {
+            database.close()
+        }
+    }
 }

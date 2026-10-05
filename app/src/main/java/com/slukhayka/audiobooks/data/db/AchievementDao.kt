@@ -49,6 +49,25 @@ interface AchievementDao {
     @Query("SELECT COUNT(DISTINCT bookId) FROM playback_progress WHERE preferredSpeed < 0.75")
     fun observeSlowBooks(): Flow<Long>
 
+    /**
+     * #700 (T2) — sleep-timer stops the listener reached.
+     *
+     * `TIMER_STOP` is a RECORDED event kind the player already writes, so this
+     * counts something that happened rather than something we assume.
+     */
+    @Query("SELECT COUNT(*) FROM playback_events WHERE kind='TIMER_STOP'")
+    fun observeTimerStops(): Flow<Long>
+
+    /**
+     * #700 (T2) — DISTINCT books the listener came back to.
+     *
+     * DISTINCT, not rows: hearing chapter 3 twice is still one book you
+     * returned to, and counting rows would let a single replayed chapter
+     * satisfy the whole ladder.
+     */
+    @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='RELISTEN'")
+    fun observeRelistens(): Flow<Long>
+
     /** #700 (T2) — every bookmark the listener placed, notes or not. */
     @Query("SELECT COUNT(*) FROM bookmarks")
     fun observeBookmarks(): Flow<Long>

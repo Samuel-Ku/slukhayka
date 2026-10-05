@@ -32,15 +32,21 @@ class RoomAchievementProgressSource(
     private val marks = combine(dao.observeBookmarks(), dao.observeNotes()) { marks, notes ->
         marks to notes
     }
+    private val returns = combine(dao.observeTimerStops(), dao.observeRelistens()) { stops, relistens ->
+        stops to relistens
+    }
     private val countersWithShape =
-        combine(counters, shape, speeds, marks) { base, (short, epic), (fast, slow), (marks, notes) ->
+        combine(counters, shape, speeds, marks, returns) {
+                base, (short, epic), (fast, slow), (marks, notes), (stops, relistens) ->
             base.copy(
                 shortCompletedBooks = short,
                 epicCompletedBooks = epic,
                 fastBooks = fast,
                 slowBooks = slow,
                 bookmarks = marks,
-                notes = notes
+                notes = notes,
+                timerStops = stops,
+                relistens = relistens
             )
         }
     // Files are inspected only when the track/topology rows change, never on every listening tick.

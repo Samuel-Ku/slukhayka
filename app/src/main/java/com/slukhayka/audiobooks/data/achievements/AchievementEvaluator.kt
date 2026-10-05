@@ -34,6 +34,11 @@ data class AchievementProgress(
      * listener used.
      */
     val usedSourceDoors: Long = 0,
+    /**
+     * #701 (T3) — how many distinct, KNOWN narration languages the listener
+     * has renditions in. Unknown (empty) is never counted as one.
+     */
+    val knownLanguages: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -45,7 +50,7 @@ enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
-    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS;
+    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -65,6 +70,7 @@ enum class AchievementMetric {
         TIMER_STOPS -> snapshot.timerStops
         RELISTENS -> snapshot.relistens
         USED_SOURCE_DOORS -> snapshot.usedSourceDoors
+        KNOWN_LANGUAGES -> snapshot.knownLanguages
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -134,7 +140,17 @@ object AchievementCatalog {
         // #701 (T3) — «Чотири двері»: listening from four DIFFERENT sources.
         // Counts doors the listener actually used (library rows), never the
         // set the app merely offers — those are different facts.
-        AchievementDefinition("four_doors", "doors", 1, AchievementMetric.USED_SOURCE_DOORS, 4)
+        AchievementDefinition("four_doors", "doors", 1, AchievementMetric.USED_SOURCE_DOORS, 4),
+        // #701 (T3) — languages, from real BCP-47 codes only (CONTEXT.md), never
+        // guessed from text or a URL. An Edition whose language is unknown does
+        // not count, so these cannot open on a guess.
+        //
+        // NOTE: the ticket names the awards but not their thresholds, and the
+        // spec gives none either. These two are the smallest honest ladder —
+        // a second language, then three — and they are pinned by tests so a
+        // later change is a decision rather than drift.
+        AchievementDefinition("bilingual_2", "languages", 1, AchievementMetric.KNOWN_LANGUAGES, 2),
+        AchievementDefinition("polyglot_3", "languages", 2, AchievementMetric.KNOWN_LANGUAGES, 3)
     )
 }
 

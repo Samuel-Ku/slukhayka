@@ -40,9 +40,18 @@ class RoomAchievementProgressSource(
     private val returnsAndDoors = combine(returns, dao.observeUsedSourceDoors()) { ret, doors ->
         ret to doors
     }
+    /**
+     * The door count and language count travel together. Three levels of nested
+     * pairs stop being readable (and stopped compiling), so this one carries
+     * named fields instead.
+     */
+    private data class ReturnsDoorsLanguages(val stops: Long, val relistens: Long, val doors: Long, val languages: Long)
+    private val doorsAndLanguages = combine(returnsAndDoors, dao.observeKnownLanguages()) { prev, languages ->
+        ReturnsDoorsLanguages(prev.first.first, prev.first.second, prev.second, languages)
+    }
     private val countersWithShape =
-        combine(counters, shape, speeds, marks, returnsAndDoors) {
-                base, (short, epic), (fast, slow), (marks, notes), (ret, doors) ->
+        combine(counters, shape, speeds, marks, doorsAndLanguages) {
+                base, (short, epic), (fast, slow), (marks, notes), combo ->
             base.copy(
                 shortCompletedBooks = short,
                 epicCompletedBooks = epic,
@@ -50,9 +59,10 @@ class RoomAchievementProgressSource(
                 slowBooks = slow,
                 bookmarks = marks,
                 notes = notes,
-                timerStops = ret.first,
-                relistens = ret.second,
-                usedSourceDoors = doors
+                timerStops = combo.stops,
+                relistens = combo.relistens,
+                usedSourceDoors = combo.doors,
+                knownLanguages = combo.languages
             )
         }
     // Files are inspected only when the track/topology rows change, never on every listening tick.

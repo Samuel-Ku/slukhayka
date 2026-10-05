@@ -227,4 +227,33 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #701 (T3) — languages count only REAL BCP-47 codes, and an UNKNOWN one is
+     * not a language.
+     *
+     * The AC is explicit: «Мовні нагороди — з реального contentLanguage, не
+     * вгаданого». An Edition whose language is empty must therefore add
+     * nothing — otherwise two empty rows would open «Двомовний» on a guess. The
+     * third row is the boundary: it has a real code and must count.
+     */
+    @Test fun `unknown language never counts as one, real codes do`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val achievementDao = database.achievementDao()
+            val dao = database.audiobookDao()
+            dao.insertEdition(EditionEntity(id = "ed-uk", workId = "w1", language = "uk"))
+            dao.insertEdition(EditionEntity(id = "ed-empty", workId = "w2", language = ""))
+            dao.insertEdition(EditionEntity(id = "ed-empty2", workId = "w3", language = ""))
+
+            assertEquals(
+                "дві порожні мови не рахуються — лишається один справжній код",
+                1L, achievementDao.observeKnownLanguages().first()
+            )
+        } finally {
+            database.close()
+        }
+    }
 }

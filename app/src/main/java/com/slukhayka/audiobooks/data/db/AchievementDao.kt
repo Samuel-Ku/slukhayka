@@ -69,6 +69,21 @@ interface AchievementDao {
     fun observeRelistens(): Flow<Long>
 
     /**
+     * #701 (T3) — distinct LANGUAGES the listener has renditions in.
+     *
+     * Mirrors the established language query in `AudiobookDao` (the First
+     * Language Choice): both tables, `!= ''` so an UNKNOWN language is not
+     * counted as one, and codes are stored normalized (BCP-47) per CONTEXT.md,
+     * so `en` and `English` cannot both appear.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT language) FROM (" +
+            "SELECT language FROM edition_facets WHERE language != '' " +
+            "UNION SELECT language FROM editions WHERE language != '')"
+    )
+    fun observeKnownLanguages(): Flow<Long>
+
+    /**
      * #701 (T3) — distinct source DOORS the listener actually used.
      *
      * Distinct on `type`, not on the row: two books from the same source are

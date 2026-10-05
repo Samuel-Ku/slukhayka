@@ -704,6 +704,7 @@
     <string name="home_search_retry">Спробувати ще раз</string>
 
     <!-- #699: quiet local earned notices. -->
+    <string name="achievement_awarded_generic">Нова нагорода</string>
     <string name="achievement_awarded">Нагорода: %1$s</string>
     <string name="achievement_first_book">Перша книга</string>
     <string name="achievement_first_playback">Перше прослуховування</string>

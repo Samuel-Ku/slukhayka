@@ -650,6 +650,28 @@
     <string name="home_search_retry">Try again</string>
 
     <!-- #699: quiet local earned notices. -->
+    <string name="achievement_short_form_10">Short form</string>
+    <string name="achievement_epic_1">Epic</string>
+    <string name="achievement_long_liver_5">Long liver</string>
+    <string name="achievement_speedster_10">Speedster</string>
+    <string name="achievement_slow_savour_5">Slow savour</string>
+    <string name="achievement_bookmarks_50">Bookmarks</string>
+    <string name="achievement_notes_10">Notes</string>
+    <string name="achievement_sleep_timer_20">Sleep timer</string>
+    <string name="achievement_relisten_1">Relisten</string>
+    <string name="achievement_relisten_5">Relistens</string>
+    <string name="achievement_deep_reserve_10">Deep reserve</string>
+    <string name="achievement_four_doors">Four doors</string>
+    <string name="achievement_browser_guest">Guest</string>
+    <string name="achievement_bilingual_2">Bilingual</string>
+    <string name="achievement_polyglot_3">Polyglot</string>
+    <string name="achievement_genre_polyglot_8">Genre polyglot</string>
+    <string name="achievement_omnivore_12">Omnivore</string>
+    <string name="achievement_mono_genre_25">Single-genre devotee</string>
+    <string name="achievement_deep_search">Deep search</string>
+    <string name="achievement_night_watch">Night watch</string>
+    <string name="achievement_owl_and_lark">Owl and lark</string>
+    <string name="achievement_holiday">Holiday</string>
     <string name="achievement_awarded_generic">New award</string>
     <string name="achievement_awarded">Achievement: %1$s</string>
     <string name="achievement_first_book">First book</string>
@@ -660,6 +682,10 @@
     <string name="achievement_first_offline_playback">First offline listen</string>
     <string name="achievement_first_download">First downloaded book</string>
     <string name="achievement_first_completion">To the last page</string>
+    <plurals name="achievement_books">
+        <item quantity="one">%1$d book finished</item>
+        <item quantity="other">%1$d books finished</item>
+    </plurals>
     <plurals name="achievement_hours">
         <item quantity="one">%1$d hour listened</item>
         <item quantity="other">%1$d hours listened</item>

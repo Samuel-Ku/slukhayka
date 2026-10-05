@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SetOptions
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -48,8 +49,13 @@ class FirestoreListenerCollectionsSharedStore(
         val mine = queryByAuthor(authorId)
         if (mine.isEmpty()) return PublishResult.Refused("unknown-author")
         // ALL of the author's collections carry the same public name.
+        //
+        // MERGE, not write: this is a PARTIAL update. A plain `set` replaces
+        // the document, so writing only `pseudonym` would erase `authorId`,
+        // `bookIds` and `title` — the profile would vanish and nothing could
+        // restore it (#1150).
         mine.forEach { document ->
-            write(document.documentId, mapOf("pseudonym" to clean))
+            merge(document.documentId, mapOf("pseudonym" to clean))
         }
         return PublishResult.Published
     }
@@ -220,9 +226,30 @@ class FirestoreListenerCollectionsSharedStore(
         return documents.mapNotNull(PublishedCollectionCodec::decode)
     }
 
+    /**
+     * A FULL-document write: replaces whatever was there.
+     *
+     * Correct for [publish], which encodes every field. A caller that means to
+     * change ONE field wants [merge] instead — the two are separate methods so
+     * the choice cannot be made by accident (#1150).
+     */
     private suspend fun write(documentId: String, fields: Map<String, Any?>): Boolean = try {
         firestore.collection(COLLECTION).document(documentId)
             .set(fields.filterValues { it != null })
+            .awaitWrite()
+    } catch (_: Exception) {
+        false
+    }
+
+    /**
+     * A PARTIAL write: fields not named here survive.
+     *
+     * `SetOptions.merge()` is what makes that true — plain `set` overwrites the
+     * whole document.
+     */
+    private suspend fun merge(documentId: String, fields: Map<String, Any?>): Boolean = try {
+        firestore.collection(COLLECTION).document(documentId)
+            .set(fields.filterValues { it != null }, SetOptions.merge())
             .awaitWrite()
     } catch (_: Exception) {
         false

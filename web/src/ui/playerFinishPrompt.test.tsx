@@ -39,7 +39,8 @@ function engineWithCompletedBook(): { engine: AudioEngine; store: LocalListening
     { startChapter: 0, startPositionSeconds: 59.9 },
   )
   engine.engine.play()
-  engine.engine.tick(500)
+  engine.engine.observePosition(60)
+  engine.engine.markCompleted()
   return { engine, store }
 }
 

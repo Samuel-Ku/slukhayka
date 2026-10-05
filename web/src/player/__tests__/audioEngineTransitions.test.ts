@@ -36,13 +36,21 @@ class MapStorage implements StorageLike {
 /** The controlled media adapter: no real element, no real network. */
 class FakeAudio extends EventTarget {
   src = ''
+  ended = false
   currentTime = 0
   playbackRate = 1
   play(): Promise<void> {
+    this.dispatchEvent(new Event('playing'))
     return Promise.resolve()
   }
   pause(): void {}
-  load(): void {}
+  load(): void { this.ended = false; this.currentTime = 0 }
+  finish(seconds: number): void {
+    this.dispatchEvent(new Event('playing'))
+    this.currentTime = seconds
+    this.ended = true
+    this.dispatchEvent(new Event('ended'))
+  }
   removeAttribute(name: string): void { if (name === 'src') this.src = '' }
 }
 
@@ -165,7 +173,7 @@ describe('#614 — the natural end of a Chapter', () => {
     const { engine, audio } = makeEngine({ chapterIndex: 0, positionSeconds: 0 })
     await engine.loadBook(detail(), 0)
 
-    audio.dispatchEvent(new Event('ended'))
+    audio.finish(600)
 
     expect(engine.getState()).toMatchObject({
       status: 'playing',
@@ -175,7 +183,7 @@ describe('#614 — the natural end of a Chapter', () => {
     expect(audio.src).toBe(CHAPTERS[1].streamUrl)
 
     // The next `ended` is the NEXT Chapter's end: one step again, never a skip.
-    audio.dispatchEvent(new Event('ended'))
+    audio.finish(300)
     expect(engine.getState()).toMatchObject({ chapterIndex: 2, positionSeconds: 0 })
   })
 
@@ -183,7 +191,7 @@ describe('#614 — the natural end of a Chapter', () => {
     const { engine, audio, store } = makeEngine()
     await engine.loadBook(detail(), 2, { forceChapter: true })
 
-    audio.dispatchEvent(new Event('ended'))
+    audio.finish(120)
 
     expect(engine.getState()).toMatchObject({
       status: 'paused',
@@ -202,7 +210,7 @@ describe('#614 — the natural end of a Chapter', () => {
     const { engine, audio, store } = makeEngine()
     await engine.loadBook(detail(OPEN_ENDED), 1, { forceChapter: true })
 
-    audio.dispatchEvent(new Event('ended'))
+    audio.finish(0)
 
     // No duration to park on — completion does not depend on metadata that
     // the Source never gave, and the position is left where it honestly was.

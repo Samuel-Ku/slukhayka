@@ -69,6 +69,21 @@ interface AchievementDao {
     fun observeRelistens(): Flow<Long>
 
     /**
+     * #703 (T5) — the TIMES of real completions.
+     *
+     * Only timestamps come back; whether one falls at night, or on a holiday,
+     * is decided in Kotlin against the listener's own time zone. Doing it in
+     * SQL would mean `strftime(..., 'localtime')`, whose meaning depends on the
+     * process time zone and cannot be pinned in a test.
+     */
+    @Query("SELECT timestamp FROM playback_events WHERE kind='COMPLETED'")
+    fun observeCompletionTimes(): Flow<List<Long>>
+
+    /** #703 (T5) — the times sessions STARTED, for the owl-and-lark pair. */
+    @Query("SELECT timestamp FROM playback_events WHERE kind='RESUME'")
+    fun observeSessionStartTimes(): Flow<List<Long>>
+
+    /**
      * #704 (T6) — distinct series the listener has books from.
      *
      * `seriesTitle` is a real property of the Work, so this needs no claim to

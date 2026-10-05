@@ -390,4 +390,99 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #703 (T5) — the hidden time-based awards, read from REAL event times.
+     *
+     * The zone is pinned so the assertions mean something: "between 02:00 and
+     * 04:00" is not an instant, it is a local hour, and without a fixed zone the
+     * test would pass or fail depending on the machine's clock settings.
+     */
+    @Test fun `night and holiday awards come from real event times`() = runBlocking {
+        val kyiv = java.time.ZoneId.of("Europe/Kyiv")
+        fun at(year: Int, month: Int, day: Int, hour: Int): Long =
+            java.time.LocalDateTime.of(year, month, day, hour, 0)
+                .atZone(kyiv).toInstant().toEpochMilli()
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val book = TestDataFactory.dataBooks().first()
+            dao.insertAudiobooks(listOf(book))
+
+            // 03:00 on New Year's Day: BOTH the night award and the holiday one.
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = book.id,
+                kind = PlaybackEventKind.COMPLETED, timestamp = at(2026, 1, 1, 3)))
+            // Midday in March: neither.
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = book.id,
+                kind = PlaybackEventKind.COMPLETED, timestamp = at(2026, 3, 10, 12)))
+
+            val source = RoomAchievementProgressSource(
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()),
+                emptySet(), zoneId = kyiv
+            )
+            val snapshot = source.observe().first()
+
+            assertEquals("нічних завершень мусить бути одне", 1L, snapshot.nightCompletions)
+            assertEquals("святкових завершень мусить бути одне", 1L, snapshot.holidayCompletions)
+            assertEquals("сесій не було — баланс нульовий", 0L, snapshot.owlLarkBalance)
+
+            val earned = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+            assertTrue("«Нічний вартовий» мусить відкритись", "night_watch" in earned)
+            assertTrue("«Свято» мусить відкритись", "holiday" in earned)
+            assertFalse("«Сова й жайворонок» не має відкриватись без сесій", "owl_and_lark" in earned)
+
+            // Both ends of the day are needed, and one alone must not do it.
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = book.id,
+                kind = PlaybackEventKind.RESUME, timestamp = at(2026, 3, 11, 5)))
+            assertEquals("лише рання сесія — ще не баланс", 0L,
+                source.observe().first().owlLarkBalance)
+
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = book.id,
+                kind = PlaybackEventKind.RESUME, timestamp = at(2026, 3, 11, 23)))
+            assertEquals("рання і пізня — баланс одиниця", 1L,
+                source.observe().first().owlLarkBalance)
+        } finally {
+            database.close()
+        }
+    }
+
+    /**
+     * The zone is not decoration: the SAME instant is night in Kyiv and not in
+     * London. If the computation ignored the injected zone, this would fail.
+     */
+    @Test fun `the same instant is night in one zone and not in another`() = runBlocking {
+        val kyiv = java.time.ZoneId.of("Europe/Kyiv")
+        val london = java.time.ZoneId.of("Europe/London")
+        // 03:00 in Kyiv is 01:00 in London in winter.
+        val instant = java.time.LocalDateTime.of(2026, 1, 15, 3, 0)
+            .atZone(kyiv).toInstant().toEpochMilli()
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val book = TestDataFactory.dataBooks().first()
+            dao.insertAudiobooks(listOf(book))
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = book.id,
+                kind = PlaybackEventKind.COMPLETED, timestamp = instant))
+
+            val inKyiv = RoomAchievementProgressSource(
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()),
+                emptySet(), zoneId = kyiv
+            ).observe().first()
+            val inLondon = RoomAchievementProgressSource(
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()),
+                emptySet(), zoneId = london
+            ).observe().first()
+
+            assertEquals("у Києві це ніч", 1L, inKyiv.nightCompletions)
+            assertEquals("у Лондоні це ще не ніч", 0L, inLondon.nightCompletions)
+        } finally {
+            database.close()
+        }
+    }
 }

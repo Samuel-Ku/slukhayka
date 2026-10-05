@@ -1104,7 +1104,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         board = achievementsBoard,
                         title = listenerTitle,
                         showcase = achievementShowcase,
-                        onBackClick = { viewModel.closeAchievements() }
+                        onBackClick = { viewModel.closeAchievements() },
+                        onTogglePin = { id -> viewModel.toggleAchievementPin(id) }
                     )
                     appLocaleOpen -> AppLocaleScreen(
                         localePrefs = App.instance.appLocalePrefs,

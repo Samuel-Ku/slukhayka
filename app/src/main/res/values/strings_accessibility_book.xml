@@ -100,4 +100,9 @@
     <string name="person_bookmark_off">Не в закладках</string>
     <string name="person_bookmark_notify_enable">Увімкнути сповіщення</string>
     <string name="person_bookmark_notify_disable">Вимкнути сповіщення</string>
+    <!-- #704 (T6) — Showcase pin -->
+    <string name="achievement_pin_add">Поставити «%1$s» на вітрину</string>
+    <string name="achievement_pin_remove">Прибрати «%1$s» з вітрини</string>
+    <string name="achievement_pin_on">На вітрині</string>
+    <string name="achievement_pin_off">Не на вітрині</string>
 </resources>

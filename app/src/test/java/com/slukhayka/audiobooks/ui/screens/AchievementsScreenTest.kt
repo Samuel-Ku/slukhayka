@@ -1,11 +1,16 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHeightIsEqualTo
+import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.test.assertTouchHeightIsEqualTo
+import androidx.compose.ui.test.assertTouchWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.achievements.AchievementBoard
 import com.slukhayka.audiobooks.data.achievements.AchievementCatalog
 import com.slukhayka.audiobooks.data.achievements.AchievementDefinition
@@ -139,6 +144,100 @@ class AchievementsScreenTest {
                 rule.onAllNodesWithTagCount("achievements_upcoming_item_${definition.id}") == 0
             )
         }
+    }
+
+
+    // --- #704 (T6) the showcase pin control --------------------------------
+
+    @Test
+    fun `an earned award carries a pin control that reports its id`() {
+        val toggled = mutableListOf<String>()
+        val board = AchievementBoard.of(listOf(visible, secret), setOf("plain"))
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = emptyList(),
+                onBackClick = {},
+                onTogglePin = { id -> toggled += id }
+            )
+        }
+
+        rule.onNodeWithTag("achievements_pin_plain").assertIsDisplayed()
+        rule.onNodeWithTag("achievements_pin_plain").performClick()
+
+        org.junit.Assert.assertEquals(listOf("plain"), toggled)
+    }
+
+    /** A hidden award that is not earned has no pin control either. */
+    @Test
+    fun `an unearned award carries no pin control`() {
+        val board = AchievementBoard.of(listOf(visible, secret), emptySet())
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = emptyList(),
+                onBackClick = {},
+                onTogglePin = {}
+            )
+        }
+
+        assertTrue(
+            "нездобуте не можна виставити",
+            rule.onAllNodesWithTagCount("achievements_pin_plain") == 0
+        )
+    }
+
+    /**
+     * The a11y criterion from the ticket: «48 dp цілі». Asserted as a MEASURED
+     * touch target, not by reading the source — a 48 dp constant that is not
+     * actually applied would pass a source check and fail a finger.
+     */
+    @Test
+    fun `the pin control is a 48 dp touch target`() {
+        val board = AchievementBoard.of(listOf(visible), setOf("plain"))
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = listOf("plain"),
+                onBackClick = {},
+                onTogglePin = {}
+            )
+        }
+
+        rule.onNodeWithTag("achievements_pin_plain")
+            .assertTouchWidthIsEqualTo(48.dp)
+            .assertTouchHeightIsEqualTo(48.dp)
+    }
+
+    /**
+     * The VISUAL size is the part this screen actually owns.
+     *
+     * Measured while writing this: mutating `.size(48.dp)` to `8.dp` left the
+     * touch-target assertion GREEN — Compose enforces the 48 dp minimum touch
+     * target for a clickable node itself. So that assertion alone could never
+     * catch the size line, and this one exists to. It is asserted separately
+     * from the touch target on purpose: they are two different guarantees from
+     * two different owners.
+     */
+    @Test
+    fun `the pin control is drawn at 48 dp`() {
+        val board = AchievementBoard.of(listOf(visible), setOf("plain"))
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = listOf("plain"),
+                onBackClick = {},
+                onTogglePin = {}
+            )
+        }
+
+        rule.onNodeWithTag("achievements_pin_plain")
+            .assertWidthIsEqualTo(48.dp)
+            .assertHeightIsEqualTo(48.dp)
     }
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTagCount(tag: String): Int =

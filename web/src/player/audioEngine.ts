@@ -1,7 +1,7 @@
 /**
  * spec-43/T5 — binding between PlaybackEngine and a single HTMLAudioElement.
- * The engine owns state/timing; this layer mirrors attempt URL onto audio.src,
- * forwards element events back to the engine, and wires Media Session + local
+ * The media element owns position and natural end (ADR-0059). This layer
+ * observes those facts, issues explicit transport commands, and wires local
  * persistence (via injected storage). One singleton audio element for the app
  * lifetime — matches Android's single Player for MediaSession.
  */
@@ -73,6 +73,13 @@ interface MediaSessionListeners {
   onPlaying: () => void
   onError: () => void
   onEnded: () => void
+  onTimeUpdate: () => void
+  onMetadata: () => void
+  onPause: () => void
+  onRestore: () => void
+  onPageHide: () => void
+  page?: Window
+  document?: Document
 }
 
 export class AudioEngine {
@@ -98,6 +105,8 @@ export class AudioEngine {
   // generation that armed them, and aborts the previous media session so
   // its queued `playing`/`ended`/`error` can never drive the new attempt.
   // The same generation guards a play() promise and a suspended loadBook.
+  private pendingMediaPosition: { generation: number; seconds: number } | null = null
+  private playRequestGeneration = 0
   private mediaGeneration = 0
   /** The generation whose listeners are currently bound; 0 = none bound. */
   private armedGeneration = 0
@@ -119,9 +128,9 @@ export class AudioEngine {
   // rules live in sleepTimer.ts; this layer only feeds seconds and applies
   // the fade.
   private sleepTimer: SleepTimerState = SLEEP_TIMER_OFF
+  private lastSleepTickMs = 0
   private sleepTimerInterval: ReturnType<typeof setInterval> | null = null
   private readonly sleepTimerListeners = new Set<(state: SleepTimerState) => void>()
-  private lastChapterIndex = -1
 
   constructor(opts: AudioEngineOptions = {}) {
     this.relayBase = opts.relayBase
@@ -163,9 +172,13 @@ export class AudioEngine {
     this.audio = audio
     // A session already in flight (attach after a load) is re-armed on the
     // new element so its events still reach the engine.
-    if (this.armedGeneration !== 0 && this.chapters.length > 0) {
+    if (this.engine.getState().attemptKind !== undefined && this.chapters.length > 0) {
       this.armMediaSession()
       this.syncAudioSrc()
+      if (this.engine.getState().status === 'playing') {
+        this.requestAutoplay()
+        this.startTicker()
+      }
     }
   }
 
@@ -175,7 +188,10 @@ export class AudioEngine {
    * again.
    */
   detachAudio(): void {
+    this.sampleMediaPosition()
     this.removeMediaListeners()
+    this.audio?.pause()
+    this.pendingMediaPosition = null
     this.audio = null
     this.armedGeneration = 0
     this.stopTicker()
@@ -205,18 +221,26 @@ export class AudioEngine {
     // Edition/Chapter switch) makes this one stale; if it resumes after an
     // awaited cloud pull it must NOT clobber the newer attempt.
     const loadGeneration = ++this.loadGeneration
-    this.bookTitle = detail.title
-    this.chapters = detail.chapters
-    this.editionId = detail.editionId ?? detail.title
-    this.workId = detail.workId
+    // Supersede the old resource before any awaited pull. Its timeupdate or
+    // ended must never be interpreted under the incoming Edition's identity.
+    this.sampleMediaPosition()
+    if (this.audio !== null && !this.attemptConfirmed) {
+      this.cancelPrepare()
+    } else {
+      this.abortArmedSession()
+      this.stopTicker()
+      this.failPlayingWaiters(false)
+      this.engine.pause()
+    }
+    const editionId = detail.editionId ?? detail.title
     // Progress Sync: pull the cloud state before resuming (LWW). #619 — only a
     // resume reads the cloud: an explicit Chapter is the listener's own place
     // and waits for nobody. The pull is bounded (the controller's own budget)
     // and scoped to THIS load generation, so an answer that arrives after a
     // newer intent can no longer reach the local mirror.
-    if (this.syncController && this.editionId && !explicit) {
+    if (this.syncController && editionId && !explicit) {
       try {
-        await this.syncController.pullBeforeResume(this.editionId, {
+        await this.syncController.pullBeforeResume(editionId, {
           isCurrent: () => loadGeneration === this.loadGeneration,
         })
       } catch {
@@ -224,6 +248,10 @@ export class AudioEngine {
       }
     }
     if (loadGeneration !== this.loadGeneration) return false
+    this.bookTitle = detail.title
+    this.chapters = detail.chapters
+    this.editionId = editionId
+    this.workId = detail.workId
     // Explicit Chapter jump (bookmark, chapter pick) is the user's expressed
     // intent — it starts exactly there, at the given position or zero, and
     // never consults the saved place. Resume keeps the caller's fallback
@@ -257,12 +285,11 @@ export class AudioEngine {
     if (saved && typeof saved.preferredSpeed === 'number' && Number.isFinite(saved.preferredSpeed) && saved.preferredSpeed > 0) {
       this.engine.setSpeed(saved.preferredSpeed)
     }
-    this.lastChapterIndex = chapterIndex
     // #617 — a NEW media attempt: abort the previous session, bind fresh
     // listeners to this generation, then play it in.
     this.beginAttempt()
-    this.engine.play()
     this.syncAudioSrc()
+    this.engine.play()
     this.requestAutoplay()
     this.startTicker()
     this.rearmSleepTimerForChapter()
@@ -324,10 +351,18 @@ export class AudioEngine {
   }
 
   play(): void {
+    if (this.engine.getState().isCompleted) {
+      void this.loadBook(this.currentDetail(), 0, { forceChapter: true })
+      return
+    }
     // #617 — a play from an unloaded/unavailable engine is a fresh attempt;
     // resuming a paused one continues the SAME media session.
-    const fresh = this.engine.getState().attemptKind === undefined
+    this.sampleMediaPosition()
+    const before = this.engine.getState()
+    const fresh = before.attemptKind === undefined
     this.engine.play()
+    const after = this.engine.getState()
+    if (after.positionSeconds !== before.positionSeconds) this.seekMedia(after.positionSeconds)
     if (this.chapters.length > 0 && (fresh || this.armedGeneration === 0)) {
       this.armMediaSession()
       this.syncAudioSrc()
@@ -337,37 +372,45 @@ export class AudioEngine {
   }
 
   pause(): void {
+    this.playRequestGeneration += 1
+    this.sampleMediaPosition()
     const unconfirmed = this.audio !== null && !this.attemptConfirmed
     // #617 — pausing also cancels a load still suspended on a cloud pull: a
     // resume must not start the sound after the listener stopped the attempt.
     this.loadGeneration += 1
+    if (unconfirmed) {
+      this.cancelPrepare()
+      this.failPlayingWaiters()
+      return
+    }
     this.engine.pause()
     // Pausing before the media element ever played cancels the autoplay:
     // abort the session so a late `playing` cannot start the sound or confirm
     // the attempt. A confirmed pause keeps its buffer for resume.
-    if (unconfirmed) {
-      this.abortArmedSession()
-    } else {
-      this.audio?.pause()
-    }
+    this.audio?.pause()
     this.failPlayingWaiters()
     this.persist(true)
     this.stopTicker()
   }
 
   seek(seconds: number): void {
-    this.engine.seek(seconds)
-    if (this.audio) this.audio.currentTime = seconds
+    if (!Number.isFinite(seconds)) return
+    const duration = this.audio?.duration
+    this.engine.seek(seconds, duration !== undefined && Number.isFinite(duration) && duration > 0 ? duration : undefined)
+    this.seekMedia(this.engine.getState().positionSeconds)
     this.persist(true)
   }
 
   setSpeed(speed: number): void {
+    if (!Number.isFinite(speed) || speed <= 0) return
+    this.sampleMediaPosition()
     this.engine.setSpeed(speed)
-    if (this.audio) this.audio.playbackRate = speed
+    if (this.audio) this.audio.playbackRate = this.engine.getState().speed
     this.persist(true)
   }
 
   skip(deltaSeconds: number): void {
+    this.sampleMediaPosition()
     const s = this.engine.getState()
     this.seek(s.positionSeconds + deltaSeconds)
   }
@@ -429,6 +472,7 @@ export class AudioEngine {
 
   /** W5.1 — the sleep timer controls (Android's option vocabulary). */
   setSleepTimer(minutes: number): void {
+    this.sampleMediaPosition()
     if (minutes === -1) {
       const remaining = this.chapterRemainingSeconds()
       if (remaining === null || remaining <= 0) {
@@ -441,12 +485,14 @@ export class AudioEngine {
     } else {
       this.sleepTimer = setSleepTimer(minutes, null)
     }
+    this.lastSleepTickMs = Date.now()
     this.syncSleepTimerInterval()
     this.publishSleepTimer()
   }
 
   extendSleepTimer(): void {
     this.sleepTimer = extendSleepTimer(this.sleepTimer)
+    this.lastSleepTickMs = Date.now()
     this.syncSleepTimerInterval()
     this.publishSleepTimer()
   }
@@ -505,9 +551,36 @@ export class AudioEngine {
         : chapter.streamUrl
     if (this.audio.src !== url) {
       this.audio.src = url
-      this.audio.currentTime = state.positionSeconds
+      this.seekMedia(state.positionSeconds)
       this.audio.playbackRate = state.speed
     }
+  }
+
+  /** A command may wait for metadata; observation never issues this seek. */
+  private seekMedia(seconds: number): void {
+    const audio = this.audio
+    if (!audio) return
+    const command = { generation: this.armedGeneration, seconds }
+    if (audio.readyState === 0) {
+      this.pendingMediaPosition = command
+      return
+    }
+    try {
+      audio.currentTime = seconds
+      this.pendingMediaPosition = null
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === 'InvalidStateError') {
+        this.pendingMediaPosition = command
+      } else {
+        throw reason
+      }
+    }
+  }
+
+  private applyPendingMediaPosition(): void {
+    const command = this.pendingMediaPosition
+    if (!command || command.generation !== this.armedGeneration) return
+    this.seekMedia(command.seconds)
   }
 
   // ---- #617 attempt generation ----------------------------------------
@@ -533,6 +606,7 @@ export class AudioEngine {
    * this WITHOUT failing the attempt's waiters.
    */
   private armMediaSession(): number {
+    this.pendingMediaPosition = null
     this.mediaGeneration += 1
     const generation = this.mediaGeneration
     this.armedGeneration = generation
@@ -545,12 +619,15 @@ export class AudioEngine {
     }
     const audio = this.audio
     if (!audio) return generation
+    this.removeMediaListeners()
     audio.pause()
     audio.removeAttribute('src')
     audio.load()
     const current = (): boolean => generation === this.armedGeneration
     const onPlaying = (): void => {
-      if (!current()) return
+      if (!current() || audio.paused === true || this.engine.getState().status !== 'playing') return
+      this.applyPendingMediaPosition()
+      if (this.pendingMediaPosition !== null) return
       this.attemptConfirmed = true
       // The attempt produced sound: its position is legitimate from now on,
       // so a later failure must not roll the store back to the pre-attempt place.
@@ -567,18 +644,58 @@ export class AudioEngine {
     }
     const onEnded = (): void => {
       if (!current()) return
-      this.onEnded()
+      this.observeMedia(generation)
     }
+    const onMetadata = (): void => {
+      if (!current()) return
+      this.applyPendingMediaPosition()
+    }
+    const onPause = (): void => {
+      if (!current() || !this.attemptConfirmed || audio.paused !== true) return
+      if (audio.ended === true) {
+        this.observeMedia(generation)
+      } else if (this.engine.getState().status === 'playing') {
+        this.pause()
+      }
+    }
+    const onTimeUpdate = (): void => {
+      if (!current() || !this.attemptConfirmed) return
+      this.observeMedia(generation)
+    }
+    const page = (globalThis as { window?: Window }).window
+    const document = (globalThis as { document?: Document }).document
+    const onRestore = (): void => {
+      if (!current() || document?.visibilityState === 'hidden') return
+      this.advanceTimedSleepTimer()
+      this.observeMedia(generation)
+    }
+    const onPageHide = (): void => {
+      if (!current() || !this.attemptConfirmed) return
+      this.sampleMediaPosition()
+      this.persist(true)
+    }
+    page?.addEventListener('pageshow', onRestore)
+    page?.addEventListener('pagehide', onPageHide)
+    document?.addEventListener('visibilitychange', onRestore)
+    audio.addEventListener('pause', onPause)
+    audio.addEventListener('loadedmetadata', onMetadata)
+    audio.addEventListener('timeupdate', onTimeUpdate)
     audio.addEventListener('playing', onPlaying)
     audio.addEventListener('error', onError)
     audio.addEventListener('ended', onEnded)
-    this.mediaListeners = { audio, onPlaying, onError, onEnded }
+    this.mediaListeners = { audio, onPlaying, onError, onEnded, onTimeUpdate, onMetadata, onPause, page, document, onRestore, onPageHide }
     return generation
   }
 
   private removeMediaListeners(): void {
     const bound = this.mediaListeners
     if (!bound) return
+    bound.page?.removeEventListener('pageshow', bound.onRestore)
+    bound.page?.removeEventListener('pagehide', bound.onPageHide)
+    bound.document?.removeEventListener('visibilitychange', bound.onRestore)
+    bound.audio.removeEventListener('pause', bound.onPause)
+    bound.audio.removeEventListener('loadedmetadata', bound.onMetadata)
+    bound.audio.removeEventListener('timeupdate', bound.onTimeUpdate)
     bound.audio.removeEventListener('playing', bound.onPlaying)
     bound.audio.removeEventListener('error', bound.onError)
     bound.audio.removeEventListener('ended', bound.onEnded)
@@ -587,17 +704,19 @@ export class AudioEngine {
 
   /** Abort the armed session and drop its listeners — no generation is bound. */
   private abortArmedSession(): void {
+    this.pendingMediaPosition = null
+    this.armedGeneration = 0
+    this.removeMediaListeners()
     const audio = this.audio
     if (audio) {
       audio.pause()
       audio.removeAttribute('src')
       audio.load()
     }
-    this.removeMediaListeners()
-    this.armedGeneration = 0
   }
 
   private requestAutoplay(): void {
+    const requestGeneration = ++this.playRequestGeneration
     const audio = this.audio
     if (!audio) return
     const generation = this.armedGeneration
@@ -605,12 +724,12 @@ export class AudioEngine {
     try {
       played = audio.play()
     } catch (reason) {
-      this.handleAutoplayOutcome(generation, reason)
+      this.handleAutoplayOutcome(generation, requestGeneration, reason)
       return
     }
     void Promise.resolve(played).then(
       () => {},
-      (reason) => this.handleAutoplayOutcome(generation, reason),
+      (reason) => this.handleAutoplayOutcome(generation, requestGeneration, reason),
     )
   }
 
@@ -620,8 +739,8 @@ export class AudioEngine {
    * unavailable. The attempt parks into the manual-Play state instead. Any
    * other rejection (a real media failure) feeds the fallback policy.
    */
-  private handleAutoplayOutcome(generation: number, reason: unknown): void {
-    if (generation !== this.armedGeneration) return
+  private handleAutoplayOutcome(generation: number, requestGeneration: number, reason: unknown): void {
+    if (generation !== this.armedGeneration || requestGeneration !== this.playRequestGeneration || this.engine.getState().status !== 'playing') return
     if (isAutoplayRejection(reason)) {
       this.cancelPrepare()
       return
@@ -630,6 +749,13 @@ export class AudioEngine {
   }
 
   private handleAttemptError(): void {
+    this.sampleMediaPosition()
+    if (this.attemptConfirmed) {
+      // Checkpoint actual sound before a retry becomes an unconfirmed
+      // prepare. Cancel or terminal failure must retain this reached place.
+      this.persist(true)
+      this.prepareBaseline = this.editionId ? this.store.load(this.editionId) : null
+    }
     this.engine.attemptErrored()
     const state = this.engine.getState()
     if (state.status === 'unavailable') return
@@ -701,37 +827,46 @@ export class AudioEngine {
   }
 
   /**
-   * #614 — the element's natural end-of-track. The next Chapter starts from
-   * zero through the same explicit intent as the Next button (never the
-   * saved snapshot). The LAST Chapter has no next one, so its end IS the
-   * Edition's completion — recorded even when the Source never reported a
-   * duration, because the adapter's own `ended` is the end.
+   * Save/command boundaries sample media without triggering a transition.
    */
-  private onEnded(): void {
-    const state = this.engine.getState()
-    const next = state.chapterIndex + 1
+  private sampleMediaPosition(): void {
+    if (this.audio && this.armedGeneration !== 0 && this.attemptConfirmed) {
+      this.engine.observePosition(this.audio.currentTime)
+    }
+  }
+
+  /** One current, confirmed media end is consumed by events or recovery polling. */
+  private observeMedia(generation = this.armedGeneration): void {
+    this.advanceTimedSleepTimer()
+    const audio = this.audio
+    if (!audio || generation === 0 || generation !== this.armedGeneration || !this.attemptConfirmed) return
+    this.engine.observePosition(audio.currentTime)
+    if (generation !== this.armedGeneration || this.engine.getState().status !== 'playing' || audio.ended !== true || audio.seeking === true) return
+    // Consume before notifying subscribers or preparing another resource.
+    this.armedGeneration = 0
+    this.removeMediaListeners()
+    const next = this.engine.getState().chapterIndex + 1
+    if (this.sleepTimer.isEndOfChapter) {
+      if (next >= this.chapters.length) this.engine.markCompleted()
+      this.onSleepTimerFired()
+      return
+    }
     if (next < this.chapters.length) {
       void this.loadBook(this.currentDetail(), next, { forceChapter: true })
+      // Reaching the next Chapter's zero is an honest boundary even if its
+      // bytes need buffering. A failed prepare keeps this restart point.
+      this.persist(true)
+      this.prepareBaseline = this.editionId ? this.store.load(this.editionId) : null
       return
     }
     this.engine.markCompleted()
-    this.persist(true)
+    this.stopTicker()
   }
 
   private startTicker(): void {
     this.stopTicker()
     this.ticker = globalThis.setInterval(() => {
-      this.engine.tick(1000)
-      const state = this.engine.getState()
-      if (state.chapterIndex !== this.lastChapterIndex) {
-        // Auto-advance (or any engine-side chapter change): an end-of-
-        // chapter sleep timer re-arms at the NEW chapter's remainder.
-        this.lastChapterIndex = state.chapterIndex
-        this.rearmSleepTimerForChapter()
-      }
-      if (this.audio && state.status === 'playing' && Math.abs(this.audio.currentTime - state.positionSeconds) > 1) {
-        this.audio.currentTime = state.positionSeconds
-      }
+      this.observeMedia()
       // #617 — the periodic save only follows a CONFIRMED attempt: an
       // unattached engine (tests, headless use) has no media event to wait for.
       if ((this.audio === null || this.attemptConfirmed) && Date.now() - this.lastPersistMs > 30000) {
@@ -750,18 +885,29 @@ export class AudioEngine {
   // ---- W5.1 sleep timer transport -------------------------------------
 
   private chapterRemainingSeconds(): number | null {
-    const s = this.engine.getState()
-    const chapter = this.chapters[s.chapterIndex]
-    if (!chapter || typeof chapter.durationSeconds !== 'number' || chapter.durationSeconds <= 0) return null
-    return Math.max(0, Math.round(chapter.durationSeconds - s.positionSeconds))
+    const state = this.engine.getState()
+    const actualDuration = this.audio?.duration
+    const duration = actualDuration !== undefined && Number.isFinite(actualDuration) && actualDuration > 0
+      ? actualDuration
+      : this.chapters[state.chapterIndex]?.durationSeconds
+    if (duration === undefined || !Number.isFinite(duration) || duration <= 0) return null
+    return Math.max(0, Math.ceil((duration - state.positionSeconds) / state.speed))
   }
 
   private syncSleepTimerInterval(): void {
     if (isSleepTimerActive(this.sleepTimer)) {
       if (this.sleepTimerInterval === null) {
-        // Android's CountDownTimer keeps running while paused — so does this.
+        // Timed sleep counts wall time while paused; chapter-end sleep follows media.
         this.sleepTimerInterval = globalThis.setInterval(() => {
-          this.sleepTimer = tickSleepTimer(this.sleepTimer)
+          if (this.sleepTimer.isEndOfChapter) {
+            this.observeMedia()
+            if (!this.sleepTimer.isEndOfChapter) return
+            const remaining = this.chapterRemainingSeconds()
+            if (remaining !== null) this.sleepTimer = { ...this.sleepTimer, remainingSeconds: Math.max(1, remaining) }
+          } else {
+            this.advanceTimedSleepTimer()
+            return
+          }
           if (this.audio) this.audio.volume = sleepTimerFadeVolume(this.sleepTimer.remainingSeconds)
           this.publishSleepTimer()
           if (!isSleepTimerActive(this.sleepTimer)) this.onSleepTimerFired()
@@ -770,6 +916,19 @@ export class AudioEngine {
     } else {
       this.stopSleepTimerInterval()
     }
+  }
+
+  private advanceTimedSleepTimer(): void {
+    if (this.sleepTimer.isEndOfChapter || !isSleepTimerActive(this.sleepTimer)) return
+    const now = Date.now()
+    if (now < this.lastSleepTickMs) this.lastSleepTickMs = now
+    const seconds = Math.floor((now - this.lastSleepTickMs) / 1000)
+    if (seconds <= 0) return
+    this.lastSleepTickMs += seconds * 1000
+    this.sleepTimer = tickSleepTimer(this.sleepTimer, seconds)
+    if (this.audio) this.audio.volume = sleepTimerFadeVolume(this.sleepTimer.remainingSeconds)
+    this.publishSleepTimer()
+    if (!isSleepTimerActive(this.sleepTimer)) this.onSleepTimerFired()
   }
 
   private stopSleepTimerInterval(): void {
@@ -787,6 +946,7 @@ export class AudioEngine {
   }
 
   private onSleepTimerFired(): void {
+    this.sampleMediaPosition()
     this.stopSleepTimerInterval()
     if (this.audio) this.audio.volume = 1
     // Android's onFinish: the auto-bookmark lands first, then the pause

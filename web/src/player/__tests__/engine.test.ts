@@ -3,12 +3,9 @@ import { PlaybackEngine, type EngineState } from '../engine'
 import type { Chapter } from '../../worker/types'
 
 /**
- * spec-43/T5 — deterministic engine tests over an injected clock: load →
- * play → tick progression with speed scaling, chapter auto-advance, the
- * completed last-chapter parking state (isCompleted in the published
- * payload), in-session Smart Rewind on resume (ADR-0003 tiers via the ONE
- * rule), and the fallback-policy wiring (direct → relay once → honest
- * 'unavailable').
+ * The same 18 transport, completion, rewind, fallback and subscription
+ * guarantees, with actual media observation replacing wall-time progression.
+ * Source changes and natural end are pinned at AudioEngine's media boundary.
  */
 
 class FakeClock {
@@ -65,20 +62,22 @@ describe('PlaybackEngine — load and basic transport', () => {
     expect(engine.getState()).toMatchObject({ status: 'paused', positionSeconds: 10 })
   })
 
-  it('tick advances the position scaled by speed while playing only', () => {
+  it('observes actual media position independently of speed and transport status', () => {
     const engine = makeEngine(new FakeClock())
     engine.load(chapters, { startPositionSeconds: 0 })
-    engine.tick(1000)
-    expect(engine.getState().positionSeconds).toBe(0)
     engine.play()
-    engine.tick(2000)
-    expect(engine.getState().positionSeconds).toBeCloseTo(2)
+    engine.observePosition(2)
+    expect(engine.getState().positionSeconds).toBe(2)
     engine.setSpeed(2)
-    engine.tick(1000)
-    expect(engine.getState().positionSeconds).toBeCloseTo(4)
+    engine.observePosition(4)
+    expect(engine.getState().positionSeconds).toBe(4)
     engine.pause()
-    engine.tick(60_000)
-    expect(engine.getState().positionSeconds).toBeCloseTo(4)
+    engine.observePosition(4.5) // last media update may arrive after pause
+    expect(engine.getState()).toMatchObject({ status: 'paused', positionSeconds: 4.5 })
+    engine.observePosition(Number.NaN)
+    engine.observePosition(Number.POSITIVE_INFINITY)
+    engine.observePosition(-1)
+    expect(engine.getState().positionSeconds).toBe(4.5)
   })
 
   it('setSpeed rejects non-positive and non-finite values', () => {
@@ -105,15 +104,15 @@ describe('PlaybackEngine — load and basic transport', () => {
   })
 })
 
-describe('PlaybackEngine — chapter auto-advance and completion', () => {
-  it('advances to the next chapter at zero when one runs out', () => {
+describe('PlaybackEngine — media position and explicit completion', () => {
+  it('never advances by observing a position beyond the catalog duration', () => {
     const states: EngineState[] = []
     const engine = makeEngine(new FakeClock())
     engine.subscribe((s) => states.push(s))
     engine.load(chapters, { startPositionSeconds: 99.5 })
     engine.play()
-    engine.tick(1000) // crosses ch1 end at 100 s
-    expect(engine.getState()).toMatchObject({ status: 'playing', chapterIndex: 1, positionSeconds: 0, attemptKind: 'direct' })
+    engine.observePosition(100.5) // catalog end is not a natural media end
+    expect(engine.getState()).toMatchObject({ status: 'playing', chapterIndex: 0, positionSeconds: 100.5, attemptKind: 'direct' })
     expect(states.length).toBeGreaterThan(0)
   })
 
@@ -123,7 +122,8 @@ describe('PlaybackEngine — chapter auto-advance and completion', () => {
     engine.subscribe((s) => states.push(s))
     engine.load(chapters, { startChapter: 2, startPositionSeconds: 59.9 })
     engine.play()
-    engine.tick(500)
+    engine.observePosition(60)
+    engine.markCompleted()
     expect(engine.getState()).toEqual({
       status: 'paused',
       editionId: undefined,
@@ -141,8 +141,8 @@ describe('PlaybackEngine — chapter auto-advance and completion', () => {
     const engine = makeEngine(new FakeClock())
     engine.load(openEnded, {})
     engine.play()
-    engine.tick(10 * 60 * 60 * 1000)
-    expect(engine.getState()).toMatchObject({ status: 'playing', chapterIndex: 0 })
+    engine.observePosition(36_000)
+    expect(engine.getState()).toMatchObject({ status: 'playing', chapterIndex: 0, positionSeconds: 36_000, isCompleted: false })
   })
 })
 

@@ -43,13 +43,20 @@ class MapStorage implements StorageLike {
 /** The controlled media adapter: no real element, no real network. */
 class FakeAudio extends EventTarget {
   src = ''
+  ended = false
   currentTime = 0
   playbackRate = 1
   play(): Promise<void> {
     return Promise.resolve()
   }
   pause(): void {}
-  load(): void {}
+  load(): void { this.ended = false; this.currentTime = 0 }
+  finish(seconds: number): void {
+    this.dispatchEvent(new Event('playing'))
+    this.currentTime = seconds
+    this.ended = true
+    this.dispatchEvent(new Event('ended'))
+  }
   removeAttribute(name: string): void {
     if (name === 'src') this.src = ''
   }
@@ -328,7 +335,7 @@ describe('#619 — honest moments still reach the store at once', () => {
     const { engine, audio } = makeEngine(local, controller)
 
     await engine.loadBook(detail(), CHAPTERS.length - 1, { forceChapter: true })
-    audio.dispatchEvent(new Event('ended'))
+    audio.finish(120)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     await expect(store.pull('u1', EDITION)).resolves.toMatchObject({ isCompleted: true })

@@ -50,6 +50,7 @@ class MapStorage implements StorageLike {
  * prove the engine aborted the session).
  */
 class ControllableAudio extends EventTarget {
+  ended = false
   currentTime = 0
   playbackRate = 1
   loads = 0
@@ -68,6 +69,8 @@ class ControllableAudio extends EventTarget {
   }
 
   load(): void {
+    this.ended = false
+    this.currentTime = 0
     this.loads += 1
     this.startSession()
   }
@@ -84,6 +87,11 @@ class ControllableAudio extends EventTarget {
 
   /** A media event of the session that is current right now. */
   emit(type: string): void {
+    if (type === 'ended') {
+      this.dispatchEvent(new Event('playing'))
+      this.ended = true
+      this.currentTime = 600
+    }
     this.dispatchEvent(new Event(type))
   }
 
@@ -145,6 +153,33 @@ function makeEngine(saved?: Partial<LocalListeningStateSnapshot>): {
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+describe('#611 — an out-of-range Chapter is an honest refusal, never a silent replacement', () => {
+  it('refuses an explicit Chapter at the list boundary and keeps what plays', async () => {
+    const { engine, audio } = makeEngine()
+    engine.attachAudio(audio as unknown as HTMLAudioElement)
+    // Load Chapter 0 for real, so there IS something playing to protect.
+    await engine.loadBook(detail(), 0, { forceChapter: true })
+    const before = engine.getState()
+
+    // The fixture carries THREE Chapters (Розділ 1–3), so index 3 is the FIRST
+    // out-of-range value — the exact boundary the guard exists for. Changing
+    // `>=` to `>` there lets it through, and no test caught that before this
+    // one: I verified the gap by mutating the guard and watching every other
+    // test stay green.
+    const accepted = await engine.loadBook(detail(), CHAPTERS.length, { forceChapter: true })
+
+    expect(accepted).toBe(false)
+    expect(engine.getState()).toMatchObject({ chapterIndex: before.chapterIndex })
+  })
+
+  it('refuses a negative Chapter too', async () => {
+    const { engine, audio } = makeEngine()
+    engine.attachAudio(audio as unknown as HTMLAudioElement)
+
+    expect(await engine.loadBook(detail(), -1, { forceChapter: true })).toBe(false)
+  })
 })
 
 describe('#617 — attach is idempotent; detach/dispose unbind', () => {

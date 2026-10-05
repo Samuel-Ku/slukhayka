@@ -428,6 +428,15 @@ _Avoid_: друга бібліотека, автосід як пояснення
 A listener's progress, bookmarks, completion state, and playback preferences for one Edition. It is independent of the Source currently used to play that Edition — its row is keyed by Edition alone, so a Source switch never forks progress.
 _Avoid_: Library Entry, playback progress
 
+**Нагорода** (Achievement):
+Локальна особиста відзнака за підтверджений поступ слухача. Один знімок
+AchievementProgressSource живить декларативний каталог і чистий оцінювач;
+здобуте зберігається ідемпотентно, а повідомлення з’являється тихо лише на
+активній поверхні. Невідомий історичний факт не вгадується. Години спираються
+на verifiedListenedMillis фактичного монотонного часу відтворення, а не
+позицію, швидкість чи старий приблизний лічильник (ADR-0060).
+_Avoid_: бейдж за вхід, streak-покарання, рейтинг слухачів, приватна історія у cloud sync
+
 **Відстежуваний твір** (Tracked Work):
 Library Entry над Work без жодного Source: твір живе в Медіатеці з чесним станом «аудіо недоступне», ручна позначка «Прослухано» фіксує слухання поза Слухайкою; поява аудіо підсвічується Source Watch і мапуванням та імпортується звичайними дверима без авто-імпорту. Зовнішня база дає лише Work-рівень Metadata Assertions (назва, автор, обкладинка), ніколи не доказ аудіо.
 _Avoid_: полиця прочитаного, Goodreads-трекер, текстова книжка як каталог, аудіо-поля ззовні

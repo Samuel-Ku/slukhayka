@@ -1,0 +1,48 @@
+package com.slukhayka.audiobooks.data.db
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface AchievementDao {
+    @Query("SELECT COUNT(*) FROM library_entries WHERE origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')")
+    fun observeExplicitBooks(): Flow<Long>
+    @Query("SELECT COALESCE(SUM(verifiedListenedMillis),0) FROM listening_stats")
+    fun observeVerifiedListeningMillis(): Flow<Long>
+    @Query("SELECT COUNT(*) FROM recommendation_preferences WHERE kind='HIDE_WORK'")
+    fun observeNotInterestedChoices(): Flow<Long>
+    @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='COMPLETED'")
+    fun observeCompletedBooks(): Flow<Long>
+    @Query("SELECT * FROM series_members")
+    fun observeKnownSeriesMemberships(): Flow<List<SeriesMemberEntity>>
+    @Query("SELECT s.bookId, s.id AS sourceId, s.type AS sourceType, " +
+        "MAX((SELECT COUNT(*) FROM chapters c WHERE c.bookId=s.bookId), " +
+        "COALESCE((SELECT b.totalChapters FROM audiobooks b WHERE b.id=s.bookId),0), " +
+        "COALESCE((SELECT e.totalChapters FROM editions e WHERE e.id=s.editionId),0)) AS chapterCount, " +
+        "t.trackIndex, t.localFilePath, t.isDownloaded FROM sources s LEFT JOIN source_tracks t ON t.sourceId=s.id")
+    fun observeDownloadedTracks(): Flow<List<com.slukhayka.audiobooks.data.achievements.DownloadedTrackProof>>
+
+    @Query("SELECT * FROM achievements ORDER BY earnedAt, id")
+    fun observeEarned(): Flow<List<AchievementEntity>>
+    @Query("SELECT * FROM achievements ORDER BY earnedAt, id")
+    suspend fun earned(): List<AchievementEntity>
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAwards(rows: List<AchievementEntity>): List<Long>
+    @Query("SELECT * FROM achievement_facts")
+    fun observeFacts(): Flow<List<AchievementFactEntity>>
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertFact(row: AchievementFactEntity): Long
+    @Query("SELECT * FROM achievements WHERE seenAt IS NULL AND id IN (:knownIds) ORDER BY earnedAt, id LIMIT 1")
+    suspend fun pendingNotice(knownIds: Set<String>): AchievementEntity?
+    @Query("UPDATE achievements SET seenAt = :seenAt WHERE id = :id AND seenAt IS NULL")
+    suspend fun markSeen(id: String, seenAt: Long): Int
+    @Transaction
+    suspend fun claimNotice(knownIds: Set<String>, seenAt: Long): AchievementEntity? {
+        val pending = pendingNotice(knownIds) ?: return null
+        return if (markSeen(pending.id, seenAt) == 1) pending.copy(seenAt = seenAt) else null
+    }
+}

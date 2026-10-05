@@ -60,7 +60,7 @@ import java.util.UUID
  * list — no adapter is constructed here; the composition root composes them.
  *
  * The five doors:
- *  1. Explicit source import — [importBookFromSource], [importFromSourceUrl],
+ *  1. Source import (caller intent determines origin) — [importBookFromSource], [importFromSourceUrl],
  *     [importAudiobookFrom4ReadUrl];
  *  2. Captured-page import — [importWebSourcePage], [importAudiobookFromHtml];
  *  3. Local folder import — [importLocalAudioFile], [importLocalAudioStream],
@@ -178,7 +178,9 @@ class LibraryImport(
         // profile. FALSE on the read-skip paths — a cache-derived import is
         // no resolution, and re-writing would roll freshness and burn the
         // free-tier write quota.
-        writeBackProfile: Boolean = true
+        writeBackProfile: Boolean = true,
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.UNKNOWN,
+        onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity =
         withContext(Dispatchers.IO) {
             // ADR-0010: the Work key is bibliographic (title|author) — the
@@ -358,9 +360,12 @@ class LibraryImport(
                 // An explicit import is a user action: any tombstone of the
                 // work is cleared so a re-added book never stays hidden.
                 dao.deleteTombstone(bookId)
+                dao.updateLibraryEntryOrigin(bookId, origin.name)
                 // The JOINed projection carries the series/mergeKey the Works
                 // row now holds, so callers get a fully shaped row.
-                dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: book
+                val imported = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: book
+                onNewBookImported?.invoke(imported)
+                imported
             } else {
                 // Merge: attach the new source (unless it is already known)
                 // and give it its physical tracks. The Edition's logical
@@ -449,6 +454,8 @@ class LibraryImport(
      * book page from the chosen source, import the Work (merging into an
      * existing card when the merge key matches), return the stored book. Null
      * when the source is unknown or the page yields nothing playable.
+     * Opening/searching a card is technical by default (ADR-0047); explicit
+     * Add callers supply origin. Search acceptance remains a separate fact.
      *
      * Spec-32 T3 (#233) — read-skip: when the caller passes the card's known
      * identity ([known] — the search/catalogue card already carries it), a
@@ -460,7 +467,9 @@ class LibraryImport(
     suspend fun importFromSourceUrl(
         sourceId: String,
         url: String,
-        known: KnownBookIdentity? = null
+        known: KnownBookIdentity? = null,
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.UNKNOWN,
+        onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
             // A scam source is never fetched, never profiled, never imported.
@@ -495,7 +504,7 @@ class LibraryImport(
                 // re-written back (no resolution happened; a re-write would
                 // roll the freshness forward and burn the write quota).
                 val imported = runCatching {
-                    importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false)
+                    importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false, origin = origin, onNewBookImported = onNewBookImported)
                 }.getOrNull()
                 if (imported != null) return@withContext imported
             }
@@ -507,14 +516,14 @@ class LibraryImport(
                 val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
                     detail.copy(coverImageUrl = known.coverImageUrl)
                 } else detail
-                importBookFromSource(sourceId, withCover)
+                importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported)
             } catch (e: Exception) {
                 // Fail-open: the re-fetch failed (source down / Cloudflare) —
                 // serve the STALE profile when one exists, never nothing, and
                 // never re-write it (the page was not resolved).
                 if (entry != null && entry.profile.chapters.isNotEmpty()) {
                     runCatching {
-                        importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false)
+                        importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false, origin = origin, onNewBookImported = onNewBookImported)
                     }.getOrNull()
                 } else null
             }
@@ -534,7 +543,9 @@ class LibraryImport(
     suspend fun importBrowserSourceDirectPage(
         sourceId: String,
         url: String,
-        known: KnownBookIdentity? = null
+        known: KnownBookIdentity? = null,
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.UNKNOWN,
+        onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
             // A scam source is never fetched through the direct-page door.
@@ -552,7 +563,7 @@ class LibraryImport(
             val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
                 detail.copy(coverImageUrl = known.coverImageUrl)
             } else detail
-            runCatching { importBookFromSource(sourceId, withCover) }.getOrNull()
+            runCatching { importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported) }.getOrNull()
         }
 
     /**
@@ -875,7 +886,8 @@ class LibraryImport(
         sourceId: String,
         url: String,
         html: String,
-        capturedAudioUrls: List<String> = emptyList()
+        capturedAudioUrls: List<String> = emptyList(),
+        onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
@@ -892,7 +904,9 @@ class LibraryImport(
                 importBookFromSource(
                     sourceId,
                     detail,
-                    writeBackProfile = SourceRegistry.modeFor(sourceId) != SourceAccessMode.BROWSER
+                    writeBackProfile = SourceRegistry.modeFor(sourceId) != SourceAccessMode.BROWSER,
+                    origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE,
+                    onNewBookImported = onNewBookImported
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -1152,7 +1166,7 @@ class LibraryImport(
     suspend fun importAudiobookFrom4ReadUrl(urlOrSlug: String): AudiobookEntity? {
         val cleanInput = urlOrSlug.trim()
         val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
-        return importFromSourceUrl("4read", sourceUrl)
+        return importFromSourceUrl("4read", sourceUrl, origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE)
     }
 
     // ---------------------------------------------------------------------
@@ -1335,6 +1349,7 @@ class LibraryImport(
                         createdAt = System.currentTimeMillis(),
                         downloadProgress = 0f
                     )
+                    dao.updateLibraryEntryOrigin(bookId, com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE.name)
                 }
 
                 // Logical chapters: extend to the observed list (chapter → track is
@@ -1492,6 +1507,7 @@ class LibraryImport(
             createdAt = System.currentTimeMillis(),
             downloadProgress = 0f
         )
+        dao.updateLibraryEntryOrigin(bookId, com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE.name)
         // An explicit submission is a user action: a Work tombstone is cleared.
         dao.deleteTombstone(workId)
         SubmittedImport(SubmittedImportResult.IMPORTED, bookId, null)
@@ -2202,6 +2218,7 @@ class LibraryImport(
             createdAt = System.currentTimeMillis(),
             downloadProgress = 1f
         )
+        dao.updateLibraryEntryOrigin(bookId, com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_IMPORT.name)
         // ADR-0007: a local import is a Source of type "local" whose tracks
         // carry the copied files; the Edition owns the logical chapter list.
         // ADR-0010: the edition id carries the rendition narrator.

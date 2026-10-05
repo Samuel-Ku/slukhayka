@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.first
 /** Deep local module owning recommendation choices and their exact undo semantics. */
 class RecommendationPreferences(
     private val dao: AudiobookDao,
-    private val settingsStore: RecommendationSettingsStore
+    private val settingsStore: RecommendationSettingsStore,
+    private val onNotInterestedAccepted: () -> Unit = {}
 ) {
     val preferences: Flow<List<RecommendationPreferenceEntity>> = dao.observeRecommendationPreferences()
     val settings: StateFlow<RecommendationSettings> = settingsStore.state
@@ -27,6 +28,7 @@ class RecommendationPreferences(
         val preference = RecommendationPreferenceEntity(kind, target, candidateId)
         val previous = preferences.first().firstOrNull { it.kind == kind && it.targetKey == target }
         dao.upsertRecommendationPreference(preference)
+        if (kind == RecommendationPreferenceEntity.HIDE_WORK) onNotInterestedAccepted()
         settingsStore.recordMeaningfulInteraction()
         return UndoToken(preference, previous)
     }

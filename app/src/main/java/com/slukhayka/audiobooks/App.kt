@@ -307,7 +307,8 @@ class App : Application() {
         RecommendationSettingsStore(this)
     }
     val recommendationPreferences: RecommendationPreferences by lazy {
-        RecommendationPreferences(audiobookDao, recommendationSettings)
+        RecommendationPreferences(audiobookDao, recommendationSettings,
+            onNotInterestedAccepted = { recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.NOT_INTERESTED_CHOSEN) })
     }
 
     /**
@@ -826,12 +827,37 @@ class App : Application() {
      * ADR-0023 (#348) — the narration-ratings store («Оцінка начитки»).
      * Null without Firebase keys: the rating UI simply does not render.
      */
-    val narrationRatings: FirestoreNarrationRatingsStore? by lazy {
-        FirestoreNarrationRatingsStore.create(this)
+    val narrationRatings: com.slukhayka.audiobooks.data.reviews.NarrationRatingsStore? by lazy {
+        FirestoreNarrationRatingsStore.create(this)?.let { delegate ->
+            com.slukhayka.audiobooks.data.reviews.AcceptedNarrationRatingsStore(delegate) {
+                recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.REVIEW_ACCEPTED)
+            }
+        }
     }
 
     /** ADR-0002: one Listening State Store shared by the player and the ViewModel. */
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
+
+    private val achievementScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val achievementStore: com.slukhayka.audiobooks.data.achievements.AchievementStore by lazy {
+        com.slukhayka.audiobooks.data.achievements.RoomAchievementStore(database.achievementDao())
+    }
+    private val achievementRecorder by lazy {
+        com.slukhayka.audiobooks.data.achievements.AchievementRecorder(achievementScope,
+            achievementStore, listeningState::recordActualListeningTime,
+            { android.util.Log.w("Achievements", "local progress write will retry", it) })
+    }
+    val achievements by lazy {
+        com.slukhayka.audiobooks.data.achievements.AchievementEngine(
+            com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource(
+                database.achievementDao(), achievementStore,
+                com.slukhayka.audiobooks.data.source.SourceRegistry.ids()), achievementStore,
+            onFailure = { android.util.Log.w("Achievements", "local evaluation will retry", it) })
+    }
+    /** Enqueue a real acceptance without tying its persistence to the screen coroutine. */
+    fun recordAchievementFact(fact: com.slukhayka.audiobooks.data.achievements.AchievementFact) {
+        achievementRecorder.captureFact(fact)
+    }
 
     /**
      * ADR-0051 (spec-43 T6): the visible switch of Progress Sync — on by
@@ -1275,7 +1301,7 @@ class App : Application() {
             import = { sourceId, detail ->
                 // A scam source is never seeded into the library.
                 if (!com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(sourceId)) {
-                    libraryImport.importBookFromSource(sourceId, detail)
+                    libraryImport.importBookFromSource(sourceId, detail, origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.AUTO_SEED)
                 }
             }
         )
@@ -1430,7 +1456,15 @@ class App : Application() {
             },
             progressSync = progressSync,
             bookFetcher = libraryEntries::getBookSync,
-            onBookCompleted = bookFeedbackStore::completed,
+            onBookCompleted = { bookId ->
+                bookFeedbackStore.completed(bookId)
+                recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.BOOK_COMPLETED)
+            },
+            onActualListeningDuration = achievementRecorder::recordDuration,
+            onActualPlaybackStarted = { offline ->
+                recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.PLAYBACK_STARTED)
+                if (offline) recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.OFFLINE_PLAYBACK_STARTED)
+            },
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
             cookieProvider = {
@@ -1484,6 +1518,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        achievements.start(achievementScope)
         // ADR-0039 / spec #681 T3 (#684): the ONE politeness gate for every
         // HTML/API request to a Source host, with the persisted per-domain
         // budget. Installed before any module can touch the network.

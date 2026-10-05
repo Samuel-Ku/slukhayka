@@ -47,7 +47,23 @@ else
   ok "no vendored components pinned yet"
 fi
 
-# 3. The live YouTube contract canary — the hard gate.
+# 3. The release build itself — a hard gate (#487).
+#
+# This check exists because its absence cost a failed release: v1.5's first tag
+# run died in `release.yml` on "Build release APK", and NOTHING before the tag
+# could have caught it. `assembleRelease` runs `verifyE5ModelAssets`, which fails
+# when the gitignored E5 model is missing — and a release workflow that forgets
+# to download it stays broken, invisibly, until someone tags.
+#
+# `assembleRelease` needs the keystore env vars, so this checks the same
+# VERIFICATION task the release build runs, plus the wiring itself.
+if ./gradlew :app:verifyE5ModelAssets --no-daemon >/dev/null 2>&1; then
+  ok "release build prerequisites are present (E5 model assets)"
+else
+  fail "assembleRelease would fail: run ./gradlew downloadE5Model before tagging"
+fi
+
+# 4. The live YouTube contract canary — the hard gate.
 if ./gradlew :app:testDebugUnitTest --tests "*YouTubeContractCanaryTest" \
       -Dyoutube.canary=1 --no-daemon; then
   ok "YouTube contract canary is green"

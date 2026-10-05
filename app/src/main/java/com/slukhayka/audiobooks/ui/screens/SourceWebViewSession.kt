@@ -1,6 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import android.webkit.CookieManager
+import com.slukhayka.audiobooks.data.source.AndroidCookieJar
 import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
 import com.slukhayka.audiobooks.data.source.SourceSessionCookieDeletion
 import java.net.URI
@@ -28,10 +28,8 @@ internal object SourceWebViewSession {
             .addAll(paths.map { path -> "$origin$path" })
     }
 
-    fun clear(
-        sourceId: String,
-        cookieManager: CookieManager = CookieManager.getInstance(),
-    ) {
+    fun clear(sourceId: String) {
+        val cookieManager = AndroidCookieJar.instance()
         val rootUrls = SourceBrowserPolicy.allowedHostsFor(sourceId).map { host -> "https://$host/" }
         val targets = (rootUrls + visitedUrls[sourceId].orEmpty()).distinct()
         val headers = targets.associateWith { url ->
@@ -44,7 +42,12 @@ internal object SourceWebViewSession {
         visitedUrls.remove(sourceId)
     }
 
+    /**
+     * #948 — test-only door: forget the remembered URLs and rebind the jar, so a
+     * fixture and the code under test start from one known store.
+     */
     internal fun resetForTest() {
+        AndroidCookieJar.unpin()
         visitedUrls.clear()
     }
 }

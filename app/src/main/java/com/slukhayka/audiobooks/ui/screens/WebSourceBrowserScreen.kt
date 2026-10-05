@@ -45,6 +45,7 @@ import com.slukhayka.audiobooks.data.privacy.BrowserDnsProxy
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.WebViewRouteApplyOutcome
 import com.slukhayka.audiobooks.data.privacy.awaitWebViewRouteApplied
+import com.slukhayka.audiobooks.data.source.AndroidCookieJar
 import com.slukhayka.audiobooks.data.source.BrowserRecoveryProfiles
 import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -941,7 +942,7 @@ fun WebSourceBrowserScreen(
                         // Do not purge the jar or copy its header into
                         // preferences: both force another challenge and can
                         // leak session material outside the browser store.
-                        val cookieManager = android.webkit.CookieManager.getInstance()
+                        val cookieManager = AndroidCookieJar.instance()
                         cookieManager.setAcceptThirdPartyCookies(this@apply, false)
                         settings.apply {
                             javaScriptEnabled = true
@@ -1291,7 +1292,7 @@ fun WebSourceBrowserScreen(
             // leave CookieManager for preferences, Room, diagnostics, logs,
             // shared metadata, backup or sync payloads.
             runCatching {
-                val cookieManager = android.webkit.CookieManager.getInstance()
+                val cookieManager = AndroidCookieJar.instance()
                 cookieManager.flush()
                 sessionPrefs.edit().putBoolean("method_notice_seen_$sourceId", true).apply()
             }

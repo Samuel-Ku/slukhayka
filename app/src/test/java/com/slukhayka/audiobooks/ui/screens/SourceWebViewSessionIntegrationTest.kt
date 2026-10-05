@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.screens
 
 import android.webkit.CookieManager
 import com.slukhayka.audiobooks.data.db.SourceEntity
+import com.slukhayka.audiobooks.data.source.AndroidCookieJar
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
@@ -13,6 +14,7 @@ import java.util.TimeZone
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -20,6 +22,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowCookieManager
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -35,15 +38,15 @@ class SourceWebViewSessionIntegrationTest {
     // store the assertion's read never sees, and the test fails at the first
     // assertion with "browserOnly" — on PRs that do not touch cookies at all.
     //
-    // Pin ONE manager per test instance so the write, the callback-free `flush`
-    // and every read below share one store. This is a fixture, not a weakened
-    // check: every assertion still runs, and the precondition is asserted
-    // explicitly instead of assumed. The same pin extends across the
-    // production boundary: `SourceWebViewSession.clear` takes the manager as a
-    // parameter (default = the process-wide singleton, unchanged in prod), so
-    // the test passes its pinned `cookies` and the clear cannot silently miss
-    // in another Robolectric store (4th case of #948).
-    private val cookies: CookieManager by lazy { CookieManager.getInstance() }
+    // The fixture therefore reads the jar through the SAME door the code under
+    // test uses (`AndroidCookieJar`, pinned once per process — see the
+    // regression test below), never through its own `getInstance()`. So the
+    // write, the callback-free `flush`, `clear` and every read share one store
+    // by construction, and this class measures the real production path instead
+    // of a parallel one. This is a fixture, not a weakened check: every
+    // assertion still runs, and each precondition is asserted explicitly
+    // instead of assumed.
+    private val cookies: CookieManager get() = AndroidCookieJar.instance()
 
     @Before
     fun resetCookies() {
@@ -85,14 +88,7 @@ class SourceWebViewSessionIntegrationTest {
         assertEquals(sessionThenBrowser, candidates(second))
 
         SourceWebViewSession.rememberVisitedUrl("sluhay", first.url)
-        // #948 (4th case): the production clear() used to call
-        // CookieManager.getInstance() itself, so under Robolectric it could
-        // operate on a DIFFERENT RoboCookieManager store than this fixture's
-        // pinned `cookies` — the clear silently missed and the test failed at
-        // the post-clear assertions on PRs that never touch cookies. Pass the
-        // same manager so write, clear and read share one store; production
-        // keeps the same default (the process-wide singleton) unchanged.
-        SourceWebViewSession.clear("sluhay", cookies)
+        SourceWebViewSession.clear("sluhay")
 
         assertFalse(cookies.getCookie(first.url).orEmpty().contains("session=sluhay-ok"))
         assertTrue(cookies.getCookie("https://4read.org/book").orEmpty().contains("session=fourread-ok"))
@@ -148,6 +144,52 @@ class SourceWebViewSessionIntegrationTest {
         assertNull(
             "Expires у минулому не спрацював — CookieManager досі віддає кукі",
             cookies.getCookie(book.url)
+        )
+        assertEquals(browserOnly, candidates(book))
+    }
+
+    @Test
+    fun `clear acts on the jar the fixture seeded even after the shadow swaps its singleton`() {
+        val book = source("shared", "https://sluhay.com/books/shared")
+        cookies.setCookie(book.url, "session=shared-ok; Path=/books; Secure")
+        cookies.flush()
+        SourceWebViewSession.rememberVisitedUrl("sluhay", book.url)
+        assertTrue(
+            "CookieManager не бачить щойно записаний кукі — фікстура не готова",
+            hasUsableSourceSession(cookies.getCookie(book.url).orEmpty())
+        )
+
+        // The reported flake, made deterministic instead of ~1 run in 25. The
+        // shadow keeps its store behind a static that its @Resetter nulls, so a
+        // later `getInstance()` builds a DIFFERENT, empty RoboCookieManager
+        // (#948). Reproduce that swap on purpose: a clear that re-resolves the
+        // singleton per call now runs against the empty jar, reads no cookie
+        // names, issues no expiry command and silently leaves the book looking
+        // like it still holds a session — which is how the 4th case of #948
+        // failed PRs that never touch cookies.
+        ShadowCookieManager.resetCookies()
+
+        // The reproduction is only honest while the swap really happened: if a
+        // future Robolectric made the shadow a stable singleton, this test would
+        // keep passing while proving nothing, so say so out loud.
+        assertNotSame(
+            "ShadowCookieManager більше не підмінює синглтон — відтворення #948 зламане",
+            cookies,
+            CookieManager.getInstance()
+        )
+
+        SourceWebViewSession.clear("sluhay")
+
+        // The post-clear shape differs by platform and both shapes mean the same
+        // thing: a Chromium-backed jar deletes the entry (`getCookie` → null),
+        // while Robolectric's applies only `Expires` and leaves the inert
+        // `Max-Age=0` remnant `name=` (measured on this class, #966). The
+        // guarantee worth pinning is the one the policy actually reads — no
+        // non-empty value left, so the book is no longer a reusable session —
+        // not one platform's spelling of "gone".
+        assertFalse(
+            "clear відпрацював на іншому сховищі CookieManager — сесія лишилась придатною",
+            hasUsableSourceSession(cookies.getCookie(book.url).orEmpty())
         )
         assertEquals(browserOnly, candidates(book))
     }

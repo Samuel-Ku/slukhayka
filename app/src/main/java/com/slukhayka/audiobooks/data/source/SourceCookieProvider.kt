@@ -35,7 +35,7 @@ object AndroidSourceCookieProvider : SourceCookieProvider {
         val scheme = runCatching { java.net.URI(url.trim()).scheme?.lowercase() }.getOrNull()
         if (scheme != "http" && scheme != "https") return ""
         return runCatching {
-            android.webkit.CookieManager.getInstance().getCookie(url.trim())
+            AndroidCookieJar.instance().getCookie(url.trim())
         }.getOrNull().orEmpty()
     }
 }

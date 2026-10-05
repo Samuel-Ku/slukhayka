@@ -1127,9 +1127,8 @@ class App : Application() {
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before the fetch.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
             cookieProvider = {
-                runCatching {
-                    android.webkit.CookieManager.getInstance().getCookie("https://4read.org/")
-                }.getOrNull().orEmpty()
+                com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
+                    .cookieFor("https://4read.org/")
             }
         )
     }
@@ -1406,9 +1405,8 @@ class App : Application() {
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
             cookieProvider = {
-                runCatching {
-                    android.webkit.CookieManager.getInstance().getCookie("https://4read.org/")
-                }.getOrNull().orEmpty()
+                com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
+                    .cookieFor("https://4read.org/")
             }
         ).also { manager ->
             diagnosticScope.launch {

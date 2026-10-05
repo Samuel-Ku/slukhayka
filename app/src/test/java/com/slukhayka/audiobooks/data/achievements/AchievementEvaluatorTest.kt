@@ -190,4 +190,43 @@ class AchievementEvaluatorTest {
             all.none { it in setOf("autonomous_10h", "airplane_1", "downloaded_gourmet_100h") })
         assertTrue("«Глибокий запас» натомість мусить бути", "deep_reserve_10" in all)
     }
+
+    /**
+     * #701 (T3) — «Глибокий пошук» rewards the MECHANISM, not just any import.
+     *
+     * The fact behind it is written only when the import really came from
+     * global search (`MainViewModel` records it under
+     * `target.fromGlobalSearch`). So the award must stay closed on a snapshot
+     * where no such import happened — otherwise it would celebrate every book
+     * that merely followed a search.
+     */
+    @Test fun `deep search opens only on a real global-search import`() {
+        assertFalse(
+            "«Глибокий пошук» не має відкриватись без жодного імпорту з пошуку",
+            "deep_search" in AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+        )
+        assertTrue(
+            "«Глибокий пошук» мусить відкритись після імпорту з глобального пошуку",
+            "deep_search" in AchievementEvaluator.evaluate(
+                AchievementProgress(searchImports = 1), emptySet()
+            ).map { it.id }
+        )
+    }
+
+    /**
+     * The three mechanisms that need data nothing records yet stay ABSENT on
+     * purpose: «Резолвер» (cross-resolve), «Відновлювач» (source recovery) and
+     * «Той самий голос» (same narration from two sources). Keeping this a test
+     * means the gap is a decision, not an oversight — adding them must add
+     * their data too.
+     */
+    @Test fun `mechanism awards that need unrecorded events are absent`() {
+        val all = AchievementCatalog.definitions.map { it.id }
+
+        assertTrue(
+            "жодної нагороди за кросс-резолв, відновлення чи збіг начитки бути не має",
+            all.none { it in setOf("resolver", "recoverer", "same_voice") }
+        )
+        assertTrue("«Глибокий пошук» натомість мусить бути", "deep_search" in all)
+    }
 }

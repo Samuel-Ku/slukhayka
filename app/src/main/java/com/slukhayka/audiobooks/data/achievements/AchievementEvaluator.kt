@@ -161,7 +161,13 @@ object AchievementCatalog {
         // WebView submission path records `type = "youtube"`
         // (`LibraryImport.importSubmittedYouTube`), so this counts that path
         // rather than any book that merely lives on YouTube.
-        AchievementDefinition("browser_guest", "doors", 2, AchievementMetric.BROWSER_BOOKS, 1)
+        AchievementDefinition("browser_guest", "doors", 2, AchievementMetric.BROWSER_BOOKS, 1),
+        // #701 (T3) — «Глибокий пошук»: a book found through GLOBAL search. The
+        // fact already exists and is written only when the import really came
+        // from that path (`MainViewModel` records SEARCH_IMPORTED when
+        // `target.fromGlobalSearch`), so this rewards the mechanism rather than
+        // any import that happens to follow a search.
+        AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1)
     )
 }
 

@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import java.util.Locale
 
@@ -115,16 +116,22 @@ fun PublicCollectionsRail(
 }
 
 /**
- * Spec-51 (#693) — a curator's profile: the pseudonym as a heading and that
- * curator's VISIBLE collections. With nothing visible the profile says so
- * honestly instead of rendering an empty shelf.
+ * Spec-51 (#693) — a curator's profile: the pseudonym as a heading, the awards
+ * they chose to show, and that curator's VISIBLE collections. With nothing
+ * visible the profile says so honestly instead of rendering an empty shelf.
  */
 @Composable
 fun CuratorProfileContent(
     pseudonym: String,
     rows: List<CollectionWithBookRow>,
     onOpen: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * #705 (T7) — the awards the curator published, in the order they pinned
+     * them. Empty is the honest default: a listener who never published a
+     * showcase has none, and neither has one with no profile to put it on.
+     */
+    showcase: List<ShowcaseAwardSnapshot> = emptyList()
 ) {
     Column(
         modifier = modifier
@@ -151,6 +158,15 @@ fun CuratorProfileContent(
             )
             return@Column
         }
+        // #705 — the showcase renders AFTER the honest-absence branch, and that
+        // order is the ticket's fourth criterion rather than an accident: no
+        // publications means no profile, and a showcase above an empty shelf
+        // would be a shelf with nothing behind it. The data already agrees (the
+        // showcase rides on the collections), so this makes the rule structural
+        // instead of merely implied.
+        if (showcase.isNotEmpty()) {
+            CuratorShowcase(showcase)
+        }
         rows.forEach { row ->
             Column(
                 modifier = Modifier
@@ -163,6 +179,34 @@ fun CuratorProfileContent(
                 Text(text = row.title, style = MaterialTheme.typography.bodyLarge)
                 CollectionRatingLine(average = row.average, ratingCount = row.ratingCount)
             }
+        }
+    }
+}
+
+/** #705 — the curator's chosen awards, by the names published with them. */
+@Composable
+private fun CuratorShowcase(awards: List<ShowcaseAwardSnapshot>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("curator_profile_showcase")
+    ) {
+        Text(
+            text = stringResource(R.string.achievements_showcase),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier
+                .semantics { heading() }
+                .testTag("curator_profile_showcase_heading")
+        )
+        awards.forEach { award ->
+            Text(
+                text = award.name,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .testTag("curator_profile_award_${award.id}")
+            )
         }
     }
 }

@@ -29,14 +29,20 @@ class RoomAchievementProgressSource(
     private val speeds = combine(dao.observeFastBooks(), dao.observeSlowBooks()) { fast, slow ->
         fast to slow
     }
-    private val countersWithShape = combine(counters, shape, speeds) { base, (short, epic), (fast, slow) ->
-        base.copy(
-            shortCompletedBooks = short,
-            epicCompletedBooks = epic,
-            fastBooks = fast,
-            slowBooks = slow
-        )
+    private val marks = combine(dao.observeBookmarks(), dao.observeNotes()) { marks, notes ->
+        marks to notes
     }
+    private val countersWithShape =
+        combine(counters, shape, speeds, marks) { base, (short, epic), (fast, slow), (marks, notes) ->
+            base.copy(
+                shortCompletedBooks = short,
+                epicCompletedBooks = epic,
+                fastBooks = fast,
+                slowBooks = slow,
+                bookmarks = marks,
+                notes = notes
+            )
+        }
     // Files are inspected only when the track/topology rows change, never on every listening tick.
     private val downloads = dao.observeDownloadedTracks().distinctUntilChanged()
         .map { DownloadedBookProof.count(it, fileReady) }.flowOn(Dispatchers.IO)

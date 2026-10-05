@@ -17,6 +17,10 @@ data class AchievementProgress(
     val fastBooks: Long = 0,
     /** #700 — books the listener chose to hear SLOWER than 0.75x. */
     val slowBooks: Long = 0,
+    /** #700 — bookmarks the listener placed. */
+    val bookmarks: Long = 0,
+    /** #700 — bookmarks that actually carry a written note (non-blank). */
+    val notes: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -27,7 +31,7 @@ data class AchievementSeriesMembership(val seriesId: String, val workId: String,
 enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
-    SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS;
+    SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -42,6 +46,8 @@ enum class AchievementMetric {
         EPIC_COMPLETED_BOOKS -> snapshot.epicCompletedBooks
         FAST_BOOKS -> snapshot.fastBooks
         SLOW_BOOKS -> snapshot.slowBooks
+        BOOKMARKS -> snapshot.bookmarks
+        NOTES -> snapshot.notes
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -85,7 +91,13 @@ object AchievementCatalog {
         // not counted at all, because "no preference" is the global default,
         // not a claim about this book (ADR-0014).
         AchievementDefinition("speedster_10", "habits", 1, AchievementMetric.FAST_BOOKS, 10),
-        AchievementDefinition("slow_savour_5", "habits", 1, AchievementMetric.SLOW_BOOKS, 5)
+        AchievementDefinition("slow_savour_5", "habits", 1, AchievementMetric.SLOW_BOOKS, 5),
+        // #700 (T2) — marking your place, and writing something there. A
+        // bookmark with a blank note is a bookmark, NOT a note: the two counts
+        // stay apart so neither award can claim something the listener did not
+        // do (ADR-0014).
+        AchievementDefinition("bookmarks_50", "habits", 2, AchievementMetric.BOOKMARKS, 50),
+        AchievementDefinition("notes_10", "habits", 3, AchievementMetric.NOTES, 10)
     )
 }
 

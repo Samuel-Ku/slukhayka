@@ -49,6 +49,20 @@ interface AchievementDao {
     @Query("SELECT COUNT(DISTINCT bookId) FROM playback_progress WHERE preferredSpeed < 0.75")
     fun observeSlowBooks(): Flow<Long>
 
+    /** #700 (T2) — every bookmark the listener placed, notes or not. */
+    @Query("SELECT COUNT(*) FROM bookmarks")
+    fun observeBookmarks(): Flow<Long>
+
+    /**
+     * #700 (T2) — bookmarks that carry a WRITTEN note.
+     *
+     * `note` is non-null but may be blank, and a blank one is a plain bookmark.
+     * Trimming before the emptiness test is what keeps the count honest: a row
+     * of spaces is not a note.
+     */
+    @Query("SELECT COUNT(*) FROM bookmarks WHERE TRIM(note) <> ''")
+    fun observeNotes(): Flow<Long>
+
     /** #700 (T2) — completed books of 30+ hours. */
     @Query(
         "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +

@@ -110,4 +110,37 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #700 (T2) — a blank note is a BOOKMARK, not a note.
+     *
+     * `note` is non-null but may be blank, so counting rows would inflate the
+     * note award with bookmarks the listener never wrote anything on. The test
+     * puts a real note, an EMPTY one and a WHITESPACE-only one side by side —
+     * the last two must not count, and the whitespace case is what proves the
+     * query trims rather than comparing to "".
+     */
+    @Test fun `only a written note counts as a note`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val achievementDao = database.achievementDao()
+            val book = TestDataFactory.dataBooks().first()
+            dao.insertAudiobooks(listOf(book))
+
+            dao.insertBookmark(BookmarkEntity(bookId = book.id, chapterIndex = 0,
+                chapterTitle = "Розділ", timestampSeconds = 1L, note = "справжня нотатка"))
+            dao.insertBookmark(BookmarkEntity(bookId = book.id, chapterIndex = 1,
+                chapterTitle = "Розділ", timestampSeconds = 2L, note = ""))
+            dao.insertBookmark(BookmarkEntity(bookId = book.id, chapterIndex = 2,
+                chapterTitle = "Розділ", timestampSeconds = 3L, note = "   "))
+
+            assertEquals("закладок мусить бути три", 3L, achievementDao.observeBookmarks().first())
+            assertEquals("нотатка мусить бути рівно одна", 1L, achievementDao.observeNotes().first())
+        } finally {
+            database.close()
+        }
+    }
 }

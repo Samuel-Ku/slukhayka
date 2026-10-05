@@ -648,4 +648,19 @@
     <string name="home_search_partial_catalogue">Sources may show only part of their catalogue.</string>
     <string name="home_search_partial_failure">Some sources did not respond. Available results are shown.</string>
     <string name="home_search_retry">Try again</string>
+
+    <!-- #699: quiet local earned notices. -->
+    <string name="achievement_awarded">Achievement: %1$s</string>
+    <string name="achievement_first_book">First book</string>
+    <string name="achievement_first_playback">First listen</string>
+    <string name="achievement_first_review">First feedback</string>
+    <string name="achievement_first_not_interested">Your own choice</string>
+    <string name="achievement_first_search_import">A book from search</string>
+    <string name="achievement_first_offline_playback">First offline listen</string>
+    <string name="achievement_first_download">First downloaded book</string>
+    <string name="achievement_first_completion">To the last page</string>
+    <plurals name="achievement_hours">
+        <item quantity="one">%1$d hour listened</item>
+        <item quantity="other">%1$d hours listened</item>
+    </plurals>
 </resources>

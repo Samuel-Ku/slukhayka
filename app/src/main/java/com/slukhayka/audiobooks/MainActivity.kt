@@ -41,6 +41,8 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.flow.collect
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import androidx.lifecycle.LifecycleEventObserver
@@ -361,6 +363,22 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val firstChoiceLanguages by firstLanguageChoice.languages.collectAsState()
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val achievementSnackbar = remember { SnackbarHostState() }
+    val allowAchievementNotices = !crashReportingState.shouldShowPrompt && !firstChoiceVisible &&
+        narrationSwitchPrompt == null && !fullPlayerModalActive && !fullPlayerContentPresent
+    LaunchedEffect(lifecycleOwner, allowAchievementNotices) {
+        if (allowAchievementNotices) lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            // collect, not collectLatest: committing seenAt must not cancel this snackbar.
+            App.instance.achievements.earned.collect {
+                while (true) {
+                    val earned = App.instance.achievements.takeNotice() ?: break
+                    achievementSnackbar.showSnackbar(
+                        com.slukhayka.audiobooks.ui.achievements.achievementNotice(context, earned.id),
+                        duration = SnackbarDuration.Short)
+                }
+            }
+        }
+    }
 
     DisposableEffect(lifecycleOwner) {
         App.instance.crashContextTracker.updateAppVisibility(AppVisibility.FOREGROUND)
@@ -820,6 +838,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt ||
                         firstChoiceVisible || narrationSwitchPrompt != null
                 ),
+            snackbarHost = {
+                SnackbarHost(achievementSnackbar,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
+            },
             bottomBar = {
                 Column {
                     // Floating Persistent Mini Player. Closed by a leftward

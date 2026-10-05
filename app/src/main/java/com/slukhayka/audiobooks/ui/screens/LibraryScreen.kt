@@ -145,6 +145,10 @@ fun LibraryScreen(
     onOpenSettings: () -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
+    // #1066 — "empty" and "not read yet" are different states. Without this
+    // the screen flashed the empty state on every cold start, and the list
+    // changed size under a measuring frame.
+    val libraryLoaded by viewModel.isLibraryLoaded.collectAsState()
     val libraryAvailability by viewModel.libraryAvailability.collectAsState()
     val bookDownloadCounts by viewModel.bookDownloadCounts.collectAsState()
     // Spec-56 T2 (#729) — every problem Work joins the Source Watch
@@ -572,6 +576,16 @@ fun LibraryScreen(
             when (activeTab) {
                 0 -> {
                     when {
+                        // Only claim the library is empty once it has
+                        // actually been read (#1066). While the first read is
+                        // in flight, show the same affordance SeriesScreen
+                        // uses — a blank branch would read as a broken screen.
+                        !libraryLoaded -> Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
                         libraryBooks.isEmpty() -> {
                             LibraryEmptyState(
                                 onImportClick = {

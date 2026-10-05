@@ -25,7 +25,8 @@ data class CatalogCardTarget(
     val preferredEditionId: String? = null,
     val mergeKey: String = "",
     val sources: List<CatalogCardSource> = emptyList(),
-    val cardKey: String = workId
+    val cardKey: String = workId,
+    val fromGlobalSearch: Boolean = false
 )
 
 data class CatalogCardSource(

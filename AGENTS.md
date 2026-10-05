@@ -21,6 +21,11 @@ writing any of them.
 
 Issues and PRDs live in GitHub Issues. See `docs/agents/issue-tracker.md`.
 
+### Work coordination
+
+Before starting or delegating issue work, read `docs/agents/work-coordination.md`
+and check the shared issue reservations, including the latest issue comments.
+
 ### Triage labels
 
 Use the five canonical triage labels with their default names. See
@@ -38,4 +43,3 @@ Do NOT run the entire test suite (`./gradlew testDebugUnitTest` or `./scripts/te
 - Or use `scripts/test-changed.sh` to execute only the relevant test partitions.
 - Run the full test suite only when explicitly requested or for pre-release verification.
 - Before a release tag, run `scripts/pre-release.sh` — the same gate CI runs on `release/**` (dependency-PR report + live YouTube contract canary). See `docs/runbooks/component-updates.md`.
-

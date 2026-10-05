@@ -1327,7 +1327,7 @@ class SourceCatalog(
                     val mergeKey = MergeKey.keyFor(detail.title, detail.author)
                     val alreadyKnown = mergeKey.isNotBlank() && dao.findByMergeKey(mergeKey) != null
                     writeBatchRunner {
-                        libraryImport.importBookFromSource(sourceId, detail)
+                        libraryImport.importBookFromSource(sourceId, detail, origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC)
                         // Spec-23 T3: the hydrated row ALSO lands in the persisted
                         // browse layer (works/editions) via merge-on-write — the
                         // endless feed's source of truth. Idempotent: the edition

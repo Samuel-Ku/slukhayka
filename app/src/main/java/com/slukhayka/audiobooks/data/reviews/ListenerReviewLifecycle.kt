@@ -96,7 +96,8 @@ class ListenerReviewLifecycle(
      * carries the backend acknowledgement AFTER local acceptance. The book
      * page's blocking [save] needs no scope of its own.
      */
-    private val scope: CoroutineScope? = null
+    private val scope: CoroutineScope? = null,
+    private val onAccepted: suspend (ListenerReview) -> Unit = {}
 ) {
 
     private val _state = MutableStateFlow(ListenerReviewState())
@@ -315,6 +316,7 @@ class ListenerReviewLifecycle(
         if (receipt !is ReviewWriteReceipt.Queued) {
             return finishSave(submission, workId, documentId, review, epochAtStart, ReviewRemoteResult.FAILED)
         }
+        onAccepted(review)
         // The local acceptance is already a real, visible state: announce it
         // before waiting (or not waiting) for the backend.
         _results.emit(submission.event(ReviewSaveResult.QUEUED))

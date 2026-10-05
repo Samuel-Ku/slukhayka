@@ -429,6 +429,15 @@ A listener's progress, bookmarks, completion state, and playback preferences for
 In the Web Client, actual audio position comes from HTMLAudioElement.currentTime, and natural completion from the current confirmed media session's ended fact (ADR-0059). Wall time never advances Chapters or seeks audio; explicit seek/load/Smart Rewind remain commands. An end-of-chapter sleep timer stops at that media boundary before any next Chapter starts.
 _Avoid_: Library Entry, playback progress
 
+**Нагорода** (Achievement):
+Локальна особиста відзнака за підтверджений поступ слухача. Один знімок
+AchievementProgressSource живить декларативний каталог і чистий оцінювач;
+здобуте зберігається ідемпотентно, а повідомлення з’являється тихо лише на
+активній поверхні. Невідомий історичний факт не вгадується. Години спираються
+на verifiedListenedMillis фактичного монотонного часу відтворення, а не
+позицію, швидкість чи старий приблизний лічильник (ADR-0060).
+_Avoid_: бейдж за вхід, streak-покарання, рейтинг слухачів, приватна історія у cloud sync
+
 **Відстежуваний твір** (Tracked Work):
 Library Entry над Work без жодного Source: твір живе в Медіатеці з чесним станом «аудіо недоступне», ручна позначка «Прослухано» фіксує слухання поза Слухайкою; поява аудіо підсвічується Source Watch і мапуванням та імпортується звичайними дверима без авто-імпорту. Зовнішня база дає лише Work-рівень Metadata Assertions (назва, автор, обкладинка), ніколи не доказ аудіо.
 _Avoid_: полиця прочитаного, Goodreads-трекер, текстова книжка як каталог, аудіо-поля ззовні

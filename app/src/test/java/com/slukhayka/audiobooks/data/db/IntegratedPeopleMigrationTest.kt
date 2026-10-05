@@ -284,7 +284,7 @@ class IntegratedPeopleMigrationTest {
                 // #1101 — the current version is 50 now; the repair of the
                 // 4read purge's orphans belongs in this chain, otherwise Room
                 // finds no path from 26/27 to 50.
-                AudiobookDatabase.MIGRATION_49_50
+                AudiobookDatabase.MIGRATION_49_50, AudiobookDatabase.MIGRATION_50_51
             )
             .allowMainThreadQueries().build()
         try {
@@ -343,7 +343,7 @@ class IntegratedPeopleMigrationTest {
             AudiobookDatabase.MIGRATION_43_44, AudiobookDatabase.MIGRATION_44_45,
             AudiobookDatabase.MIGRATION_45_46, AudiobookDatabase.MIGRATION_46_47,
             AudiobookDatabase.MIGRATION_47_48, AudiobookDatabase.MIGRATION_48_49,
-            AudiobookDatabase.MIGRATION_49_50
+            AudiobookDatabase.MIGRATION_49_50, AudiobookDatabase.MIGRATION_50_51
         )
     }
 }

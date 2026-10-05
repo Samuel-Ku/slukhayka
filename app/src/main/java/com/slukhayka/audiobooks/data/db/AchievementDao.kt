@@ -84,6 +84,36 @@ interface AchievementDao {
     fun observeSessionStartTimes(): Flow<List<Long>>
 
     /**
+     * #703 (T5) — «Старовинна»: books finished at least a YEAR after they were
+     * added to the library.
+     *
+     * Both ends are historical facts (the completion's timestamp and the
+     * entry's `createdAt`), so this needs no "now" and cannot drift as time
+     * passes — a book that qualified yesterday still qualifies tomorrow.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM playback_events e " +
+            "JOIN library_entries le ON le.id = e.bookId " +
+            "WHERE e.kind='COMPLETED' AND (e.timestamp - le.createdAt) > 31536000000"
+    )
+    fun observeVintageCompletions(): Flow<Long>
+
+    /**
+     * #703 (T5) — «Перерва»: books the listener came BACK to after six months.
+     *
+     * A gap is a property of two consecutive sessions, so this asks whether any
+     * LATER session exists that is more than 180 days after an earlier one —
+     * MIN/MAX span would not do, since many sessions close together can span
+     * months without a single long break.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT a.bookId) FROM playback_events a WHERE a.kind='RESUME' AND EXISTS (" +
+            "SELECT 1 FROM playback_events b WHERE b.bookId = a.bookId AND b.kind='RESUME' " +
+            "AND b.timestamp > a.timestamp AND (b.timestamp - a.timestamp) > 15552000000)"
+    )
+    fun observeReturnsAfterBreak(): Flow<Long>
+
+    /**
      * #704 (T6) — distinct series the listener has books from.
      *
      * `seriesTitle` is a real property of the Work, so this needs no claim to

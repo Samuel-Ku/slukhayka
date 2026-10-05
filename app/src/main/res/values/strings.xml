@@ -726,6 +726,8 @@
     <string name="achievement_night_watch">Нічний вартовий</string>
     <string name="achievement_owl_and_lark">Сова й жайворонок</string>
     <string name="achievement_holiday">Свято</string>
+    <string name="achievement_vintage">Старовинна</string>
+    <string name="achievement_comeback">Перерва</string>
     <string name="achievement_awarded_generic">Нова нагорода</string>
     <string name="achievement_awarded">Нагорода: %1$s</string>
     <string name="achievement_first_book">Перша книга</string>

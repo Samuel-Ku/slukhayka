@@ -72,6 +72,10 @@ data class AchievementProgress(
     val owlLarkBalance: Long = 0,
     /** #703 (T5) — books finished on New Year or Christmas. */
     val holidayCompletions: Long = 0,
+    /** #703 (T5) — books finished a year or more after they were added. */
+    val vintageCompletions: Long = 0,
+    /** #703 (T5) — books returned to after a six-month break. */
+    val returnsAfterBreak: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -84,7 +88,8 @@ enum class AchievementMetric {
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
-    DISTINCT_GENRES, MAX_GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS;
+    DISTINCT_GENRES, MAX_GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
+    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -111,6 +116,8 @@ enum class AchievementMetric {
         NIGHT_COMPLETIONS -> snapshot.nightCompletions
         OWL_LARK -> snapshot.owlLarkBalance
         HOLIDAY_COMPLETIONS -> snapshot.holidayCompletions
+        VINTAGE_COMPLETIONS -> snapshot.vintageCompletions
+        RETURNS_AFTER_BREAK -> snapshot.returnsAfterBreak
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -222,7 +229,16 @@ object AchievementCatalog {
         // why the snapshot carries their minimum rather than two counters.
         AchievementDefinition("night_watch", "hidden", 1, AchievementMetric.NIGHT_COMPLETIONS, 1, hidden = true),
         AchievementDefinition("owl_and_lark", "hidden", 1, AchievementMetric.OWL_LARK, 1, hidden = true),
-        AchievementDefinition("holiday", "hidden", 1, AchievementMetric.HOLIDAY_COMPLETIONS, 1, hidden = true)
+        AchievementDefinition("holiday", "hidden", 1, AchievementMetric.HOLIDAY_COMPLETIONS, 1, hidden = true),
+        // #703 (T5) — the rest of the hidden set. «Ювілей години» reuses the
+        // hours metric rather than adding one: the hundredth hour IS a hundred
+        // hours, and a second counter would be the same fact twice.
+        AchievementDefinition("vintage", "hidden", 1, AchievementMetric.VINTAGE_COMPLETIONS, 1, hidden = true),
+        AchievementDefinition("comeback", "hidden", 1, AchievementMetric.RETURNS_AFTER_BREAK, 1, hidden = true)
+        // NOTE: «Ювілей години» (the hundredth hour) is deliberately ABSENT. The
+        // hour ladder from T1 already has `hours_100` on the SAME metric at the
+        // SAME threshold, so adding it would fire two awards — and two notices —
+        // for one event. A duplicate is not a second achievement.
     )
 }
 

@@ -43,7 +43,9 @@ private val named = mapOf(
     "deep_search" to R.string.achievement_deep_search,
     "night_watch" to R.string.achievement_night_watch,
     "owl_and_lark" to R.string.achievement_owl_and_lark,
-    "holiday" to R.string.achievement_holiday
+    "holiday" to R.string.achievement_holiday,
+    "vintage" to R.string.achievement_vintage,
+    "comeback" to R.string.achievement_comeback
 )
 
 fun achievementNotice(context: Context, id: String): String {

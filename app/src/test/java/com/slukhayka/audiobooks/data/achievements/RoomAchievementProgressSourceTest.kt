@@ -485,4 +485,63 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #703 (T5) — «Старовинна» needs a YEAR between adding a book and finishing
+     * it, and «Перерва» needs a SIX-MONTH gap between two sessions.
+     *
+     * Both are absolute comparisons between recorded facts, so the test can use
+     * fixed instants and never depends on the day it runs. Each has its
+     * near-miss next to it: a book added last week, and sessions a month apart —
+     * both must NOT qualify.
+     */
+    @Test fun `vintage and comeback need a real span, not a near miss`() = runBlocking {
+        val day = 86_400_000L
+        val base = 1_700_000_000_000L // a fixed instant; no "now" anywhere
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val books = TestDataFactory.dataBooks().take(2)
+            dao.insertAudiobooks(books)
+
+            // Book 0: added two years before it was finished → «Старовинна».
+            dao.upsertLibraryEntry(books[0].id, books[0].id, false, base, 0f)
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[0].id,
+                kind = PlaybackEventKind.COMPLETED, timestamp = base + 730 * day))
+            // Book 1: added a week before it was finished → NOT vintage.
+            dao.upsertLibraryEntry(books[1].id, books[1].id, false, base, 0f)
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[1].id,
+                kind = PlaybackEventKind.COMPLETED, timestamp = base + 7 * day))
+
+            assertEquals("лише одна книга прожила рік до завершення", 1L,
+                database.achievementDao().observeVintageCompletions().first())
+
+            // Book 0 again: two sessions seven months apart → «Перерва».
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[0].id,
+                kind = PlaybackEventKind.RESUME, timestamp = base))
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[0].id,
+                kind = PlaybackEventKind.RESUME, timestamp = base + 210 * day))
+            // Book 1: two sessions a month apart → NOT a break.
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[1].id,
+                kind = PlaybackEventKind.RESUME, timestamp = base))
+            dao.insertPlaybackEvent(PlaybackEventEntity(bookId = books[1].id,
+                kind = PlaybackEventKind.RESUME, timestamp = base + 30 * day))
+
+            assertEquals("лише одна книга мала шестимісячну перерву", 1L,
+                database.achievementDao().observeReturnsAfterBreak().first())
+
+            // And the awards themselves open from the snapshot.
+            val snapshot = RoomAchievementProgressSource(
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet()
+            ).observe().first()
+            val earned = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+            assertTrue("«Старовинна» мусить відкритись", "vintage" in earned)
+            assertTrue("«Перерва» мусить відкритись", "comeback" in earned)
+        } finally {
+            database.close()
+        }
+    }
 }

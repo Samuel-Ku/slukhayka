@@ -839,7 +839,7 @@ class App : Application() {
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
 
     private val achievementScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val achievementStore: com.slukhayka.audiobooks.data.achievements.AchievementStore by lazy {
+    val achievementStore: com.slukhayka.audiobooks.data.achievements.RoomAchievementStore by lazy {
         com.slukhayka.audiobooks.data.achievements.RoomAchievementStore(database.achievementDao())
     }
     private val achievementRecorder by lazy {

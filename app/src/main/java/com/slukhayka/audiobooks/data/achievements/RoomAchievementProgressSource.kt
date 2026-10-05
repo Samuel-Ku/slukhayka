@@ -86,8 +86,11 @@ class RoomAchievementProgressSource(
             vintage, returns ->
         vintage to returns
     }
-    private val countersWithShape = combine(withTimes, ages) { base, (vintage, returns) ->
+    private val withAges = combine(withTimes, ages) { base, (vintage, returns) ->
         base.copy(vintageCompletions = vintage, returnsAfterBreak = returns)
+    }
+    private val countersWithShape = combine(withAges, dao.observeLateCompletions()) { base, late ->
+        base.copy(lateCompletions = late)
     }
 
     private fun hourOf(epochMillis: Long): Int =

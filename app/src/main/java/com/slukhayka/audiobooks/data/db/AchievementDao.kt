@@ -114,6 +114,22 @@ interface AchievementDao {
     fun observeReturnsAfterBreak(): Flow<Long>
 
     /**
+     * #703 (T5) — «Ніколи не пізно»: books FINISHED two years or more after
+     * they were first opened.
+     *
+     * Absolute, like the vintage award: both the completion and the first
+     * session are recorded facts, so nothing here depends on the day it runs.
+     * The EXISTS asks whether ANY earlier session is two years back, which is
+     * exactly "started long ago and finally finished".
+     */
+    @Query(
+        "SELECT COUNT(*) FROM playback_events e WHERE e.kind='COMPLETED' AND EXISTS (" +
+            "SELECT 1 FROM playback_events f WHERE f.bookId = e.bookId " +
+            "AND (e.timestamp - f.timestamp) > 63072000000)"
+    )
+    fun observeLateCompletions(): Flow<Long>
+
+    /**
      * #704 (T6) — distinct series the listener has books from.
      *
      * `seriesTitle` is a real property of the Work, so this needs no claim to

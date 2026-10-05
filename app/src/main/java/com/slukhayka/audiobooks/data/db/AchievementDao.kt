@@ -69,6 +69,29 @@ interface AchievementDao {
     fun observeRelistens(): Flow<Long>
 
     /**
+     * #702 (T4) — library Works per normalized genre.
+     *
+     * The two rules the ticket sets are both in this SQL:
+     *
+     *  - **A genre is only ever a real claim.** The row comes from
+     *    `work_genres`, which is written from source genre documents. A Work
+     *    nobody claimed a genre for simply has no row, so it adds nothing —
+     *    no guessing (ADR-0014).
+     *  - **Aggregated at Work level.** `work_genres` is keyed by `workId` (plus
+     *    sourceId), so one genre claimed by two sources for the same Work is
+     *    still ONE book. `COUNT(DISTINCT workId)` is what makes that true.
+     *
+     * The join to `library_entries` restricts the count to Works the listener
+     * actually has.
+     */
+    @Query(
+        "SELECT wg.genreId AS genreId, COUNT(DISTINCT wg.workId) AS works " +
+            "FROM work_genres wg JOIN library_entries le ON le.workId = wg.workId " +
+            "GROUP BY wg.genreId"
+    )
+    fun observeGenreBookCounts(): Flow<List<com.slukhayka.audiobooks.data.achievements.GenreBookCount>>
+
+    /**
      * #701 (T3) — books imported through the BROWSER door.
      *
      * Capped at 1: the award marks having taken the harder path at all, and the

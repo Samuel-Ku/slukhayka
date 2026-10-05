@@ -44,6 +44,15 @@ data class AchievementProgress(
      * the award says "you went the harder way", and twice is not more true.
      */
     val browserBooks: Long = 0,
+    /**
+     * #702 (T4) — library Works per normalized genre id.
+     *
+     * A MAP rather than a dozen counters: the genre vocabulary is open
+     * (`GenreIdentity` hashes unknown genres), so hardcoding ids would break
+     * the moment a source claims a genre nobody listed. The two awards that use
+     * it ask about BREADTH and DEPTH, not about a named genre.
+     */
+    val genreCounts: Map<String, Long> = emptyMap(),
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -55,7 +64,8 @@ enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
-    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS;
+    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
+    DISTINCT_GENRES, MAX_GENRE_BOOKS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -77,6 +87,8 @@ enum class AchievementMetric {
         USED_SOURCE_DOORS -> snapshot.usedSourceDoors
         KNOWN_LANGUAGES -> snapshot.knownLanguages
         BROWSER_BOOKS -> snapshot.browserBooks
+        DISTINCT_GENRES -> snapshot.genreCounts.size.toLong()
+        MAX_GENRE_BOOKS -> snapshot.genreCounts.values.maxOrNull() ?: 0L
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -167,7 +179,19 @@ object AchievementCatalog {
         // from that path (`MainViewModel` records SEARCH_IMPORTED when
         // `target.fromGlobalSearch`), so this rewards the mechanism rather than
         // any import that happens to follow a search.
-        AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1)
+        AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1),
+        // #702 (T4) — BREADTH and DEPTH of taste. Both rest on real genre
+        // claims only: a Work nobody claimed a genre for is absent from
+        // `genreCounts`, so it can neither widen nor deepen anything.
+        //
+        // Breadth counts genres with at least one owned Work — «8 різних
+        // жанрів» / «12 жанрів», read literally. Depth takes the largest single
+        // genre. The twelve named «10 books in genre X» awards are NOT here on
+        // purpose: only six genres have canonical ids in `GenreIdentity`, and
+        // the rest are hashed, so naming them would mean inventing vocabulary.
+        AchievementDefinition("genre_polyglot_8", "genres", 1, AchievementMetric.DISTINCT_GENRES, 8),
+        AchievementDefinition("omnivore_12", "genres", 2, AchievementMetric.DISTINCT_GENRES, 12),
+        AchievementDefinition("mono_genre_25", "genres", 3, AchievementMetric.MAX_GENRE_BOOKS, 25)
     )
 }
 

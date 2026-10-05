@@ -20,59 +20,44 @@ class RoomAchievementProgressSource(
         AchievementProgress(explicitBooks = books, verifiedListeningMillis = millis,
             notInterestedChoices = choices, completedBooks = completed)
     }
-    // #700 (T2) — the duration bands. Kept in their own flow and copied in, the
-    // way `aggregates` already does: `combine` has no six-argument overload, and
-    // nesting pairs is the established shape here.
+    // #700/#701/#702 — the rest of the snapshot, folded in ONE FIELD AT A TIME.
+    //
+    // `combine` stops at five arguments, and the previous version nested pairs
+    // three deep to work around that (`prev.first.first.first`). It compiled,
+    // but it was unreadable and every new metric made it worse. Each step below
+    // adds its fields to a growing copy instead, so adding the next metric is
+    // one obvious line.
     private val shape = combine(dao.observeShortCompletedBooks(), dao.observeEpicCompletedBooks()) { short, epic ->
         short to epic
     }
-    private val speeds = combine(dao.observeFastBooks(), dao.observeSlowBooks()) { fast, slow ->
-        fast to slow
+    private val speeds = combine(dao.observeFastBooks(), dao.observeSlowBooks()) { fast, slow -> fast to slow }
+    private val marks = combine(dao.observeBookmarks(), dao.observeNotes()) { marks, notes -> marks to notes }
+    private val returns = combine(dao.observeTimerStops(), dao.observeRelistens()) { stops, relistens -> stops to relistens }
+
+    private val withShape = combine(counters, shape) { base, (short, epic) ->
+        base.copy(shortCompletedBooks = short, epicCompletedBooks = epic)
     }
-    private val marks = combine(dao.observeBookmarks(), dao.observeNotes()) { marks, notes ->
-        marks to notes
+    private val withSpeeds = combine(withShape, speeds) { base, (fast, slow) ->
+        base.copy(fastBooks = fast, slowBooks = slow)
     }
-    private val returns = combine(dao.observeTimerStops(), dao.observeRelistens()) { stops, relistens ->
-        stops to relistens
+    private val withMarks = combine(withSpeeds, marks) { base, (marks, notes) ->
+        base.copy(bookmarks = marks, notes = notes)
     }
-    // Five sources already exceed `combine`'s arity, so the newest value rides
-    // the existing pair — the same nesting this file already uses for the rest.
-    private val returnsAndDoors = combine(returns, dao.observeUsedSourceDoors()) { ret, doors ->
-        ret to doors
+    private val withReturns = combine(withMarks, returns) { base, (stops, relistens) ->
+        base.copy(timerStops = stops, relistens = relistens)
     }
-    /**
-     * The door count and language count travel together. Three levels of nested
-     * pairs stop being readable (and stopped compiling), so this one carries
-     * named fields instead.
-     */
-    private data class ReturnsDoorsLanguages(
-        val stops: Long, val relistens: Long, val doors: Long, val languages: Long, val browser: Long
-    )
-    private val doorsAndLanguages = combine(
-        combine(returnsAndDoors, dao.observeKnownLanguages()) { prev, languages -> prev to languages },
-        dao.observeBrowserBooks()
-    ) { prev, browser ->
-        ReturnsDoorsLanguages(
-            prev.first.first.first, prev.first.first.second, prev.first.second, prev.second, browser
-        )
+    private val withDoors = combine(withReturns, dao.observeUsedSourceDoors()) { base, doors ->
+        base.copy(usedSourceDoors = doors)
     }
-    private val countersWithShape =
-        combine(counters, shape, speeds, marks, doorsAndLanguages) {
-                base, (short, epic), (fast, slow), (marks, notes), combo ->
-            base.copy(
-                shortCompletedBooks = short,
-                epicCompletedBooks = epic,
-                fastBooks = fast,
-                slowBooks = slow,
-                bookmarks = marks,
-                notes = notes,
-                timerStops = combo.stops,
-                relistens = combo.relistens,
-                usedSourceDoors = combo.doors,
-                knownLanguages = combo.languages,
-                browserBooks = combo.browser
-            )
-        }
+    private val withLanguages = combine(withDoors, dao.observeKnownLanguages()) { base, languages ->
+        base.copy(knownLanguages = languages)
+    }
+    private val withBrowser = combine(withLanguages, dao.observeBrowserBooks()) { base, browser ->
+        base.copy(browserBooks = browser)
+    }
+    private val countersWithShape = combine(withBrowser, dao.observeGenreBookCounts()) { base, genres ->
+        base.copy(genreCounts = genres.associate { it.genreId to it.works })
+    }
     // Files are inspected only when the track/topology rows change, never on every listening tick.
     private val downloads = dao.observeDownloadedTracks().distinctUntilChanged()
         .map { DownloadedBookProof.count(it, fileReady) }.flowOn(Dispatchers.IO)

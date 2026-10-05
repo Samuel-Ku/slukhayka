@@ -229,4 +229,56 @@ class AchievementEvaluatorTest {
         )
         assertTrue("«Глибокий пошук» натомість мусить бути", "deep_search" in all)
     }
+
+    /**
+     * #702 (T4) — the genre ladder: breadth at 8 and 12 genres, depth at 25
+     * books in one. Each must open at EXACTLY its threshold.
+     */
+    @Test fun `genre breadth and depth open at exactly their thresholds`() {
+        fun counts(n: Int) = (1..n).associate { "genre-$it" to 1L }
+
+        assertFalse(
+            "«Жанровий поліглот» не має відкриватись на 7 жанрах",
+            "genre_polyglot_8" in AchievementEvaluator.evaluate(
+                AchievementProgress(genreCounts = counts(7)), emptySet()
+            ).map { it.id }
+        )
+        val eight = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = counts(8)), emptySet()
+        ).map { it.id }
+        assertTrue("«Жанровий поліглот» мусить відкритись на 8 жанрах", "genre_polyglot_8" in eight)
+        assertFalse("«Всеїдний» не має відкриватись разом із ним", "omnivore_12" in eight)
+
+        val twelve = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = counts(12)), emptySet()
+        ).map { it.id }
+        assertTrue("«Всеїдний» мусить відкритись на 12 жанрах", "omnivore_12" in twelve)
+
+        // Depth is a separate axis: many genres with one book each must NOT
+        // open «Однолюб жанру», and one genre with 25 must.
+        assertFalse(
+            "глибина не має відкриватись від широти",
+            "mono_genre_25" in twelve
+        )
+        assertTrue(
+            "«Однолюб жанру» мусить відкритись на 25 книгах одного жанру",
+            "mono_genre_25" in AchievementEvaluator.evaluate(
+                AchievementProgress(genreCounts = mapOf("detective" to 25L)), emptySet()
+            ).map { it.id }
+        )
+    }
+
+    /**
+     * #702 (T4) — «немає заяви — немає поступу». An empty genre map earns no
+     * genre award at all, which is what keeps a Work with no claimed genre from
+     * counting toward anything (ADR-0014).
+     */
+    @Test fun `no claimed genre earns no genre award`() {
+        val earned = AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+
+        assertTrue(
+            "порожні жанри не мають давати жодної жанрової нагороди",
+            earned.none { it in setOf("genre_polyglot_8", "omnivore_12", "mono_genre_25") }
+        )
+    }
 }

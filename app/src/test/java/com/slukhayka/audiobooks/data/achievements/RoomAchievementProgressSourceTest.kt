@@ -293,4 +293,57 @@ class RoomAchievementProgressSourceTest {
             database.close()
         }
     }
+
+    /**
+     * #702 (T4) — the genre count obeys BOTH rules the ticket sets.
+     *
+     * **Aggregated at Work level:** `work_genres` is keyed by
+     * (workId, genreId, sourceId), so one Work whose genre is claimed by two
+     * sources has TWO rows. Counting rows would say two books; counting
+     * DISTINCT workId says one — which is the truth.
+     *
+     * **Only a real claim counts:** a Work with no `work_genres` row at all is
+     * absent from the result, so it can neither widen nor deepen taste.
+     */
+    @Test fun `genre counts aggregate at Work level and need a real claim`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val achievementDao = database.achievementDao()
+            val books = TestDataFactory.dataBooks()
+            dao.insertAudiobooks(books)
+            for (book in books) dao.upsertLibraryEntry(book.id, book.id, false, 1L, 0f)
+
+            dao.insertWorkGenres(listOf(
+                // One Work, same genre, TWO sources — must count ONCE.
+                WorkGenreEntity(books[0].id, "detective", "src-a"),
+                WorkGenreEntity(books[0].id, "detective", "src-b"),
+                // A second Work in a different genre.
+                WorkGenreEntity(books[1].id, "fantasy", "src-a")
+                // books[2] deliberately has NO genre row.
+            ))
+
+            val counts = achievementDao.observeGenreBookCounts().first()
+                .associate { it.genreId to it.works }
+
+            assertEquals("два джерела одного твору — це ОДНА книга", 1L, counts["detective"])
+            assertEquals("друга книга — друга пара", 1L, counts["fantasy"])
+            assertEquals("жанрів мусить бути рівно два", 2, counts.size)
+
+            // And the snapshot carries it through to the awards.
+            val snapshot = RoomAchievementProgressSource(
+                achievementDao, RoomAchievementStore(achievementDao), emptySet()
+            ).observe().first()
+            assertEquals(2, snapshot.genreCounts.size)
+            assertFalse(
+                "двох жанрів замало для «Жанрового поліглота»",
+                AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+                    .any { it == "genre_polyglot_8" }
+            )
+        } finally {
+            database.close()
+        }
+    }
 }

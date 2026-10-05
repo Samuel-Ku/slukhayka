@@ -50,7 +50,7 @@ class AchievementMigrationTest {
         legacy.writableDatabase
         legacy.close()
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
-            .addMigrations(AudiobookDatabase.MIGRATION_50_51).allowMainThreadQueries().build()
+            .addMigrations(AudiobookDatabase.MIGRATION_50_51, AudiobookDatabase.MIGRATION_51_52).allowMainThreadQueries().build()
         try {
             val db = migrated.openHelper.writableDatabase
             db.query("SELECT listenedSeconds FROM listening_stats WHERE dateIso='2026-10-01'").use {
@@ -68,6 +68,12 @@ class AchievementMigrationTest {
             }
             db.query("SELECT deletedAt FROM tombstones WHERE bookId='removed-book'").use { check(it.moveToFirst()); assertEquals(321L,it.getLong(0)) }
             for (table in listOf("achievements", "achievement_facts")) db.query("SELECT COUNT(*) FROM $table").use {
+                check(it.moveToFirst()); assertEquals(0L, it.getLong(0))
+            }
+            // #704 (T6) — the showcase column arrives EMPTY. A migration must not
+            // put anything on the showcase: nobody pinned an award, and inventing
+            // one would be inventing a choice the listener never made.
+            db.query("SELECT COUNT(*) FROM achievements WHERE pinnedAt IS NOT NULL").use {
                 check(it.moveToFirst()); assertEquals(0L, it.getLong(0))
             }
         } finally {

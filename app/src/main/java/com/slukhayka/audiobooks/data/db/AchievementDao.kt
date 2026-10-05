@@ -130,6 +130,25 @@ interface AchievementDao {
     fun observeLateCompletions(): Flow<Long>
 
     /**
+     * #704 (T6) — the showcase, oldest first.
+     *
+     * Only EARNED awards can be pinned: `pinnedAt` lives on the `achievements`
+     * row, so there is no way to showcase something the listener has not got.
+     */
+    @Query("SELECT id FROM achievements WHERE pinnedAt IS NOT NULL ORDER BY pinnedAt ASC")
+    suspend fun pinnedIds(): List<String>
+
+    /** #704 (T6) — the showcase for display, newest first. */
+    @Query("SELECT * FROM achievements WHERE pinnedAt IS NOT NULL ORDER BY pinnedAt DESC")
+    fun observePinned(): Flow<List<com.slukhayka.audiobooks.data.db.AchievementEntity>>
+
+    @Query("UPDATE achievements SET pinnedAt = NULL")
+    suspend fun clearPinned()
+
+    @Query("UPDATE achievements SET pinnedAt = :at WHERE id IN (:ids)")
+    suspend fun markPinned(ids: List<String>, at: Long)
+
+    /**
      * #704 (T6) — distinct series the listener has books from.
      *
      * `seriesTitle` is a real property of the Work, so this needs no claim to

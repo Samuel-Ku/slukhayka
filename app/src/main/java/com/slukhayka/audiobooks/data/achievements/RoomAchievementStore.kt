@@ -5,7 +5,7 @@ import com.slukhayka.audiobooks.data.db.AchievementEntity
 import com.slukhayka.audiobooks.data.db.AchievementFactEntity
 import kotlinx.coroutines.flow.map
 
-class RoomAchievementStore(private val dao: AchievementDao, private val now: () -> Long = System::currentTimeMillis) : AchievementStore {
+class RoomAchievementStore(private val dao: AchievementDao, private val now: () -> Long = System::currentTimeMillis) : AchievementStore, AchievementShowcaseStore {
     override fun observeEarned() = dao.observeEarned().map { rows -> rows.map { it.external() } }
     override fun observeFacts() = dao.observeFacts().map { rows -> rows.mapNotNull { row -> AchievementFact.entries.firstOrNull { it.name == row.key } }.toSet() }
     override suspend fun earned() = dao.earned().map { it.external() }
@@ -19,5 +19,27 @@ class RoomAchievementStore(private val dao: AchievementDao, private val now: () 
     }
     override suspend fun recordFact(fact: AchievementFact) { dao.insertFact(AchievementFactEntity(fact.name, now())) }
     override suspend fun claimNotice(knownIds: Set<String>, seenAt: Long) = dao.claimNotice(knownIds, seenAt)?.external()
+
+    // --- #704 (T6) showcase -------------------------------------------------
+
+    override fun observeShowcase() = dao.observePinned().map { rows -> rows.map { it.external() } }
+
+    /**
+     * Rewrites the whole showcase from the rule's answer, oldest first.
+     *
+     * The timestamps step forward by one so the ORDER survives the round trip:
+     * marking every kept id with the same `now()` would make «newest first»
+     * meaningless, and the fourth pin would evict an arbitrary award instead of
+     * the oldest one.
+     */
+    private suspend fun rewriteShowcase(keep: List<String>) {
+        dao.clearPinned()
+        val base = now()
+        keep.forEachIndexed { index, id -> dao.markPinned(listOf(id), base + index) }
+    }
+
+    override suspend fun pin(id: String) = rewriteShowcase(AchievementShowcase.afterPin(dao.pinnedIds(), id))
+
+    override suspend fun unpin(id: String) = rewriteShowcase(AchievementShowcase.afterUnpin(dao.pinnedIds(), id))
     private fun AchievementEntity.external() = EarnedAchievement(id, earnedAt, seenAt)
 }

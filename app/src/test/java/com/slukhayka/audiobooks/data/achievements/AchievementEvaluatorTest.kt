@@ -152,4 +152,42 @@ class AchievementEvaluatorTest {
         assertFalse("порожній снапшот не має давати «Коротку форму»", "short_form_10" in earned)
         assertFalse("порожній снапшот не має давати «Епопею»", "epic_1" in earned)
     }
+
+    /**
+     * #700 (T2) — «Глибокий запас» opens at ten downloaded books, not nine.
+     *
+     * The metric behind it counts books whose EVERY chapter has a downloaded
+     * track with a real file on disk (see `DownloadedBookProof`), so a row
+     * alone cannot claim it. Here the boundary is what matters: the award must
+     * not appear one book early.
+     */
+    @Test fun `deep reserve opens at exactly ten downloaded books`() {
+        assertFalse(
+            "«Глибокий запас» не має відкриватись на 9 книгах",
+            "deep_reserve_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(downloadedBooks = 9), emptySet()
+            ).map { it.id }
+        )
+        assertTrue(
+            "«Глибокий запас» мусить відкритись на 10 книгах",
+            "deep_reserve_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(downloadedBooks = 10), emptySet()
+            ).map { it.id }
+        )
+    }
+
+    /**
+     * The three offline awards that need HOURS are absent on purpose: nothing
+     * records offline listening time yet, and approximating it from the count
+     * of offline starts would be a different fact dressed as this one
+     * (ADR-0014). This test keeps that a decision rather than an oversight —
+     * if someone adds them, they must add the data too.
+     */
+    @Test fun `offline awards that need hours are absent, not approximated`() {
+        val all = AchievementCatalog.definitions.map { it.id }
+
+        assertTrue("жодної нагороди за офлайн-години бути не має",
+            all.none { it in setOf("autonomous_10h", "airplane_1", "downloaded_gourmet_100h") })
+        assertTrue("«Глибокий запас» натомість мусить бути", "deep_reserve_10" in all)
+    }
 }

@@ -110,7 +110,17 @@ object AchievementCatalog {
         // anything else — the app already writes them.
         AchievementDefinition("sleep_timer_20", "habits", 4, AchievementMetric.TIMER_STOPS, 20),
         AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
-        AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5)
+        AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5),
+        // #700 (T2) — «Глибокий запас»: ten books actually downloaded for
+        // offline use. Built on the same real proof T1 already uses for
+        // `first_download` (a track row that is downloaded AND whose file is
+        // really on disk), so a row alone cannot claim it.
+        //
+        // The other three offline awards («Автономний», «Літак», «Гурман
+        // завантажень») need offline HOURS, which nothing records yet — they
+        // are deliberately absent rather than approximated from the count of
+        // offline starts, which is a different fact.
+        AchievementDefinition("deep_reserve_10", "offline", 1, AchievementMetric.DOWNLOADED_BOOKS, 10)
     )
 }
 

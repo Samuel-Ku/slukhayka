@@ -38,11 +38,16 @@ class SourceWebViewSessionIntegrationTest {
     // Pin ONE manager per test instance so the write, the callback-free `flush`
     // and every read below share one store. This is a fixture, not a weakened
     // check: every assertion still runs, and the precondition is asserted
-    // explicitly instead of assumed.
+    // explicitly instead of assumed. The same pin extends across the
+    // production boundary: `SourceWebViewSession.clear` takes the manager as a
+    // parameter (default = the process-wide singleton, unchanged in prod), so
+    // the test passes its pinned `cookies` and the clear cannot silently miss
+    // in another Robolectric store (4th case of #948).
     private val cookies: CookieManager by lazy { CookieManager.getInstance() }
 
     @Before
     fun resetCookies() {
+        SourceWebViewSession.resetForTest()
         cookies.removeAllCookies(null)
         cookies.flush()
     }
@@ -51,6 +56,7 @@ class SourceWebViewSessionIntegrationTest {
     fun cleanCookies() {
         cookies.removeAllCookies(null)
         cookies.flush()
+        SourceWebViewSession.resetForTest()
     }
 
     @Test
@@ -64,11 +70,29 @@ class SourceWebViewSessionIntegrationTest {
 
         val first = source("first", "https://www.sluhay.com/books/first")
         val second = source("second", "https://sluhay.com/books/second")
+        // Precondition, same discipline as the expiry test below: prove the
+        // jar really holds both sessions before asserting the policy built
+        // from them, so a fixture miss reads as a fixture miss.
+        assertTrue(
+            "CookieManager не бачить sluhay-сесію — фікстура не готова",
+            hasUsableSourceSession(cookies.getCookie(first.url).orEmpty())
+        )
+        assertTrue(
+            "CookieManager не бачить 4read-сесію — фікстура не готова",
+            hasUsableSourceSession(cookies.getCookie("https://4read.org/book").orEmpty())
+        )
         assertEquals(sessionThenBrowser, candidates(first))
         assertEquals(sessionThenBrowser, candidates(second))
 
         SourceWebViewSession.rememberVisitedUrl("sluhay", first.url)
-        SourceWebViewSession.clear("sluhay")
+        // #948 (4th case): the production clear() used to call
+        // CookieManager.getInstance() itself, so under Robolectric it could
+        // operate on a DIFFERENT RoboCookieManager store than this fixture's
+        // pinned `cookies` — the clear silently missed and the test failed at
+        // the post-clear assertions on PRs that never touch cookies. Pass the
+        // same manager so write, clear and read share one store; production
+        // keeps the same default (the process-wide singleton) unchanged.
+        SourceWebViewSession.clear("sluhay", cookies)
 
         assertFalse(cookies.getCookie(first.url).orEmpty().contains("session=sluhay-ok"))
         assertTrue(cookies.getCookie("https://4read.org/book").orEmpty().contains("session=fourread-ok"))

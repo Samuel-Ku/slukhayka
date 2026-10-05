@@ -28,8 +28,10 @@ internal object SourceWebViewSession {
             .addAll(paths.map { path -> "$origin$path" })
     }
 
-    fun clear(sourceId: String) {
-        val cookieManager = CookieManager.getInstance()
+    fun clear(
+        sourceId: String,
+        cookieManager: CookieManager = CookieManager.getInstance(),
+    ) {
         val rootUrls = SourceBrowserPolicy.allowedHostsFor(sourceId).map { host -> "https://$host/" }
         val targets = (rootUrls + visitedUrls[sourceId].orEmpty()).distinct()
         val headers = targets.associateWith { url ->
@@ -40,5 +42,9 @@ internal object SourceWebViewSession {
         }
         cookieManager.flush()
         visitedUrls.remove(sourceId)
+    }
+
+    internal fun resetForTest() {
+        visitedUrls.clear()
     }
 }

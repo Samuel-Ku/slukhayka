@@ -71,7 +71,7 @@ class RoomAchievementProgressSource(
     }
     private val completionTimes = dao.observeCompletionTimes()
     private val sessionStartTimes = dao.observeSessionStartTimes()
-    private val countersWithShape = combine(withSeries, completionTimes, sessionStartTimes) {
+    private val withTimes = combine(withSeries, completionTimes, sessionStartTimes) {
             base, completions, sessions ->
         base.copy(
             nightCompletions = completions.count { hourOf(it) in 2..3 }.toLong(),
@@ -81,6 +81,13 @@ class RoomAchievementProgressSource(
             ).toLong(),
             holidayCompletions = completions.count(::isHoliday).toLong()
         )
+    }
+    private val ages = combine(dao.observeVintageCompletions(), dao.observeReturnsAfterBreak()) {
+            vintage, returns ->
+        vintage to returns
+    }
+    private val countersWithShape = combine(withTimes, ages) { base, (vintage, returns) ->
+        base.copy(vintageCompletions = vintage, returnsAfterBreak = returns)
     }
 
     private fun hourOf(epochMillis: Long): Int =

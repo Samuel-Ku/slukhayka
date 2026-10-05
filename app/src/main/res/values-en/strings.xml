@@ -672,6 +672,8 @@
     <string name="achievement_night_watch">Night watch</string>
     <string name="achievement_owl_and_lark">Owl and lark</string>
     <string name="achievement_holiday">Holiday</string>
+    <string name="achievement_vintage">Vintage</string>
+    <string name="achievement_comeback">Comeback</string>
     <string name="achievement_awarded_generic">New award</string>
     <string name="achievement_awarded">Achievement: %1$s</string>
     <string name="achievement_first_book">First book</string>

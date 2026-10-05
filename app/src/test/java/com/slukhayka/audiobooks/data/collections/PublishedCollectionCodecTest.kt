@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.collections
 
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -86,6 +87,66 @@ class PublishedCollectionCodecTest {
         // reason attached to the wrong book.
         assertEquals(listOf("бо раз", "бо два", ""), decoded.reasons)
         assertEquals(3, decoded.bookIds.size)
+    }
+
+    @Test
+    fun `the showcase round-trips and is capped at three`() {
+        val pinned = (1..3).map { ShowcaseAwardSnapshot("a$it", "Нагорода $it") }
+        val shown = sample().copy(showcase = pinned)
+        assertEquals(pinned, PublishedCollectionCodec.decode(PublishedCollectionCodec.encode(shown))!!.showcase)
+
+        // A fourth never reaches the wire, however it got into the model.
+        val four = pinned + ShowcaseAwardSnapshot("a4", "Нагорода 4")
+        val capped = PublishedCollectionCodec.decode(
+            PublishedCollectionCodec.encode(sample().copy(showcase = four))
+        )!!
+        assertEquals(listOf("a1", "a2", "a3"), capped.showcase.map { it.id })
+    }
+
+    @Test
+    fun `a document with no showcase decodes to an empty one, not to null`() {
+        // Every document written before #705 is in this shape, and a legacy
+        // collection must still be a perfectly good collection.
+        val legacy = PublishedCollectionCodec.encode(sample()).toMutableMap().apply { remove("showcase") }
+        val decoded = PublishedCollectionCodec.decode(legacy)!!
+        assertTrue(decoded.showcase.isEmpty())
+        assertEquals(sample().title, decoded.title)
+    }
+
+    @Test
+    fun `a hostile showcase is bounded and its unusable entries are dropped`() {
+        val encoded = PublishedCollectionCodec.encode(sample()).toMutableMap()
+        encoded["showcase"] = listOf(
+            "not a map",
+            mapOf("name" to "без id"),
+            mapOf("id" to "no-name"),
+            mapOf("id" to "", "name" to "порожній id"),
+            mapOf("id" to "ok", "name" to "Справжня"),
+            mapOf("id" to "a5", "name" to "П'ята"),
+            mapOf("id" to "a6", "name" to "Шоста"),
+            mapOf("id" to "a7", "name" to "Сьома")
+        )
+
+        val decoded = PublishedCollectionCodec.decode(encoded)!!
+
+        // Four entries are unusable, and of the four survivors only three fit.
+        assertEquals(listOf("ok", "a5", "a6"), decoded.showcase.map { it.id })
+    }
+
+    @Test
+    fun `an award name cannot smuggle a link onto a profile`() {
+        val encoded = PublishedCollectionCodec.encode(
+            sample().copy(
+                showcase = listOf(
+                    ShowcaseAwardSnapshot("a1", "Дивись https://spam.example тепер"),
+                    ShowcaseAwardSnapshot("a2", "я".repeat(500))
+                )
+            )
+        )
+
+        val names = PublishedCollectionCodec.decode(encoded)!!.showcase.map { it.name }
+        assertEquals("Дивись тепер", names[0])
+        assertEquals(PublishedCollectionCodec.MAX_AWARD_NAME_LEN, names[1].length)
     }
 
     @Test

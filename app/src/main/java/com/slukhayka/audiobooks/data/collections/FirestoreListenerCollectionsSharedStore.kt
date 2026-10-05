@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -56,6 +57,26 @@ class FirestoreListenerCollectionsSharedStore(
         // restore it (#1150).
         mine.forEach { document ->
             merge(document.documentId, mapOf("pseudonym" to clean))
+        }
+        return PublishResult.Published
+    }
+
+    override suspend fun publishShowcase(
+        authorId: String,
+        awards: List<ShowcaseAwardSnapshot>
+    ): PublishResult {
+        if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
+        val mine = queryByAuthor(authorId)
+        if (mine.isEmpty()) return PublishResult.Refused("no-public-profile")
+        // The bounded, validated form — the same one the codec would encode, so
+        // a caller cannot push an over-long or unnamed award onto a profile.
+        val encoded = PublishedCollectionCodec.encodeShowcase(awards)
+        // MERGE, for the same reason `renameAuthor` does (#1150): this is a
+        // partial update of a document whose other fields ARE the collection.
+        // An empty list is a real instruction that clears the showcase, so the
+        // field is always written — never skipped.
+        mine.forEach { document ->
+            merge(document.documentId, mapOf("showcase" to encoded))
         }
         return PublishResult.Published
     }

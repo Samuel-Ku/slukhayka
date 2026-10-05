@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// Spec-40 #283 — the emulator's OWN rules, for the Android SDK contract tests.
+//
+// These tests exercise the CLIENT's write semantics against a real server: a
+// partial update must merge, not replace the document. The Android SDK sends no
+// App Check token, so against the repository's real rules every one of those
+// writes is a permission denial — which would make the tests fail for a reason
+// that has nothing to do with what they check.
+//
+// The rules themselves are proven separately, by `matrix.test.mjs`, which loads
+// `firestore.rules` (copied from the repository by `run-all.sh`) into its own
+// test environment. That is why this file is permissive and why the two are
+// deliberately different files: `firebase.json` must NOT point at
+// `firestore.rules`, or firebase-tools would load the production shape gate
+// into the very emulator these contract tests talk to.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

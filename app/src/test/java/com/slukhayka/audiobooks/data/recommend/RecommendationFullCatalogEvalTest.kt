@@ -14,9 +14,9 @@ class RecommendationFullCatalogEvalTest {
             "c" to floatArrayOf(0f, 1f),
             "d" to floatArrayOf(1f, 1f)
         )
-        // Fold a: b+c put d ahead of a. Fold b: a+c put d ahead of b.
-        // Fold c: a+b put d ahead of c. Training Works are excluded.
-        // The former inverted query=held-out method instead finds b/c.
+        // Fold a: b/c interests pick d; fold b: the c interest picks b;
+        // fold c: the b interest picks c. Training Works are excluded.
+        // Completion supports retain weight .9 and the full catalog competes.
         val result = RecommendationEval.evaluateLeaveOneOut(
             completionCohorts = listOf(listOf("a", "b", "c")),
             candidates = books,
@@ -24,11 +24,20 @@ class RecommendationFullCatalogEvalTest {
             baselineVectors = vectors,
             k = 1
         )
-        assertEquals(0.0, result.report.semanticRecallAtK, 0.0)
-        assertEquals(0.0, result.report.semanticNdcgAtK, 0.0)
+        assertEquals(2.0 / 3.0, result.report.semanticRecallAtK, 0.0)
+        assertEquals(2.0 / 3.0, result.report.semanticNdcgAtK, 0.0)
         assertFalse(result.report.semanticWins)
         assertEquals(3, result.folds.size)
         assertEquals(listOf(2, 2, 2), result.folds.map { it.candidateCount })
+        assertEquals(listOf(listOf("d"), listOf("b"), listOf("c")), result.folds.map { it.semanticTopIds })
+        assertEquals(listOf(listOf("d"), listOf("b"), listOf("c")), result.folds.map { it.baselineTopIds })
+        assertEquals(2.0 / 3.0, result.report.baselineRecallAtK, 0.0)
+        assertEquals(2.0 / 3.0, result.report.baselineNdcgAtK, 0.0)
+        assertFalse(result.passesGate)
+        result.folds.zip(listOf(setOf("b", "c"), setOf("a", "c"), setOf("a", "b"))).forEach { (fold, training) ->
+            assertFalse(fold.semanticTopIds.any { it in training })
+            assertFalse(fold.baselineTopIds.any { it in training })
+        }
     }
     @Test(expected = IllegalArgumentException::class)
     fun `degenerate semantic backend cannot silently receive a gate decision`() {

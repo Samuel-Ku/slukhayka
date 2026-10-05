@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.recommend
 
+import com.slukhayka.audiobooks.data.facets.GenreIdentity
 import java.text.Normalizer
 import kotlin.math.abs
 
@@ -118,19 +119,35 @@ object RecommendationPersonalization {
         sourceLabelsByWorkId: Map<String, String> = emptyMap()
     ): List<RecommendationEngine.Recommendation> {
         if (topN <= 0) return emptyList()
-        val positives = signals.filter { it.weight > 0.0 && vectors[it.id] != null }
-        if (positives.isEmpty()) return emptyList()
-        val negatives = signals.filter { it.weight < 0.0 && vectors[it.id] != null }
-        val positiveCentroid = centroid(positives, vectors) ?: return emptyList()
-        val negativeCentroid = centroid(negatives, vectors)
-        val hiddenAuthors = excludedAuthors.map(::normalize).filter { it.isNotEmpty() }.toSet()
+        val allPositives = signals.filter { it.weight.isFinite() && it.weight > 0.0 && vectors[it.id] != null }
+        if (allPositives.isEmpty()) return emptyList()
+        val negatives = signals.filter { it.weight.isFinite() && it.weight < 0.0 && vectors[it.id] != null }
+        val maxSupportWeight = (allPositives + negatives).maxOf { abs(it.weight) }
+        val positives = allPositives.sortedWith(
+            compareByDescending<RecommendationEngine.Signal> { abs(it.weight) }.thenBy { it.id }
+        ).take(20)
+        val positiveSupports = positives.map { WeightedSupport(it, vectors.getValue(it.id), abs(it.weight) / maxSupportWeight) }
+        val negativeSupports = negatives.map { WeightedSupport(it, vectors.getValue(it.id), abs(it.weight) / maxSupportWeight) }
+        val positiveFacets = metadataFacets(positives)
+        val negativeFacets = metadataFacets(negatives)
+        val hiddenAuthors = excludedAuthors.map(::identityKey).filter { it.isNotEmpty() }.toSet()
 
         val scored = candidates.asSequence()
             .filter { it.id !in excludedWorkIds }
-            .filter { normalize(it.author) !in hiddenAuthors }
             .mapNotNull { candidate ->
                 val vector = vectors[candidate.id] ?: return@mapNotNull null
-                val positiveSimilarity = RecommendationEngine.cosine(vector, positiveCentroid)
+                val authorKey = identityKey(candidate.author)
+                if (authorKey in hiddenAuthors) return@mapNotNull null
+                var winner = positiveSupports.first()
+                var positiveSimilarity = contribution(vector, winner)
+                for (index in 1 until positiveSupports.size) {
+                    val support = positiveSupports[index]
+                    val value = contribution(vector, support)
+                    if (value > positiveSimilarity || (value == positiveSimilarity && support.signal.id < winner.signal.id)) {
+                        winner = support
+                        positiveSimilarity = value
+                    }
+                }
                 // #486: a «джерело радить» candidate is eligible even with no
                 // personal overlap — its lift comes from the source's
                 // celebration, not from the profile. Everyone else still
@@ -138,17 +155,14 @@ object RecommendationPersonalization {
                 if (positiveSimilarity <= 0.0 && !sourceLabelsByWorkId.containsKey(candidate.id)) {
                     return@mapNotNull null
                 }
-                val negativeSimilarity = negativeCentroid?.let {
-                    RecommendationEngine.cosine(vector, it)
-                } ?: 0.0
+                val negativeSimilarity = negativeSupports.maxOfOrNull { contribution(vector, it) } ?: 0.0
                 val semantic = positiveSimilarity - .70 * negativeSimilarity
-                val reason = positives.maxByOrNull {
-                    RecommendationEngine.cosine(vector, vectors.getValue(it.id))
-                } ?: return@mapNotNull null
+                val seriesKey = identityKey(candidate.series)
+                val genreIds = GenreIdentity.fromSourceText(candidate.genre).mapTo(mutableSetOf()) { it.id }
                 val score = weights.semantic * semantic +
-                    weights.author * affinity(candidate.author, positives) { it.author } +
-                    weights.genre * affinity(candidate.genre, positives) { it.genre } +
-                    weights.series * affinity(candidate.series, positives) { it.series } +
+                    weights.author * binaryAffinity(authorKey in positiveFacets.authors, authorKey in negativeFacets.authors) +
+                    weights.genre * binaryAffinity(genreIds.any { it in positiveFacets.genres }, genreIds.any { it in negativeFacets.genres }) +
+                    weights.series * binaryAffinity(seriesKey in positiveFacets.series, seriesKey in negativeFacets.series) +
                     weights.freshness * freshness(candidate.publishedAtEpochMs, nowEpochMs) +
                     // #486: the one small source-popularity component — books
                     // the community approves rise, the personal profile is
@@ -157,7 +171,7 @@ object RecommendationPersonalization {
                 RecommendationEngine.Recommendation(
                     candidate = candidate,
                     score = score,
-                    reasonTitle = reason.title,
+                    reasonTitle = winner.signal.title,
                     semanticScore = semantic
                 )
             }
@@ -240,34 +254,25 @@ object RecommendationPersonalization {
         }
     }
 
-    private fun centroid(
-        signals: List<RecommendationEngine.Signal>,
-        vectors: Map<String, FloatArray>
-    ): FloatArray? {
-        val first = signals.firstOrNull()?.let { vectors[it.id] } ?: return null
-        val result = FloatArray(first.size)
-        var total = 0.0
-        for (signal in signals) {
-            val vector = vectors[signal.id] ?: continue
-            if (vector.size != result.size) continue
-            val weight = abs(signal.weight)
-            for (i in result.indices) result[i] += (vector[i] * weight).toFloat()
-            total += weight
-        }
-        if (total == 0.0) return null
-        for (i in result.indices) result[i] = (result[i] / total).toFloat()
-        return result
-    }
+    private data class WeightedSupport(
+        val signal: RecommendationEngine.Signal,
+        val vector: FloatArray,
+        val strength: Double
+    )
 
-    private fun <T> affinity(
-        candidateValue: String,
-        positives: List<T>,
-        value: (T) -> String
-    ): Double {
-        val normalized = normalize(candidateValue)
-        if (normalized.isEmpty()) return 0.0
-        return if (positives.any { normalize(value(it)) == normalized }) 1.0 else 0.0
-    }
+    private data class MetadataFacets(val authors: Set<String>, val genres: Set<String>, val series: Set<String>)
+
+    private fun metadataFacets(supports: List<RecommendationEngine.Signal>) = MetadataFacets(
+        authors = supports.map { identityKey(it.author) }.filter { it.isNotEmpty() }.toSet(),
+        genres = supports.flatMap { GenreIdentity.fromSourceText(it.genre) }.mapTo(mutableSetOf()) { it.id },
+        series = supports.map { identityKey(it.series) }.filter { it.isNotEmpty() }.toSet()
+    )
+
+    private fun contribution(candidate: FloatArray, support: WeightedSupport): Double =
+        support.strength * RecommendationEngine.cosine(candidate, support.vector).coerceIn(0.0, 1.0)
+
+    private fun binaryAffinity(positive: Boolean, negative: Boolean): Double =
+        (if (positive) 1.0 else 0.0) - (if (negative) 1.0 else 0.0)
 
     private fun freshness(publishedAtEpochMs: Long?, nowEpochMs: Long): Double {
         val published = publishedAtEpochMs ?: return 0.0

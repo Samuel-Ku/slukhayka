@@ -68,6 +68,16 @@ interface AchievementDao {
     @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='RELISTEN'")
     fun observeRelistens(): Flow<Long>
 
+    /**
+     * #701 (T3) — distinct source DOORS the listener actually used.
+     *
+     * Distinct on `type`, not on the row: two books from the same source are
+     * one door. A source row only exists once a book was imported through it,
+     * so this counts use rather than availability.
+     */
+    @Query("SELECT COUNT(DISTINCT type) FROM sources")
+    fun observeUsedSourceDoors(): Flow<Long>
+
     /** #700 (T2) — every bookmark the listener placed, notes or not. */
     @Query("SELECT COUNT(*) FROM bookmarks")
     fun observeBookmarks(): Flow<Long>

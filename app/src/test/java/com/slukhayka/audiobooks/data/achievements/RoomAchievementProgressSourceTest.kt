@@ -10,6 +10,7 @@ import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -181,6 +182,47 @@ class RoomAchievementProgressSourceTest {
                 2L, achievementDao.observeRelistens().first()
             )
             assertEquals("таймер мусить порахувати всі чотири зупинки", 4L, achievementDao.observeTimerStops().first())
+        } finally {
+            database.close()
+        }
+    }
+
+    /**
+     * #701 (T3) — doors count DISTINCT source types, not rows.
+     *
+     * Two books from the same source are ONE door: a listener who imported
+     * four books from sluhayua went through one door, not four. The fixture
+     * deliberately puts two rows on the same type and only one on each of the
+     * others, so a row-counting bug reports 4 instead of 3 and fails here.
+     */
+    @Test fun `source doors count distinct types, not library rows`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val achievementDao = database.achievementDao()
+            val books = TestDataFactory.dataBooks()
+            dao.insertAudiobooks(books)
+            dao.insertSources(listOf(
+                SourceEntity(id = "s1", bookId = books[0].id, type = "sluhayua", url = "https://a/1"),
+                SourceEntity(id = "s2", bookId = books[0].id, type = "sluhayua", url = "https://a/2"),
+                SourceEntity(id = "s3", bookId = books[1].id, type = "youtube", url = "https://b/1"),
+                SourceEntity(id = "s4", bookId = books[2].id, type = "librivox", url = "https://c/1")
+            ))
+
+            assertEquals(
+                "два рядки одного типу — це ОДНІ двері, тож усього три",
+                3L, achievementDao.observeUsedSourceDoors().first()
+            )
+            assertFalse(
+                "«Чотири двері» не мають відкриватись на трьох",
+                AchievementEvaluator.evaluate(
+                    RoomAchievementProgressSource(achievementDao, RoomAchievementStore(achievementDao), emptySet())
+                        .observe().first(),
+                    emptySet()
+                ).map { it.id }.any { it == "four_doors" }
+            )
         } finally {
             database.close()
         }

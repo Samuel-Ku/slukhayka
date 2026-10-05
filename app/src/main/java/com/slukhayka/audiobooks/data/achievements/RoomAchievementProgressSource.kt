@@ -35,9 +35,14 @@ class RoomAchievementProgressSource(
     private val returns = combine(dao.observeTimerStops(), dao.observeRelistens()) { stops, relistens ->
         stops to relistens
     }
+    // Five sources already exceed `combine`'s arity, so the newest value rides
+    // the existing pair — the same nesting this file already uses for the rest.
+    private val returnsAndDoors = combine(returns, dao.observeUsedSourceDoors()) { ret, doors ->
+        ret to doors
+    }
     private val countersWithShape =
-        combine(counters, shape, speeds, marks, returns) {
-                base, (short, epic), (fast, slow), (marks, notes), (stops, relistens) ->
+        combine(counters, shape, speeds, marks, returnsAndDoors) {
+                base, (short, epic), (fast, slow), (marks, notes), (ret, doors) ->
             base.copy(
                 shortCompletedBooks = short,
                 epicCompletedBooks = epic,
@@ -45,8 +50,9 @@ class RoomAchievementProgressSource(
                 slowBooks = slow,
                 bookmarks = marks,
                 notes = notes,
-                timerStops = stops,
-                relistens = relistens
+                timerStops = ret.first,
+                relistens = ret.second,
+                usedSourceDoors = doors
             )
         }
     // Files are inspected only when the track/topology rows change, never on every listening tick.

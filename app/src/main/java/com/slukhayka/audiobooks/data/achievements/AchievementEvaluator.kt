@@ -25,6 +25,15 @@ data class AchievementProgress(
     val timerStops: Long = 0,
     /** #700 — books the listener came BACK to and heard again. */
     val relistens: Long = 0,
+    /**
+     * #701 (T3) — how many DIFFERENT source doors the listener actually went
+     * through.
+     *
+     * Not the same as [registeredSourceIds]: that is the set the app OFFERS.
+     * This counts sources a library row actually points at, i.e. doors the
+     * listener used.
+     */
+    val usedSourceDoors: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -36,7 +45,7 @@ enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
-    TIMER_STOPS, RELISTENS;
+    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -55,6 +64,7 @@ enum class AchievementMetric {
         NOTES -> snapshot.notes
         TIMER_STOPS -> snapshot.timerStops
         RELISTENS -> snapshot.relistens
+        USED_SOURCE_DOORS -> snapshot.usedSourceDoors
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -120,7 +130,11 @@ object AchievementCatalog {
         // завантажень») need offline HOURS, which nothing records yet — they
         // are deliberately absent rather than approximated from the count of
         // offline starts, which is a different fact.
-        AchievementDefinition("deep_reserve_10", "offline", 1, AchievementMetric.DOWNLOADED_BOOKS, 10)
+        AchievementDefinition("deep_reserve_10", "offline", 1, AchievementMetric.DOWNLOADED_BOOKS, 10),
+        // #701 (T3) — «Чотири двері»: listening from four DIFFERENT sources.
+        // Counts doors the listener actually used (library rows), never the
+        // set the app merely offers — those are different facts.
+        AchievementDefinition("four_doors", "doors", 1, AchievementMetric.USED_SOURCE_DOORS, 4)
     )
 }
 

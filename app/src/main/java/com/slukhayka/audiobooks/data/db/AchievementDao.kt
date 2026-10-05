@@ -17,6 +17,113 @@ interface AchievementDao {
     fun observeNotInterestedChoices(): Flow<Long>
     @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='COMPLETED'")
     fun observeCompletedBooks(): Flow<Long>
+
+    /**
+     * #700 (T2) — completed books SHORTER than three hours.
+     *
+     * A real join: the completion events against the book's own duration. A row
+     * whose `totalDurationSeconds` is 0 counts in NEITHER band — an unknown
+     * duration is not a short book (ADR-0014), and the `> 0` guard is what
+     * keeps that honest.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +
+            "JOIN audiobooks a ON a.id = e.bookId " +
+            "WHERE e.kind='COMPLETED' AND a.totalDurationSeconds > 0 " +
+            "AND a.totalDurationSeconds < 10800"
+    )
+    fun observeShortCompletedBooks(): Flow<Long>
+
+    /**
+     * #700 (T2) — books heard FASTER than 1.5x.
+     *
+     * The speed is the stored per-book preference (ADR-0009). A NULL means
+     * "use the global default" — it is NOT a claim that this book was heard at
+     * 1x, so nulls are excluded from BOTH sides of the ladder rather than
+     * guessed (ADR-0014).
+     */
+    @Query("SELECT COUNT(DISTINCT bookId) FROM playback_progress WHERE preferredSpeed > 1.5")
+    fun observeFastBooks(): Flow<Long>
+
+    /** #700 (T2) — books heard SLOWER than 0.75x. Nulls excluded, as above. */
+    @Query("SELECT COUNT(DISTINCT bookId) FROM playback_progress WHERE preferredSpeed < 0.75")
+    fun observeSlowBooks(): Flow<Long>
+
+    /**
+     * #700 (T2) — sleep-timer stops the listener reached.
+     *
+     * `TIMER_STOP` is a RECORDED event kind the player already writes, so this
+     * counts something that happened rather than something we assume.
+     */
+    @Query("SELECT COUNT(*) FROM playback_events WHERE kind='TIMER_STOP'")
+    fun observeTimerStops(): Flow<Long>
+
+    /**
+     * #700 (T2) — DISTINCT books the listener came back to.
+     *
+     * DISTINCT, not rows: hearing chapter 3 twice is still one book you
+     * returned to, and counting rows would let a single replayed chapter
+     * satisfy the whole ladder.
+     */
+    @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='RELISTEN'")
+    fun observeRelistens(): Flow<Long>
+
+    /**
+     * #701 (T3) — books imported through the BROWSER door.
+     *
+     * Capped at 1: the award marks having taken the harder path at all, and the
+     * evaluator's threshold is 1, so a larger count would carry no more truth.
+     * The `type` is what `LibraryImport.importSubmittedYouTube` writes.
+     */
+    @Query("SELECT MIN(COUNT(*), 1) FROM sources WHERE type = 'youtube'")
+    fun observeBrowserBooks(): Flow<Long>
+
+    /**
+     * #701 (T3) — distinct LANGUAGES the listener has renditions in.
+     *
+     * Mirrors the established language query in `AudiobookDao` (the First
+     * Language Choice): both tables, `!= ''` so an UNKNOWN language is not
+     * counted as one, and codes are stored normalized (BCP-47) per CONTEXT.md,
+     * so `en` and `English` cannot both appear.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT language) FROM (" +
+            "SELECT language FROM edition_facets WHERE language != '' " +
+            "UNION SELECT language FROM editions WHERE language != '')"
+    )
+    fun observeKnownLanguages(): Flow<Long>
+
+    /**
+     * #701 (T3) — distinct source DOORS the listener actually used.
+     *
+     * Distinct on `type`, not on the row: two books from the same source are
+     * one door. A source row only exists once a book was imported through it,
+     * so this counts use rather than availability.
+     */
+    @Query("SELECT COUNT(DISTINCT type) FROM sources")
+    fun observeUsedSourceDoors(): Flow<Long>
+
+    /** #700 (T2) — every bookmark the listener placed, notes or not. */
+    @Query("SELECT COUNT(*) FROM bookmarks")
+    fun observeBookmarks(): Flow<Long>
+
+    /**
+     * #700 (T2) — bookmarks that carry a WRITTEN note.
+     *
+     * `note` is non-null but may be blank, and a blank one is a plain bookmark.
+     * Trimming before the emptiness test is what keeps the count honest: a row
+     * of spaces is not a note.
+     */
+    @Query("SELECT COUNT(*) FROM bookmarks WHERE TRIM(note) <> ''")
+    fun observeNotes(): Flow<Long>
+
+    /** #700 (T2) — completed books of 30+ hours. */
+    @Query(
+        "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +
+            "JOIN audiobooks a ON a.id = e.bookId " +
+            "WHERE e.kind='COMPLETED' AND a.totalDurationSeconds >= 108000"
+    )
+    fun observeEpicCompletedBooks(): Flow<Long>
     @Query("SELECT * FROM series_members")
     fun observeKnownSeriesMemberships(): Flow<List<SeriesMemberEntity>>
     @Query("SELECT s.bookId, s.id AS sourceId, s.type AS sourceType, " +

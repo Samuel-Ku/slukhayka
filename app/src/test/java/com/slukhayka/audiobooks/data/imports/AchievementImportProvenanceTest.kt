@@ -62,7 +62,12 @@ class AchievementImportProvenanceTest {
         store.recordFact(AchievementFact.SEARCH_IMPORTED)
         val snapshot=RoomAchievementProgressSource(db.achievementDao(),store,setOf("sluhay")).observe().first()
         assertEquals(0L,snapshot.explicitBooks)
-        assertEquals(listOf("first_search_import"),AchievementEvaluator.evaluate(snapshot,emptySet()).map { it.id })
+        // #701 — a search import now earns TWO awards on purpose: the first-step
+        // one AND the «Глибокий пошук» mechanism award (the spec asks for both,
+        // and they have different meanings). Assert both are present and that
+        // nothing ELSE appeared, which is the contract this test protects.
+        val earnedFromSearch = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }.sorted()
+        assertEquals(listOf("deep_search", "first_search_import"), earnedFromSearch)
         adapter.page=detail("Браузер прямо")
         val direct=imports.importBrowserSourceDirectPage("sluhay",adapter.page.url,onNewBookImported={ accepted+=it.id })!!
         assertEquals("UNKNOWN",db.audiobookDao().libraryEntryById(direct.id)!!.origin)

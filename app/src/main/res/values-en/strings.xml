@@ -650,6 +650,7 @@
     <string name="home_search_retry">Try again</string>
 
     <!-- #699: quiet local earned notices. -->
+    <string name="achievement_awarded_generic">New award</string>
     <string name="achievement_awarded">Achievement: %1$s</string>
     <string name="achievement_first_book">First book</string>
     <string name="achievement_first_playback">First listen</string>

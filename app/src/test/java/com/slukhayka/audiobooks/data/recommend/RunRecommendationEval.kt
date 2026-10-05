@@ -107,6 +107,7 @@ object RunRecommendationEval {
             "tokenizerPrimarySource" to "https://github.com/huggingface/tokenizers/tree/4630f94378998f68df3d021c61a7340b813e264b",
             "tokenizerReferenceVersion" to "HF tokenizers 0.22.0; spm_precompiled 0.1.4; unicode-segmentation 1.12.0 / Unicode 16.0.0",
             "semanticEmbeddingContext" to semanticContext.identity,
+            "workTextContract" to "recording-text-v4-conservative-exact-templates",
             "candidateTextSha256" to textHash(catalog.works), "works" to catalog.works.size.toString(),
             "distinctTitles" to catalog.distinctTitles.toString(), "folds" to cohorts.sumOf { it.workIds.size }.toString(),
             "k" to k.toString(), "labelProvenance" to "expert bibliographic proxy; no listener completion history"
@@ -219,7 +220,7 @@ object RunRecommendationEval {
 
             Докази: [зафіксовані входи](real-scale-inputs.properties), [ранги й ID усіх top-K](real-scale-folds.tsv), [походження Works та суми текстів](real-scale-catalog.tsv), [суми результатів](real-scale-results.sha256), [модель](real-scale-model.json), [поточні мітки](real-scale-cohorts.json), [початкові мітки](real-scale-cohorts-original.json), [реєстр тотожності](real-scale-identity-aliases.json). Мітки зафіксовані до першого інференсу; виправлений реєстр тотожності, поточні входи та код протоколу — до повторного. Суми локальних журналів включають збережені попередні контексти; поточні оцінки використовують тільки контекст із повною перевіркою поточних текстів і моделі. Історичний прогін на 140 книгах із 40 негативними кандидатами не доводить цей гейт; його замінює поточний протокол.
 
-            Межа доказу: користувач дозволив довільну бібліографічну вибірку. Гейт оцінює ці незмінні експертні мітки; відсутність особистого журналу не є окремою вимогою цього експерименту. Навіть GO не доводить користь під час живого користування. Повний [v1](experiments/2026-10-04-production-tokenizer-v1/README.md) та повний [v2](experiments/2026-10-04-e5-model-input-v2/README.md) збережено без змін, разом із їхніми NO-GO. v3 виправляє обґрунтований tokenizer контракт за незалежними текстами поза relevance cohorts; модель, labels, candidate texts, ranking weights і пороги незмінні. Tokenizer parity не визначає рішення quality gate.
+            Межа доказу: користувач дозволив довільну бібліографічну вибірку. Гейт оцінює ці незмінні експертні мітки; відсутність особистого журналу не є окремою вимогою цього експерименту. Навіть GO не доводить користь під час живого користування. Повні [v1](experiments/2026-10-04-production-tokenizer-v1/README.md), [v2](experiments/2026-10-04-e5-model-input-v2/README.md) та [v3](experiments/2026-10-04-hf-tokenizer-v3/README.md) збережено без змін, разом із їхніми NO-GO. Поточний експеримент recording-text-v4 змінює candidate texts: прибирає лише точно впізнані службові шаблони запису. Індивідуальні читці, неоднозначний зміст, цитати й бібліографічні посилання зберігаються; повного очищення всіх описів не стверджую. Tokenizer/backend лишається v3, модель, labels, ранжування, weights і пороги незмінні. Зміна текстів створює новий перевірений контекст журналів обох моделей. Чистіший текст і tokenizer parity не визначають рішення quality gate.
         """.trimIndent() + "\n")
     }
 

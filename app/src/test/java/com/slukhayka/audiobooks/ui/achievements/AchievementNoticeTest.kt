@@ -2,7 +2,9 @@ package com.slukhayka.audiobooks.ui.achievements
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.achievements.AchievementCatalog
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,9 +40,15 @@ class AchievementNoticeTest {
 
         assertTrue("каталог не має бути порожнім", ids.isNotEmpty())
 
+        val generic = context.getString(R.string.achievement_awarded_generic)
+
         for (id in ids) {
             val notice = achievementNotice(context, id)
             assertTrue("нагорода «$id» дала порожній текст", notice.isNotBlank())
+            // A catalogue award must have a REAL name. Falling back to the
+            // generic line means nobody wrote one — which is exactly the gap
+            // this test was extended to catch after 22 awards shipped unnamed.
+            assertNotEquals("нагорода «$id» не має назви — показується загальний рядок", generic, notice)
         }
     }
 

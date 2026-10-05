@@ -13,7 +13,15 @@ class RoomAchievementProgressSource(
     dao: AchievementDao,
     store: AchievementStore,
     registeredSourceIds: Set<String>,
-    fileReady: (String) -> Boolean = { File(it).let { file -> file.isFile && file.length() > 0L } }
+    fileReady: (String) -> Boolean = { File(it).let { file -> file.isFile && file.length() > 0L } },
+    /**
+     * #703 (T5) — the zone that decides "night" and "holiday".
+     *
+     * A parameter, not a global, so a test can pin it. Without that the awards
+     * would depend on the machine running the tests, and "between 02:00 and
+     * 04:00" would mean different instants in CI and on a phone.
+     */
+    private val zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()
 ) : AchievementProgressSource {
     private val counters = combine(dao.observeExplicitBooks(), dao.observeVerifiedListeningMillis(),
         dao.observeNotInterestedChoices(), dao.observeCompletedBooks()) { books, millis, choices, completed ->
@@ -58,8 +66,36 @@ class RoomAchievementProgressSource(
     private val withGenres = combine(withBrowser, dao.observeGenreBookCounts()) { base, genres ->
         base.copy(genreCounts = genres.associate { it.genreId to it.works })
     }
-    private val countersWithShape = combine(withGenres, dao.observeSeriesInLibrary()) { base, series ->
+    private val withSeries = combine(withGenres, dao.observeSeriesInLibrary()) { base, series ->
         base.copy(seriesInLibrary = series)
+    }
+    private val completionTimes = dao.observeCompletionTimes()
+    private val sessionStartTimes = dao.observeSessionStartTimes()
+    private val countersWithShape = combine(withSeries, completionTimes, sessionStartTimes) {
+            base, completions, sessions ->
+        base.copy(
+            nightCompletions = completions.count { hourOf(it) in 2..3 }.toLong(),
+            owlLarkBalance = minOf(
+                sessions.count { hourOf(it) < 6 },
+                sessions.count { hourOf(it) >= 22 }
+            ).toLong(),
+            holidayCompletions = completions.count(::isHoliday).toLong()
+        )
+    }
+
+    private fun hourOf(epochMillis: Long): Int =
+        java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId).hour
+
+    /**
+     * New Year and Christmas. Both Christmas dates are included on purpose: this
+     * is a Ukrainian app, and 7 January is as much Christmas here as 25
+     * December. The listener's own zone decides which calendar day an instant
+     * belongs to.
+     */
+    private fun isHoliday(epochMillis: Long): Boolean {
+        val date = java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId).toLocalDate()
+        return (date.monthValue == 1 && (date.dayOfMonth == 1 || date.dayOfMonth == 7)) ||
+            (date.monthValue == 12 && date.dayOfMonth == 25)
     }
     // Files are inspected only when the track/topology rows change, never on every listening tick.
     private val downloads = dao.observeDownloadedTracks().distinctUntilChanged()

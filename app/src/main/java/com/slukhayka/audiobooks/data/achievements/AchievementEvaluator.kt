@@ -62,6 +62,16 @@ data class AchievementProgress(
      * every series they own but never tapped.
      */
     val seriesInLibrary: Long = 0,
+    /** #703 (T5) — books finished between 02:00 and 04:00 local time. */
+    val nightCompletions: Long = 0,
+    /**
+     * #703 (T5) — min(sessions started before 06:00, sessions started after
+     * 22:00). One number rather than two, because the award needs BOTH, and the
+     * evaluator's shape is one metric against one threshold.
+     */
+    val owlLarkBalance: Long = 0,
+    /** #703 (T5) — books finished on New Year or Christmas. */
+    val holidayCompletions: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -74,7 +84,7 @@ enum class AchievementMetric {
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
-    DISTINCT_GENRES, MAX_GENRE_BOOKS;
+    DISTINCT_GENRES, MAX_GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -98,6 +108,9 @@ enum class AchievementMetric {
         BROWSER_BOOKS -> snapshot.browserBooks
         DISTINCT_GENRES -> snapshot.genreCounts.size.toLong()
         MAX_GENRE_BOOKS -> snapshot.genreCounts.values.maxOrNull() ?: 0L
+        NIGHT_COMPLETIONS -> snapshot.nightCompletions
+        OWL_LARK -> snapshot.owlLarkBalance
+        HOLIDAY_COMPLETIONS -> snapshot.holidayCompletions
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -200,7 +213,16 @@ object AchievementCatalog {
         // the rest are hashed, so naming them would mean inventing vocabulary.
         AchievementDefinition("genre_polyglot_8", "genres", 1, AchievementMetric.DISTINCT_GENRES, 8),
         AchievementDefinition("omnivore_12", "genres", 2, AchievementMetric.DISTINCT_GENRES, 12),
-        AchievementDefinition("mono_genre_25", "genres", 3, AchievementMetric.MAX_GENRE_BOOKS, 25)
+        AchievementDefinition("mono_genre_25", "genres", 3, AchievementMetric.MAX_GENRE_BOOKS, 25),
+        // #703 (T5) — HIDDEN awards. They are earned from the same real events
+        // as everything else, but the screen must not name them beforehand, so
+        // `hidden = true` is set and the notice still fires on the day.
+        //
+        // «Сова й жайворонок» needs BOTH an early and a late session, which is
+        // why the snapshot carries their minimum rather than two counters.
+        AchievementDefinition("night_watch", "hidden", 1, AchievementMetric.NIGHT_COMPLETIONS, 1, hidden = true),
+        AchievementDefinition("owl_and_lark", "hidden", 1, AchievementMetric.OWL_LARK, 1, hidden = true),
+        AchievementDefinition("holiday", "hidden", 1, AchievementMetric.HOLIDAY_COMPLETIONS, 1, hidden = true)
     )
 }
 

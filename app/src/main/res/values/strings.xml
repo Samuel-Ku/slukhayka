@@ -704,6 +704,28 @@
     <string name="home_search_retry">Спробувати ще раз</string>
 
     <!-- #699: quiet local earned notices. -->
+    <string name="achievement_short_form_10">Коротка форма</string>
+    <string name="achievement_epic_1">Епопея</string>
+    <string name="achievement_long_liver_5">Довгожитель</string>
+    <string name="achievement_speedster_10">Швидкісний</string>
+    <string name="achievement_slow_savour_5">Повільний смак</string>
+    <string name="achievement_bookmarks_50">Закладки</string>
+    <string name="achievement_notes_10">Нотатки</string>
+    <string name="achievement_sleep_timer_20">Таймер сну</string>
+    <string name="achievement_relisten_1">Переслух</string>
+    <string name="achievement_relisten_5">Переслухи</string>
+    <string name="achievement_deep_reserve_10">Глибокий запас</string>
+    <string name="achievement_four_doors">Чотири двері</string>
+    <string name="achievement_browser_guest">Гість</string>
+    <string name="achievement_bilingual_2">Двомовний</string>
+    <string name="achievement_polyglot_3">Поліглот</string>
+    <string name="achievement_genre_polyglot_8">Жанровий поліглот</string>
+    <string name="achievement_omnivore_12">Всеїдний</string>
+    <string name="achievement_mono_genre_25">Однолюб жанру</string>
+    <string name="achievement_deep_search">Глибокий пошук</string>
+    <string name="achievement_night_watch">Нічний вартовий</string>
+    <string name="achievement_owl_and_lark">Сова й жайворонок</string>
+    <string name="achievement_holiday">Свято</string>
     <string name="achievement_awarded_generic">Нова нагорода</string>
     <string name="achievement_awarded">Нагорода: %1$s</string>
     <string name="achievement_first_book">Перша книга</string>
@@ -714,6 +736,11 @@
     <string name="achievement_first_offline_playback">Перше офлайн-прослуховування</string>
     <string name="achievement_first_download">Перша завантажена книга</string>
     <string name="achievement_first_completion">До останньої сторінки</string>
+    <plurals name="achievement_books">
+        <item quantity="one">Прочитано %1$d книгу</item>
+        <item quantity="few">Прочитано %1$d книги</item>
+        <item quantity="other">Прочитано %1$d книг</item>
+    </plurals>
     <plurals name="achievement_hours">
         <item quantity="one">Прослухано %1$d годину</item>
         <item quantity="few">Прослухано %1$d години</item>

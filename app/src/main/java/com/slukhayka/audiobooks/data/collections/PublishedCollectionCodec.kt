@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.data.collections
 
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
+import com.slukhayka.audiobooks.data.achievements.ShowcasePublication
+
 /**
  * Spec-51 (#692) — one published position: the frozen display snapshot of a
  * book at publish time, so someone else's collection renders its composition
@@ -52,6 +55,19 @@ data class PublishedCollection(
      * count instead of inventing titles.
      */
     val items: List<PublishedCollectionItem> = emptyList(),
+    /**
+     * #705 (T7) — the curator's showcase: up to three awards they chose to make
+     * public, riding on every one of their collection documents.
+     *
+     * It lives HERE rather than in a document of its own for the same reason
+     * [pseudonym] does: the public profile has no author document, so anything
+     * the profile shows has to travel with the collections it already reads.
+     * That also makes the ticket's fourth criterion fall out on its own — no
+     * publications means no document to read a showcase from.
+     *
+     * Empty is the honest default and the honest "nothing is published".
+     */
+    val showcase: List<ShowcaseAwardSnapshot> = emptyList(),
     val publishedAt: Long
 ) {
     /** The public document id: the author and the collection, still hashed. */
@@ -71,6 +87,9 @@ object PublishedCollectionCodec {
     /** A book's author in a display snapshot — real names are short. */
     const val MAX_AUTHOR_LEN = 200
 
+    /** An award's name in the showcase — a short label, never a sentence. */
+    const val MAX_AWARD_NAME_LEN = 80
+
     fun encode(collection: PublishedCollection): Map<String, Any?> = mapOf(
         "authorId" to collection.authorId,
         "collectionId" to collection.collectionId,
@@ -85,7 +104,23 @@ object PublishedCollectionCodec {
         "hidden" to collection.hidden,
         "reportCount" to collection.reportCount.coerceAtLeast(0),
         "items" to collection.items.take(MAX_BOOKS).map { item -> item.toMap() },
+        "showcase" to encodeShowcase(collection.showcase),
         "publishedAt" to collection.publishedAt
+    )
+
+    /**
+     * #705 — the wire form of a showcase, bounded and cleaned.
+     *
+     * Public because the store writes the showcase on its own, without a whole
+     * collection to hand: one encoder means the partial write and the full one
+     * can never drift apart.
+     */
+    fun encodeShowcase(awards: List<ShowcaseAwardSnapshot>): List<Map<String, Any?>> =
+        awards.take(ShowcasePublication.MAX_PUBLISHED).map { award -> award.toMap() }
+
+    private fun ShowcaseAwardSnapshot.toMap(): Map<String, Any?> = mapOf(
+        "id" to id,
+        "name" to ListenerCollectionLimits.clean(name, MAX_AWARD_NAME_LEN)
     )
 
     private fun PublishedCollectionItem.toMap(): Map<String, Any?> = mapOf(
@@ -107,6 +142,20 @@ object PublishedCollectionCodec {
             coverUrl = (map["coverUrl"] as? String)?.takeIf { it.isNotBlank() },
             reason = ListenerCollectionLimits.cleanReason(map["reason"] as? String)
         )
+    }
+
+    /**
+     * One showcase entry; a malformed one is dropped, never half-shown.
+     *
+     * An award with no id cannot be addressed and an award with no name cannot
+     * be read, so either one missing means the entry does not survive.
+     */
+    private fun decodeAward(entry: Any?): ShowcaseAwardSnapshot? {
+        val map = entry as? Map<*, *> ?: return null
+        val id = (map["id"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        val name = ListenerCollectionLimits.clean(map["name"] as? String, MAX_AWARD_NAME_LEN)
+        if (name.isBlank()) return null
+        return ShowcaseAwardSnapshot(id = id, name = name)
     }
 
     /** @return null when the document is not a well-formed published collection. */
@@ -149,6 +198,14 @@ object PublishedCollectionCodec {
             items = (document["items"] as? List<*>)
                 ?.mapNotNull { entry -> decodeItem(entry) }
                 ?.take(MAX_BOOKS)
+                .orEmpty(),
+            // #705 — the showcase is bounded and each entry is validated, so a
+            // hostile list can never put more than three awards on a profile,
+            // and an entry that cannot be named is dropped rather than shown
+            // blank. Anything unusable decodes to the honest empty.
+            showcase = (document["showcase"] as? List<*>)
+                ?.mapNotNull { entry -> decodeAward(entry) }
+                ?.take(ShowcasePublication.MAX_PUBLISHED)
                 .orEmpty(),
             hidden = (document["hidden"] as? Boolean) ?: false,
             reportCount = ((document["reportCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),

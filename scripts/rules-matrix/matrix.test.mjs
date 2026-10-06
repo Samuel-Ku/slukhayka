@@ -147,6 +147,20 @@ const COLLECTION_WITH_RATINGS = {
   ratingSum: 9,
   ratingCount: 2
 };
+// #705 — the optional showcase: at most three chosen awards, each a named id.
+const COLLECTION_WITH_SHOWCASE = {
+  ...VALID_COLLECTION,
+  showcase: [
+    { id: "first_book", name: "Перша книга" },
+    { id: "night_watch", name: "Нічний вартовий" }
+  ]
+};
+// #705 — four awards is one past the published limit.
+const COLLECTION_OVERLONG_SHOWCASE = {
+  ...VALID_COLLECTION,
+  showcase: [1, 2, 3, 4].map((n) => ({ id: `a${n}`, name: `Нагорода ${n}` }))
+};
+const COLLECTION_BAD_SHOWCASE = { ...VALID_COLLECTION, showcase: "не список" };
 // #694 — one anonymous vote: id is sha256(uid + collectionId), shape is fixed.
 const VALID_COLLECTION_VOTE = {
   documentId: "a".repeat(64) + "-c1",
@@ -420,6 +434,9 @@ const MATRIX = [
   ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
   ["M8", "curator_collections/qa_m8", "create", "uid-alice", COLLECTION_BAD_REASONS, "DENY", "reasons не список"],
   ["M9", "curator_collections/qa_m9", "create", "uid-alice", COLLECTION_WITH_RATINGS, "ALLOW", "#694 — агрегат оцінок дозволений"],
+  ["M14", "curator_collections/qa_m14", "create", "uid-alice", COLLECTION_WITH_SHOWCASE, "ALLOW", "#705 — вітрина до 3 нагород дозволена"],
+  ["M15", "curator_collections/qa_m15", "create", "uid-alice", COLLECTION_OVERLONG_SHOWCASE, "DENY", "#705 — 4 нагороди поза межею 3"],
+  ["M16", "curator_collections/qa_m16", "create", "uid-alice", COLLECTION_BAD_SHOWCASE, "DENY", "#705 — вітрина не список"],
   ["M10", "curator_collection_votes/qa_m10", "create", "uid-alice", VALID_COLLECTION_VOTE, "ALLOW", "#694 — один анонімний голос"],
   ["M11", "curator_collection_votes/qa_m11", "create", "uid-alice", VOTE_WITH_BAD_STARS, "DENY", "#694 — зірки поза 1..5"],
   ["M12", "curator_collection_votes/qa_m12", "create", "uid-alice", VOTE_WITH_EXTRA_FIELD, "DENY", "#694 — сирий uid у документі голосу (hasOnly)"],

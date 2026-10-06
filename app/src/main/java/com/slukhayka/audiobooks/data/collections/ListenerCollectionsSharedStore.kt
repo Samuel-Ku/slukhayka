@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.collections
 
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
+
 /**
  * Spec-51 (#692) — the honest outcome of a public READ: real data, an honest
  * empty, or an unreachable shared layer. The reader keeps its last good list on
@@ -42,6 +44,24 @@ interface ListenerCollectionsSharedStore {
 
     /** Replaces the pseudonym on the author document AND all their collections. */
     suspend fun renameAuthor(authorId: String, pseudonym: String): PublishResult
+
+    /**
+     * #705 (T7) — replaces the showcase on the author's public profile.
+     *
+     * There is no author document, so the showcase is written onto every
+     * collection the author has published, exactly like [renameAuthor]. An
+     * empty [awards] is a real instruction — it CLEARS the showcase, which is
+     * how unpinning the last award removes it from the profile.
+     *
+     * An author with no published collections has no profile to write to and is
+     * refused with `no-public-profile`: the showcase can never be shown, and
+     * accepting it would tell the listener they had published something they
+     * had not.
+     */
+    suspend fun publishShowcase(
+        authorId: String,
+        awards: List<ShowcaseAwardSnapshot>
+    ): PublishResult
 
     /** Removes the author document and every collection it owns. */
     suspend fun deleteAuthorProfile(authorId: String): PublishResult

@@ -79,7 +79,20 @@ fun BookCoverImage(
     semantics: BookCoverSemantics,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    onImageLoaded: ((Drawable) -> Unit)? = null
+    onImageLoaded: ((Drawable) -> Unit)? = null,
+    /**
+     * #995 — whether the no-art fallback draws the Work's IDENTITY (initials,
+     * title, author) or only its genre-tinted ground.
+     *
+     * On a shelf tile the typographic cover IS the identity, and it must stay.
+     * In the book-detail hero the summary is drawn ON TOP of this same box, so a
+     * fallback that repeats the title and author puts the same words in one
+     * viewport twice — and at `fontScale = 2f` the two copies collide outright,
+     * which is the defect. The hero therefore asks for the ground alone: the
+     * genre colour still says "that genre's book", and the identity is stated
+     * once, by the summary.
+     */
+    typographicFallback: Boolean = true
 ) {
     val context = LocalContext.current
     var isError by remember(book.coverImageUrl) { mutableStateOf(false) }
@@ -147,6 +160,9 @@ fun BookCoverImage(
                 .background(fallbackAccent),
             contentAlignment = Alignment.Center
         ) {
+            // #995 — the ground is always drawn; the identity only where it is
+            // not already stated on top of this box.
+            if (!typographicFallback) return@Box
             Column(
                 modifier = Modifier.padding(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,

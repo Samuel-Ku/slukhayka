@@ -6045,44 +6045,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Spec-51 (#691) — publishing is ONLINE-ONLY and always consented: nothing
     // reaches the network without an explicit confirmation of the preview.
-    private val _publicationPreview =
-        MutableStateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?>(null)
-    val publicationPreview:
-        StateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?> =
-        _publicationPreview.asStateFlow()
+    //
+    // #1154 — the confirmation moved into `PublishCollectionSheet`, which now
+    // owns the pseudonym field and derives the preview live as it is typed. The
+    // view model therefore no longer holds a preview of its own: it holds the
+    // ONE thing only it can know, the outcome, and the one thing only it should
+    // touch, the signed-in identity.
+    //
+    // The outcome is a MESSAGE, not a silent flag: a refusal that nobody sees is
+    // the same defect as no refusal at all.
+    private val _publishMessage = MutableStateFlow<String?>(null)
+    val publishMessage: StateFlow<String?> = _publishMessage.asStateFlow()
+
+    private val publishPublishedMessage: String
+        get() = getApplication<Application>().getString(R.string.publish_collection_published)
+
+    private val publishRefusedMessage: String
+        get() = getApplication<Application>().getString(R.string.publish_collection_refused)
+
+    fun consumePublishMessage() {
+        _publishMessage.value = null
+    }
 
     /** Public surfaces render only when a shared store exists at all. */
     val publicCollectionsAvailable: Boolean get() = App.instance.publicCollectionsGate.available
 
     /**
-     * @return the preview to confirm, or null when this collection can never be
-     * published (which the UI states honestly instead of showing an empty gate).
+     * #1154 — the explicit confirmation, and the only door to the network.
+     *
+     * The signed-in uid is read and hashed INSIDE the coroutine, exactly as
+     * [refreshMyPublishedCollections] does: the raw identifier never leaves this
+     * block, and the caller — a screen — is never trusted with it.
+     *
+     * The collection is matched BY ID. Two collections may share a title, and
+     * publishing the wrong one would be a real leak of the listener's curation.
      */
-    /** The collection the pending preview belongs to — matched by ID, never by title. */
-    private var pendingPublishCollectionId: String? = null
-
-    fun requestPublish(collectionId: String, pseudonym: String): Boolean {
-        val collection = _listenerCollections.value.firstOrNull { it.id == collectionId } ?: return false
-        val preview = com.slukhayka.audiobooks.data.collections.PublicationPreviewFactory
-            .of(collection, pseudonym) ?: return false
-        pendingPublishCollectionId = collectionId
-        _publicationPreview.value = preview
-        return true
-    }
-
-    fun dismissPublish() {
-        pendingPublishCollectionId = null
-        _publicationPreview.value = null
-    }
-
-    /** Only the explicit confirmation lands here. */
-    fun confirmPublish(authorId: String, pseudonym: String) {
-        if (_publicationPreview.value == null) return
-        // By ID: two collections may share a title, and publishing the wrong
-        // one would be a real leak of the listener's curation.
-        val target = _listenerCollections.value
-            .firstOrNull { it.id == pendingPublishCollectionId } ?: return
+    fun confirmPublish(collectionId: String, pseudonym: String) {
+        val target = _listenerCollections.value.firstOrNull { it.id == collectionId } ?: return
         viewModelScope.launch(Dispatchers.IO) {
+            val uid = runCatching { App.instance.listenerIdentity.current()?.uid }.getOrNull()
+            val authorId = com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
             // #692 — freeze the local display facts of every position, so the
             // published composition renders for a reader who owns none of them.
             val snapshots = target.items.associate { item ->
@@ -6093,15 +6099,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     coverUrl = row?.coverImageUrl
                 )
             }
-            App.instance.publicCollectionsGate.publish(
+            val result = App.instance.publicCollectionsGate.publish(
                 collection = target,
                 authorId = authorId,
                 pseudonym = pseudonym,
                 itemSnapshots = snapshots
             )
             withContext(Dispatchers.Main) {
-                _publicationPreview.value = null
-                pendingPublishCollectionId = null
+                val published =
+                    result == com.slukhayka.audiobooks.data.collections.PublishResult.Published
+                _publishMessage.value =
+                    if (published) publishPublishedMessage else publishRefusedMessage
+                // The listener's own list is what «Мої публікації» reads, so it
+                // is refreshed from the store rather than assumed.
+                if (published) refreshMyPublishedCollections()
             }
         }
     }

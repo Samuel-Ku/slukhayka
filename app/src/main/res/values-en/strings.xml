@@ -234,6 +234,16 @@
     <string name="publish_collection_impossible_empty">This collection cannot be published: it has no books</string>
     <string name="publish_collection_published">Collection published</string>
     <string name="publish_collection_refused">Could not publish — nothing went out</string>
+    <string name="showcase_publish_title">Publish your showcase?</string>
+    <string name="showcase_publish_lead">Exactly this will appear in your curator profile:</string>
+    <string name="showcase_publish_line_pseudonym">Pseudonym: %1$s</string>
+    <string name="showcase_publish_line_award_count">Awards: %1$d</string>
+    <string name="showcase_publish_confirm">Publish showcase</string>
+    <string name="showcase_publish_action">Show the showcase in my profile</string>
+    <string name="showcase_publish_published">Showcase published</string>
+    <string name="showcase_publish_unavailable">Publish a collection first — the showcase appears in your curator profile</string>
+    <string name="showcase_withdraw_action">Remove the showcase from my profile</string>
+    <string name="showcase_withdrawn">Showcase removed from your profile</string>
     <!-- #980: English twins for the residual collection chrome the extended
          walk now reaches. -->
     <string name="collection_remove_book">Remove</string>

@@ -381,6 +381,17 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    // #705 (T7) — the showcase's outcome, shown where the action was taken. A
+    // refusal reported on another screen (the library's snackbar) would arrive
+    // at the wrong moment, or never.
+    val showcasePublishMessage by viewModel.publishMessage.collectAsState()
+    LaunchedEffect(showcasePublishMessage) {
+        showcasePublishMessage?.let { message ->
+            achievementSnackbar.showSnackbar(message, duration = SnackbarDuration.Short)
+            viewModel.consumePublishMessage()
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         App.instance.crashContextTracker.updateAppVisibility(AppVisibility.FOREGROUND)
         val observer = LifecycleEventObserver { _, event ->
@@ -502,6 +513,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val achievementsBoard by viewModel.achievementsBoard.collectAsState()
     val listenerTitle by viewModel.listenerTitle.collectAsState()
     val achievementShowcase by viewModel.achievementShowcase.collectAsState()
+    // #705 (T7) — the showcase's public life: whether it is published, whether
+    // there is a profile for it, and the pending consent.
+    val showcasePublished by viewModel.showcasePublished.collectAsState()
+    val showcasePublishable by viewModel.showcasePublishable.collectAsState()
+    val showcasePreview by viewModel.showcasePreview.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
@@ -836,13 +852,25 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         else -> null
     }
 
+    // #705 (T7) — the showcase's consent. Rendered at the top level so it is the
+    // same sheet wherever the action was taken from, and so dismissing it can
+    // only ever mean "nothing goes out".
+    showcasePreview?.let { preview ->
+        com.slukhayka.audiobooks.ui.screens.ShowcasePreviewSheet(
+            preview = preview,
+            onConfirm = { viewModel.confirmPublishShowcase() },
+            onDismiss = { viewModel.dismissPublishShowcase() }
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier
                 .testTag("app_background")
                 .accessibilityModalBackground(
                     modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt ||
-                        firstChoiceVisible || narrationSwitchPrompt != null
+                        firstChoiceVisible || narrationSwitchPrompt != null ||
+                        showcasePreview != null
                 ),
             snackbarHost = {
                 SnackbarHost(achievementSnackbar,
@@ -1105,7 +1133,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         title = listenerTitle,
                         showcase = achievementShowcase,
                         onBackClick = { viewModel.closeAchievements() },
-                        onTogglePin = { id -> viewModel.toggleAchievementPin(id) }
+                        onTogglePin = { id -> viewModel.toggleAchievementPin(id) },
+                        // #705 (T7) — the showcase goes public only through the
+                        // consent sheet below; this screen only reports intent.
+                        showcasePublished = showcasePublished,
+                        showcasePublishable = showcasePublishable,
+                        onPublishShowcase = { viewModel.requestPublishShowcase() },
+                        onWithdrawShowcase = { viewModel.withdrawShowcase() }
                     )
                     appLocaleOpen -> AppLocaleScreen(
                         localePrefs = App.instance.appLocalePrefs,

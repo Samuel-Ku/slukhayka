@@ -237,6 +237,18 @@
          refusal at all, so the second line says what did NOT happen. -->
     <string name="publish_collection_published">Добірку опубліковано</string>
     <string name="publish_collection_refused">Не вдалося опублікувати — назовні не пішло нічого</string>
+    <!-- #705 (T7) — the showcase's own consent. The awards are listed by NAME:
+         «до 3 нагород» is not something a person can meaningfully agree to. -->
+    <string name="showcase_publish_title">Опублікувати вітрину?</string>
+    <string name="showcase_publish_lead">У профілі куратора буде видно рівно це:</string>
+    <string name="showcase_publish_line_pseudonym">Псевдонім: %1$s</string>
+    <string name="showcase_publish_line_award_count">Нагород: %1$d</string>
+    <string name="showcase_publish_confirm">Опублікувати вітрину</string>
+    <string name="showcase_publish_action">Показати вітрину в профілі</string>
+    <string name="showcase_publish_published">Вітрину опубліковано</string>
+    <string name="showcase_publish_unavailable">Спершу опублікуйте добірку — вітрина з\'являється у профілі куратора</string>
+    <string name="showcase_withdraw_action">Прибрати вітрину з профілю</string>
+    <string name="showcase_withdrawn">Вітрину прибрано з профілю</string>
     <!-- #980: the residual collection chrome — delete and inline-create
          dialogs, publish actions, the reader-side save and the preview lines —
          lived as UK literals inside the composables, invisible to the EN walk

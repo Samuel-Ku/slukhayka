@@ -249,6 +249,13 @@
     <string name="showcase_publish_unavailable">Спершу опублікуйте добірку — вітрина з\'являється у профілі куратора</string>
     <string name="showcase_withdraw_action">Прибрати вітрину з профілю</string>
     <string name="showcase_withdrawn">Вітрину прибрано з профілю</string>
+    <!-- Spec-51 (#691) — the public name after publishing. `renameAuthor` had no
+         caller at all, so a listener was stuck with the first name they chose. -->
+    <string name="rename_pseudonym_title">Змінити псевдонім</string>
+    <string name="rename_pseudonym_body">Так вас бачитимуть в усіх опублікованих добірках</string>
+    <string name="rename_pseudonym_action">Змінити псевдонім</string>
+    <string name="rename_pseudonym_confirm">Зберегти</string>
+    <string name="pseudonym_renamed">Псевдонім змінено</string>
     <!-- #980: the residual collection chrome — delete and inline-create
          dialogs, publish actions, the reader-side save and the preview lines —
          lived as UK literals inside the composables, invisible to the EN walk

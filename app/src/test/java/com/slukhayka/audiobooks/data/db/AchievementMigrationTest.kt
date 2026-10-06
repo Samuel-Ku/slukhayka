@@ -50,7 +50,11 @@ class AchievementMigrationTest {
         legacy.writableDatabase
         legacy.close()
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
-            .addMigrations(AudiobookDatabase.MIGRATION_50_51, AudiobookDatabase.MIGRATION_51_52).allowMainThreadQueries().build()
+            .addMigrations(
+                AudiobookDatabase.MIGRATION_50_51, AudiobookDatabase.MIGRATION_51_52,
+                AudiobookDatabase.MIGRATION_52_53
+            )
+            .allowMainThreadQueries().build()
         try {
             val db = migrated.openHelper.writableDatabase
             db.query("SELECT listenedSeconds FROM listening_stats WHERE dateIso='2026-10-01'").use {

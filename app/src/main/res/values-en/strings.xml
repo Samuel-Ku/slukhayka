@@ -700,6 +700,17 @@
     <string name="achievements_upcoming">Ahead</string>
     <string name="achievements_empty_title">No awards yet</string>
     <string name="achievements_empty_body">Listen to books and your awards will appear here.</string>
+    <!-- #702 (T4): ten books in the genres the sources really claim. -->
+    <string name="achievement_genre_detective_10">10 detective books</string>
+    <string name="achievement_genre_fantasy_10">10 fantasy books</string>
+    <string name="achievement_genre_science_fiction_10">10 sci-fi books</string>
+    <string name="achievement_genre_romance_10">10 romance books</string>
+    <string name="achievement_genre_horror_10">10 horror books</string>
+    <string name="achievement_genre_childrens_literature_10">10 children\'s books</string>
+    <string name="achievement_genre_historical_prose_10">10 historical books</string>
+    <string name="achievement_genre_adventure_10">10 adventure books</string>
+    <string name="achievement_genre_self_development_10">10 self-development books</string>
+    <string name="achievement_genre_biography_10">10 biographies</string>
     <string name="achievement_awarded_generic">New award</string>
     <string name="achievement_awarded">Achievement: %1$s</string>
     <string name="achievement_first_book">First book</string>

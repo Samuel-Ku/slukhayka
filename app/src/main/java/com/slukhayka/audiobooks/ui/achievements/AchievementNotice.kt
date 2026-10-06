@@ -46,7 +46,19 @@ private val named = mapOf(
     "holiday" to R.string.achievement_holiday,
     "vintage" to R.string.achievement_vintage,
     "comeback" to R.string.achievement_comeback,
-    "never_too_late" to R.string.achievement_never_too_late
+    "never_too_late" to R.string.achievement_never_too_late,
+    // #702 (T4) — the NAMED genre shelves. A name is written only for a genre
+    // the dictionary knows, so these ten ids match `canonicalIdentities`.
+    "genre_detective_10" to R.string.achievement_genre_detective_10,
+    "genre_fantasy_10" to R.string.achievement_genre_fantasy_10,
+    "genre_science_fiction_10" to R.string.achievement_genre_science_fiction_10,
+    "genre_romance_10" to R.string.achievement_genre_romance_10,
+    "genre_horror_10" to R.string.achievement_genre_horror_10,
+    "genre_childrens_literature_10" to R.string.achievement_genre_childrens_literature_10,
+    "genre_historical_prose_10" to R.string.achievement_genre_historical_prose_10,
+    "genre_adventure_10" to R.string.achievement_genre_adventure_10,
+    "genre_self_development_10" to R.string.achievement_genre_self_development_10,
+    "genre_biography_10" to R.string.achievement_genre_biography_10
 )
 
 /**

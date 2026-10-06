@@ -107,7 +107,7 @@ import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
-import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
+import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
@@ -1074,6 +1074,23 @@ fun LibraryScreen(
                 }
             )
         }
+
+    // Spec-51 (#690) — the listener's OWN collection, opened from «Мої добірки».
+    //
+    // #1154 — this call is the link that was missing: the row already reported
+    // its tap into `openCollectionId`, and nothing read it, so a collection
+    // could be created and listed but never opened. The state lives here, in the
+    // screen's own scope, because this page covers the screen.
+    ListenerCollectionPage(
+        collections = listenerCollections,
+        openId = openCollectionId,
+        onClose = { openCollectionId = null },
+        onRemoveBook = viewModel::removeBookFromCollection,
+        onDelete = { collectionId ->
+            viewModel.deleteListenerCollection(collectionId)
+            openCollectionId = null
+        }
+    )
     }
 
 /**

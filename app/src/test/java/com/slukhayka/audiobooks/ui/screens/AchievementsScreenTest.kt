@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.achievements.AchievementCatalog
 import com.slukhayka.audiobooks.data.achievements.AchievementDefinition
 import com.slukhayka.audiobooks.data.achievements.AchievementMetric
 import com.slukhayka.audiobooks.data.achievements.ListenerTitle
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -242,4 +243,81 @@ class AchievementsScreenTest {
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTagCount(tag: String): Int =
         onAllNodesWithTag(tag).fetchSemanticsNodes().size
+
+    // #705 (T7) — the showcase's public life, as the screen states it.
+
+    private fun setShowcase(
+        showcase: List<String>,
+        showcasePublished: Boolean = false,
+        showcasePublishable: Boolean = false,
+        onPublishShowcase: () -> Unit = {},
+        onWithdrawShowcase: () -> Unit = {}
+    ) {
+        rule.setContent {
+            AchievementsScreen(
+                board = AchievementBoard.of(listOf(visible), setOf("plain")),
+                title = ListenerTitle.LISTENER,
+                showcase = showcase,
+                onBackClick = {},
+                showcasePublished = showcasePublished,
+                showcasePublishable = showcasePublishable,
+                onPublishShowcase = onPublishShowcase,
+                onWithdrawShowcase = onWithdrawShowcase
+            )
+        }
+    }
+
+    @Test
+    fun `without a curator profile the showcase says where it would appear`() {
+        setShowcase(showcase = listOf("plain"), showcasePublishable = false)
+
+        // No profile means nowhere for the showcase to go, so the screen
+        // explains that instead of offering an action that could only refuse.
+        rule.onNodeWithTag("showcase_publish_unavailable").assertIsDisplayed()
+        rule.onNodeWithTag("showcase_publish").assertDoesNotExist()
+        rule.onNodeWithTag("showcase_withdraw").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a publishable showcase offers publishing, and reports only intent`() {
+        var published = 0
+        setShowcase(
+            showcase = listOf("plain"),
+            showcasePublishable = true,
+            onPublishShowcase = { published++ }
+        )
+
+        rule.onNodeWithTag("showcase_publish").assertIsDisplayed()
+        rule.onNodeWithTag("showcase_withdraw").assertDoesNotExist()
+
+        rule.onNodeWithTag("showcase_publish").performClick()
+        // The screen ASKS; the consent sheet and the view model decide.
+        assertEquals(1, published)
+    }
+
+    @Test
+    fun `a published showcase offers withdrawal instead of publishing again`() {
+        var withdrawn = 0
+        setShowcase(
+            showcase = listOf("plain"),
+            showcasePublishable = true,
+            showcasePublished = true,
+            onWithdrawShowcase = { withdrawn++ }
+        )
+
+        rule.onNodeWithTag("showcase_withdraw").assertIsDisplayed()
+        rule.onNodeWithTag("showcase_publish").assertDoesNotExist()
+
+        rule.onNodeWithTag("showcase_withdraw").performClick()
+        assertEquals(1, withdrawn)
+    }
+
+    @Test
+    fun `no showcase means no publish chrome at all`() {
+        setShowcase(showcase = emptyList(), showcasePublishable = true)
+
+        rule.onNodeWithTag("showcase_publish").assertDoesNotExist()
+        rule.onNodeWithTag("showcase_withdraw").assertDoesNotExist()
+        rule.onNodeWithTag("showcase_publish_unavailable").assertDoesNotExist()
+    }
 }

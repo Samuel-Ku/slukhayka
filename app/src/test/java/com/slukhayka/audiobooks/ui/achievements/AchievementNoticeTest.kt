@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.achievements.AchievementCatalog
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -75,5 +77,31 @@ class AchievementNoticeTest {
         assertTrue(achievementNotice(context, "no_such_award").isNotBlank())
         assertTrue(achievementNotice(context, "hours_").isNotBlank())
         assertTrue(achievementNotice(context, "hours_notanumber").isNotBlank())
+    }
+
+    /**
+     * #705 (T7) — the SAME catalogue, answering the opposite question.
+     *
+     * The notice may fall back to the generic name because it is a private
+     * toast. The publisher may NOT: a public profile must never claim an award
+     * it cannot name, so an unnameable id has to be null here and be dropped.
+     */
+    @Test
+    fun `an unnameable award has no name for the publisher, only a fallback for the notice`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        assertNull(achievementName(context, "no_such_award"))
+        assertNull(achievementName(context, "hours_"))
+        assertNull(achievementName(context, "hours_notanumber"))
+        // The interesting one: a numeric suffix this build has no rule for.
+        // `no_such_award` and `hours_` bail out earlier, at the number parse, so
+        // only this case reaches the final fallback and proves it is a null.
+        assertNull(achievementName(context, "mystery_10"))
+        assertNull(achievementName(context, "first_book_extra_3"))
+
+        // A real award is named by both, and the notice keeps its prefix.
+        val name = achievementName(context, "hours_10")
+        assertNotNull(name)
+        assertTrue(achievementNotice(context, "hours_10").contains(name!!))
     }
 }

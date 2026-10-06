@@ -2521,7 +2521,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _achievementsOpen = MutableStateFlow(false)
     val achievementsOpen: StateFlow<Boolean> = _achievementsOpen.asStateFlow()
 
-    fun openAchievements() { _achievementsOpen.value = true }
+    fun openAchievements() {
+        _achievementsOpen.value = true
+        // #705 (T7) — the screen offers the showcase's publish action only when
+        // there is a curator profile for it to appear on, and that is read from
+        // the store. Asking on open is what makes the answer current instead of
+        // whatever the last visit happened to leave behind.
+        refreshMyPublishedCollections()
+    }
 
     fun closeAchievements() { _achievementsOpen.value = false }
 
@@ -2560,6 +2567,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val store = App.instance.achievementStore
             val alreadyPinned = store.observeShowcase().first().any { it.id == id }
             if (alreadyPinned) store.unpin(id) else store.pin(id)
+            // #705 (T7) — the listener already chose to show their showcase, so
+            // the profile follows the pins instead of drifting away from them.
+            // Nothing is sent when they have NOT chosen: consent is never
+            // inferred from a pin.
+            syncShowcaseIfPublished()
         }
     }
 
@@ -2568,6 +2580,154 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         App.instance.achievementStore.observeShowcase()
             .map { rows -> rows.map { it.id } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // #705 (T7) — the showcase's public life. Pinning is local; publishing is a
+    // separate, explicit act, and this is where the two meet.
+
+    /** True once the listener confirmed publishing their showcase. */
+    val showcasePublished: StateFlow<Boolean> = App.instance.showcaseConsent.published
+
+    private val _showcasePreview =
+        MutableStateFlow<com.slukhayka.audiobooks.data.achievements.ShowcasePreview?>(null)
+    val showcasePreview:
+        StateFlow<com.slukhayka.audiobooks.data.achievements.ShowcasePreview?> =
+        _showcasePreview.asStateFlow()
+
+    private val showcasePublishedMessage: String
+        get() = getApplication<Application>().getString(R.string.showcase_publish_published)
+
+    private val showcaseWithdrawnMessage: String
+        get() = getApplication<Application>().getString(R.string.showcase_withdrawn)
+
+    private val showcaseUnavailableMessage: String
+        get() = getApplication<Application>().getString(R.string.showcase_publish_unavailable)
+
+    /**
+     * #705 (T7) — opens the consent for the showcase, and nothing else.
+     *
+     * The pseudonym is read from the store rather than from whatever the screen
+     * happens to hold: the profile is the authority on the public name, and
+     * asking it is also how "there is no profile" is discovered honestly.
+     */
+    fun requestPublishShowcase() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            val pseudonym = if (authorId.isEmpty()) {
+                ""
+            } else {
+                App.instance.publicCollectionsGate.publishedBy(authorId)
+                    .firstOrNull { it.pseudonym.isNotBlank() }
+                    ?.pseudonym
+                    .orEmpty()
+            }
+            val preview = com.slukhayka.audiobooks.data.achievements.ShowcasePreviewFactory.of(
+                pinnedIds = achievementShowcase.first(),
+                pseudonym = pseudonym,
+                // Passed IN rather than imported: `achievements` must not depend
+                // on `collections`, which already depends on it.
+                maxPseudonymLength =
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionCodec
+                        .MAX_PSEUDONYM_LEN,
+                nameOf = { id ->
+                    com.slukhayka.audiobooks.ui.achievements
+                        .achievementName(getApplication(), id)
+                }
+            )
+            withContext(Dispatchers.Main) {
+                if (preview == null) {
+                    _publishMessage.value = showcaseUnavailableMessage
+                } else {
+                    _showcasePreview.value = preview
+                }
+            }
+        }
+    }
+
+    fun dismissPublishShowcase() {
+        _showcasePreview.value = null
+    }
+
+    /** Only the explicit confirmation lands here. */
+    fun confirmPublishShowcase() {
+        val preview = _showcasePreview.value ?: return
+        _showcasePreview.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
+            val result = App.instance.publicCollectionsGate.publishShowcase(authorId, preview.awards)
+            withContext(Dispatchers.Main) {
+                if (result == com.slukhayka.audiobooks.data.collections.PublishResult.Published) {
+                    // Recorded only AFTER the write succeeded: consent the
+                    // network never honoured would make every later pin publish
+                    // silently against a profile that has nothing.
+                    App.instance.showcaseConsent.grant()
+                    _publishMessage.value = showcasePublishedMessage
+                } else {
+                    _publishMessage.value = publishRefusedMessage
+                }
+            }
+        }
+    }
+
+    /**
+     * #705 (T7) — takes the showcase off the profile.
+     *
+     * The withdrawal is a WRITE, not just a local flag: the profile must stop
+     * showing the awards, so an empty showcase is published (which is exactly
+     * what clears it) and only then is the consent dropped.
+     */
+    fun withdrawShowcase() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
+            val result = App.instance.publicCollectionsGate
+                .publishShowcase(authorId, emptyList())
+            withContext(Dispatchers.Main) {
+                if (result == com.slukhayka.audiobooks.data.collections.PublishResult.Published) {
+                    App.instance.showcaseConsent.withdraw()
+                    _publishMessage.value = showcaseWithdrawnMessage
+                } else {
+                    _publishMessage.value = publishRefusedMessage
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends the current pins to the profile, but only for a listener who has
+     * already chosen to show them. Returns null when nothing was sent — which
+     * is the honest answer for "not published", not a failure.
+     */
+    private suspend fun syncShowcaseIfPublished():
+        com.slukhayka.audiobooks.data.collections.PublishResult? {
+        if (!App.instance.showcaseConsent.isPublished()) return null
+        val authorId = currentAuthorId()
+        if (authorId.isEmpty()) return null
+        // An EMPTY list is a real instruction here: it clears the showcase,
+        // which is how unpinning the last award takes it off the profile.
+        val awards = com.slukhayka.audiobooks.data.achievements.ShowcasePublication.of(
+            pinnedIds = achievementShowcase.first(),
+            nameOf = { id ->
+                com.slukhayka.audiobooks.ui.achievements.achievementName(getApplication(), id)
+            }
+        )
+        return App.instance.publicCollectionsGate.publishShowcase(authorId, awards)
+    }
+
+    /**
+     * The signed-in listener's public author id, or "" when there is none. The
+     * raw uid is read and hashed here and never leaves this call.
+     */
+    private suspend fun currentAuthorId(): String {
+        val uid = runCatching { App.instance.listenerIdentity.current()?.uid }.getOrNull()
+        return com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+    }
 
     private val _appLocaleOpen = MutableStateFlow(false)
     val appLocaleOpen: StateFlow<Boolean> = _appLocaleOpen.asStateFlow()
@@ -6124,6 +6284,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val publishedListenerCollections:
         StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
         _publishedListenerCollections.asStateFlow()
+
+    /**
+     * #705 (T7) — true when the listener has a public profile for a showcase to
+     * appear on.
+     *
+     * A listener with no published collection has no profile, so the showcase
+     * has nowhere to go — the ticket's fourth criterion. The achievements screen
+     * states that honestly rather than offering an action that could only
+     * refuse.
+     *
+     * Declared here, after [publishedListenerCollections], because it derives
+     * from it: a property cannot read one that has not been initialized yet.
+     */
+    val showcasePublishable: StateFlow<Boolean> =
+        _publishedListenerCollections
+            .map { mine -> mine.any { it.pseudonym.isNotBlank() } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // Spec-51 (#692) — «Добірки з цією книгою» on the book page: one query per
     // open book, with a stale answer for a previous book dropped.

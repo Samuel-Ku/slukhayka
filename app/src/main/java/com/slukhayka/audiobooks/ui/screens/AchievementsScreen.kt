@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -17,6 +18,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,7 +51,16 @@ fun AchievementsScreen(
     title: ListenerTitle,
     showcase: List<String>,
     onBackClick: () -> Unit,
-    onTogglePin: (String) -> Unit = {}
+    onTogglePin: (String) -> Unit = {},
+    /**
+     * #705 (T7) — the showcase's public life. All three default to the honest
+     * "not published, and not publishable", so a caller that does not wire them
+     * gets a screen that offers nothing rather than one that offers a dead end.
+     */
+    showcasePublished: Boolean = false,
+    showcasePublishable: Boolean = false,
+    onPublishShowcase: () -> Unit = {},
+    onWithdrawShowcase: () -> Unit = {}
 ) {
     SettingsDestinationScaffold(
         destination = SettingsDestination.Achievements,
@@ -82,6 +93,35 @@ fun AchievementsScreen(
             if (showcase.isNotEmpty()) {
                 SectionHeading(stringResource(R.string.achievements_showcase), "achievements_showcase_heading")
                 AchievementList(showcase, "achievements_showcase_item")
+                // #705 (T7) — the showcase is local until the listener says
+                // otherwise, so the choice is offered right here, next to what
+                // it is about. Without a curator profile there is nowhere for
+                // it to appear, and the screen says that instead of offering an
+                // action that could only refuse.
+                when {
+                    !showcasePublishable -> Text(
+                        text = stringResource(R.string.showcase_publish_unavailable),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .testTag("showcase_publish_unavailable")
+                    )
+
+                    showcasePublished -> TextButton(
+                        onClick = onWithdrawShowcase,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("showcase_withdraw")
+                    ) { Text(stringResource(R.string.showcase_withdraw_action)) }
+
+                    else -> TextButton(
+                        onClick = onPublishShowcase,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("showcase_publish")
+                    ) { Text(stringResource(R.string.showcase_publish_action)) }
+                }
             }
 
             if (board.earned.isNotEmpty()) {

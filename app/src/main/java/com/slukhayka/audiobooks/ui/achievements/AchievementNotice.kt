@@ -49,23 +49,33 @@ private val named = mapOf(
     "never_too_late" to R.string.achievement_never_too_late
 )
 
-fun achievementNotice(context: Context, id: String): String {
-    named[id]?.let { return context.getString(R.string.achievement_awarded, context.getString(it)) }
+/**
+ * The award's OWN name, or null when this build cannot name it.
+ *
+ * #705 (T7) — the showcase publishes NAMES, and an id this build cannot name has
+ * to be dropped rather than published under the generic fallback. A public
+ * profile must never claim an award it cannot describe, so the two callers need
+ * different answers from the same catalogue: the notice may say «Нова нагорода»,
+ * the publisher may not.
+ */
+fun achievementName(context: Context, id: String): String? {
+    named[id]?.let { return context.getString(it) }
 
-    val number = id.substringAfter('_', "").toIntOrNull()
-    if (number != null) {
-        if (id.startsWith("hours_")) {
-            return context.getString(
-                R.string.achievement_awarded,
-                context.resources.getQuantityString(R.plurals.achievement_hours, number, number)
-            )
-        }
-        if (id.startsWith("books_")) {
-            return context.getString(
-                R.string.achievement_awarded,
-                context.resources.getQuantityString(R.plurals.achievement_books, number, number)
-            )
-        }
+    val number = id.substringAfter('_', "").toIntOrNull() ?: return null
+    return when {
+        id.startsWith("hours_") ->
+            context.resources.getQuantityString(R.plurals.achievement_hours, number, number)
+        id.startsWith("books_") ->
+            context.resources.getQuantityString(R.plurals.achievement_books, number, number)
+        else -> null
     }
-    return context.getString(R.string.achievement_awarded_generic)
+}
+
+fun achievementNotice(context: Context, id: String): String {
+    val name = achievementName(context, id)
+    return if (name != null) {
+        context.getString(R.string.achievement_awarded, name)
+    } else {
+        context.getString(R.string.achievement_awarded_generic)
+    }
 }

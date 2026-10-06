@@ -842,6 +842,16 @@ class App : Application() {
     val achievementStore: com.slukhayka.audiobooks.data.achievements.RoomAchievementStore by lazy {
         com.slukhayka.audiobooks.data.achievements.RoomAchievementStore(database.achievementDao())
     }
+
+    /**
+     * #705 (T7) — whether the listener chose to make their showcase public.
+     * Separate from [achievementStore] on purpose: the pins are achievement
+     * state, the consent is a decision about the network, and the two are
+     * written at different moments (the second only after a write succeeded).
+     */
+    val showcaseConsent: com.slukhayka.audiobooks.data.achievements.ShowcaseConsentStore by lazy {
+        com.slukhayka.audiobooks.data.achievements.ShowcaseConsentStore(this)
+    }
     private val achievementRecorder by lazy {
         com.slukhayka.audiobooks.data.achievements.AchievementRecorder(achievementScope,
             achievementStore, listeningState::recordActualListeningTime,

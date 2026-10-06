@@ -241,6 +241,16 @@ fun LibraryScreen(
             viewModel.consumeBookmarkMessage()
         }
     }
+    // #1154 — and so does publishing: a refusal nobody sees would be the same
+    // defect as no refusal at all, and the listener would believe their
+    // collection had gone public.
+    val publishMessage by viewModel.publishMessage.collectAsState()
+    LaunchedEffect(publishMessage) {
+        publishMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumePublishMessage()
+        }
+    }
 
     // wayfinder #29: the smart-import preview — scan → plan → confirm → apply.
     // The plan is pure data; confirming calls apply, dismissing leaves zero
@@ -1089,7 +1099,10 @@ fun LibraryScreen(
         onDelete = { collectionId ->
             viewModel.deleteListenerCollection(collectionId)
             openCollectionId = null
-        }
+        },
+        // #1154 — the explicit confirmation, and only it: this callback is
+        // reached from the sheet's confirm button and nowhere else.
+        onPublish = viewModel::confirmPublish
     )
     }
 

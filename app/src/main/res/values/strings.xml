@@ -225,6 +225,18 @@
     <string name="collection_detail_empty">У добірці ще немає книг</string>
     <string name="publish_collection_title">Опублікувати добірку?</string>
     <string name="publish_collection_preview_lead">Піде назовні рівно це:</string>
+    <!-- #1154 — the pseudonym is entered HERE. The preview always showed one,
+         but nothing in the app ever asked for it, so the publish path was
+         unreachable. -->
+    <string name="publish_collection_pseudonym_label">Псевдонім</string>
+    <string name="publish_collection_pseudonym_hint">Так вас побачать інші</string>
+    <string name="publish_collection_pseudonym_required">Введіть псевдонім — і побачите, що саме поїде</string>
+    <string name="publish_collection_impossible_title">Цю добірку не можна опублікувати: у неї немає назви</string>
+    <string name="publish_collection_impossible_empty">Цю добірку не можна опублікувати: у ній немає жодної книжки</string>
+    <!-- #1154 — the outcome. A refusal nobody sees is the same defect as no
+         refusal at all, so the second line says what did NOT happen. -->
+    <string name="publish_collection_published">Добірку опубліковано</string>
+    <string name="publish_collection_refused">Не вдалося опублікувати — назовні не пішло нічого</string>
     <!-- #980: the residual collection chrome — delete and inline-create
          dialogs, publish actions, the reader-side save and the preview lines —
          lived as UK literals inside the composables, invisible to the EN walk

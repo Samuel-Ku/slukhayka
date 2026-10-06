@@ -10,11 +10,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionItem
-import com.slukhayka.audiobooks.data.collections.PublicationPreview
 import com.slukhayka.audiobooks.data.collections.PublishedCollection
 import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.screens.collections.AddToCollectionSheet
@@ -271,12 +271,7 @@ class CollectionsScreensEnglishChromeTest {
         composeTestRule.setContent {
             chrome {
                 PublishCollectionSheet(
-                    preview = PublicationPreview(
-                        title = "Magic",
-                        pseudonym = "Listener",
-                        bookCount = 2,
-                        descriptionIncluded = false
-                    ),
+                    collection = ownCollectionWithBook(),
                     onConfirm = {},
                     onDismiss = {},
                     modifier = Modifier.fillMaxSize()
@@ -289,9 +284,22 @@ class CollectionsScreensEnglishChromeTest {
         composeTestRule
             .onNodeWithText(context.getString(R.string.publish_collection_preview_lead))
             .assertExists()
+
+        // #1154 — the preview only exists once a pseudonym does, because that is
+        // what the listener is consenting to. The chrome walk covers the sheet
+        // in both states: before typing, and after.
+        composeTestRule
+            .onNodeWithTag("publish_collection_awaiting_pseudonym")
+            .assertExists()
+        assertChromeHasNoCyrillic()
+
+        composeTestRule
+            .onNodeWithTag("publish_collection_pseudonym")
+            .performTextInput("Listener")
         composeTestRule
             .onNodeWithText(context.getString(R.string.publish_collection_preview_line_title, "Magic"))
             .assertExists()
+        assertChromeHasNoCyrillic()
     }
 
     @Test

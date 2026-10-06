@@ -227,6 +227,13 @@
     <string name="collection_detail_empty">No books in this collection yet</string>
     <string name="publish_collection_title">Publish this collection?</string>
     <string name="publish_collection_preview_lead">Exactly this goes public:</string>
+    <string name="publish_collection_pseudonym_label">Pseudonym</string>
+    <string name="publish_collection_pseudonym_hint">This is how others will see you</string>
+    <string name="publish_collection_pseudonym_required">Enter a pseudonym to see exactly what will go out</string>
+    <string name="publish_collection_impossible_title">This collection cannot be published: it has no title</string>
+    <string name="publish_collection_impossible_empty">This collection cannot be published: it has no books</string>
+    <string name="publish_collection_published">Collection published</string>
+    <string name="publish_collection_refused">Could not publish — nothing went out</string>
     <!-- #980: English twins for the residual collection chrome the extended
          walk now reaches. -->
     <string name="collection_remove_book">Remove</string>

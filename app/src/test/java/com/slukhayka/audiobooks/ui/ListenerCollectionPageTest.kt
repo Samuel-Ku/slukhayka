@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionItem
 import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
@@ -54,7 +55,8 @@ class ListenerCollectionPageTest {
         openId: String?,
         onClose: () -> Unit = {},
         onRemoveBook: (String, String) -> Unit = { _, _ -> },
-        onDelete: (String) -> Unit = {}
+        onDelete: (String) -> Unit = {},
+        onPublish: (String, String) -> Unit = { _, _ -> }
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -63,7 +65,8 @@ class ListenerCollectionPageTest {
                     openId = openId,
                     onClose = onClose,
                     onRemoveBook = onRemoveBook,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    onPublish = onPublish
                 )
             }
         }
@@ -144,6 +147,53 @@ class ListenerCollectionPageTest {
     }
 
     /**
+     * The chain, end to end: a tap on the page's publish action reaches the
+     * sheet, and only the sheet's explicit confirm reaches the caller — with the
+     * pseudonym the listener typed and the id of the collection they were
+     * looking at.
+     */
+    @Test
+    fun `publishing from the page needs the sheet's explicit confirm`() {
+        var published: Pair<String, String>? = null
+        setPage(
+            collections = listOf(collection("c1")),
+            openId = "c1",
+            onPublish = { collectionId, pseudonym -> published = collectionId to pseudonym }
+        )
+
+        composeTestRule.onNodeWithTag("collection_publish").performClick()
+        composeTestRule.onNodeWithTag("publish_collection_sheet").assertIsDisplayed()
+        assertNull("opening the sheet must publish nothing", published)
+
+        composeTestRule.onNodeWithTag("publish_collection_cancel").performClick()
+        assertNull("cancelling must publish nothing", published)
+
+        composeTestRule.onNodeWithTag("collection_publish").performClick()
+        composeTestRule
+            .onNodeWithTag("publish_collection_pseudonym")
+            .performTextInput("Слухач")
+        composeTestRule.onNodeWithTag("publish_collection_confirm").performClick()
+
+        assertEquals("c1" to "Слухач", published)
+    }
+
+    @Test
+    fun `a collection with no books offers no publishable path`() {
+        var published: Pair<String, String>? = null
+        setPage(
+            collections = listOf(collection("c1").copy(items = emptyList())),
+            openId = "c1",
+            onPublish = { collectionId, pseudonym -> published = collectionId to pseudonym }
+        )
+
+        composeTestRule.onNodeWithTag("collection_publish").performClick()
+        composeTestRule.onNodeWithTag("publish_collection_impossible").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("publish_collection_confirm").performClick()
+
+        assertNull(published)
+    }
+
+    /**
      * The pin that actually covers #1154.
      *
      * Every other test here renders the page DIRECTLY, so all of them would stay
@@ -171,6 +221,11 @@ class ListenerCollectionPageTest {
         assertTrue(
             "LibraryScreen must pass the state it already collects — `openId = openCollectionId`",
             library.contains("openId = openCollectionId")
+        )
+        assertTrue(
+            "LibraryScreen must wire the confirmed publish — without it the sheet's " +
+                "confirm leads nowhere (#1154)",
+            library.contains("onPublish = viewModel::confirmPublish")
         )
     }
 }

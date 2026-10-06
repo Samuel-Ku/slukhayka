@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
 import com.slukhayka.audiobooks.ui.screens.collections.CollectionWithBookRow
 import com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent
 import com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionsRail
@@ -101,5 +102,62 @@ class PublicCollectionsRailTest {
         }
 
         composeTestRule.onNodeWithTag("curator_profile_empty").assertIsDisplayed()
+    }
+
+    private fun setProfile(
+        rows: List<CollectionWithBookRow>,
+        showcase: List<ShowcaseAwardSnapshot>
+    ) {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CuratorProfileContent(
+                    pseudonym = "Слухач",
+                    rows = rows,
+                    showcase = showcase,
+                    onOpen = {}
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the profile shows the awards the curator published`() {
+        setProfile(
+            rows = listOf(rated),
+            showcase = listOf(
+                ShowcaseAwardSnapshot("first_book", "Перша книга"),
+                ShowcaseAwardSnapshot("night_watch", "Нічний вартовий")
+            )
+        )
+
+        composeTestRule.onNodeWithTag("curator_profile_showcase").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("curator_profile_showcase_heading").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("curator_profile_award_first_book").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("curator_profile_award_night_watch").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Нічний вартовий").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a curator who published no showcase gets no showcase section`() {
+        setProfile(rows = listOf(rated), showcase = emptyList())
+
+        // Not merely empty: absent. An empty heading would be a shelf.
+        composeTestRule.onNodeWithTag("curator_profile_showcase").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("curator_collection_doc-1").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a profile with no publications shows no showcase even if one is handed in`() {
+        // #705 criterion 4, as a structural rule rather than an implication:
+        // the showcase rides on the collections, so a profile with none cannot
+        // show awards however the caller calls it.
+        setProfile(
+            rows = emptyList(),
+            showcase = listOf(ShowcaseAwardSnapshot("first_book", "Перша книга"))
+        )
+
+        composeTestRule.onNodeWithTag("curator_profile_empty").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("curator_profile_showcase").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("curator_profile_award_first_book").assertDoesNotExist()
     }
 }

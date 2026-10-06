@@ -223,6 +223,14 @@ fun HomeScreen(
     val curatorProfileRows = remember(curatorProfileCollections) {
         curatorProfileCollections.map { published -> published.toRailRow() }
     }
+    // #705 (T7) — the showcase is the same on every collection that carries one,
+    // because publishing it writes to all of them. A collection published AFTER
+    // the last showcase write carries none, so the profile reads the first that
+    // has one rather than trusting the list's order. No collections at all means
+    // no showcase: there is no profile for it to appear on.
+    val curatorProfileShowcase = remember(curatorProfileCollections) {
+        curatorProfileCollections.firstOrNull { it.showcase.isNotEmpty() }?.showcase.orEmpty()
+    }
     LaunchedEffect(Unit) { viewModel.loadPublicCollectionsRail() }
 
     // Spec-36 T1 (#244): an available app release, resolved by the module's
@@ -555,6 +563,7 @@ fun HomeScreen(
             com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent(
                 pseudonym = pseudonym,
                 rows = curatorProfileRows,
+                showcase = curatorProfileShowcase,
                 onOpen = { documentId ->
                     viewModel.closeCuratorProfile()
                     viewModel.openPublicCollection(documentId)

@@ -34,12 +34,50 @@ class PublishedCollectionsBlockTest {
     private val context: Context
         get() = ApplicationProvider.getApplicationContext()
 
-    private fun setBlock(rows: List<PublishedCollectionRow>, onOpen: (String) -> Unit = {}) {
+    private fun setBlock(
+        rows: List<PublishedCollectionRow>,
+        onOpen: (String) -> Unit = {},
+        onRenamePseudonym: (() -> Unit)? = null
+    ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
-                PublishedCollectionsBlock(rows = rows, onOpen = onOpen)
+                PublishedCollectionsBlock(
+                    rows = rows,
+                    onOpen = onOpen,
+                    onRenamePseudonym = onRenamePseudonym
+                )
             }
         }
+    }
+
+    /**
+     * Spec-51 (#691) — the public name is changeable, and the action belongs to
+     * the BLOCK rather than to a row: one pseudonym covers every collection, and
+     * a per-row action would suggest otherwise.
+     */
+    @Test
+    fun `the public name is changeable once, for the whole block`() {
+        var renames = 0
+        setBlock(
+            rows = listOf(
+                PublishedCollectionRow("doc-1", "Магія", 3, "Слухач"),
+                PublishedCollectionRow("doc-2", "Космос", 1, "Слухач")
+            ),
+            onRenamePseudonym = { renames++ }
+        )
+
+        composeTestRule.onNodeWithTag("published_rename_pseudonym").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("published_rename_pseudonym").performClick()
+        assertEquals(1, renames)
+    }
+
+    @Test
+    fun `without the rename seam there is no dead action on the block`() {
+        // A caller that cannot rename must not be shown a button that does
+        // nothing — the same rule as everywhere else on these surfaces.
+        setBlock(rows = listOf(PublishedCollectionRow("doc-1", "Магія", 3, "Слухач")))
+
+        composeTestRule.onNodeWithTag("published_rename_pseudonym").assertDoesNotExist()
     }
 
     @Test

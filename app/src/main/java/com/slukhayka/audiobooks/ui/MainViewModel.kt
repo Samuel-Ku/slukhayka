@@ -6227,6 +6227,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _publishMessage.value = null
     }
 
+    private val pseudonymRenamedMessage: String
+        get() = getApplication<Application>().getString(R.string.pseudonym_renamed)
+
+    /**
+     * Spec-51 (#691) — the public name, changed after publishing.
+     *
+     * One name for all of a curator's collections, so this is a single write
+     * over every document they own — and a PARTIAL one: `renameAuthor` merges,
+     * because a full `set` here is exactly the data-loss bug of #1150.
+     *
+     * A blank name is refused before any request: the store would refuse it too,
+     * and there is no reason to spend a round trip to learn that.
+     */
+    fun renamePseudonym(pseudonym: String) {
+        val clean = pseudonym.trim()
+            .take(com.slukhayka.audiobooks.data.collections.PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
+        if (clean.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
+            val result = App.instance.publicCollectionsGate.renameAuthor(authorId, clean)
+            withContext(Dispatchers.Main) {
+                val renamed =
+                    result == com.slukhayka.audiobooks.data.collections.PublishResult.Published
+                _publishMessage.value =
+                    if (renamed) pseudonymRenamedMessage else publishRefusedMessage
+                // Read back rather than assumed: the name the profile shows is
+                // whatever the store now holds, not what was typed.
+                if (renamed) refreshMyPublishedCollections()
+            }
+        }
+    }
+
     /** Public surfaces render only when a shared store exists at all. */
     val publicCollectionsAvailable: Boolean get() = App.instance.publicCollectionsGate.available
 

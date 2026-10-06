@@ -244,6 +244,11 @@
     <string name="showcase_publish_unavailable">Publish a collection first — the showcase appears in your curator profile</string>
     <string name="showcase_withdraw_action">Remove the showcase from my profile</string>
     <string name="showcase_withdrawn">Showcase removed from your profile</string>
+    <string name="rename_pseudonym_title">Change your pseudonym</string>
+    <string name="rename_pseudonym_body">This is how you will be seen on every published collection</string>
+    <string name="rename_pseudonym_action">Change pseudonym</string>
+    <string name="rename_pseudonym_confirm">Save</string>
+    <string name="pseudonym_renamed">Pseudonym changed</string>
     <!-- #980: English twins for the residual collection chrome the extended
          walk now reaches. -->
     <string name="collection_remove_book">Remove</string>

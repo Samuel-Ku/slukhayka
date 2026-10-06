@@ -355,6 +355,10 @@ fun LibraryScreen(
     LaunchedEffect(Unit) { viewModel.refreshListenerCollections() }
     val publishedCollections by viewModel.publishedListenerCollections.collectAsState()
     var openPublishedDocumentId by remember { mutableStateOf<String?>(null) }
+    // Spec-51 (#691) — the public-name dialog. Its state lives HERE, in the
+    // screen, because the action sits in `libraryChrome` while the dialog must
+    // cover the screen.
+    var renamingPseudonym by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel.publicCollectionsAvailable) {
         if (viewModel.publicCollectionsAvailable) {
             viewModel.refreshMyPublishedCollections()
@@ -563,6 +567,7 @@ fun LibraryScreen(
                     publishedCollections = publishedCollections,
                     onOpenCollection = { openCollectionId = it },
                     onOpenPublishedCollection = { openPublishedDocumentId = it },
+                    onRenamePseudonym = { renamingPseudonym = true },
                     compact = landscapePhone
                 )
             }
@@ -1104,6 +1109,22 @@ fun LibraryScreen(
         // reached from the sheet's confirm button and nowhere else.
         onPublish = viewModel::confirmPublish
     )
+
+    // Spec-51 (#691) — the public name, changed after publishing. Seeded with
+    // the name the store actually holds, so the listener edits what IS rather
+    // than retyping what they think it is.
+    if (renamingPseudonym) {
+        com.slukhayka.audiobooks.ui.screens.collections.RenamePseudonymDialog(
+            current = publishedCollections.firstOrNull { it.pseudonym.isNotBlank() }
+                ?.pseudonym
+                .orEmpty(),
+            onConfirm = { pseudonym ->
+                renamingPseudonym = false
+                viewModel.renamePseudonym(pseudonym)
+            },
+            onDismiss = { renamingPseudonym = false }
+        )
+    }
     }
 
 /**
@@ -3398,6 +3419,8 @@ private fun libraryChrome(
     publishedCollections: List<com.slukhayka.audiobooks.data.collections.PublishedCollection>,
     onOpenCollection: (String) -> Unit,
     onOpenPublishedCollection: (String) -> Unit,
+    /** Spec-51 (#691) — opens the public-name dialog; the dialog itself lives in the screen. */
+    onRenamePseudonym: () -> Unit,
     /** #962 — true on the wide-and-short window; drops the year hero. */
     compact: Boolean
 ) {
@@ -3537,7 +3560,8 @@ private fun libraryChrome(
                 hidden = published.hidden
             )
         },
-        onOpen = onOpenPublishedCollection
+        onOpen = onOpenPublishedCollection,
+        onRenamePseudonym = onRenamePseudonym
     )
 
     // Spec-28 #194: the storage line and «Видалити завантажені

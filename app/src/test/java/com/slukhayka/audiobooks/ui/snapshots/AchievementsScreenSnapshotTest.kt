@@ -101,4 +101,32 @@ class AchievementsScreenSnapshotTest {
 
         composeTestRule.onRoot().captureRoboImage("src/test/snapshots/achievements_nothing_earned.png")
     }
+
+    /**
+     * #705 (T7) — the same showcase, but with a curator profile behind it.
+     *
+     * The other showcase snapshot has no profile, so it renders the honest
+     * «спершу опублікуйте добірку» line and never shows the action at all. That
+     * is the state a listener WITHOUT a profile meets; this is the one everybody
+     * else meets, and it is the one that has to look right.
+     */
+    @Test
+    fun achievements_showcase_publishable() {
+        composeTestRule.setContent {
+            AudiobookTheme {
+                AchievementsScreen(
+                    board = AchievementBoard.of(catalogue, setOf("first_book", "first_completion")),
+                    title = ListenerTitle.PAGE_TRAVELLER,
+                    showcase = listOf("first_completion"),
+                    onBackClick = {},
+                    onTogglePin = {},
+                    showcasePublishable = true,
+                    onPublishShowcase = {}
+                )
+            }
+        }
+
+        composeTestRule.onRoot()
+            .captureRoboImage("src/test/snapshots/achievements_showcase_publishable.png")
+    }
 }

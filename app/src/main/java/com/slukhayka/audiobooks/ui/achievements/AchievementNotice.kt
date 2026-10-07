@@ -46,7 +46,11 @@ private val named = mapOf(
     "holiday" to R.string.achievement_holiday,
     "vintage" to R.string.achievement_vintage,
     "comeback" to R.string.achievement_comeback,
-    "never_too_late" to R.string.achievement_never_too_late
+    "never_too_late" to R.string.achievement_never_too_late,
+    "marathon_3h" to R.string.achievement_marathon_3h,
+    "week_in_earphones" to R.string.achievement_week_in_earphones,
+    "month_in_earphones" to R.string.achievement_month_in_earphones,
+    "mondays_10" to R.string.achievement_mondays_10
 )
 
 /**

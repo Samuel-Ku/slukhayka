@@ -261,10 +261,11 @@ object AchievementCatalog {
         // user stories 10–12 and 17, which no earlier ticket picked up.
         //
         // The spec names the awards but not the numbers, so the numbers are
-        // pinned by table tests exactly like `bilingual_2`/`polyglot_3`: a later
-        // change has to be a decision, not drift. «День зі слуханням» is one
-        // verified minute (`ListeningRhythm.DAY_MILLIS`) — the old
-        // five-second counter is not proof, so pre-v51 rows cannot open these.
+        // pinned by `ListeningRhythmTest` and `RegularityAwardsTest` — the same
+        // "a later change has to be a decision, not drift" rule this catalogue
+        // already follows. «День зі слуханням» is one verified minute
+        // (`ListeningRhythm.DAY_MILLIS`) — the old five-second counter is not
+        // proof, so pre-v51 rows cannot open these.
         //
         // Every metric here is MONOTONE (best day, longest streak, fullest
         // month, count of Mondays), so an award can never be taken back by a

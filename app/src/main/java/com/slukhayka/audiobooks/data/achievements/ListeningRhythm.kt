@@ -48,7 +48,7 @@ object ListeningRhythm {
      * instead of being skipped over.
      */
     fun longestStreak(days: List<Day>): Int {
-        val dates = qualifying(days).map { it.date }.distinct().sorted()
+        val dates = qualifying(days).map { it.date }.sorted()
         var best = 0
         var run = 0
         var previous: LocalDate? = null
@@ -74,5 +74,14 @@ object ListeningRhythm {
     /** How many different Mondays carried listening, ever. */
     fun mondays(days: List<Day>): Int = qualifying(days).count { it.date.dayOfWeek == DayOfWeek.MONDAY }
 
-    private fun qualifying(days: List<Day>): List<Day> = days.filter { it.verifiedMillis >= DAY_MILLIS }
+    /**
+     * The days that count, each date ONCE.
+     *
+     * The one-row-per-day invariant belongs here rather than in one caller:
+     * `dateIso` is a primary key today, but every metric below reads the same
+     * sequence, and a second reader (the library stats card, #1168) must not
+     * inherit a double count from a shape this object did not promise.
+     */
+    private fun qualifying(days: List<Day>): List<Day> =
+        days.filter { it.verifiedMillis >= DAY_MILLIS }.distinctBy { it.date }
 }

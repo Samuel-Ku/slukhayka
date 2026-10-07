@@ -42,6 +42,9 @@ class ListeningRhythmTest {
                 "2026-09-28", "2026-09-29", "2026-09-30",
                 "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"
             ).map { day(it) }, 7),
+            // A year boundary is not a break either.
+            Triple("a week across a year boundary",
+                (0..6).map { day(LocalDate.of(2026, 12, 30).plusDays(it.toLong()).toString()) }, 7),
             // A day below the honesty threshold is not a day at all, so it
             // cannot hold a run together either.
             Triple("a stray second does not bridge a streak", listOf(
@@ -61,6 +64,10 @@ class ListeningRhythmTest {
         val april = (1..10).map { day("2026-04-%02d".format(it)) }
         assertEquals("ten plus ten is ten, not twenty", 10, ListeningRhythm.bestMonthDays(march + april))
         assertEquals(11, ListeningRhythm.bestMonthDays(march + april + day("2026-04-11")))
+        // December and January are two months, however close they look.
+        val december = (1..10).map { day("2026-12-%02d".format(it)) }
+        val january = (1..10).map { day("2027-01-%02d".format(it)) }
+        assertEquals("a year boundary is still a month boundary", 10, ListeningRhythm.bestMonthDays(december + january))
         assertEquals("nineteen days is not twenty", 19, ListeningRhythm.bestMonthDays((1..19).map { day("2026-03-%02d".format(it)) }))
         assertEquals(20, ListeningRhythm.bestMonthDays((1..20).map { day("2026-03-%02d".format(it)) }))
     }

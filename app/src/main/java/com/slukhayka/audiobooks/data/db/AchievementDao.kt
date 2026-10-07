@@ -253,6 +253,29 @@ interface AchievementDao {
             "WHERE e.kind='COMPLETED' AND a.totalDurationSeconds >= 108000"
     )
     fun observeEpicCompletedBooks(): Flow<Long>
+
+    /**
+     * #700 (T2) — «Друге дихання»: books the listener FINISHED a SECOND time.
+     *
+     * Narrower than the ticket's «завершення після повернення», and on purpose.
+     * Two `COMPLETED` rows on the same book are two listening cycles: the player
+     * writes at most one per cycle and resets its `completionLogged` guard only
+     * when that cycle ENDS — a fresh load, a stop or a cleared session
+     * (`AudioPlayerManager`) — never in the middle of one. A duplicate of the
+     * same completion therefore cannot become the second row.
+     *
+     * The "`COMPLETED` after `RELISTEN`" reading is deliberately NOT used:
+     * «Почати спочатку» writes `RELISTEN` on a book that was never finished, so
+     * that pairing would count a restart as a return.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +
+            "WHERE e.kind='COMPLETED' AND EXISTS (" +
+            "SELECT 1 FROM playback_events f WHERE f.bookId = e.bookId " +
+            "AND f.kind='COMPLETED' AND f.timestamp < e.timestamp)"
+    )
+    fun observeBooksFinishedTwice(): Flow<Long>
+
     @Query("SELECT * FROM series_members")
     fun observeKnownSeriesMemberships(): Flow<List<SeriesMemberEntity>>
     @Query("SELECT s.bookId, s.id AS sourceId, s.type AS sourceType, " +

@@ -67,6 +67,11 @@ PR #1145 — у складі нового main через `c7d80130`), який 
    PY
    ```
    Чужий `N.json` з ІНШИМ вмістом = ваш номер зайнято → перепродувати.
+   Це вже автоматизовано: джоб «Migration slot guard» у ci.yml на кожному PR
+   ганяє `scripts/check-migration-slot.sh origin/<base> HEAD`. Правила: спільний
+   номер файлу схеми з іншим вмістом; верх гілки не вищий за верх base, коли
+   гілка змінює БД; дірка в ланцюжку схем; `version =` у AudiobookDatabase.kt
+   не дорівнює верхньому файлу. Локально: `scripts/check-migration-slot.sh origin/main`.
 3. `grep -n "MIGRATION_" app/src/main/java/com/slukhayka/audiobooks/data/db/AudiobookDatabase.kt` —
    ваш об'єкт мусить вести від НОВОЇ верхньої версії main (`N`) до `N+1`
    і бути останнім у сирому списку `.addMigrations(...)`.

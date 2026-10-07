@@ -45,6 +45,30 @@ jobs:
           # lane since v1.3.8 (2026-09: triggers and this guard are
           # version-agnostic — a new release branch needs no ci.yml edits).
 
+  migration-slot:
+    name: Migration slot guard
+    runs-on: ubuntu-latest
+    # On push to main there is nothing to compare against (main vs itself);
+    # the guard only makes sense where a PR could collide with upstream.
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Full history so origin/<base_ref> exists for the script.
+          fetch-depth: 0
+
+      - name: Fail if the top migration slot was taken upstream
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE_REF" ]; then
+            echo "No base branch: nothing to guard."
+            exit 0
+          fi
+          scripts/check-migration-slot.sh "origin/$BASE_REF" "HEAD"
+
   timing-start:
     name: Start workflow timer
     runs-on: ubuntu-latest

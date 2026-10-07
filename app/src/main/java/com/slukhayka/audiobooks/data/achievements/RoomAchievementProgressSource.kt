@@ -56,7 +56,10 @@ class RoomAchievementProgressSource(
     private val withReturns = combine(withMarks, returns) { base, (stops, relistens) ->
         base.copy(timerStops = stops, relistens = relistens)
     }
-    private val withDoors = combine(withReturns, dao.observeUsedSourceDoors()) { base, doors ->
+    private val withSecondWind = combine(withReturns, dao.observeBooksFinishedTwice()) { base, twice ->
+        base.copy(booksFinishedTwice = twice)
+    }
+    private val withDoors = combine(withSecondWind, dao.observeUsedSourceDoors()) { base, doors ->
         base.copy(usedSourceDoors = doors)
     }
     private val withLanguages = combine(withDoors, dao.observeKnownLanguages()) { base, languages ->

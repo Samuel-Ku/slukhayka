@@ -32,6 +32,7 @@ private val named = mapOf(
     "sleep_timer_20" to R.string.achievement_sleep_timer_20,
     "relisten_1" to R.string.achievement_relisten_1,
     "relisten_5" to R.string.achievement_relisten_5,
+    "second_wind" to R.string.achievement_second_wind,
     "deep_reserve_10" to R.string.achievement_deep_reserve_10,
     "four_doors" to R.string.achievement_four_doors,
     "browser_guest" to R.string.achievement_browser_guest,

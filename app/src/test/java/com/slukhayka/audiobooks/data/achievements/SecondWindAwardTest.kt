@@ -7,6 +7,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
 import com.slukhayka.audiobooks.data.db.PlaybackEventKind
+import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
+import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -23,14 +25,18 @@ import org.robolectric.annotation.Config
  *
  * The ticket words the award as «завершення після повернення». What the recorded
  * data proves is narrower — two `COMPLETED` events on one book, and those are
- * two listening cycles because the player's `completionLogged` resets only when
- * a cycle ends, never inside one (`AudioPlayerManager`). The rejected reading
- * has its own case below: `RELISTEN` then `COMPLETED` must NOT open the award,
- * since «Почати спочатку» writes `RELISTEN` on a book that was never finished.
+ * two listening cycles: the player logs one completion per cycle, and a fresh
+ * load at the very end goes through the relisten rule back to chapter 0 instead
+ * of logging a second one (`AudioPlayerManager.loadAndPlayBook`). The rejected
+ * reading has its own case below: `RELISTEN` then `COMPLETED` must NOT open the
+ * award, since «Почати спочатку» writes `RELISTEN` on a book that was never
+ * finished.
  *
  * Every case writes REAL rows into an in-memory Room: the proof lives in the SQL
  * (a correlated subquery on `playback_events`), so a hand-built snapshot would
- * test the evaluator alone and say nothing about the query.
+ * test the evaluator alone and say nothing about the query. The cap case also
+ * runs the real compaction, because a `COMPLETED` row has to SURVIVE the log
+ * that the second pass writes.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[35],application=Application::class)
@@ -74,6 +80,48 @@ class SecondWindAwardTest {
         }
 
         assertEquals("два цикли на одній книзі", 1L, snapshot.booksFinishedTwice)
+        assertTrue("«Друге дихання» мусить відкритись", "second_wind" in earnedFrom(snapshot))
+    }
+
+    /**
+     * The log is a [PlaybackEventPolicy.DEFAULT_EVENTS_PER_BOOK_SOURCE]-row
+     * bucket per (book, source) and the second pass FILLS it — a chapter change
+     * per chapter. Without the retention rule the first completion is evicted by
+     * the very relisten that earns the award, so the award would never open on a
+     * book of about fifty chapters or more.
+     */
+    @Test fun `fifty chapter changes between the completions do not evict the first`() = runBlocking {
+        val snapshot = snapshotOf { database ->
+            val dao = database.audiobookDao()
+            val book = TestDataFactory.dataBooks().first()
+            dao.insertAudiobooks(listOf(book))
+            // First pass.
+            dao.insertPlaybackEvent(
+                PlaybackEventEntity(bookId = book.id, kind = PlaybackEventKind.COMPLETED, timestamp = base)
+            )
+            // Second pass: one chapter change per chapter, as the player writes.
+            repeat(PlaybackEventPolicy.DEFAULT_EVENTS_PER_BOOK_SOURCE) { index ->
+                dao.insertPlaybackEvent(
+                    PlaybackEventEntity(
+                        bookId = book.id,
+                        kind = PlaybackEventKind.CHAPTER_CHANGE,
+                        timestamp = base + (index + 1) * 1_000L
+                    )
+                )
+            }
+            // Second pass finished.
+            dao.insertPlaybackEvent(
+                PlaybackEventEntity(
+                    bookId = book.id,
+                    kind = PlaybackEventKind.COMPLETED,
+                    timestamp = base + 60_000L
+                )
+            )
+            // The app compacts after every write; the bucket is now over the cap.
+            ListeningStateStore(dao).compactPlaybackEvents(book.id, nowMs = base + 60_000L)
+        }
+
+        assertEquals("перша COMPLETED пережила ковпак", 1L, snapshot.booksFinishedTwice)
         assertTrue("«Друге дихання» мусить відкритись", "second_wind" in earnedFrom(snapshot))
     }
 

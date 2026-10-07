@@ -258,11 +258,20 @@ interface AchievementDao {
      * #700 (T2) — «Друге дихання»: books the listener FINISHED a SECOND time.
      *
      * Narrower than the ticket's «завершення після повернення», and on purpose.
-     * Two `COMPLETED` rows on the same book are two listening cycles: the player
-     * writes at most one per cycle and resets its `completionLogged` guard only
-     * when that cycle ENDS — a fresh load, a stop or a cleared session
-     * (`AudioPlayerManager`) — never in the middle of one. A duplicate of the
-     * same completion therefore cannot become the second row.
+     * Two `COMPLETED` rows on the same book are two listening cycles, because
+     * `AudioPlayerManager.loadAndPlayBook` does two things: it allows at most
+     * one completion per cycle (`completionLogged`, reset on a fresh load), and
+     * it sends a start at the very end of a finished book back to chapter 0 /
+     * position 0 as `RELISTEN` instead of a fresh load. The first rule alone
+     * would let a re-load at the tail log a second `COMPLETED`; the relisten
+     * rule is what makes the second row a second full pass.
+     *
+     * The log keeps only [PlaybackEventPolicy.DEFAULT_EVENTS_PER_BOOK_SOURCE]
+     * rows per (book, source), and a second pass fills the bucket with its own
+     * `CHAPTER_CHANGE` rows, so the policy lets the newest
+     * [PlaybackEventPolicy.PROTECTED_COMPLETION_EVENTS] completions outlive that
+     * cap — without it the first row would be evicted by the very relisten that
+     * earns this award.
      *
      * The "`COMPLETED` after `RELISTEN`" reading is deliberately NOT used:
      * «Почати спочатку» writes `RELISTEN` on a book that was never finished, so

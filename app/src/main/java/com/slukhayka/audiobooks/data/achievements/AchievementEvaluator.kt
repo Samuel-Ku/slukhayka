@@ -92,14 +92,20 @@ data class AchievementProgress(
     /** #1166 (T8) — how many different Mondays carried listening. */
     val mondaysListened: Long = 0,
     /**
-     * #700 — books the listener FINISHED A SECOND TIME («Друге дихання»).
+     * #700 (T2) — books the listener FINISHED A SECOND TIME («Друге дихання»).
      *
      * Two `COMPLETED` events on the same book, i.e. two separate listening
-     * cycles. This is NARROWER than the ticket's «завершення після повернення»:
-     * a book abandoned halfway and finished later is an ordinary first
-     * completion, and nothing recorded tells the two apart. The `RELISTEN`
-     * pairing is not used either — «Почати спочатку» on an unfinished book
-     * writes `RELISTEN` with no completion before it.
+     * cycles: the player logs one completion per cycle, and a fresh load at the
+     * very end of a finished book goes through the relisten rule (back to
+     * chapter 0, `RELISTEN`) rather than logging a second completion
+     * (`AudioPlayerManager.loadAndPlayBook`). The log's cap keeps the newest two
+     * completions for the same reason (`PlaybackEventPolicy`).
+     *
+     * This is NARROWER than the ticket's «завершення після повернення»: a book
+     * abandoned halfway and finished later is an ordinary first completion, and
+     * nothing recorded tells the two apart. The `RELISTEN` pairing is not used
+     * either — «Почати спочатку» on an unfinished book writes `RELISTEN` with no
+     * completion before it.
      */
     val booksFinishedTwice: Long = 0,
     val verifiedListeningMillis: Long = 0,

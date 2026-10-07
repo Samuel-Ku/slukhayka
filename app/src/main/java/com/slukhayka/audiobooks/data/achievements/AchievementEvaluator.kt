@@ -108,6 +108,21 @@ data class AchievementProgress(
      * completion before it.
      */
     val booksFinishedTwice: Long = 0,
+    /**
+     * #701 — «П'ять поспіль»: the longest run of consecutive completions (in
+     * time) whose Works belong to ONE series, counted in DISTINCT books.
+     *
+     * A completion with no named series BREAKS the run — it happened between
+     * volumes, so they are not «підряд» (ADR-0014) — and a relisten of one book
+     * never adds a tome to it (see `SeriesRun`).
+     */
+    val longestSeriesRun: Long = 0,
+    /**
+     * #701 — «Англомовний старт»: books with a recorded start whose rendition
+     * really claims English — a BCP-47 `en` after `LanguageCode.normalize`,
+     * never a guessed language.
+     */
+    val englishStartBooks: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -122,7 +137,8 @@ enum class AchievementMetric {
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
     DISTINCT_GENRES, MAX_GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
     VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS, BOOKS_FINISHED_TWICE,
-    BEST_DAY_MILLIS, LONGEST_DAY_STREAK, BEST_MONTH_DAYS, MONDAY_DAYS;
+    LONGEST_SERIES_RUN, ENGLISH_STARTS, BEST_DAY_MILLIS, LONGEST_DAY_STREAK,
+    BEST_MONTH_DAYS, MONDAY_DAYS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -157,6 +173,8 @@ enum class AchievementMetric {
         BEST_MONTH_DAYS -> snapshot.bestMonthDays
         MONDAY_DAYS -> snapshot.mondaysListened
         BOOKS_FINISHED_TWICE -> snapshot.booksFinishedTwice
+        LONGEST_SERIES_RUN -> snapshot.longestSeriesRun
+        ENGLISH_STARTS -> snapshot.englishStartBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -255,6 +273,20 @@ object AchievementCatalog {
         // `target.fromGlobalSearch`), so this rewards the mechanism rather than
         // any import that happens to follow a search.
         AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1),
+        // #701 — «П'ять поспіль» (spec story 35): five consecutive completions
+        // that belong to Works of ONE series. Read LITERALLY as a run in time,
+        // never as «томи за порядком номерів» — `works.seriesIndex` exists, but
+        // it is INCOMPLETE and unproven (a source may leave it empty), so
+        // ordering by it would be a guess (ADR-0014). A completion with no
+        // series breaks the run, and a relisten of one book adds no tome; see
+        // `SeriesRun`.
+        AchievementDefinition("five_in_a_row", "series", 1, AchievementMetric.LONGEST_SERIES_RUN, 5),
+        // #701 — «Англомовний старт»: a book the listener STARTED whose
+        // rendition really claims English. The ticket names the award but sets
+        // no threshold, and the spec does not mention it at all, so the
+        // smallest honest one — the FIRST English start — is pinned by a test;
+        // a later change must then be a decision rather than drift.
+        AchievementDefinition("english_start", "languages", 3, AchievementMetric.ENGLISH_STARTS, 1),
         // #702 (T4) — BREADTH and DEPTH of taste. Both rest on real genre
         // claims only: a Work nobody claimed a genre for is absent from
         // `genreCounts`, so it can neither widen nor deepen anything.

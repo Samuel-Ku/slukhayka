@@ -97,12 +97,22 @@ class RoomAchievementProgressSource(
     private val countersWithShape = combine(withAges, dao.observeLateCompletions()) { base, late ->
         base.copy(lateCompletions = late)
     }
+    // #701 — the two awards the ticket's own tail added on top of the merged T3
+    // slices: the series RUN (five in a row) and the English start. Each is one
+    // more field on the growing copy, exactly like every step above.
+    private val withSeriesRun = combine(countersWithShape, dao.observeSeriesCompletions()) {
+            base, completions ->
+        base.copy(longestSeriesRun = SeriesRun.longest(completions))
+    }
+    private val withEnglishStart = combine(withSeriesRun, dao.observeStartLanguages()) { base, claims ->
+        base.copy(englishStartBooks = EnglishStart.count(claims))
+    }
     // #1166 (T8) — the day sequence behind the regularity awards. The rows are
     // mapped once here, so the arithmetic itself stays pure (`ListeningRhythm`).
     private val rhythmDays = dao.observeListeningDays()
         .map { rows -> rows.mapNotNull(::listeningDay) }
         .distinctUntilChanged()
-    private val withRhythm = combine(countersWithShape, rhythmDays) { base, days ->
+    private val withRhythm = combine(withEnglishStart, rhythmDays) { base, days ->
         base.copy(
             bestDayMillis = ListeningRhythm.bestDayMillis(days),
             longestDayStreak = ListeningRhythm.longestStreak(days).toLong(),

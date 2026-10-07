@@ -692,6 +692,8 @@
     <string name="achievement_omnivore_12">Omnivore</string>
     <string name="achievement_mono_genre_25">Single-genre devotee</string>
     <string name="achievement_deep_search">Deep search</string>
+    <string name="achievement_five_in_a_row">Five in a row</string>
+    <string name="achievement_english_start">English start</string>
     <string name="achievement_night_watch">Night watch</string>
     <string name="achievement_owl_and_lark">Owl and lark</string>
     <string name="achievement_holiday">Holiday</string>

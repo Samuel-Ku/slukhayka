@@ -71,7 +71,10 @@ PR #1145 — у складі нового main через `c7d80130`), який 
    ганяє `scripts/check-migration-slot.sh origin/<base> HEAD`. Правила: спільний
    номер файлу схеми з іншим вмістом; верх гілки не вищий за верх base, коли
    гілка змінює БД; дірка в ланцюжку схем; `version =` у AudiobookDatabase.kt
-   не дорівнює верхньому файлу. Локально: `scripts/check-migration-slot.sh origin/main`.
+   не дорівнює верхньому файлу; об'єкт MIGRATION_(N-1)_N присутній і останній
+   у сирому списку `.addMigrations(...)` (крок 3); data-only копія: тіло N.json
+   тотожне верхньому M.json base без полів version/identityHash, а identityHash
+   збігається (крок 6). Локально: `scripts/check-migration-slot.sh origin/main`.
 3. `grep -n "MIGRATION_" app/src/main/java/com/slukhayka/audiobooks/data/db/AudiobookDatabase.kt` —
    ваш об'єкт мусить вести від НОВОЇ верхньої версії main (`N`) до `N+1`
    і бути останнім у сирому списку `.addMigrations(...)`.

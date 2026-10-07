@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Крок 2 чек-листа docs/plans/2026-10-06-migration-renumber-rebase.md:
-# слот верхньої міграційної версії БД має бути вільним. Скрипт падає, якщо:
+# Кроки 2, 3 і 6 чек-листа docs/plans/2026-10-06-migration-renumber-rebase.md.
+# Скрипт падає, якщо:
 #
 #   1) однаковий номер файлу схеми існує і в base, і в гілці, але з РІЗНИМ
 #      вмістом — хтось (upstream чи ви) уже зайняв цей слот іншою схемою;
@@ -9,7 +9,12 @@
 #      верхню в base — після ребейзу свій номер треба підняти на base+1;
 #   3) у ланцюжку схем гілки дірка або `version =` у AudiobookDatabase.kt
 #      не збігається з верхнім файлом схеми — наслідок невдалого
-#      перепродування номера.
+#      перепродування номера;
+#   4) (крок 3) об'єкт MIGRATION_(N-1)_N відсутній або не останній у сирому
+#      списку .addMigrations(...) AudiobookDatabase.kt;
+#   5) (крок 6) якщо міграція data-only: вміст N.json гілки (без полів
+#      version/identityHash — вони змінюються легально) не тотожній верхньому
+#      M.json base, або identityHash розійшовся.
 #
 # Перевірка 1 — саме та, що ловить «upstream зайняв 51→52, поки зріз чекав»
 # (#702: два різні 52.json зіткнулись лише після ребейзу).
@@ -88,5 +93,59 @@ if [ "$V" != "$MAX" ]; then
   fail "у '$HEAD_REF' version = ${V:-—} у $DB_FILE, а верхній файл схеми — $MAX.json: нумерація розійшлась."
 fi
 
+# --- 4) (крок 3) MIGRATION_(N-1)_N присутній і останній у сирому списку -------
+if $DB_CHANGED && [ -n "$B_TOP" ] && [ "$B_TOP" -gt "$M_TOP" ]; then
+  OBJ="MIGRATION_$((B_TOP - 1))_$B_TOP"
+  RAW_ARGS=$(git show "$HEAD_REF:$DB_FILE" | tr '\n' ' ' \
+    | grep -Eo 'addMigrations\([^)]*' | head -1)
+  [ -n "$RAW_ARGS" ] \
+    || fail "у $DB_FILE гілки '$HEAD_REF' не знайдено сирого списку .addMigrations(...) — перевірте структуру."
+  ARGS=$(printf '%s' "$RAW_ARGS" | sed 's|//.*||g')
+  printf '%s' "$ARGS" | grep -q "$OBJ" \
+    || fail "об'єкт $OBJ не знайдено в списку .addMigrations(...) у $DB_FILE: після перепродування він мусить вести від $((B_TOP - 1)) до $B_TOP (крок 3 і 5 чек-листа)."
+  LAST=$(printf '%s' "$ARGS" | grep -Eo 'MIGRATION_[0-9]+_[0-9]+' | tail -1)
+  [ "$LAST" = "$OBJ" ] \
+    || fail "останній у сирому списку .addMigrations(...) — $LAST, а очікується $OBJ: ваша міграція не остання у списку (крок 3: «останнім у сирому списку»)."
+fi
+
+# --- 5) (крок 6) data-only: тіло N.json = тіло верхнього M.json base ----------
+# version/identityHash усередині JSON змінюються легально (крок 6 плану), тому
+# порівнюємо тіло без них, а identityHash — окремо: тотожні схеми мають той
+# самий хеш, ручна правка хеша при однаковому тілі — теж помилка.
+if $DB_CHANGED && [ -n "$B_TOP" ] && [ "$B_TOP" -gt "$M_TOP" ]; then
+  N_FILE="$SCHEMA_DIR/$B_TOP.json"
+  M_FILE="$SCHEMA_DIR/$M_TOP.json"
+  VERDICT=$(python3 - <(git show "$HEAD_REF:$N_FILE") <(git show "$BASE:$M_FILE") <<'PY'
+import json, sys
+
+def load(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+head, base = load(sys.argv[1]), load(sys.argv[2])
+hd, bd = head["database"], base["database"]
+hh, bh = hd.get("identityHash"), bd.get("identityHash")
+for d in (hd, bd):
+    d.pop("version", None)
+    d.pop("identityHash", None)
+if json.dumps(head, sort_keys=True) != json.dumps(base, sort_keys=True):
+    print("BODY")
+elif hh and bh and hh != bh:
+    print("HASH")
+else:
+    print("OK")
+PY
+)
+  case "$VERDICT" in
+    BODY)
+      fail "застаріла копія: $B_TOP.json гілки '$HEAD_REF' має ІНШИЙ вміст (без полів version/identityHash), ніж верхній $M_TOP.json у '$BASE'. Data-only міграція мусить бути копією нового верхнього файлу схем base — інакше Room бачить схему, яку ніхто не мігрував (крок 6 чек-листа)."
+      ;;
+    HASH)
+      fail "identityHash розійшовся: $B_TOP.json гілки '$HEAD_REF' проти $M_TOP.json у '$BASE' — вміст тотожний, але хеші різні; схему правили руками після копіювання (крок 6 чек-листа)."
+      ;;
+  esac
+fi
+
 echo "OK: слот вільний — base '$BASE' верх $M_TOP, гілка '$HEAD_REF' верх $MAX;"
-echo "спільні версії схем ідентичні, ланцюжок без дірок, version узгоджено."
+echo "спільні версії схем ідентичні, ланцюжок без дірок, version узгоджено;"
+echo "MIGRATION_$((MAX - 1))_$MAX останній у addMigrations; $MAX.json = копія $M_TOP.json base."

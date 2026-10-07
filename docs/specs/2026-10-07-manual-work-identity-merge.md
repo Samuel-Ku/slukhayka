@@ -102,6 +102,12 @@ Work стають aliases. Якщо K належить третьому Work, й
    рядків, fingerprint, стан `APPLIED`/`UNDONE`, час. Журнал приватний,
    зберігається в тій самій Room-базі й транзакції; токени/сесії до нього
    не потрапляють. Поки Undo доступний, before-images не видаляються.
+   Типізований `preservedParticipants` містить усі підтверджені bookId та
+   Edition ID обох Work і прапорець `autoMergeExcluded=true` для кожного.
+   Цей durable consent-захист не виводиться з поточних Work ID, URL,
+   download flags або лише наявності активного redirect. Окремої третьої
+   таблиці для нього не потрібно; читач має індексований lookup усередині
+   того самого носія операцій.
 
 Номер нової схеми визначається тільки після повторної перевірки main й
 паралельних міграцій. D1 не резервує v53 і не додає таблиць у production.
@@ -112,6 +118,39 @@ Redirect — пам'ять ручного рішення цього слухач
 facets, sync, tracked works, tombstone gate, recommendations, book navigation.
 Refresh старого K не створює вдруге donor Work. Старий deep link відкриває C.
 Read-only каталожний alias не означає дозволу імпорту чи зняття tombstone.
+
+### Захист від повторного startup merge
+
+[App.kt](../../app/src/main/java/com/slukhayka/audiobooks/App.kt) на старті
+після scrub викликає `DuplicateWorkMerger.mergeOnce()`. У
+`canAutoMerge` sibling guard спрацьовує тільки коли
+`loserWork != survivorWork`. Після ручного переприв'язування обидва entry
+можуть вказувати на C; однакові narrator/language/source URL/topology і
+відсутність downloads тоді дозволили б видалити одну з двох збережених
+начиток. Redirect чи byte-exact progress самі цього не зупиняють.
+
+Наступна реалізація має **посилити** `canAutoMerge` перевіркою
+`preservedParticipants`. Усередині тієї самої `writeBatchRunner`/Room
+транзакції, після перечитування обох books та Editions і до будь-якого
+перенесення або delete, перевіряються **обидва** bookId та **обидва**
+Edition ID. Будь-який `autoMergeExcluded=true` повертає false. Результат
+кандидатного grouping або кешована перевірка до транзакції не є доказом.
+Manual apply, Undo і автоматичний merge поділяють writer gate; автоматичний
+шлях повторно читає захист після очікування. Усі нинішні narrator/language/
+source/topology/file/sibling guards лишаються; нова перевірка звужує дозвіл
+і не змінює поведінку непричетних доведених remote SEO duplicates.
+
+Захист записується атомарно з manual apply й переживає process death,
+restart, повтор команди та refresh/import replay. Undo відновлює бібліографію
+і redirects, але **не є згодою злити начитки**: `preservedParticipants`
+лишається чинним і для журналу зі станом `UNDONE`. Безпечний відкат не
+дозволяє startup pass одразу видалити щойно відновлений progress.
+До окремого підтвердженого merge Edition захист не знімається й не
+видаляється при очищенні before-images. Якщо після Undo існували раніші
+exclusions, вони лишаються разом із новим захистом цих participants.
+Exception до commit не створює ані domain changes, ані нового protection.
+Зняття protection — окремий consent-контракт майбутньої операції Edition;
+D1 його не дозволяє.
 
 ### Edition resolver після злиття
 
@@ -274,7 +313,8 @@ name repair не випускається. База правил безпеки 
    writer, який не проходить resolver/gate, є release blocker, не best effort.
 4. Зафіксувати before-images; створити C через UPDATE/INSERT, не REPLACE
    існуючого FK parent; переприв'язати бібліографічні залежності;
-   зберегти старі особисті rows, типізовані redirects і chosen conflicts;
+   зберегти старі особисті rows, типізовані redirects, durable
+   `preservedParticipants` exclusions і chosen conflicts;
    перескласти derived projections; видалити donor Work; записати
    after-images й `APPLIED` в тому самому commit. Навмисного network/file
    I/O в транзакції немає. Counts незмінних Edition/Chapter/Source/Track/
@@ -349,6 +389,19 @@ D1 не запускає Gradle й не стверджує придатніст�
   ID який одночасно є bookId і Work.id, corrupted ambiguous/null bindings.
 - Два narrator/language/topology, одна narrator з двома старими Edition,
   completed+relisten, два speed/pause states, chapter reorder + bookmarks.
+- **Manual merge → restart → startup merger** на реальній Room fixture:
+  два різні bookId/Edition ID з однаковими narrator/language, exact source
+  URL, назвами й тривалостями chapters, без paths/hash/downloads, але з
+  двома різними progress і bookmarks. Apply переприв'язує обидва entries
+  до C; database close/reopen, потім реальний `DuplicateWorkMerger.mergeOnce`
+  зі startup transaction seam. Він видаляє 0 цих participants: exact
+  ID-sets і rows `audiobooks`, `library_entries`, `editions`,
+  `playback_progress`, `bookmarks`, `sources`, `source_tracks`, `chapters`
+  лишаються такими самими, як після apply. Повторити після Undo й повторного
+  startup: restored Work rows/redirects відповідають before-images, обидві
+  позиції й захист лишаються. Окремо race: auto grouping до manual commit,
+  auto transaction після commit все одно бачить exclusion. Control fixture
+  непричетних доведених SEO duplicates досі зливається штатно.
 - Real filesystem fixture: PAUSED/partial/stale flags/download hashes,
   two SAF trees, renamed folders, original order/lineage byte-exact;
   active-job race блокує apply. Жоден file operation не виконується merge.
@@ -375,7 +428,9 @@ D1 не запускає Gradle й не стверджує придатніст�
 ## Три рішення власника перед наступним кодом
 
 1. **Правило #968:** прийняти ручний Work-only merge з незмінними
-   Edition/Source/bookId і локальними redirects; кандидат не стає автозгодою.
+   Edition/Source/bookId, локальними redirects і durable participant
+   exclusions від startup merge, чинними також після Undo; кандидат не стає
+   автозгодою.
    Рекомендація — так. Production repair і майбутній merge Edition лишаються
    окремими дорученнями.
 2. **Особисті та shared конфлікти:** прийняти явний вибір несумісних

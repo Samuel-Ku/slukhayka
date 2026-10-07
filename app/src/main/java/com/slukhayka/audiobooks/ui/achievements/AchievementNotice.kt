@@ -42,6 +42,8 @@ private val named = mapOf(
     "omnivore_12" to R.string.achievement_omnivore_12,
     "mono_genre_25" to R.string.achievement_mono_genre_25,
     "deep_search" to R.string.achievement_deep_search,
+    "five_in_a_row" to R.string.achievement_five_in_a_row,
+    "english_start" to R.string.achievement_english_start,
     "night_watch" to R.string.achievement_night_watch,
     "owl_and_lark" to R.string.achievement_owl_and_lark,
     "holiday" to R.string.achievement_holiday,

@@ -78,6 +78,19 @@ data class AchievementProgress(
     val returnsAfterBreak: Long = 0,
     /** #703 (T5) — books finished two years or more after they were opened. */
     val lateCompletions: Long = 0,
+    /** #1166 (T8) — the listener's best single day of verified listening. */
+    val bestDayMillis: Long = 0,
+    /**
+     * #1166 (T8) — longest run of ADJACENT days with listening.
+     *
+     * Adjacency is a property of the DATES, never of the row count: a day
+     * without listening has no row, so counting rows would bridge any silence.
+     */
+    val longestDayStreak: Long = 0,
+    /** #1166 (T8) — most days with listening inside one calendar month. */
+    val bestMonthDays: Long = 0,
+    /** #1166 (T8) — how many different Mondays carried listening. */
+    val mondaysListened: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -91,7 +104,8 @@ enum class AchievementMetric {
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
     DISTINCT_GENRES, MAX_GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
-    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS;
+    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS,
+    BEST_DAY_MILLIS, LONGEST_DAY_STREAK, BEST_MONTH_DAYS, MONDAY_DAYS;
 
     fun value(snapshot: AchievementProgress): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
@@ -121,6 +135,10 @@ enum class AchievementMetric {
         VINTAGE_COMPLETIONS -> snapshot.vintageCompletions
         RETURNS_AFTER_BREAK -> snapshot.returnsAfterBreak
         LATE_COMPLETIONS -> snapshot.lateCompletions
+        BEST_DAY_MILLIS -> snapshot.bestDayMillis
+        LONGEST_DAY_STREAK -> snapshot.longestDayStreak
+        BEST_MONTH_DAYS -> snapshot.bestMonthDays
+        MONDAY_DAYS -> snapshot.mondaysListened
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -238,7 +256,23 @@ object AchievementCatalog {
         // hours, and a second counter would be the same fact twice.
         AchievementDefinition("vintage", "hidden", 1, AchievementMetric.VINTAGE_COMPLETIONS, 1, hidden = true),
         AchievementDefinition("comeback", "hidden", 1, AchievementMetric.RETURNS_AFTER_BREAK, 1, hidden = true),
-        AchievementDefinition("never_too_late", "hidden", 1, AchievementMetric.LATE_COMPLETIONS, 1, hidden = true)
+        AchievementDefinition("never_too_late", "hidden", 1, AchievementMetric.LATE_COMPLETIONS, 1, hidden = true),
+        // #1166 (T8) — the SHAPE of listening across days. These are the spec's
+        // user stories 10–12 and 17, which no earlier ticket picked up.
+        //
+        // The spec names the awards but not the numbers, so the numbers are
+        // pinned by table tests exactly like `bilingual_2`/`polyglot_3`: a later
+        // change has to be a decision, not drift. «День зі слуханням» is one
+        // verified minute (`ListeningRhythm.DAY_MILLIS`) — the old
+        // five-second counter is not proof, so pre-v51 rows cannot open these.
+        //
+        // Every metric here is MONOTONE (best day, longest streak, fullest
+        // month, count of Mondays), so an award can never be taken back by a
+        // quiet week or by a month rolling over.
+        AchievementDefinition("marathon_3h", "regularity", 1, AchievementMetric.BEST_DAY_MILLIS, 3 * 3_600_000L),
+        AchievementDefinition("week_in_earphones", "regularity", 2, AchievementMetric.LONGEST_DAY_STREAK, 7),
+        AchievementDefinition("month_in_earphones", "regularity", 3, AchievementMetric.BEST_MONTH_DAYS, 20),
+        AchievementDefinition("mondays_10", "regularity", 4, AchievementMetric.MONDAY_DAYS, 10)
         // NOTE: «Ювілей години» (the hundredth hour) is deliberately ABSENT. The
         // hour ladder from T1 already has `hours_100` on the SAME metric at the
         // SAME threshold, so adding it would fire two awards — and two notices —

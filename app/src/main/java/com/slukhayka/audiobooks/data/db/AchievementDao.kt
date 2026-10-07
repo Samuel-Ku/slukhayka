@@ -13,6 +13,18 @@ interface AchievementDao {
     fun observeExplicitBooks(): Flow<Long>
     @Query("SELECT COALESCE(SUM(verifiedListenedMillis),0) FROM listening_stats")
     fun observeVerifiedListeningMillis(): Flow<Long>
+
+    /**
+     * #1166 (T8) — every day the listener listened, for the regularity awards.
+     *
+     * Deliberately NOT a `GROUP BY` in SQL: streaks, «fullest month» and
+     * Mondays need a real calendar, and this module keeps date arithmetic in
+     * Kotlin with an injected zone (see the night/holiday awards below). The
+     * table holds one row per listening day and is never pruned, so it stays
+     * small; a day without listening has no row at all.
+     */
+    @Query("SELECT * FROM listening_stats")
+    fun observeListeningDays(): Flow<List<ListeningStatEntity>>
     @Query("SELECT COUNT(*) FROM recommendation_preferences WHERE kind='HIDE_WORK'")
     fun observeNotInterestedChoices(): Flow<Long>
     @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='COMPLETED'")

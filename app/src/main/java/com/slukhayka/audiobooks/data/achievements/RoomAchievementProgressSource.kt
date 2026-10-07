@@ -1,7 +1,9 @@
 package com.slukhayka.audiobooks.data.achievements
 
 import com.slukhayka.audiobooks.data.db.AchievementDao
+import com.slukhayka.audiobooks.data.db.ListeningStatEntity
 import java.io.File
+import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -92,6 +94,28 @@ class RoomAchievementProgressSource(
     private val countersWithShape = combine(withAges, dao.observeLateCompletions()) { base, late ->
         base.copy(lateCompletions = late)
     }
+    // #1166 (T8) — the day sequence behind the regularity awards. The rows are
+    // mapped once here, so the arithmetic itself stays pure (`ListeningRhythm`).
+    private val rhythmDays = dao.observeListeningDays()
+        .map { rows -> rows.mapNotNull(::listeningDay) }
+        .distinctUntilChanged()
+    private val withRhythm = combine(countersWithShape, rhythmDays) { base, days ->
+        base.copy(
+            bestDayMillis = ListeningRhythm.bestDayMillis(days),
+            longestDayStreak = ListeningRhythm.longestStreak(days).toLong(),
+            bestMonthDays = ListeningRhythm.bestMonthDays(days).toLong(),
+            mondaysListened = ListeningRhythm.mondays(days).toLong()
+        )
+    }
+
+    /**
+     * A row whose date cannot be read is not a day we can count, so it is
+     * skipped rather than guessed (ADR-0014). `dateIso` is written as
+     * `yyyy-MM-dd` by the recorder, so this only drops genuinely broken rows.
+     */
+    private fun listeningDay(row: ListeningStatEntity): ListeningRhythm.Day? =
+        runCatching { LocalDate.parse(row.dateIso) }.getOrNull()
+            ?.let { ListeningRhythm.Day(it, row.verifiedListenedMillis) }
 
     private fun hourOf(epochMillis: Long): Int =
         java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId).hour
@@ -113,7 +137,7 @@ class RoomAchievementProgressSource(
     private val topology = combine(downloads, dao.observeKnownSeriesMemberships()) { downloaded, members ->
         downloaded to members.map { AchievementSeriesMembership(it.seriesId, it.workId, it.position) }.toSet()
     }
-    private val aggregates = combine(countersWithShape, topology) { counters, topology ->
+    private val aggregates = combine(withRhythm, topology) { counters, topology ->
         counters.copy(downloadedBooks = topology.first, registeredSourceIds = registeredSourceIds,
             knownSeriesMemberships = topology.second)
     }

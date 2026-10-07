@@ -945,7 +945,7 @@ class SourceCatalog(
         val clean = query.trim()
         if (clean.isBlank()) return SourceSearchOutcome(emptyList(), failed = false)
         var failed = false
-        val direct = try {
+        val direct = if (adapter.supportsSearch) try {
             adapter.search(clean)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -953,8 +953,8 @@ class SourceCatalog(
             failed = true
             Log.w("SourceCatalog", "search source=${adapter.sourceId} endpoint failed=${failure.javaClass.simpleName}")
             emptyList()
-        }
-        val books = if (direct.isNotEmpty()) {
+        } else emptyList()
+        val books = if (adapter.supportsSearch) {
             direct.map { it.effectiveFor(adapter) }
         } else {
             newFeedFor(adapter, onFailure = { failed = true })
@@ -968,7 +968,7 @@ class SourceCatalog(
                 }
         }
         currentCoroutineContext().ensureActive()
-        Log.d("SourceCatalog", "search source=${adapter.sourceId} path=${if (direct.isEmpty()) "feed" else "endpoint"} matches=${books.size} failed=$failed")
+        Log.d("SourceCatalog", "search source=${adapter.sourceId} path=${if (adapter.supportsSearch) "endpoint" else "feed"} matches=${books.size} failed=$failed")
         return SourceSearchOutcome(books, failed)
     }
 

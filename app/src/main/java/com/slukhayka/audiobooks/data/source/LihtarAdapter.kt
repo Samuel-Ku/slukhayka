@@ -47,6 +47,8 @@ class LihtarAdapter(
     /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
     override val contentLanguage = "uk"
 
+    override val supportsSearch: Boolean = false
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {

@@ -52,6 +52,8 @@ class SoundBooksAdapter(
 
     override val sourceId: String = "soundbooks"
 
+    override val supportsSearch: Boolean = false
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {

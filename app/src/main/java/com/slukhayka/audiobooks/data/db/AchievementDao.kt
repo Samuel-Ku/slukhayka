@@ -175,26 +175,28 @@ interface AchievementDao {
     fun observeSeriesInLibrary(): Flow<Long>
 
     /**
-     * #701 — every COMPLETED event whose Work belongs to a NAMED series, as
-     * the (book, time, series) triple a run needs.
+     * #701 — EVERY completion, with the series of its Work whenever the data
+     * can name one: the (book, time, series) triple a run needs.
      *
-     * Two joins and nothing else: `playback_events.bookId` is the Library Entry
-     * id, the Entry points at its Work, and the Work carries `seriesTitle`. A
-     * completion of a book with no Work row (a blank-key local book) therefore
-     * cannot claim a series, and a blank or whitespace-only title is not a
-     * series at all — both are dropped here rather than guessed (ADR-0014).
+     * `playback_events.bookId` is the Library Entry id, the Entry points at its
+     * Work, and the Work carries `seriesTitle`. Both joins are LEFT joins on
+     * purpose: a completion the data cannot tie to a series — no Work row, a
+     * NULL title, an empty one — is NOT dropped from the answer. It is a real
+     * completion that happened between two volumes, so it has to be able to
+     * BREAK a run instead of being invisible to it; a skipped row would let
+     * «Відьмак 1-3 → стороння книга → Відьмак 4-5» pass as five in a row.
+     * `SeriesRun` reads the blank title as that break (ADR-0014).
      *
      * The ORDER is part of the answer: "consecutive in time" is what the award
      * means, so `timestamp, id` fixes it even when several completions share an
-     * instant. Whether the sequence forms a run of ONE series is decided in
-     * Kotlin (`SeriesRun`), where a relisten cannot be mistaken for a new tome.
+     * instant.
      */
     @Query(
         "SELECT e.bookId AS bookId, e.timestamp AS timestamp, w.seriesTitle AS seriesTitle " +
             "FROM playback_events e " +
-            "JOIN library_entries le ON le.id = e.bookId " +
-            "JOIN works w ON w.id = le.workId " +
-            "WHERE e.kind='COMPLETED' AND TRIM(COALESCE(w.seriesTitle, '')) != '' " +
+            "LEFT JOIN library_entries le ON le.id = e.bookId " +
+            "LEFT JOIN works w ON w.id = le.workId " +
+            "WHERE e.kind='COMPLETED' " +
             "ORDER BY e.timestamp, e.id"
     )
     fun observeSeriesCompletions(): Flow<List<com.slukhayka.audiobooks.data.achievements.SeriesCompletion>>
@@ -210,6 +212,10 @@ interface AchievementDao {
      * [com.slukhayka.audiobooks.data.LanguageCode] in Kotlin, because the ONE
      * language vocabulary lives there and a raw source label (`English`) must
      * still resolve to the canonical `en`.
+     *
+     * Only the rendition's OWN claim is read: `edition_facets` is deliberately
+     * not joined, so a language known merely from the shared facet says nothing
+     * here and cannot open the award.
      */
     @Query(
         "SELECT DISTINCT e.bookId AS bookId, ed.language AS language " +

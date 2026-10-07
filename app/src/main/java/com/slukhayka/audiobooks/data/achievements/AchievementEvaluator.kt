@@ -112,9 +112,9 @@ data class AchievementProgress(
      * #701 — «П'ять поспіль»: the longest run of consecutive completions (in
      * time) whose Works belong to ONE series, counted in DISTINCT books.
      *
-     * Zero when no completion carries a named series: a series the data cannot
-     * name is not a series (ADR-0014), and a relisten of one book never adds a
-     * tome to the run (see `SeriesRun`).
+     * A completion with no named series BREAKS the run — it happened between
+     * volumes, so they are not «підряд» (ADR-0014) — and a relisten of one book
+     * never adds a tome to it (see `SeriesRun`).
      */
     val longestSeriesRun: Long = 0,
     /**
@@ -275,10 +275,11 @@ object AchievementCatalog {
         AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1),
         // #701 — «П'ять поспіль» (spec story 35): five consecutive completions
         // that belong to Works of ONE series. Read LITERALLY as a run in time,
-        // never as «томи за порядком номерів» — the order of volumes would need
-        // the series SIZE, and the database has none (`series_members` is
-        // written only for a Work someone opened). A relisten of one book does
-        // not add a tome; see `SeriesRun`.
+        // never as «томи за порядком номерів» — `works.seriesIndex` exists, but
+        // it is INCOMPLETE and unproven (a source may leave it empty), so
+        // ordering by it would be a guess (ADR-0014). A completion with no
+        // series breaks the run, and a relisten of one book adds no tome; see
+        // `SeriesRun`.
         AchievementDefinition("five_in_a_row", "series", 1, AchievementMetric.LONGEST_SERIES_RUN, 5),
         // #701 — «Англомовний старт»: a book the listener STARTED whose
         // rendition really claims English. The ticket names the award but sets

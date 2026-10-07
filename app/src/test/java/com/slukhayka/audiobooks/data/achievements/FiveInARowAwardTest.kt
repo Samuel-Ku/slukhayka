@@ -207,7 +207,8 @@ class FiveInARowAwardTest {
     /**
      * The series comes from the Work, and the Work comes from the Library
      * Entry. A completion of a book with no Work row (a blank-key local book)
-     * carries no series claim at all, so it can neither extend nor break a run.
+     * names no series and counts for nothing itself; being last, it breaks
+     * nothing after it either.
      */
     @Test
     fun `a completion without a Work row contributes no series`() = withDatabase { database ->
@@ -222,6 +223,54 @@ class FiveInARowAwardTest {
         assertEquals("без рядка works серії не існує", 4L, snapshot(database).longestSeriesRun)
         assertFalse(
             "нагорода не має відкриватись на чотирьох творах",
+            "five_in_a_row" in earned(database)
+        )
+    }
+
+    /**
+     * S1 (#1171) — a completion with NO series is a BREAK, not a skipped row.
+     *
+     * «Відьмак 1-3 → стороння книга → Відьмак 4-5» is six completions, but not
+     * five volumes of one series «підряд»: the listener left the series for
+     * another book in between. The query therefore keeps every completion
+     * (LEFT joins), and `SeriesRun` resets on an unnamed one instead of letting
+     * the three and the two join up into a run of five.
+     */
+    @Test
+    fun `a completion with no series breaks the run`() = withDatabase { database ->
+        val books = libraryBooks(database, 6)
+        // Three volumes of «Відьмак», a foreign book with NO Work at all, then
+        // two more volumes of «Відьмак» — in that order in time.
+        listOf(0, 1, 2, 4, 5).forEach { index -> series(database, books[index], "Відьмак") }
+        (0 until 6).forEach { index -> completed(database, books[index], base + index) }
+
+        assertEquals(
+            "завершення без серії розриває пробіг — лишається три",
+            3L, snapshot(database).longestSeriesRun
+        )
+        assertFalse(
+            "нагорода не має відкриватись через розрив безсерійною книгою",
+            "five_in_a_row" in earned(database)
+        )
+    }
+
+    /**
+     * A trailing space is a typo in a claim, not another series: «Відьмак»,
+     * «Відьмак » and « Відьмак» are one run. The CASE is deliberately not
+     * folded — that would be a different decision.
+     */
+    @Test
+    fun `a trailing space in the title does not break the run`() = withDatabase { database ->
+        val books = libraryBooks(database, 5)
+        listOf("Відьмак", "Відьмак ", "Відьмак", " Відьмак", "Відьмак")
+            .forEachIndexed { index, title ->
+                series(database, books[index], title)
+                completed(database, books[index], base + index)
+            }
+
+        assertEquals("пробіл у назві — та сама серія", 5L, snapshot(database).longestSeriesRun)
+        assertTrue(
+            "«П'ять поспіль» мусить відкритись на одній серії з пробілом у назві",
             "five_in_a_row" in earned(database)
         )
     }

@@ -60,10 +60,12 @@ class EnglishStartAwardTest {
     }
 
     /** The rendition with the language claim; `workId` is the Library Entry id. */
-    private suspend fun rendition(database: AudiobookDatabase, bookId: String, language: String) {
+    private suspend fun rendition(database: AudiobookDatabase, bookId: String, language: String): String {
+        val id = "edition-$bookId-$language"
         database.audiobookDao().insertEdition(
-            EditionEntity(id = "edition-$bookId-$language", workId = bookId, language = language)
+            EditionEntity(id = id, workId = bookId, language = language)
         )
+        return id
     }
 
     private suspend fun event(
@@ -205,5 +207,56 @@ class EnglishStartAwardTest {
             2L, snapshot(database).englishStartBooks
         )
         assertTrue("нагорода мусить відкритись", "english_start" in earned(database))
+    }
+
+    /**
+     * The published decision this test keeps a DECISION: the unit is the BOOK.
+     *
+     * `playback_events` carries no `editionId`, so a start cannot be attributed
+     * to one rendition — a book that has BOTH a Ukrainian and an English
+     * rendition counts as an English start once the listener started it. A
+     * future change of that rule (say, «only a purely English book») has to
+     * change this test first.
+     */
+    @Test
+    fun `a book with both Ukrainian and English renditions counts once`() = withDatabase { database ->
+        val book = libraryBooks(database, 1).single()
+        rendition(database, book, "uk")
+        rendition(database, book, "en")
+        started(database, book, base)
+
+        assertEquals("книга, а не начитка", 1L, snapshot(database).englishStartBooks)
+        assertTrue(
+            "«Англомовний старт» мусить відкритись на книзі з англійською начиткою",
+            "english_start" in earned(database)
+        )
+    }
+
+    /**
+     * Only the rendition's OWN claim is read (`editions.language`), never the
+     * shared `edition_facets`: here the facet knows English while the Edition
+     * itself says nothing, and that must NOT open the award. The limitation is
+     * documented in `EnglishStart` and pinned here so it stays visible.
+     */
+    @Test
+    fun `a language known only from a shared facet does not count`() = withDatabase { database ->
+        val book = libraryBooks(database, 1).single()
+        val editionId = rendition(database, book, "")
+        database.audiobookDao().mergeEditionFacet(
+            editionId = editionId, workId = book, narratorId = null, language = "en",
+            durationSeconds = null, durationBucketId = null, chapterCount = null,
+            isAbridged = null, availabilityAvailable = null, availabilityObservedAtMillis = null,
+            availabilityTtlSeconds = null, updatedAt = base
+        )
+        started(database, book, base)
+
+        assertEquals(
+            "фасет — не заява начитки",
+            0L, snapshot(database).englishStartBooks
+        )
+        assertFalse(
+            "нагорода не має відкриватись на мові зі спільного фасета",
+            "english_start" in earned(database)
+        )
     }
 }

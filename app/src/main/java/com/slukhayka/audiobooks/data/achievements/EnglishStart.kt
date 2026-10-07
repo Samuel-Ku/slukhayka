@@ -16,8 +16,14 @@ data class BookLanguageClaim(val bookId: String, val language: String)
  * lands on the canonical BCP-47 code, while a claim nobody can map (`Klingon`,
  * blank) stays UNKNOWN and counts for nothing (ADR-0014).
  *
- * The unit is the BOOK, not the Edition: a book whose two renditions both
- * claim English is still one English start.
+ * The unit is the BOOK, not the Edition: `playback_events` carries no
+ * `editionId`, so a start cannot be attributed to one rendition — a book with
+ * both a Ukrainian and an English rendition counts once, and that is the
+ * published decision rather than an inference from this query's shape.
+ *
+ * Only the rendition's OWN claim is read (`editions.language`), never the
+ * shared `edition_facets`: a language known merely from a common facet does not
+ * open the award.
  */
 object EnglishStart {
     fun count(claims: List<BookLanguageClaim>): Long =

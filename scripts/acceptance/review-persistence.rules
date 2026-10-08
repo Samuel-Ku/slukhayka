@@ -1,0 +1,11 @@
+rules_version = '2';
+// Isolated demo-project fixture. Tests SDK persistence, not production security.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /book_reviews/{document} {
+      allow read: if true;
+      allow create, update: if request.resource.data.uid != 'qa-rejected';
+      allow delete: if true;
+    }
+  }
+}

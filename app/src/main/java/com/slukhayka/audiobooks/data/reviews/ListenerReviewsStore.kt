@@ -33,6 +33,15 @@ sealed interface ReviewDeleteReceipt {
  */
 sealed interface ReviewReadResult {
     data class Data(val reviews: List<ListenerReview>) : ReviewReadResult
+    /** SDK persistence keeps confirmed votes apart from the current listener's queued overlay. */
+    data class Snapshot(
+        val confirmed: List<ListenerReview>,
+        val pending: List<ListenerReview>,
+        val deleting: Set<String> = emptySet(),
+        val fromCache: Boolean,
+        val authoritative: Boolean = false,
+        val readFailed: Boolean = false
+    ) : ReviewReadResult
     data object Empty : ReviewReadResult
     data object Failure : ReviewReadResult
 }
@@ -111,6 +120,15 @@ interface ListenerReviewsStore {
         val reviews = decode(documents)
         return if (reviews.isEmpty()) ReviewReadResult.Empty else ReviewReadResult.Data(reviews)
     }
+
+    /** Metadata-aware read; transports without a durable queue retain their existing contract. */
+    suspend fun readReviews(workId: String, uid: String): ReviewReadResult = readReviews(workId)
+
+    /** Waits for the existing durable SDK queue; unsupported transports never claim readiness. */
+    suspend fun awaitPendingWrites(): Boolean = false
+
+    /** Authoritative read only; an unsupported transport must not substitute cached truth. */
+    suspend fun readServerReviews(workId: String, uid: String): ReviewReadResult = ReviewReadResult.Failure
 
     /**
      * Enqueues one idempotent review write without waiting for the backend.

@@ -4963,7 +4963,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // there now; MainViewModel only composes it with the local mute list and
     // feeds the screens.
     private val listenerReviewLifecycle =
-        com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(listenerReviews,
+        com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(listenerReviews, scope = viewModelScope,
             onAccepted = { App.instance.recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.REVIEW_ACCEPTED) })
 
     /** Optimistically submitted reviews not yet confirmed online (#280). */

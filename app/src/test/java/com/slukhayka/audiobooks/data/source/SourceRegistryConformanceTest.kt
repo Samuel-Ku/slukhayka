@@ -4,6 +4,7 @@ import com.slukhayka.audiobooks.data.collections.MiniJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -111,6 +112,23 @@ class SourceRegistryConformanceTest {
     }
 
     @Test
+    fun `a non-string appearance date fails the gate instead of reading as unknown`() {
+        // The carrier is the gate's input, so the row goes through MiniJson
+        // exactly as sources.json does (it hands JSON numbers over as
+        // Double). A broken type must stop the build loudly instead of
+        // masquerading as "nobody recorded the date".
+        @Suppress("UNCHECKED_CAST")
+        val row = MiniJson.parse(
+            """{"id":"new-source","displayName":"Нове джерело","accessMode":"DIRECT","order":20,"appearedOn":20261007}"""
+        ) as Map<String, Any?>
+        val failure = assertThrows(IllegalStateException::class.java) { decodeFacts(row) }
+        assertTrue(
+            "the failure must name the key, was: ${failure.message}",
+            failure.message.orEmpty().contains("appearedOn")
+        )
+    }
+
+    @Test
     fun `4read is the one scam source - the carrier and the registry agree`() {
         assertEquals(setOf("4read"), decoded.filter { it.scam }.map { it.id }.toSet())
         assertEquals(setOf("4read"), SourceRegistry.scamIds())
@@ -185,8 +203,14 @@ class SourceRegistryConformanceTest {
         homeUrl = raw.string("homeUrl"),
         contentLanguage = raw.string("contentLanguage"),
         // #1175 — the carrier's empty string (and an absent key) mean
-        // "nobody recorded the date"; anything else must be a real ISO date.
-        appearedOn = raw.string("appearedOn").takeIf(String::isNotBlank)?.let(LocalDate::parse),
+        // "nobody recorded the date"; anything else must be a real ISO date,
+        // and a non-string type is a broken carrier that must fail the gate
+        // rather than quietly read as "unknown".
+        appearedOn = when (val declared = raw["appearedOn"]) {
+            null -> null
+            is String -> declared.takeIf(String::isNotBlank)?.let(LocalDate::parse)
+            else -> error("sources.json: \"appearedOn\" must be a string")
+        },
         accessMode = SourceAccessMode.valueOf(raw.requireString("accessMode")),
         order = raw.int("order"),
         streamOnly = raw.bool("streamOnly"),

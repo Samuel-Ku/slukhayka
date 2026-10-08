@@ -66,18 +66,18 @@ _Avoid_: requestClass/cacheTtl у викликача, per-feature ритм-по�
 
 
 **Source Registry**:
-Одна декларативна таблиця статичних фактів кожного Source — стабільний id,
-назва, домашня URL, content language, режим доступу (Source Access Mode),
-внутрішній порядок усередині tier, stream-only, header-правила з
-host-скоупінгом, door-шаблони, hosts транспорту, браузерні факти профілю
-відновлення і дата появи джерела (`appearedOn`, ISO-дата; порожня там, де її
-ніхто не записав — не вигадуємо). Носій — один `sources.json` на рівні
-репо: web-воркер імпортує
-його напряму, Android тримає типовий `SourceRegistry`-читач, припінаний
-JVM conformance-тестом проти того самого файлу — паритет платформ
-будується, а не коментується. Browser Recovery Profiles лишаються
-декларованими per-source (ADR-0036) і читаються з того самого носія. Правило
-порядку (LOCAL < DIRECT < UNKNOWN < BROWSER) — це код у `SourceAccessPolicy`;
+Одна декларативна таблиця статичних фактів кожного Source — стабільний
+id, назва, домашня URL, content language, режим доступу (Source Access
+Mode), внутрішній порядок усередині tier, stream-only, header-правила
+з host-скоупінгом, door-шаблони, hosts транспорту, браузерні факти
+профілю відновлення і дата появи джерела (`appearedOn`, ISO-дата;
+порожня там, де її ніхто не записав — не вигадуємо). Носій — один
+`sources.json` на рівні репо: web-воркер імпортує його напряму,
+Android тримає типовий `SourceRegistry`-читач, припінаний JVM
+conformance-тестом проти того самого файлу — паритет платформ будується,
+а не коментується. Browser Recovery Profiles лишаються декларованими
+per-source (ADR-0036) і читаються з того самого носія. Правило порядку
+(LOCAL < DIRECT < UNKNOWN < BROWSER) — це код у `SourceAccessPolicy`;
 дані (tier і порядок) — реєстр. Персистовані `source`-рядки свідомо
 tримають plain-string id: реєстр — це ідентичність, не сховище.
 _Avoid_: факти джерела в політиках (SourceAccessPolicy/DownloadPolicy/GlobalSearch),

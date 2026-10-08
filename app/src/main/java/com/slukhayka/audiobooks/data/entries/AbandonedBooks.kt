@@ -2,8 +2,10 @@ package com.slukhayka.audiobooks.data.entries
 
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
+import com.slukhayka.audiobooks.data.db.ReadthroughEntity
 import com.slukhayka.audiobooks.data.db.ReadthroughMapping
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.listening.bookProgress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -14,62 +16,95 @@ import kotlinx.coroutines.flow.map
  * class reads the book's evidence, asks them, and persists the answer. Two
  * honest outcomes, never a silent success: `Changed` or `Refused`.
  *
- * The mark lives on the book's AUDIO Readthrough, and every write goes through
- * [AUDIO_PASS_ID_PREFIX] — the deterministic id the 45->46 backfill used. That
- * is what makes the action an UPSERT: imports that never had a pass gain one,
- * and a repeat call rewrites the same row instead of forking a second pass.
- * The live position is never copied into the row (ADR-0046 §3): the pass
- * carries only its state and the units it already knew.
+ * The mark lives on the book's AUDIO Readthrough, and a pass the mark has to
+ * bring into being is written under [readthroughId] — the deterministic id the
+ * 45->46 backfill used, so a repeat call rewrites the same row instead of
+ * forking a second pass. The live position is never copied into the row
+ * (ADR-0046 §3): the pass carries only its state and the units it already knew.
  */
 class AbandonedBooks(
     private val dao: AudiobookDao,
-    private val listeningState: ListeningStateStore
+    private val listeningState: ListeningStateStore,
+    private val undo: AbandonUndo
 ) {
 
     sealed interface Result {
-        /** The pass now carries [state] — ABANDONED, or the restored one. */
-        data class Changed(val state: ReadingState) : Result
+        /**
+         * The pass now carries [state] — or NO pass at all ([state] is null)
+         * when the cancel removed the one the mark itself had created.
+         * [passCreated] is true only for the mark that brought a new pass into
+         * being.
+         */
+        data class Changed(val state: ReadingState?, val passCreated: Boolean = false) : Result
 
         data class Refused(val reason: String) : Result
     }
 
     /**
      * Marks the book abandoned: only a book with real progress (a Listening
-     * State row) that is not finished may be marked. The pass is created when
-     * the book never had one.
+     * State row) that is not finished may be marked — by the SAME completion
+     * rule the library card and the book page use, never by a weaker local one.
+     * The pass is created when the book never had one, and the note of what the
+     * mark took away is left for the cancel.
      */
     suspend fun abandon(bookId: String): Result {
         val entry = dao.libraryEntryById(bookId) ?: return Result.Refused(REASON_UNKNOWN_BOOK)
         val progress = listeningState.getProgressSync(bookId)
             ?: return Result.Refused(REASON_NO_PROGRESS)
-        if (progress.isCompleted) return Result.Refused(REASON_FINISHED)
+        val progressFacts = bookProgress(
+            chapters = dao.getChaptersListForBook(bookId),
+            progress = progress,
+            bookTotalDurationSeconds = dao.getAudiobookById(bookId)?.totalDurationSeconds ?: 0L
+        )
+        if (progressFacts.isFinished) return Result.Refused(REASON_FINISHED)
 
-        val stored = storedPass(bookId)
+        val stored = openPass(bookId)
         if (stored is StoredPass.Unreadable) return Result.Refused(REASON_UNREADABLE_PASS)
-        val pass = (stored as? StoredPass.Found)?.pass ?: run {
-            val editionId = listeningState.editionIdFor(bookId)
-                ?: return Result.Refused(REASON_UNKNOWN_BOOK)
-            freshPass(bookId, entry, editionId)
-        }
+        if (stored is StoredPass.Finished) return Result.Refused(REASON_FINISHED)
+        val existing = (stored as? StoredPass.Found)?.pass
+
+        val pass = existing ?: freshPass(bookId, entry) ?: return Result.Refused(REASON_NO_MOMENT)
+        val alreadyMarked = pass.state == ReadingState.ABANDONED
         val marked = ReadthroughPolicy.abandon(pass) ?: return Result.Refused(REASON_FINISHED)
+        // The note goes FIRST: a process death between the two writes then
+        // leaves a note without a mark (harmless, overwritten by the next one)
+        // instead of a mark whose undo would have to guess. A repeat mark must
+        // not overwrite the note of the FIRST one — that note still describes
+        // what the pass was before any mark.
+        if (!alreadyMarked) {
+            undo.remember(
+                bookId,
+                AbandonUndo.BeforeMark(existed = existing != null, state = existing?.state)
+            )
+        }
         persist(marked)
-        return Result.Changed(marked.state)
+        return Result.Changed(marked.state, passCreated = existing == null)
     }
 
     /**
-     * Takes the mark back. The pass returns to the state its evidence proves —
-     * IN_PROGRESS while a Listening State row exists, PLANNED otherwise — so a
-     * cancelled abandon leaves the book exactly as it was (the position was
-     * never touched).
+     * Takes the mark back. A pass the mark itself created leaves with it — the
+     * book is exactly as it was, with no phantom readthrough on «Мій рік». A
+     * pass that existed before returns to the state the note remembers, and
+     * only a note that is gone falls back to the state the evidence proves.
+     * Neither path touches the live position.
      */
     suspend fun cancel(bookId: String): Result {
-        val stored = storedPass(bookId)
+        val stored = abandonedPass(bookId)
         if (stored is StoredPass.Unreadable) return Result.Refused(REASON_UNREADABLE_PASS)
         val pass = (stored as? StoredPass.Found)?.pass
             ?: return Result.Refused(REASON_NOT_ABANDONED)
-        val hasProgress = listeningState.getProgressSync(bookId) != null
-        val restored = ReadthroughPolicy.reopen(pass, hasProgress)
-            ?: return Result.Refused(REASON_NOT_ABANDONED)
+
+        val before = undo.recall(bookId)
+        undo.forget(bookId)
+        if (before != null && !before.existed) {
+            dao.deleteReadthrough(pass.id)
+            return Result.Changed(state = null)
+        }
+        val restored = ReadthroughPolicy.restore(
+            readthrough = pass,
+            previousState = before?.state,
+            hasListeningProgress = listeningState.getProgressSync(bookId) != null
+        ) ?: return Result.Refused(REASON_NOT_ABANDONED)
         persist(restored)
         return Result.Changed(restored.state)
     }
@@ -81,15 +116,41 @@ class AbandonedBooks(
     fun observeAbandonedBookIds(): Flow<Set<String>> =
         dao.observeAbandonedAudioPasses().map { it.toSet() }
 
-    /** The stored pass of this book, told apart from an unreadable one. */
-    private suspend fun storedPass(bookId: String): StoredPass {
-        val row = dao.readthroughById(readthroughId(bookId)) ?: return StoredPass.Missing
+    /**
+     * The book's OPEN audio pass — the one a mark belongs on. The deterministic
+     * [readthroughId] is the CREATION path (it is what the backfill wrote); an
+     * audio pass another writer made under its own id is found here too, so a
+     * mark never shadows it with a second pass. Only history (a FINISHED pass)
+     * is told apart from no pass at all.
+     */
+    private suspend fun openPass(bookId: String): StoredPass {
+        val rows = dao.readthroughsForEntry(bookId).filter { it.format == AUDIO_FORMAT }
+        val deterministicId = readthroughId(bookId)
+        val open = rows.firstOrNull { it.id == deterministicId && it.state != FINISHED_STATE }
+            ?: rows.firstOrNull { it.id != deterministicId && it.state != FINISHED_STATE }
+        if (open == null) {
+            return if (rows.any { it.state == FINISHED_STATE }) StoredPass.Finished else StoredPass.Missing
+        }
+        return decode(open)
+    }
+
+    /** The pass the live mark sits on — the book's ABANDONED audio pass. */
+    private suspend fun abandonedPass(bookId: String): StoredPass {
+        val row = dao.readthroughsForEntry(bookId)
+            .firstOrNull { it.format == AUDIO_FORMAT && it.state == ABANDONED_STATE }
+            ?: return StoredPass.Missing
+        return decode(row)
+    }
+
+    /**
+     * The strict mapping refused the row: rewriting it here would silently
+     * replace a pass the app cannot classify (ADR-0014).
+     */
+    private fun decode(row: ReadthroughEntity): StoredPass {
         val pass = with(ReadthroughMapping) { row.toModelOrNull() }
         return if (pass != null && pass.format == ReadingFormat.AUDIO) {
             StoredPass.Found(pass)
         } else {
-            // The strict mapping refused the row: repairing it here would
-            // silently rewrite a pass the app cannot classify (ADR-0014).
             StoredPass.Unreadable
         }
     }
@@ -99,29 +160,31 @@ class AbandonedBooks(
      * backfill write no Readthrough (the manual add is the other writer). The
      * shape repeats the backfill's: the deterministic id, the ENTRY's own
      * createdAt as the moment the pass began, the Edition the Listening State
-     * names, and ZERO units — 0 stays 0 instead of becoming a made-up date or
-     * an invented second position.
+     * names, and ZERO units — 0 stays 0 instead of becoming an invented second
+     * position. An entry that carries no moment at all is refused rather than
+     * dated by guess (ADR-0014).
      */
-    private fun freshPass(bookId: String, entry: LibraryEntryEntity, editionId: String): Readthrough =
-        Readthrough(
+    private suspend fun freshPass(bookId: String, entry: LibraryEntryEntity): Readthrough? {
+        val editionId = listeningState.editionIdFor(bookId) ?: return null
+        return ReadthroughPolicy.start(
             id = readthroughId(bookId),
             libraryEntryId = bookId,
             workId = entry.workId,
             format = ReadingFormat.AUDIO,
-            state = ReadingState.IN_PROGRESS,
             startedAt = entry.createdAt,
-            editionId = editionId,
-            units = ReadingUnits(ReadingUnit.SECONDS, 0)
+            editionId = editionId
         )
+    }
 
     private suspend fun persist(pass: Readthrough) {
         with(ReadthroughMapping) { dao.upsertReadthrough(pass.toEntity()) }
     }
 
-    /** The three answers a stored-pass lookup has: found, absent, unreadable. */
+    /** What a pass lookup found: a readable pass, nothing, history, or a row the app cannot read. */
     private sealed interface StoredPass {
         data class Found(val pass: Readthrough) : StoredPass
         data object Missing : StoredPass
+        data object Finished : StoredPass
         data object Unreadable : StoredPass
     }
 
@@ -129,16 +192,23 @@ class AbandonedBooks(
         /**
          * The deterministic id of a book's AUDIO pass — `rt-audio-<entryId>`,
          * exactly the `'rt-audio-' || e.id` MIGRATION_45_46 backfilled. One id
-         * per book is what keeps the action an upsert.
+         * per book is what keeps the mark an upsert.
          */
         const val AUDIO_PASS_ID_PREFIX = "rt-audio-"
 
         fun readthroughId(bookId: String): String = AUDIO_PASS_ID_PREFIX + bookId
+
+        private const val AUDIO_FORMAT = "AUDIO"
+        private const val ABANDONED_STATE = "ABANDONED"
+        private const val FINISHED_STATE = "FINISHED"
 
         const val REASON_UNKNOWN_BOOK = "unknown-book"
         const val REASON_NO_PROGRESS = "no-listening-progress"
         const val REASON_FINISHED = "book-finished"
         const val REASON_NOT_ABANDONED = "not-abandoned"
         const val REASON_UNREADABLE_PASS = "unreadable-pass"
+
+        /** The library entry carries no moment to begin the pass with. */
+        const val REASON_NO_MOMENT = "no-moment"
     }
 }

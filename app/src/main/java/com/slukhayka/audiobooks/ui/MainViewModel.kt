@@ -371,14 +371,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun abandonBook(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { App.instance.abandonedBooks.abandon(bookId) }
+            logAbandonRefusal(bookId, runCatching { App.instance.abandonedBooks.abandon(bookId) }.getOrNull())
         }
     }
 
-    /** #1174 — the way back: the book returns to the state BELOW put it there. */
+    /** #1174 — the way back: the book returns to the state the mark took away. */
     fun cancelAbandonBook(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { App.instance.abandonedBooks.cancel(bookId) }
+            logAbandonRefusal(bookId, runCatching { App.instance.abandonedBooks.cancel(bookId) }.getOrNull())
+        }
+    }
+
+    /**
+     * #1174 — the door refuses in silence BY DESIGN (the surfaces state what is
+     * true), so the reason is not thrown at the listener; it still lands in the
+     * log, where a wrong refusal can be told from an unresponsive action.
+     */
+    private fun logAbandonRefusal(
+        bookId: String,
+        result: com.slukhayka.audiobooks.data.entries.AbandonedBooks.Result?
+    ) {
+        if (result is com.slukhayka.audiobooks.data.entries.AbandonedBooks.Result.Refused) {
+            android.util.Log.w("MainViewModel", "abandon action refused for $bookId: ${result.reason}")
         }
     }
 

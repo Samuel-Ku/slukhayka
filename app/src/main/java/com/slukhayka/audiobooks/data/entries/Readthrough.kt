@@ -161,14 +161,25 @@ object ReadthroughPolicy {
     }
 
     /**
-     * #1174 — the listener takes the mark back. The pass returns to the state
-     * its EVIDENCE proves, never to one remembered from before the mark: a
-     * Listening State row means the pass was started, and its absence means the
-     * listener never began (PLANNED) — that is the same rule the backfill used.
+     * #1174 — the listener takes the mark back, and the pass returns to what it
+     * was: [previousState] is the state the pass carried BEFORE the mark
+     * (the undo note the abandon left). Only when that note is gone does the
+     * decision fall back to the evidence — a Listening State row means the pass
+     * was started, its absence means the listener never began (PLANNED), the
+     * same rule the 45->46 backfill used. A pass that carries no mark is
+     * refused; so is a note that names the mark itself or history.
      */
-    fun reopen(readthrough: Readthrough, hasListeningProgress: Boolean): Readthrough? {
+    fun restore(
+        readthrough: Readthrough,
+        previousState: ReadingState?,
+        hasListeningProgress: Boolean
+    ): Readthrough? {
         if (readthrough.state != ReadingState.ABANDONED) return null
-        val restored = if (hasListeningProgress) ReadingState.IN_PROGRESS else ReadingState.PLANNED
+        val remembered = previousState?.takeIf {
+            it != ReadingState.ABANDONED && it != ReadingState.FINISHED
+        }
+        val restored = remembered
+            ?: if (hasListeningProgress) ReadingState.IN_PROGRESS else ReadingState.PLANNED
         return readthrough.copy(state = restored)
     }
 

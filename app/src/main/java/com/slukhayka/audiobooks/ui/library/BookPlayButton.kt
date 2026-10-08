@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.ui.library
 
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.listening.bookProgress
+import com.slukhayka.audiobooks.data.listening.isBookFinished
 
 /**
  * #40 decision 1 — the book page's main button shows the book's state instead
@@ -35,8 +37,13 @@ fun bookPlayState(
 ): BookPlayState = when {
     isPlayingThisBook -> BookPlayState.Playing
     progress == null -> BookPlayState.Unstarted
-    totalDurationSeconds > 0L && cumulativePositionSeconds >= totalDurationSeconds ->
-        BookPlayState.Finished
+    // #1174 — the end-of-book boundary is the shared one, never a local sum:
+    // a label that disagrees with the «Завершені» shelf is a bug either way.
+    isBookFinished(
+        completedManually = false,
+        cumulativePositionSeconds = cumulativePositionSeconds,
+        totalDurationSeconds = totalDurationSeconds
+    ) -> BookPlayState.Finished
     cumulativePositionSeconds > 0L -> BookPlayState.InProgress(cumulativePositionSeconds)
     else -> BookPlayState.Unstarted
 }
@@ -57,11 +64,11 @@ fun bookPlayLabel(state: BookPlayState, formatTime: (Long) -> String): String = 
 }
 
 /**
- * The cumulative position inside the book and the authoritative total — the
- * same rule the library card (spec-16 T4) uses: the site-provided book total
- * is authoritative, unknown chapter durations are spread over the remainder,
- * and a book without a total falls back to the sum of its chapter durations.
- * Returns `(cumulative, total)` — both 0 when there is no progress.
+ * The cumulative position inside the book and the authoritative total, as one
+ * `(cumulative, total)` pair — the UI's face of the shared rule in
+ * [com.slukhayka.audiobooks.data.listening.bookProgress], kept because the book
+ * page's surfaces read the pair. Both are 0 when there is no progress: the
+ * button is «Слухати» and no position exists to show.
  */
 fun bookPositionAndTotal(
     chapters: List<ChapterEntity>,
@@ -69,15 +76,6 @@ fun bookPositionAndTotal(
     bookTotalDurationSeconds: Long
 ): Pair<Long, Long> {
     if (progress == null) return 0L to 0L
-    val durations = effectiveChapterDurations(
-        chapters = chapters,
-        currentChapterIndex = progress.currentChapterIndex,
-        currentChapterDurationMs = 0L,
-        bookTotalDurationSeconds = bookTotalDurationSeconds
-    )
-    val total = bookTotalDurationSeconds.takeIf { it > 0L } ?: durations.sum()
-    val beforeChapter = durations
-        .take(progress.currentChapterIndex.coerceAtLeast(0))
-        .sum()
-    return (beforeChapter + progress.currentPositionSeconds) to total
+    val facts = bookProgress(chapters, progress, bookTotalDurationSeconds)
+    return facts.cumulativePositionSeconds to facts.totalDurationSeconds
 }

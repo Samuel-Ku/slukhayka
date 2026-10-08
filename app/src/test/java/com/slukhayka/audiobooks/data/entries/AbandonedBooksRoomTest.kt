@@ -6,8 +6,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.db.ReadthroughEntity
 import com.slukhayka.audiobooks.data.db.ReadthroughMapping
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
@@ -25,13 +27,20 @@ import org.robolectric.annotation.Config
 
 /**
  * spec-52 US28 / #1174 — the write path of «покинути книгу» against **in-memory
- * Room**, so the action is proved through the real SQL doors: the pass is
- * UPSERTED under the deterministic `rt-audio-<entryId>` id (a repeat call can
- * never fork a second pass), the live position stays in Listening State, and
- * the cancel returns the book to the state its evidence proves.
+ * Room**: the action is proved through the real SQL doors. The mark UPSERTS the
+ * deterministic `rt-audio-<entryId>` pass (a repeat call can never fork a
+ * second one), the live position stays in Listening State, and the cancel puts
+ * the book back EXACTLY as it was — the pass the mark created leaves with it,
+ * and a pass that existed returns to the state the undo note remembers.
  *
- * The two edges (a finished book, a book with no position) are refused here as
- * well — the UI hides the action for them, but the module is the door.
+ * The door's refusals are pinned here too: no position, a finished book (the
+ * flag AND the position at the end — the boundary the library calls
+ * «Завершені»), a pass only history is left of, and a row the strict mapping
+ * cannot read (never overwritten, ADR-0014).
+ *
+ * The undo note is the real `SharedPreferencesAbandonUndo`: its durability is
+ * part of the AC, so one test reads it back through a FRESH `AbandonedBooks`,
+ * exactly as a restart would.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -41,6 +50,7 @@ class AbandonedBooksRoomTest {
     private lateinit var db: AudiobookDatabase
     private lateinit var dao: AudiobookDao
     private lateinit var listening: ListeningStateStore
+    private lateinit var undo: AbandonUndo
     private lateinit var abandonedBooks: AbandonedBooks
 
     @Before
@@ -51,7 +61,9 @@ class AbandonedBooksRoomTest {
             .build()
         dao = db.audiobookDao()
         listening = ListeningStateStore(dao)
-        abandonedBooks = AbandonedBooks(dao, listening)
+        undo = SharedPreferencesAbandonUndo(context)
+        undo.forget(BOOK_ID)
+        abandonedBooks = AbandonedBooks(dao, listening, undo)
     }
 
     @After
@@ -73,8 +85,8 @@ class AbandonedBooksRoomTest {
                     coverDrawableRes = 0,
                     genre = "",
                     sourceUrl = "https://4read.org/1.html",
-                    totalDurationSeconds = 3_600L,
-                    totalChapters = 3
+                    totalDurationSeconds = BOOK_TOTAL_SECONDS,
+                    totalChapters = CHAPTER_DURATIONS.size
                 )
             )
         )
@@ -90,9 +102,21 @@ class AbandonedBooksRoomTest {
                 workId = bookId,
                 narrator = "Диктор",
                 language = "uk",
-                totalChapters = 3,
-                totalDurationSeconds = 3_600L
+                totalChapters = CHAPTER_DURATIONS.size,
+                totalDurationSeconds = BOOK_TOTAL_SECONDS
             )
+        )
+        dao.insertChapters(
+            CHAPTER_DURATIONS.mapIndexed { index, durationSeconds ->
+                ChapterEntity(
+                    id = "ch-$index",
+                    bookId = bookId,
+                    chapterIndex = index,
+                    title = "Розділ ${index + 1}",
+                    durationSeconds = durationSeconds,
+                    editionId = EDITION_ID
+                )
+            }
         )
         assertTrue(
             "an import writes no pass of its own — the action must create one",
@@ -101,18 +125,40 @@ class AbandonedBooksRoomTest {
     }
 
     /** A real listening position, written the way playback writes it. */
-    private suspend fun listen(bookId: String = BOOK_ID, completed: Boolean = false) {
+    private suspend fun listen(
+        chapterIndex: Int = 0,
+        positionSeconds: Long = 120L,
+        completed: Boolean = false
+    ) {
         dao.savePlaybackProgress(
             PlaybackProgressEntity(
                 editionId = EDITION_ID,
-                bookId = bookId,
-                currentChapterIndex = 2,
-                currentPositionSeconds = 120L,
+                bookId = BOOK_ID,
+                currentChapterIndex = chapterIndex,
+                currentPositionSeconds = positionSeconds,
                 lastListenedAt = 1_700_000_000_000L,
                 isCompleted = completed
             )
         )
     }
+
+    private suspend fun seedPass(
+        state: ReadingState,
+        id: String = AbandonedBooks.readthroughId(BOOK_ID)
+    ) {
+        val pass = ReadthroughPolicy.start(
+            id = id,
+            libraryEntryId = BOOK_ID,
+            workId = WORK_ID,
+            format = ReadingFormat.AUDIO,
+            startedAt = 5L,
+            editionId = EDITION_ID,
+            value = 600
+        )!!.copy(state = state)
+        with(ReadthroughMapping) { dao.upsertReadthrough(pass.toEntity()) }
+    }
+
+    private suspend fun onlyPass(): ReadthroughEntity = dao.readthroughsForEntry(BOOK_ID).single()
 
     @Test
     fun `abandon upserts ONE audio pass under the deterministic id`() = runBlocking {
@@ -121,10 +167,8 @@ class AbandonedBooksRoomTest {
 
         val result = abandonedBooks.abandon(BOOK_ID)
 
-        assertEquals(AbandonedBooks.Result.Changed(ReadingState.ABANDONED), result)
-        val rows = dao.readthroughsForEntry(BOOK_ID)
-        assertEquals("exactly one pass", 1, rows.size)
-        val row = rows.single()
+        assertEquals(AbandonedBooks.Result.Changed(ReadingState.ABANDONED, passCreated = true), result)
+        val row = onlyPass()
         assertEquals("rt-audio-$BOOK_ID", row.id)
         assertEquals(AUDIO_FORMAT, row.format)
         assertEquals(ABANDONED_STATE, row.state)
@@ -142,20 +186,90 @@ class AbandonedBooksRoomTest {
     }
 
     @Test
-    fun `the live position stays in Listening State after the mark`() = runBlocking {
+    fun `cancel removes the pass the mark itself created`() = runBlocking {
         seedImportedBook()
         listen()
+        abandonedBooks.abandon(BOOK_ID)
+
+        val result = abandonedBooks.cancel(BOOK_ID)
+
+        assertEquals(
+            "the book is left exactly as it was: no pass at all",
+            AbandonedBooks.Result.Changed(state = null),
+            result
+        )
+        assertTrue(
+            "no phantom readthrough on «Мій рік»",
+            dao.readthroughsForEntry(BOOK_ID).isEmpty()
+        )
+        assertEquals(
+            "and the position was never touched",
+            120L,
+            listening.getProgressSync(BOOK_ID)!!.currentPositionSeconds
+        )
+    }
+
+    @Test
+    fun `cancel restores a pass that was PLANNED before the mark`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.PLANNED)
+        listen()
+
+        abandonedBooks.abandon(BOOK_ID)
+        val result = abandonedBooks.cancel(BOOK_ID)
+
+        assertEquals(AbandonedBooks.Result.Changed(ReadingState.PLANNED), result)
+        assertEquals("exactly as it was, not as the evidence reads", PLANNED_STATE, onlyPass().state)
+    }
+
+    @Test
+    fun `cancel restores an existing pass and keeps its moment and units`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+
+        val result = abandonedBooks.cancel(BOOK_ID)
+
+        assertEquals(AbandonedBooks.Result.Changed(ReadingState.IN_PROGRESS), result)
+        val row = onlyPass()
+        assertEquals(IN_PROGRESS_STATE, row.state)
+        assertEquals("the pass keeps the moment it began", 5L, row.startedAt)
+        assertEquals("and the units it already knew", 600, row.unitValue)
+        assertEquals(120L, listening.getProgressSync(BOOK_ID)!!.currentPositionSeconds)
+    }
+
+    @Test
+    fun `an abandon and its cancel survive a restart - the note is durable`() = runBlocking {
+        seedImportedBook()
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+
+        // A restart: a brand-new module reading the SAME durable note.
+        val afterRestart = AbandonedBooks(dao, listening, SharedPreferencesAbandonUndo(context))
+        val result = afterRestart.cancel(BOOK_ID)
+
+        assertEquals(AbandonedBooks.Result.Changed(state = null), result)
+        assertTrue(dao.readthroughsForEntry(BOOK_ID).isEmpty())
+        assertNull("the consumed note is gone", SharedPreferencesAbandonUndo(context).recall(BOOK_ID))
+    }
+
+    @Test
+    fun `the live position stays in Listening State after the mark`() = runBlocking {
+        seedImportedBook()
+        listen(chapterIndex = 1, positionSeconds = 300L)
 
         abandonedBooks.abandon(BOOK_ID)
 
         val progress = listening.getProgressSync(BOOK_ID)!!
-        assertEquals(2, progress.currentChapterIndex)
-        assertEquals(120L, progress.currentPositionSeconds)
+        assertEquals(1, progress.currentChapterIndex)
+        assertEquals(300L, progress.currentPositionSeconds)
     }
 
     @Test
-    fun `a repeated abandon rewrites the same row instead of forking a pass`() = runBlocking {
+    fun `a repeated abandon rewrites the same row and keeps the first note`() = runBlocking {
         seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
         listen()
 
         abandonedBooks.abandon(BOOK_ID)
@@ -163,38 +277,25 @@ class AbandonedBooksRoomTest {
 
         assertEquals(AbandonedBooks.Result.Changed(ReadingState.ABANDONED), second)
         assertEquals("still exactly one pass", 1, dao.readthroughsForEntry(BOOK_ID).size)
+        assertEquals(
+            "the note still describes the pass BEFORE any mark",
+            AbandonUndo.BeforeMark(existed = true, state = ReadingState.IN_PROGRESS),
+            undo.recall(BOOK_ID)
+        )
     }
 
     @Test
-    fun `an existing pass keeps its own moment, units and journal`() = runBlocking {
+    fun `an existing audio pass under another id is marked instead of shadowed`() = runBlocking {
         seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS, id = FOREIGN_PASS_ID)
         listen()
-        val stored = ReadthroughPolicy.recordProgress(
-            ReadthroughPolicy.start(
-                id = AbandonedBooks.readthroughId(BOOK_ID),
-                libraryEntryId = BOOK_ID,
-                workId = WORK_ID,
-                format = ReadingFormat.AUDIO,
-                startedAt = 5L,
-                editionId = EDITION_ID,
-                value = 600
-            )!!,
-            at = 10L,
-            value = 900
-        )!!
-        with(ReadthroughMapping) { dao.upsertReadthrough(stored.toEntity()) }
 
-        abandonedBooks.abandon(BOOK_ID)
+        val result = abandonedBooks.abandon(BOOK_ID)
 
-        val row = dao.readthroughsForEntry(BOOK_ID).single()
+        assertEquals(AbandonedBooks.Result.Changed(ReadingState.ABANDONED), result)
+        val row = onlyPass()
+        assertEquals("no second pass is forked", FOREIGN_PASS_ID, row.id)
         assertEquals(ABANDONED_STATE, row.state)
-        assertEquals("the pass keeps the moment it began", 5L, row.startedAt)
-        assertEquals("and the units it already knew", 900, row.unitValue)
-        assertEquals("the journal is history, never rewritten", 1, stored.journal.size)
-        assertEquals(
-            with(ReadthroughMapping) { stored.toEntity() }.journalJson,
-            row.journalJson
-        )
     }
 
     @Test
@@ -219,18 +320,59 @@ class AbandonedBooksRoomTest {
     }
 
     @Test
-    fun `cancel returns the pass to IN_PROGRESS and leaves the position alone`() = runBlocking {
+    fun `a book playing its last seconds is refused - the boundary the library uses`() = runBlocking {
+        seedImportedBook()
+        // The last chapter with the position already at the book's end: the
+        // library counts this book «Завершена», so the door must too — even
+        // though the manual flag is still false and playback is running.
+        listen(
+            chapterIndex = CHAPTER_DURATIONS.lastIndex,
+            positionSeconds = CHAPTER_DURATIONS.last(),
+            completed = false
+        )
+
+        val result = abandonedBooks.abandon(BOOK_ID)
+
+        assertEquals(AbandonedBooks.Result.Refused(AbandonedBooks.REASON_FINISHED), result)
+        assertTrue("no mark is written", dao.readthroughsForEntry(BOOK_ID).isEmpty())
+    }
+
+    @Test
+    fun `only a finished pass is left - history is not marked`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.FINISHED)
+        listen()
+
+        val result = abandonedBooks.abandon(BOOK_ID)
+
+        assertEquals(AbandonedBooks.Result.Refused(AbandonedBooks.REASON_FINISHED), result)
+        assertEquals("history is untouched", FINISHED_STATE, onlyPass().state)
+    }
+
+    @Test
+    fun `a pass row the app cannot read is never overwritten`() = runBlocking {
         seedImportedBook()
         listen()
-        abandonedBooks.abandon(BOOK_ID)
+        dao.upsertReadthrough(
+            ReadthroughEntity(
+                id = AbandonedBooks.readthroughId(BOOK_ID),
+                libraryEntryId = BOOK_ID,
+                workId = WORK_ID,
+                format = AUDIO_FORMAT,
+                state = "DROPPED",
+                startedAt = 5L,
+                finishedAt = null,
+                editionId = EDITION_ID,
+                unit = "SECONDS",
+                unitValue = 0,
+                journalJson = "[]"
+            )
+        )
 
-        val result = abandonedBooks.cancel(BOOK_ID)
+        val result = abandonedBooks.abandon(BOOK_ID)
 
-        assertEquals(AbandonedBooks.Result.Changed(ReadingState.IN_PROGRESS), result)
-        val row = dao.readthroughsForEntry(BOOK_ID).single()
-        assertEquals(IN_PROGRESS_STATE, row.state)
-        assertEquals("still one pass, not two", 1, dao.readthroughsForEntry(BOOK_ID).size)
-        assertEquals(120L, listening.getProgressSync(BOOK_ID)!!.currentPositionSeconds)
+        assertEquals(AbandonedBooks.Result.Refused(AbandonedBooks.REASON_UNREADABLE_PASS), result)
+        assertEquals("the unreadable row is left exactly as it was", "DROPPED", onlyPass().state)
     }
 
     @Test
@@ -261,11 +403,18 @@ class AbandonedBooksRoomTest {
         const val BOOK_ID = "entry-1"
         const val WORK_ID = "work-1"
         const val EDITION_ID = "edition-1"
+        const val FOREIGN_PASS_ID = "rt-manual:audio:work-1"
         const val TITLE = "Острів Дума"
         const val AUTHOR = "Тарас Шевченко"
         const val ENTERED_AT = 1_700_000_000_000L
+        const val BOOK_TOTAL_SECONDS = 3_600L
         const val AUDIO_FORMAT = "AUDIO"
         const val ABANDONED_STATE = "ABANDONED"
         const val IN_PROGRESS_STATE = "IN_PROGRESS"
+        const val PLANNED_STATE = "PLANNED"
+        const val FINISHED_STATE = "FINISHED"
+
+        /** Three chapters, 1200 s each, summing exactly to the book total. */
+        val CHAPTER_DURATIONS = listOf(1_200L, 1_200L, 1_200L)
     }
 }

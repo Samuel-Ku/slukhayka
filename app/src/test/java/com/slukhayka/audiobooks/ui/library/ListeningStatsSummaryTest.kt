@@ -11,8 +11,8 @@ import org.junit.Test
  *
  * The card used to count ROWS: `takeWhile { it.listenedSeconds > 0 }` bridged
  * a silence and `take(7)` meant seven rows, not seven days. Every case below
- * is a claim the ticket made, so a later change has to break a named line
- * rather than slip through as drift.
+ * is a claim the ticket (or its review) made, so a later change has to break a
+ * named line rather than slip through as drift.
  */
 class ListeningStatsSummaryTest {
 
@@ -37,6 +37,32 @@ class ListeningStatsSummaryTest {
         assertEquals(2, card(row("2026-10-03"), row("2026-10-04"), row("2026-10-06"), row("2026-10-07")).streakDays)
     }
 
+    @Test fun `the streak is the run ending at the newest day, never the longest one ever`() {
+        // Three days at the start of October, silence, then today. The card
+        // answers «1 дн поспіль» — the run the listener is ON. The regularity
+        // award's `ListeningRhythm.longestStreak` answers 3 for the same rows,
+        // so reusing it here would silently change what the card says; the
+        // assertion below is what goes red when someone tries.
+        val resumed = card(
+            row("2026-10-01"), row("2026-10-02"), row("2026-10-03"), row("2026-10-07")
+        )
+        assertEquals(1, resumed.streakDays)
+        assertEquals(3, ListeningRhythm.longestStreak(
+            listOf("2026-10-01", "2026-10-02", "2026-10-03", "2026-10-07")
+                .map { ListeningRhythm.Day(LocalDate.parse(it), 10 * minute) }
+        ))
+    }
+
+    @Test fun `a row from the future anchors nothing and counts no hours`() {
+        // A device clock that jumped can write tomorrow's row. It is not
+        // history yet: the week window already ends at today, and a streak
+        // must not be anchored to — or lengthened by — a day that has not
+        // happened. Counting it would say «3 дні поспіль» here.
+        val jumped = card(row("2026-10-06"), row("2026-10-07"), row("2026-10-08"))
+        assertEquals(2, jumped.streakDays)
+        assertEquals(2 * 10 * minute, jumped.weekMillis)
+    }
+
     @Test fun `adjacent dates give the full streak, across month and year boundaries`() {
         assertEquals(7, card(*(1..7).map { row("2026-10-0$it") }.toTypedArray()).streakDays)
         // 28-30 September + 1-4 October: a month boundary is not a break.
@@ -44,8 +70,10 @@ class ListeningStatsSummaryTest {
             row("2026-09-28"), row("2026-09-29"), row("2026-09-30"),
             row("2026-10-01"), row("2026-10-02"), row("2026-10-03"), row("2026-10-04")
         ).streakDays)
-        // A year boundary is not a break either.
-        val newYear = (0..6).map { row(LocalDate.of(2026, 12, 30).plusDays(it.toLong()).toString()) }
+        // A year boundary is not a break either. December 2025, not December
+        // 2026: the run has to sit before the pinned today, or the new
+        // «a day that has not happened is not history» rule drops it.
+        val newYear = (0..6).map { row(LocalDate.of(2025, 12, 30).plusDays(it.toLong()).toString()) }
         assertEquals(7, card(*newYear.toTypedArray()).streakDays)
     }
 

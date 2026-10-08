@@ -21,8 +21,8 @@ import java.time.LocalDate
  * same threshold ([ListeningRhythm.DAY_MILLIS]), the regularity awards read
  * (#1166). Otherwise one listener would see two different weeks in one app.
  *
- * Nothing here touches Android, Room or a clock: `today` arrives as an
- * argument, so a pure-JVM test can pin every boundary.
+ * The only thing borrowed from Room is the row type itself; `today` arrives as
+ * an argument, so a pure-JVM test can pin every boundary.
  */
 object ListeningStatsSummary {
 
@@ -35,8 +35,8 @@ object ListeningStatsSummary {
      * @param todayMillis verified time of today itself;
      * @param weekMillis verified time inside the last [WEEK_DAYS] calendar days;
      * @param streakDays the run of ADJACENT days ending at the newest day that
-     *   reached the threshold — a missing date ends the run instead of being
-     *   skipped over.
+     *   reached the threshold (never the longest run ever) — a missing date
+     *   ends the run instead of being skipped over.
      */
     data class Card(val todayMillis: Long, val weekMillis: Long, val streakDays: Int)
 
@@ -54,13 +54,21 @@ object ListeningStatsSummary {
             // Hours listened are counted honestly: every verified millisecond
             // inside the window, including a day too short to hold a streak.
             weekMillis = verifiedByDate.filterKeys { it in weekStart..today }.values.sum(),
-            streakDays = streakEndingAtNewest(verifiedByDate)
+            streakDays = streakEndingAtNewest(verifiedByDate, today)
         )
     }
 
-    /** The run of qualifying dates ending at the newest of them; 0 when none. */
-    private fun streakEndingAtNewest(verifiedByDate: Map<LocalDate, Long>): Int {
-        val days = verifiedByDate.filterValues { it >= ListeningRhythm.DAY_MILLIS }.keys
+    /**
+     * The run of qualifying dates ending at the newest of them; 0 when none.
+     *
+     * The run ENDS at the newest day — it is not the longest run ever, which
+     * is the regularity award's question (#1166). Days after [today] are not
+     * history yet: the week window already stops at today, and a row dated
+     * tomorrow (a device clock that jumped) must not anchor a streak either.
+     */
+    private fun streakEndingAtNewest(verifiedByDate: Map<LocalDate, Long>, today: LocalDate): Int {
+        val days = verifiedByDate.filterValues { it >= ListeningRhythm.DAY_MILLIS }
+            .keys.filter { it <= today }
         var date = days.maxOrNull() ?: return 0
         var run = 1
         while (days.contains(date.minusDays(1))) {

@@ -32,6 +32,7 @@ private val named = mapOf(
     "sleep_timer_20" to R.string.achievement_sleep_timer_20,
     "relisten_1" to R.string.achievement_relisten_1,
     "relisten_5" to R.string.achievement_relisten_5,
+    "second_wind" to R.string.achievement_second_wind,
     "deep_reserve_10" to R.string.achievement_deep_reserve_10,
     "four_doors" to R.string.achievement_four_doors,
     "browser_guest" to R.string.achievement_browser_guest,
@@ -41,6 +42,8 @@ private val named = mapOf(
     "omnivore_12" to R.string.achievement_omnivore_12,
     "mono_genre_25" to R.string.achievement_mono_genre_25,
     "deep_search" to R.string.achievement_deep_search,
+    "five_in_a_row" to R.string.achievement_five_in_a_row,
+    "english_start" to R.string.achievement_english_start,
     "night_watch" to R.string.achievement_night_watch,
     "owl_and_lark" to R.string.achievement_owl_and_lark,
     "holiday" to R.string.achievement_holiday,
@@ -58,7 +61,11 @@ private val named = mapOf(
     "genre_historical_prose_10" to R.string.achievement_genre_historical_prose_10,
     "genre_adventure_10" to R.string.achievement_genre_adventure_10,
     "genre_self_development_10" to R.string.achievement_genre_self_development_10,
-    "genre_biography_10" to R.string.achievement_genre_biography_10
+    "genre_biography_10" to R.string.achievement_genre_biography_10,
+    "marathon_3h" to R.string.achievement_marathon_3h,
+    "week_in_earphones" to R.string.achievement_week_in_earphones,
+    "month_in_earphones" to R.string.achievement_month_in_earphones,
+    "mondays_10" to R.string.achievement_mondays_10
 )
 
 /**

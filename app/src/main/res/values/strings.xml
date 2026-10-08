@@ -249,6 +249,13 @@
     <string name="showcase_publish_unavailable">Спершу опублікуйте добірку — вітрина з\'являється у профілі куратора</string>
     <string name="showcase_withdraw_action">Прибрати вітрину з профілю</string>
     <string name="showcase_withdrawn">Вітрину прибрано з профілю</string>
+    <!-- Spec-51 (#691) — the public name after publishing. `renameAuthor` had no
+         caller at all, so a listener was stuck with the first name they chose. -->
+    <string name="rename_pseudonym_title">Змінити псевдонім</string>
+    <string name="rename_pseudonym_body">Так вас бачитимуть в усіх опублікованих добірках</string>
+    <string name="rename_pseudonym_action">Змінити псевдонім</string>
+    <string name="rename_pseudonym_confirm">Зберегти</string>
+    <string name="pseudonym_renamed">Псевдонім змінено</string>
     <!-- #980: the residual collection chrome — delete and inline-create
          dialogs, publish actions, the reader-side save and the preview lines —
          lived as UK literals inside the composables, invisible to the EN walk
@@ -738,6 +745,7 @@
     <string name="achievement_sleep_timer_20">Таймер сну</string>
     <string name="achievement_relisten_1">Переслух</string>
     <string name="achievement_relisten_5">Переслухи</string>
+    <string name="achievement_second_wind">Друге дихання</string>
     <string name="achievement_deep_reserve_10">Глибокий запас</string>
     <string name="achievement_four_doors">Чотири двері</string>
     <string name="achievement_browser_guest">Гість</string>
@@ -747,12 +755,18 @@
     <string name="achievement_omnivore_12">Всеїдний</string>
     <string name="achievement_mono_genre_25">Однолюб жанру</string>
     <string name="achievement_deep_search">Глибокий пошук</string>
+    <string name="achievement_five_in_a_row">П’ять поспіль</string>
+    <string name="achievement_english_start">Англомовний старт</string>
     <string name="achievement_night_watch">Нічний вартовий</string>
     <string name="achievement_owl_and_lark">Сова й жайворонок</string>
     <string name="achievement_holiday">Свято</string>
     <string name="achievement_vintage">Старовинна</string>
     <string name="achievement_comeback">Перерва</string>
     <string name="achievement_never_too_late">Ніколи не пізно</string>
+    <string name="achievement_marathon_3h">Марафонець</string>
+    <string name="achievement_week_in_earphones">Тиждень у навушниках</string>
+    <string name="achievement_month_in_earphones">Місяць у навушниках</string>
+    <string name="achievement_mondays_10">Понеділковий</string>
     <string name="achievements_title">Досягнення</string>
     <string name="settings_desc_achievements">Нагороди за прослухане</string>
     <string name="achievements_tier">Титул: %1$s</string>

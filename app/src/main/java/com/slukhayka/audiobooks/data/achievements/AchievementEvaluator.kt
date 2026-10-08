@@ -78,6 +78,51 @@ data class AchievementProgress(
     val returnsAfterBreak: Long = 0,
     /** #703 (T5) — books finished two years or more after they were opened. */
     val lateCompletions: Long = 0,
+    /** #1166 (T8) — the listener's best single day of verified listening. */
+    val bestDayMillis: Long = 0,
+    /**
+     * #1166 (T8) — longest run of ADJACENT days with listening.
+     *
+     * Adjacency is a property of the DATES, never of the row count: a day
+     * without listening has no row, so counting rows would bridge any silence.
+     */
+    val longestDayStreak: Long = 0,
+    /** #1166 (T8) — most days with listening inside one calendar month. */
+    val bestMonthDays: Long = 0,
+    /** #1166 (T8) — how many different Mondays carried listening. */
+    val mondaysListened: Long = 0,
+    /**
+     * #700 (T2) — books the listener FINISHED A SECOND TIME («Друге дихання»).
+     *
+     * Two `COMPLETED` events on the same book, i.e. two separate listening
+     * cycles: the player logs one completion per cycle, and a fresh load at the
+     * very end of a finished book goes through the relisten rule (back to
+     * chapter 0, `RELISTEN`) rather than logging a second completion
+     * (`AudioPlayerManager.loadAndPlayBook`). The log's cap keeps the newest two
+     * completions for the same reason (`PlaybackEventPolicy`).
+     *
+     * This is NARROWER than the ticket's «завершення після повернення»: a book
+     * abandoned halfway and finished later is an ordinary first completion, and
+     * nothing recorded tells the two apart. The `RELISTEN` pairing is not used
+     * either — «Почати спочатку» on an unfinished book writes `RELISTEN` with no
+     * completion before it.
+     */
+    val booksFinishedTwice: Long = 0,
+    /**
+     * #701 — «П'ять поспіль»: the longest run of consecutive completions (in
+     * time) whose Works belong to ONE series, counted in DISTINCT books.
+     *
+     * A completion with no named series BREAKS the run — it happened between
+     * volumes, so they are not «підряд» (ADR-0014) — and a relisten of one book
+     * never adds a tome to it (see `SeriesRun`).
+     */
+    val longestSeriesRun: Long = 0,
+    /**
+     * #701 — «Англомовний старт»: books with a recorded start whose rendition
+     * really claims English — a BCP-47 `en` after `LanguageCode.normalize`,
+     * never a guessed language.
+     */
+    val englishStartBooks: Long = 0,
     val verifiedListeningMillis: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
@@ -91,7 +136,9 @@ enum class AchievementMetric {
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
     DISTINCT_GENRES, MAX_GENRE_BOOKS, GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
-    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS;
+    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS, BOOKS_FINISHED_TWICE,
+    LONGEST_SERIES_RUN, ENGLISH_STARTS, BEST_DAY_MILLIS, LONGEST_DAY_STREAK,
+    BEST_MONTH_DAYS, MONDAY_DAYS;
 
     /**
      * [genreId] is read by [GENRE_BOOKS] alone — the one metric that asks about
@@ -130,6 +177,13 @@ enum class AchievementMetric {
         VINTAGE_COMPLETIONS -> snapshot.vintageCompletions
         RETURNS_AFTER_BREAK -> snapshot.returnsAfterBreak
         LATE_COMPLETIONS -> snapshot.lateCompletions
+        BEST_DAY_MILLIS -> snapshot.bestDayMillis
+        LONGEST_DAY_STREAK -> snapshot.longestDayStreak
+        BEST_MONTH_DAYS -> snapshot.bestMonthDays
+        MONDAY_DAYS -> snapshot.mondaysListened
+        BOOKS_FINISHED_TWICE -> snapshot.booksFinishedTwice
+        LONGEST_SERIES_RUN -> snapshot.longestSeriesRun
+        ENGLISH_STARTS -> snapshot.englishStartBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
     }
 }
@@ -217,6 +271,13 @@ object AchievementCatalog {
         AchievementDefinition("sleep_timer_20", "habits", 4, AchievementMetric.TIMER_STOPS, 20),
         AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
         AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5),
+        // #700 (T2) — «Друге дихання»: the SAME book finished twice. The ticket
+        // words it as «завершення після повернення»; the recorded proof is the
+        // narrower fact — two `COMPLETED` cycles on one book, since the player's
+        // `completionLogged` resets only when a cycle ends, not inside one. A
+        // RELISTEN pairing would misfire: «Почати спочатку» writes RELISTEN on
+        // an unfinished book.
+        AchievementDefinition("second_wind", "relisten", 3, AchievementMetric.BOOKS_FINISHED_TWICE, 1),
         // #700 (T2) — «Глибокий запас»: ten books actually downloaded for
         // offline use. Built on the same real proof T1 already uses for
         // `first_download` (a track row that is downloaded AND whose file is
@@ -252,6 +313,20 @@ object AchievementCatalog {
         // `target.fromGlobalSearch`), so this rewards the mechanism rather than
         // any import that happens to follow a search.
         AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1),
+        // #701 — «П'ять поспіль» (spec story 35): five consecutive completions
+        // that belong to Works of ONE series. Read LITERALLY as a run in time,
+        // never as «томи за порядком номерів» — `works.seriesIndex` exists, but
+        // it is INCOMPLETE and unproven (a source may leave it empty), so
+        // ordering by it would be a guess (ADR-0014). A completion with no
+        // series breaks the run, and a relisten of one book adds no tome; see
+        // `SeriesRun`.
+        AchievementDefinition("five_in_a_row", "series", 1, AchievementMetric.LONGEST_SERIES_RUN, 5),
+        // #701 — «Англомовний старт»: a book the listener STARTED whose
+        // rendition really claims English. The ticket names the award but sets
+        // no threshold, and the spec does not mention it at all, so the
+        // smallest honest one — the FIRST English start — is pinned by a test;
+        // a later change must then be a decision rather than drift.
+        AchievementDefinition("english_start", "languages", 3, AchievementMetric.ENGLISH_STARTS, 1),
         // #702 (T4) — BREADTH and DEPTH of taste. Both rest on real genre
         // claims only: a Work nobody claimed a genre for is absent from
         // `genreCounts`, so it can neither widen nor deepen anything.
@@ -279,7 +354,24 @@ object AchievementCatalog {
         // hours, and a second counter would be the same fact twice.
         AchievementDefinition("vintage", "hidden", 1, AchievementMetric.VINTAGE_COMPLETIONS, 1, hidden = true),
         AchievementDefinition("comeback", "hidden", 1, AchievementMetric.RETURNS_AFTER_BREAK, 1, hidden = true),
-        AchievementDefinition("never_too_late", "hidden", 1, AchievementMetric.LATE_COMPLETIONS, 1, hidden = true)
+        AchievementDefinition("never_too_late", "hidden", 1, AchievementMetric.LATE_COMPLETIONS, 1, hidden = true),
+        // #1166 (T8) — the SHAPE of listening across days. These are the spec's
+        // user stories 10–12 and 17, which no earlier ticket picked up.
+        //
+        // The spec names the awards but not the numbers, so the numbers are
+        // pinned by `ListeningRhythmTest` and `RegularityAwardsTest` — the same
+        // "a later change has to be a decision, not drift" rule this catalogue
+        // already follows. «День зі слуханням» is one verified minute
+        // (`ListeningRhythm.DAY_MILLIS`) — the old five-second counter is not
+        // proof, so pre-v51 rows cannot open these.
+        //
+        // Every metric here is MONOTONE (best day, longest streak, fullest
+        // month, count of Mondays), so an award can never be taken back by a
+        // quiet week or by a month rolling over.
+        AchievementDefinition("marathon_3h", "regularity", 1, AchievementMetric.BEST_DAY_MILLIS, 3 * 3_600_000L),
+        AchievementDefinition("week_in_earphones", "regularity", 2, AchievementMetric.LONGEST_DAY_STREAK, 7),
+        AchievementDefinition("month_in_earphones", "regularity", 3, AchievementMetric.BEST_MONTH_DAYS, 20),
+        AchievementDefinition("mondays_10", "regularity", 4, AchievementMetric.MONDAY_DAYS, 10)
         // NOTE: «Ювілей години» (the hundredth hour) is deliberately ABSENT. The
         // hour ladder from T1 already has `hours_100` on the SAME metric at the
         // SAME threshold, so adding it would fire two awards — and two notices —

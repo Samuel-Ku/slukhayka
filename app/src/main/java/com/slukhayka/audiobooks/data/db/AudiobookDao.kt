@@ -2003,6 +2003,14 @@ interface AudiobookDao {
     @Query("SELECT * FROM readthroughs")
     suspend fun allReadthroughs(): List<ReadthroughEntity>
 
+    /**
+     * #1174 — the AUDIO passes the listener has abandoned, by Library Entry id.
+     * The library badge and the book page read this ONE flow, so the mark shows
+     * up on both surfaces the moment it is written.
+     */
+    @Query("SELECT libraryEntryId FROM readthroughs WHERE format = 'AUDIO' AND state = 'ABANDONED'")
+    fun observeAbandonedAudioPasses(): Flow<List<String>>
+
     @Query("DELETE FROM readthroughs WHERE id = :id")
     suspend fun deleteReadthrough(id: String)
 

@@ -66,6 +66,13 @@ class ListeningStateStore(
     suspend fun getAnchoredProgress(bookId: String): AnchoredProgress? =
         dao.getPlaybackProgressSync(bookId)?.let { ChapterOrder.anchorProgress(dao, it) }
 
+    /**
+     * #1174 — the Edition a book's Listening State row names, which is also the
+     * one an AUDIO Readthrough must point at (ADR-0046 §3). One formula, one
+     * owner: a second copy elsewhere would let the two rows drift apart.
+     */
+    suspend fun editionIdFor(bookId: String): String? = editionIdOf(bookId)
+
     suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = getAnchoredProgress(bookId)?.progress
 
     /**

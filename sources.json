@@ -7,6 +7,7 @@
       "contentLanguage": "uk",
       "accessMode": "BROWSER",
       "order": 0,
+      "appearedOn": "",
       "streamOnly": true,
       "scam": true,
       "referer": { "value": "https://4read.org/", "scopeHosts": ["4read.org", "reasd.org"] },
@@ -31,6 +32,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 1,
+      "appearedOn": "",
       "streamOnly": false,
       "referer": { "value": "https://sound-books.net/", "scopeHosts": ["arch.sound-books.net", "reasd.org"] },
       "transportHosts": ["sound-books.net", "arch.sound-books.net"]
@@ -42,6 +44,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 2,
+      "appearedOn": "",
       "streamOnly": false,
       "searchUrl": "https://sluhay.com.ua/find/allcards?search={q}&page=1",
       "searchHeaders": { "x-requested-with": "XMLHttpRequest" },
@@ -54,6 +57,7 @@
       "contentLanguage": "uk",
       "accessMode": "BROWSER",
       "order": 3,
+      "appearedOn": "",
       "streamOnly": false,
       "referer": { "value": "https://sluhay.com/", "scopeHosts": [] },
       "transportHosts": ["sluhay.com", "redirectto.cc"],
@@ -70,6 +74,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 4,
+      "appearedOn": "",
       "streamOnly": false,
       "liveDownloadPermission": true,
       "referer": { "value": "https://audiobook-mp3.com/uk", "scopeHosts": ["audiobook-mp3.com", "redirectto.cc"] },
@@ -82,6 +87,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 5,
+      "appearedOn": "",
       "streamOnly": true,
       "transportHosts": ["lihtar.in.ua"]
     },
@@ -92,6 +98,7 @@
       "contentLanguage": "",
       "accessMode": "DIRECT",
       "order": 6,
+      "appearedOn": "",
       "streamOnly": false,
       "catalogUrl": "https://librivox.org/api/feed/audiobooks/?format=json",
       "transportHosts": ["librivox.org", "archive.org"]
@@ -103,6 +110,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 7,
+      "appearedOn": "",
       "streamOnly": false,
       "catalogUrl": "https://audiobook.co.ua/novinki-ozvuchivaniya/",
       "transportHosts": ["audiobook.co.ua"]
@@ -114,6 +122,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 8,
+      "appearedOn": "",
       "streamOnly": false,
       "transportHosts": ["chytaylo.com.ua"]
     },
@@ -123,6 +132,7 @@
       "contentLanguage": "uk",
       "accessMode": "BROWSER",
       "order": 9,
+      "appearedOn": "",
       "streamOnly": true,
       "transportHosts": ["ukrainianaudiobooks.com"],
       "browserProfile": {
@@ -139,6 +149,7 @@
       "contentLanguage": "uk",
       "accessMode": "TELEGRAM",
       "order": 10,
+      "appearedOn": "",
       "streamOnly": false,
       "transportHosts": [],
       "telegramProfile": {
@@ -155,6 +166,7 @@
       "contentLanguage": "uk",
       "accessMode": "BROWSER",
       "order": 11,
+      "appearedOn": "",
       "streamOnly": false,
       "referer": { "value": "https://sluhayknigi.com/", "scopeHosts": [] },
       "transportHosts": ["sluhayknigi.com", "redirectto.cc"],
@@ -171,6 +183,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 12,
+      "appearedOn": "",
       "streamOnly": false,
       "catalogUrl": "https://knigi-online.com.ua/audioknyhy/",
       "searchUrl": "https://knigi-online.com.ua/?s={q}",
@@ -183,6 +196,7 @@
       "contentLanguage": "uk",
       "accessMode": "DIRECT",
       "order": 13,
+      "appearedOn": "",
       "streamOnly": false,
       "catalogUrl": "https://chitaka.com.ua/audioknyhy/",
       "transportHosts": ["chitaka.com.ua"]
@@ -192,6 +206,7 @@
       "displayName": "Локальна",
       "accessMode": "DIRECT",
       "order": -1,
+      "appearedOn": "",
       "streamOnly": false,
       "transportHosts": []
     }

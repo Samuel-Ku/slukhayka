@@ -355,6 +355,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * spec-52 US28 / #1174 — the books the listener abandoned. One flow feeds
+     * both surfaces: the «Покинуто» badge in the library and the book page's
+     * cancel, so the mark appears and disappears everywhere at once.
+     */
+    val abandonedBookIds: StateFlow<Set<String>> = App.instance.abandonedBooks
+        .observeAbandonedBookIds()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * #1174 — «покинути книгу»: an explicit act of the listener, never inferred
+     * from a pause. The action already refused itself when the book has no
+     * position or is finished; the flow above repaints both surfaces.
+     */
+    fun abandonBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            logAbandonRefusal(bookId, "abandon", runCatching { App.instance.abandonedBooks.abandon(bookId) })
+        }
+    }
+
+    /** #1174 — the way back: the book returns to the state the mark took away. */
+    fun cancelAbandonBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            logAbandonRefusal(bookId, "cancel", runCatching { App.instance.abandonedBooks.cancel(bookId) })
+        }
+    }
+
+    /**
+     * #1174 — the door refuses in silence BY DESIGN (the surfaces state what is
+     * true), so the reason is not thrown at the listener; it still lands in the
+     * log, where a wrong refusal can be told from an unresponsive action. A
+     * thrown failure is logged too — never swallowed into the same silence.
+     */
+    private fun logAbandonRefusal(
+        bookId: String,
+        action: String,
+        outcome: Result<com.slukhayka.audiobooks.data.entries.AbandonedBooks.Result>
+    ) {
+        outcome
+            .onSuccess { result ->
+                if (result is com.slukhayka.audiobooks.data.entries.AbandonedBooks.Result.Refused) {
+                    android.util.Log.w("MainViewModel", "abandon $action refused for $bookId: ${result.reason}")
+                }
+            }
+            .onFailure { android.util.Log.w("MainViewModel", "abandon $action failed for $bookId", it) }
+    }
+
     fun refreshImportedEntries() {
         viewModelScope.launch(Dispatchers.IO) {
             _importedEntries.value = runCatching {

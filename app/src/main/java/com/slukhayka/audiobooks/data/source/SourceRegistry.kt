@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
+import java.time.LocalDate
+
 /**
  * ADR-0038 — the ONE static fact table of every Source, the Android side of
  * the `sources.json` carrier at the repo root.
@@ -72,6 +74,18 @@ data class SourceFacts(
     val homeUrl: String = "",
     /** BCP-47 catalogue language; "" = unknown (never guessed). */
     val contentLanguage: String = "",
+    /**
+     * #1175 — the ISO-8601 calendar date (`YYYY-MM-DD`) the Source appeared
+     * in the registry. null = nobody recorded it: the fifteen sources that
+     * predate the decision stay undated, and back-filling them with today's
+     * date would claim an appearance that never happened (ADR-0014). A date
+     * is only ever written by whoever adds the source, in the carrier — the
+     * registry is the ONE holder of this fact (ADR-0038), so Room needs no
+     * column and no migration. The carrier spells "unknown" as an empty
+     * string (a bare `null` literal would not even parse for the JVM gate:
+     * MiniJson's one blind spot); an absent key reads the same way.
+     */
+    val appearedOn: LocalDate? = null,
     val accessMode: SourceAccessMode = SourceAccessMode.UNKNOWN,
     /**
      * The ONE order list: within-tier order for Android, the global feed
@@ -351,6 +365,14 @@ object SourceRegistry {
 
     /** The source's catalogue content language; "" = unknown. */
     fun contentLanguage(sourceId: String): String = byId[sourceId]?.contentLanguage.orEmpty()
+
+    /**
+     * #1175 — the source's recorded appearance date; null = nobody recorded
+     * it. The reader hands back exactly what the carrier says: an unknown
+     * date is read as unknown, never as today, and never filled in later
+     * (ADR-0014).
+     */
+    fun appearedOn(sourceId: String): LocalDate? = byId[sourceId]?.appearedOn
 
     /** The browser-recovery facts of a Browser Source; null = not a browser source. */
     fun browserProfile(sourceId: String): BrowserProfileFacts? = byId[sourceId]?.browserProfile

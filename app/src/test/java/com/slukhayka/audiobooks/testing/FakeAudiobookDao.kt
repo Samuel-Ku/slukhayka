@@ -1694,31 +1694,39 @@ class FakeAudiobookDao(
         }
 
     // ADR-0046 / #863 — the Readthrough carrier.
-    private val readthroughs = linkedMapOf<String, com.slukhayka.audiobooks.data.db.ReadthroughEntity>()
+    private val readthroughs = MutableStateFlow(emptyMap<String, com.slukhayka.audiobooks.data.db.ReadthroughEntity>())
 
     override suspend fun upsertReadthrough(entity: com.slukhayka.audiobooks.data.db.ReadthroughEntity) {
-        readthroughs[entity.id] = entity
+        readthroughs.update { it + (entity.id to entity) }
     }
 
     override suspend fun readthroughsForWork(
         workId: String
     ): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
-        readthroughs.values.filter { it.workId == workId }.sortedByDescending { it.startedAt }
+        readthroughs.value.values.filter { it.workId == workId }.sortedByDescending { it.startedAt }
 
     override suspend fun readthroughsForEntry(
         libraryEntryId: String
     ): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
-        readthroughs.values.filter { it.libraryEntryId == libraryEntryId }.sortedByDescending { it.startedAt }
+        readthroughs.value.values.filter { it.libraryEntryId == libraryEntryId }.sortedByDescending { it.startedAt }
 
     override suspend fun readthroughById(
         id: String
-    ): com.slukhayka.audiobooks.data.db.ReadthroughEntity? = readthroughs[id]
+    ): com.slukhayka.audiobooks.data.db.ReadthroughEntity? = readthroughs.value[id]
 
     override suspend fun allReadthroughs(): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
-        readthroughs.values.toList()
+        readthroughs.value.values.toList()
+
+    /** #1174 — the abandoned AUDIO passes, exactly as the Room query reads them. */
+    override fun observeAbandonedAudioPasses(): Flow<List<String>> =
+        readthroughs.map { rows ->
+            rows.values
+                .filter { it.format == "AUDIO" && it.state == "ABANDONED" }
+                .map { it.libraryEntryId }
+        }
 
     override suspend fun deleteReadthrough(id: String) {
-        readthroughs.remove(id)
+        readthroughs.update { it - id }
     }
 
     override suspend fun insertLibraryEntryWithOrigin(

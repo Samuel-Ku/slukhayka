@@ -103,6 +103,7 @@ import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
 import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.library.LibrarySort
+import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
@@ -2524,16 +2525,24 @@ private fun LibraryBookGridContent(
     }
 }
 
+// #1168 — the three numbers are calendar-date arithmetic over verified
+// milliseconds, not row counts: `take(7)` here read as «сім останніх днів»
+// while silently bridging a silence, and nothing outside a composable could
+// see it. The decision now lives in `ListeningStatsSummary`, pinned by a pure
+// test; `today` is an argument so the snapshot golden does not read the wall
+// clock.
 @Composable
-fun ListeningStatsCard(listeningStats: List<com.slukhayka.audiobooks.data.db.ListeningStatEntity>, totalBooks: Int) {
-    val todayIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    val todayStat = listeningStats.find { it.dateIso == todayIso }
-    val todayMinutes = ((todayStat?.listenedSeconds ?: 0L) / 60L)
+fun ListeningStatsCard(
+    listeningStats: List<com.slukhayka.audiobooks.data.db.ListeningStatEntity>,
+    totalBooks: Int,
+    today: java.time.LocalDate = java.time.LocalDate.now()
+) {
+    val summary = ListeningStatsSummary.of(listeningStats, today)
+    val todayMinutes = summary.todayMillis / 60_000L
 
-    val totalWeekSeconds = listeningStats.take(7).sumOf { it.listenedSeconds }
-    val weekHours = String.format(java.util.Locale.US, "%.1f", totalWeekSeconds / 3600f)
+    val weekHours = String.format(java.util.Locale.US, "%.1f", summary.weekMillis / 3_600_000.0)
 
-    val streakDays = listeningStats.takeWhile { it.listenedSeconds > 0 }.size.coerceAtLeast(if (todayMinutes > 0) 1 else 0)
+    val streakDays = summary.streakDays
 
     Column(
         modifier = Modifier

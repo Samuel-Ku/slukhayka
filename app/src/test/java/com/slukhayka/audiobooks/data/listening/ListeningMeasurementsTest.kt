@@ -42,8 +42,8 @@ class ListeningMeasurementsTest {
         }
     }
 
-    private fun TestScope.store(dao: FakeAudiobookDao, clock: Clock) =
-        ListeningStateStore(dao, UnconfinedTestDispatcher(testScheduler), now = { clock.at }, zone = kyiv)
+    private fun TestScope.store(dao: FakeAudiobookDao, clock: Clock, zone: () -> TimeZone = { kyiv }) =
+        ListeningStateStore(dao, UnconfinedTestDispatcher(testScheduler), now = { clock.at }, zone = zone)
 
     private suspend fun ListeningStateStore.play(millis: Long, bookId: String? = "book") =
         recordActualListeningTime(ListeningObservation.Played(millis, bookId))
@@ -158,5 +158,29 @@ class ListeningMeasurementsTest {
         store(after, Clock(at("2026-10-08 04:00:00"))).play(10_000L)
         assertEquals(0L, after.savedListeningStats.single().nightListenedMillis)
         assertEquals(10_000L, after.savedListeningStats.single().verifiedListenedMillis)
+    }
+
+    @Test fun `a zone change mid-process moves both the day key and the night window`() = runTest {
+        // The store is a process-wide singleton, so the zone must be read at
+        // every write: 00:30 in Kyiv is 21:30 of the PREVIOUS day in UTC, and
+        // the previous writer's per-call SimpleDateFormat did follow the change.
+        val dao = FakeAudiobookDao()
+        var zone = kyiv
+        val clock = Clock(at("2026-10-08 00:30:00"))
+        val store = store(dao, clock, zone = { zone })
+        store.play(1_000L)
+        val inKyiv = store.getAllListeningStats().first().single()
+        assertEquals("2026-10-08", inKyiv.dateIso)
+        assertEquals("у Києві 00:30 — це ніч", 1_000L, inKyiv.nightListenedMillis)
+
+        zone = TimeZone.getTimeZone("UTC")
+        clock.interval(millis = 1_000L, gap = 1_000L)
+        store.play(1_000L)
+
+        val rows = store.getAllListeningStats().first().sortedBy { it.dateIso }
+        assertEquals(listOf("2026-10-07", "2026-10-08"), rows.map { it.dateIso })
+        val inUtc = rows.first { it.dateIso == "2026-10-07" }
+        assertEquals("у UTC та сама мить — 21:30, не ніч", 0L, inUtc.nightListenedMillis)
+        assertEquals(1_000L, inUtc.verifiedListenedMillis)
     }
 }

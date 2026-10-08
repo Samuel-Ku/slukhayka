@@ -726,12 +726,23 @@ class AudioPlayerManager(
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val actualListeningClock = ActualListeningClock(monotonicNow) { millis ->
-        val observation = ListeningObservation.Played(
-            millis = millis,
-            bookId = listeningBookId,
-            offline = listeningOffline,
-            cast = listeningCast
+        reportListeningObservation(
+            ListeningObservation.Played(
+                millis = millis,
+                bookId = listeningBookId,
+                offline = listeningOffline,
+                cast = listeningCast
+            )
         )
+    }
+
+    /**
+     * #1173 (T9) — one observation to the app-owned queue, or straight to the
+     * store when the host has no queue. The fallback covers the WHOLE channel:
+     * were it only on [ListeningObservation.Played], such a host would open
+     * sessions it could never close.
+     */
+    private fun reportListeningObservation(observation: ListeningObservation) {
         val recorder = onListeningObservation
         if (recorder != null) recorder(observation)
         else scope.launch(ioDispatcher) { listeningState.recordActualListeningTime(observation) }
@@ -777,7 +788,7 @@ class AudioPlayerManager(
     }
 
     /** #1173 — the engine stopped (not paused): the open session is over. */
-    private fun reportListeningStopped() { onListeningObservation?.invoke(ListeningObservation.Stopped) }
+    private fun reportListeningStopped() = reportListeningObservation(ListeningObservation.Stopped)
 
 
     // Spec-22 T4: keep the home-screen widget's progress/transport in sync

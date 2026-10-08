@@ -529,7 +529,7 @@ class VerifiedPlayerListeningTest {
         val factory = RecordingPlayerFactory()
         var now = 0L
         val manager = AudioPlayerManager(context,
-            ListeningStateStore(dao, dispatcher, now = { WALL_CLOCK }, zone = KYIV), { playable },
+            ListeningStateStore(dao, dispatcher, now = { WALL_CLOCK }, zone = { KYIV }), { playable },
             injectedPlayerFactory = factory, ioDispatcher = dispatcher, widgetSyncEnabled = false,
             monotonicNow = { now })
         val receiver = object : CastEngineHook {
@@ -562,6 +562,54 @@ class VerifiedPlayerListeningTest {
     }
 
     /**
+     * #1173 (T9) — the fallback channel, not just the app queue: a host that
+     * passes no `onListeningObservation` writes the store directly, and a stop
+     * there must still close the session. Without it the branch that reads
+     * `Stopped` would be unreachable outside the app, and a one-second pause
+     * across a stop would silently glue two sessions into one.
+     */
+    @Test fun `a host without the recorder queue still closes the session on a stop`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val direct = java.util.concurrent.Executor { it.run() }
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().setQueryExecutor(direct).setTransactionExecutor(direct).build()
+        val book = TestDataFactory.dataBooks().first().copy(totalChapters = 1)
+        val chapters = TestDataFactory.dataChapters().filter { it.bookId == book.id }.take(1)
+        val track = TestDataFactory.tracksFor(book, "4read").first()
+        val playable = listOf(SourceCatalog.PlayableChapter(chapters.single(), track))
+        val dao = database.audiobookDao()
+        dao.insertAudiobooks(listOf(book)); dao.insertChapters(chapters)
+        val factory = RecordingPlayerFactory()
+        var now = 0L
+        val manager = AudioPlayerManager(context,
+            ListeningStateStore(dao, dispatcher, now = { WALL_CLOCK }, zone = { KYIV }), { playable },
+            injectedPlayerFactory = factory, ioDispatcher = dispatcher, widgetSyncEnabled = false,
+            monotonicNow = { now })
+        try {
+            manager.loadAndPlayBook(book, chapters, playable); runCurrent()
+            now = 10_000L
+            factory.current.simulateReady(chapters.single().durationSeconds * 1000L); runCurrent()
+            factory.current.notifyIsPlayingChanged(true); runCurrent()
+            now = 30_000L; manager.pause(); runCurrent()
+
+            manager.stopAndClear(); runCurrent()
+
+            manager.loadAndPlayBook(book, chapters, playable); runCurrent()
+            now = 31_000L // One second after the stop: only the stop can split them.
+            factory.current.simulateReady(chapters.single().durationSeconds * 1000L); runCurrent()
+            factory.current.notifyIsPlayingChanged(true); runCurrent()
+            now = 41_000L; manager.pause(); runCurrent()
+
+            val sessions = dao.getAllPlaybackSessions()
+            assertEquals("стоп закрив сеанс навіть без черги", 2, sessions.size)
+            assertEquals(20_000L, sessions[0].verifiedMillis)
+            assertEquals(10_000L, sessions[1].verifiedMillis)
+        } finally { manager.release(); database.close(); Dispatchers.resetMain() }
+    }
+
+    /**
      * Plays one interval with the given track shape and returns today's
      * (offline, verified) pair. Nothing is injected between the player and the
      * store: the real observation path writes the row.
@@ -585,7 +633,7 @@ class VerifiedPlayerListeningTest {
         val factory = RecordingPlayerFactory()
         var now = 0L
         val manager = AudioPlayerManager(context,
-            ListeningStateStore(dao, dispatcher, now = { WALL_CLOCK }, zone = KYIV), { playable },
+            ListeningStateStore(dao, dispatcher, now = { WALL_CLOCK }, zone = { KYIV }), { playable },
             injectedPlayerFactory = factory, ioDispatcher = dispatcher, widgetSyncEnabled = false,
             monotonicNow = { now })
         return try {

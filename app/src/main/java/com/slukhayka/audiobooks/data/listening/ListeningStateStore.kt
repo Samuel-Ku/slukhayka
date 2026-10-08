@@ -46,9 +46,14 @@ class ListeningStateStore(
      * #1173 (T9) — the wall clock and the zone the measurements are written
      * with. Injectable so the night window and the 15-minute session edge are
      * table tests instead of a test that depends on when it runs.
+     *
+     * The zone is a PROVIDER, not a value: this store is a process-wide lazy
+     * singleton, and a listener who changes the device time zone mid-process
+     * must get the new day key and the new night window on the next write —
+     * exactly what the per-call `SimpleDateFormat` of the old writer did.
      */
     private val now: () -> Long = System::currentTimeMillis,
-    private val zone: java.util.TimeZone = java.util.TimeZone.getDefault()
+    private val zone: () -> java.util.TimeZone = java.util.TimeZone::getDefault
 ) : ProgressMirror {
 
     // --- Progress (keyed by Edition, ADR-0007) -----------------------------
@@ -401,7 +406,7 @@ class ListeningStateStore(
             millis = played.millis,
             offlineMillis = if (played.offline) played.millis else 0L,
             castMillis = if (played.cast) played.millis else 0L,
-            nightMillis = if (NightWindow.contains(atEpochMs, zone)) played.millis else 0L,
+            nightMillis = if (NightWindow.contains(atEpochMs, zone())) played.millis else 0L,
             session = session,
             openSessionId = previous?.id
         ) ?: return
@@ -419,6 +424,6 @@ class ListeningStateStore(
     /** The local day of an instant, in the store's zone — the day row's key. */
     private fun dayIso(atEpochMs: Long): String =
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-            .apply { timeZone = zone }
+            .apply { timeZone = zone() }
             .format(java.util.Date(atEpochMs))
 }

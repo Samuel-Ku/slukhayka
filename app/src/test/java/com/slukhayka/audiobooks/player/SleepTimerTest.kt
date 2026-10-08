@@ -61,6 +61,21 @@ class SleepTimerTest {
 
     private lateinit var playerManager: AudioPlayerManager
 
+    /**
+     * #1173 (T9) — a manager that reports the ARM of «до кінця розділу».
+     * That count is what «До кінця розділу» (10) reads, so only the listener
+     * asking for the mode may add to it: the automatic re-arm on a chapter
+     * boundary must not.
+     */
+    private fun managerCountingArms(onArm: () -> Unit): AudioPlayerManager = AudioPlayerManager(
+        context = context,
+        listeningState = ListeningStateStore(FakeAudiobookDao()),
+        chapterFetcher = { emptyList() },
+        injectedPlayerFactory = { FakePlayerEngine() },
+        widgetSyncEnabled = false,
+        onEndOfChapterArmed = onArm
+    )
+
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
@@ -230,23 +245,32 @@ class SleepTimerTest {
 
     @Test
     fun `end-of-chapter re-arms to the new chapter on a manual switch`() = testScope.runTest {
-        playerManager.loadAndPlayBook(
-            book = book,
-            chapters = chapters,
-            playable = chapters.zip(TestDataFactory.tracksFor(book, "timer-fixture")) { chapter, track ->
-                com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(chapter, track)
-            },
-            initialChapterIndex = 0,
-            autoPlay = false
-        )
-        playerManager.setSleepTimer(-1)
-        assertEquals(chapters[0].durationSeconds.toLong(), playerManager.playerState.value.sleepTimerRemainingSeconds.toLong())
+        var arms = 0
+        val manager = managerCountingArms { arms++ }
+        try {
+            manager.loadAndPlayBook(
+                book = book,
+                chapters = chapters,
+                playable = chapters.zip(TestDataFactory.tracksFor(book, "timer-fixture")) { chapter, track ->
+                    com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(chapter, track)
+                },
+                initialChapterIndex = 0,
+                autoPlay = false
+            )
+            manager.setSleepTimer(-1)
+            assertEquals(chapters[0].durationSeconds.toLong(), manager.playerState.value.sleepTimerRemainingSeconds.toLong())
+            assertEquals("ручне увімкнення режиму — це один arm", 1, arms)
 
-        playerManager.prepareChapter(1, startPositionMs = 0L, autoPlay = false)
+            manager.prepareChapter(1, startPositionMs = 0L, autoPlay = false)
 
-        val state = playerManager.playerState.value
-        assertTrue(state.isSleepTimerEndOfChapter)
-        assertEquals(chapters[1].durationSeconds.toLong(), state.sleepTimerRemainingSeconds.toLong())
+            val state = manager.playerState.value
+            assertTrue(state.isSleepTimerEndOfChapter)
+            assertEquals(chapters[1].durationSeconds.toLong(), state.sleepTimerRemainingSeconds.toLong())
+            // The re-arm is the timer following the listener to the next
+            // chapter, not a second request for the mode: it must not add to
+            // the counter that opens «До кінця розділу» (10).
+            assertEquals("автоматичне переозброєння на межі розділу не рахується", 1, arms)
+        } finally { manager.release() }
     }
 
     @Test
@@ -371,14 +395,7 @@ class SleepTimerTest {
     @Test
     fun `arming end of chapter reports the arm and nothing else does`() = testScope.runTest {
         var arms = 0
-        val manager = AudioPlayerManager(
-            context = context,
-            listeningState = ListeningStateStore(FakeAudiobookDao()),
-            chapterFetcher = { emptyList() },
-            injectedPlayerFactory = { FakePlayerEngine() },
-            widgetSyncEnabled = false,
-            onEndOfChapterArmed = { arms++ }
-        )
+        val manager = managerCountingArms { arms++ }
         try {
             manager.setSleepTimer(-1)
             assertEquals(1, arms)

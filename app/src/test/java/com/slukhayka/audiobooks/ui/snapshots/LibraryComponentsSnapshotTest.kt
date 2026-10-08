@@ -25,6 +25,7 @@ import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.screens.ListeningStatsCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -77,6 +78,12 @@ class LibraryComponentsSnapshotTest {
         emptyList(),
         emptyMap()
     ).single()
+
+    // #1168: the stats card now reads calendar dates, so its «today» is an
+    // input — one day after the fixture's only day of listening. Pinned here
+    // instead of read from the wall clock: the golden keeps showing the same
+    // three numbers on any day the suite runs.
+    private val statsToday: LocalDate = LocalDate.parse(TestDataFactory.FIXED_DATE_ISO).plusDays(1)
 
     @Test
     fun book_card_list_mode() {
@@ -160,7 +167,11 @@ class LibraryComponentsSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 LibrarySurface {
-                    ListeningStatsCard(listeningStats = emptyList(), totalBooks = 0)
+                    ListeningStatsCard(
+                        listeningStats = emptyList(),
+                        totalBooks = 0,
+                        today = statsToday
+                    )
                 }
             }
         }
@@ -176,7 +187,8 @@ class LibraryComponentsSnapshotTest {
                 LibrarySurface {
                     ListeningStatsCard(
                         listeningStats = TestDataFactory.seedListeningStats(),
-                        totalBooks = TestDataFactory.BOOK_COUNT
+                        totalBooks = TestDataFactory.BOOK_COUNT,
+                        today = statsToday
                     )
                 }
             }

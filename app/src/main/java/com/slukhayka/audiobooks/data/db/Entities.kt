@@ -126,7 +126,35 @@ data class ListeningStatEntity(
     @PrimaryKey val dateIso: String,
     val listenedSeconds: Long = 0L,
     // v51 starts at zero: the old five-seconds-per-save counter is not proof.
-    @ColumnInfo(defaultValue = "0") val verifiedListenedMillis: Long = 0L
+    @ColumnInfo(defaultValue = "0") val verifiedListenedMillis: Long = 0L,
+    // #1173 (T9) — the same verified time, split by the STRONG evidence the
+    // player observed while it played: a real local file/content URI, a
+    // receiver confirmed PLAYING, and the ticks written 00:00–04:00 local.
+    // All three start at zero: the past was never observed with a source
+    // attached, and guessing one would be inventing data (ADR-0014).
+    @ColumnInfo(defaultValue = "0") val offlineListenedMillis: Long = 0L,
+    @ColumnInfo(defaultValue = "0") val castListenedMillis: Long = 0L,
+    @ColumnInfo(defaultValue = "0") val nightListenedMillis: Long = 0L
+)
+
+/**
+ * #1173 (T9) — one continuous listening session: an interval of real playback
+ * with no pause of fifteen minutes or more, no stop and no book change inside
+ * it (owner's decision, 2026-10-07).
+ *
+ * Every observed tick advances [endedAt] in place, so a process that dies with
+ * an open session leaves it closed at the LAST OBSERVED tick — never at "now":
+ * time nobody observed does not exist (ADR-0014). Sessions are kept in full;
+ * nothing prunes them (the metrics that read them are monotonic).
+ */
+@Entity(tableName = "playback_sessions")
+data class PlaybackSessionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val startedAt: Long,
+    val endedAt: Long,
+    val verifiedMillis: Long = 0L,
+    val offlineMillis: Long = 0L,
+    val castMillis: Long = 0L
 )
 
 /**

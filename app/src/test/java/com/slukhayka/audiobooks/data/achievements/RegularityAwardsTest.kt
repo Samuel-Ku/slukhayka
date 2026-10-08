@@ -45,7 +45,7 @@ class RegularityAwardsTest {
     }
 
     private suspend fun AudiobookDatabase.heard(iso: String, millis: Long = 10 * minute) =
-        audiobookDao().addVerifiedListeningTime(iso, millis)
+        audiobookDao().addVerifiedListeningTime(iso, millis, 0L, 0L, 0L, null, null)
 
     private fun AchievementProgress.earned(): Set<String> =
         AchievementEvaluator.evaluate(this, emptySet()).map { it.id }.toSet()

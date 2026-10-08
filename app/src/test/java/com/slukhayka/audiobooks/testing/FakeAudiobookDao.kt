@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
 import com.slukhayka.audiobooks.data.db.ListeningStatEntity
 import com.slukhayka.audiobooks.data.db.toBookRow
 import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
+import com.slukhayka.audiobooks.data.db.PlaybackSessionEntity
 import com.slukhayka.audiobooks.data.db.PlaybackFailureEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.SeriesEntity
@@ -84,6 +85,8 @@ class FakeAudiobookDao(
     private val progressState = MutableStateFlow(emptyList<PlaybackProgressEntity>())
     private val sourcesState = MutableStateFlow(emptyList<SourceEntity>())
     private val statsState = MutableStateFlow(emptyList<ListeningStatEntity>())
+    // #1173 (T9): the session rows the single recorder keeps.
+    private val sessionsState = MutableStateFlow(emptyList<PlaybackSessionEntity>())
     private val failuresState = MutableStateFlow(emptyList<PlaybackFailureEntity>())
     private val eventsState = MutableStateFlow(emptyList<PlaybackEventEntity>())
     private val tombstonesState = MutableStateFlow(emptyList<TombstoneEntity>())
@@ -120,6 +123,9 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted listening statistics, for assertions. */
     val savedListeningStats: List<ListeningStatEntity> get() = statsState.value
+
+    /** Snapshot of the persisted sessions (#1173), for assertions. */
+    val savedPlaybackSessions: List<PlaybackSessionEntity> get() = sessionsState.value
 
     /** Snapshot of the persisted source rows, for assertions. */
     val savedSources: List<SourceEntity> get() = sourcesState.value
@@ -848,6 +854,34 @@ class FakeAudiobookDao(
     override suspend fun saveListeningStat(stat: ListeningStatEntity) {
         statsState.update { current -> current.filterNot { it.dateIso == stat.dateIso } + stat }
     }
+
+    // --- #1173 (T9) sessions ------------------------------------------------
+
+    override suspend fun insertPlaybackSession(session: PlaybackSessionEntity): Long {
+        val id = (sessionsState.value.maxOfOrNull { it.id } ?: 0L) + 1L
+        sessionsState.update { current -> current + session.copy(id = id) }
+        return id
+    }
+
+    override suspend fun updatePlaybackSession(
+        id: Long,
+        endedAt: Long,
+        verifiedMillis: Long,
+        offlineMillis: Long,
+        castMillis: Long
+    ) {
+        sessionsState.update { current ->
+            current.map { if (it.id == id) it.copy(
+                endedAt = endedAt, verifiedMillis = verifiedMillis,
+                offlineMillis = offlineMillis, castMillis = castMillis) else it }
+        }
+    }
+
+    override suspend fun getPlaybackSession(id: Long): PlaybackSessionEntity? =
+        sessionsState.value.firstOrNull { it.id == id }
+
+    override suspend fun getAllPlaybackSessions(): List<PlaybackSessionEntity> =
+        sessionsState.value.sortedWith(compareBy({ it.startedAt }, { it.id }))
 
     override suspend fun insertPlaybackFailure(failure: PlaybackFailureEntity) {
         failuresState.update { current -> current + failure }

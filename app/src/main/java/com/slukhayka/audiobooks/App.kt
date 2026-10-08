@@ -1487,10 +1487,17 @@ class App : Application() {
                 bookFeedbackStore.completed(bookId)
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.BOOK_COMPLETED)
             },
-            onActualListeningDuration = achievementRecorder::recordDuration,
+            onListeningObservation = achievementRecorder::recordObservation,
             onActualPlaybackStarted = { offline ->
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.PLAYBACK_STARTED)
                 if (offline) recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.OFFLINE_PLAYBACK_STARTED)
+            },
+            // #1173 (T9): the arm of «до кінця розділу» is a durable counter,
+            // not a TIMER_STOP event — the timer re-arms at a chapter boundary
+            // and that event may never be written (#700).
+            onEndOfChapterArmed = {
+                achievementRecorder.captureCounter(
+                    com.slukhayka.audiobooks.data.achievements.AchievementCounter.END_OF_CHAPTER_ARM)
             },
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },

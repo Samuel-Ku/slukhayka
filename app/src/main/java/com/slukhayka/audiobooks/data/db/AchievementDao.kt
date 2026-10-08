@@ -354,6 +354,31 @@ interface AchievementDao {
     fun observeFacts(): Flow<List<AchievementFactEntity>>
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertFact(row: AchievementFactEntity): Long
+
+    // --- #1173 (T9) durable counters ---------------------------------------
+    // INSERT OR IGNORE + `count = count + 1` rather than an UPSERT clause:
+    // minSdk is 24 and SQLite grew UPSERT only in 3.24 (Android 11). The
+    // transaction makes the pair one step, so a repeated action adds exactly
+    // one and the value never goes down.
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCounter(row: AchievementCounterEntity): Long
+
+    @Query("UPDATE achievement_counters SET count = count + 1 WHERE `key` = :key")
+    suspend fun bumpCounter(key: String)
+
+    @Transaction
+    suspend fun incrementCounter(key: String) {
+        insertCounter(AchievementCounterEntity(key))
+        bumpCounter(key)
+    }
+
+    @Query("SELECT count FROM achievement_counters WHERE `key` = :key")
+    suspend fun counter(key: String): Long?
+
+    @Query("SELECT * FROM achievement_counters ORDER BY `key`")
+    fun observeCounters(): Flow<List<AchievementCounterEntity>>
+
     @Query("SELECT * FROM achievements WHERE seenAt IS NULL AND id IN (:knownIds) ORDER BY earnedAt, id LIMIT 1")
     suspend fun pendingNotice(knownIds: Set<String>): AchievementEntity?
     @Query("UPDATE achievements SET seenAt = :seenAt WHERE id = :id AND seenAt IS NULL")

@@ -1,8 +1,11 @@
 # #968 — ручне злиття роздвоєної ідентичності твору
 
 Статус: пропозиція для рішення власника. Етап D1 виконано як специфікацію;
-production-дані та схема не змінені. База перевірки — `main`
+production-дані та схема не змінені. Початкова база перевірки — `main`
 `43a726e02f9292a723f742ebbf0ecb47853a9115`, Room v52, 43 сутності.
+Поточна звірка — `main` `6961dd80a5a50cbca82ab7f299b1bc4d8e768832`,
+Room v54, 45 таблиць після #1180. Матриця й майбутні перевірки нижче
+враховують нові носії вимірів; сумісність production-merge ще не доведена.
 
 ## Рекомендоване рішення
 
@@ -110,7 +113,7 @@ Work стають aliases. Якщо K належить третьому Work, й
    того самого носія операцій.
 
 Номер нової схеми визначається тільки після повторної перевірки main й
-паралельних міграцій. D1 не резервує v53 і не додає таблиць у production.
+паралельних міграцій. D1 не резервує номер наступної схеми і не додає таблиць у production.
 
 Redirect — пам'ять ручного рішення цього слухача. Він не стає загальною
 бібліографічною правдою в shared catalog. Усі місцеві читання та письменники
@@ -169,12 +172,13 @@ D1 його не дозволяє.
 неіснуюча Edition для живого стану або null-anchor без єдиного доведеного
 зіставлення дають `NeedsDecision`; записів до рішення немає.
 
-## Покриття чинних 43 таблиць
+## Покриття чинних 45 таблиць
 
 Позначення: **K→C** означає переприв'язування бібліографічного Work/ключа
 через типізований resolver; bookId і Edition ID цим правилом не змінюються.
 **Історія** означає byte-exact before-image з можливістю Undo, не тиху втрату.
-Ключі та FK звірені з v52; джерела визначень —
+Початкові 43 таблиці звірені з v52; зміни вимірів — з v54.
+Джерела визначень —
 [Entities](../../app/src/main/java/com/slukhayka/audiobooks/data/db/Entities.kt),
 [FacetEntities](../../app/src/main/java/com/slukhayka/audiobooks/data/db/FacetEntities.kt),
 [додаткові сутності db](../../app/src/main/java/com/slukhayka/audiobooks/data/db/).
@@ -192,7 +196,9 @@ D1 його не дозволяє.
 | `bookmarks` / auto id | Усі bookmark ID, bookId, editionId, original chapterIndex, note, timestamps лишаються. Навіть однакові мітки не зливаються без окремої дії. |
 | `playback_events` / auto id | Уся історія з bookId/sourceKey/позиціями/deviceId лишається; не реконструює live progress. |
 | `playback_failures` / auto id | Діагностична історія лишається зі старим bookId і streamUrl; bookId досі живий. |
-| `listening_stats` / dateIso | Нічого не змінювати: це денний фактичний час, не сума позицій. |
+| `listening_stats` / dateIso | Увесь рядок незмінний, включно verifiedListenedMillis та доданими у v54 offlineListenedMillis/castListenedMillis/nightListenedMillis. Це денний виміряний час, не сума позицій; merge/Undo не реконструюють і не скидають його. |
+| `playback_sessions` / auto id | Усі id/startedAt/endedAt/verifiedMillis/offlineMillis/castMillis лишаються. У схемі немає bookId, editionId або workId; приписати сеанс Work, rekey, дедуп чи перерахувати endedAt через merge не можна. |
+| `achievement_counters` / key | Усі keys/count незмінні. Це монотонні лічильники спостережених дій; Work merge/Undo не переозброюють таймер і не створюють, не підсумовують та не скидають факти. |
 | `edition_settings` / bookId,sourceKey | Нічого не змінювати. Наявний source-scoped legacy ключ не перетворювати на Work-scoped. |
 | `readthroughs` / id | Змінити тільки бібліографічний workId. libraryEntryId, format/state/dates/editionId/unit/value/journalJson лишаються. Усі повторні проходи й несумісні одиниці збережені. |
 | `work_sources` / id; FK Work | Переприв'язати до C, відновити детермінований id тією самою функцією письменника. Дедуп тільки exact(sourceId,sourceUrl). Для повтору min addedAt; відомий cover/duration/streamOnly конфлікт — вибір у плані, усі donor fields в історії. Спершу UPDATE/INSERT залежностей, потім DELETE donor Work. Жодного REPLACE parent Work з FK CASCADE. |
@@ -319,7 +325,7 @@ name repair не випускається. База правил безпеки 
    after-images й `APPLIED` в тому самому commit. Навмисного network/file
    I/O в транзакції немає. Counts незмінних Edition/Chapter/Source/Track/
    Bookmark/Progress/Events/Readthrough ID-set мають збігтися byte-exact.
-5. Перед commit перевірити всі 43-table правила, FK і власні orphan queries,
+5. Перед commit перевірити всі правила актуальної 45-table матриці, FK і власні orphan queries,
    exact source-file references, one canonical FTS row, old-key navigation,
    absence циклів і donor resurrection. Exception/cancellation до commit
    відкатує весь запис. Після commit replay outbox окремий; читачі не
@@ -381,7 +387,7 @@ AlreadyApplied. Новий Readthrough після merge блокує сліпи�
 Це заплановані acceptance tests, не звіт про вже виконані тести.
 D1 не запускає Gradle й не стверджує придатність production-міграції.
 
-- Реальна Room v52 fixture із **кожною з 43 сутностей**, усі relevant
+- Реальна Room v54 fixture із **кожною з 45 таблиць**, усі relevant
   composite-PK collisions, перевірка raw before/after sets і no-loss полів.
   Schema upgrade перевіряє тільки нові носії, merge — окрема user operation.
 - Foreign keys ON, UPDATE parent без cascade loss; explicit orphan queries
@@ -436,8 +442,8 @@ D1 не запускає Gradle й не стверджує придатніст�
 У tracked `53.json` внутрішній `database.version` досі дорівнює 52;
 його entities збігаються з `52.json`. Це окрема розбіжність export metadata,
 не доказ нової таблиці або нового runtime тесту. D1 її не виправляє.
-Матриця 43 таблиць лишається структурно повною; fixtures наступної
-реалізації мають спиратися на актуальну v53 та migration 52→53.
+На цій історичній базі матриця 43 таблиць була структурно повною.
+Поточні fixtures мають спиратися на v54 та ланцюг 52→53→54, як нижче.
 
 Новий чинний стан `ReadingState.ABANDONED` належить одному Readthrough.
 При Work-only merge змінюється лише його бібліографічний workId; id,
@@ -469,7 +475,7 @@ Abandon/cancel мають бути включені до спільного part
 спожиту нотатку і не воскресає pass, який слухач свідомо прибрав cancel.
 Room commit не викликає prefs `.apply()` і не компенсує cancel старим snapshot.
 
-До запланованих acceptance checks додати actual Room v53 + справжні private
+До запланованих acceptance checks додати actual Room v54 + справжні private
 prefs: PLANNED→ABANDONED→merge→cancel повертає PLANNED; mark-created pass
 після merge/cancel зникає без phantom «Мій рік»; існуючий нестандартний pass id,
 два окремі abandoned passes та restart зберігаються. Повторний abandon не
@@ -480,6 +486,41 @@ prefs: PLANNED→ABANDONED→merge→cancel повертає PLANNED; mark-creat
 заплановані, не виконані в D1. Три рішення власника нижче не змінюються;
 production/schema/name repair та D2 не запускаються цим уточненням.
 
+
+## Уточнення після main 6961dd80: виміри v54
+
+PR #1180 злитий; `MIGRATION_53_54` додає три NOT NULL колонки з default 0
+до `listening_stats`, а також `playback_sessions` і `achievement_counters`.
+Export [54.json](../../app/schemas/com.slukhayka.audiobooks.data.db.AudiobookDatabase/54.json)
+має database.version=54 і 45 entities. Інші 42 таблиці не змінили структури
+порівняно з v52; нові дві таблиці не мають оголошених FK або Work-якорів.
+Історичні v52/v53 позначення вище не задають номер майбутньої міграції.
+
+`PlaybackSessionEntity` зберігає тільки id, початок/останній спостережений
+кінець і verified/offline/cast мілісекунди. Тимчасовий `OpenSession.bookId`
+належить живому записувачу `ListeningStateStore`, а не durable схемі.
+Збережені bookId під час Work-only merge незмінні, тому новий resolver
+не переприв'язує цей recorder і не викликає Stopped/Played або повторний tick.
+Чинна заборона apply під час активного playback учасника лишається.
+Виміри й лічильники не стають before-images для відновлення старих глобальних
+значень: ні merge, ні Undo не відкочують нові спостереження слухача.
+
+До запланованого приймання додати непорожні реальні rows обох нових таблиць
+і всіх шести колонок listening_stats. На спокійній fixture exact ID-sets і
+raw fields лишаються однаковими після apply, close/reopen, retry, startup
+merge та Undo. Після merge записати новий verified tick та приріст реального
+лічильника чинними writer-ами; Undo не зменшує й не повертає ці виміри.
+Обидві старі позиції/Edition зберігаються незалежно від сеансів; зв'язок
+сеансу з книгою не вигадується. Відмова active playback не пише журнал
+злиття або нові виміри. Upgrade 52→53→54 зберігає старі stats і жанрові
+свідчення, нові колонки стартують із нуля, нові таблиці порожні; наступна
+міграція додає тільки погоджені носії manual merge без повтору #1180.
+Це майбутні перевірки, не виконані runtime-докази D1.
+
+Контракт v54 потребує нового review та CI після синхронізації гілки з main.
+CI попереднього HEAD `0f4395be` доводить тільки попередній документаційний
+кандидат. Три рішення власника нижче, локальна межа першого злиття й
+окремий person repair не змінені; D2 цим уточненням не запускається.
 
 ## Три рішення власника перед наступним кодом
 

@@ -3,9 +3,11 @@ package com.slukhayka.audiobooks.data.source
 import com.slukhayka.audiobooks.data.collections.MiniJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.time.LocalDate
 
 /**
  * ADR-0038 — the Android side of the parity gate: [SourceRegistry] must
@@ -55,6 +57,57 @@ class SourceRegistryConformanceTest {
     @Test
     fun `registry order follows the json order`() {
         assertEquals(decoded.sortedBy { it.order }.map { it.id }, SourceRegistry.orderedSourceIds())
+    }
+
+    // --- #1175 — the appearance date: empty stays empty ---
+
+    /**
+     * The fifteen sources that predate the appearance-date decision, by name.
+     * The pin is deliberately two-sided: dating one of them fails here, while
+     * a NEW source (added with a real date after the decision) does not have
+     * to touch this set — its own row in the carrier is the fact.
+     */
+    private val sourcesBeforeTheDecision = setOf(
+        "4read", "soundbooks", "sluhayua", "sluhay", "audiobookmp3", "lihtar",
+        "librivox", "audiobookcoua", "chytaylo", "ukrainianaudiobooks",
+        "telegram", "sluhayknigi", "knigionline", "chitaka", "local"
+    )
+
+    @Test
+    fun `no source that predates the decision is given an invented date`() {
+        assertEquals(15, sourcesBeforeTheDecision.size)
+        val rawById = ((MiniJson.parse(locateSourcesJson().readText()) as Map<*, *>)["sources"] as List<*>)
+            .associateBy { (it as Map<*, *>)["id"] }
+        for (id in sourcesBeforeTheDecision) {
+            val raw = rawById[id] as? Map<*, *> ?: error("sources.json lost the row of $id")
+            // #1175 + ADR-0014: nobody wrote these dates down. Today's date
+            // would claim an appearance that never happened, so the carrier
+            // declares the slot empty and the code must agree.
+            assertEquals("$id: the carrier must keep the date empty", "", raw["appearedOn"])
+            assertNull(
+                "$id: the mirror must not carry an invented date",
+                requireNotNull(SourceRegistry.facts(id)).appearedOn
+            )
+            assertNull("$id: the reader must not invent a date", SourceRegistry.appearedOn(id))
+        }
+    }
+
+    @Test
+    fun `a source added with a date hands back exactly that date`() {
+        // A row in the carrier's own shape. The id is synthetic on purpose:
+        // no registered source is dated yet, so the point is that a declared
+        // date survives the carrier into the reader unchanged.
+        val declared = mapOf(
+            "id" to "new-source",
+            "displayName" to "Нове джерело",
+            "accessMode" to "DIRECT",
+            "order" to 20,
+            "appearedOn" to "2026-10-07"
+        )
+        assertEquals(LocalDate.of(2026, 10, 7), decodeFacts(declared).appearedOn)
+        // ...and a row without the date stays unknown, never "today".
+        assertNull(decodeFacts(declared - "appearedOn").appearedOn)
+        assertNull("an unregistered source carries no date", SourceRegistry.appearedOn("new-source"))
     }
 
     @Test
@@ -131,6 +184,9 @@ class SourceRegistryConformanceTest {
         displayName = raw.requireString("displayName"),
         homeUrl = raw.string("homeUrl"),
         contentLanguage = raw.string("contentLanguage"),
+        // #1175 — the carrier's empty string (and an absent key) mean
+        // "nobody recorded the date"; anything else must be a real ISO date.
+        appearedOn = raw.string("appearedOn").takeIf(String::isNotBlank)?.let(LocalDate::parse),
         accessMode = SourceAccessMode.valueOf(raw.requireString("accessMode")),
         order = raw.int("order"),
         streamOnly = raw.bool("streamOnly"),

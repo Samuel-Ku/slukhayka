@@ -112,10 +112,24 @@ fi
 # version/identityHash усередині JSON змінюються легально (крок 6 плану), тому
 # порівнюємо тіло без них, а identityHash — окремо: тотожні схеми мають той
 # самий хеш, ручна правка хеша при однаковому тілі — теж помилка.
-if $DB_CHANGED && [ -n "$B_TOP" ] && [ "$B_TOP" -gt "$M_TOP" ]; then
-  N_FILE="$SCHEMA_DIR/$B_TOP.json"
-  M_FILE="$SCHEMA_DIR/$M_TOP.json"
-  VERDICT=$(python3 - <(git show "$HEAD_REF:$N_FILE") <(git show "$BASE:$M_FILE") <<'PY'
+#
+# Перевірка стосується ЛИШЕ data-only міграцій — так написано і в шапці, і в
+# назві кроку 6. Міграція, що ЗМІНЮЄ схему (нові таблиці/колонки/індекси),
+# законно має верхній файл, відмінний від base, тож вимагати тотожність
+# означало б заборонити будь-яку зміну схеми взагалі (саме так падала вже
+# злита 50→51). Тому питаємо саме міграцію: чи її тіло оголошує DDL. Оголошує
+# — схема змінилася свідомо, перевірка не застосовується. Не оголошує — це
+# data-only, і тоді верхній файл мусить бути копією верхнього в base: інакше
+# Room бачить схему, яку ніхто не мігрував (та сама пастка, що й доти).
+migration_declares_schema_change() {  # $1 = ref, $2 = верхня версія схеми
+  local prev=$(( $2 - 1 ))
+  git show "$1:$DB_FILE" \
+    | sed -n "/val MIGRATION_${prev}_$2 =/,/val MIGRATION_[0-9][0-9]*_[0-9][0-9]* =/p" \
+    | grep -Eq 'CREATE TABLE|ALTER TABLE|DROP TABLE|CREATE (UNIQUE )?INDEX|DROP INDEX'
+}
+
+schema_verdict() {  # $1, $2 — "ref:path" двох файлів схем
+  python3 - <(git show "$1") <(git show "$2") <<'PY'
 import json, sys
 
 def load(path):
@@ -135,7 +149,19 @@ elif hh and bh and hh != bh:
 else:
     print("OK")
 PY
-)
+}
+
+DATA_ONLY=false
+if $DB_CHANGED && [ -n "$B_TOP" ] && [ "$B_TOP" -gt "$M_TOP" ]; then
+  N_FILE="$SCHEMA_DIR/$B_TOP.json"
+  M_FILE="$SCHEMA_DIR/$M_TOP.json"
+  if ! migration_declares_schema_change "$HEAD_REF" "$B_TOP"; then
+    DATA_ONLY=true
+  fi
+fi
+
+if $DATA_ONLY; then
+  VERDICT=$(schema_verdict "$HEAD_REF:$N_FILE" "$BASE:$M_FILE")
   case "$VERDICT" in
     BODY)
       fail "застаріла копія: $B_TOP.json гілки '$HEAD_REF' має ІНШИЙ вміст (без полів version/identityHash), ніж верхній $M_TOP.json у '$BASE'. Data-only міграція мусить бути копією нового верхнього файлу схем base — інакше Room бачить схему, яку ніхто не мігрував (крок 6 чек-листа)."
@@ -148,4 +174,9 @@ fi
 
 echo "OK: слот вільний — base '$BASE' верх $M_TOP, гілка '$HEAD_REF' верх $MAX;"
 echo "спільні версії схем ідентичні, ланцюжок без дірок, version узгоджено;"
-echo "MIGRATION_$((MAX - 1))_$MAX останній у addMigrations; $MAX.json = копія $M_TOP.json base."
+echo "MIGRATION_$((MAX - 1))_$MAX останній у addMigrations;"
+if $DATA_ONLY; then
+  echo "$MAX.json = копія $M_TOP.json base (міграція data-only)."
+else
+  echo "$MAX.json змінює схему проти $((MAX - 1)).json — перевірка копії не застосовується."
+fi

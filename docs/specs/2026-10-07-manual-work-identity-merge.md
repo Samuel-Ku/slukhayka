@@ -425,6 +425,62 @@ D1 не запускає Gradle й не стверджує придатніст�
 кожної збереженої начитки/позиції/закладки/файла після restart/rescan/sync.
 Зелений вузький merger-test не замінює цей обсяг.
 
+## Уточнення поточного контракту після main acdf0758
+
+Початкова база вище — історичний D1 snapshot. Повторна перевірка
+`acdf075839e3d4d6bff3c3abf76ea244161e0d25` бачить runtime Room v53
+і ті самі 43 таблиці. `MIGRATION_52_53` змінює жанрові дані, а не структуру:
+нормалізує словник та посилання `genre_assertions`/`work_genres` за rawText.
+Наступний merge перевіряє актуальні genre IDs; старі hashed IDs не стають
+окремим жанром. Raw джерельні свідчення не переписуються.
+У tracked `53.json` внутрішній `database.version` досі дорівнює 52;
+його entities збігаються з `52.json`. Це окрема розбіжність export metadata,
+не доказ нової таблиці або нового runtime тесту. D1 її не виправляє.
+Матриця 43 таблиць лишається структурно повною; fixtures наступної
+реалізації мають спиратися на актуальну v53 та migration 52→53.
+
+Новий чинний стан `ReadingState.ABANDONED` належить одному Readthrough.
+При Work-only merge змінюється лише його бібліографічний workId; id,
+libraryEntryId, editionId, state, дати, unitValue і raw journalJson зберігаються.
+Два проходи не отримують спільного state через одну Work-картку.
+`AbandonedBooks` шукає audio pass за незмінним bookId/libraryEntryId;
+створює відсутній pass як `rt-audio-<bookId>`, але вміє знайти наявний pass
+з іншим id. Merge не створює другого pass і не змінює цей вибір.
+DAO Flow повертає libraryEntryId всіх AUDIO/ABANDONED rows; бейдж і дія
+скасування лишаються на відповідній начитці через цей незмінний ключ.
+Завершення зараз лише ховає бейдж/дію через спільний completion verdict;
+stored pass лишається ABANDONED. Merge та ordinary import/metadata refresh
+не видають відсутній completion/reward write за виконаний.
+
+`SharedPreferencesAbandonUndo` — ще один зовнішній носій: private prefs
+`abandon_undo`, ключ `before:<bookId>`, raw value `0|` для створеного mark
+pass або `1|<ReadingState.name>` для попереднього pass. До closure належать
+і відсутність ключа, і точні raw bytes; merge не rekey, не consume, не
+переобчислює нотатку через Work resolver. Чинний remember робить `.apply()`
+до Room persist і повторний abandon не перезаписує першу нотатку; cancel
+recall/forget робить перед delete/restore pass. Це два носії, не атомарна
+Room операція і не cross-device контракт.
+
+Перед merge та Undo перераховуються всі фактичні external closure fingerprints.
+Abandon/cancel мають бути включені до спільного participant write gate
+наступної реалізації, як інші writer дії; її наявність сьогодні не стверджується.
+Зміна raw нотатки, state або видалення pass після preview дає Stale;
+після merge блокує сліпий Undo як UndoNeedsDecision. Undo не відновлює
+спожиту нотатку і не воскресає pass, який слухач свідомо прибрав cancel.
+Room commit не викликає prefs `.apply()` і не компенсує cancel старим snapshot.
+
+До запланованих acceptance checks додати actual Room v53 + справжні private
+prefs: PLANNED→ABANDONED→merge→cancel повертає PLANNED; mark-created pass
+після merge/cancel зникає без phantom «Мій рік»; існуючий нестандартний pass id,
+два окремі abandoned passes та restart зберігаються. Повторний abandon не
+замінює before-note. Cancel до побудови preview входить до нового snapshot і сам по собі
+не є stale. Cancel між preview та apply дає Stale; cancel після merge
+перед Undo дає UndoNeedsDecision без втрати нової дії. Completed badge-hidden case
+зберігає stored ABANDONED до окремого completion writer. Ці перевірки
+заплановані, не виконані в D1. Три рішення власника нижче не змінюються;
+production/schema/name repair та D2 не запускаються цим уточненням.
+
+
 ## Три рішення власника перед наступним кодом
 
 1. **Правило #968:** прийняти ручний Work-only merge з незмінними

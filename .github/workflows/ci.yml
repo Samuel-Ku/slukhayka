@@ -96,6 +96,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          # The PR's OWN head commit, not the `refs/pull/N/merge` ref that
+          # checkout picks by default on pull_request: that synthetic merge
+          # commit already contains the base tip, so every number below would
+          # read zero drift and a merge that is clean by construction — the
+          # guard would pass on a branch it never looked at. The first real run
+          # of this job proved it: HEAD carried one extra parent (+8 commits
+          # ahead of base instead of the branch's +7).
+          ref: ${{ github.event.pull_request.head.sha }}
           # Full history: the guard needs the merge-base, the behind/ahead
           # counts and both sides of the trial merge.
           fetch-depth: 0

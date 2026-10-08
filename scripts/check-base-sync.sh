@@ -83,10 +83,21 @@ BEHIND=$(git rev-list --count "$HEAD_REF..$BASE")
 AHEAD=$(git rev-list --count "$BASE..$HEAD_REF")
 MERGE_BASE_TS=$(git show -s --format=%ct "$MERGE_BASE")
 AGE_HOURS=$(( ( $(date +%s) - MERGE_BASE_TS ) / 3600 ))
+HEAD_SHA=$(git rev-parse --short "$HEAD_REF")
+HEAD_SUBJECT=$(git show -s --format=%s "$HEAD_REF")
+PARENTS=$(( $(git rev-list --parents -n 1 "$HEAD_REF" | wc -w) - 1 ))
 
-echo "base '$BASE': +${BEHIND} комітів; гілка '$HEAD_REF': +${AHEAD};"
+echo "base '$BASE': +${BEHIND} комітів; гілка '$HEAD_REF' (${HEAD_SHA}, «${HEAD_SUBJECT}», батьків: ${PARENTS}): +${AHEAD};"
 echo "точка синхронізації $MERGE_BASE ($(git show -s --format=%cI "$MERGE_BASE")) — ${AGE_HOURS} год тому."
-summary "- base \`$BASE\`: +${BEHIND}; гілка \`$HEAD_REF\`: +${AHEAD}; останній спільний коміт — ${AGE_HOURS} год тому"
+summary "- base \`$BASE\`: +${BEHIND}; гілка \`$HEAD_REF\` (${HEAD_SHA}): +${AHEAD}; останній спільний коміт — ${AGE_HOURS} год тому"
+
+# Пастка, яка робить ґард фальшиво зеленим: actions/checkout на pull_request за
+# замовчуванням бере синтетичний `refs/pull/N/merge`, а той УЖЕ містить верхівку
+# base — тож відставання нульове, а пробне злиття чисте за побудовою. У CI це
+# мусить бути справжній head PR (`github.event.pull_request.head.sha`).
+if [ "$PARENTS" -ge 2 ] && [ "$BEHIND" -eq 0 ]; then
+  echo "::warning::'$HEAD_REF' — merge-коміт, який уже містить верхівку '$BASE': пробне злиття чисте за побудовою й розсинхрон невидимий. Якщо це refs/pull/N/merge від actions/checkout, а не гілка PR — чек нічого не перевіряє."
+fi
 
 # --- 1) Пробне злиття: конфлікт зараз ---------------------------------------
 MT=$(mktemp)
@@ -140,7 +151,7 @@ else
 fi
 
 if [ "$BEHIND" -eq 0 ]; then
-  echo "OK: гілка '$HEAD_REF' стоїть на верхівці '$BASE' — розсинхрону немає, злиття чисте."
+  echo "OK: гілка '$HEAD_REF' ($HEAD_SHA) стоїть на верхівці '$BASE' — розсинхрону немає, злиття чисте."
 else
   echo "OK: розсинхрон ${AGE_HOURS} год / ${BEHIND} комітів — у межах порога ${MAX_AGE_HOURS} год, злиття в '$BASE' чисте."
 fi

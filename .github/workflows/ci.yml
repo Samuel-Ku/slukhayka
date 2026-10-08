@@ -69,6 +69,54 @@ jobs:
           fi
           scripts/check-migration-slot.sh "origin/$BASE_REF" "HEAD"
 
+  # #1160: a branch can look healthy — green CI, `mergeable=MERGEABLE` — while
+  # main walks away from it, and GitHub only recomputes mergeability lazily, so
+  # the first honest signal arrives on the day someone tries to merge, as a
+  # conflict. This guard does that recompute itself on every PR: a trial merge
+  # of base+head (inside the object store; worktree and index untouched) fails
+  # the job the moment that merge is conflicted, and a sync point older than
+  # BASE_SYNC_MAX_AGE_HOURS (default 72 — main takes ~24 commits a day here, so
+  # that is «three days of main missed», not «main just moved»; `0` disables
+  # only the age check) fails it before the drift becomes a conflict. Same-file
+  # changes on both sides are reported as a warning, because a clean text merge
+  # can still be a semantic collision — #1160 merged two achievement catalogs
+  # with no marker at all and clashed on metric and award keys instead.
+  # Rules, calibration and the local call shape live in
+  # scripts/check-base-sync.sh; the repository variable
+  # BASE_SYNC_MAX_AGE_HOURS overrides the threshold (24 for a daily-sync
+  # policy), no edit to this file needed.
+  base-sync:
+    name: Base sync guard
+    runs-on: ubuntu-latest
+    # On push there is nothing to compare against (base vs itself) — PR-only,
+    # same reasoning as the migration-slot guard above.
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Full history: the guard needs the merge-base, the behind/ahead
+          # counts and both sides of the trial merge.
+          fetch-depth: 0
+
+      - name: Refresh the base ref
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -eu
+          # checkout leaves a snapshot taken at the event; a drift guard is
+          # only as honest as its base ref, so take the newest one.
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+      - name: Fail when the branch drifted from base or no longer merges into it
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SYNC_MAX_AGE_HOURS: ${{ vars.BASE_SYNC_MAX_AGE_HOURS }}
+        run: |
+          set -euo pipefail
+          scripts/check-base-sync.sh "origin/$BASE_REF" "HEAD"
+
   timing-start:
     name: Start workflow timer
     runs-on: ubuntu-latest

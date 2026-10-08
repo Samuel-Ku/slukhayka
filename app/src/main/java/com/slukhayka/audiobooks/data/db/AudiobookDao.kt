@@ -1269,16 +1269,62 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveListeningStat(stat: ListeningStatEntity)
 
-    /** One recorder updates both fields; fractional milliseconds survive each checkpoint. */
+    /**
+     * One recorder updates every field of the day row; fractional milliseconds
+     * survive each checkpoint.
+     *
+     * #1173 (T9): the same atomic write also carries the session the interval
+     * belongs to. [offlineMillis], [castMillis] and [nightMillis] are the parts
+     * of [millis] that strong evidence attributed; they are subsets, never a
+     * second total. [openSessionId] is the session already in progress — null
+     * starts a new row, and the returned id is the open one either way.
+     */
     @Transaction
-    suspend fun addVerifiedListeningTime(dateIso: String, millis: Long) {
-        if (millis <= 0L) return
+    suspend fun addVerifiedListeningTime(
+        dateIso: String,
+        millis: Long,
+        offlineMillis: Long,
+        castMillis: Long,
+        nightMillis: Long,
+        session: PlaybackSessionEntity?,
+        openSessionId: Long?
+    ): Long? {
+        if (millis <= 0L) return openSessionId
         val current = getListeningStatForDate(dateIso) ?: ListeningStatEntity(dateIso)
         val verified = current.verifiedListenedMillis + millis
         val wholeSeconds = verified / 1000L - current.verifiedListenedMillis / 1000L
-        saveListeningStat(current.copy(verifiedListenedMillis = verified,
-            listenedSeconds = current.listenedSeconds + wholeSeconds))
+        saveListeningStat(current.copy(
+            verifiedListenedMillis = verified,
+            listenedSeconds = current.listenedSeconds + wholeSeconds,
+            offlineListenedMillis = current.offlineListenedMillis + offlineMillis.coerceAtLeast(0L),
+            castListenedMillis = current.castListenedMillis + castMillis.coerceAtLeast(0L),
+            nightListenedMillis = current.nightListenedMillis + nightMillis.coerceAtLeast(0L)
+        ))
+        if (session == null) return openSessionId
+        val id = openSessionId ?: return insertPlaybackSession(session)
+        updatePlaybackSession(id, session.endedAt, session.verifiedMillis, session.offlineMillis, session.castMillis)
+        return id
     }
+
+    // --- #1173 (T9) sessions ------------------------------------------------
+    // One row per continuous listening session. Every observed tick advances
+    // `endedAt` in place, so a killed process leaves the row closed at its last
+    // observed tick, never at "now" (ADR-0014). Nothing prunes them.
+
+    @Insert
+    suspend fun insertPlaybackSession(session: PlaybackSessionEntity): Long
+
+    @Query(
+        "UPDATE playback_sessions SET endedAt = :endedAt, verifiedMillis = :verifiedMillis, " +
+            "offlineMillis = :offlineMillis, castMillis = :castMillis WHERE id = :id"
+    )
+    suspend fun updatePlaybackSession(id: Long, endedAt: Long, verifiedMillis: Long, offlineMillis: Long, castMillis: Long)
+
+    @Query("SELECT * FROM playback_sessions WHERE id = :id")
+    suspend fun getPlaybackSession(id: Long): PlaybackSessionEntity?
+
+    @Query("SELECT * FROM playback_sessions ORDER BY startedAt, id")
+    suspend fun getAllPlaybackSessions(): List<PlaybackSessionEntity>
 
     @Insert
     suspend fun insertPlaybackFailure(failure: PlaybackFailureEntity)

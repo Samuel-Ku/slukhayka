@@ -39,6 +39,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventFilter
 import com.slukhayka.audiobooks.data.db.PlaybackEventKind
 import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
+import com.slukhayka.audiobooks.data.listening.ListeningObservation
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.ProgressSyncController
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
@@ -253,8 +254,19 @@ class AudioPlayerManager(
     private val onBookCompleted: (String) -> Unit = {},
     /** Actual engine wall time; production persists outside the player session. */
     private val monotonicNow: () -> Long = android.os.SystemClock::elapsedRealtime,
-    private val onActualListeningDuration: ((Long) -> Unit)? = null,
-    private val onActualPlaybackStarted: (Boolean) -> Unit = {}
+    /**
+     * #1173 (T9) — every real listening interval with the evidence observed
+     * while it played, plus the honest end of a session. Null falls back to
+     * writing the store directly (tests, and hosts without the app queue).
+     */
+    private val onListeningObservation: ((ListeningObservation) -> Unit)? = null,
+    private val onActualPlaybackStarted: (Boolean) -> Unit = {},
+    /**
+     * #1173 (T9) — the moment the «до кінця розділу» mode was armed. Not the
+     * TIMER_STOP event: at a chapter boundary the timer re-arms and that event
+     * may never be written (#700).
+     */
+    private val onEndOfChapterArmed: () -> Unit = {}
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -575,7 +587,9 @@ class AudioPlayerManager(
             actualCastStartedLoadRequest = loadRequestSequence
             actualCastTerminal = null
         }
-        actualListeningClock.update(playing)
+        // #1173: the receiver is the evidence — cast time is booked only while
+        // it really plays, and the book is the one the receiver mirrors.
+        updateActualListening(playing, state.currentBook?.id, offline = false, cast = true)
         if (playing && !wasPlaying) onActualPlaybackStarted(false)
     }
 
@@ -634,7 +648,7 @@ class AudioPlayerManager(
 
     private fun stopActualListening() {
         actualCastPlaying = false
-        actualListeningClock.update(false)
+        updateActualListening(playing = false, bookId = null, offline = false, cast = false)
     }
 
     internal fun mirrorCastState(transform: (PlayerState) -> PlayerState) {
@@ -712,10 +726,69 @@ class AudioPlayerManager(
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val actualListeningClock = ActualListeningClock(monotonicNow) { millis ->
-        val recorder = onActualListeningDuration
-        if (recorder != null) recorder(millis)
-        else scope.launch(ioDispatcher) { listeningState.recordActualListeningTime(millis) }
+        reportListeningObservation(
+            ListeningObservation.Played(
+                millis = millis,
+                bookId = listeningBookId,
+                offline = listeningOffline,
+                cast = listeningCast
+            )
+        )
     }
+
+    /**
+     * #1173 (T9) — one observation to the app-owned queue, or straight to the
+     * store when the host has no queue. The fallback covers the WHOLE channel:
+     * were it only on [ListeningObservation.Played], such a host would open
+     * sessions it could never close.
+     */
+    private fun reportListeningObservation(observation: ListeningObservation) {
+        val recorder = onListeningObservation
+        if (recorder != null) recorder(observation)
+        else scope.launch(ioDispatcher) { listeningState.recordActualListeningTime(observation) }
+    }
+
+    // --- #1173 (T9): the evidence of the interval the clock counts right now --
+    // Captured where it is OBSERVED — the local file/content URI really playing
+    // in [Player.Listener.onIsPlayingChanged], the receiver really PLAYING in
+    // [reportActualCastPlayback] — never `book.isDownloaded` and never the
+    // `isCasting` flag (ADR-0014, ADR-0060). The book is captured at the same
+    // moment: a load swaps `currentBook` before the previous interval is
+    // flushed, so reading it later would attribute the time to the wrong book.
+
+    /** The book of the interval the clock counts; null when nothing is counted. */
+    private var listeningBookId: String? = null
+    private var listeningOffline = false
+    private var listeningCast = false
+
+    /**
+     * Starts/stops the verified clock with the evidence of THIS interval.
+     * Evidence that changed mid-interval (a receiver taking over locally
+     * playing audio, or the other way round) closes the old interval exactly
+     * here and opens a new one, so cast time is never booked as offline time
+     * and the total stays exactly the time that played.
+     */
+    private fun updateActualListening(playing: Boolean, bookId: String?, offline: Boolean, cast: Boolean) {
+        val changed = listeningBookId != null &&
+            (bookId != listeningBookId || offline != listeningOffline || cast != listeningCast)
+        if (playing && changed) actualListeningClock.update(false)
+        if (playing) {
+            listeningBookId = bookId
+            listeningOffline = offline
+            listeningCast = cast
+        }
+        actualListeningClock.update(playing)
+        // The flush above already reported the interval; only now is the
+        // evidence of the NEXT one unknown again.
+        if (!playing) {
+            listeningBookId = null
+            listeningOffline = false
+            listeningCast = false
+        }
+    }
+
+    /** #1173 — the engine stopped (not paused): the open session is over. */
+    private fun reportListeningStopped() = reportListeningObservation(ListeningObservation.Stopped)
 
 
     // Spec-22 T4: keep the home-screen widget's progress/transport in sync
@@ -829,10 +902,13 @@ class AudioPlayerManager(
                 ?.toString()
                 .orEmpty()
             if (mediaUrl.isBlank()) return
-            actualListeningClock.update(true)
             val localFile = mediaUrl.startsWith("file:") && SmartRetryPolicy.localFileReady(currentTrack?.localFilePath)
             val localDocument = mediaUrl.startsWith("content:") && mediaUrl == currentTrack?.url &&
                 playableChapters.getOrNull(_playerState.value.currentChapterIndex)?.sourceId == "local"
+            // #1173 (T9): the STRONG offline proof — the local file/content URI
+            // is what really plays. `book.isDownloaded` says a download once
+            // existed, not that this audio came from disk (ADR-0014).
+            updateActualListening(playing = true, bookId = bookId, offline = localFile || localDocument, cast = false)
             onActualPlaybackStarted(localFile || localDocument)
             _playbackStarted.tryEmit(
                 PlaybackStarted(
@@ -2232,6 +2308,9 @@ class AudioPlayerManager(
                 isSleepTimerEndOfChapter = true
             )
             startSleepTimerInternal(remainingMs, isEndOfChapter = true)
+            // #1173 (T9): ARMING is the fact. The stop event below may never
+            // arrive — the timer re-arms on the chapter boundary (#700).
+            onEndOfChapterArmed()
             return
         }
 
@@ -2406,7 +2485,10 @@ class AudioPlayerManager(
                 val remote = castEngineHook?.isActive == true
                 val actuallyPlaying = if (remote) actualCastPlaying else
                     state.isPlaying && !state.isBuffering && mediaPlayer?.isPlaying == true
-                actualListeningClock.update(actuallyPlaying)
+                // #1173: the heartbeat corrects drift, it does not invent
+                // evidence — a running interval keeps the evidence it started
+                // with (and an interval it has to open reports time with none).
+                updateActualListening(actuallyPlaying, state.currentBook?.id, listeningOffline, listeningCast)
                 actualListeningClock.flush()
                 if (state.isPlaying && !state.isBuffering) {
                     var newPos = state.currentPositionMs
@@ -2539,6 +2621,11 @@ class AudioPlayerManager(
         mediaControllerFuture = null
         mediaPlayer?.release()
         mediaPlayer = null
+        // #1173 (T9): the manager is being torn down — the listener stopped,
+        // they did not pause. Reported after the teardown above, and after the
+        // interval `resetActualCastReceiverEvidence` already flushed, so the
+        // open session can never outlive a half-released engine.
+        reportListeningStopped()
     }
 
     /**
@@ -2581,6 +2668,9 @@ class AudioPlayerManager(
         completionLogged = false
         lastLoadedBookId = null
         _playerState.value = PlayerState()
+        // #1173 (T9): the engine is stopped, not paused — the open session
+        // ends at the interval flushed at the top of this method.
+        reportListeningStopped()
     }
 
     companion object {

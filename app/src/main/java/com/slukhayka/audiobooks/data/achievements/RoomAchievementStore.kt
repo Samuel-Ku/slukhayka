@@ -18,6 +18,10 @@ class RoomAchievementStore(private val dao: AchievementDao, private val now: () 
         return rows.zip(inserted).filter { (_, rowId) -> rowId != -1L }.map { (row, _) -> row.external() }
     }
     override suspend fun recordFact(fact: AchievementFact) { dao.insertFact(AchievementFactEntity(fact.name, now())) }
+
+    /** #1173 (T9) — one durable step per observed action (see [AchievementCounter]). */
+    override suspend fun incrementCounter(key: String) { dao.incrementCounter(key) }
+
     override suspend fun claimNotice(knownIds: Set<String>, seenAt: Long) = dao.claimNotice(knownIds, seenAt)?.external()
 
     // --- #704 (T6) showcase -------------------------------------------------

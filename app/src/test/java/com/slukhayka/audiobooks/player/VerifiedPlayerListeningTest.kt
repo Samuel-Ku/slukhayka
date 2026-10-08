@@ -1,8 +1,11 @@
 package com.slukhayka.audiobooks.player
 
 import android.content.Context
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
+import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.listening.ListeningObservation
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.testing.FakeAudiobookDao
 import com.slukhayka.audiobooks.testing.TestDataFactory
@@ -10,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -35,7 +39,8 @@ class VerifiedPlayerListeningTest {
         val manager = AudioPlayerManager(ApplicationProvider.getApplicationContext<Context>(),
             ListeningStateStore(dao, dispatcher), { playable }, injectedPlayerFactory = factory,
             ioDispatcher = dispatcher, widgetSyncEnabled = false, monotonicNow = { now },
-            onActualListeningDuration = durations::add, onActualPlaybackStarted = starts::add)
+            onListeningObservation = { if (it is ListeningObservation.Played) durations += it.millis },
+            onActualPlaybackStarted = starts::add)
         try {
             manager.loadAndPlayBook(book, chapters, playable)
             runCurrent()
@@ -74,7 +79,8 @@ class VerifiedPlayerListeningTest {
         val manager = AudioPlayerManager(ApplicationProvider.getApplicationContext<Context>(),
             ListeningStateStore(FakeAudiobookDao(books, chapters), dispatcher), { playable },
             injectedPlayerFactory = factory, ioDispatcher = dispatcher, widgetSyncEnabled = false,
-            monotonicNow = { now }, onActualListeningDuration = durations::add,
+            monotonicNow = { now },
+            onListeningObservation = { if (it is ListeningObservation.Played) durations += it.millis },
             onActualPlaybackStarted = starts::add, onBookCompleted = completed::add)
         val receiver = object : CastEngineHook {
             override val isActive = true
@@ -141,7 +147,8 @@ class VerifiedPlayerListeningTest {
         val manager = AudioPlayerManager(context,
             ListeningStateStore(FakeAudiobookDao(listOf(book), chapters), dispatcher), { playable },
             injectedPlayerFactory = factory, ioDispatcher = dispatcher, widgetSyncEnabled = false,
-            monotonicNow = { now }, onActualListeningDuration = durations::add,
+            monotonicNow = { now },
+            onListeningObservation = { if (it is ListeningObservation.Played) durations += it.millis },
             onActualPlaybackStarted = starts::add, onBookCompleted = completed::add)
         try {
             manager.loadAndPlayBook(book, chapters, playable); runCurrent()
@@ -475,4 +482,134 @@ class VerifiedPlayerListeningTest {
         } finally { manager.release(); runCurrent(); database.close(); Dispatchers.resetMain() }
     }
 
+    // --- #1173 (T9): only strong evidence books offline / cast milliseconds ---
+
+    /**
+     * The offline proof: the day row books offline milliseconds only when the
+     * local file / content URI really played. `book.isDownloaded` says a
+     * download once existed — while a remote stream plays it proves nothing
+     * (ADR-0014), so the second half of this test is the one that pins it.
+     */
+    @Test fun `only a really played local file books offline millis`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = java.io.File.createTempFile("1173-offline", ".mp3", context.cacheDir)
+            .apply { writeBytes(ByteArray(1024)) }
+        try {
+            val local = measureOneInterval(localFilePath = file.absolutePath, downloaded = true)
+            assertTrue("справжній локальний файл мусить дати verified-час", local.second > 0L)
+            assertEquals("увесь цей інтервал — офлайн", local.second, local.first)
+
+            val remote = measureOneInterval(localFilePath = null, downloaded = true)
+            assertTrue("verified-час рахується і для стріму", remote.second > 0L)
+            assertEquals("isDownloaded без локального файла не доводить нічого", 0L, remote.first)
+        } finally { file.delete() }
+    }
+
+    /**
+     * The cast proof: only a receiver confirmed PLAYING books cast time. A
+     * transport command, the `isCasting` flag and a UI mirror are not
+     * evidence (ADR-0024, ADR-0060) — the assertion before the confirmation is
+     * what pins that.
+     */
+    @Test fun `cast millis need a confirmed receiver PLAYING`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // Direct executors: the day row is read right after the tick, so the
+        // store's own write must not be parked on a background thread.
+        val direct = java.util.concurrent.Executor { it.run() }
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().setQueryExecutor(direct).setTransactionExecutor(direct).build()
+        val book = TestDataFactory.dataBooks().first().copy(totalChapters = 1)
+        val chapters = TestDataFactory.dataChapters().filter { it.bookId == book.id }.take(1)
+        val track = TestDataFactory.tracksFor(book, "4read").first()
+        val playable = listOf(SourceCatalog.PlayableChapter(chapters.single(), track))
+        val dao = database.audiobookDao()
+        dao.insertAudiobooks(listOf(book)); dao.insertChapters(chapters)
+        val factory = RecordingPlayerFactory()
+        var now = 0L
+        val manager = AudioPlayerManager(context,
+            ListeningStateStore(dao, dispatcher, now = { WALL_CLOCK }, zone = KYIV), { playable },
+            injectedPlayerFactory = factory, ioDispatcher = dispatcher, widgetSyncEnabled = false,
+            monotonicNow = { now })
+        val receiver = object : CastEngineHook {
+            override val isActive = true
+            override fun play() = Unit
+            override fun pause() = Unit
+            override fun seekTo(positionMs: Long) = Unit
+            override fun setPlaybackSpeed(speed: Float) = Unit
+            override fun setVolume(volume: Float) = Unit
+            override fun prepareChapter(chapterIndex: Int, startPositionMs: Long, autoPlay: Boolean) = Unit
+        }
+        try {
+            manager.loadAndPlayBook(book, chapters, playable, autoPlay = false); runCurrent()
+            factory.current.simulateReady(chapters.single().durationSeconds * 1000L); runCurrent()
+            manager.attachCastHook(receiver)
+            manager.play() // A command is not playback.
+            manager.mirrorCastState { it.copy(isPlaying = true, isBuffering = false) } // Nor is a mirror.
+            now = 10_000L; advanceTimeBy(1_001L); runCurrent()
+            now = 20_000L; advanceTimeBy(1_001L); runCurrent()
+            assertEquals("isCasting і UI-дзеркало не доводять каст", 0L, dayRow(dao)?.castListenedMillis ?: 0L)
+
+            manager.reportActualCastPlayback(true, false)
+            now = 26_650L; manager.reportActualCastPlayback(false, true) // Buffering is not playing.
+            now = 40_000L; manager.reportActualCastPlayback(false, false)
+            runCurrent()
+            val row = todayRow(dao)
+            assertEquals("підтверджений PLAYING — це каст", 6_650L, row.castListenedMillis)
+            assertEquals("нічого зайвого", 6_650L, row.verifiedListenedMillis)
+        } finally { manager.release(); database.close(); Dispatchers.resetMain() }
+    }
+
+    /**
+     * Plays one interval with the given track shape and returns today's
+     * (offline, verified) pair. Nothing is injected between the player and the
+     * store: the real observation path writes the row.
+     */
+    private suspend fun TestScope.measureOneInterval(localFilePath: String?, downloaded: Boolean): Pair<Long, Long> {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // Direct executors: the day row is read right after the tick, so the
+        // store's own write must not be parked on a background thread.
+        val direct = java.util.concurrent.Executor { it.run() }
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().setQueryExecutor(direct).setTransactionExecutor(direct).build()
+        val book = TestDataFactory.dataBooks().first().copy(totalChapters = 1, isDownloaded = downloaded)
+        val chapters = TestDataFactory.dataChapters().filter { it.bookId == book.id }.take(1)
+        val track = TestDataFactory.tracksFor(book, "4read").first()
+            .copy(localFilePath = localFilePath, isDownloaded = downloaded)
+        val playable = listOf(SourceCatalog.PlayableChapter(chapters.single(), track))
+        val dao = database.audiobookDao()
+        dao.insertAudiobooks(listOf(book)); dao.insertChapters(chapters)
+        val factory = RecordingPlayerFactory()
+        var now = 0L
+        val manager = AudioPlayerManager(context,
+            ListeningStateStore(dao, dispatcher, now = { WALL_CLOCK }, zone = KYIV), { playable },
+            injectedPlayerFactory = factory, ioDispatcher = dispatcher, widgetSyncEnabled = false,
+            monotonicNow = { now })
+        return try {
+            manager.loadAndPlayBook(book, chapters, playable); runCurrent()
+            now = 10_000L
+            factory.current.simulateReady(chapters.single().durationSeconds * 1000L); runCurrent()
+            factory.current.notifyIsPlayingChanged(true); runCurrent()
+            now = 30_000L
+            manager.pause(); runCurrent()
+            val row = todayRow(dao)
+            row.offlineListenedMillis to row.verifiedListenedMillis
+        } finally { manager.release(); database.close(); Dispatchers.resetMain() }
+    }
+
+    /** Today's row, or null when nothing has been booked yet. */
+    private suspend fun dayRow(dao: com.slukhayka.audiobooks.data.db.AudiobookDao) =
+        dao.getListeningStatForDate("2026-10-08")
+
+    private suspend fun todayRow(dao: com.slukhayka.audiobooks.data.db.AudiobookDao) =
+        requireNotNull(dayRow(dao)) { "жодного рядка за день" }
+
+    private companion object {
+        /** A fixed local noon: the day row is «2026-10-08» and the night bucket is zero. */
+        const val WALL_CLOCK = 1_791_450_000_000L
+        val KYIV: java.util.TimeZone = java.util.TimeZone.getTimeZone("Europe/Kyiv")
+    }
 }

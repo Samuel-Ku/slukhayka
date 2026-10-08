@@ -363,4 +363,38 @@ class SleepTimerTest {
             previous = vol
         }
     }
+
+    // ------------------------------------------------------------------
+    // #1173 (T9): the arm of «до кінця розділу» is the fact
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `arming end of chapter reports the arm and nothing else does`() = testScope.runTest {
+        var arms = 0
+        val manager = AudioPlayerManager(
+            context = context,
+            listeningState = ListeningStateStore(FakeAudiobookDao()),
+            chapterFetcher = { emptyList() },
+            injectedPlayerFactory = { FakePlayerEngine() },
+            widgetSyncEnabled = false,
+            onEndOfChapterArmed = { arms++ }
+        )
+        try {
+            manager.setSleepTimer(-1)
+            assertEquals(1, arms)
+            // Re-arming is a new observed action, not a duplicate: the listener
+            // asked for the mode again.
+            manager.setSleepTimer(-1)
+            assertEquals(2, arms)
+
+            // Neither mode counts: a timed timer is not «до кінця розділу»,
+            // cancelling is not arming, and the canonical extension turns the
+            // end-of-chapter timer into an ordinary remainder.
+            manager.setSleepTimer(15)
+            manager.setSleepTimer(0)
+            manager.setSleepTimer(-1)
+            manager.extendSleepTimerBy15Minutes()
+            assertEquals(3, arms)
+        } finally { manager.release() }
+    }
 }

@@ -148,6 +148,42 @@ object ReadthroughPolicy {
     }
 
     /**
+     * spec-52 US28 / #1174 — the listener stopped coming back, and SAID so: the
+     * pass carries the ABANDONED mark. Nothing else moves — the position stays
+     * in Listening State (ADR-0046 §3), and the state never moves by itself
+     * (CONTEXT.md: a pause is not a state). A FINISHED pass is history and is
+     * never marked; marking an already marked pass changes nothing.
+     */
+    fun abandon(readthrough: Readthrough): Readthrough? = when (readthrough.state) {
+        ReadingState.FINISHED -> null
+        ReadingState.ABANDONED -> readthrough
+        else -> readthrough.copy(state = ReadingState.ABANDONED)
+    }
+
+    /**
+     * #1174 — the listener takes the mark back, and the pass returns to what it
+     * was: [previousState] is the state the pass carried BEFORE the mark
+     * (the undo note the abandon left). Only when that note is gone does the
+     * decision fall back to the evidence — a Listening State row means the pass
+     * was started, its absence means the listener never began (PLANNED), the
+     * same rule the 45->46 backfill used. A pass that carries no mark is
+     * refused; so is a note that names the mark itself or history.
+     */
+    fun restore(
+        readthrough: Readthrough,
+        previousState: ReadingState?,
+        hasListeningProgress: Boolean
+    ): Readthrough? {
+        if (readthrough.state != ReadingState.ABANDONED) return null
+        val remembered = previousState?.takeIf {
+            it != ReadingState.ABANDONED && it != ReadingState.FINISHED
+        }
+        val restored = remembered
+            ?: if (hasListeningProgress) ReadingState.IN_PROGRESS else ReadingState.PLANNED
+        return readthrough.copy(state = restored)
+    }
+
+    /**
      * ADR-0046 §6 — a re-read is a NEW pass: same Work and format, new id, and
      * the previous pass stays in history exactly as it was.
      */

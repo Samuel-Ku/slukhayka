@@ -113,6 +113,29 @@ class LibraryComponentsSnapshotTest {
         )
     }
 
+    // spec-52 US28 (#1174) — the abandoned mark the card wears in the library.
+    // One golden for the default (list) card, where the badge rides the title;
+    // the grid tile's cover badge is pinned by LibraryAbandonedBadgeTest.
+    @Test
+    fun book_card_abandoned_badge() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibrarySurface {
+                    LibraryBookCard(
+                        book = libraryBooks[0],
+                        grid = false,
+                        abandoned = true,
+                        onClick = {},
+                        onListenNow = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/library_book_card_abandoned.png"
+        )
+    }
+
     @Test
     fun book_card_sluhay_source_badge() {
         composeTestRule.setContent {

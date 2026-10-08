@@ -135,12 +135,17 @@ enum class AchievementMetric {
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
-    DISTINCT_GENRES, MAX_GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
+    DISTINCT_GENRES, MAX_GENRE_BOOKS, GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
     VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS, BOOKS_FINISHED_TWICE,
     LONGEST_SERIES_RUN, ENGLISH_STARTS, BEST_DAY_MILLIS, LONGEST_DAY_STREAK,
     BEST_MONTH_DAYS, MONDAY_DAYS;
 
-    fun value(snapshot: AchievementProgress): Long = when (this) {
+    /**
+     * [genreId] is read by [GENRE_BOOKS] alone — the one metric that asks about
+     * a NAMED genre, and therefore the only one that needs something beside the
+     * snapshot. Every other metric ignores it.
+     */
+    fun value(snapshot: AchievementProgress, genreId: String? = null): Long = when (this) {
         EXPLICIT_BOOKS -> snapshot.explicitBooks
         PLAYBACK_STARTS -> snapshot.playbackStarts
         ACCEPTED_REVIEWS -> snapshot.acceptedReviews
@@ -162,6 +167,10 @@ enum class AchievementMetric {
         BROWSER_BOOKS -> snapshot.browserBooks
         DISTINCT_GENRES -> snapshot.genreCounts.size.toLong()
         MAX_GENRE_BOOKS -> snapshot.genreCounts.values.maxOrNull() ?: 0L
+        // #702 (T4, зріз 2) — books of ONE NAMED genre. A genre the snapshot
+        // never saw is zero, so an award can never open on a genre nobody
+        // claimed (ADR-0014).
+        GENRE_BOOKS -> genreId?.let { snapshot.genreCounts[it] } ?: 0L
         NIGHT_COMPLETIONS -> snapshot.nightCompletions
         OWL_LARK -> snapshot.owlLarkBalance
         HOLIDAY_COMPLETIONS -> snapshot.holidayCompletions
@@ -185,10 +194,41 @@ data class AchievementDefinition(
     val level: Int,
     val metric: AchievementMetric,
     val threshold: Long,
-    val hidden: Boolean = false
+    val hidden: Boolean = false,
+    /**
+     * #702 (T4, зріз 2) — the named genre this tier asks about, from
+     * `GenreIdentity`. Null for every award that does not name one.
+     */
+    val genreId: String? = null
 )
 
 object AchievementCatalog {
+    /**
+     * #702 (T4, зріз 2) — «10 книг у жанрі» для кожної полиці, яку джерела
+     * РЕАЛЬНО заявляють і словник знає.
+     *
+     * Кожне написання спостережене на збереженій сторінці джерела (4read,
+     * sound-books, lihtar), а не виведене з назви чи опису книжки. Порядок —
+     * як у тікеті.
+     *
+     * «Класика» і «нон-фікшн» із тікета тут ВІДСУТНІ НАВМИСНО: жодне джерело в
+     * жодній зібраній фікстурі цих слів не заявляє, а вигадати жанр — саме те,
+     * що забороняє ADR-0014. Тест пінить цю прогалину як рішення: щойно джерело
+     * заявить текст, полиця додається сюди одним рядком.
+     */
+    private val namedGenreTiers = listOf(
+        "detective",
+        "fantasy",
+        "science-fiction",
+        "romance",
+        "horror",
+        "childrens-literature",
+        "historical-prose",
+        "adventure",
+        "self-development",
+        "biography"
+    )
+
     val definitions: List<AchievementDefinition> = listOf(
         AchievementDefinition("first_book", "first_steps", 1, AchievementMetric.EXPLICIT_BOOKS, 1),
         AchievementDefinition("first_playback", "first_steps", 1, AchievementMetric.PLAYBACK_STARTS, 1),
@@ -293,9 +333,10 @@ object AchievementCatalog {
         //
         // Breadth counts genres with at least one owned Work — «8 різних
         // жанрів» / «12 жанрів», read literally. Depth takes the largest single
-        // genre. The twelve named «10 books in genre X» awards are NOT here on
-        // purpose: only six genres have canonical ids in `GenreIdentity`, and
-        // the rest are hashed, so naming them would mean inventing vocabulary.
+        // genre. The NAMED «10 books in genre X» tiers are a separate block at
+        // the end of this catalogue: they name a genre, so each one needs a
+        // canonical id from `GenreIdentity` rather than a count of whatever the
+        // sources happened to hash.
         AchievementDefinition("genre_polyglot_8", "genres", 1, AchievementMetric.DISTINCT_GENRES, 8),
         AchievementDefinition("omnivore_12", "genres", 2, AchievementMetric.DISTINCT_GENRES, 12),
         AchievementDefinition("mono_genre_25", "genres", 3, AchievementMetric.MAX_GENRE_BOOKS, 25),
@@ -335,7 +376,16 @@ object AchievementCatalog {
         // hour ladder from T1 already has `hours_100` on the SAME metric at the
         // SAME threshold, so adding it would fire two awards — and two notices —
         // for one event. A duplicate is not a second achievement.
-    )
+    ) + namedGenreTiers.mapIndexed { index, genreId ->
+        AchievementDefinition(
+            id = "genre_${genreId.replace('-', '_')}_10",
+            group = "genres",
+            level = index + 4,
+            metric = AchievementMetric.GENRE_BOOKS,
+            threshold = 10,
+            genreId = genreId
+        )
+    }
 }
 
 object AchievementEvaluator {
@@ -344,6 +394,6 @@ object AchievementEvaluator {
         alreadyEarned: Set<String>,
         catalog: List<AchievementDefinition> = AchievementCatalog.definitions
     ): List<AchievementDefinition> = catalog.filter {
-        it.id !in alreadyEarned && it.metric.value(snapshot) >= it.threshold
+        it.id !in alreadyEarned && it.metric.value(snapshot, it.genreId) >= it.threshold
     }
 }

@@ -775,6 +775,17 @@
     <string name="achievements_upcoming">Попереду</string>
     <string name="achievements_empty_title">Ще немає нагород</string>
     <string name="achievements_empty_body">Слухайте книги — нагороди з\'являться тут.</string>
+    <!-- #702 (T4): «10 книг у жанрі» — лише для полиць, які джерела справді заявляють. -->
+    <string name="achievement_genre_detective_10">10 детективів</string>
+    <string name="achievement_genre_fantasy_10">10 фентезі</string>
+    <string name="achievement_genre_science_fiction_10">10 книг фантастики</string>
+    <string name="achievement_genre_romance_10">10 любовних романів</string>
+    <string name="achievement_genre_horror_10">10 книг жахів</string>
+    <string name="achievement_genre_childrens_literature_10">10 дитячих книг</string>
+    <string name="achievement_genre_historical_prose_10">10 історичних книг</string>
+    <string name="achievement_genre_adventure_10">10 пригод</string>
+    <string name="achievement_genre_self_development_10">10 книг саморозвитку</string>
+    <string name="achievement_genre_biography_10">10 біографій</string>
     <string name="achievement_awarded_generic">Нова нагорода</string>
     <string name="achievement_awarded">Нагорода: %1$s</string>
     <string name="achievement_first_book">Перша книга</string>

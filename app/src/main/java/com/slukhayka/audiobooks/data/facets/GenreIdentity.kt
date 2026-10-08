@@ -15,6 +15,18 @@ object GenreIdentity {
     private val separators = Regex("[·,/;|]+")
     private val spaces = Regex("\\s+")
 
+    /**
+     * The canonical vocabulary. A genre joins this map only when a source
+     * really CLAIMS its wording and a captured page proves it (#1053); every
+     * other text keeps a bounded identity derived from what it itself says.
+     *
+     * #702 (T4) added the seven shelves the sources already claim — жахи,
+     * пригоди, біографії, саморозвиток, історична проза, дитяча література й
+     * любовні романи — each observed in a captured page (4read's menu and book
+     * pages, sound-books' categories, lihtar's library). «Класика» і
+     * «нон-фікшн» тут НЕМАЄ: жодне джерело цих слів не заявляє, а назвати їх
+     * означало б вигадати словник (ADR-0014).
+     */
     private val canonical = mapOf(
         "фентезі" to NormalizedGenre("fantasy", "Фентезі"),
         "фантазія" to NormalizedGenre("fantasy", "Фентезі"),
@@ -22,14 +34,25 @@ object GenreIdentity {
         "наукова фантастика" to NormalizedGenre("science-fiction", "Фантастика"),
         "sci-fi" to NormalizedGenre("science-fiction", "Фантастика"),
         "science fiction" to NormalizedGenre("science-fiction", "Фантастика"),
+        "жахи" to NormalizedGenre("horror", "Жахи"),
         "детектив" to NormalizedGenre("detective", "Детективи"),
         "детективи" to NormalizedGenre("detective", "Детективи"),
         "поезія" to NormalizedGenre("poetry", "Поезія"),
         "поема" to NormalizedGenre("poetry", "Поезія"),
         "казка" to NormalizedGenre("fairy-tale", "Казка"),
-        "сучасна проза" to NormalizedGenre("contemporary-prose", "Сучасна проза")
+        "сучасна проза" to NormalizedGenre("contemporary-prose", "Сучасна проза"),
+        "пригоди" to NormalizedGenre("adventure", "Пригоди"),
+        "біографії" to NormalizedGenre("biography", "Біографії"),
+        "саморозвиток" to NormalizedGenre("self-development", "Саморозвиток"),
+        "історична проза" to NormalizedGenre("historical-prose", "Історична проза"),
+        "дитячі" to NormalizedGenre("childrens-literature", "Дитяча література"),
+        "дитяча література" to NormalizedGenre("childrens-literature", "Дитяча література"),
+        "любовні романи" to NormalizedGenre("romance", "Любовні романи")
     )
     private val nonGenres = setOf("каталог", "4read каталог", "усі жанри", "all genres")
+
+    /** Published canonical identities by id — for callers that must not invent one. */
+    val canonicalIdentities: Map<String, NormalizedGenre> = canonical.values.associateBy { it.id }
 
     fun fromSourceText(rawText: String): List<NormalizedGenre> =
         rawText.split(separators)
@@ -43,26 +66,45 @@ object GenreIdentity {
             ?: candidates.singleOrNull()?.copy(id = genreId)
     }
 
-    private fun normalizeOne(raw: String): NormalizedGenre? {
-        val normalized = Normalizer.normalize(raw, Normalizer.Form.NFKC)
-            .trim()
-            .replace(spaces, " ")
-            .lowercase(Locale.ROOT)
-            .takeIf { it.isNotBlank() }
-            ?: return null
-        if (normalized in nonGenres) return null
-        canonical[normalized]?.let { return it }
-        val label = normalized.replaceFirstChar { char ->
+    /**
+     * #702 (T4) — every claim inside one raw genre text, each with the id it
+     * carried BEFORE the dictionary listed it ([ClaimedGenreIdentity.priorHashedId]).
+     *
+     * A stored row keeps its raw claim verbatim, so re-normalization reads the
+     * claim itself instead of guessing from a hash; this is the only place that
+     * can answer "what did this text turn into back then" without carrying a
+     * second copy of the old vocabulary.
+     */
+    internal fun claimIdentities(rawText: String): List<ClaimedGenreIdentity> =
+        rawText.split(separators).mapNotNull { fragment ->
+            val key = normalizedKey(fragment) ?: return@mapNotNull null
+            normalizeKey(key)?.let { genre ->
+                ClaimedGenreIdentity(genre = genre, priorHashedId = FacetIdentity.boundedId("genre", key))
+            }
+        }
+
+    private fun normalizeOne(raw: String): NormalizedGenre? = normalizedKey(raw)?.let(::normalizeKey)
+
+    private fun normalizeKey(key: String): NormalizedGenre? {
+        if (key in nonGenres) return null
+        canonical[key]?.let { return it }
+        val label = key.replaceFirstChar { char ->
             if (char.isLowerCase()) char.titlecase(Locale.ROOT) else char.toString()
         }.take(MAX_LABEL_LENGTH)
-        return NormalizedGenre(
-            id = FacetIdentity.boundedId("genre", normalized),
-            label = label
-        )
+        return NormalizedGenre(id = FacetIdentity.boundedId("genre", key), label = label)
     }
+
+    private fun normalizedKey(raw: String): String? = Normalizer.normalize(raw, Normalizer.Form.NFKC)
+        .trim()
+        .replace(spaces, " ")
+        .lowercase(Locale.ROOT)
+        .takeIf { it.isNotBlank() }
 
     private const val MAX_LABEL_LENGTH = 80
 }
+
+/** One claimed genre and the id that same claim carried while it was not yet listed. */
+internal data class ClaimedGenreIdentity(val genre: NormalizedGenre, val priorHashedId: String)
 
 /** Separate extension seam for author/narrator identity; no fuzzy merges. */
 object FacetIdentity {

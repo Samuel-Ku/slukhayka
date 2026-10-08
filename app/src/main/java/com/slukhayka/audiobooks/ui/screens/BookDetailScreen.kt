@@ -62,6 +62,7 @@ import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
+import com.slukhayka.audiobooks.data.entries.AbandonBookPolicy
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.NarrationClaimPolicy
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
@@ -532,6 +533,17 @@ fun BookDetailScreen(
         cumulativePositionSeconds = cumulativePosition,
         totalDurationSeconds = totalDuration
     )
+    // spec-52 US28 (#1174) — «покинути книгу». The offer is pure policy over
+    // the two facts this page already reads (a Listening State row, and
+    // completion in either of its honest forms) plus the stored mark, which
+    // arrives on the same flow as the library badge — so the ⋮ item and the
+    // badge never disagree.
+    val abandonedBookIds by viewModel.abandonedBookIds.collectAsState()
+    val abandonOffer = AbandonBookPolicy.offer(
+        storedAbandoned = currentBook.id in abandonedBookIds,
+        hasListeningState = progress != null,
+        isCompleted = progress?.isCompleted == true || playState == BookPlayState.Finished
+    )
     val paneTitle = stringResource(R.string.book_detail_pane_title, detailPresentation.title)
     val onDownloadClick: () -> Unit = {
         when (downloadAction) {
@@ -717,6 +729,22 @@ fun BookDetailScreen(
                                 onClick = {
                                     showOverflowMenu = false
                                     viewModel.setCompleted(currentBook.id, !isListenedThis)
+                                }
+                            )
+                            // spec-52 US28 (#1174) — «покинути книгу»: offered
+                            // only for a book the listener really started and
+                            // has not finished, and once marked, this same slot
+                            // is the way back. The decision is the pure policy;
+                            // the item renders it (both edges are tested).
+                            BookAbandonMenuItem(
+                                offer = abandonOffer,
+                                onAbandon = {
+                                    showOverflowMenu = false
+                                    viewModel.abandonBook(currentBook.id)
+                                },
+                                onCancel = {
+                                    showOverflowMenu = false
+                                    viewModel.cancelAbandonBook(currentBook.id)
                                 }
                             )
                             if (chapters.size > 1) {

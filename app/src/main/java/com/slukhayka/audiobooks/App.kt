@@ -251,6 +251,15 @@ class App : Application() {
         by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }
 
     /**
+     * spec-52 US28 / #1174 — «покинути книгу»: the durable mark of a book the
+     * listener said they are not coming back to, and the way back from it. The
+     * mark rides the book's AUDIO Readthrough, so imports that never had one
+     * gain it through the deterministic id the 45->46 backfill used.
+     */
+    val abandonedBooks: com.slukhayka.audiobooks.data.entries.AbandonedBooks
+        by lazy { com.slukhayka.audiobooks.data.entries.AbandonedBooks(audiobookDao, listeningState) }
+
+    /**
      * #855 (T2) — the write half of the listener's cover Override: the cover
      * lands through the ordinary cover write path and the decision is
      * remembered, so no later external claim can undo it.

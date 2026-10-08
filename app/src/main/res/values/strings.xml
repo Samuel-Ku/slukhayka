@@ -144,6 +144,12 @@
     <string name="book_detail_metadata_save">Зберегти</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
     <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
+    <!-- spec-52 US28 (#1174) — «покинути книгу»: дія лише для книг із поступом,
+         які не завершено, і видима позначка «Покинуто» в медіатеці. -->
+    <string name="book_detail_abandon">Покинути книгу</string>
+    <string name="book_detail_abandon_cancel">Не покидати книгу</string>
+    <string name="book_detail_abandon_state_on">Книгу позначено покинутою</string>
+    <string name="library_abandoned_badge">Покинуто</string>
     <string name="author_all_found">Усі знайдені автори</string>
     <string name="nav_settings">Налаштування</string>
     <string name="mini_player_other_book_chapter">У плеєрі · %1$s</string>

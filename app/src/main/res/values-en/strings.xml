@@ -146,6 +146,12 @@
     <string name="book_detail_metadata_save">Save</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
     <string name="book_detail_listened_state_off">Not marked as listened</string>
+    <!-- spec-52 US28 (#1174) — «abandon book»: only for a book with progress
+         that is not finished, plus the visible «Abandoned» mark in the library. -->
+    <string name="book_detail_abandon">Abandon book</string>
+    <string name="book_detail_abandon_cancel">Keep the book</string>
+    <string name="book_detail_abandon_state_on">The book is marked abandoned</string>
+    <string name="library_abandoned_badge">Abandoned</string>
     <string name="author_all_found">All found authors</string>
     <string name="nav_settings">Settings</string>
     <string name="mini_player_other_book_chapter">In player · %1$s</string>

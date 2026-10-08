@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -70,6 +71,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.data.entries.AbandonBookPolicy
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
@@ -212,6 +214,9 @@ fun LibraryScreen(
     val submissionBadges by viewModel.submissionBadges.collectAsState()
     val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
     val deferredPublicationBookIds by viewModel.deferredPublicationBookIds.collectAsState()
+    // spec-52 US28 (#1174) — the books the listener abandoned: the card says
+    // «Покинуто» for as long as the mark is live (a finished book clears it).
+    val abandonedBookIds by viewModel.abandonedBookIds.collectAsState()
     LaunchedEffect(Unit) {
         viewModel.refreshAwaitingSubmissions()
         // Spec-53 T8 — the deferred queue runs on open: one pass, no retries.
@@ -653,6 +658,7 @@ fun LibraryScreen(
                                 submissionBadges = submissionBadges,
                                 watchingSubmissionBookIds = watchingSubmissionBookIds,
                                 deferredPublicationBookIds = deferredPublicationBookIds,
+                                abandonedBookIds = abandonedBookIds,
                                 onBookClick = onBookClick,
                                 onPlayClick = onPlayClick,
                                 onRecheck = { viewModel.recheckAvailability(it) }
@@ -1598,6 +1604,8 @@ internal fun LazyGridScope.libraryGridContent(
     awaitingSubmissionBookIds: Set<String>,
     watchingSubmissionBookIds: Set<String>,
     deferredPublicationBookIds: Set<String>,
+    /** spec-52 US28 (#1174) — the books carrying the «Покинуто» mark. */
+    abandonedBookIds: Set<String> = emptySet(),
     submissionBadges: Map<String, SubmissionBadge> = emptyMap(),
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
@@ -1610,6 +1618,7 @@ internal fun LazyGridScope.libraryGridContent(
             awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
             watchingSource = entry.book.id in watchingSubmissionBookIds,
             deferredPublication = entry.book.id in deferredPublicationBookIds,
+            abandoned = entry.book.id in abandonedBookIds,
             submissionBadge = submissionBadges[entry.book.id] ?: SubmissionBadge.NONE,
             onListenNow = { onPlayClick(entry.book) },
             onClick = { onBookClick(entry.book.id) },
@@ -2091,6 +2100,25 @@ private fun LibraryInlineOfflineBadge(
 }
 
 /**
+ * spec-52 US28 (#1174) — the visible «Покинуто» mark of a book the listener
+ * said they are not coming back to.
+ *
+ * It is the canonical non-interactive [MetadataChip], exactly like the
+ * neighbouring provenance chip: a badge states a fact about the card, and the
+ * screen reader announces it through the card's own state description (the
+ * card clears its descendants' semantics), so the badge needs no touch target
+ * of its own — cancel lives on the book page's ⋮ item.
+ */
+@Composable
+private fun LibraryAbandonedBadge(bookId: String, modifier: Modifier = Modifier) {
+    MetadataChip(
+        text = stringResource(R.string.library_abandoned_badge),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
+        modifier = modifier.testTag("library_abandoned_badge_$bookId")
+    )
+}
+
+/**
  * The honest a11y state of a library entry: progress + offline/online + source
  * + the availability verdict of a problem Work (ADR-0042 §1).
  */
@@ -2150,9 +2178,14 @@ fun LibraryBookCard(
     deferredPublication: Boolean = false,
     /** #837 — the honest moderation badge of MY submission of this book. */
     submissionBadge: SubmissionBadge = SubmissionBadge.NONE,
+    /** spec-52 US28 (#1174) — the stored «Покинуто» mark of this book. */
+    abandoned: Boolean = false,
     /** Spec-53 T3 — badge tap: open the book and start playing it. */
     onListenNow: (() -> Unit)? = null
 ) {
+    // #1174 — the mark is shown (and spoken) only while it is LIVE: a finished
+    // book never reads as abandoned, even while its stored pass still says so.
+    val showAbandoned = AbandonBookPolicy.markIsLive(abandoned, book.isCompleted)
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
         book.book.title
@@ -2171,8 +2204,10 @@ fun LibraryBookCard(
     } else {
         null
     }
+    val abandonedState = if (showAbandoned) stringResource(R.string.library_abandoned_badge) else null
     val state = listOfNotNull(
         libraryEntryStateDescription(book, availability).takeIf { it.isNotBlank() },
+        abandonedState,
         badgeState
     ).joinToString(", ")
     val openLabel = stringResource(
@@ -2207,7 +2242,7 @@ fun LibraryBookCard(
                         }
                     }
             ) {
-                LibraryBookGridContent(book, availability, onRecheck, downloadCount)
+                LibraryBookGridContent(book, availability, onRecheck, downloadCount, showAbandoned)
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2254,6 +2289,12 @@ fun LibraryBookCard(
                         },
                         footnoteInColumn = true,
                         badges = {
+                            // spec-52 US28 (#1174) — the state badge leads: it
+                            // says where the book stands, provenance follows.
+                            if (showAbandoned) {
+                                LibraryAbandonedBadge(book.book.id)
+                                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                            }
                             // C4: the canonical provenance chip — the local
                             // SourceBadge was a pixel-duplicate of
                             // MetadataChip(source=…).
@@ -2374,7 +2415,9 @@ private fun LibraryBookGridContent(
     book: LibraryBook,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
     onRecheck: (() -> Unit)? = null,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
+    /** spec-52 US28 (#1174) — the live «Покинуто» mark of this book. */
+    abandoned: Boolean = false
 ) {
     Column {
         Box {
@@ -2393,6 +2436,17 @@ private fun LibraryBookGridContent(
                     .align(Alignment.TopEnd)
                     .padding(3.dp)
             )
+            // #1174 — on a tile the mark rides the artwork, opposite the
+            // offline marker: the row under the progress bar holds exactly one
+            // reserved line and a badge there would squeeze the provenance chip.
+            if (abandoned) {
+                LibraryAbandonedBadge(
+                    bookId = book.book.id,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(3.dp)
+                )
+            }
         }
         // UI (v1.5 review, on-device): every tile reserves the SAME slots, so a
         // shelf or a grid row has one height instead of a ragged staircase.

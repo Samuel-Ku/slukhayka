@@ -355,6 +355,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * spec-52 US28 / #1174 — the books the listener abandoned. One flow feeds
+     * both surfaces: the «Покинуто» badge in the library and the book page's
+     * cancel, so the mark appears and disappears everywhere at once.
+     */
+    val abandonedBookIds: StateFlow<Set<String>> = App.instance.abandonedBooks
+        .observeAbandonedBookIds()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * #1174 — «покинути книгу»: an explicit act of the listener, never inferred
+     * from a pause. The action already refused itself when the book has no
+     * position or is finished; the flow above repaints both surfaces.
+     */
+    fun abandonBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { App.instance.abandonedBooks.abandon(bookId) }
+        }
+    }
+
+    /** #1174 — the way back: the book returns to the state BELOW put it there. */
+    fun cancelAbandonBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { App.instance.abandonedBooks.cancel(bookId) }
+        }
+    }
+
     fun refreshImportedEntries() {
         viewModelScope.launch(Dispatchers.IO) {
             _importedEntries.value = runCatching {

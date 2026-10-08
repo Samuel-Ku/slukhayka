@@ -37,8 +37,15 @@ fun bookPlayState(
 ): BookPlayState = when {
     isPlayingThisBook -> BookPlayState.Playing
     progress == null -> BookPlayState.Unstarted
-    // #1174 — the end-of-book boundary is the shared one, never a local sum:
-    // a label that disagrees with the «Завершені» shelf is a bug either way.
+    // #1174 — the end-of-book ARITHMETIC (live position vs the known total) is
+    // the shared one, so a book whose position reached its end reads «Почати
+    // спочатку» by the same sum the «Завершені» shelf uses.
+    //
+    // The inputs are deliberately NOT the shelf's, though: this label reads the
+    // LIVE POSITION only, never the manual «Прослухано» flag — a book marked by
+    // hand halfway through stays «Продовжити з …» here while the shelf already
+    // files it under «Завершені». That split is long-standing behaviour, not
+    // #1174's to change; the flag is passed as false to say so out loud.
     isBookFinished(
         completedManually = false,
         cumulativePositionSeconds = cumulativePositionSeconds,

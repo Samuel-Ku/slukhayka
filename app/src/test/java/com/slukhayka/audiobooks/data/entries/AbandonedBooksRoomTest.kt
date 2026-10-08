@@ -160,6 +160,14 @@ class AbandonedBooksRoomTest {
 
     private suspend fun onlyPass(): ReadthroughEntity = dao.readthroughsForEntry(BOOK_ID).single()
 
+    /** Writes the note the way a damaged store would have left it. */
+    private fun corruptNote(value: String) {
+        context.getSharedPreferences("abandon_undo", Context.MODE_PRIVATE)
+            .edit()
+            .putString("before:$BOOK_ID", value)
+            .commit()
+    }
+
     @Test
     fun `abandon upserts ONE audio pass under the deterministic id`() = runBlocking {
         seedImportedBook()
@@ -167,7 +175,9 @@ class AbandonedBooksRoomTest {
 
         val result = abandonedBooks.abandon(BOOK_ID)
 
-        assertEquals(AbandonedBooks.Result.Changed(ReadingState.ABANDONED, passCreated = true), result)
+        assertEquals(AbandonedBooks.Result.Changed(ReadingState.ABANDONED), result)
+        // The mark brought this pass into being — the seed proved there was none
+        // and onlyPass() proves there is now exactly one, under the fixed id.
         val row = onlyPass()
         assertEquals("rt-audio-$BOOK_ID", row.id)
         assertEquals(AUDIO_FORMAT, row.format)
@@ -373,6 +383,36 @@ class AbandonedBooksRoomTest {
 
         assertEquals(AbandonedBooks.Result.Refused(AbandonedBooks.REASON_UNREADABLE_PASS), result)
         assertEquals("the unreadable row is left exactly as it was", "DROPPED", onlyPass().state)
+    }
+
+    @Test
+    fun `a note the app cannot read falls back to the state the evidence proves`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.PLANNED)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+        corruptNote("1|DROPPED")
+
+        val result = abandonedBooks.cancel(BOOK_ID)
+
+        assertEquals(AbandonedBooks.Result.Changed(ReadingState.IN_PROGRESS), result)
+        assertEquals("the evidence decides, not a guessed state", IN_PROGRESS_STATE, onlyPass().state)
+    }
+
+    @Test
+    fun `a note the app cannot read never claims a start nothing proves`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.PLANNED)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+        corruptNote("1|DROPPED")
+        // Nothing proves a start any more: the fallback must not invent one.
+        dao.deletePlaybackProgressForBook(BOOK_ID)
+
+        val result = abandonedBooks.cancel(BOOK_ID)
+
+        assertEquals(AbandonedBooks.Result.Changed(ReadingState.PLANNED), result)
+        assertEquals(PLANNED_STATE, onlyPass().state)
     }
 
     @Test

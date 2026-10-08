@@ -32,10 +32,8 @@ class AbandonedBooks(
         /**
          * The pass now carries [state] — or NO pass at all ([state] is null)
          * when the cancel removed the one the mark itself had created.
-         * [passCreated] is true only for the mark that brought a new pass into
-         * being.
          */
-        data class Changed(val state: ReadingState?, val passCreated: Boolean = false) : Result
+        data class Changed(val state: ReadingState?) : Result
 
         data class Refused(val reason: String) : Result
     }
@@ -63,7 +61,13 @@ class AbandonedBooks(
         if (stored is StoredPass.Finished) return Result.Refused(REASON_FINISHED)
         val existing = (stored as? StoredPass.Found)?.pass
 
-        val pass = existing ?: freshPass(bookId, entry) ?: return Result.Refused(REASON_NO_MOMENT)
+        val pass = existing ?: run {
+            // The pass the mark brings into being names the EXISTING Edition
+            // (ADR-0046 §3): a book without one has no audio pass to write.
+            val editionId = listeningState.editionIdFor(bookId)
+                ?: return Result.Refused(REASON_NO_EDITION)
+            freshPass(bookId, entry, editionId) ?: return Result.Refused(REASON_NO_MOMENT)
+        }
         val alreadyMarked = pass.state == ReadingState.ABANDONED
         val marked = ReadthroughPolicy.abandon(pass) ?: return Result.Refused(REASON_FINISHED)
         // The note goes FIRST: a process death between the two writes then
@@ -78,7 +82,7 @@ class AbandonedBooks(
             )
         }
         persist(marked)
-        return Result.Changed(marked.state, passCreated = existing == null)
+        return Result.Changed(marked.state)
     }
 
     /**
@@ -160,21 +164,23 @@ class AbandonedBooks(
      * backfill write no Readthrough (the manual add is the other writer). The
      * shape repeats the backfill's: the deterministic id, the ENTRY's own
      * createdAt as the moment the pass began, the Edition the Listening State
-     * names, and ZERO units — 0 stays 0 instead of becoming an invented second
-     * position. An entry that carries no moment at all is refused rather than
-     * dated by guess (ADR-0014).
+     * names ([editionId], already resolved by the caller), and ZERO units — 0
+     * stays 0 instead of becoming an invented second position. An entry that
+     * carries no moment at all yields null rather than a guessed date
+     * (ADR-0014), which the caller refuses as [REASON_NO_MOMENT].
      */
-    private suspend fun freshPass(bookId: String, entry: LibraryEntryEntity): Readthrough? {
-        val editionId = listeningState.editionIdFor(bookId) ?: return null
-        return ReadthroughPolicy.start(
-            id = readthroughId(bookId),
-            libraryEntryId = bookId,
-            workId = entry.workId,
-            format = ReadingFormat.AUDIO,
-            startedAt = entry.createdAt,
-            editionId = editionId
-        )
-    }
+    private fun freshPass(
+        bookId: String,
+        entry: LibraryEntryEntity,
+        editionId: String
+    ): Readthrough? = ReadthroughPolicy.start(
+        id = readthroughId(bookId),
+        libraryEntryId = bookId,
+        workId = entry.workId,
+        format = ReadingFormat.AUDIO,
+        startedAt = entry.createdAt,
+        editionId = editionId
+    )
 
     private suspend fun persist(pass: Readthrough) {
         with(ReadthroughMapping) { dao.upsertReadthrough(pass.toEntity()) }
@@ -208,7 +214,18 @@ class AbandonedBooks(
         const val REASON_NOT_ABANDONED = "not-abandoned"
         const val REASON_UNREADABLE_PASS = "unreadable-pass"
 
-        /** The library entry carries no moment to begin the pass with. */
+        /**
+         * The library entry carries no moment to begin the pass with — the
+         * ONLY reason `ReadthroughPolicy.start` refuses a pass this module
+         * builds (its other guards — blank ids, the Edition rule — are settled
+         * before the call).
+         */
         const val REASON_NO_MOMENT = "no-moment"
+
+        /**
+         * The book has no Edition for the pass to name (ADR-0046 §3): a mark
+         * cannot invent the rendition it is about.
+         */
+        const val REASON_NO_EDITION = "no-edition"
     }
 }

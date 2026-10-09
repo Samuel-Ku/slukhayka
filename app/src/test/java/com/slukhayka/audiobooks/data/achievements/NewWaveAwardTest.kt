@@ -67,18 +67,24 @@ class NewWaveAwardTest {
     /**
      * One library row that arrived through a source [offsetDays] after that
      * source appeared, dated by the listener's own calendar.
+     *
+     * [addedAt] is only passed where the instant must NOT be derived from the
+     * fixed appearance date: the undated case needs the row to sit at "now", so
+     * that a `LocalDate.now()` fallback would land inside the window and open
+     * the award — exactly the defect that case exists to catch.
      */
     private suspend fun arrived(
         database: AudiobookDatabase,
         bookId: String,
         offsetDays: Long,
         sourceType: String = DATED_SOURCE,
-        rowId: String = "row-$bookId-$sourceType"
+        rowId: String = "row-$bookId-$sourceType",
+        addedAt: Long = appeared.plusDays(offsetDays).atStartOfDay(kyiv).toInstant().toEpochMilli()
     ) = database.audiobookDao().insertSources(
         listOf(
             SourceEntity(
                 id = rowId, bookId = bookId, type = sourceType, url = "https://example.test/$rowId",
-                addedAt = appeared.plusDays(offsetDays).atStartOfDay(kyiv).toInstant().toEpochMilli()
+                addedAt = addedAt
             )
         )
     )
@@ -122,8 +128,15 @@ class NewWaveAwardTest {
      * source appeared is a contradictory pair rather than a very early book, the
      * appearance day itself counts, twenty-nine and thirty days are inside, and
      * thirty-one is already outside.
+     *
+     * The number THIRTY is pinned twice: as the constant itself and as literals
+     * in the table below. Computing the expectation from `WINDOW_DAYS` alone
+     * would let a changed constant move the answer with it, and the boundary
+     * the ticket names (29 / 30 / 31) would stop being a boundary.
      */
     @Test fun `the window runs from the appearance day and closes after thirty days`() {
+        assertEquals("AC #1175 називає саме тридцять днів", 30L, NewWave.WINDOW_DAYS)
+
         val cases = listOf(
             "a book from before the source appeared" to -1L,
             "the appearance day itself" to 0L,
@@ -134,7 +147,7 @@ class NewWaveAwardTest {
         for ((name, offset) in cases) {
             withDatabase { database ->
                 arrived(database, "book", offset)
-                val expected = if (offset in 0L..NewWave.WINDOW_DAYS) 1L else 0L
+                val expected = if (offset in 0L..30L) 1L else 0L
 
                 assertEquals(name, expected, snapshot(database, dated).newWaveBooks)
                 assertEquals(name, expected == 1L, "new_wave" in earned(database, dated))
@@ -148,13 +161,21 @@ class NewWaveAwardTest {
      * source is undated by decision: the field stays empty until a source is
      * added after that decision, and the first real date must bring its own pin
      * to this test.
+     *
+     * The row arrives NOW on purpose. With an old arrival a `today` fallback
+     * would compute a negative distance and stay silent, so the two honest
+     * zeros would prove nothing; at "now" the fallback lands exactly on day
+     * zero and the award would open.
      */
     @Test fun `an undated source never gives the award`() = withDatabase { database ->
         assertTrue(
             "наявні 15 джерел навмисно недатовані — перше справжнє датоване джерело додає пін сюди (#1175)",
             SourceRegistry.entries.none { it.appearedOn != null }
         )
-        arrived(database, "book", offsetDays = 0, sourceType = "4read", rowId = "undated-row")
+        arrived(
+            database, "book", offsetDays = 0, sourceType = "4read", rowId = "undated-row",
+            addedAt = System.currentTimeMillis()
+        )
 
         assertEquals("недатоване джерело не дає жодної книги", 0L, snapshot(database).newWaveBooks)
         assertFalse("«Нова хвиля» не має відкриватись від недатованого джерела", "new_wave" in earned(database))

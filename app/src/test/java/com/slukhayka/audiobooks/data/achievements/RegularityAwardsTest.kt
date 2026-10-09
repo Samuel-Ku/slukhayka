@@ -128,22 +128,29 @@ class RegularityAwardsTest {
      * and a stray half-minute — must not shorten the wait either. They are real
      * rows in `listening_stats`, so a row COUNT would already have opened the
      * year on 364 heard days.
+     *
+     * The fixture deliberately CROSSES 1 January: 200 days of 2026 plus 164 of
+     * 2027 are 364 different days, and no calendar year owns more than 200 of
+     * them. Inside one year a «most days in a year» reading or a rolling
+     * 365-day window would report the same number as the cumulative one, so the
+     * two boundaries would pin nothing.
      */
     @Test fun `the listening year opens at 365 different days, and no other row counts`() = withSource { db, source ->
-        val year = (0 until 365).map { LocalDate.of(2026, 1, 1).plusDays(it.toLong()) }
-        year.take(364).forEach { db.heard(it.toString()) }
+        val acrossNewYear = (0 until 200).map { LocalDate.of(2026, 6, 1).plusDays(it.toLong()) } +
+            (0 until 164).map { LocalDate.of(2027, 1, 1).plusDays(it.toLong()) }
+        acrossNewYear.forEach { db.heard(it.toString()) }
         // The old five-second counter is not proof, and half a minute is not a
         // day: both rows exist, neither day happened.
-        db.audiobookDao().saveListeningStat(ListeningStatEntity("2027-01-01", listenedSeconds = 3600L))
-        db.heard("2027-01-02", 30_000L)
+        db.audiobookDao().saveListeningStat(ListeningStatEntity("2027-07-01", listenedSeconds = 3600L))
+        db.heard("2027-07-02", 30_000L)
 
         val almost = source.observe().first()
-        assertEquals("рік мусить порахувати 364 дні, а не 366 рядків", 364L, almost.listeningDays)
+        assertEquals("рік мусить порахувати 364 різні дні, а не 366 рядків", 364L, almost.listeningDays)
         assertFalse("364 дні ще не рік", "listening_year_365" in almost.earned())
 
-        db.heard("2026-12-31")
+        db.heard("2027-06-14")
         val exact = source.observe().first()
-        assertEquals("365-й різний день", 365L, exact.listeningDays)
+        assertEquals("365-й різний день, уже в наступному році", 365L, exact.listeningDays)
         assertTrue("365 різних днів мусять відкрити «Слухацький рік»", "listening_year_365" in exact.earned())
     }
 

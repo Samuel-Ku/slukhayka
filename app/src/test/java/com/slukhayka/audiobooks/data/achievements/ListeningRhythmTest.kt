@@ -93,15 +93,24 @@ class ListeningRhythmTest {
      * stray half-minute. Both are rows in `listening_stats`, so an
      * implementation counting rows instead of qualifying days would report 367
      * where the listener really heard 365 days.
+     *
+     * One case deliberately CROSSES 1 January: 200 days of 2026 plus 165 of
+     * 2027 are 365 different days and no calendar year owns more than 200 of
+     * them. A fixture that lived inside one year could not tell the cumulative
+     * reading from «most days in a year» or from a rolling 365-day window; this
+     * one fails for both.
      */
     @Test fun `the listening year counts DIFFERENT qualifying days, cumulatively`() {
         val year = (0 until 365).map { day(LocalDate.of(2026, 1, 1).plusDays(it.toLong()).toString()) }
+        val acrossNewYear = (0 until 200).map { day(LocalDate.of(2026, 6, 1).plusDays(it.toLong()).toString()) } +
+            (0 until 165).map { day(LocalDate.of(2027, 1, 1).plusDays(it.toLong()).toString()) }
         val cases = listOf(
             Triple("empty history", emptyList<Day>(), 0),
             Triple("a stray second is not a day", listOf(day("2026-10-01", 30_000L)), 0),
             Triple("a pre-v51 row is not a day either", listOf(day("2026-10-01", 0L)), 0),
             Triple("364 days is not a year", year.take(364), 364),
             Triple("365 different days is a year", year, 365),
+            Triple("200 days of one year plus 165 of the next are 365", acrossNewYear, 365),
             Triple(
                 "legacy and stray rows never add a day",
                 year + listOf(day("2027-01-01", 0L), day("2027-01-02", 30_000L)),

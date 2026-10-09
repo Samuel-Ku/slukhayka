@@ -1694,10 +1694,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Issue #752 — the manual «Прослухано» toggle. Sets the completion flag on
      * the Edition's Listening State (no new entity, no position change) and
      * pushes it so it mirrors across the listener's linked devices.
+     *
+     * #1174 (друга смуга): a finished book is not an abandoned one, so marking
+     * one takes the «покинуто» mark away through the same door the player's
+     * completion uses. This door deliberately captures NO
+     * «завершив після покинутого» fact — ADR-0060 reads completion for the
+     * awards as the end-of-book event, never as a hand-set flag. The mark goes
+     * because the state would otherwise contradict itself (and a cancelled
+     * «Прослухано» would bring a stale badge back), not because the listener
+     * proved they finished the book.
      */
     fun setCompleted(bookId: String, completed: Boolean) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             listeningState.setCompleted(bookId, completed)
+            if (completed) App.instance.abandonedBooks.finish(bookId)
             progressSync.pushAfterSave(bookId, immediate = true)
         }
     }

@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.map
  * class reads the book's evidence, asks them, and persists the answer. Two
  * honest outcomes, never a silent success: `Changed` or `Refused`.
  *
+ * #1174 (друга смуга) adds the third move — [finish], the completion that
+ * takes the mark away and captures the fact the award needs before it does.
+ *
  * The mark lives on the book's AUDIO Readthrough, and a pass the mark has to
  * bring into being is written under [readthroughId] — the deterministic id the
  * 45->46 backfill used, so a repeat call rewrites the same row instead of
@@ -25,7 +28,13 @@ import kotlinx.coroutines.flow.map
 class AbandonedBooks(
     private val dao: AudiobookDao,
     private val listeningState: ListeningStateStore,
-    private val undo: AbandonUndo
+    private val undo: AbandonUndo,
+    /**
+     * #1174 (друга смуга) — the moment a completed book's pass is stamped with.
+     * Injectable for the same reason the store's clock is: a test of the
+     * completion write must not depend on when it runs.
+     */
+    private val now: () -> Long = System::currentTimeMillis
 ) {
 
     sealed interface Result {
@@ -111,6 +120,49 @@ class AbandonedBooks(
         ) ?: return Result.Refused(REASON_NOT_ABANDONED)
         persist(restored)
         return Result.Changed(restored.state)
+    }
+
+    /**
+     * #1174 (друга смуга) — завершення книги знімає позначку: a finished book
+     * is not an abandoned one, so the pass the mark sits on goes back to
+     * FINISHED through the SAME policy the reading side uses
+     * ([ReadthroughPolicy.finish]) — the state the mark overwrote is not
+     * invented here (ADR-0014), and a pass that already reads FINISHED is
+     * history and is refused by that policy.
+     *
+     * [onFinishedAfterAbandon] runs BEFORE the row is rewritten and ONLY while
+     * the mark is still on it. That order is the whole point: this is the last
+     * moment the fact «завершив після покинутого» is readable at all, and
+     * «Друге дихання» has to see it — after the write the pass reads FINISHED
+     * and nothing says it was ever abandoned. The callback is therefore a
+     * CAPTURE, not a notification, and it is suspending so the capture can be
+     * durable before the row it talks about stops proving it.
+     *
+     * Called from the two doors where THIS device declares a book finished: the
+     * player's own end-of-book event (which passes the capture) and the manual
+     * «Прослухано» mark (which does not — ADR-0060 reads completion for the
+     * awards as the end-of-book event, never as a hand-set flag).
+     *
+     * @return true when the book carried the mark and the pass now reads
+     *   FINISHED; false when there was nothing to take away — the ordinary
+     *   outcome of finishing a book nobody abandoned, and never an error.
+     */
+    suspend fun finish(bookId: String, onFinishedAfterAbandon: suspend (String) -> Unit = {}): Boolean {
+        val stored = abandonedPass(bookId)
+        // A row the strict mapping cannot read is left alone (ADR-0014), and a
+        // book without the mark has nothing to clear: the completion itself
+        // belongs to its own door and is not refused here.
+        val pass = (stored as? StoredPass.Found)?.pass ?: return false
+        val finished = ReadthroughPolicy.finish(pass, at = now()) ?: return false
+        onFinishedAfterAbandon(bookId)
+        persist(finished)
+        // The note described the live mark; the mark is gone (AbandonUndo:
+        // «the cancel consumed it, or the mark is gone»). Forgetting it after
+        // the write keeps the harmless direction on a process death — a note
+        // without a mark is overwritten by the next one, while a mark without a
+        // note would make the cancel guess.
+        undo.forget(bookId)
+        return true
     }
 
     /**

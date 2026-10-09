@@ -136,6 +136,18 @@ data class AchievementProgress(
      */
     val booksFinishedTwice: Long = 0,
     /**
+     * #1174 (друга смуга, US22) — «Друге дихання», the SECOND honest path: the
+     * listener finished a book that still carried the «покинуто» mark when it
+     * ended.
+     *
+     * A recorded fact, never an inference: the completion moment is captured
+     * while the mark is still readable, and taking the mark away is what makes
+     * the fact unrecoverable afterwards (`AbandonedBooks.finish`). 0 or 1 is
+     * all it can be — the fact table holds one row per fact, and the award asks
+     * whether a return happened at all, not how many times.
+     */
+    val booksFinishedAfterAbandon: Long = 0,
+    /**
      * #701 — «П'ять поспіль»: the longest run of consecutive completions (in
      * time) whose Works belong to ONE series, counted in DISTINCT books.
      *
@@ -222,7 +234,15 @@ enum class AchievementMetric {
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
     TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS, NEW_WAVE_BOOKS,
     DISTINCT_GENRES, MAX_GENRE_BOOKS, GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
-    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS, BOOKS_FINISHED_TWICE,
+    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS,
+    // #1174 (друга смуга, US22) — «Друге дихання»: ONE award with TWO honest
+    // paths, so ONE metric. Either a book finished a second time
+    // ([AchievementProgress.booksFinishedTwice]) or a book finished after the
+    // listener had marked it «покинуто»
+    // ([AchievementProgress.booksFinishedAfterAbandon]) proves the return the
+    // award is about; two catalogue entries would fire two notices for one
+    // story, the same reason «Ювілей години» is absent.
+    SECOND_WIND,
     LONGEST_SERIES_RUN, ENGLISH_STARTS, BEST_DAY_MILLIS, LONGEST_DAY_STREAK,
     BEST_MONTH_DAYS, MONDAY_DAYS, LISTENING_DAYS,
     // #1183 (T9b) — the awards built on the measurement layer (#1173): the
@@ -273,7 +293,7 @@ enum class AchievementMetric {
         BEST_MONTH_DAYS -> snapshot.bestMonthDays
         MONDAY_DAYS -> snapshot.mondaysListened
         LISTENING_DAYS -> snapshot.listeningDays
-        BOOKS_FINISHED_TWICE -> snapshot.booksFinishedTwice
+        SECOND_WIND -> maxOf(snapshot.booksFinishedTwice, snapshot.booksFinishedAfterAbandon)
         LONGEST_SERIES_RUN -> snapshot.longestSeriesRun
         ENGLISH_STARTS -> snapshot.englishStartBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
@@ -374,13 +394,17 @@ object AchievementCatalog {
         AchievementDefinition("chapter_end_10", "habits", 5, AchievementMetric.END_OF_CHAPTER_ARMS, 10),
         AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
         AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5),
-        // #700 (T2) — «Друге дихання»: the SAME book finished twice. The ticket
-        // words it as «завершення після повернення»; the recorded proof is the
-        // narrower fact — two `COMPLETED` cycles on one book, since the player's
-        // `completionLogged` resets only when a cycle ends, not inside one. A
-        // RELISTEN pairing would misfire: «Почати спочатку» writes RELISTEN on
-        // an unfinished book.
-        AchievementDefinition("second_wind", "relisten", 3, AchievementMetric.BOOKS_FINISHED_TWICE, 1),
+        // #700 (T2) + #1174 (друга смуга) — «Друге дихання»: ONE award, TWO
+        // honest paths. The first is the recorded one — two `COMPLETED` cycles
+        // on the same book, since the player's `completionLogged` resets only
+        // when a cycle ends and a fresh load at the very end goes through the
+        // relisten rule instead of logging a second completion. A RELISTEN
+        // pairing would misfire: «Почати спочатку» writes RELISTEN on an
+        // unfinished book. The second path is a book finished while it still
+        // carried the «покинуто» mark — the fact is captured at that moment and
+        // cannot be read afterwards, because clearing the mark is what makes it
+        // unrecoverable (`AbandonedBooks.finish`).
+        AchievementDefinition("second_wind", "relisten", 3, AchievementMetric.SECOND_WIND, 1),
         // #700 (T2) — «Глибокий запас»: ten books actually downloaded for
         // offline use. Built on the same real proof T1 already uses for
         // `first_download` (a track row that is downloaded AND whose file is

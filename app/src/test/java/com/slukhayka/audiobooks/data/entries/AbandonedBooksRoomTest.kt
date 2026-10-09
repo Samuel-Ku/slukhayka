@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -41,6 +42,11 @@ import org.robolectric.annotation.Config
  * The undo note is the real `SharedPreferencesAbandonUndo`: its durability is
  * part of the AC, so one test reads it back through a FRESH `AbandonedBooks`,
  * exactly as a restart would.
+ *
+ * #1174 (друга смуга) adds the completion side of the same door: `finish` takes
+ * the mark away through the reading policy and captures the
+ * «завершив після покинутого» **before** the row stops carrying the mark. That
+ * order has its own case here, because it is the one fact the write destroys.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -439,6 +445,139 @@ class AbandonedBooksRoomTest {
         assertEquals(emptySet<String>(), abandonedBooks.observeAbandonedBookIds().first())
     }
 
+    // --- #1174 (друга смуга): завершення книги знімає позначку --------------
+
+    @Test
+    fun `finishing a marked book takes the mark away and leaves the pass finished`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+
+        val cleared = pinnedClock().finish(BOOK_ID)
+
+        assertTrue("позначка була — її знято", cleared)
+        val row = onlyPass()
+        assertEquals("начинка знову завершена", FINISHED_STATE, row.state)
+        assertEquals("момент завершення — той, яким його записав застосунок", FINISHED_AT, row.finishedAt)
+        assertEquals("момент початку не вигадано", 5L, row.startedAt)
+        assertEquals("одиниці, які начинка знала, лишаються", 600, row.unitValue)
+        assertEquals("позиція в Listening State недоторкана", 120L, listening.getProgressSync(BOOK_ID)!!.currentPositionSeconds)
+        assertEquals("і позначки більше немає на жодній поверхні", emptySet<String>(), abandonedBooks.observeAbandonedBookIds().first())
+    }
+
+    /**
+     * The ORDER is the whole point of the write: the capture has to see the
+     * mark, because after the rewrite the pass reads FINISHED and nothing says
+     * it was ever abandoned. A capture that runs after the persist reads
+     * `null` here (no ABANDONED pass is left), and the award loses its proof.
+     */
+    @Test
+    fun `the capture sees the mark before the row stops carrying it`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+        val seen = mutableListOf<String?>()
+
+        pinnedClock().finish(BOOK_ID) { seen += abandonedPassState() }
+
+        assertEquals("факт зафіксовано рівно раз і саме тоді, коли позначка ще стояла", listOf(ABANDONED_STATE), seen)
+        assertEquals("а вже потім начинка стала історією", FINISHED_STATE, onlyPass().state)
+    }
+
+    @Test
+    fun `a book without the mark has nothing to take away and captures nothing`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
+        listen()
+        var captures = 0
+
+        val cleared = pinnedClock().finish(BOOK_ID) { captures++ }
+
+        assertFalse("звичайне завершення книги, яку не кидали, — не подія", cleared)
+        assertEquals("і факту воно не пише", 0, captures)
+        assertEquals("начинка лишається як була", IN_PROGRESS_STATE, onlyPass().state)
+    }
+
+    @Test
+    fun `history is left alone - a finished pass is never finished twice`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.FINISHED)
+        listen()
+
+        val cleared = pinnedClock().finish(BOOK_ID) { error("історія не пише фактів") }
+
+        assertFalse("завершена начинка — вже історія", cleared)
+        assertNull("і дати їй другий finishedAt нічим", onlyPass().finishedAt)
+    }
+
+    @Test
+    fun `a row the app cannot read is left alone by the completion too`() = runBlocking {
+        seedImportedBook()
+        listen()
+        dao.upsertReadthrough(
+            ReadthroughEntity(
+                id = AbandonedBooks.readthroughId(BOOK_ID),
+                libraryEntryId = BOOK_ID,
+                workId = WORK_ID,
+                format = AUDIO_FORMAT,
+                state = "DROPPED",
+                startedAt = 5L,
+                finishedAt = null,
+                editionId = EDITION_ID,
+                unit = "SECONDS",
+                unitValue = 0,
+                journalJson = "[]"
+            )
+        )
+
+        val cleared = pinnedClock().finish(BOOK_ID) { error("нерозпізнаний рядок не пише фактів") }
+
+        assertFalse("переписати рядок, який застосунок не класифікує, не можна (ADR-0014)", cleared)
+        assertEquals("рядок лишається точно як був", "DROPPED", onlyPass().state)
+    }
+
+    @Test
+    fun `the undo note goes with the mark it described`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+        assertEquals(
+            "нотатка описує те, чим начинка була до позначки",
+            AbandonUndo.BeforeMark(existed = true, state = ReadingState.IN_PROGRESS),
+            undo.recall(BOOK_ID)
+        )
+
+        pinnedClock().finish(BOOK_ID)
+
+        assertNull("позначки немає — нотатці нічого описувати", undo.recall(BOOK_ID))
+    }
+
+    /** A pass under ANOTHER id carries the live mark, and the completion finds it. */
+    @Test
+    fun `a mark on a pass under another id is taken away too`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS, id = FOREIGN_PASS_ID)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+
+        val cleared = pinnedClock().finish(BOOK_ID)
+
+        assertTrue(cleared)
+        val row = onlyPass()
+        assertEquals("тая сама начинка, без другої", FOREIGN_PASS_ID, row.id)
+        assertEquals(FINISHED_STATE, row.state)
+    }
+
+    /** The completion's own clock, pinned: `finishedAt` must not be a wall clock in tests. */
+    private fun pinnedClock() = AbandonedBooks(dao, listening, undo, now = { FINISHED_AT })
+
+    /** What the pass reads RIGHT NOW — the capture's own view of the mark. */
+    private suspend fun abandonedPassState(): String? =
+        dao.readthroughsForEntry(BOOK_ID).firstOrNull { it.format == AUDIO_FORMAT }?.state
+
     private companion object {
         const val BOOK_ID = "entry-1"
         const val WORK_ID = "work-1"
@@ -447,6 +586,8 @@ class AbandonedBooksRoomTest {
         const val TITLE = "Острів Дума"
         const val AUTHOR = "Тарас Шевченко"
         const val ENTERED_AT = 1_700_000_000_000L
+        /** #1174 (друга смуга) — the pinned instant the completion is stamped with. */
+        const val FINISHED_AT = 1_800_000_000_000L
         const val BOOK_TOTAL_SECONDS = 3_600L
         const val AUDIO_FORMAT = "AUDIO"
         const val ABANDONED_STATE = "ABANDONED"

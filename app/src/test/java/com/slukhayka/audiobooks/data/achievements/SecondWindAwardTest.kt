@@ -23,14 +23,18 @@ import org.robolectric.annotation.Config
 /**
  * #700 (T2) — «Друге дихання»: the SAME book finished a SECOND time.
  *
- * The ticket words the award as «завершення після повернення». What the recorded
- * data proves is narrower — two `COMPLETED` events on one book, and those are
- * two listening cycles: the player logs one completion per cycle, and a fresh
- * load at the very end goes through the relisten rule back to chapter 0 instead
- * of logging a second one (`AudioPlayerManager.loadAndPlayBook`). The rejected
- * reading has its own case below: `RELISTEN` then `COMPLETED` must NOT open the
- * award, since «Почати спочатку» writes `RELISTEN` on a book that was never
- * finished.
+ * The ticket words the award as «завершення після повернення». This file pins
+ * the FIRST of its two honest paths — two `COMPLETED` events on one book, and
+ * those are two listening cycles: the player logs one completion per cycle, and
+ * a fresh load at the very end goes through the relisten rule back to chapter 0
+ * instead of logging a second one (`AudioPlayerManager.loadAndPlayBook`). The
+ * second path — finished while the «покинуто» mark was still on the pass — is
+ * `SecondWindAfterAbandonTest`, and both paths meet in the catalogue on the ONE
+ * `second_wind` award.
+ *
+ * The rejected reading has its own case below: `RELISTEN` then `COMPLETED` must
+ * NOT open the award, since «Почати спочатку» writes `RELISTEN` on a book that
+ * was never finished.
  *
  * Every case writes REAL rows into an in-memory Room: the proof lives in the SQL
  * (a correlated subquery on `playback_events`), so a hand-built snapshot would
@@ -208,7 +212,11 @@ class SecondWindAwardTest {
             AchievementCatalog.definitions.filter { it.group == "relisten" }.map { it.id to it.level }
         )
         val definition = AchievementCatalog.definitions.single { it.id == "second_wind" }
-        assertEquals(AchievementMetric.BOOKS_FINISHED_TWICE, definition.metric)
+        // #1174 (друга смуга): the metric now carries BOTH honest paths — the
+        // second completion this file pins and the finish-after-abandon one
+        // `SecondWindAfterAbandonTest` pins — so the id it looks up here is the
+        // shared SECOND_WIND, not a metric of this path alone.
+        assertEquals(AchievementMetric.SECOND_WIND, definition.metric)
         assertEquals(1L, definition.threshold)
         assertFalse("нагорода видима — вона не з прихованих", definition.hidden)
     }

@@ -398,16 +398,24 @@ interface AchievementDao {
     fun observeNightListeningMillis(): Flow<Long>
 
     /**
-     * #1183 (T9b) — the longest session ever, and the longest OFFLINE one.
+     * #1183 (T9b) — the longest session ever and the longest OFFLINE one, in
+     * ONE round trip.
      *
-     * `playback_sessions` is never pruned (`PlaybackSessionEntity`), so both
-     * maxima are monotone: an award built on them cannot be taken back by a
-     * later quiet week.
+     * `playback_sessions` is never pruned (`PlaybackSessionEntity`), which is
+     * what makes both maxima monotone — an award built on them cannot be taken
+     * back by a later quiet week — and also what makes this a full scan: the
+     * table carries no index on either column, and #1183 forbids a migration to
+     * add one. The table is invalidated on every written tick, so the scan
+     * repeats while the listener plays; the two MAXes share one statement to
+     * keep that to a single scan, and the caller collapses equal answers before
+     * the snapshot above is rebuilt (`distinctUntilChanged`), the same way the
+     * download proof skips its file inspection when its rows did not change.
      */
-    @Query("SELECT COALESCE(MAX(verifiedMillis),0) FROM playback_sessions")
-    fun observeLongestSessionMillis(): Flow<Long>
-    @Query("SELECT COALESCE(MAX(offlineMillis),0) FROM playback_sessions")
-    fun observeLongestOfflineSessionMillis(): Flow<Long>
+    @Query(
+        "SELECT COALESCE(MAX(verifiedMillis),0) AS longestSessionMillis, " +
+            "COALESCE(MAX(offlineMillis),0) AS longestOfflineSessionMillis FROM playback_sessions"
+    )
+    fun observeLongestSessions(): Flow<com.slukhayka.audiobooks.data.achievements.SessionExtremes>
 
     /**
      * #1183 (T9b) — when every session STARTED, for «Світанок».
@@ -415,6 +423,11 @@ interface AchievementDao {
      * Only the instants come back; which morning each one belongs to is decided
      * in Kotlin against the listener's own zone, like the completion times
      * above — SQL `localtime` cannot be pinned in a test.
+     *
+     * `startedAt` never changes after a row is inserted (only `endedAt` and the
+     * millis are updated in place), so a repeat of the same list is the same
+     * answer: the caller stops it there instead of re-deriving the mornings on
+     * every tick of the session it is watching.
      */
     @Query("SELECT startedAt FROM playback_sessions")
     fun observePlaybackSessionStarts(): Flow<List<Long>>

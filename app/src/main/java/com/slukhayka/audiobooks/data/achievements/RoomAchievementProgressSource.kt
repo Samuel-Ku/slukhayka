@@ -122,17 +122,18 @@ class RoomAchievementProgressSource(
     }
 
     // #1183 (T9b) — the measurement layer's own rows (#1173): the longest
-    // session and the longest OFFLINE one, plus every session start for
-    // «Світанок». Three steps, exactly like the ones above.
-    private val withSessions = combine(
-        withRhythm,
-        dao.observeLongestSessionMillis(),
-        dao.observeLongestOfflineSessionMillis(),
-        dao.observePlaybackSessionStarts()
-    ) { base, longest, longestOffline, starts ->
+    // session and the longest OFFLINE one (one query), plus every session start
+    // for «Світанок». Both answers move only when a session really grows or
+    // appears, while the table is invalidated on every written tick, so an equal
+    // repeat stops here instead of rebuilding the snapshot above — the same
+    // guard the download proof uses for its file inspection.
+    private val sessionExtremes = dao.observeLongestSessions().distinctUntilChanged()
+    private val sessionStarts = dao.observePlaybackSessionStarts().distinctUntilChanged()
+    private val withSessions = combine(withRhythm, sessionExtremes, sessionStarts) {
+            base, extremes, starts ->
         base.copy(
-            longestSessionMillis = longest,
-            longestOfflineSessionMillis = longestOffline,
+            longestSessionMillis = extremes.longestSessionMillis,
+            longestOfflineSessionMillis = extremes.longestOfflineSessionMillis,
             morningDays = morningDays(starts)
         )
     }

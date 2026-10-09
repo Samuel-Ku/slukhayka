@@ -148,13 +148,21 @@ class MeasurementAwardsTest {
         db.heard("2026-10-02", millis = 1, offline = 1)
         val exact = source.observe().first()
         assertEquals("офлайн-години сумуються за днями", 10 * hour, exact.offlineMillis)
+        assertEquals("каст у цьому стані нульовий", 0L, exact.castMillis)
         assertTrue("десять рівно — «Автономний»", "autonomous_10h" in exact.earned())
         assertFalse("сто годин — окремий поріг", "download_gourmet_100h" in exact.earned())
+        // The columns are NOT interchangeable: ten offline hours and no receiver
+        // must not open the cast award, which is exactly what reading the wrong
+        // column would do (ADR-0060 — only a confirmed receiver proves cast).
+        assertFalse("каст не відкривається офлайновими годинами", "big_screen_10h" in exact.earned())
 
+        // A receiver day plus a DIFFERENT number of offline hours, so the two
+        // sums cannot coincide and a swapped column cannot pass by luck.
         db.heard("2026-10-03", millis = 10 * hour, cast = 10 * hour)
+        db.heard("2026-10-04", millis = 5 * hour, offline = 5 * hour)
         val onReceiver = source.observe().first()
         assertEquals(10 * hour, onReceiver.castMillis)
-        assertEquals("каст не додається до офлайну", 10 * hour, onReceiver.offlineMillis)
+        assertEquals("офлайн і каст — різні колонки з різними сумами", 15 * hour, onReceiver.offlineMillis)
         assertTrue("десять каст-годин — «Великий екран»", "big_screen_10h" in onReceiver.earned())
     }
 

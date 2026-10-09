@@ -9,6 +9,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
 import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
 import com.slukhayka.audiobooks.data.db.PlaybackFailureEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.db.PlaybackSessionEntity
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -40,7 +41,19 @@ import kotlinx.coroutines.withContext
  */
 class ListeningStateStore(
     private val dao: AudiobookDao,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * #1173 (T9) — the wall clock and the zone the measurements are written
+     * with. Injectable so the night window and the 15-minute session edge are
+     * table tests instead of a test that depends on when it runs.
+     *
+     * The zone is a PROVIDER, not a value: this store is a process-wide lazy
+     * singleton, and a listener who changes the device time zone mid-process
+     * must get the new day key and the new night window on the next write —
+     * exactly what the per-call `SimpleDateFormat` of the old writer did.
+     */
+    private val now: () -> Long = System::currentTimeMillis,
+    private val zone: () -> java.util.TimeZone = java.util.TimeZone::getDefault
 ) : ProgressMirror {
 
     // --- Progress (keyed by Edition, ADR-0007) -----------------------------
@@ -65,6 +78,13 @@ class ListeningStateStore(
     /** Stable resume identity survives an order commit between this read and Play. */
     suspend fun getAnchoredProgress(bookId: String): AnchoredProgress? =
         dao.getPlaybackProgressSync(bookId)?.let { ChapterOrder.anchorProgress(dao, it) }
+
+    /**
+     * #1174 — the Edition a book's Listening State row names, which is also the
+     * one an AUDIO Readthrough must point at (ADR-0046 §3). One formula, one
+     * owner: a second copy elsewhere would let the two rows drift apart.
+     */
+    suspend fun editionIdFor(bookId: String): String? = editionIdOf(bookId)
 
     suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = getAnchoredProgress(bookId)?.progress
 
@@ -301,20 +321,109 @@ class ListeningStateStore(
 
     fun getAllListeningStats(): Flow<List<ListeningStatEntity>> = dao.getAllListeningStats()
 
-    /** Actual wall listening time, transactionally preserved below millisecond boundaries. */
-    suspend fun recordActualListeningTime(millis: Long) {
-        if (millis <= 0L) return
-        val dateIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-        withContext(ioDispatcher) { dao.addVerifiedListeningTime(dateIso, millis) }
+    /**
+     * The session currently open for the recorder, or null when the next
+     * interval starts a new one. In-memory on purpose: a process that dies
+     * leaves the row closed at its last observed tick, so a restart begins a
+     * new session instead of guessing how long the silence lasted.
+     */
+    private data class OpenSession(
+        val id: Long,
+        val bookId: String?,
+        val startedAt: Long,
+        val endedAt: Long,
+        val verifiedMillis: Long,
+        val offlineMillis: Long,
+        val castMillis: Long
+    )
+
+    @Volatile
+    private var openSession: OpenSession? = null
+
+    /**
+     * Actual wall listening time, transactionally preserved below millisecond
+     * boundaries — and, since #1173 (T9), the ONE place that writes the
+     * measurements: the day row (verified / offline / cast / night), the
+     * session the interval belongs to and, through the app-owned recorder, the
+     * durable counters.
+     *
+     * The write happens at the moment the observation reaches the store, so
+     * both the day row and the night window use this instant: a tick written
+     * at 00:10 belongs to that day and is night, a tick written at 23:59 is
+     * neither (ADR-0014 — the tick counts where it was observed).
+     */
+    suspend fun recordActualListeningTime(observation: ListeningObservation) {
+        when (observation) {
+            is ListeningObservation.Played -> {
+                if (observation.millis <= 0L) return
+                withContext(ioDispatcher) { persistPlayed(observation, atEpochMs = now()) }
+            }
+            // The row already ends at the last observed tick; only the NEXT
+            // interval has to know that this session is over.
+            ListeningObservation.Stopped -> openSession = null
+        }
     }
 
+    /** Legacy seconds-only path (pre-v51 counter); the verified writer is above. */
     suspend fun recordListeningTime(seconds: Long) {
         if (seconds <= 0) return
-        val dateIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+        val dateIso = dayIso(now())
         withContext(ioDispatcher) {
             val current = dao.getListeningStatForDate(dateIso)
             val updatedSeconds = (current?.listenedSeconds ?: 0L) + seconds
             dao.saveListeningStat((current ?: ListeningStatEntity(dateIso)).copy(listenedSeconds = updatedSeconds))
         }
     }
+
+    /**
+     * One interval into one atomic write. The interval's start is its own
+     * observed edge — the moment of the tick minus the wall time it measured —
+     * so the pause between two intervals is silence nobody played in, not an
+     * estimate.
+     *
+     * The recorder is the single writer (ADR-0060), which is what makes the
+     * read-modify-write of [openSession] safe.
+     */
+    private suspend fun persistPlayed(played: ListeningObservation.Played, atEpochMs: Long) {
+        val startedAt = atEpochMs - played.millis
+        val open = openSession
+        val continues = open != null && PlaybackSessionPolicy.continuesSession(
+            previousBookId = open.bookId,
+            previousEndedAt = open.endedAt,
+            bookId = played.bookId,
+            startedAt = startedAt
+        )
+        val previous = open?.takeIf { continues }
+        val session = PlaybackSessionEntity(
+            startedAt = previous?.startedAt ?: startedAt,
+            endedAt = atEpochMs,
+            verifiedMillis = (previous?.verifiedMillis ?: 0L) + played.millis,
+            offlineMillis = (previous?.offlineMillis ?: 0L) + if (played.offline) played.millis else 0L,
+            castMillis = (previous?.castMillis ?: 0L) + if (played.cast) played.millis else 0L
+        )
+        val id = dao.addVerifiedListeningTime(
+            dateIso = dayIso(atEpochMs),
+            millis = played.millis,
+            offlineMillis = if (played.offline) played.millis else 0L,
+            castMillis = if (played.cast) played.millis else 0L,
+            nightMillis = if (NightWindow.contains(atEpochMs, zone())) played.millis else 0L,
+            session = session,
+            openSessionId = previous?.id
+        ) ?: return
+        openSession = OpenSession(
+            id = id,
+            bookId = played.bookId,
+            startedAt = session.startedAt,
+            endedAt = session.endedAt,
+            verifiedMillis = session.verifiedMillis,
+            offlineMillis = session.offlineMillis,
+            castMillis = session.castMillis
+        )
+    }
+
+    /** The local day of an instant, in the store's zone — the day row's key. */
+    private fun dayIso(atEpochMs: Long): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .apply { timeZone = zone() }
+            .format(java.util.Date(atEpochMs))
 }

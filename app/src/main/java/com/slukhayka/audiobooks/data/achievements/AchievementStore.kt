@@ -11,5 +11,12 @@ interface AchievementStore {
     suspend fun earned(): List<EarnedAchievement>
     suspend fun award(definitions: List<AchievementDefinition>, earnedAt: Long): List<EarnedAchievement>
     suspend fun recordFact(fact: AchievementFact)
+
+    /**
+     * #1173 (T9) — adds exactly one to a durable counter. Repeating the
+     * observed action must never lose a count and never double it; the value
+     * only grows.
+     */
+    suspend fun incrementCounter(key: String)
     suspend fun claimNotice(knownIds: Set<String>, seenAt: Long): EarnedAchievement?
 }

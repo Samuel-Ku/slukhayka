@@ -5,6 +5,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.*
+import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
+import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
+import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
+import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import java.io.File
 import kotlinx.coroutines.flow.first
@@ -341,6 +345,47 @@ class RoomAchievementProgressSourceTest {
                 "двох жанрів замало для «Жанрового поліглота»",
                 AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
                     .any { it == "genre_polyglot_8" }
+            )
+        } finally {
+            database.close()
+        }
+    }
+
+    /**
+     * #702 (T4, зріз 2) — a named shelf is reached END TO END: the source claims
+     * «жахи» (the wording 4read really writes), the write path normalizes it
+     * into the shared id, the snapshot counts it at Work level, and the tier
+     * opens. Nothing here is fed a canonical id by hand: the claim text is the
+     * only input.
+     */
+    @Test fun `a source claim of a canonical genre reaches the named shelf award`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.audiobookDao()
+            val claimed = (1..10).map { "claimed-$it" }
+            RoomLocalFacetWriter(dao).apply(
+                claimed.map { workId ->
+                    LocalFacetDelta(
+                        work = WorkFacetDelta(
+                            workId = workId,
+                            genres = listOf(GenreFacetAssertion(rawText = "жахи", sourceId = "4read", observedAt = 1)),
+                            updatedAt = 1
+                        )
+                    )
+                }
+            )
+            claimed.forEach { dao.upsertLibraryEntry(it, it, false, 1L, 0f) }
+
+            val snapshot = RoomAchievementProgressSource(
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet()
+            ).observe().first()
+
+            assertEquals("десять заявлених книг — одна полиця", 10L, snapshot.genreCounts["horror"])
+            assertTrue(
+                "нагорода мусить відкритись від реальної заяви джерела",
+                AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }.contains("genre_horror_10")
             )
         } finally {
             database.close()

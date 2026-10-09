@@ -10,6 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.slukhayka.audiobooks.data.duration.DurationBuckets
 import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import com.slukhayka.audiobooks.data.facets.GenreIdentity
+import com.slukhayka.audiobooks.data.facets.NormalizedGenre
 import com.slukhayka.audiobooks.data.metadata.DurationSanity
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
@@ -18,6 +19,7 @@ import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
     entities = [
         AchievementEntity::class,
         AchievementFactEntity::class,
+        AchievementCounterEntity::class,
         AudiobookEntity::class,
         ListenerCollectionEntity::class,
         ListenerCollectionItemEntity::class,
@@ -27,6 +29,7 @@ import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
         BookmarkEntity::class,
         PlaybackProgressEntity::class,
         ListeningStatEntity::class,
+        PlaybackSessionEntity::class,
         PlaybackFailureEntity::class,
         PlaybackEventEntity::class,
         TombstoneEntity::class,
@@ -60,7 +63,7 @@ import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
         FriendshipStateEntity::class,
         BlockEntity::class,
     ],
-    version = 52,
+    version = 54,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -109,7 +112,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_51_52, MIGRATION_50_51
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54
                     )
                     .build()
                 INSTANCE = instance
@@ -134,6 +137,89 @@ abstract class AudiobookDatabase : RoomDatabase() {
         internal val MIGRATION_51_52 = object : Migration(51, 52) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE achievements ADD COLUMN pinnedAt INTEGER")
+            }
+        }
+
+        /**
+         * #702 (T4, зріз 2) — жанровий словник вивчив сім полиць, які джерела
+         * вже заявляють (жахи, пригоди, біографії, саморозвиток, історична
+         * проза, дитяча література, любовні романи). Текст, записаний у базу
+         * ДО цього, лежить хешем від власного написання, тож нагорода
+         * «10 книг у жанрі» не побачила б реальних заяв, хоча вони є.
+         *
+         * Єдине, що рядок зберіг дослівно, — сама заява
+         * (`genre_assertions.rawText`), тож ідентичність перевиводиться з неї,
+         * тим самим правилом, яким пише `LocalFacetWriter`, а не другою копією
+         * старого словника.
+         *
+         * Міграція лише даних: схема не змінюється. Повторний прогін
+         * ідемпотентний — вдруге всі рядки вже канонічні й не рухаються.
+         */
+        internal val MIGRATION_52_53 = object : Migration(52, 53) {
+            override fun migrate(db: SupportSQLiteDatabase) = renormalizeGenreClaims(db)
+        }
+
+        /**
+         * #1173 (T9) — шар вимірів: три колонки за днями, таблиця сеансів і
+         * таблиця лічильників.
+         *
+         * Лише додавання. Три колонки стартують із нуля: минуле ніхто не
+         * спостерігав із позначкою джерела, тож виводити її з наявних чисел
+         * було б вигадуванням (ADR-0014). Сеансів і лічильників у старій базі
+         * немає за визначенням — обидві таблиці порожні.
+         *
+         * Повторний прогін: DDL ідемпотентним бути не може, і не мусить —
+         * Room виконує 53→54 рівно раз, бо після неї `user_version` = 54.
+         */
+        internal val MIGRATION_53_54 = object : Migration(53, 54) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE listening_stats ADD COLUMN offlineListenedMillis INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE listening_stats ADD COLUMN castListenedMillis INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE listening_stats ADD COLUMN nightListenedMillis INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS playback_sessions (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startedAt` INTEGER NOT NULL, " +
+                        "`endedAt` INTEGER NOT NULL, `verifiedMillis` INTEGER NOT NULL, " +
+                        "`offlineMillis` INTEGER NOT NULL, `castMillis` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS achievement_counters (" +
+                        "`key` TEXT NOT NULL, `count` INTEGER NOT NULL, PRIMARY KEY(`key`))"
+                )
+            }
+        }
+
+        /**
+         * Public for the migration acceptance test; replay is idempotent.
+         *
+         * A row whose claim text nothing kept (`genre_assertions` has no row)
+         * stays exactly as it is: guessing its genre from a hash would be
+         * inventing data (ADR-0014).
+         */
+        internal fun renormalizeGenreClaims(db: SupportSQLiteDatabase) {
+            val moves = linkedMapOf<String, NormalizedGenre>()
+            db.query("SELECT DISTINCT rawText FROM genre_assertions").use { cursor ->
+                while (cursor.moveToNext()) {
+                    GenreIdentity.claimIdentities(cursor.getString(0)).forEach { claim ->
+                        if (claim.priorHashedId != claim.genre.id) moves[claim.priorHashedId] = claim.genre
+                    }
+                }
+            }
+            if (moves.isEmpty()) return
+            moves.values.distinctBy { it.id }.forEach { genre ->
+                db.execSQL(
+                    "INSERT OR IGNORE INTO genre_facets (id, displayName, normalizedName) VALUES (?, ?, ?)",
+                    arrayOf(genre.id, genre.label, FacetIdentity.normalizedText(genre.label).orEmpty())
+                )
+            }
+            moves.forEach { (previousId, genre) ->
+                // Той самий твір може вже мати канонічний рядок (джерело
+                // оновилося пізніше): тоді ключ відхиляє UPDATE, а залишок
+                // дубліката прибирає DELETE нижче — заява лишається порахована
+                // рівно один раз.
+                db.execSQL("UPDATE OR IGNORE work_genres SET genreId = ? WHERE genreId = ?", arrayOf(genre.id, previousId))
+                db.execSQL("DELETE FROM work_genres WHERE genreId = ?", arrayOf(previousId))
+                db.execSQL("UPDATE genre_assertions SET genreId = ? WHERE genreId = ?", arrayOf(genre.id, previousId))
             }
         }
 

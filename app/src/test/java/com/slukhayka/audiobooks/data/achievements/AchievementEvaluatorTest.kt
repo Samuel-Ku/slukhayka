@@ -1,7 +1,9 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import com.slukhayka.audiobooks.data.facets.GenreIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -177,18 +179,29 @@ class AchievementEvaluatorTest {
     }
 
     /**
-     * The three offline awards that need HOURS are absent on purpose: nothing
-     * records offline listening time yet, and approximating it from the count
-     * of offline starts would be a different fact dressed as this one
-     * (ADR-0014). This test keeps that a decision rather than an oversight —
-     * if someone adds them, they must add the data too.
+     * #1183 (T9b) — the offline hours the earlier slice deliberately left out
+     * are measured now, so the gap this test used to pin is CLOSED: the day
+     * columns of the measurement layer (#1173) really record offline time, and
+     * the three awards stand on them.
+     *
+     * The honesty rule the old test protected is unchanged and is what this one
+     * checks: the count of offline STARTS is a different fact and opens nothing
+     * here. A first offline minute is not ten offline hours (ADR-0014).
      */
-    @Test fun `offline awards that need hours are absent, not approximated`() {
+    @Test fun `offline hour awards read recorded hours, never the count of offline starts`() {
         val all = AchievementCatalog.definitions.map { it.id }
 
-        assertTrue("жодної нагороди за офлайн-години бути не має",
-            all.none { it in setOf("autonomous_10h", "airplane_1", "downloaded_gourmet_100h") })
-        assertTrue("«Глибокий запас» натомість мусить бути", "deep_reserve_10" in all)
+        assertTrue(
+            "офлайн-години тепер записані — нагороди мусять бути в каталозі",
+            all.containsAll(listOf("autonomous_10h", "download_gourmet_100h", "airplane_2h"))
+        )
+        assertTrue("«Глибокий запас» лишається", "deep_reserve_10" in all)
+
+        val oneStart = AchievementEvaluator.evaluate(
+            AchievementProgress(offlinePlaybackStarts = 1), emptySet()
+        ).map { it.id }
+        assertFalse("старт офлайн-сесії не є годинами офлайну", "autonomous_10h" in oneStart)
+        assertFalse("і не є довгою подорожжю", "airplane_2h" in oneStart)
     }
 
     /**
@@ -279,6 +292,105 @@ class AchievementEvaluatorTest {
         assertTrue(
             "порожні жанри не мають давати жодної жанрової нагороди",
             earned.none { it in setOf("genre_polyglot_8", "omnivore_12", "mono_genre_25") }
+        )
+        assertTrue(
+            "і жодної названої полиці теж",
+            earned.none { it.startsWith("genre_") && it.endsWith("_10") }
+        )
+    }
+
+    /**
+     * #702 (T4, slice 2) — «10 книг у жанрі» для кожної полиці, яку джерела
+     * реально заявляють. Кожен поріг відкривається РІВНО на десятій книзі:
+     * дев'ять — це ще «ні», і саме в цьому сенс порога.
+     *
+     * Перелік береться з самого каталогу, а не переписується сюди, тож полиця,
+     * додана наступним зрізом, перевіряється автоматично.
+     */
+    @Test fun `every named genre tier opens at exactly ten books of that genre`() {
+        val tiers = AchievementCatalog.definitions.filter { it.genreId != null }
+
+        assertTrue("жанрові полиці мусять бути в каталозі", tiers.isNotEmpty())
+        for (tier in tiers) {
+            val genreId = requireNotNull(tier.genreId)
+
+            assertFalse(
+                "${tier.id} не має відкриватись на 9 книгах",
+                tier.id in AchievementEvaluator.evaluate(
+                    AchievementProgress(genreCounts = mapOf(genreId to 9L)), emptySet()
+                ).map { it.id }
+            )
+            assertTrue(
+                "${tier.id} мусить відкритись на 10 книгах",
+                tier.id in AchievementEvaluator.evaluate(
+                    AchievementProgress(genreCounts = mapOf(genreId to 10L)), emptySet()
+                ).map { it.id }
+            )
+            assertTrue(
+                "повторна видача не має нічого додавати",
+                AchievementEvaluator.evaluate(
+                    AchievementProgress(genreCounts = mapOf(genreId to 10L)), setOf(tier.id)
+                ).map { it.id }.isEmpty()
+            )
+        }
+    }
+
+    /**
+     * Кожна полиця називає жанр, тож кожен її id мусить існувати в ЄДИНОМУ
+     * словнику. Полиця, що вказує на хеш або на вигаданий id, не відкриється
+     * ніколи — і саме тому це перевіряється тут, а не з'ясовується на пристрої.
+     */
+    @Test fun `every named genre tier points at a canonical dictionary genre`() {
+        val tiers = AchievementCatalog.definitions.filter { it.genreId != null }
+
+        for (tier in tiers) {
+            val genreId = requireNotNull(tier.genreId)
+            val identity = GenreIdentity.canonicalIdentities[genreId]
+
+            assertNotNull("жанр «$genreId» мусить бути в словнику GenreIdentity", identity)
+            assertTrue("підпис жанру «$genreId» не має бути порожнім", identity!!.label.isNotBlank())
+        }
+        assertEquals("жодна полиця не має бути названа двічі", tiers.size, tiers.map { it.genreId }.distinct().size)
+    }
+
+    /**
+     * Полиці не протікають одна в одну: десять книг жахів не кажуть нічого
+     * про пригоди, а хешований жанр, якого словник не знає, не відкриває
+     * жодної НАЗВАНОЇ нагороди.
+     */
+    @Test fun `a genre tier asks only about its own shelf`() {
+        val horror = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = mapOf("horror" to 10L)), emptySet()
+        ).map { it.id }
+
+        assertTrue("полиця жахів мусить відкритись", "genre_horror_10" in horror)
+        assertFalse("сусідня полиця не має відкриватись разом із нею", "genre_adventure_10" in horror)
+
+        val uncanonical = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = mapOf("genre-0123456789abcdef" to 100L)), emptySet()
+        ).map { it.id }
+        assertTrue(
+            "жанр без канонічного id не має відкривати названої нагороди",
+            uncanonical.none { it.startsWith("genre_") && it.endsWith("_10") }
+        )
+    }
+
+    /**
+     * «Класика» і «нон-фікшн» названі тікетом, але їх не заявляє жодне джерело
+     * в жодній зібраній фікстурі, тож нагород для них немає — вигаданий жанр
+     * дав би вигаданий поступ (ADR-0014). Тест лишає прогалину РІШЕННЯМ: щойно
+     * джерело заявить текст, полиця додається одним рядком.
+     */
+    @Test fun `genres no source claims are absent on purpose`() {
+        val all = AchievementCatalog.definitions.map { it.id }
+
+        assertTrue(
+            "нагород для незаявлених жанрів бути не має",
+            all.none { it in setOf("genre_classics_10", "genre_non_fiction_10") }
+        )
+        assertEquals(
+            "десять ЗАЯВЛЕНИХ полиць мусять бути",
+            10, all.count { it.startsWith("genre_") && it.endsWith("_10") }
         )
     }
 }

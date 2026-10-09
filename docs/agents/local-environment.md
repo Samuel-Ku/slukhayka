@@ -15,6 +15,11 @@ cp local.properties .worktrees/<lane>/local.properties
 Worktrees live under `.worktrees/` (git-excluded) and leave with
 `git worktree remove --force .worktrees/<lane>` once their PR is merged.
 
+Commit every coherent step as you finish it. A long uncommitted diff is lost
+work, not caution: a lane that ran for hours before its first commit has one
+point of failure, and the step boundaries are also what make a review read the
+change the way it was built.
+
 ## The build slot
 
 Run Gradle **only** through `.worktrees/gt`:
@@ -29,6 +34,11 @@ read-only here), exports the offline Robolectric flags
 and serialises every lane on `.worktrees/.build-slot` with `flock`. One Gradle
 run at a time: a lane that calls `./gradlew` directly races the others for the
 daemon and dies with an unexplained OOM.
+
+A lane waiting on the slot looks exactly like a lane doing nothing — no file
+changes, no test results. `pgrep -af 'gradlew --offline'` says whose run holds
+the slot, and the waiting lane's own command line names the worktree it belongs
+to.
 
 ## Partitions
 

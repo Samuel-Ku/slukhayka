@@ -179,18 +179,29 @@ class AchievementEvaluatorTest {
     }
 
     /**
-     * The three offline awards that need HOURS are absent on purpose: nothing
-     * records offline listening time yet, and approximating it from the count
-     * of offline starts would be a different fact dressed as this one
-     * (ADR-0014). This test keeps that a decision rather than an oversight —
-     * if someone adds them, they must add the data too.
+     * #1183 (T9b) — the offline hours the earlier slice deliberately left out
+     * are measured now, so the gap this test used to pin is CLOSED: the day
+     * columns of the measurement layer (#1173) really record offline time, and
+     * the three awards stand on them.
+     *
+     * The honesty rule the old test protected is unchanged and is what this one
+     * checks: the count of offline STARTS is a different fact and opens nothing
+     * here. A first offline minute is not ten offline hours (ADR-0014).
      */
-    @Test fun `offline awards that need hours are absent, not approximated`() {
+    @Test fun `offline hour awards read recorded hours, never the count of offline starts`() {
         val all = AchievementCatalog.definitions.map { it.id }
 
-        assertTrue("жодної нагороди за офлайн-години бути не має",
-            all.none { it in setOf("autonomous_10h", "airplane_1", "downloaded_gourmet_100h") })
-        assertTrue("«Глибокий запас» натомість мусить бути", "deep_reserve_10" in all)
+        assertTrue(
+            "офлайн-години тепер записані — нагороди мусять бути в каталозі",
+            all.containsAll(listOf("autonomous_10h", "download_gourmet_100h", "airplane_2h"))
+        )
+        assertTrue("«Глибокий запас» лишається", "deep_reserve_10" in all)
+
+        val oneStart = AchievementEvaluator.evaluate(
+            AchievementProgress(offlinePlaybackStarts = 1), emptySet()
+        ).map { it.id }
+        assertFalse("старт офлайн-сесії не є годинами офлайну", "autonomous_10h" in oneStart)
+        assertFalse("і не є довгою подорожжю", "airplane_2h" in oneStart)
     }
 
     /**

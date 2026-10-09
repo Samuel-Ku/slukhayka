@@ -65,7 +65,17 @@ private val named = mapOf(
     "marathon_3h" to R.string.achievement_marathon_3h,
     "week_in_earphones" to R.string.achievement_week_in_earphones,
     "month_in_earphones" to R.string.achievement_month_in_earphones,
-    "mondays_10" to R.string.achievement_mondays_10
+    "mondays_10" to R.string.achievement_mondays_10,
+    // #1183 (T9b) — the measurement layer's awards. Plain ids, no number in
+    // them, so no dynamic rule is needed for any of the eight.
+    "autonomous_10h" to R.string.achievement_autonomous_10h,
+    "download_gourmet_100h" to R.string.achievement_download_gourmet_100h,
+    "big_screen_10h" to R.string.achievement_big_screen_10h,
+    "airplane_2h" to R.string.achievement_airplane_2h,
+    "chapter_end_10" to R.string.achievement_chapter_end_10,
+    "sync_4h" to R.string.achievement_sync_4h,
+    "night_shift_2h" to R.string.achievement_night_shift_2h,
+    "dawn_5" to R.string.achievement_dawn_5
 )
 
 /**

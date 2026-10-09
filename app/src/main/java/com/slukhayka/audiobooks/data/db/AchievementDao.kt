@@ -379,6 +379,69 @@ interface AchievementDao {
     @Query("SELECT * FROM achievement_counters ORDER BY `key`")
     fun observeCounters(): Flow<List<AchievementCounterEntity>>
 
+    // --- #1183 (T9b) the measurement layer's own columns --------------------
+    // Every number below is READ from what #1173 already writes; none of it is
+    // derived from something else (ADR-0014). The three day columns start at
+    // zero in v54, so a listener whose hours predate the measurement layer
+    // cannot open these awards by accident.
+
+    /** #1183 (T9b) — verified millis really played from a local source. */
+    @Query("SELECT COALESCE(SUM(offlineListenedMillis),0) FROM listening_stats")
+    fun observeOfflineListeningMillis(): Flow<Long>
+
+    /** #1183 (T9b) — verified millis really played on a Cast receiver. */
+    @Query("SELECT COALESCE(SUM(castListenedMillis),0) FROM listening_stats")
+    fun observeCastListeningMillis(): Flow<Long>
+
+    /** #1183 (T9b) — verified millis written inside the 00:00–04:00 window. */
+    @Query("SELECT COALESCE(SUM(nightListenedMillis),0) FROM listening_stats")
+    fun observeNightListeningMillis(): Flow<Long>
+
+    /**
+     * #1183 (T9b) — the longest session ever and the longest OFFLINE one, in
+     * ONE round trip.
+     *
+     * `playback_sessions` is never pruned (`PlaybackSessionEntity`), which is
+     * what makes both maxima monotone — an award built on them cannot be taken
+     * back by a later quiet week — and also what makes this a full scan: the
+     * table carries no index on either column, and #1183 forbids a migration to
+     * add one. The table is invalidated on every written tick, so the scan
+     * repeats while the listener plays; the two MAXes share one statement to
+     * keep that to a single scan, and the caller collapses equal answers before
+     * the snapshot above is rebuilt (`distinctUntilChanged`), the same way the
+     * download proof skips its file inspection when its rows did not change.
+     */
+    @Query(
+        "SELECT COALESCE(MAX(verifiedMillis),0) AS longestSessionMillis, " +
+            "COALESCE(MAX(offlineMillis),0) AS longestOfflineSessionMillis FROM playback_sessions"
+    )
+    fun observeLongestSessions(): Flow<com.slukhayka.audiobooks.data.achievements.SessionExtremes>
+
+    /**
+     * #1183 (T9b) — when every session STARTED, for «Світанок».
+     *
+     * Only the instants come back; which morning each one belongs to is decided
+     * in Kotlin against the listener's own zone, like the completion times
+     * above — SQL `localtime` cannot be pinned in a test.
+     *
+     * `startedAt` never changes after a row is inserted (only `endedAt` and the
+     * millis are updated in place), so a repeat of the same list is the same
+     * answer: the caller stops it there instead of re-deriving the mornings on
+     * every tick of the session it is watching.
+     */
+    @Query("SELECT startedAt FROM playback_sessions")
+    fun observePlaybackSessionStarts(): Flow<List<Long>>
+
+    /**
+     * #1183 (T9b) — one durable counter, zero while it was never stepped.
+     *
+     * COALESCE on an aggregate rather than a nullable scalar: «never armed» and
+     * «armed zero times» are the same fact for the award, and the snapshot field
+     * is a number.
+     */
+    @Query("SELECT COALESCE(MAX(count),0) FROM achievement_counters WHERE `key` = :key")
+    fun observeCounter(key: String): Flow<Long>
+
     @Query("SELECT * FROM achievements WHERE seenAt IS NULL AND id IN (:knownIds) ORDER BY earnedAt, id LIMIT 1")
     suspend fun pendingNotice(knownIds: Set<String>): AchievementEntity?
     @Query("UPDATE achievements SET seenAt = :seenAt WHERE id = :id AND seenAt IS NULL")

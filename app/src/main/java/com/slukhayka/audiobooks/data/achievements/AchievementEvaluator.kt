@@ -124,6 +124,65 @@ data class AchievementProgress(
      */
     val englishStartBooks: Long = 0,
     val verifiedListeningMillis: Long = 0,
+    /**
+     * #1183 (T9b) — verified milliseconds really played from a local file or a
+     * downloaded content URI (`listening_stats.offlineListenedMillis`).
+     *
+     * STRONG evidence only: the player confirmed the LOCAL source was playing,
+     * never `book.isDownloaded` and never the mere absence of a network
+     * (ADR-0014, ADR-0060). The column starts at zero in v54, so nothing heard
+     * before the measurement layer existed can open an offline award.
+     */
+    val offlineMillis: Long = 0,
+    /**
+     * #1183 (T9b) — verified milliseconds really played on a Cast receiver
+     * (`castListenedMillis`). The receiver's own confirmed PLAYING state, never
+     * the `isCasting` flag and never a transport command (ADR-0060).
+     */
+    val castMillis: Long = 0,
+    /**
+     * #1183 (T9b) — verified milliseconds written inside the 00:00–04:00 local
+     * window, summed over days (`nightListenedMillis`).
+     *
+     * The window itself and the whole-tick attribution belong to the writer
+     * (`NightWindow`, `ListeningStateStore`); this snapshot only sums what was
+     * recorded, so no session is split or stretched into the night here.
+     */
+    val nightMillis: Long = 0,
+    /**
+     * #1183 (T9b) — the longest single session, in verified milliseconds
+     * (`playback_sessions.verifiedMillis`).
+     *
+     * One session is one continuous interval: a pause of fifteen minutes or
+     * more, a stop, or another book closes it (`PlaybackSessionPolicy`).
+     * Sessions are never pruned, so the longest one is monotone.
+     */
+    val longestSessionMillis: Long = 0,
+    /**
+     * #1183 (T9b) — the longest single session measured by the OFFLINE
+     * milliseconds inside it («Літак»).
+     *
+     * Not the same metric as [offlineMillis]: ten offline hours spread over ten
+     * short sessions are a download habit, not one long trip.
+     */
+    val longestOfflineSessionMillis: Long = 0,
+    /**
+     * #1183 (T9b) — how many times the «до кінця розділу» mode was ARMED
+     * (`AchievementCounter.END_OF_CHAPTER_ARM`), not how many chapters ended.
+     *
+     * At a chapter boundary the timer re-arms for the next chapter and a
+     * `TIMER_STOP` event may never be written, so the armed moment is the only
+     * honest fact (#700, ADR-0060).
+     */
+    val endOfChapterArms: Long = 0,
+    /**
+     * #1183 (T9b) — how many DIFFERENT local mornings carried a session that
+     * STARTED between 06:00 and 08:00.
+     *
+     * The unit is the morning — a calendar date — not the session: five breaks
+     * inside one dawn are still one morning (owner's decision, #1166).
+     */
+    val morningDays: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
 )
@@ -138,7 +197,11 @@ enum class AchievementMetric {
     DISTINCT_GENRES, MAX_GENRE_BOOKS, GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
     VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS, BOOKS_FINISHED_TWICE,
     LONGEST_SERIES_RUN, ENGLISH_STARTS, BEST_DAY_MILLIS, LONGEST_DAY_STREAK,
-    BEST_MONTH_DAYS, MONDAY_DAYS;
+    BEST_MONTH_DAYS, MONDAY_DAYS,
+    // #1183 (T9b) — the awards built on the measurement layer (#1173): the
+    // recorded day columns, the session table and the durable counter.
+    OFFLINE_MILLIS, CAST_MILLIS, NIGHT_MILLIS, LONGEST_SESSION_MILLIS,
+    LONGEST_OFFLINE_SESSION_MILLIS, END_OF_CHAPTER_ARMS, MORNING_DAYS;
 
     /**
      * [genreId] is read by [GENRE_BOOKS] alone — the one metric that asks about
@@ -185,6 +248,13 @@ enum class AchievementMetric {
         LONGEST_SERIES_RUN -> snapshot.longestSeriesRun
         ENGLISH_STARTS -> snapshot.englishStartBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
+        OFFLINE_MILLIS -> snapshot.offlineMillis
+        CAST_MILLIS -> snapshot.castMillis
+        NIGHT_MILLIS -> snapshot.nightMillis
+        LONGEST_SESSION_MILLIS -> snapshot.longestSessionMillis
+        LONGEST_OFFLINE_SESSION_MILLIS -> snapshot.longestOfflineSessionMillis
+        END_OF_CHAPTER_ARMS -> snapshot.endOfChapterArms
+        MORNING_DAYS -> snapshot.morningDays
     }
 }
 
@@ -269,6 +339,10 @@ object AchievementCatalog {
         // are RECORDED events (`TIMER_STOP`, `RELISTEN`), not inferred from
         // anything else — the app already writes them.
         AchievementDefinition("sleep_timer_20", "habits", 4, AchievementMetric.TIMER_STOPS, 20),
+        // #1183 (T9b) — «До кінця розділу»: ten times the mode was ARMED, the
+        // moment the listener turned it on. `TIMER_STOP` would undercount, and
+        // is a different fact (#700).
+        AchievementDefinition("chapter_end_10", "habits", 5, AchievementMetric.END_OF_CHAPTER_ARMS, 10),
         AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
         AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5),
         // #700 (T2) — «Друге дихання»: the SAME book finished twice. The ticket
@@ -282,12 +356,29 @@ object AchievementCatalog {
         // offline use. Built on the same real proof T1 already uses for
         // `first_download` (a track row that is downloaded AND whose file is
         // really on disk), so a row alone cannot claim it.
-        //
-        // The other three offline awards («Автономний», «Літак», «Гурман
-        // завантажень») need offline HOURS, which nothing records yet — they
-        // are deliberately absent rather than approximated from the count of
-        // offline starts, which is a different fact.
         AchievementDefinition("deep_reserve_10", "offline", 1, AchievementMetric.DOWNLOADED_BOOKS, 10),
+        // #1183 (T9b) — the rest of the offline group. The three awards #700
+        // left out because nothing recorded offline HOURS are here now: the
+        // measurement layer from #1173 writes that column per day from the
+        // STRONG evidence of a local source really playing. They read the
+        // column, never the count of offline starts — a start is a different
+        // fact and would open «Автономний» on the first minute (ADR-0014).
+        AchievementDefinition("autonomous_10h", "offline", 2, AchievementMetric.OFFLINE_MILLIS, 10 * 3_600_000L),
+        AchievementDefinition("download_gourmet_100h", "offline", 3, AchievementMetric.OFFLINE_MILLIS, 100 * 3_600_000L),
+        // «Літак» is the LONGEST offline session, not the FIRST one: the first
+        // offline session already has its own award (`first_offline_playback`),
+        // and two notices for one fact are not two achievements (#700).
+        AchievementDefinition("airplane_2h", "offline", 4, AchievementMetric.LONGEST_OFFLINE_SESSION_MILLIS, 2 * 3_600_000L),
+        // #1183 (T9b) — «Великий екран»: hours on a receiver, which only its
+        // own confirmed PLAYING state proves (ADR-0060).
+        AchievementDefinition("big_screen_10h", "cast", 1, AchievementMetric.CAST_MILLIS, 10 * 3_600_000L),
+        // #1183 (T9b) — the shape of a SESSION, from the recorded sessions and
+        // day rows: one long sitting, the night hours actually played, and the
+        // dawns that opened a session. Every metric is monotone, so no award
+        // here can be taken back.
+        AchievementDefinition("sync_4h", "sessions", 1, AchievementMetric.LONGEST_SESSION_MILLIS, 4 * 3_600_000L),
+        AchievementDefinition("night_shift_2h", "sessions", 2, AchievementMetric.NIGHT_MILLIS, 2 * 3_600_000L),
+        AchievementDefinition("dawn_5", "sessions", 3, AchievementMetric.MORNING_DAYS, 5),
         // #701 (T3) — «Чотири двері»: listening from four DIFFERENT sources.
         // Counts doors the listener actually used (library rows), never the
         // set the app merely offers — those are different facts.

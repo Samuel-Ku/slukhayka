@@ -121,6 +121,37 @@ class RoomAchievementProgressSource(
         )
     }
 
+    // #1183 (T9b) — the measurement layer's own rows (#1173): the longest
+    // session and the longest OFFLINE one (one query), plus every session start
+    // for «Світанок». Both answers move only when a session really grows or
+    // appears, while the table is invalidated on every written tick, so an equal
+    // repeat stops here instead of rebuilding the snapshot above — the same
+    // guard the download proof uses for its file inspection.
+    private val sessionExtremes = dao.observeLongestSessions().distinctUntilChanged()
+    private val sessionStarts = dao.observePlaybackSessionStarts().distinctUntilChanged()
+    private val withSessions = combine(withRhythm, sessionExtremes, sessionStarts) {
+            base, extremes, starts ->
+        base.copy(
+            longestSessionMillis = extremes.longestSessionMillis,
+            longestOfflineSessionMillis = extremes.longestOfflineSessionMillis,
+            morningDays = morningDays(starts)
+        )
+    }
+    private val withMeasuredHours = combine(
+        withSessions,
+        dao.observeOfflineListeningMillis(),
+        dao.observeCastListeningMillis(),
+        dao.observeNightListeningMillis()
+    ) { base, offline, cast, night ->
+        base.copy(offlineMillis = offline, castMillis = cast, nightMillis = night)
+    }
+    private val withArms = combine(
+        withMeasuredHours,
+        dao.observeCounter(AchievementCounter.END_OF_CHAPTER_ARM)
+    ) { base, arms ->
+        base.copy(endOfChapterArms = arms)
+    }
+
     /**
      * A row whose date cannot be read is not a day we can count, so it is
      * skipped rather than guessed (ADR-0014). `dateIso` is written as
@@ -132,6 +163,23 @@ class RoomAchievementProgressSource(
 
     private fun hourOf(epochMillis: Long): Int =
         java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId).hour
+
+    /**
+     * #1183 (T9b) — «Світанок» counts MORNINGS, not sessions: the local date of
+     * a session that STARTED between 06:00 and 08:00, each date once.
+     *
+     * Five short breaks inside one dawn are still one morning (owner's decision,
+     * #1166), and a session that merely runs THROUGH the window was not started
+     * in it. A session is dated by its own start in the listener's zone, exactly
+     * like the night and holiday awards above.
+     */
+    private fun morningDays(startedAt: List<Long>): Long = startedAt
+        .map { java.time.Instant.ofEpochMilli(it).atZone(zoneId) }
+        .filter { it.hour in 6..7 }
+        .map { it.toLocalDate() }
+        .distinct()
+        .size
+        .toLong()
 
     /**
      * New Year and Christmas. Both Christmas dates are included on purpose: this
@@ -150,7 +198,7 @@ class RoomAchievementProgressSource(
     private val topology = combine(downloads, dao.observeKnownSeriesMemberships()) { downloaded, members ->
         downloaded to members.map { AchievementSeriesMembership(it.seriesId, it.workId, it.position) }.toSet()
     }
-    private val aggregates = combine(withRhythm, topology) { counters, topology ->
+    private val aggregates = combine(withArms, topology) { counters, topology ->
         counters.copy(downloadedBooks = topology.first, registeredSourceIds = registeredSourceIds,
             knownSeriesMemberships = topology.second)
     }

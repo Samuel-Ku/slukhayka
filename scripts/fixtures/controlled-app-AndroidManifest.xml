@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.slukhayka.audiobooks">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+    <application android:name="android.app.Application" android:debuggable="true" />
+</manifest>

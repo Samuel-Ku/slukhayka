@@ -16,11 +16,19 @@ fun interface AchievementProgressSource {
  * «покинуто» mark, so it is captured in the same step that takes the mark away
  * (`AbandonedBooks.finish`). A row written later would be a fiction — after the
  * write the pass reads FINISHED and nothing says it ever was abandoned.
+ *
+ * #701 — [CROSS_RESOLVED] and [SOURCE_RECOVERED] join them for the same reason:
+ * neither a successful cross-resolve nor a rescued source leaves anything in
+ * Room to read afterwards, so the success point is the only moment that can
+ * record them. [SOURCE_RECOVERED] is deliberately ONE key for TWO mechanisms —
+ * the stream self-heal and the browser recovery are the same story (a broken
+ * source was rescued), and two keys would fire two notices for it.
  */
 enum class AchievementFact {
     PLAYBACK_STARTED, REVIEW_ACCEPTED, SEARCH_IMPORTED, OFFLINE_PLAYBACK_STARTED,
     BOOK_COMPLETED, NOT_INTERESTED_CHOSEN,
-    FINISHED_AFTER_ABANDON
+    FINISHED_AFTER_ABANDON,
+    CROSS_RESOLVED, SOURCE_RECOVERED
 }
 
 class LocalAchievementProgressSource(
@@ -40,7 +48,12 @@ class LocalAchievementProgressSource(
             // captured while the mark is still on the pass, so its presence is
             // what proves the book WAS abandoned when the listener finished it.
             booksFinishedAfterAbandon =
-                count(snapshot.booksFinishedAfterAbandon, AchievementFact.FINISHED_AFTER_ABANDON)
+                count(snapshot.booksFinishedAfterAbandon, AchievementFact.FINISHED_AFTER_ABANDON),
+            // #701 — the two mechanism facts. Both are "it happened at all":
+            // the fact table holds one row per key, and the awards ask whether
+            // the mechanism ever succeeded, not how many times.
+            crossResolves = count(snapshot.crossResolves, AchievementFact.CROSS_RESOLVED),
+            sourceRecoveries = count(snapshot.sourceRecoveries, AchievementFact.SOURCE_RECOVERED)
         )
     }
 }

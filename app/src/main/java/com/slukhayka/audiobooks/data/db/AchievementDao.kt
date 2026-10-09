@@ -350,6 +350,77 @@ interface AchievementDao {
     )
     fun observeBooksFinishedTwice(): Flow<Long>
 
+    /**
+     * #701 (T3) — every OWN library book with the Work identity the series,
+     * universe and collection rules read.
+     *
+     * OWN means the listener really saved or imported the row (ADR-0060): an
+     * AUTO_SEED / CATALOG_SYNC / UNKNOWN entry is a mirror of the catalogue,
+     * not a choice, so it can neither complete a series nor cover a curated
+     * collection. The `origin IN (...)` filter is the same one
+     * [observeExplicitBooks] counts.
+     *
+     * [completedAt] is the FIRST real end-of-book event (`MIN(timestamp)`), not
+     * a flag: ADR-0060 accepts only the recorded completion, and «По порядку»
+     * needs the instant the listener finished the tome to sort the sequence.
+     * A second pass at the same book does not move it — the first finish is
+     * when the tome was taken.
+     *
+     * The identity comes from the Work, with the book row as the fallback for a
+     * local import that has no Works row; both title and author are read from
+     * the SAME source, so a mixed pair can never be assembled. The final `''`
+     * covers the row that has NEITHER — a Library Entry whose book row is gone
+     * (a migration state the older schemas allow) reads as an empty identity,
+     * which matches no curated entry instead of crashing the whole snapshot.
+     * `seriesUrl` rides along because the universe matcher is URL-first
+     * (ADR-0038 keeps the series page's URL a real claim), and `seriesIndex`
+     * because the order rule reads `works.seriesIndex` and nothing else.
+     */
+    @Query(
+        "SELECT le.id AS bookId, le.workId AS workId, " +
+            "COALESCE(NULLIF(w.title, ''), a.title, '') AS title, " +
+            "COALESCE(NULLIF(w.author, ''), a.author, '') AS author, " +
+            "w.seriesTitle AS seriesTitle, w.seriesUrl AS seriesUrl, w.seriesIndex AS seriesIndex, " +
+            "(SELECT MIN(e.timestamp) FROM playback_events e " +
+            "WHERE e.bookId = le.id AND e.kind='COMPLETED') AS completedAt " +
+            "FROM library_entries le " +
+            "LEFT JOIN works w ON w.id = le.workId " +
+            "LEFT JOIN audiobooks a ON a.id = le.id " +
+            "WHERE le.origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')"
+    )
+    fun observeOwnLibraryBooks(): Flow<List<com.slukhayka.audiobooks.data.achievements.OwnLibraryBook>>
+
+    /**
+     * #701 (T3) — the persisted source types the listener actually has rows
+     * from, as a SET rather than a count.
+     *
+     * «Усі двері» has to compare them against the registry's own list, which is
+     * Kotlin, so the comparison cannot happen in SQL — the same reason the
+     * thirty-day window of «Нова хвиля» is decided in Kotlin. A source row only
+     * exists once a book came through it, so these are doors really used, not
+     * doors merely offered.
+     */
+    @Query("SELECT DISTINCT type FROM sources")
+    fun observeUsedSourceTypes(): Flow<List<String>>
+
+    /**
+     * #701 (US46) — «Той самий голос»: renditions the listener holds in TWO OR
+     * MORE sources.
+     *
+     * No new fact is needed (owner's decision, #701): `editions.id` hashes
+     * `mergeKey|narrator|language`, so two `sources` rows carrying one
+     * editionId ARE the same narration from two doors. DISTINCT on `type` is
+     * what makes "two sources" true — two rows of the same source are one door,
+     * and counting them would let a re-import of one book earn the award.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM (" +
+            "SELECT editionId FROM sources " +
+            "WHERE editionId IS NOT NULL AND editionId != '' " +
+            "GROUP BY editionId HAVING COUNT(DISTINCT type) >= 2)"
+    )
+    fun observeSharedNarrations(): Flow<Long>
+
     @Query("SELECT * FROM series_members")
     fun observeKnownSeriesMemberships(): Flow<List<SeriesMemberEntity>>
     @Query("SELECT s.bookId, s.id AS sourceId, s.type AS sourceType, " +

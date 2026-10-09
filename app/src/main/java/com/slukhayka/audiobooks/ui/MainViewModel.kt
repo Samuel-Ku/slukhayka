@@ -1290,6 +1290,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // source announces exactly once). Zero-request rides: the
                 // watch reads the verdict the resolver already produced.
                 if (match != null) {
+                    // #701 (US44) — «Резолвер»: the cross-resolve really found
+                    // a direct counterpart. This gateway is the ONE success
+                    // point of the mechanism, and Room records nothing about
+                    // the verdict afterwards, so the fact is captured here.
+                    App.instance.recordAchievementFact(
+                        com.slukhayka.audiobooks.data.achievements.AchievementFact.CROSS_RESOLVED
+                    )
                     runCatching {
                         SourceWatchNotifier.notifyMappingVerdict(
                             App.instance,
@@ -2263,6 +2270,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // LibraryImport. Ordinary URL recovery has a factual
                         // playback verdict; keep that opened track installed.
                         _showFullPlayer.value = true
+                        // #701 (US45) — «Відновлювач», the browser-recovery
+                        // door: an EXISTING book's source was really rescued
+                        // (the coordinator's success carries a factual playback
+                        // verdict). A success that is a NEW import is the
+                        // browser door doing its ordinary job, not a rescue, so
+                        // it writes nothing — the stream self-heal writes the
+                        // SAME fact (App.kt), and one award reads both.
+                        if (!outcome.isNewImport) {
+                            App.instance.recordAchievementFact(
+                                com.slukhayka.audiobooks.data.achievements.AchievementFact.SOURCE_RECOVERED
+                            )
+                        }
                         if (sourceId == "4read") {
                             offlineDownloads.confirmBrowserRefresh(outcome.book.id)
                         }

@@ -1,0 +1,102 @@
+[
+  {
+    "coordinate": "org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.10",
+    "file": "kotlin-compiler-embeddable-2.2.10.jar",
+    "sha256": "79628fd5d64b4692a62f98962baab00e9076a37e2cffd6ace33cd0b7be7d1cdf",
+    "bytes": 56259401,
+    "configurations": [
+      "compiler"
+    ]
+  },
+  {
+    "coordinate": "org.jetbrains.kotlin:kotlin-stdlib:2.2.10",
+    "file": "kotlin-stdlib-2.2.10.jar",
+    "sha256": "9c67cc79efd6b9215b49d2a4308f5f3433537376c7c88e89bdd6729bd096e61a",
+    "bytes": 1750374,
+    "configurations": [
+      "compiler",
+      "diagnosticRuntime"
+    ]
+  },
+  {
+    "coordinate": "org.jetbrains.kotlin:kotlin-script-runtime:2.2.10",
+    "file": "kotlin-script-runtime-2.2.10.jar",
+    "sha256": "c304a67dba6a61dde560e6310920bed746307c3854f6675c29ac29114731b6b0",
+    "bytes": 44759,
+    "configurations": [
+      "compiler"
+    ]
+  },
+  {
+    "coordinate": "org.jetbrains.kotlin:kotlin-reflect:1.6.10",
+    "file": "kotlin-reflect-1.6.10.jar",
+    "sha256": "3277ac102ae17aad10a55abec75ff5696c8d109790396434b496e75087854203",
+    "bytes": 3038560,
+    "configurations": [
+      "compiler"
+    ]
+  },
+  {
+    "coordinate": "org.jetbrains.kotlin:kotlin-daemon-embeddable:2.2.10",
+    "file": "kotlin-daemon-embeddable-2.2.10.jar",
+    "sha256": "b31573d418961fa080760fedcfc90d68ad67a85eafa245c73fe3d551476777ba",
+    "bytes": 345724,
+    "configurations": [
+      "compiler"
+    ]
+  },
+  {
+    "coordinate": "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0",
+    "file": "kotlinx-coroutines-core-jvm-1.8.0.jar",
+    "sha256": "9860906a1937490bf5f3b06d2f0e10ef451e65b95b269f22daf68a3d1f5065c5",
+    "bytes": 1548360,
+    "configurations": [
+      "compiler"
+    ]
+  },
+  {
+    "coordinate": "org.jetbrains:annotations:13.0",
+    "file": "annotations-13.0.jar",
+    "sha256": "ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478",
+    "bytes": 17536,
+    "configurations": [
+      "compiler"
+    ]
+  },
+  {
+    "coordinate": "com.squareup.moshi:moshi:1.15.2",
+    "file": "moshi-1.15.2.jar",
+    "sha256": "767f7592c6c61eb693549a26d333c121f5383826bd287b899867aa326dae55e4",
+    "bytes": 162258,
+    "configurations": [
+      "diagnosticRuntime"
+    ]
+  },
+  {
+    "coordinate": "com.squareup.okio:okio-jvm:3.9.1",
+    "file": "okio-jvm-3.9.1.jar",
+    "sha256": "fe6fe91378f9bfa7b08c3864828ce418005cf28acca12e8847eb65c565c37500",
+    "bytes": 372276,
+    "configurations": [
+      "diagnosticRuntime"
+    ]
+  },
+  {
+    "coordinate": "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2",
+    "file": "kotlinx-coroutines-core-jvm-1.10.2.jar",
+    "sha256": "5ca175b38df331fd64155b35cd8cae1251fa9ee369709b36d42e0a288ccce3fd",
+    "bytes": 1479317,
+    "configurations": [
+      "diagnosticRuntime"
+    ]
+  },
+  {
+    "coordinate": "com.microsoft.onnxruntime:onnxruntime:1.21.0",
+    "file": "onnxruntime-1.21.0.jar",
+    "sha256": "5b57b8c6303303f8d8cbed7f787f31611718b746ab2fa45c888c9df153f1b3c2",
+    "bytes": 136639115,
+    "configurations": [
+      "diagnosticRuntime"
+    ]
+  }
+]

@@ -66,6 +66,11 @@ private val named = mapOf(
     "week_in_earphones" to R.string.achievement_week_in_earphones,
     "month_in_earphones" to R.string.achievement_month_in_earphones,
     "mondays_10" to R.string.achievement_mondays_10,
+    // #1166 (T8, US13) — «Слухацький рік» is CUMULATIVE, so the name avoids the
+    // calendar promise «Рік у навушниках» would make; #1175 — «Нова хвиля»
+    // reads the registry's appearance date, not the library shelf.
+    "listening_year_365" to R.string.achievement_listening_year_365,
+    "new_wave" to R.string.achievement_new_wave,
     // #1183 (T9b) — the measurement layer's awards. Plain ids, no number in
     // them, so no dynamic rule is needed for any of the eight.
     "autonomous_10h" to R.string.achievement_autonomous_10h,

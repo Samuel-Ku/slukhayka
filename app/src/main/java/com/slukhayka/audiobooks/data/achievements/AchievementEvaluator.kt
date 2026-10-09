@@ -45,6 +45,22 @@ data class AchievementProgress(
      */
     val browserBooks: Long = 0,
     /**
+     * #1175 (US42) — «Нова хвиля»: books that arrived through a source while
+     * that source was still NEW, i.e. inside the thirty days that follow its
+     * own recorded appearance date.
+     *
+     * The window runs FROM the appearance date and joins two recorded facts:
+     * the registry's `SourceFacts.appearedOn` and `sources.addedAt` — the
+     * instant this book's row appeared through that door. Nothing reads "now",
+     * so a book that qualified yesterday qualifies tomorrow.
+     *
+     * An UNDATED source contributes nothing at all: an unknown date is unknown,
+     * never today (ADR-0014). The fifteen sources that predate the decision
+     * stay undated on purpose, which is why the award sits in «Попереду» until
+     * the first dated source arrives.
+     */
+    val newWaveBooks: Long = 0,
+    /**
      * #702 (T4) — library Works per normalized genre id.
      *
      * A MAP rather than a dozen counters: the genre vocabulary is open
@@ -91,6 +107,17 @@ data class AchievementProgress(
     val bestMonthDays: Long = 0,
     /** #1166 (T8) — how many different Mondays carried listening. */
     val mondaysListened: Long = 0,
+    /**
+     * #1166 (T8, story 13) — «Слухацький рік»: how many DIFFERENT days carried
+     * listening, counted over the whole history.
+     *
+     * Deliberately CUMULATIVE rather than one calendar year, which the owner
+     * decided in #1166: the literal «за рік» is unreachable for a real
+     * listener and, worse, would start from zero every 1 January and could take
+     * an earned award back. The running count of distinct days with at least
+     * one verified minute (`ListeningRhythm.DAY_MILLIS`) only ever grows.
+     */
+    val listeningDays: Long = 0,
     /**
      * #700 (T2) — books the listener FINISHED A SECOND TIME («Друге дихання»).
      *
@@ -193,11 +220,11 @@ enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
-    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
+    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS, NEW_WAVE_BOOKS,
     DISTINCT_GENRES, MAX_GENRE_BOOKS, GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
     VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS, BOOKS_FINISHED_TWICE,
     LONGEST_SERIES_RUN, ENGLISH_STARTS, BEST_DAY_MILLIS, LONGEST_DAY_STREAK,
-    BEST_MONTH_DAYS, MONDAY_DAYS,
+    BEST_MONTH_DAYS, MONDAY_DAYS, LISTENING_DAYS,
     // #1183 (T9b) — the awards built on the measurement layer (#1173): the
     // recorded day columns, the session table and the durable counter.
     OFFLINE_MILLIS, CAST_MILLIS, NIGHT_MILLIS, LONGEST_SESSION_MILLIS,
@@ -228,6 +255,7 @@ enum class AchievementMetric {
         USED_SOURCE_DOORS -> snapshot.usedSourceDoors
         KNOWN_LANGUAGES -> snapshot.knownLanguages
         BROWSER_BOOKS -> snapshot.browserBooks
+        NEW_WAVE_BOOKS -> snapshot.newWaveBooks
         DISTINCT_GENRES -> snapshot.genreCounts.size.toLong()
         MAX_GENRE_BOOKS -> snapshot.genreCounts.values.maxOrNull() ?: 0L
         // #702 (T4, зріз 2) — books of ONE NAMED genre. A genre the snapshot
@@ -244,6 +272,7 @@ enum class AchievementMetric {
         LONGEST_DAY_STREAK -> snapshot.longestDayStreak
         BEST_MONTH_DAYS -> snapshot.bestMonthDays
         MONDAY_DAYS -> snapshot.mondaysListened
+        LISTENING_DAYS -> snapshot.listeningDays
         BOOKS_FINISHED_TWICE -> snapshot.booksFinishedTwice
         LONGEST_SERIES_RUN -> snapshot.longestSeriesRun
         ENGLISH_STARTS -> snapshot.englishStartBooks
@@ -398,6 +427,13 @@ object AchievementCatalog {
         // (`LibraryImport.importSubmittedYouTube`), so this counts that path
         // rather than any book that merely lives on YouTube.
         AchievementDefinition("browser_guest", "doors", 2, AchievementMetric.BROWSER_BOOKS, 1),
+        // #1175 (US42) — «Нова хвиля»: a book from a source that had just
+        // appeared. The date lives in the Source Registry (ADR-0038), and the
+        // window runs FROM it, so the award reads two recorded facts and never
+        // "now". An undated source contributes nothing at all; the fifteen
+        // registered sources stay undated on purpose, which is why this stays
+        // in «Попереду» until a dated source arrives.
+        AchievementDefinition("new_wave", "doors", 3, AchievementMetric.NEW_WAVE_BOOKS, 1),
         // #701 (T3) — «Глибокий пошук»: a book found through GLOBAL search. The
         // fact already exists and is written only when the import really came
         // from that path (`MainViewModel` records SEARCH_IMPORTED when
@@ -462,7 +498,15 @@ object AchievementCatalog {
         AchievementDefinition("marathon_3h", "regularity", 1, AchievementMetric.BEST_DAY_MILLIS, 3 * 3_600_000L),
         AchievementDefinition("week_in_earphones", "regularity", 2, AchievementMetric.LONGEST_DAY_STREAK, 7),
         AchievementDefinition("month_in_earphones", "regularity", 3, AchievementMetric.BEST_MONTH_DAYS, 20),
-        AchievementDefinition("mondays_10", "regularity", 4, AchievementMetric.MONDAY_DAYS, 10)
+        AchievementDefinition("mondays_10", "regularity", 4, AchievementMetric.MONDAY_DAYS, 10),
+        // #1166 (T8, story 13) — «Слухацький рік»: 365 DIFFERENT days with
+        // listening, counted cumulatively. The owner's decision in #1166 reads
+        // «за рік» as a running total rather than one calendar year: the
+        // literal year is unreachable and would fall back to zero on 1 January.
+        // The name is «Слухацький рік» on purpose — «Рік у навушниках» would
+        // promise the calendar year this award does NOT measure, and it is the
+        // one name the owner explicitly ruled out.
+        AchievementDefinition("listening_year_365", "regularity", 5, AchievementMetric.LISTENING_DAYS, 365)
         // NOTE: «Ювілей години» (the hundredth hour) is deliberately ABSENT. The
         // hour ladder from T1 already has `hours_100` on the SAME metric at the
         // SAME threshold, so adding it would fire two awards — and two notices —

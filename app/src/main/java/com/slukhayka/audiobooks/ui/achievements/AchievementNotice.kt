@@ -80,7 +80,10 @@ private val named = mapOf(
     "chapter_end_10" to R.string.achievement_chapter_end_10,
     "sync_4h" to R.string.achievement_sync_4h,
     "night_shift_2h" to R.string.achievement_night_shift_2h,
-    "dawn_5" to R.string.achievement_dawn_5
+    "dawn_5" to R.string.achievement_dawn_5,
+    // #1174 (друга смуга, US28) — «Не кидаю»: ten finished books and not one
+    // «покинуто» mark standing. Plain id, no number rule needed.
+    "never_abandon_10" to R.string.achievement_never_abandon_10
 )
 
 /**

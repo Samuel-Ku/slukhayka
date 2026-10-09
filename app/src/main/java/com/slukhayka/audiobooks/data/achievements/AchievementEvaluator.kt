@@ -148,6 +148,17 @@ data class AchievementProgress(
      */
     val booksFinishedAfterAbandon: Long = 0,
     /**
+     * #1174 (друга смуга, US28) — «Не кидаю»: how many books carry the
+     * «покинуто» mark right now (`readthroughs` AUDIO passes in state
+     * ABANDONED).
+     *
+     * The mark is the listener's own declared act, and the award reads it for
+     * exactly one thing: while a mark stands, the metric is zero. The same rows
+     * feed the library badge, so the award and the badge can never disagree
+     * about which books are abandoned.
+     */
+    val abandonedBooks: Long = 0,
+    /**
      * #701 — «П'ять поспіль»: the longest run of consecutive completions (in
      * time) whose Works belong to ONE series, counted in DISTINCT books.
      *
@@ -248,7 +259,10 @@ enum class AchievementMetric {
     // #1183 (T9b) — the awards built on the measurement layer (#1173): the
     // recorded day columns, the session table and the durable counter.
     OFFLINE_MILLIS, CAST_MILLIS, NIGHT_MILLIS, LONGEST_SESSION_MILLIS,
-    LONGEST_OFFLINE_SESSION_MILLIS, END_OF_CHAPTER_ARMS, MORNING_DAYS;
+    LONGEST_OFFLINE_SESSION_MILLIS, END_OF_CHAPTER_ARMS, MORNING_DAYS,
+    // #1174 (друга смуга, US28) — «Не кидаю»: the completed count itself while
+    // no «покинуто» mark stands, and 0 the moment one does.
+    COMPLETED_BOOKS_WITHOUT_ABANDON;
 
     /**
      * [genreId] is read by [GENRE_BOOKS] alone — the one metric that asks about
@@ -304,6 +318,8 @@ enum class AchievementMetric {
         LONGEST_OFFLINE_SESSION_MILLIS -> snapshot.longestOfflineSessionMillis
         END_OF_CHAPTER_ARMS -> snapshot.endOfChapterArms
         MORNING_DAYS -> snapshot.morningDays
+        COMPLETED_BOOKS_WITHOUT_ABANDON ->
+            if (snapshot.abandonedBooks == 0L) snapshot.completedBooks else 0L
     }
 }
 
@@ -392,6 +408,14 @@ object AchievementCatalog {
         // moment the listener turned it on. `TIMER_STOP` would undercount, and
         // is a different fact (#700).
         AchievementDefinition("chapter_end_10", "habits", 5, AchievementMetric.END_OF_CHAPTER_ARMS, 10),
+        // #1174 (друга смуга, US28) — «Не кидаю»: ten FINISHED books and not a
+        // single «покинуто» mark standing. The threshold is the ticket's, and
+        // the count is the same real end-of-book event the book ladder reads —
+        // a hand-set «Прослухано» never adds a book (ADR-0060). The metric
+        // reads the completed count while no mark exists and 0 as soon as one
+        // does, so a listener who comes back and clears the abandoned passes
+        // opens the SAME award instead of a second one.
+        AchievementDefinition("never_abandon_10", "habits", 6, AchievementMetric.COMPLETED_BOOKS_WITHOUT_ABANDON, 10),
         AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
         AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5),
         // #700 (T2) + #1174 (друга смуга) — «Друге дихання»: ONE award, TWO

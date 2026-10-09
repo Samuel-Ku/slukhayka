@@ -5,8 +5,10 @@ import com.slukhayka.audiobooks.data.db.ListeningStatEntity
 import java.io.File
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
@@ -34,7 +36,20 @@ class RoomAchievementProgressSource(
      * would depend on the machine running the tests, and "between 02:00 and
      * 04:00" would mean different instants in CI and on a phone.
      */
-    private val zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()
+    private val zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    /**
+     * #1174 (друга смуга, US28) — the books carrying the «покинуто» mark right
+     * now, as the mark's OWN flow
+     * ([com.slukhayka.audiobooks.data.entries.AbandonedBooks.observeAbandonedBookIds]).
+     *
+     * Injected rather than re-queried here for the reason the «завершено» edge
+     * was moved into one function: a second copy of "what counts as abandoned"
+     * would let the badge and the award drift apart. Production passes that
+     * flow, so both surfaces read ONE query; the default is the honest "nothing
+     * is abandoned" of a caller that writes no readthroughs, never a claim
+     * about the listener (`NeverAbandonAwardTest` wires the real one).
+     */
+    private val abandonedBookIds: Flow<Set<String>> = flowOf(emptySet())
 ) : AchievementProgressSource {
     private val counters = combine(dao.observeExplicitBooks(), dao.observeVerifiedListeningMillis(),
         dao.observeNotInterestedChoices(), dao.observeCompletedBooks()) { books, millis, choices, completed ->
@@ -172,6 +187,13 @@ class RoomAchievementProgressSource(
     private val withNewWave = combine(withArms, dao.observeSourceArrivals()) { base, arrivals ->
         base.copy(newWaveBooks = NewWave.books(arrivals, appearedOnOf, zoneId))
     }
+    // #1174 (друга смуга, US28) — the «покинуто» marks standing right now. The
+    // SAME flow feeds the library badge, so the award and the badge can never
+    // disagree about which books are abandoned; the count is per BOOK, and the
+    // mark owner already answers that way.
+    private val withAbandoned = combine(withNewWave, abandonedBookIds) { base, marked ->
+        base.copy(abandonedBooks = marked.size.toLong())
+    }
 
     /**
      * A row whose date cannot be read is not a day we can count, so it is
@@ -219,7 +241,7 @@ class RoomAchievementProgressSource(
     private val topology = combine(downloads, dao.observeKnownSeriesMemberships()) { downloaded, members ->
         downloaded to members.map { AchievementSeriesMembership(it.seriesId, it.workId, it.position) }.toSet()
     }
-    private val aggregates = combine(withNewWave, topology) { counters, topology ->
+    private val aggregates = combine(withAbandoned, topology) { counters, topology ->
         counters.copy(downloadedBooks = topology.first, registeredSourceIds = registeredSourceIds,
             knownSeriesMemberships = topology.second)
     }

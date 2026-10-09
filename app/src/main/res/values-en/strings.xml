@@ -723,6 +723,8 @@
     <string name="achievement_sync_4h">In sync</string>
     <string name="achievement_night_shift_2h">Night shift</string>
     <string name="achievement_dawn_5">Dawn</string>
+    <!-- #1174 (second slice, US28): «Не кидаю» — ten finished books with no abandoned mark standing. -->
+    <string name="achievement_never_abandon_10">Never abandon</string>
     <string name="achievements_title">Achievements</string>
     <string name="settings_desc_achievements">Awards for what you have listened to</string>
     <string name="achievements_tier">Title: %1$s</string>

@@ -81,9 +81,9 @@ import com.slukhayka.audiobooks.ui.components.formatSpeed
 import com.slukhayka.audiobooks.ui.components.formatSpeedForSpeech
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.data.listening.effectiveChapterDurations
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
-import com.slukhayka.audiobooks.ui.library.effectiveChapterDurations
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.TabularTimerStyle
 

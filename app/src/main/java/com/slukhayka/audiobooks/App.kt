@@ -251,6 +251,23 @@ class App : Application() {
         by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }
 
     /**
+     * spec-52 US28 / #1174 — «покинути книгу»: the durable mark of a book the
+     * listener said they are not coming back to, and the way back from it. The
+     * mark rides the book's AUDIO Readthrough, so imports that never had one
+     * gain it through the deterministic id the 45->46 backfill used; the undo
+     * note of what the mark took away is durable too, so a cancel restores the
+     * book exactly even across a restart.
+     */
+    val abandonedBooks: com.slukhayka.audiobooks.data.entries.AbandonedBooks
+        by lazy {
+            com.slukhayka.audiobooks.data.entries.AbandonedBooks(
+                dao = audiobookDao,
+                listeningState = listeningState,
+                undo = com.slukhayka.audiobooks.data.entries.SharedPreferencesAbandonUndo(this)
+            )
+        }
+
+    /**
      * #855 (T2) — the write half of the listener's cover Override: the cover
      * lands through the ordinary cover write path and the decision is
      * remembered, so no later external claim can undo it.
@@ -1470,10 +1487,17 @@ class App : Application() {
                 bookFeedbackStore.completed(bookId)
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.BOOK_COMPLETED)
             },
-            onActualListeningDuration = achievementRecorder::recordDuration,
+            onListeningObservation = achievementRecorder::recordObservation,
             onActualPlaybackStarted = { offline ->
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.PLAYBACK_STARTED)
                 if (offline) recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.OFFLINE_PLAYBACK_STARTED)
+            },
+            // #1173 (T9): the arm of «до кінця розділу» is a durable counter,
+            // not a TIMER_STOP event — the timer re-arms at a chapter boundary
+            // and that event may never be written (#700).
+            onEndOfChapterArmed = {
+                achievementRecorder.captureCounter(
+                    com.slukhayka.audiobooks.data.achievements.AchievementCounter.END_OF_CHAPTER_ARM)
             },
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },

@@ -37,6 +37,69 @@ class GenreIdentityTest {
         assertNotEquals(first.id, other.id)
     }
 
+    /**
+     * #702 (T4) — the shelves the sources really claim get ONE shared identity.
+     *
+     * Every wording below is observed in a captured page: 4read's menu and book
+     * pages (`4read-book-7589-2026-09-03.html`), sound-books' categories and
+     * lihtar's library. «Дитячі» and «Дитяча література» are the same shelf, so
+     * they land on one id — the point of a dictionary.
+     */
+    @Test
+    fun `genres the sources claim share one identity across their wordings`() {
+        assertEquals(
+            listOf(
+                NormalizedGenre("horror", "Жахи"),
+                NormalizedGenre("adventure", "Пригоди"),
+                NormalizedGenre("biography", "Біографії"),
+                NormalizedGenre("self-development", "Саморозвиток"),
+                NormalizedGenre("historical-prose", "Історична проза"),
+                NormalizedGenre("childrens-literature", "Дитяча література"),
+                NormalizedGenre("romance", "Любовні романи")
+            ),
+            GenreIdentity.fromSourceText(
+                "Жахи / Пригоди / Біографії / Саморозвиток / Історична проза / Дитячі / Любовні романи"
+            )
+        )
+        assertEquals(
+            "два написання однієї полиці — один id",
+            GenreIdentity.fromSourceText("дитячі"),
+            GenreIdentity.fromSourceText("Дитяча література")
+        )
+    }
+
+    /**
+     * The honesty guard of the same change: a genre no source claims stays
+     * DERIVED, never canonical. «Класика» and «нон-фікшн» are named by the
+     * achievements ticket, but no captured source page claims either word, so
+     * both keep a hashed identity (ADR-0014, #1053).
+     */
+    @Test
+    fun `a genre no source claims keeps a derived identity`() {
+        val unclaimed = GenreIdentity.fromSourceText("Класика / Нон-фікшн")
+
+        assertEquals(listOf("Класика", "Нон-фікшн"), unclaimed.map { it.label })
+        assertTrue(
+            "вигаданого канонічного id бути не має: ${unclaimed.map { it.id }}",
+            unclaimed.none { it.id in GenreIdentity.canonicalIdentities }
+        )
+    }
+
+    /**
+     * #702 (T4) — the migration reads a stored claim with BOTH identities: the
+     * one it carries now and the hash it carried before the dictionary knew it.
+     * Without the second one a row already in the library could never move.
+     */
+    @Test
+    fun `a stored claim reports its identity now and the hash it carried before`() {
+        val claims = GenreIdentity.claimIdentities("  ЖАХИ ")
+
+        assertEquals(1, claims.size)
+        assertEquals(NormalizedGenre("horror", "Жахи"), claims.single().genre)
+        assertEquals(FacetIdentity.boundedId("genre", "жахи"), claims.single().priorHashedId)
+        assertTrue("не-жанр не має заяви: ${GenreIdentity.claimIdentities("Каталог")}", GenreIdentity.claimIdentities("Каталог").isEmpty())
+    }
+
     @Test
     fun `canonical input keeps its shared id and derives display only from raw text`() {
         assertEquals(

@@ -13,6 +13,18 @@ interface AchievementDao {
     fun observeExplicitBooks(): Flow<Long>
     @Query("SELECT COALESCE(SUM(verifiedListenedMillis),0) FROM listening_stats")
     fun observeVerifiedListeningMillis(): Flow<Long>
+
+    /**
+     * #1166 (T8) — every day the listener listened, for the regularity awards.
+     *
+     * Deliberately NOT a `GROUP BY` in SQL: streaks, «fullest month» and
+     * Mondays need a real calendar, and this module keeps date arithmetic in
+     * Kotlin with an injected zone (see the night/holiday awards below). The
+     * table holds one row per listening day and is never pruned, so it stays
+     * small; a day without listening has no row at all.
+     */
+    @Query("SELECT * FROM listening_stats")
+    fun observeListeningDays(): Flow<List<ListeningStatEntity>>
     @Query("SELECT COUNT(*) FROM recommendation_preferences WHERE kind='HIDE_WORK'")
     fun observeNotInterestedChoices(): Flow<Long>
     @Query("SELECT COUNT(DISTINCT bookId) FROM playback_events WHERE kind='COMPLETED'")
@@ -163,6 +175,56 @@ interface AchievementDao {
     fun observeSeriesInLibrary(): Flow<Long>
 
     /**
+     * #701 — EVERY completion, with the series of its Work whenever the data
+     * can name one: the (book, time, series) triple a run needs.
+     *
+     * `playback_events.bookId` is the Library Entry id, the Entry points at its
+     * Work, and the Work carries `seriesTitle`. Both joins are LEFT joins on
+     * purpose: a completion the data cannot tie to a series — no Work row, a
+     * NULL title, an empty one — is NOT dropped from the answer. It is a real
+     * completion that happened between two volumes, so it has to be able to
+     * BREAK a run instead of being invisible to it; a skipped row would let
+     * «Відьмак 1-3 → стороння книга → Відьмак 4-5» pass as five in a row.
+     * `SeriesRun` reads the blank title as that break (ADR-0014).
+     *
+     * The ORDER is part of the answer: "consecutive in time" is what the award
+     * means, so `timestamp, id` fixes it even when several completions share an
+     * instant.
+     */
+    @Query(
+        "SELECT e.bookId AS bookId, e.timestamp AS timestamp, w.seriesTitle AS seriesTitle " +
+            "FROM playback_events e " +
+            "LEFT JOIN library_entries le ON le.id = e.bookId " +
+            "LEFT JOIN works w ON w.id = le.workId " +
+            "WHERE e.kind='COMPLETED' " +
+            "ORDER BY e.timestamp, e.id"
+    )
+    fun observeSeriesCompletions(): Flow<List<com.slukhayka.audiobooks.data.achievements.SeriesCompletion>>
+
+    /**
+     * #701 — books with a recorded START and the language their rendition
+     * claims.
+     *
+     * `editions.workId` is the book's own id — [EditionEntity.workId], «the
+     * audiobooks row id this rendition belongs to» — so the join lands on the
+     * book that was actually started rather than on a second identity. Empty
+     * claims are dropped in SQL; everything else is mapped through
+     * [com.slukhayka.audiobooks.data.LanguageCode] in Kotlin, because the ONE
+     * language vocabulary lives there and a raw source label (`English`) must
+     * still resolve to the canonical `en`.
+     *
+     * Only the rendition's OWN claim is read: `edition_facets` is deliberately
+     * not joined, so a language known merely from the shared facet says nothing
+     * here and cannot open the award.
+     */
+    @Query(
+        "SELECT DISTINCT e.bookId AS bookId, ed.language AS language " +
+            "FROM playback_events e JOIN editions ed ON ed.workId = e.bookId " +
+            "WHERE e.kind='RESUME' AND ed.language != ''"
+    )
+    fun observeStartLanguages(): Flow<List<com.slukhayka.audiobooks.data.achievements.BookLanguageClaim>>
+
+    /**
      * #702 (T4) — library Works per normalized genre.
      *
      * The two rules the ticket sets are both in this SQL:
@@ -241,6 +303,38 @@ interface AchievementDao {
             "WHERE e.kind='COMPLETED' AND a.totalDurationSeconds >= 108000"
     )
     fun observeEpicCompletedBooks(): Flow<Long>
+
+    /**
+     * #700 (T2) — «Друге дихання»: books the listener FINISHED a SECOND time.
+     *
+     * Narrower than the ticket's «завершення після повернення», and on purpose.
+     * Two `COMPLETED` rows on the same book are two listening cycles, because
+     * `AudioPlayerManager.loadAndPlayBook` does two things: it allows at most
+     * one completion per cycle (`completionLogged`, reset on a fresh load), and
+     * it sends a start at the very end of a finished book back to chapter 0 /
+     * position 0 as `RELISTEN` instead of a fresh load. The first rule alone
+     * would let a re-load at the tail log a second `COMPLETED`; the relisten
+     * rule is what makes the second row a second full pass.
+     *
+     * The log keeps only [PlaybackEventPolicy.DEFAULT_EVENTS_PER_BOOK_SOURCE]
+     * rows per (book, source), and a second pass fills the bucket with its own
+     * `CHAPTER_CHANGE` rows, so the policy lets the newest
+     * [PlaybackEventPolicy.PROTECTED_COMPLETION_EVENTS] completions outlive that
+     * cap — without it the first row would be evicted by the very relisten that
+     * earns this award.
+     *
+     * The "`COMPLETED` after `RELISTEN`" reading is deliberately NOT used:
+     * «Почати спочатку» writes `RELISTEN` on a book that was never finished, so
+     * that pairing would count a restart as a return.
+     */
+    @Query(
+        "SELECT COUNT(DISTINCT e.bookId) FROM playback_events e " +
+            "WHERE e.kind='COMPLETED' AND EXISTS (" +
+            "SELECT 1 FROM playback_events f WHERE f.bookId = e.bookId " +
+            "AND f.kind='COMPLETED' AND f.timestamp < e.timestamp)"
+    )
+    fun observeBooksFinishedTwice(): Flow<Long>
+
     @Query("SELECT * FROM series_members")
     fun observeKnownSeriesMemberships(): Flow<List<SeriesMemberEntity>>
     @Query("SELECT s.bookId, s.id AS sourceId, s.type AS sourceType, " +
@@ -260,6 +354,31 @@ interface AchievementDao {
     fun observeFacts(): Flow<List<AchievementFactEntity>>
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertFact(row: AchievementFactEntity): Long
+
+    // --- #1173 (T9) durable counters ---------------------------------------
+    // INSERT OR IGNORE + `count = count + 1` rather than an UPSERT clause:
+    // minSdk is 24 and SQLite grew UPSERT only in 3.24 (Android 11). The
+    // transaction makes the pair one step, so a repeated action adds exactly
+    // one and the value never goes down.
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCounter(row: AchievementCounterEntity): Long
+
+    @Query("UPDATE achievement_counters SET count = count + 1 WHERE `key` = :key")
+    suspend fun bumpCounter(key: String)
+
+    @Transaction
+    suspend fun incrementCounter(key: String) {
+        insertCounter(AchievementCounterEntity(key))
+        bumpCounter(key)
+    }
+
+    @Query("SELECT count FROM achievement_counters WHERE `key` = :key")
+    suspend fun counter(key: String): Long?
+
+    @Query("SELECT * FROM achievement_counters ORDER BY `key`")
+    fun observeCounters(): Flow<List<AchievementCounterEntity>>
+
     @Query("SELECT * FROM achievements WHERE seenAt IS NULL AND id IN (:knownIds) ORDER BY earnedAt, id LIMIT 1")
     suspend fun pendingNotice(knownIds: Set<String>): AchievementEntity?
     @Query("UPDATE achievements SET seenAt = :seenAt WHERE id = :id AND seenAt IS NULL")

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import com.slukhayka.audiobooks.data.listening.ListeningObservation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -16,8 +17,10 @@ class AchievementRecorderTest {
         val store = MemoryAchievementStore()
         val gate = CompletableDeferred<Unit>()
         val written = mutableListOf<Long>()
-        val recorder = AchievementRecorder(backgroundScope, store, { millis -> gate.await(); written += millis })
-        recorder.recordDuration(650L); recorder.recordDuration(150L); recorder.recordDuration(400L)
+        val recorder = AchievementRecorder(backgroundScope, store, { observation -> gate.await(); written += (observation as ListeningObservation.Played).millis })
+        recorder.recordObservation(ListeningObservation.Played(650L))
+        recorder.recordObservation(ListeningObservation.Played(150L))
+        recorder.recordObservation(ListeningObservation.Played(400L))
         val accepted = launch { recorder.recordFact(AchievementFact.REVIEW_ACCEPTED) }
         runCurrent()
         assertTrue(accepted.isCompleted)
@@ -32,15 +35,40 @@ class AchievementRecorderTest {
         var fail = true
         val written = mutableListOf<Long>()
         var failures = 0
-        val recorder = AchievementRecorder(backgroundScope, store, { millis ->
+        val recorder = AchievementRecorder(backgroundScope, store, { observation ->
             if (fail) { fail=false; error("temporary database lock") }
-            written += millis
+            written += (observation as ListeningObservation.Played).millis
         }, { failures++ })
-        recorder.recordDuration(100L); recorder.recordDuration(200L)
+        recorder.recordObservation(ListeningObservation.Played(100L))
+        recorder.recordObservation(ListeningObservation.Played(200L))
         recorder.captureFact(AchievementFact.PLAYBACK_STARTED)
         runCurrent(); advanceTimeBy(1001L); runCurrent()
         assertEquals(1,failures)
         assertEquals(listOf(100L,200L),written)
         assertEquals(setOf(AchievementFact.PLAYBACK_STARTED),store.observeFacts().first())
+    }
+
+    /**
+     * #1173 (T9) — the counters ride the same queue, so an arm can never be
+     * lost to a database that is momentarily retrying, and the stop that
+     * follows a session cannot overtake it.
+     */
+    @Test fun `counters and observations keep one order even while a write retries`() = runTest {
+        val store = MemoryAchievementStore()
+        val order = mutableListOf<String>()
+        var fail = true
+        val recorder = AchievementRecorder(backgroundScope, store, { observation -> 
+            if (fail) { fail = false; error("temporary database lock") }
+            order += when (observation) {
+                is ListeningObservation.Played -> "played:${observation.millis}"
+                ListeningObservation.Stopped -> "stopped"
+            }
+        }, {})
+        recorder.recordObservation(ListeningObservation.Played(1000L))
+        recorder.recordObservation(ListeningObservation.Stopped)
+        recorder.captureCounter(AchievementCounter.END_OF_CHAPTER_ARM)
+        runCurrent(); advanceTimeBy(1001L); runCurrent()
+        assertEquals(listOf("played:1000", "stopped"), order)
+        assertEquals(mapOf(AchievementCounter.END_OF_CHAPTER_ARM to 1L), store.counters)
     }
 }

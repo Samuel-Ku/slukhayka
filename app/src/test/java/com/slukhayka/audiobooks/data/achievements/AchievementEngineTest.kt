@@ -86,6 +86,9 @@ internal class MemoryAchievementStore : AchievementStore {
         fresh
     }
     override suspend fun recordFact(fact: AchievementFact) { facts.value += fact }
+    /** #1173 (T9) — durable, monotonic counters; the same contract as Room. */
+    val counters = mutableMapOf<String, Long>()
+    override suspend fun incrementCounter(key: String) { counters[key] = (counters[key] ?: 0L) + 1L }
     override suspend fun claimNotice(knownIds: Set<String>, seenAt: Long): EarnedAchievement? = mutex.withLock {
         val row = awards.value.firstOrNull { it.seenAt == null && it.id in knownIds } ?: return@withLock null
         val claimed = row.copy(seenAt = seenAt)

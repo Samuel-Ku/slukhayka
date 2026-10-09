@@ -692,6 +692,8 @@
     <string name="achievement_deep_reserve_10">Deep reserve</string>
     <string name="achievement_four_doors">Four doors</string>
     <string name="achievement_browser_guest">Guest</string>
+    <!-- #1175 (T3): «Нова хвиля» — a book from a source whose appearance date lives in the registry. -->
+    <string name="achievement_new_wave">New wave</string>
     <string name="achievement_bilingual_2">Bilingual</string>
     <string name="achievement_polyglot_3">Polyglot</string>
     <string name="achievement_genre_polyglot_8">Genre polyglot</string>
@@ -710,6 +712,8 @@
     <string name="achievement_week_in_earphones">Week in earphones</string>
     <string name="achievement_month_in_earphones">Month in earphones</string>
     <string name="achievement_mondays_10">Monday listener</string>
+    <!-- #1166 (T8, US13): «Слухацький рік» — 365 different days with listening, cumulatively. -->
+    <string name="achievement_listening_year_365">Listener’s year</string>
     <!-- #1183 (T9b): awards on the recorded offline/cast hours, sessions and the counter. -->
     <string name="achievement_autonomous_10h">Autonomous</string>
     <string name="achievement_download_gourmet_100h">Download gourmet</string>

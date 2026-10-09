@@ -83,4 +83,34 @@ class ListeningRhythmTest {
             day(monday.toString()), day(monday.plusDays(1).toString()), day(monday.plusWeeks(1).toString(), 30_000L)
         )))
     }
+
+    /**
+     * #1166 (T8, story 13) — «Слухацький рік»: 365 DIFFERENT days with
+     * listening, cumulatively.
+     *
+     * Table-driven like every other threshold here. The interesting rows are
+     * the two that are NOT days — a pre-v51 row with zero verified millis and a
+     * stray half-minute. Both are rows in `listening_stats`, so an
+     * implementation counting rows instead of qualifying days would report 367
+     * where the listener really heard 365 days.
+     */
+    @Test fun `the listening year counts DIFFERENT qualifying days, cumulatively`() {
+        val year = (0 until 365).map { day(LocalDate.of(2026, 1, 1).plusDays(it.toLong()).toString()) }
+        val cases = listOf(
+            Triple("empty history", emptyList<Day>(), 0),
+            Triple("a stray second is not a day", listOf(day("2026-10-01", 30_000L)), 0),
+            Triple("a pre-v51 row is not a day either", listOf(day("2026-10-01", 0L)), 0),
+            Triple("364 days is not a year", year.take(364), 364),
+            Triple("365 different days is a year", year, 365),
+            Triple(
+                "legacy and stray rows never add a day",
+                year + listOf(day("2027-01-01", 0L), day("2027-01-02", 30_000L)),
+                365
+            ),
+            Triple("a duplicate date is still one day", listOf(day("2026-10-01"), day("2026-10-01")), 1)
+        )
+        for ((name, days, count) in cases) {
+            assertEquals(name, count, ListeningRhythm.listeningDays(days))
+        }
+    }
 }

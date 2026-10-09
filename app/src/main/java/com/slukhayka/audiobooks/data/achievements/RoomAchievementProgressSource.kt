@@ -15,6 +15,17 @@ class RoomAchievementProgressSource(
     dao: AchievementDao,
     store: AchievementStore,
     registeredSourceIds: Set<String>,
+    /**
+     * #1175 (US42) — the Source Registry's appearance date, as a reader.
+     *
+     * A parameter for the same reason [zoneId] is one: the date lives in the
+     * registry (ADR-0038), and a test has to be able to pin a DATED source
+     * while none of the fifteen real sources may be given an invented date
+     * (#1175). Production reads the registry, which answers unknown ids with
+     * null — an unknown date is never read as today (ADR-0014).
+     */
+    private val appearedOnOf: (String) -> LocalDate? =
+        com.slukhayka.audiobooks.data.source.SourceRegistry::appearedOn,
     fileReady: (String) -> Boolean = { File(it).let { file -> file.isFile && file.length() > 0L } },
     /**
      * #703 (T5) — the zone that decides "night" and "holiday".
@@ -117,7 +128,11 @@ class RoomAchievementProgressSource(
             bestDayMillis = ListeningRhythm.bestDayMillis(days),
             longestDayStreak = ListeningRhythm.longestStreak(days).toLong(),
             bestMonthDays = ListeningRhythm.bestMonthDays(days).toLong(),
-            mondaysListened = ListeningRhythm.mondays(days).toLong()
+            mondaysListened = ListeningRhythm.mondays(days).toLong(),
+            // #1166 (T8, story 13) — «Слухацький рік» reads the SAME day
+            // sequence: one read of `listening_stats`, one rule for what a day
+            // with listening is (`ListeningRhythm.DAY_MILLIS`).
+            listeningDays = ListeningRhythm.listeningDays(days).toLong()
         )
     }
 
@@ -150,6 +165,12 @@ class RoomAchievementProgressSource(
         dao.observeCounter(AchievementCounter.END_OF_CHAPTER_ARM)
     ) { base, arms ->
         base.copy(endOfChapterArms = arms)
+    }
+    // #1175 (US42) — the arrivals behind «Нова хвиля». The window is decided in
+    // Kotlin because the other end of the pair lives in the Source Registry,
+    // not in Room; the injected reader keeps the date a fact and never a guess.
+    private val withNewWave = combine(withArms, dao.observeSourceArrivals()) { base, arrivals ->
+        base.copy(newWaveBooks = NewWave.books(arrivals, appearedOnOf, zoneId))
     }
 
     /**
@@ -198,7 +219,7 @@ class RoomAchievementProgressSource(
     private val topology = combine(downloads, dao.observeKnownSeriesMemberships()) { downloaded, members ->
         downloaded to members.map { AchievementSeriesMembership(it.seriesId, it.workId, it.position) }.toSet()
     }
-    private val aggregates = combine(withArms, topology) { counters, topology ->
+    private val aggregates = combine(withNewWave, topology) { counters, topology ->
         counters.copy(downloadedBooks = topology.first, registeredSourceIds = registeredSourceIds,
             knownSeriesMemberships = topology.second)
     }

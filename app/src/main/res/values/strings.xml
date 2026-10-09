@@ -755,6 +755,8 @@
     <string name="achievement_deep_reserve_10">Глибокий запас</string>
     <string name="achievement_four_doors">Чотири двері</string>
     <string name="achievement_browser_guest">Гість</string>
+    <!-- #1175 (T3): «Нова хвиля» — книга з джерела, дата появи якого живе в реєстрі. -->
+    <string name="achievement_new_wave">Нова хвиля</string>
     <string name="achievement_bilingual_2">Двомовний</string>
     <string name="achievement_polyglot_3">Поліглот</string>
     <string name="achievement_genre_polyglot_8">Жанровий поліглот</string>
@@ -773,6 +775,8 @@
     <string name="achievement_week_in_earphones">Тиждень у навушниках</string>
     <string name="achievement_month_in_earphones">Місяць у навушниках</string>
     <string name="achievement_mondays_10">Понеділковий</string>
+    <!-- #1166 (T8, US13): «Слухацький рік» — 365 різних днів зі слуханням кумулятивно. -->
+    <string name="achievement_listening_year_365">Слухацький рік</string>
     <!-- #1183 (T9b): нагороди на записаних годинах офлайну й касту, сеансах і лічильнику. -->
     <string name="achievement_autonomous_10h">Автономний</string>
     <string name="achievement_download_gourmet_100h">Гурман завантажень</string>

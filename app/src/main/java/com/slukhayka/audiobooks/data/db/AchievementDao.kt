@@ -282,6 +282,21 @@ interface AchievementDao {
     @Query("SELECT COUNT(DISTINCT type) FROM sources")
     fun observeUsedSourceDoors(): Flow<Long>
 
+    /**
+     * #1175 (US42) — every library row that came through a source: the book,
+     * the door (`sources.type`, the persisted registry id) and WHEN that row
+     * arrived.
+     *
+     * `addedAt` is the arrival of the BOOK, not the appearance of the source:
+     * the source's own date is a registry fact (`SourceFacts.appearedOn`,
+     * ADR-0038), so no column here carries it and no migration is needed.
+     * Nothing is grouped in SQL for the same reason — the registry is Kotlin,
+     * so the thirty-day window is decided in
+     * [com.slukhayka.audiobooks.data.achievements.NewWave].
+     */
+    @Query("SELECT s.bookId AS bookId, s.type AS sourceType, s.addedAt AS addedAt FROM sources s")
+    fun observeSourceArrivals(): Flow<List<com.slukhayka.audiobooks.data.achievements.SourceArrival>>
+
     /** #700 (T2) — every bookmark the listener placed, notes or not. */
     @Query("SELECT COUNT(*) FROM bookmarks")
     fun observeBookmarks(): Flow<Long>

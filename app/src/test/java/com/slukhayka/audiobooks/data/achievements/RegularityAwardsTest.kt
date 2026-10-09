@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.ListeningStatEntity
+import com.slukhayka.audiobooks.ui.achievements.achievementName
 import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlinx.coroutines.flow.first
@@ -116,5 +117,59 @@ class RegularityAwardsTest {
         assertEquals(0L, legacy.mondaysListened)
         assertEquals(0L, legacy.bestDayMillis)
         assertEquals(emptySet<String>(), legacy.earned())
+    }
+
+    /**
+     * #1166 (T8, story 13) — «Слухацький рік»: 365 DIFFERENT days with
+     * listening, counted cumulatively over the whole history.
+     *
+     * The boundary is the point: 364 days must not open it, and the two rows
+     * that are NOT days of listening — a pre-v51 row with zero verified millis
+     * and a stray half-minute — must not shorten the wait either. They are real
+     * rows in `listening_stats`, so a row COUNT would already have opened the
+     * year on 364 heard days.
+     */
+    @Test fun `the listening year opens at 365 different days, and no other row counts`() = withSource { db, source ->
+        val year = (0 until 365).map { LocalDate.of(2026, 1, 1).plusDays(it.toLong()) }
+        year.take(364).forEach { db.heard(it.toString()) }
+        // The old five-second counter is not proof, and half a minute is not a
+        // day: both rows exist, neither day happened.
+        db.audiobookDao().saveListeningStat(ListeningStatEntity("2027-01-01", listenedSeconds = 3600L))
+        db.heard("2027-01-02", 30_000L)
+
+        val almost = source.observe().first()
+        assertEquals("рік мусить порахувати 364 дні, а не 366 рядків", 364L, almost.listeningDays)
+        assertFalse("364 дні ще не рік", "listening_year_365" in almost.earned())
+
+        db.heard("2026-12-31")
+        val exact = source.observe().first()
+        assertEquals("365-й різний день", 365L, exact.listeningDays)
+        assertTrue("365 різних днів мусять відкрити «Слухацький рік»", "listening_year_365" in exact.earned())
+    }
+
+    /**
+     * The catalogue entry is pinned as DATA: the rung, the metric and the 365
+     * days. «Слухацький рік» is CUMULATIVE (owner's decision, #1166), and the
+     * name that decision explicitly ruled out is «Рік у навушниках» — it would
+     * promise the calendar year this award does not measure.
+     */
+    @Test fun `the catalogue pins the listening year to 365 cumulative days, visibly`() {
+        val definition = AchievementCatalog.definitions.single { it.id == "listening_year_365" }
+
+        assertEquals("regularity", definition.group)
+        assertEquals(5, definition.level)
+        assertEquals(AchievementMetric.LISTENING_DAYS, definition.metric)
+        assertEquals(365L, definition.threshold)
+        assertFalse("«Слухацький рік» видимий — не прихований", definition.hidden)
+        assertTrue(
+            "і стоїть у «Попереду», доки не здобутий",
+            AchievementBoard.of(earnedIds = emptySet()).upcoming.any { it.id == "listening_year_365" }
+        )
+    }
+
+    @Test fun `the year award is named «Слухацький рік», not a calendar year in earphones`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        assertEquals("Слухацький рік", achievementName(context, "listening_year_365"))
     }
 }

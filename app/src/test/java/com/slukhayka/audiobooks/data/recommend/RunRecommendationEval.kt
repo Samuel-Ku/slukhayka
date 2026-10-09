@@ -13,6 +13,8 @@ import kotlin.system.exitProcess
 
 /** Real frozen catalog, actual ONNX backend, full-candidate production LOO, strict offline gate. */
 object RunRecommendationEval {
+    private const val ACTIVE_PROTOCOL = "personal-interests-v5-main54"
+    private const val ACTIVE_PROTOCOL_DIR = "docs/recommend/experiments/2026-10-09-personal-interests-v5-main54"
     @JvmStatic
     fun main(args: Array<String>) {
         if (args.firstOrNull() == "--acquire") {
@@ -40,7 +42,13 @@ object RunRecommendationEval {
         fun path(flag: String, default: String) = options[flag]?.let(::File) ?: File(root, default)
         val snapshotDir = path("--snapshot", "docs/recommend/snapshots/librivox-2026-10-04")
         val registryFile = path("--cohorts", "docs/recommend/real-scale-cohorts.json")
-        val reportFile = path("--report", "docs/recommend/EVAL-REPORT.md")
+        val reportFile = path("--report", "$ACTIVE_PROTOCOL_DIR/EVAL-REPORT.md")
+        val freezeFile = File(reportFile.parentFile, "real-scale-inputs.properties")
+        val protocolRegistration = File(root, "$ACTIVE_PROTOCOL_DIR/README.md")
+        require(protocolRegistration.isFile) { "Active protocol preregistration is missing" }
+        require(options["--prepare"] == "true" || freezeFile.isFile) {
+            "Review and explicitly prepare $ACTIVE_PROTOCOL before scoring; no automatic first-run freeze"
+        }
         val cacheDir = path("--cache", ".gradle/recommendation-eval-cache")
         val snapshot = RecommendationFeedSnapshot.load(snapshotDir)
         val records = RecommendationFeedSnapshot.records(snapshot)
@@ -98,7 +106,9 @@ object RunRecommendationEval {
             OrtEnvironment.getEnvironment().version
         )
         val inputs = linkedMapOf(
-            "schemaVersion" to "3", "feedManifestSha256" to sha(manifest),
+            "schemaVersion" to "3", "protocolRegistration" to ACTIVE_PROTOCOL,
+            "protocolRegistrationSha256" to sha(protocolRegistration),
+            "feedManifestSha256" to sha(manifest),
             "cohortsSha256" to sha(registryFile), "originalCohortsSha256" to sha(original),
             "identityManifestSha256" to sha(identitiesFile),
             "previousAttemptInputsSha256" to sha(File(reportFile.parentFile, "real-scale-inputs-pre-dedup-review.properties")),
@@ -117,7 +127,6 @@ object RunRecommendationEval {
             "distinctTitles" to catalog.distinctTitles.toString(), "folds" to cohorts.sumOf { it.workIds.size }.toString(),
             "k" to k.toString(), "labelProvenance" to "expert bibliographic proxy; no listener completion history"
         )
-        val freezeFile = File(reportFile.parentFile, "real-scale-inputs.properties")
         freeze(freezeFile, inputs)
         println("Frozen before inference: ${sha(freezeFile)}; ${catalog.works.size} Works; ${catalog.distinctTitles} titles; ${inputs["folds"]} folds")
         println("Relevance: expert bibliographic proxy, not listener completion logs")
@@ -135,7 +144,7 @@ object RunRecommendationEval {
         val baselineVectors = RecommendationEvalVectorCache.loadOrCompute(File(cacheDir, "baseline"),
             "keyword-512:${sha(File(sourceDir, "TextEmbedder.kt"))}", catalog.works, 512, KeywordEmbedder())
         val result = RecommendationEval.evaluateLeaveOneOut(cohorts.map { it.workIds }, catalog.works, semanticVectors, baselineVectors, k)
-        writeEvidence(reportFile, freezeFile, snapshotDir, catalog, cohorts, result, k, cacheDir)
+        writeEvidence(reportFile, freezeFile, snapshotDir, catalog, cohorts, result, k, cacheDir, root)
         println("semantic recall@$k=${fmt(result.report.semanticRecallAtK)} NDCG@$k=${fmt(result.report.semanticNdcgAtK)}")
         println("baseline recall@$k=${fmt(result.report.baselineRecallAtK)} NDCG@$k=${fmt(result.report.baselineNdcgAtK)}")
         println("GATE DECISION: ${if (result.passesGate) "GO" else "NO-GO"}; report=${reportFile.canonicalPath}")
@@ -180,8 +189,10 @@ object RunRecommendationEval {
     }
 
     private fun writeEvidence(file: File, freeze: File, snapshot: File, catalog: RecommendationEvalCatalog.Catalog,
-                              cohorts: List<RecommendationEvalCohorts.Cohort>, result: RecommendationEval.LeaveOneOutReport, k: Int, cache: File) {
+                              cohorts: List<RecommendationEvalCohorts.Cohort>, result: RecommendationEval.LeaveOneOutReport, k: Int, cache: File, root: File) {
         val folder = file.parentFile
+        val sharedDocs = File(root, "docs/recommend").relativeTo(folder.canonicalFile).invariantSeparatorsPath
+        val registration = File(root, "$ACTIVE_PROTOCOL_DIR/README.md").relativeTo(folder.canonicalFile).invariantSeparatorsPath
         val foldsFile = File(folder, "real-scale-folds.tsv")
         foldsFile.bufferedWriter().use { out ->
             out.appendLine("cohort\theldOutWork\tcandidateCount\tsemanticRankAtK\tbaselineRankAtK\tsemanticTopK\tbaselineTopK")
@@ -202,7 +213,7 @@ object RunRecommendationEval {
         val r = result.report
         val decision = if (result.passesGate) "GO" else "NO-GO"
         file.writeText("""
-            # Перевірка рекомендацій на реальному каталозі
+            # Перевірка рекомендацій на реальному каталозі: $ACTIVE_PROTOCOL
 
             Рішення: **$decision**. Recall семантичної моделі має бути строго більшим за baseline, а NDCG — не нижчим. NO-GO завжди повертає ненульовий код завершення, локально й у CI, після запису звіту.
 
@@ -213,19 +224,19 @@ object RunRecommendationEval {
 
             ${catalog.rawRecords} реальних карток Archive.org для LibriVox дали ${catalog.works.size} авторських Works і ${catalog.distinctTitles} різних нормалізованих назв. Відкинуто ${catalog.excludedRussian} російськомовних карток і ${catalog.missingIdentity} карток без відомої або однозначної авторської ідентичності. ${catalog.duplicateEditions} повторних записів об'єднано в Works. Це обмежене зіставлення метаданих, а не універсальний довідник ідентичності. 44 збережені відповіді джерела не є атомарним знімком усього світового каталогу.
 
-            Перший прогін обчислив частину векторів і був зупинений із exit 130 до будь-якого fold або метрики. Незалежна перевірка знайшла дублікати одного Work у різних записах. [Старі входи](real-scale-inputs-pre-dedup-review.properties) збережені без змін. Потім до нових оцінок перевірено всі 24 цільові твори: [окремий реєстр тотожності](real-scale-identity-aliases.json) зводить 112 записів, зокрема 22 переклади, зі звіркою exact title, creator та SHA-256 опису. Усі URL збережені; окремі продовження, перекази, п'єси та збірки залишаються окремими Works. Текст представника взятий із справжньої картки, обраної за початковим правилом міток, однаково для обох моделей. Міток, груп і порогів не змінено. Новий протокол і входи зафіксовані до повторного інференсу.
+            Перший прогін обчислив частину векторів і був зупинений із exit 130 до будь-якого fold або метрики. Незалежна перевірка знайшла дублікати одного Work у різних записах. [Старі входи](real-scale-inputs-pre-dedup-review.properties) збережені без змін. Потім до нових оцінок перевірено всі 24 цільові твори: [окремий реєстр тотожності]($sharedDocs/real-scale-identity-aliases.json) зводить 112 записів, зокрема 22 переклади, зі звіркою exact title, creator та SHA-256 опису. Усі URL збережені; окремі продовження, перекази, п'єси та збірки залишаються окремими Works. Текст представника взятий із справжньої картки, обраної за початковим правилом міток, однаково для обох моделей. Міток, груп і порогів не змінено. Новий протокол і входи зафіксовані до повторного інференсу.
 
             Мітки — **п'ять заздалегідь зафіксованих експертних бібліографічних груп**, ${result.folds.size} відкладені твори. Це офлайн-перевірка релевантності, **не журнал реальних завершень слухачів і не доказ користі під час живого користування**. Початкові 25 міток збережені. The Secret Adversary виключено лише через відсутність у замороженому фіді, до інференсу. Після результатів замін не було.
 
             Кожен fold навчає профіль на решті творів своєї групи. Єдина релевантна відповідь — відкладений твір. Змагається весь каталог, крім навчальних книг: ${result.folds.minOf { it.candidateCount }}–${result.folds.maxOf { it.candidateCount }} кандидатів. Обидві моделі отримують однакові production тексти, метадані та алгоритм ранжування, включно з diversity та exploration. У поточному контексті кожен Work обчислюється один раз на модель. Часткові вектори скасованого попереднього контексту не використовуються для нових оцінок. Випадкових негативних кандидатів, наближеного пошуку та вибору за метриками немає. K=$k. Seed 42 залишений у реєстрі для походження; цей протокол не використовує випадкове семплювання. NDCG для однієї релевантної книги дорівнює 1/log2(rank+1); книга поза top-K дає нуль.
 
-            Ревізія моделі: `${RecommendationEvalModelLock.REVISION}`. Контрольні суми моделі й токенізатора перевіряються до створення backend. Кожен вектор має точну розмірність, скінченні значення та одиничну норму. Підміна keyword-моделлю не може дати семантичний результат. Перевіряється production Kotlin токенізатор і ONNX шлях v3: query: для симетричного порівняння книг, TemplateProcessing BOS/EOS 0/2 із зафіксованого tokenizer.json, максимум 512 токенів разом із межами за [офіційною E5 model card](https://huggingface.co/intfloat/multilingual-e5-small/raw/main/README.md). Tokenizer виконує оголошений HF 0.22.0 Unigram, Precompiled charsmap, Metaspace та raw added-token контракт із зафіксованими Unicode 16 grapheme tables. [Походження й перевірки](tokenizer-provenance.md) відділені від якості рекомендацій: 15 початкових і 34 незалежні тексти дали точний збіг усіх 98 raw/model порівнянь; production segmenter пройшов усі 1 093 офіційні Unicode випадки. Це сумісність перевірених входів, а не універсальний доказ будь-якої конфігурації HF. Context кешу включає суми фактичних assets, runtime та препроцесор; вектори v3 не змішуються з v1, v2 чи keyword. JVM: Java ${System.getProperty("java.version")}; ONNX Runtime 1.21.0. SHA-256 JVM jar: `${RecommendationEvalModelLock.RUNTIME_SHA256}`, звірений із [Maven Central](https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.21.0/onnxruntime-1.21.0.jar.sha256). Модель і локальні журнали векторів не закомічені.
+            Ревізія моделі: `${RecommendationEvalModelLock.REVISION}`. Контрольні суми моделі й токенізатора перевіряються до створення backend. Кожен вектор має точну розмірність, скінченні значення та одиничну норму. Підміна keyword-моделлю не може дати семантичний результат. Перевіряється production Kotlin токенізатор і ONNX шлях v3: query: для симетричного порівняння книг, TemplateProcessing BOS/EOS 0/2 із зафіксованого tokenizer.json, максимум 512 токенів разом із межами за [офіційною E5 model card](https://huggingface.co/intfloat/multilingual-e5-small/raw/main/README.md). Tokenizer виконує оголошений HF 0.22.0 Unigram, Precompiled charsmap, Metaspace та raw added-token контракт із зафіксованими Unicode 16 grapheme tables. [Походження й перевірки]($sharedDocs/tokenizer-provenance.md) відділені від якості рекомендацій: 15 початкових і 34 незалежні тексти дали точний збіг усіх 98 raw/model порівнянь; production segmenter пройшов усі 1 093 офіційні Unicode випадки. Це сумісність перевірених входів, а не універсальний доказ будь-якої конфігурації HF. Context кешу включає суми фактичних assets, runtime та препроцесор; вектори v3 не змішуються з v1, v2 чи keyword. JVM: Java ${System.getProperty("java.version")}; ONNX Runtime 1.21.0. SHA-256 JVM jar: `${RecommendationEvalModelLock.RUNTIME_SHA256}`, звірений із [Maven Central](https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.21.0/onnxruntime-1.21.0.jar.sha256). Модель і локальні журнали векторів не закомічені.
 
             Відтворення після встановлення зафіксованих assets: `./gradlew runRecommendationEval --no-configuration-cache`. Наявний JavaExec використовує desktop ONNX backend. Перший запуск наповнює журнал; наступні перевіряють контрольні суми та повторно використовують його. Новий окремий фід можна зібрати через production бюджет: `./gradlew runRecommendationEval --args="--acquire /path/to/new-snapshot" --no-configuration-cache`. Це не замінює закомічені сторінки та мітки. Знімок: `${snapshot.name}`.
 
-            Докази: [зафіксовані входи](real-scale-inputs.properties), [ранги й ID усіх top-K](real-scale-folds.tsv), [походження Works та суми текстів](real-scale-catalog.tsv), [суми результатів](real-scale-results.sha256), [модель](real-scale-model.json), [поточні мітки](real-scale-cohorts.json), [початкові мітки](real-scale-cohorts-original.json), [реєстр тотожності](real-scale-identity-aliases.json). Мітки зафіксовані до першого інференсу; виправлений реєстр тотожності, поточні входи та код протоколу — до повторного. Суми локальних журналів включають збережені попередні контексти; поточні оцінки використовують тільки контекст із повною перевіркою поточних текстів і моделі. Історичний прогін на 140 книгах із 40 негативними кандидатами не доводить цей гейт; його замінює поточний протокол.
+            Докази: [зафіксовані входи](real-scale-inputs.properties), [ранги й ID усіх top-K](real-scale-folds.tsv), [походження Works та суми текстів](real-scale-catalog.tsv), [суми результатів](real-scale-results.sha256), [модель]($sharedDocs/real-scale-model.json), [поточні мітки]($sharedDocs/real-scale-cohorts.json), [початкові мітки]($sharedDocs/real-scale-cohorts-original.json), [реєстр тотожності]($sharedDocs/real-scale-identity-aliases.json). Мітки зафіксовані до першого інференсу; виправлений реєстр тотожності, поточні входи та код протоколу — до повторного. Суми локальних журналів включають збережені попередні контексти; поточні оцінки використовують тільки контекст із повною перевіркою поточних текстів і моделі. Історичний прогін на 140 книгах із 40 негативними кандидатами не доводить цей гейт; його замінює поточний протокол.
 
-            Межа доказу: користувач дозволив довільну бібліографічну вибірку. Гейт оцінює ці незмінні експертні мітки; відсутність особистого журналу не є окремою вимогою цього експерименту. Навіть GO не доводить користь під час живого користування. Повні [v1](experiments/2026-10-04-production-tokenizer-v1/README.md), [v2](experiments/2026-10-04-e5-model-input-v2/README.md), [v3](experiments/2026-10-04-hf-tokenizer-v3/README.md) та [v4](experiments/2026-10-04-recording-text-v4/README.md) збережено без змін, разом із їхніми NO-GO. Поточний експеримент personal-interests-v5 виконує [погоджений контракт окремих інтересів](../specs/2026-10-05-personal-interests-ranking.md): weighted maximum retained позитивних supports, усі negatives та binary metadata affinity через чинні genre facets. App і evaluator використовують один production ranker для обох моделей. Source/protocol, genre source та specification зафіксовані до нових fold scores. Тексти recording-text-v4, tokenizer/backend v3, модель, labels, configured числові weights, diversity, exploration і пороги незмінні. Ranking-only зміна не перейменовує embedding context; поточні journals повторно використовуються тільки після перевірки всіх ID/text, моделі, розмірності, норм і контрольних сум. Нейтральні unit tests доводять описану поведінку, а рішення quality gate визначає лише цей повний прогін.
+            Межа доказу: користувач дозволив довільну бібліографічну вибірку. Гейт оцінює ці незмінні експертні мітки; відсутність особистого журналу не є окремою вимогою цього експерименту. Навіть GO не доводить користь під час живого користування. Повні [v1]($sharedDocs/experiments/2026-10-04-production-tokenizer-v1/README.md), [v2]($sharedDocs/experiments/2026-10-04-e5-model-input-v2/README.md), [v3]($sharedDocs/experiments/2026-10-04-hf-tokenizer-v3/README.md) та [v4]($sharedDocs/experiments/2026-10-04-recording-text-v4/README.md) збережено без змін, разом із їхніми NO-GO. Історичний [v5]($sharedDocs/experiments/2026-10-05-personal-interests-v5/README.md) лишається NO-GO без змін. Поточний $ACTIVE_PROTOCOL за [окремою preregistration]($registration) перевіряє той самий алгоритм із чинним production GenreIdentity та виконує [погоджений контракт окремих інтересів]($sharedDocs/../specs/2026-10-05-personal-interests-ranking.md): weighted maximum retained позитивних supports, усі negatives та binary metadata affinity через чинні genre facets. App і evaluator використовують один production ranker для обох моделей. Source/protocol, genre source та specification зафіксовані до нових fold scores. Тексти recording-text-v4, tokenizer/backend v3, модель, labels, configured числові weights, diversity, exploration і пороги незмінні. Зміна production facets не перейменовує embedding context; поточні journals повторно використовуються тільки після перевірки всіх ID/text, моделі, розмірності, норм і контрольних сум. Історичні нейтральні unit tests перевіряли контракт v5; вони не є новим integration test run. Рішення quality gate визначає лише цей повний прогін. Перенесені між Mac і Linux журнали не доводять native parity: cache identity не містить OS/JDK, а one-work diagnostic уже показав відмінність raw hidden outputs. Походження використаних journals має бути явно записане в run evidence.
         """.trimIndent() + "\n")
     }
 

@@ -504,7 +504,7 @@ jobs:
           # runtime, text, dimension, norm and record checksums before reuse.
           # No restore prefix: another preregistered input never matches.
           path: .gradle/recommendation-eval-cache
-          key: recommendation-vectors-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docs/recommend/real-scale-inputs.properties') }}
+          key: recommendation-vectors-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docs/recommend/experiments/2026-10-09-personal-interests-v5-main54/real-scale-inputs.properties') }}
 
       - name: Recommendation eval gate (real ONNX model)
         run: ./gradlew :app:runRecommendationEval --no-daemon
@@ -517,11 +517,11 @@ jobs:
         with:
           name: recommendation-eval-evidence
           path: |
-            docs/recommend/EVAL-REPORT.md
-            docs/recommend/real-scale-inputs.properties
-            docs/recommend/real-scale-folds.tsv
-            docs/recommend/real-scale-catalog.tsv
-            docs/recommend/real-scale-results.sha256
+            docs/recommend/experiments/2026-10-09-personal-interests-v5-main54/EVAL-REPORT.md
+            docs/recommend/experiments/2026-10-09-personal-interests-v5-main54/real-scale-inputs.properties
+            docs/recommend/experiments/2026-10-09-personal-interests-v5-main54/real-scale-folds.tsv
+            docs/recommend/experiments/2026-10-09-personal-interests-v5-main54/real-scale-catalog.tsv
+            docs/recommend/experiments/2026-10-09-personal-interests-v5-main54/real-scale-results.sha256
           retention-days: 14
           if-no-files-found: warn
 

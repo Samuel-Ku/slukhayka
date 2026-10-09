@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.collections
 
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -44,6 +45,77 @@ class ListenerCollectionsSharedStoreTest {
 
         assertEquals(PublishResult.Published, store.renameAuthor(authorId, "Новий"))
         assertEquals(listOf("Новий", "Новий"), store.publishedBy(authorId).map { it.pseudonym })
+    }
+
+    private fun award(id: String, name: String) = ShowcaseAwardSnapshot(id = id, name = name)
+
+    @Test
+    fun `publishing the showcase puts it on every own collection`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        store.publish(collection("c2", "book-b"), authorId, "Слухач")
+        val awards = listOf(award("first_book", "Перша книга"), award("night_watch", "Нічний вартовий"))
+
+        assertEquals(PublishResult.Published, store.publishShowcase(authorId, awards))
+
+        val mine = store.publishedBy(authorId)
+        assertEquals(2, mine.size)
+        assertTrue("every collection carries it", mine.all { it.showcase == awards })
+        // The showcase is the ONLY thing that changed: the collections are
+        // still themselves.
+        assertEquals(listOf(listOf("book-a"), listOf("book-b")), mine.map { it.bookIds }.sortedBy { it.first() })
+        assertTrue(mine.all { it.pseudonym == "Слухач" })
+    }
+
+    @Test
+    fun `an empty showcase clears the profile`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1"), authorId, "Слухач")
+        store.publishShowcase(authorId, listOf(award("first_book", "Перша книга")))
+        assertTrue(store.publishedBy(authorId).single().showcase.isNotEmpty())
+
+        // Unpinning the last award is a real instruction, not a no-op.
+        assertEquals(PublishResult.Published, store.publishShowcase(authorId, emptyList()))
+        assertTrue(store.publishedBy(authorId).single().showcase.isEmpty())
+    }
+
+    @Test
+    fun `the published showcase can never exceed three awards`() = runBlocking {
+        val store = InMemorySharedCollections()
+        store.publish(collection("c1"), authorId, "Слухач")
+        val four = (1..4).map { award("a$it", "Нагорода $it") }
+
+        store.publishShowcase(authorId, four)
+
+        assertEquals(
+            "the bound is the store's, not only the caller's",
+            listOf("a1", "a2", "a3"),
+            store.publishedBy(authorId).single().showcase.map { it.id }
+        )
+    }
+
+    @Test
+    fun `a showcase without a published profile is refused honestly`() = runBlocking {
+        val store = InMemorySharedCollections()
+        // Nothing published: there is no profile for a showcase to appear on.
+        assertEquals(
+            PublishResult.Refused("no-public-profile"),
+            store.publishShowcase(authorId, listOf(award("first_book", "Перша книга")))
+        )
+        assertTrue(store.publishedBy(authorId).isEmpty())
+
+        // An unusable identity is refused for the same reason publishing is.
+        assertTrue(
+            store.publishShowcase(CuratorIdentity.authorId(""), listOf(award("x", "X")))
+                is PublishResult.Refused
+        )
+
+        // Offline never pretends the awards went out.
+        val offline = InMemorySharedCollections(online = false)
+        assertEquals(
+            PublishResult.Refused("offline"),
+            offline.publishShowcase(authorId, listOf(award("first_book", "Перша книга")))
+        )
     }
 
     @Test

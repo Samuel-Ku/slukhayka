@@ -1,0 +1,100 @@
+name: R1 one public Work Linux boundaries
+
+# Proposal only. Installing this manual-only file and dispatching it requires
+# explicit approval for persistent workflow, downloads and GitHub artifact egress.
+on:
+  workflow_dispatch:
+    inputs:
+      authorize_one_public_work:
+        description: Approved one public Work diagnostic and GitHub artifact upload
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-one-public-work-linux
+  cancel-in-progress: false
+
+jobs:
+  paired-boundaries:
+    if: github.repository == 'Samuel-Ku/slukhayka' && inputs.authorize_one_public_work
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed diagnostic payload
+        uses: actions/checkout@v5
+        with:
+          path: candidate
+          persist-credentials: false
+      - name: Checkout frozen production source
+        uses: actions/checkout@v5
+        with:
+          repository: Samuel-Ku/slukhayka
+          ref: 022c786f33e860579fab78c7f91413c9b0b5325e
+          path: source
+          persist-credentials: false
+      - name: Setup JDK 21.0.12
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21.0.12'
+      - name: Download and verify diagnostic assets and Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/r1-public-one-work"
+          mkdir "$stage"
+          test "$(git -C source rev-parse HEAD)" = 022c786f33e860579fab78c7f91413c9b0b5325e
+          curl --fail --location --retry 2 --max-time 300 --output "$stage/gradle.zip" \
+            https://services.gradle.org/distributions/gradle-9.3.1-bin.zip
+          echo "b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06  $stage/gradle.zip" | sha256sum --check --strict
+          unzip -q "$stage/gradle.zip" -d "$stage/tools"
+          curl --fail --location --retry 2 --max-time 300 --output "$stage/model.onnx" \
+            https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/onnx/model_quantized.onnx
+          echo "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193  $stage/model.onnx" | sha256sum --check --strict
+          curl --fail --location --retry 2 --max-time 300 --output "$stage/tokenizer.json" \
+            https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/tokenizer.json
+          echo "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39  $stage/tokenizer.json" | sha256sum --check --strict
+      - name: Compile actual frozen production Kotlin and diagnostic Java
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/r1-public-one-work"
+          payload="$GITHUB_WORKSPACE/candidate/scripts/diagnostics/r1-one-call"
+          "$stage/tools/gradle-9.3.1/bin/gradle" --project-dir "$payload" \
+            -PsourceRoot="$GITHUB_WORKSPACE/source" prepareDiagnostic \
+            --no-daemon --max-workers=1 --no-build-cache --no-configuration-cache --console=plain
+          mkdir "$stage/launcher-classes"
+          cp="$(cat "$payload/build/runtime-classpath.txt")"
+          javac --add-modules jdk.jdi -cp "$cp" -d "$stage/launcher-classes" \
+            "$payload/R1OneCall.java" "$payload/R1Observe.java"
+      - name: Observe exactly one unchanged public embed call
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/r1-public-one-work"
+          payload="$GITHUB_WORKSPACE/candidate/scripts/diagnostics/r1-one-call"
+          cp="$stage/launcher-classes:$(cat "$payload/build/runtime-classpath.txt")"
+          timeout --signal=TERM --kill-after=5s 210s java --add-modules jdk.jdi -Xmx256m \
+            -cp "$cp" R1Observe "$JAVA_HOME" "$cp" \
+            "$stage/model.onnx" "$stage/tokenizer.json" "$payload/one-work.tsv" "$stage/native"
+      - name: Whitelist bounded one-Work evidence
+        id: scope
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/r1-public-one-work"
+          payload="$GITHUB_WORKSPACE/candidate/scripts/diagnostics/r1-one-call"
+          python3 "$payload/finalize_artifact.py" "$payload" "$stage"
+      - name: Upload one public Work boundaries to this repository
+        if: always() && steps.scope.outputs.upload_allowed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: r1-one-public-work-linux-${{ github.run_id }}
+          path: ${{ runner.temp }}/r1-public-one-work/artifact/
+          retention-days: 3
+          if-no-files-found: error

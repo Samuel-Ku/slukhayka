@@ -1,0 +1,204 @@
+package com.slukhayka.audiobooks.ui.screens
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.achievements.AchievementBoard
+import com.slukhayka.audiobooks.data.achievements.ListenerTitle
+import com.slukhayka.audiobooks.ui.achievements.achievementNotice
+import com.slukhayka.audiobooks.ui.components.EmptyState
+
+/**
+ * #704 (T6) — the «Досягнення» screen.
+ *
+ * What to show is decided by [AchievementBoard], not here: the screen renders
+ * the two lists it is handed, so the rule «приховані не розкриваються до
+ * здобуття» has exactly one owner and is tested without pixels.
+ *
+ * Everything is composed from what the app already has — the same destination
+ * scaffold as every other settings screen, the canonical [EmptyState], and the
+ * shared title/notice naming — because the spec says «a11y-контракти канонічні;
+ * нових швів не вводимо».
+ */
+@Composable
+fun AchievementsScreen(
+    board: AchievementBoard,
+    title: ListenerTitle,
+    showcase: List<String>,
+    onBackClick: () -> Unit,
+    onTogglePin: (String) -> Unit = {},
+    /**
+     * #705 (T7) — the showcase's public life. All three default to the honest
+     * "not published, and not publishable", so a caller that does not wire them
+     * gets a screen that offers nothing rather than one that offers a dead end.
+     */
+    showcasePublished: Boolean = false,
+    showcasePublishable: Boolean = false,
+    onPublishShowcase: () -> Unit = {},
+    onWithdrawShowcase: () -> Unit = {}
+) {
+    SettingsDestinationScaffold(
+        destination = SettingsDestination.Achievements,
+        onBackClick = onBackClick
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+                .testTag("achievements_screen")
+        ) {
+            if (board.isEmpty) {
+                EmptyState(
+                    icon = Icons.Default.EmojiEvents,
+                    title = stringResource(R.string.achievements_empty_title),
+                    body = stringResource(R.string.achievements_empty_body),
+                    modifier = Modifier.testTag("achievements_empty_state")
+                )
+                return@Column
+            }
+
+            Text(
+                text = stringResource(R.string.achievements_tier, title.label),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.testTag("achievements_tier")
+            )
+
+            if (showcase.isNotEmpty()) {
+                SectionHeading(stringResource(R.string.achievements_showcase), "achievements_showcase_heading")
+                AchievementList(showcase, "achievements_showcase_item")
+                // #705 (T7) — the showcase is local until the listener says
+                // otherwise, so the choice is offered right here, next to what
+                // it is about. Without a curator profile there is nowhere for
+                // it to appear, and the screen says that instead of offering an
+                // action that could only refuse.
+                when {
+                    !showcasePublishable -> Text(
+                        text = stringResource(R.string.showcase_publish_unavailable),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .testTag("showcase_publish_unavailable")
+                    )
+
+                    showcasePublished -> TextButton(
+                        onClick = onWithdrawShowcase,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("showcase_withdraw")
+                    ) { Text(stringResource(R.string.showcase_withdraw_action)) }
+
+                    else -> TextButton(
+                        onClick = onPublishShowcase,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("showcase_publish")
+                    ) { Text(stringResource(R.string.showcase_publish_action)) }
+                }
+            }
+
+            if (board.earned.isNotEmpty()) {
+                SectionHeading(stringResource(R.string.achievements_earned), "achievements_earned_heading")
+                AchievementList(
+                    ids = board.earned.map { it.id },
+                    tagPrefix = "achievements_earned_item",
+                    pinned = showcase.toSet(),
+                    onTogglePin = onTogglePin
+                )
+            }
+
+            if (board.upcoming.isNotEmpty()) {
+                SectionHeading(stringResource(R.string.achievements_upcoming), "achievements_upcoming_heading")
+                AchievementList(board.upcoming.map { it.id }, "achievements_upcoming_item")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeading(text: String, tag: String) {
+    Spacer(modifier = Modifier.height(16.dp))
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        // A heading is what a screen reader needs to move between sections.
+        modifier = Modifier.semantics { heading() }.testTag(tag)
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+}
+
+/**
+ * The award ids are resolved through the SAME naming the notice uses, so a
+ * screen and a toast can never disagree about what an award is called.
+ */
+@Composable
+private fun AchievementList(
+    ids: List<String>,
+    tagPrefix: String,
+    pinned: Set<String> = emptySet(),
+    onTogglePin: ((String) -> Unit)? = null
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        for (id in ids) {
+            // The SAME name the notice uses, so the button cannot describe the
+            // award differently from the card it sits on.
+            val name = achievementNotice(context, id)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("${tagPrefix}_$id"),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (onTogglePin != null) {
+                        AchievementPinButton(
+                            isPinned = id in pinned,
+                            awardName = name,
+                            onToggle = { onTogglePin(id) },
+                            testTag = "achievements_pin_$id"
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

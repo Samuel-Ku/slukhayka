@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,7 +48,13 @@ data class PublishedCollectionRow(
 fun PublishedCollectionsBlock(
     rows: List<PublishedCollectionRow>,
     onOpen: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * Spec-51 (#691) — changing the public name. ONE action for the whole block,
+     * not one per row: the pseudonym is a single name for all of them, and
+     * offering it per row would suggest it changes only that collection.
+     */
+    onRenamePseudonym: (() -> Unit)? = null
 ) {
     if (rows.isEmpty()) return
 
@@ -109,6 +116,19 @@ fun PublishedCollectionsBlock(
                     )
                 }
             }
+        }
+
+        // Spec-51 (#691) — the public name, changeable. Until now `renameAuthor`
+        // had no caller at all: a listener could publish under a pseudonym and
+        // then be stuck with it forever.
+        onRenamePseudonym?.let { rename ->
+            TextButton(
+                onClick = rename,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .heightIn(min = 48.dp)
+                    .testTag("published_rename_pseudonym")
+            ) { Text(stringResource(R.string.rename_pseudonym_action)) }
         }
     }
 }

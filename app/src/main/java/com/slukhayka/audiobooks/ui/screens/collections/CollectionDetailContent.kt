@@ -43,7 +43,13 @@ fun CollectionDetailContent(
     collection: ListenerCollection,
     onRemoveBook: (bookId: String) -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * #1154 — reports the INTENT to publish. The confirmation itself belongs to
+     * the caller, so this stays a presenter: it never publishes anything by
+     * being rendered.
+     */
+    onPublish: () -> Unit = {}
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
 
@@ -116,6 +122,16 @@ fun CollectionDetailContent(
         }
 
         Spacer(Modifier.height(12.dp))
+        // #1154 — publishing is the point of a collection being public, and
+        // until now there was no way to reach it: the sheet, the preview model
+        // and the store call all existed, and nothing called any of them.
+        TextButton(
+            onClick = onPublish,
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .heightIn(min = 48.dp)
+                .testTag("collection_publish")
+        ) { Text(stringResource(R.string.collection_publish)) }
         TextButton(
             onClick = { confirmingDelete = true },
             modifier = Modifier

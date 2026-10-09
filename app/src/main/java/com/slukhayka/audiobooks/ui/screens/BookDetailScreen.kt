@@ -62,9 +62,11 @@ import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
+import com.slukhayka.audiobooks.data.entries.AbandonBookPolicy
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.NarrationClaimPolicy
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.listening.bookProgress
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -91,7 +93,6 @@ import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.library.BookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPlayLabel
 import com.slukhayka.audiobooks.ui.library.bookPlayState
-import com.slukhayka.audiobooks.ui.library.bookPositionAndTotal
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 import com.slukhayka.audiobooks.ui.screens.bookdetail.*
@@ -512,11 +513,12 @@ fun BookDetailScreen(
     // #40 decision 1: the main button reflects the book's real state — plain
     // start, resume-with-position, re-listen of a finished book, or the live
     // Playing label while this book is on the player. Position and total run
-    // on the same rule as the library card (spec-16 T4).
+    // on the same rule as the library card (spec-16 T4) — the ONE shared
+    // `bookProgress`, which is also what the abandon offer below reads.
     val progress = viewModel.libraryEntries.recentProgress
         .collectAsState(initial = emptyList()).value
         .firstOrNull { it.bookId == currentBook.id }
-    val (cumulativePosition, totalDuration) = bookPositionAndTotal(
+    val progressFacts = bookProgress(
         chapters = chapters,
         progress = progress,
         bookTotalDurationSeconds = currentBook.totalDurationSeconds
@@ -529,8 +531,19 @@ fun BookDetailScreen(
         // whether paused or playing).
         isPlayingThisBook = playerState.currentBook?.id == currentBook.id && playerState.isPlaying,
         progress = progress,
-        cumulativePositionSeconds = cumulativePosition,
-        totalDurationSeconds = totalDuration
+        cumulativePositionSeconds = progressFacts.cumulativePositionSeconds,
+        totalDurationSeconds = progressFacts.totalDurationSeconds
+    )
+    // spec-52 US28 (#1174) — «покинути книгу». The offer is pure policy over the
+    // Listening State fact, the SHARED completion verdict (the same one the
+    // library's «Завершені» uses — never a second guess here) and the stored
+    // mark, which arrives on the same flow as the library badge, so the ⋮ item
+    // and the badge never disagree.
+    val abandonedBookIds by viewModel.abandonedBookIds.collectAsState()
+    val abandonOffer = AbandonBookPolicy.offer(
+        storedAbandoned = currentBook.id in abandonedBookIds,
+        hasListeningState = progress != null,
+        bookProgress = progressFacts
     )
     val paneTitle = stringResource(R.string.book_detail_pane_title, detailPresentation.title)
     val onDownloadClick: () -> Unit = {
@@ -717,6 +730,22 @@ fun BookDetailScreen(
                                 onClick = {
                                     showOverflowMenu = false
                                     viewModel.setCompleted(currentBook.id, !isListenedThis)
+                                }
+                            )
+                            // spec-52 US28 (#1174) — «покинути книгу»: offered
+                            // only for a book the listener really started and
+                            // has not finished, and once marked, this same slot
+                            // is the way back. The decision is the pure policy;
+                            // the item renders it (both edges are tested).
+                            BookAbandonMenuItem(
+                                offer = abandonOffer,
+                                onAbandon = {
+                                    showOverflowMenu = false
+                                    viewModel.abandonBook(currentBook.id)
+                                },
+                                onCancel = {
+                                    showOverflowMenu = false
+                                    viewModel.cancelAbandonBook(currentBook.id)
                                 }
                             )
                             if (chapters.size > 1) {

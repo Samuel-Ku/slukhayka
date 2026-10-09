@@ -1,6 +1,10 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import com.slukhayka.audiobooks.data.facets.GenreIdentity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AchievementEvaluatorTest {
@@ -20,8 +24,18 @@ class AchievementEvaluatorTest {
             AchievementProgress(completedBooks = 1) to "first_completion"
         )
         for ((snapshot, id) in cases) {
-            assertEquals(id, listOf(id), AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id })
-            assertEquals(id, emptyList<String>(), AchievementEvaluator.evaluate(snapshot, setOf(id)).map { it.id })
+            // #700 — a first step earns its own award. For `completedBooks = 1`
+            // the catalogue ALSO opens the first rung of the book ladder
+            // (`books_1`), and that is intended, not duplication: the spec asks
+            // for both «перша завершена книга» (story 8) and a ladder that
+            // starts at 1 (story 18). So this asserts the first-step award is
+            // PRESENT rather than that it is the only one.
+            val earned = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+            assertTrue("$id мусить бути серед виданих: $earned", id in earned)
+            assertTrue(
+                "повторна видача не має нічого додавати",
+                AchievementEvaluator.evaluate(snapshot, earned.toSet()).map { it.id }.isEmpty()
+            )
         }
         assertEquals(emptyList<String>(), AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id })
     }
@@ -51,5 +65,332 @@ class AchievementEvaluatorTest {
         val hidden = listOf(AchievementDefinition("secret", "hidden", 1, AchievementMetric.COMPLETED_BOOKS, 1, hidden = true))
         assertEquals(emptyList<String>(), AchievementEvaluator.evaluate(AchievementProgress(), emptySet(), hidden).map { it.id })
         assertEquals(listOf("secret"), AchievementEvaluator.evaluate(AchievementProgress(completedBooks = 1), emptySet(), hidden).map { it.id })
+    }
+
+    /**
+     * #700 (T2) — the BOOK path. Every level unlocks at EXACTLY its threshold
+     * and not one book earlier, which is the whole point of a level ladder: an
+     * off-by-one here would hand a listener "10 books" at nine.
+     *
+     * Filled with real numbers rather than a count of loops, so a threshold
+     * typed wrong in the catalogue fails here instead of shipping.
+     */
+    @Test fun `every book level unlocks at exactly its threshold`() {
+        val expected = listOf(1L to "books_1", 5L to "books_5", 10L to "books_10", 25L to "books_25",
+            50L to "books_50", 100L to "books_100", 250L to "books_250", 500L to "books_500")
+
+        for ((threshold, id) in expected) {
+            val justBefore = AchievementEvaluator.evaluate(
+                AchievementProgress(completedBooks = threshold - 1), emptySet()
+            ).map { it.id }
+            assertFalse(
+                "$id не має відкриватись на ${threshold - 1} книгах",
+                id in justBefore
+            )
+            val at = AchievementEvaluator.evaluate(
+                AchievementProgress(completedBooks = threshold), emptySet()
+            ).map { it.id }
+            assertTrue("$id мусить відкритись на $threshold книгах", id in at)
+        }
+    }
+
+    /** A repeated evaluation never re-awards what is already earned. */
+    @Test fun `an already earned book level is not awarded twice`() {
+        val snapshot = AchievementProgress(completedBooks = 10)
+        val once = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
+        val twice = AchievementEvaluator.evaluate(snapshot, once.toSet()).map { it.id }
+
+        assertTrue("books_10 мусить бути в першій видачі", "books_10" in once)
+        assertTrue("повторна видача не має нічого додавати", twice.isEmpty())
+    }
+
+    /**
+     * #700 (T2) — the SHAPE bands, each at its exact threshold.
+     *
+     * «Коротка форма» is 10 books under three hours; «Епопея» is a single 30+
+     * hour book; «Довгожитель» is five of them. The thresholds are the spec's,
+     * and they are pinned here the same way the book ladder is — one value
+     * wrong in the catalogue must fail this test, not ship.
+     */
+    @Test fun `every books-shape award unlocks at exactly its threshold`() {
+        assertFalse(
+            "«Коротка форма» не має відкриватись на 9 книгах",
+            "short_form_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(shortCompletedBooks = 9), emptySet()
+            ).map { it.id }
+        )
+        assertTrue(
+            "«Коротка форма» мусить відкритись на 10 книгах",
+            "short_form_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(shortCompletedBooks = 10), emptySet()
+            ).map { it.id }
+        )
+
+        assertFalse(
+            "«Епопея» не має відкриватись без жодної епічної книги",
+            "epic_1" in AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+        )
+        val oneEpic = AchievementEvaluator.evaluate(
+            AchievementProgress(epicCompletedBooks = 1), emptySet()
+        ).map { it.id }
+        assertTrue("«Епопея» мусить відкритись на першій", "epic_1" in oneEpic)
+        assertFalse("«Довгожитель» не має відкриватись разом із нею", "long_liver_5" in oneEpic)
+
+        val fiveEpic = AchievementEvaluator.evaluate(
+            AchievementProgress(epicCompletedBooks = 5), emptySet()
+        ).map { it.id }
+        assertTrue("«Довгожитель» мусить відкритись на п'ятій", "long_liver_5" in fiveEpic)
+    }
+
+    /**
+     * The honesty guard that keeps the bands from lying: a book whose duration
+     * is unknown contributes to NEITHER side. The count arrives from the DAO
+     * already filtered, so this pins the evaluator's side — a zero snapshot
+     * earns neither band.
+     */
+    @Test fun `an unknown duration earns no shape award`() {
+        val earned = AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+
+        assertFalse("порожній снапшот не має давати «Коротку форму»", "short_form_10" in earned)
+        assertFalse("порожній снапшот не має давати «Епопею»", "epic_1" in earned)
+    }
+
+    /**
+     * #700 (T2) — «Глибокий запас» opens at ten downloaded books, not nine.
+     *
+     * The metric behind it counts books whose EVERY chapter has a downloaded
+     * track with a real file on disk (see `DownloadedBookProof`), so a row
+     * alone cannot claim it. Here the boundary is what matters: the award must
+     * not appear one book early.
+     */
+    @Test fun `deep reserve opens at exactly ten downloaded books`() {
+        assertFalse(
+            "«Глибокий запас» не має відкриватись на 9 книгах",
+            "deep_reserve_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(downloadedBooks = 9), emptySet()
+            ).map { it.id }
+        )
+        assertTrue(
+            "«Глибокий запас» мусить відкритись на 10 книгах",
+            "deep_reserve_10" in AchievementEvaluator.evaluate(
+                AchievementProgress(downloadedBooks = 10), emptySet()
+            ).map { it.id }
+        )
+    }
+
+    /**
+     * #1183 (T9b) — the offline hours the earlier slice deliberately left out
+     * are measured now, so the gap this test used to pin is CLOSED: the day
+     * columns of the measurement layer (#1173) really record offline time, and
+     * the three awards stand on them.
+     *
+     * The honesty rule the old test protected is unchanged and is what this one
+     * checks: the count of offline STARTS is a different fact and opens nothing
+     * here. A first offline minute is not ten offline hours (ADR-0014).
+     */
+    @Test fun `offline hour awards read recorded hours, never the count of offline starts`() {
+        val all = AchievementCatalog.definitions.map { it.id }
+
+        assertTrue(
+            "офлайн-години тепер записані — нагороди мусять бути в каталозі",
+            all.containsAll(listOf("autonomous_10h", "download_gourmet_100h", "airplane_2h"))
+        )
+        assertTrue("«Глибокий запас» лишається", "deep_reserve_10" in all)
+
+        val oneStart = AchievementEvaluator.evaluate(
+            AchievementProgress(offlinePlaybackStarts = 1), emptySet()
+        ).map { it.id }
+        assertFalse("старт офлайн-сесії не є годинами офлайну", "autonomous_10h" in oneStart)
+        assertFalse("і не є довгою подорожжю", "airplane_2h" in oneStart)
+    }
+
+    /**
+     * #701 (T3) — «Глибокий пошук» rewards the MECHANISM, not just any import.
+     *
+     * The fact behind it is written only when the import really came from
+     * global search (`MainViewModel` records it under
+     * `target.fromGlobalSearch`). So the award must stay closed on a snapshot
+     * where no such import happened — otherwise it would celebrate every book
+     * that merely followed a search.
+     */
+    @Test fun `deep search opens only on a real global-search import`() {
+        assertFalse(
+            "«Глибокий пошук» не має відкриватись без жодного імпорту з пошуку",
+            "deep_search" in AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+        )
+        assertTrue(
+            "«Глибокий пошук» мусить відкритись після імпорту з глобального пошуку",
+            "deep_search" in AchievementEvaluator.evaluate(
+                AchievementProgress(searchImports = 1), emptySet()
+            ).map { it.id }
+        )
+    }
+
+    /**
+     * The three mechanisms that need data nothing records yet stay ABSENT on
+     * purpose: «Резолвер» (cross-resolve), «Відновлювач» (source recovery) and
+     * «Той самий голос» (same narration from two sources). Keeping this a test
+     * means the gap is a decision, not an oversight — adding them must add
+     * their data too.
+     */
+    @Test fun `mechanism awards that need unrecorded events are absent`() {
+        val all = AchievementCatalog.definitions.map { it.id }
+
+        assertTrue(
+            "жодної нагороди за кросс-резолв, відновлення чи збіг начитки бути не має",
+            all.none { it in setOf("resolver", "recoverer", "same_voice") }
+        )
+        assertTrue("«Глибокий пошук» натомість мусить бути", "deep_search" in all)
+    }
+
+    /**
+     * #702 (T4) — the genre ladder: breadth at 8 and 12 genres, depth at 25
+     * books in one. Each must open at EXACTLY its threshold.
+     */
+    @Test fun `genre breadth and depth open at exactly their thresholds`() {
+        fun counts(n: Int) = (1..n).associate { "genre-$it" to 1L }
+
+        assertFalse(
+            "«Жанровий поліглот» не має відкриватись на 7 жанрах",
+            "genre_polyglot_8" in AchievementEvaluator.evaluate(
+                AchievementProgress(genreCounts = counts(7)), emptySet()
+            ).map { it.id }
+        )
+        val eight = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = counts(8)), emptySet()
+        ).map { it.id }
+        assertTrue("«Жанровий поліглот» мусить відкритись на 8 жанрах", "genre_polyglot_8" in eight)
+        assertFalse("«Всеїдний» не має відкриватись разом із ним", "omnivore_12" in eight)
+
+        val twelve = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = counts(12)), emptySet()
+        ).map { it.id }
+        assertTrue("«Всеїдний» мусить відкритись на 12 жанрах", "omnivore_12" in twelve)
+
+        // Depth is a separate axis: many genres with one book each must NOT
+        // open «Однолюб жанру», and one genre with 25 must.
+        assertFalse(
+            "глибина не має відкриватись від широти",
+            "mono_genre_25" in twelve
+        )
+        assertTrue(
+            "«Однолюб жанру» мусить відкритись на 25 книгах одного жанру",
+            "mono_genre_25" in AchievementEvaluator.evaluate(
+                AchievementProgress(genreCounts = mapOf("detective" to 25L)), emptySet()
+            ).map { it.id }
+        )
+    }
+
+    /**
+     * #702 (T4) — «немає заяви — немає поступу». An empty genre map earns no
+     * genre award at all, which is what keeps a Work with no claimed genre from
+     * counting toward anything (ADR-0014).
+     */
+    @Test fun `no claimed genre earns no genre award`() {
+        val earned = AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+
+        assertTrue(
+            "порожні жанри не мають давати жодної жанрової нагороди",
+            earned.none { it in setOf("genre_polyglot_8", "omnivore_12", "mono_genre_25") }
+        )
+        assertTrue(
+            "і жодної названої полиці теж",
+            earned.none { it.startsWith("genre_") && it.endsWith("_10") }
+        )
+    }
+
+    /**
+     * #702 (T4, slice 2) — «10 книг у жанрі» для кожної полиці, яку джерела
+     * реально заявляють. Кожен поріг відкривається РІВНО на десятій книзі:
+     * дев'ять — це ще «ні», і саме в цьому сенс порога.
+     *
+     * Перелік береться з самого каталогу, а не переписується сюди, тож полиця,
+     * додана наступним зрізом, перевіряється автоматично.
+     */
+    @Test fun `every named genre tier opens at exactly ten books of that genre`() {
+        val tiers = AchievementCatalog.definitions.filter { it.genreId != null }
+
+        assertTrue("жанрові полиці мусять бути в каталозі", tiers.isNotEmpty())
+        for (tier in tiers) {
+            val genreId = requireNotNull(tier.genreId)
+
+            assertFalse(
+                "${tier.id} не має відкриватись на 9 книгах",
+                tier.id in AchievementEvaluator.evaluate(
+                    AchievementProgress(genreCounts = mapOf(genreId to 9L)), emptySet()
+                ).map { it.id }
+            )
+            assertTrue(
+                "${tier.id} мусить відкритись на 10 книгах",
+                tier.id in AchievementEvaluator.evaluate(
+                    AchievementProgress(genreCounts = mapOf(genreId to 10L)), emptySet()
+                ).map { it.id }
+            )
+            assertTrue(
+                "повторна видача не має нічого додавати",
+                AchievementEvaluator.evaluate(
+                    AchievementProgress(genreCounts = mapOf(genreId to 10L)), setOf(tier.id)
+                ).map { it.id }.isEmpty()
+            )
+        }
+    }
+
+    /**
+     * Кожна полиця називає жанр, тож кожен її id мусить існувати в ЄДИНОМУ
+     * словнику. Полиця, що вказує на хеш або на вигаданий id, не відкриється
+     * ніколи — і саме тому це перевіряється тут, а не з'ясовується на пристрої.
+     */
+    @Test fun `every named genre tier points at a canonical dictionary genre`() {
+        val tiers = AchievementCatalog.definitions.filter { it.genreId != null }
+
+        for (tier in tiers) {
+            val genreId = requireNotNull(tier.genreId)
+            val identity = GenreIdentity.canonicalIdentities[genreId]
+
+            assertNotNull("жанр «$genreId» мусить бути в словнику GenreIdentity", identity)
+            assertTrue("підпис жанру «$genreId» не має бути порожнім", identity!!.label.isNotBlank())
+        }
+        assertEquals("жодна полиця не має бути названа двічі", tiers.size, tiers.map { it.genreId }.distinct().size)
+    }
+
+    /**
+     * Полиці не протікають одна в одну: десять книг жахів не кажуть нічого
+     * про пригоди, а хешований жанр, якого словник не знає, не відкриває
+     * жодної НАЗВАНОЇ нагороди.
+     */
+    @Test fun `a genre tier asks only about its own shelf`() {
+        val horror = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = mapOf("horror" to 10L)), emptySet()
+        ).map { it.id }
+
+        assertTrue("полиця жахів мусить відкритись", "genre_horror_10" in horror)
+        assertFalse("сусідня полиця не має відкриватись разом із нею", "genre_adventure_10" in horror)
+
+        val uncanonical = AchievementEvaluator.evaluate(
+            AchievementProgress(genreCounts = mapOf("genre-0123456789abcdef" to 100L)), emptySet()
+        ).map { it.id }
+        assertTrue(
+            "жанр без канонічного id не має відкривати названої нагороди",
+            uncanonical.none { it.startsWith("genre_") && it.endsWith("_10") }
+        )
+    }
+
+    /**
+     * «Класика» і «нон-фікшн» названі тікетом, але їх не заявляє жодне джерело
+     * в жодній зібраній фікстурі, тож нагород для них немає — вигаданий жанр
+     * дав би вигаданий поступ (ADR-0014). Тест лишає прогалину РІШЕННЯМ: щойно
+     * джерело заявить текст, полиця додається одним рядком.
+     */
+    @Test fun `genres no source claims are absent on purpose`() {
+        val all = AchievementCatalog.definitions.map { it.id }
+
+        assertTrue(
+            "нагород для незаявлених жанрів бути не має",
+            all.none { it in setOf("genre_classics_10", "genre_non_fiction_10") }
+        )
+        assertEquals(
+            "десять ЗАЯВЛЕНИХ полиць мусять бути",
+            10, all.count { it.startsWith("genre_") && it.endsWith("_10") }
+        )
     }
 }

@@ -251,6 +251,23 @@ class App : Application() {
         by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }
 
     /**
+     * spec-52 US28 / #1174 — «покинути книгу»: the durable mark of a book the
+     * listener said they are not coming back to, and the way back from it. The
+     * mark rides the book's AUDIO Readthrough, so imports that never had one
+     * gain it through the deterministic id the 45->46 backfill used; the undo
+     * note of what the mark took away is durable too, so a cancel restores the
+     * book exactly even across a restart.
+     */
+    val abandonedBooks: com.slukhayka.audiobooks.data.entries.AbandonedBooks
+        by lazy {
+            com.slukhayka.audiobooks.data.entries.AbandonedBooks(
+                dao = audiobookDao,
+                listeningState = listeningState,
+                undo = com.slukhayka.audiobooks.data.entries.SharedPreferencesAbandonUndo(this)
+            )
+        }
+
+    /**
      * #855 (T2) — the write half of the listener's cover Override: the cover
      * lands through the ordinary cover write path and the decision is
      * remembered, so no later external claim can undo it.
@@ -839,8 +856,18 @@ class App : Application() {
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
 
     private val achievementScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val achievementStore: com.slukhayka.audiobooks.data.achievements.AchievementStore by lazy {
+    val achievementStore: com.slukhayka.audiobooks.data.achievements.RoomAchievementStore by lazy {
         com.slukhayka.audiobooks.data.achievements.RoomAchievementStore(database.achievementDao())
+    }
+
+    /**
+     * #705 (T7) — whether the listener chose to make their showcase public.
+     * Separate from [achievementStore] on purpose: the pins are achievement
+     * state, the consent is a decision about the network, and the two are
+     * written at different moments (the second only after a write succeeded).
+     */
+    val showcaseConsent: com.slukhayka.audiobooks.data.achievements.ShowcaseConsentStore by lazy {
+        com.slukhayka.audiobooks.data.achievements.ShowcaseConsentStore(this)
     }
     private val achievementRecorder by lazy {
         com.slukhayka.audiobooks.data.achievements.AchievementRecorder(achievementScope,
@@ -1460,10 +1487,17 @@ class App : Application() {
                 bookFeedbackStore.completed(bookId)
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.BOOK_COMPLETED)
             },
-            onActualListeningDuration = achievementRecorder::recordDuration,
+            onListeningObservation = achievementRecorder::recordObservation,
             onActualPlaybackStarted = { offline ->
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.PLAYBACK_STARTED)
                 if (offline) recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.OFFLINE_PLAYBACK_STARTED)
+            },
+            // #1173 (T9): the arm of «до кінця розділу» is a durable counter,
+            // not a TIMER_STOP event — the timer re-arms at a chapter boundary
+            // and that event may never be written (#700).
+            onEndOfChapterArmed = {
+                achievementRecorder.captureCounter(
+                    com.slukhayka.audiobooks.data.achievements.AchievementCounter.END_OF_CHAPTER_ARM)
             },
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },

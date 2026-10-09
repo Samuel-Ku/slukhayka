@@ -101,6 +101,13 @@ internal enum class SettingsDestination(
         titleRes = R.string.storage_title,
         paneTag = "storage_destination_screen_pane",
         headingTag = "storage_destination_screen_heading"
+    ),
+    Achievements(
+        descriptionRes = R.string.settings_desc_achievements,
+        icon = Icons.Default.EmojiEvents,
+        titleRes = R.string.achievements_title,
+        paneTag = "achievements_screen_pane",
+        headingTag = "achievements_screen_heading"
     )
 }
 

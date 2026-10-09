@@ -599,7 +599,7 @@ service cloud.firestore {
       return d.keys().hasOnly([
           'authorId', 'collectionId', 'pseudonym', 'title', 'description',
           'bookIds', 'reasons', 'ratingSum', 'ratingCount',
-          'hidden', 'reportCount', 'items', 'publishedAt'
+          'hidden', 'reportCount', 'items', 'showcase', 'publishedAt'
         ])
         && d.authorId is string && d.authorId.size() == 64
         && d.collectionId is string && d.collectionId.size() > 0 && d.collectionId.size() <= 128
@@ -618,6 +618,12 @@ service cloud.firestore {
             || (d.hidden is bool && d.reportCount is int))
         // #692 — the optional display snapshots are a bounded list.
         && (!d.keys().hasAny(['items']) || (d.items is list && d.items.size() <= 500))
+        // #705 — the optional showcase is a bounded list of awards. The rules
+        // bound its SIZE; each entry's shape is the codec's gate, exactly as
+        // `items` above. Without this clause `hasOnly` would reject the field
+        // outright and every showcase write would be a permission denial.
+        && (!d.keys().hasAny(['showcase'])
+            || (d.showcase is list && d.showcase.size() <= 3))
         && d.publishedAt is number;
     }
 

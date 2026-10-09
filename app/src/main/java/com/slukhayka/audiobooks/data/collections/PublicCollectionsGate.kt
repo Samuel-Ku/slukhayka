@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.collections
 
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
+
 /**
  * Spec-51 (#691) — the single place that decides whether public collections
  * exist at all.
@@ -28,6 +30,18 @@ class PublicCollectionsGate(
 
     suspend fun renameAuthor(authorId: String, pseudonym: String): PublishResult =
         sharedStore?.renameAuthor(authorId, pseudonym)
+            ?: PublishResult.Refused(NO_SHARED_STORE)
+
+    /**
+     * #705 (T7) — publishing the showcase is online-only, like every other
+     * public act: without a shared store there is no profile to carry it, so it
+     * refuses honestly instead of pretending the awards went out.
+     */
+    suspend fun publishShowcase(
+        authorId: String,
+        awards: List<ShowcaseAwardSnapshot>
+    ): PublishResult =
+        sharedStore?.publishShowcase(authorId, awards)
             ?: PublishResult.Refused(NO_SHARED_STORE)
 
     suspend fun deleteAuthorProfile(authorId: String): PublishResult =

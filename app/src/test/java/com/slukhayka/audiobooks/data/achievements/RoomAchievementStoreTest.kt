@@ -4,12 +4,15 @@ import android.app.Application
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.db.AchievementCounterEntity
+import com.slukhayka.audiobooks.data.db.AchievementEntity
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import com.slukhayka.audiobooks.data.listening.ListeningObservation
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -21,6 +24,52 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class RoomAchievementStoreTest {
+    /**
+     * #1173 (T9) — the counter the «до кінця розділу» arm writes.
+     *
+     * Durable across a real close/reopen, monotonic, and exactly +1 per
+     * observed action: two arms in one run plus one after the restart is
+     * three, never two and never four.
+     */
+    @Test fun `the arm counter is durable monotonic and adds exactly one`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "achievement-counter-restart.db"
+        context.deleteDatabase(name)
+        fun open() = Room.databaseBuilder(context, AudiobookDatabase::class.java, name).allowMainThreadQueries().build()
+        suspend fun useDatabase(block: suspend (AudiobookDatabase) -> Unit) {
+            val database = open()
+            try { block(database) } finally { database.close() }
+        }
+        try {
+            useDatabase { database ->
+                val store = RoomAchievementStore(database.achievementDao())
+                store.incrementCounter(AchievementCounter.END_OF_CHAPTER_ARM)
+                store.incrementCounter(AchievementCounter.END_OF_CHAPTER_ARM)
+                assertEquals(2L, database.achievementDao().counter(AchievementCounter.END_OF_CHAPTER_ARM))
+            }
+            useDatabase { database ->
+                assertEquals(
+                    "лічильник пережив перезапуск",
+                    2L,
+                    database.achievementDao().counter(AchievementCounter.END_OF_CHAPTER_ARM)
+                )
+                RoomAchievementStore(database.achievementDao())
+                    .incrementCounter(AchievementCounter.END_OF_CHAPTER_ARM)
+                assertEquals(3L, database.achievementDao().counter(AchievementCounter.END_OF_CHAPTER_ARM))
+                assertEquals(
+                    "невідома дія не має рядка",
+                    null,
+                    database.achievementDao().counter("never_observed")
+                )
+                assertEquals(
+                    "один рядок на ключ",
+                    listOf(AchievementCounterEntity(AchievementCounter.END_OF_CHAPTER_ARM, 3L)),
+                    database.achievementDao().observeCounters().first()
+                )
+            }
+        } finally { context.deleteDatabase(name) }
+    }
+
     @Test fun `awards and claimed notices survive closing and reopening the real local database`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "achievement-store-restart.db"
@@ -72,15 +121,48 @@ class RoomAchievementStoreTest {
         var database = open()
         try {
             val stores = List(2) { ListeningStateStore(database.audiobookDao()) }
-            listOf(650L,150L).mapIndexed { index,millis -> async(Dispatchers.IO) { stores[index].recordActualListeningTime(millis) } }.awaitAll()
+            listOf(650L,150L).mapIndexed { index,millis -> async(Dispatchers.IO) { stores[index].recordActualListeningTime(ListeningObservation.Played(millis)) } }.awaitAll()
             database.close()
             database = open()
             val restarted = ListeningStateStore(database.audiobookDao())
-            restarted.recordActualListeningTime(400L)
+            restarted.recordActualListeningTime(ListeningObservation.Played(400L))
             val row = restarted.getAllListeningStats().first().single()
             assertEquals(1200L,row.verifiedListenedMillis)
             assertEquals(1L,row.listenedSeconds)
         } finally { database.close(); context.deleteDatabase(name) }
     }
 
+    /**
+     * #704 (T6) — the showcase survives the round trip through SQLite, and the
+     * ORDER does too.
+     *
+     * The store rewrites the whole showcase on every change, so the risk is
+     * exactly that the order is lost — every kept id marked with the same
+     * `now()` would make «newest first» meaningless and let the fourth pin
+     * evict an arbitrary award. Four pins is the boundary that shows it.
+     */
+    @Test fun `the showcase keeps three, in order, across four pins`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val store = RoomAchievementStore(database.achievementDao())
+            val dao = database.achievementDao()
+            val ids = listOf("a", "b", "c", "d")
+            dao.insertAwards(ids.map { AchievementEntity(it, earnedAt = 1L) })
+
+            for (id in ids) store.pin(id)
+
+            val shown = store.observeShowcase().first().map { it.id }
+            assertEquals("на вітрині рівно три", 3, shown.size)
+            assertEquals("найновіший пін попереду, найстаріший витіснено",
+                listOf("d", "c", "b"), shown)
+
+            store.unpin("c")
+            assertEquals("після зняття лишається два, порядок збережено",
+                listOf("d", "b"), store.observeShowcase().first().map { it.id })
+        } finally {
+            database.close()
+        }
+    }
 }

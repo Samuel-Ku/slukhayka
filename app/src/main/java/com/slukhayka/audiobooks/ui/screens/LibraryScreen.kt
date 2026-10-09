@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -70,6 +71,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.data.entries.AbandonBookPolicy
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
@@ -101,13 +103,14 @@ import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
 import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.library.LibrarySort
+import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
-import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
+import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
@@ -212,6 +215,9 @@ fun LibraryScreen(
     val submissionBadges by viewModel.submissionBadges.collectAsState()
     val watchingSubmissionBookIds by viewModel.watchingSubmissionBookIds.collectAsState()
     val deferredPublicationBookIds by viewModel.deferredPublicationBookIds.collectAsState()
+    // spec-52 US28 (#1174) — the books the listener abandoned: the card says
+    // «Покинуто» for as long as the mark is live (a finished book clears it).
+    val abandonedBookIds by viewModel.abandonedBookIds.collectAsState()
     LaunchedEffect(Unit) {
         viewModel.refreshAwaitingSubmissions()
         // Spec-53 T8 — the deferred queue runs on open: one pass, no retries.
@@ -239,6 +245,16 @@ fun LibraryScreen(
         bookmarkMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
             viewModel.consumeBookmarkMessage()
+        }
+    }
+    // #1154 — and so does publishing: a refusal nobody sees would be the same
+    // defect as no refusal at all, and the listener would believe their
+    // collection had gone public.
+    val publishMessage by viewModel.publishMessage.collectAsState()
+    LaunchedEffect(publishMessage) {
+        publishMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumePublishMessage()
         }
     }
 
@@ -345,6 +361,10 @@ fun LibraryScreen(
     LaunchedEffect(Unit) { viewModel.refreshListenerCollections() }
     val publishedCollections by viewModel.publishedListenerCollections.collectAsState()
     var openPublishedDocumentId by remember { mutableStateOf<String?>(null) }
+    // Spec-51 (#691) — the public-name dialog. Its state lives HERE, in the
+    // screen, because the action sits in `libraryChrome` while the dialog must
+    // cover the screen.
+    var renamingPseudonym by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel.publicCollectionsAvailable) {
         if (viewModel.publicCollectionsAvailable) {
             viewModel.refreshMyPublishedCollections()
@@ -553,6 +573,7 @@ fun LibraryScreen(
                     publishedCollections = publishedCollections,
                     onOpenCollection = { openCollectionId = it },
                     onOpenPublishedCollection = { openPublishedDocumentId = it },
+                    onRenamePseudonym = { renamingPseudonym = true },
                     compact = landscapePhone
                 )
             }
@@ -638,6 +659,7 @@ fun LibraryScreen(
                                 submissionBadges = submissionBadges,
                                 watchingSubmissionBookIds = watchingSubmissionBookIds,
                                 deferredPublicationBookIds = deferredPublicationBookIds,
+                                abandonedBookIds = abandonedBookIds,
                                 onBookClick = onBookClick,
                                 onPlayClick = onPlayClick,
                                 onRecheck = { viewModel.recheckAvailability(it) }
@@ -1074,6 +1096,42 @@ fun LibraryScreen(
                 }
             )
         }
+
+    // Spec-51 (#690) — the listener's OWN collection, opened from «Мої добірки».
+    //
+    // #1154 — this call is the link that was missing: the row already reported
+    // its tap into `openCollectionId`, and nothing read it, so a collection
+    // could be created and listed but never opened. The state lives here, in the
+    // screen's own scope, because this page covers the screen.
+    ListenerCollectionPage(
+        collections = listenerCollections,
+        openId = openCollectionId,
+        onClose = { openCollectionId = null },
+        onRemoveBook = viewModel::removeBookFromCollection,
+        onDelete = { collectionId ->
+            viewModel.deleteListenerCollection(collectionId)
+            openCollectionId = null
+        },
+        // #1154 — the explicit confirmation, and only it: this callback is
+        // reached from the sheet's confirm button and nowhere else.
+        onPublish = viewModel::confirmPublish
+    )
+
+    // Spec-51 (#691) — the public name, changed after publishing. Seeded with
+    // the name the store actually holds, so the listener edits what IS rather
+    // than retyping what they think it is.
+    if (renamingPseudonym) {
+        com.slukhayka.audiobooks.ui.screens.collections.RenamePseudonymDialog(
+            current = publishedCollections.firstOrNull { it.pseudonym.isNotBlank() }
+                ?.pseudonym
+                .orEmpty(),
+            onConfirm = { pseudonym ->
+                renamingPseudonym = false
+                viewModel.renamePseudonym(pseudonym)
+            },
+            onDismiss = { renamingPseudonym = false }
+        )
+    }
     }
 
 /**
@@ -1547,6 +1605,8 @@ internal fun LazyGridScope.libraryGridContent(
     awaitingSubmissionBookIds: Set<String>,
     watchingSubmissionBookIds: Set<String>,
     deferredPublicationBookIds: Set<String>,
+    /** spec-52 US28 (#1174) — the books carrying the «Покинуто» mark. */
+    abandonedBookIds: Set<String> = emptySet(),
     submissionBadges: Map<String, SubmissionBadge> = emptyMap(),
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
@@ -1559,6 +1619,7 @@ internal fun LazyGridScope.libraryGridContent(
             awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
             watchingSource = entry.book.id in watchingSubmissionBookIds,
             deferredPublication = entry.book.id in deferredPublicationBookIds,
+            abandoned = entry.book.id in abandonedBookIds,
             submissionBadge = submissionBadges[entry.book.id] ?: SubmissionBadge.NONE,
             onListenNow = { onPlayClick(entry.book) },
             onClick = { onBookClick(entry.book.id) },
@@ -2040,6 +2101,25 @@ private fun LibraryInlineOfflineBadge(
 }
 
 /**
+ * spec-52 US28 (#1174) — the visible «Покинуто» mark of a book the listener
+ * said they are not coming back to.
+ *
+ * It is the canonical non-interactive [MetadataChip], exactly like the
+ * neighbouring provenance chip: a badge states a fact about the card, and the
+ * screen reader announces it through the card's own state description (the
+ * card clears its descendants' semantics), so the badge needs no touch target
+ * of its own — cancel lives on the book page's ⋮ item.
+ */
+@Composable
+private fun LibraryAbandonedBadge(bookId: String, modifier: Modifier = Modifier) {
+    MetadataChip(
+        text = stringResource(R.string.library_abandoned_badge),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
+        modifier = modifier.testTag("library_abandoned_badge_$bookId")
+    )
+}
+
+/**
  * The honest a11y state of a library entry: progress + offline/online + source
  * + the availability verdict of a problem Work (ADR-0042 §1).
  */
@@ -2099,9 +2179,14 @@ fun LibraryBookCard(
     deferredPublication: Boolean = false,
     /** #837 — the honest moderation badge of MY submission of this book. */
     submissionBadge: SubmissionBadge = SubmissionBadge.NONE,
+    /** spec-52 US28 (#1174) — the stored «Покинуто» mark of this book. */
+    abandoned: Boolean = false,
     /** Spec-53 T3 — badge tap: open the book and start playing it. */
     onListenNow: (() -> Unit)? = null
 ) {
+    // #1174 — the mark is shown (and spoken) only while it is LIVE: a finished
+    // book never reads as abandoned, even while its stored pass still says so.
+    val showAbandoned = AbandonBookPolicy.markIsLive(abandoned, book.isCompleted)
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
         book.book.title
@@ -2120,8 +2205,10 @@ fun LibraryBookCard(
     } else {
         null
     }
+    val abandonedState = if (showAbandoned) stringResource(R.string.library_abandoned_badge) else null
     val state = listOfNotNull(
         libraryEntryStateDescription(book, availability).takeIf { it.isNotBlank() },
+        abandonedState,
         badgeState
     ).joinToString(", ")
     val openLabel = stringResource(
@@ -2156,7 +2243,7 @@ fun LibraryBookCard(
                         }
                     }
             ) {
-                LibraryBookGridContent(book, availability, onRecheck, downloadCount)
+                LibraryBookGridContent(book, availability, onRecheck, downloadCount, showAbandoned)
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2203,6 +2290,12 @@ fun LibraryBookCard(
                         },
                         footnoteInColumn = true,
                         badges = {
+                            // spec-52 US28 (#1174) — the state badge leads: it
+                            // says where the book stands, provenance follows.
+                            if (showAbandoned) {
+                                LibraryAbandonedBadge(book.book.id)
+                                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                            }
                             // C4: the canonical provenance chip — the local
                             // SourceBadge was a pixel-duplicate of
                             // MetadataChip(source=…).
@@ -2323,7 +2416,9 @@ private fun LibraryBookGridContent(
     book: LibraryBook,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
     onRecheck: (() -> Unit)? = null,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
+    /** spec-52 US28 (#1174) — the live «Покинуто» mark of this book. */
+    abandoned: Boolean = false
 ) {
     Column {
         Box {
@@ -2342,6 +2437,17 @@ private fun LibraryBookGridContent(
                     .align(Alignment.TopEnd)
                     .padding(3.dp)
             )
+            // #1174 — on a tile the mark rides the artwork, opposite the
+            // offline marker: the row under the progress bar holds exactly one
+            // reserved line and a badge there would squeeze the provenance chip.
+            if (abandoned) {
+                LibraryAbandonedBadge(
+                    bookId = book.book.id,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(3.dp)
+                )
+            }
         }
         // UI (v1.5 review, on-device): every tile reserves the SAME slots, so a
         // shelf or a grid row has one height instead of a ragged staircase.
@@ -2419,16 +2525,24 @@ private fun LibraryBookGridContent(
     }
 }
 
+// #1168 — the three numbers are calendar-date arithmetic over verified
+// milliseconds, not row counts: `take(7)` here read as «сім останніх днів»
+// while silently bridging a silence, and nothing outside a composable could
+// see it. The decision now lives in `ListeningStatsSummary`, pinned by a pure
+// test; `today` is an argument so the snapshot golden does not read the wall
+// clock.
 @Composable
-fun ListeningStatsCard(listeningStats: List<com.slukhayka.audiobooks.data.db.ListeningStatEntity>, totalBooks: Int) {
-    val todayIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-    val todayStat = listeningStats.find { it.dateIso == todayIso }
-    val todayMinutes = ((todayStat?.listenedSeconds ?: 0L) / 60L)
+fun ListeningStatsCard(
+    listeningStats: List<com.slukhayka.audiobooks.data.db.ListeningStatEntity>,
+    totalBooks: Int,
+    today: java.time.LocalDate = java.time.LocalDate.now()
+) {
+    val summary = ListeningStatsSummary.of(listeningStats, today)
+    val todayMinutes = summary.todayMillis / 60_000L
 
-    val totalWeekSeconds = listeningStats.take(7).sumOf { it.listenedSeconds }
-    val weekHours = String.format(java.util.Locale.US, "%.1f", totalWeekSeconds / 3600f)
+    val weekHours = String.format(java.util.Locale.US, "%.1f", summary.weekMillis / 3_600_000.0)
 
-    val streakDays = listeningStats.takeWhile { it.listenedSeconds > 0 }.size.coerceAtLeast(if (todayMinutes > 0) 1 else 0)
+    val streakDays = summary.streakDays
 
     Column(
         modifier = Modifier
@@ -3368,6 +3482,8 @@ private fun libraryChrome(
     publishedCollections: List<com.slukhayka.audiobooks.data.collections.PublishedCollection>,
     onOpenCollection: (String) -> Unit,
     onOpenPublishedCollection: (String) -> Unit,
+    /** Spec-51 (#691) — opens the public-name dialog; the dialog itself lives in the screen. */
+    onRenamePseudonym: () -> Unit,
     /** #962 — true on the wide-and-short window; drops the year hero. */
     compact: Boolean
 ) {
@@ -3507,7 +3623,8 @@ private fun libraryChrome(
                 hidden = published.hidden
             )
         },
-        onOpen = onOpenPublishedCollection
+        onOpen = onOpenPublishedCollection,
+        onRenamePseudonym = onRenamePseudonym
     )
 
     // Spec-28 #194: the storage line and «Видалити завантажені

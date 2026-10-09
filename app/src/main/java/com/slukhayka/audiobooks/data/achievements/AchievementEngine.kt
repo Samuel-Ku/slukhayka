@@ -17,6 +17,14 @@ class AchievementEngine(
     private val now: () -> Long = System::currentTimeMillis
 ) {
     val earned get() = store.observeEarned()
+
+    /**
+     * #704 (T6) — the latest progress snapshot.
+     *
+     * Exposed so the achievements screen can derive the TITLE without reaching
+     * into the engine's internals or re-reading the database itself.
+     */
+    val snapshot get() = progress.observe().distinctUntilChanged()
     fun start(scope: CoroutineScope): Job = progress.observe().distinctUntilChanged()
         .onEach { evaluateSnapshot(it) }
         .retryWhen { cause, attempt ->

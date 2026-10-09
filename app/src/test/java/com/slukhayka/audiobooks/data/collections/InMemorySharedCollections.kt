@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.data.collections
 
+import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
+import com.slukhayka.audiobooks.data.achievements.ShowcasePublication
+
 /**
  * A fake shared store: online-only is modelled by [online], so the tests can
  * prove that a refusal leaves everything local and untouched.
@@ -34,6 +37,21 @@ class InMemorySharedCollections(
         if (mine.isEmpty()) return PublishResult.Refused("unknown-author")
         // ALL of the author's collections carry the same public name.
         mine.forEach { (id, doc) -> published[id] = doc.copy(pseudonym = clean) }
+        return PublishResult.Published
+    }
+
+    override suspend fun publishShowcase(
+        authorId: String,
+        awards: List<ShowcaseAwardSnapshot>
+    ): PublishResult {
+        if (!online) return PublishResult.Refused("offline")
+        if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
+        val mine = published.filterValues { it.authorId == authorId }
+        if (mine.isEmpty()) return PublishResult.Refused("no-public-profile")
+        // ALL of the author's collections carry the same showcase. An empty
+        // list clears it, exactly as the real store does.
+        val bounded = awards.take(ShowcasePublication.MAX_PUBLISHED)
+        mine.forEach { (id, doc) -> published[id] = doc.copy(showcase = bounded) }
         return PublishResult.Published
     }
 

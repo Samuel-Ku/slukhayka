@@ -7,6 +7,8 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.listening.bookProgress
+import com.slukhayka.audiobooks.data.listening.isBookFinished
 import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
@@ -102,9 +104,17 @@ data class LibraryBook(
     // never writes it (end-of-book detection is the player-redesign ticket,
     // #38). Completion is therefore derived from position: a book whose
     // cumulative position reached its total duration counts as finished.
+    //
+    // #1174 — and it is derived through the ONE shared rule
+    // ([com.slukhayka.audiobooks.data.listening.isBookFinished]), not a local
+    // copy: the abandon door refuses a finished book by the very same verdict,
+    // so no book can be «Завершена» on this shelf and abandonable on its page.
     val isCompleted: Boolean
-        get() = progress?.isCompleted == true ||
-            (totalDurationSeconds > 0L && cumulativePositionSeconds >= totalDurationSeconds)
+        get() = isBookFinished(
+            completedManually = progress?.isCompleted == true,
+            cumulativePositionSeconds = cumulativePositionSeconds,
+            totalDurationSeconds = totalDurationSeconds
+        )
 
     val lastListenedAt: Long
         get() = progress?.lastListenedAt ?: 0L
@@ -146,7 +156,8 @@ data class LibraryBook(
 /**
  * Combines the raw flows into library cards. Chapter durations drive both the
  * real total duration (falling back to the book's own stamp when a book has no
- * chapters) and the cumulative position.
+ * chapters) and the cumulative position — through the ONE shared rule,
+ * [com.slukhayka.audiobooks.data.listening.bookProgress].
  */
 fun buildLibraryBooks(
     books: List<AudiobookEntity>,
@@ -161,30 +172,16 @@ fun buildLibraryBooks(
     return books.map { book ->
         val chapters = chaptersByBook[book.id].orEmpty().sortedBy { it.chapterIndex }
         val progress = progressById[book.id]
-        // Same source of truth as the player (see [effectiveChapterDurations]):
-        // the site-provided book total is authoritative — unknown (unplayed)
+        // The site-provided book total is authoritative — unknown (unplayed)
         // chapter durations are spread over the remainder so the book card
         // never shows a shrunken "37:23" for a 16:41:11 book. Locally imported
         // books (no site total) fall back to the sum of known chapters.
-        val chapterDurations = effectiveChapterDurations(
-            chapters = chapters,
-            currentChapterIndex = progress?.currentChapterIndex ?: 0,
-            currentChapterDurationMs = 0L,
-            bookTotalDurationSeconds = book.totalDurationSeconds
-        )
-        val totalDuration = book.totalDurationSeconds.takeIf { it > 0L }
-            ?: chapterDurations.sum()
-        val cumulative = if (progress == null) 0L else {
-            val beforeChapter = chapterDurations
-                .take(progress.currentChapterIndex.coerceAtLeast(0))
-                .sum()
-            beforeChapter + progress.currentPositionSeconds
-        }
+        val facts = bookProgress(chapters, progress, book.totalDurationSeconds)
         LibraryBook(
             book = book,
             progress = progress,
-            cumulativePositionSeconds = cumulative,
-            totalDurationSeconds = totalDuration
+            cumulativePositionSeconds = facts.cumulativePositionSeconds,
+            totalDurationSeconds = facts.totalDurationSeconds
         )
     }
 }

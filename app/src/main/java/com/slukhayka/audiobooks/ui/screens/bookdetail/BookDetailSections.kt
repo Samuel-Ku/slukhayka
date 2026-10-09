@@ -167,6 +167,12 @@ fun BookDetailIdentityHeader(
                     .wrapContentHeight(unbounded = true, align = Alignment.Top)
                     .height(maxOf(naturalHeight, heroMeasuredHeight)),
                 contentScale = ContentScale.Crop,
+                // #995 — the summary below states the title and the author,
+                // right here in this viewport. Letting the no-art fallback
+                // repeat them drew the same words twice, and at
+                // fontScale = 2f the two copies collided outright. The
+                // genre-tinted ground stays; the identity is stated once.
+                typographicFallback = false,
                 onImageLoaded = { drawable ->
                     val width = drawable.intrinsicWidth
                     val height = drawable.intrinsicHeight

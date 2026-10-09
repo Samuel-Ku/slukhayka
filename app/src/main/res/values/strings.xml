@@ -144,6 +144,12 @@
     <string name="book_detail_metadata_save">Зберегти</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
     <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
+    <!-- spec-52 US28 (#1174) — «покинути книгу»: дія лише для книг із поступом,
+         які не завершено, і видима позначка «Покинуто» в медіатеці. -->
+    <string name="book_detail_abandon">Покинути книгу</string>
+    <string name="book_detail_abandon_cancel">Не покидати книгу</string>
+    <string name="book_detail_abandon_state_on">Книгу позначено покинутою</string>
+    <string name="library_abandoned_badge">Покинуто</string>
     <string name="author_all_found">Усі знайдені автори</string>
     <string name="nav_settings">Налаштування</string>
     <string name="mini_player_other_book_chapter">У плеєрі · %1$s</string>
@@ -225,6 +231,37 @@
     <string name="collection_detail_empty">У добірці ще немає книг</string>
     <string name="publish_collection_title">Опублікувати добірку?</string>
     <string name="publish_collection_preview_lead">Піде назовні рівно це:</string>
+    <!-- #1154 — the pseudonym is entered HERE. The preview always showed one,
+         but nothing in the app ever asked for it, so the publish path was
+         unreachable. -->
+    <string name="publish_collection_pseudonym_label">Псевдонім</string>
+    <string name="publish_collection_pseudonym_hint">Так вас побачать інші</string>
+    <string name="publish_collection_pseudonym_required">Введіть псевдонім — і побачите, що саме поїде</string>
+    <string name="publish_collection_impossible_title">Цю добірку не можна опублікувати: у неї немає назви</string>
+    <string name="publish_collection_impossible_empty">Цю добірку не можна опублікувати: у ній немає жодної книжки</string>
+    <!-- #1154 — the outcome. A refusal nobody sees is the same defect as no
+         refusal at all, so the second line says what did NOT happen. -->
+    <string name="publish_collection_published">Добірку опубліковано</string>
+    <string name="publish_collection_refused">Не вдалося опублікувати — назовні не пішло нічого</string>
+    <!-- #705 (T7) — the showcase's own consent. The awards are listed by NAME:
+         «до 3 нагород» is not something a person can meaningfully agree to. -->
+    <string name="showcase_publish_title">Опублікувати вітрину?</string>
+    <string name="showcase_publish_lead">У профілі куратора буде видно рівно це:</string>
+    <string name="showcase_publish_line_pseudonym">Псевдонім: %1$s</string>
+    <string name="showcase_publish_line_award_count">Нагород: %1$d</string>
+    <string name="showcase_publish_confirm">Опублікувати вітрину</string>
+    <string name="showcase_publish_action">Показати вітрину в профілі</string>
+    <string name="showcase_publish_published">Вітрину опубліковано</string>
+    <string name="showcase_publish_unavailable">Спершу опублікуйте добірку — вітрина з\'являється у профілі куратора</string>
+    <string name="showcase_withdraw_action">Прибрати вітрину з профілю</string>
+    <string name="showcase_withdrawn">Вітрину прибрано з профілю</string>
+    <!-- Spec-51 (#691) — the public name after publishing. `renameAuthor` had no
+         caller at all, so a listener was stuck with the first name they chose. -->
+    <string name="rename_pseudonym_title">Змінити псевдонім</string>
+    <string name="rename_pseudonym_body">Так вас бачитимуть в усіх опублікованих добірках</string>
+    <string name="rename_pseudonym_action">Змінити псевдонім</string>
+    <string name="rename_pseudonym_confirm">Зберегти</string>
+    <string name="pseudonym_renamed">Псевдонім змінено</string>
     <!-- #980: the residual collection chrome — delete and inline-create
          dialogs, publish actions, the reader-side save and the preview lines —
          lived as UK literals inside the composables, invisible to the EN walk
@@ -704,6 +741,71 @@
     <string name="home_search_retry">Спробувати ще раз</string>
 
     <!-- #699: quiet local earned notices. -->
+    <string name="achievement_short_form_10">Коротка форма</string>
+    <string name="achievement_epic_1">Епопея</string>
+    <string name="achievement_long_liver_5">Довгожитель</string>
+    <string name="achievement_speedster_10">Швидкісний</string>
+    <string name="achievement_slow_savour_5">Повільний смак</string>
+    <string name="achievement_bookmarks_50">Закладки</string>
+    <string name="achievement_notes_10">Нотатки</string>
+    <string name="achievement_sleep_timer_20">Таймер сну</string>
+    <string name="achievement_relisten_1">Переслух</string>
+    <string name="achievement_relisten_5">Переслухи</string>
+    <string name="achievement_second_wind">Друге дихання</string>
+    <string name="achievement_deep_reserve_10">Глибокий запас</string>
+    <string name="achievement_four_doors">Чотири двері</string>
+    <string name="achievement_browser_guest">Гість</string>
+    <!-- #1175 (T3): «Нова хвиля» — книга з джерела, дата появи якого живе в реєстрі. -->
+    <string name="achievement_new_wave">Нова хвиля</string>
+    <string name="achievement_bilingual_2">Двомовний</string>
+    <string name="achievement_polyglot_3">Поліглот</string>
+    <string name="achievement_genre_polyglot_8">Жанровий поліглот</string>
+    <string name="achievement_omnivore_12">Всеїдний</string>
+    <string name="achievement_mono_genre_25">Однолюб жанру</string>
+    <string name="achievement_deep_search">Глибокий пошук</string>
+    <string name="achievement_five_in_a_row">П’ять поспіль</string>
+    <string name="achievement_english_start">Англомовний старт</string>
+    <string name="achievement_night_watch">Нічний вартовий</string>
+    <string name="achievement_owl_and_lark">Сова й жайворонок</string>
+    <string name="achievement_holiday">Свято</string>
+    <string name="achievement_vintage">Старовинна</string>
+    <string name="achievement_comeback">Перерва</string>
+    <string name="achievement_never_too_late">Ніколи не пізно</string>
+    <string name="achievement_marathon_3h">Марафонець</string>
+    <string name="achievement_week_in_earphones">Тиждень у навушниках</string>
+    <string name="achievement_month_in_earphones">Місяць у навушниках</string>
+    <string name="achievement_mondays_10">Понеділковий</string>
+    <!-- #1166 (T8, US13): «Слухацький рік» — 365 різних днів зі слуханням кумулятивно. -->
+    <string name="achievement_listening_year_365">Слухацький рік</string>
+    <!-- #1183 (T9b): нагороди на записаних годинах офлайну й касту, сеансах і лічильнику. -->
+    <string name="achievement_autonomous_10h">Автономний</string>
+    <string name="achievement_download_gourmet_100h">Гурман завантажень</string>
+    <string name="achievement_big_screen_10h">Великий екран</string>
+    <string name="achievement_airplane_2h">Літак</string>
+    <string name="achievement_chapter_end_10">До кінця розділу</string>
+    <string name="achievement_sync_4h">Синхронно</string>
+    <string name="achievement_night_shift_2h">Нічна зміна</string>
+    <string name="achievement_dawn_5">Світанок</string>
+    <string name="achievements_title">Досягнення</string>
+    <string name="settings_desc_achievements">Нагороди за прослухане</string>
+    <string name="achievements_tier">Титул: %1$s</string>
+    <string name="achievements_showcase">Вітрина</string>
+    <string name="achievements_earned">Здобуті</string>
+    <string name="achievements_upcoming">Попереду</string>
+    <string name="achievements_empty_title">Ще немає нагород</string>
+    <string name="achievements_empty_body">Слухайте книги — нагороди з\'являться тут.</string>
+    <!-- #702 (T4): «10 книг у жанрі» — лише для полиць, які джерела справді заявляють. -->
+    <string name="achievement_genre_detective_10">10 детективів</string>
+    <string name="achievement_genre_fantasy_10">10 фентезі</string>
+    <string name="achievement_genre_science_fiction_10">10 книг фантастики</string>
+    <string name="achievement_genre_romance_10">10 любовних романів</string>
+    <string name="achievement_genre_horror_10">10 книг жахів</string>
+    <string name="achievement_genre_childrens_literature_10">10 дитячих книг</string>
+    <string name="achievement_genre_historical_prose_10">10 історичних книг</string>
+    <string name="achievement_genre_adventure_10">10 пригод</string>
+    <string name="achievement_genre_self_development_10">10 книг саморозвитку</string>
+    <string name="achievement_genre_biography_10">10 біографій</string>
+    <string name="achievement_awarded_generic">Нова нагорода</string>
     <string name="achievement_awarded">Нагорода: %1$s</string>
     <string name="achievement_first_book">Перша книга</string>
     <string name="achievement_first_playback">Перше прослуховування</string>
@@ -713,6 +815,11 @@
     <string name="achievement_first_offline_playback">Перше офлайн-прослуховування</string>
     <string name="achievement_first_download">Перша завантажена книга</string>
     <string name="achievement_first_completion">До останньої сторінки</string>
+    <plurals name="achievement_books">
+        <item quantity="one">Прочитано %1$d книгу</item>
+        <item quantity="few">Прочитано %1$d книги</item>
+        <item quantity="other">Прочитано %1$d книг</item>
+    </plurals>
     <plurals name="achievement_hours">
         <item quantity="one">Прослухано %1$d годину</item>
         <item quantity="few">Прослухано %1$d години</item>

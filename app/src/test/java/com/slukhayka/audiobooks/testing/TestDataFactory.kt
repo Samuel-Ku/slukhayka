@@ -242,7 +242,17 @@ object TestDataFactory {
 
     /** A single day of listening statistics, frozen at [FIXED_DATE_ISO]. */
     fun seedListeningStats(listenedSeconds: Long = 1_800L): List<ListeningStatEntity> =
-        listOf(ListeningStatEntity(dateIso = FIXED_DATE_ISO, listenedSeconds = listenedSeconds))
+        listOf(
+            ListeningStatEntity(
+                dateIso = FIXED_DATE_ISO,
+                listenedSeconds = listenedSeconds,
+                // #1168: the card reads the verified counter, and a row the
+                // recorder wrote (v51+) carries both in one transaction — a
+                // fixture with a populated `listenedSeconds` and an empty
+                // proof would be a legacy row pretending to be a full day.
+                verifiedListenedMillis = listenedSeconds * 1_000L
+            )
+        )
 
     private fun chapterDurationSeconds(bookIndex: Int, chapterIndex: Int): Long =
         BASE_CHAPTER_SECONDS +

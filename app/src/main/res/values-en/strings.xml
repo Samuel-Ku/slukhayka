@@ -146,6 +146,12 @@
     <string name="book_detail_metadata_save">Save</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
     <string name="book_detail_listened_state_off">Not marked as listened</string>
+    <!-- spec-52 US28 (#1174) — «abandon book»: only for a book with progress
+         that is not finished, plus the visible «Abandoned» mark in the library. -->
+    <string name="book_detail_abandon">Abandon book</string>
+    <string name="book_detail_abandon_cancel">Keep the book</string>
+    <string name="book_detail_abandon_state_on">The book is marked abandoned</string>
+    <string name="library_abandoned_badge">Abandoned</string>
     <string name="author_all_found">All found authors</string>
     <string name="nav_settings">Settings</string>
     <string name="mini_player_other_book_chapter">In player · %1$s</string>
@@ -227,6 +233,28 @@
     <string name="collection_detail_empty">No books in this collection yet</string>
     <string name="publish_collection_title">Publish this collection?</string>
     <string name="publish_collection_preview_lead">Exactly this goes public:</string>
+    <string name="publish_collection_pseudonym_label">Pseudonym</string>
+    <string name="publish_collection_pseudonym_hint">This is how others will see you</string>
+    <string name="publish_collection_pseudonym_required">Enter a pseudonym to see exactly what will go out</string>
+    <string name="publish_collection_impossible_title">This collection cannot be published: it has no title</string>
+    <string name="publish_collection_impossible_empty">This collection cannot be published: it has no books</string>
+    <string name="publish_collection_published">Collection published</string>
+    <string name="publish_collection_refused">Could not publish — nothing went out</string>
+    <string name="showcase_publish_title">Publish your showcase?</string>
+    <string name="showcase_publish_lead">Exactly this will appear in your curator profile:</string>
+    <string name="showcase_publish_line_pseudonym">Pseudonym: %1$s</string>
+    <string name="showcase_publish_line_award_count">Awards: %1$d</string>
+    <string name="showcase_publish_confirm">Publish showcase</string>
+    <string name="showcase_publish_action">Show the showcase in my profile</string>
+    <string name="showcase_publish_published">Showcase published</string>
+    <string name="showcase_publish_unavailable">Publish a collection first — the showcase appears in your curator profile</string>
+    <string name="showcase_withdraw_action">Remove the showcase from my profile</string>
+    <string name="showcase_withdrawn">Showcase removed from your profile</string>
+    <string name="rename_pseudonym_title">Change your pseudonym</string>
+    <string name="rename_pseudonym_body">This is how you will be seen on every published collection</string>
+    <string name="rename_pseudonym_action">Change pseudonym</string>
+    <string name="rename_pseudonym_confirm">Save</string>
+    <string name="pseudonym_renamed">Pseudonym changed</string>
     <!-- #980: English twins for the residual collection chrome the extended
          walk now reaches. -->
     <string name="collection_remove_book">Remove</string>
@@ -650,6 +678,71 @@
     <string name="home_search_retry">Try again</string>
 
     <!-- #699: quiet local earned notices. -->
+    <string name="achievement_short_form_10">Short form</string>
+    <string name="achievement_epic_1">Epic</string>
+    <string name="achievement_long_liver_5">Long liver</string>
+    <string name="achievement_speedster_10">Speedster</string>
+    <string name="achievement_slow_savour_5">Slow savour</string>
+    <string name="achievement_bookmarks_50">Bookmarks</string>
+    <string name="achievement_notes_10">Notes</string>
+    <string name="achievement_sleep_timer_20">Sleep timer</string>
+    <string name="achievement_relisten_1">Relisten</string>
+    <string name="achievement_relisten_5">Relistens</string>
+    <string name="achievement_second_wind">Second wind</string>
+    <string name="achievement_deep_reserve_10">Deep reserve</string>
+    <string name="achievement_four_doors">Four doors</string>
+    <string name="achievement_browser_guest">Guest</string>
+    <!-- #1175 (T3): «Нова хвиля» — a book from a source whose appearance date lives in the registry. -->
+    <string name="achievement_new_wave">New wave</string>
+    <string name="achievement_bilingual_2">Bilingual</string>
+    <string name="achievement_polyglot_3">Polyglot</string>
+    <string name="achievement_genre_polyglot_8">Genre polyglot</string>
+    <string name="achievement_omnivore_12">Omnivore</string>
+    <string name="achievement_mono_genre_25">Single-genre devotee</string>
+    <string name="achievement_deep_search">Deep search</string>
+    <string name="achievement_five_in_a_row">Five in a row</string>
+    <string name="achievement_english_start">English start</string>
+    <string name="achievement_night_watch">Night watch</string>
+    <string name="achievement_owl_and_lark">Owl and lark</string>
+    <string name="achievement_holiday">Holiday</string>
+    <string name="achievement_vintage">Vintage</string>
+    <string name="achievement_comeback">Comeback</string>
+    <string name="achievement_never_too_late">Never too late</string>
+    <string name="achievement_marathon_3h">Marathon</string>
+    <string name="achievement_week_in_earphones">Week in earphones</string>
+    <string name="achievement_month_in_earphones">Month in earphones</string>
+    <string name="achievement_mondays_10">Monday listener</string>
+    <!-- #1166 (T8, US13): «Слухацький рік» — 365 different days with listening, cumulatively. -->
+    <string name="achievement_listening_year_365">Listener’s year</string>
+    <!-- #1183 (T9b): awards on the recorded offline/cast hours, sessions and the counter. -->
+    <string name="achievement_autonomous_10h">Autonomous</string>
+    <string name="achievement_download_gourmet_100h">Download gourmet</string>
+    <string name="achievement_big_screen_10h">Big screen</string>
+    <string name="achievement_airplane_2h">Airplane</string>
+    <string name="achievement_chapter_end_10">Chapter end</string>
+    <string name="achievement_sync_4h">In sync</string>
+    <string name="achievement_night_shift_2h">Night shift</string>
+    <string name="achievement_dawn_5">Dawn</string>
+    <string name="achievements_title">Achievements</string>
+    <string name="settings_desc_achievements">Awards for what you have listened to</string>
+    <string name="achievements_tier">Title: %1$s</string>
+    <string name="achievements_showcase">Showcase</string>
+    <string name="achievements_earned">Earned</string>
+    <string name="achievements_upcoming">Ahead</string>
+    <string name="achievements_empty_title">No awards yet</string>
+    <string name="achievements_empty_body">Listen to books and your awards will appear here.</string>
+    <!-- #702 (T4): ten books in the genres the sources really claim. -->
+    <string name="achievement_genre_detective_10">10 detective books</string>
+    <string name="achievement_genre_fantasy_10">10 fantasy books</string>
+    <string name="achievement_genre_science_fiction_10">10 sci-fi books</string>
+    <string name="achievement_genre_romance_10">10 romance books</string>
+    <string name="achievement_genre_horror_10">10 horror books</string>
+    <string name="achievement_genre_childrens_literature_10">10 children\'s books</string>
+    <string name="achievement_genre_historical_prose_10">10 historical books</string>
+    <string name="achievement_genre_adventure_10">10 adventure books</string>
+    <string name="achievement_genre_self_development_10">10 self-development books</string>
+    <string name="achievement_genre_biography_10">10 biographies</string>
+    <string name="achievement_awarded_generic">New award</string>
     <string name="achievement_awarded">Achievement: %1$s</string>
     <string name="achievement_first_book">First book</string>
     <string name="achievement_first_playback">First listen</string>
@@ -659,6 +752,10 @@
     <string name="achievement_first_offline_playback">First offline listen</string>
     <string name="achievement_first_download">First downloaded book</string>
     <string name="achievement_first_completion">To the last page</string>
+    <plurals name="achievement_books">
+        <item quantity="one">%1$d book finished</item>
+        <item quantity="other">%1$d books finished</item>
+    </plurals>
     <plurals name="achievement_hours">
         <item quantity="one">%1$d hour listened</item>
         <item quantity="other">%1$d hours listened</item>

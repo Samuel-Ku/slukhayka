@@ -16,6 +16,20 @@ object PlaybackEventPolicy {
     /** How many events one (book, source) may keep before FIFO pruning. */
     const val DEFAULT_EVENTS_PER_BOOK_SOURCE: Int = 50
 
+    /**
+     * #700 (T2) — COMPLETED rows the FIFO cap may NOT evict.
+     *
+     * «Друге дихання» reads TWO completions of one book out of this log, and a
+     * bucket holds only [DEFAULT_EVENTS_PER_BOOK_SOURCE] rows: a book of ~50
+     * chapters fills it with its own `CHAPTER_CHANGE` rows during the second
+     * pass, so without this the first completion is evicted by the very relisten
+     * that earns the award.
+     *
+     * Two is the whole need — the award asks whether a SECOND completion exists,
+     * so the newest pair is enough and the exemption cannot grow with the log.
+     */
+    const val PROTECTED_COMPLETION_EVENTS: Int = 2
+
     /** An undo candidate older than this is noise — pruning yesterday's jump. */
     const val UNDO_CANDIDATE_MAX_AGE_MS: Long = 24 * 60 * 60 * 1000L
 
@@ -69,6 +83,11 @@ object PlaybackEventPolicy {
      * [cap] (FIFO by timestamp, then id) plus any undo-candidate older than
      * [maxAgeMs]. [events] is the bucket newest-first, as the DAO returns it.
      * The state row is not this function's concern.
+     *
+     * #700 (T2): the newest [PROTECTED_COMPLETION_EVENTS] COMPLETED rows escape
+     * the cap, so the bucket settles at no more than `cap + 2` rows. Every other
+     * kind is pruned exactly as before — the exemption is a fixed two rows, not
+     * a wider window.
      */
     fun pruneIds(
         events: List<PlaybackEventEntity>,
@@ -77,7 +96,12 @@ object PlaybackEventPolicy {
         maxAgeMs: Long = UNDO_CANDIDATE_MAX_AGE_MS
     ): List<Long> {
         val ordered = events.sortedWith(compareByDescending<PlaybackEventEntity> { it.timestamp }.thenByDescending { it.id })
-        val beyondCap = ordered.drop(cap).map { it.id }
+        val protectedCompletions = ordered
+            .filter { it.kind == PlaybackEventKind.COMPLETED }
+            .take(PROTECTED_COMPLETION_EVENTS)
+            .map { it.id }
+            .toSet()
+        val beyondCap = ordered.drop(cap).map { it.id }.filterNot { it in protectedCompletions }
         val stale = ordered.filter { isStaleUndoCandidate(it, nowMs, maxAgeMs) }.map { it.id }
         return (beyondCap + stale).distinct()
     }

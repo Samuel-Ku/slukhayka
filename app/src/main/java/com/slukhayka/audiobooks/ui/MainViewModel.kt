@@ -117,6 +117,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -352,6 +353,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.slukhayka.audiobooks.data.entries.ReadingProgressPolicy.yearlyGoal(passes, year)
             }.getOrNull()
         }
+    }
+
+    /**
+     * spec-52 US28 / #1174 — the books the listener abandoned. One flow feeds
+     * both surfaces: the «Покинуто» badge in the library and the book page's
+     * cancel, so the mark appears and disappears everywhere at once.
+     */
+    val abandonedBookIds: StateFlow<Set<String>> = App.instance.abandonedBooks
+        .observeAbandonedBookIds()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * #1174 — «покинути книгу»: an explicit act of the listener, never inferred
+     * from a pause. The action already refused itself when the book has no
+     * position or is finished; the flow above repaints both surfaces.
+     */
+    fun abandonBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            logAbandonRefusal(bookId, "abandon", runCatching { App.instance.abandonedBooks.abandon(bookId) })
+        }
+    }
+
+    /** #1174 — the way back: the book returns to the state the mark took away. */
+    fun cancelAbandonBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            logAbandonRefusal(bookId, "cancel", runCatching { App.instance.abandonedBooks.cancel(bookId) })
+        }
+    }
+
+    /**
+     * #1174 — the door refuses in silence BY DESIGN (the surfaces state what is
+     * true), so the reason is not thrown at the listener; it still lands in the
+     * log, where a wrong refusal can be told from an unresponsive action. A
+     * thrown failure is logged too — never swallowed into the same silence.
+     */
+    private fun logAbandonRefusal(
+        bookId: String,
+        action: String,
+        outcome: Result<com.slukhayka.audiobooks.data.entries.AbandonedBooks.Result>
+    ) {
+        outcome
+            .onSuccess { result ->
+                if (result is com.slukhayka.audiobooks.data.entries.AbandonedBooks.Result.Refused) {
+                    android.util.Log.w("MainViewModel", "abandon $action refused for $bookId: ${result.reason}")
+                }
+            }
+            .onFailure { android.util.Log.w("MainViewModel", "abandon $action failed for $bookId", it) }
     }
 
     fun refreshImportedEntries() {
@@ -2515,6 +2563,219 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination (⚙️
     // overflow) — navigation only; the screen reads/writes the App Locale
     // module directly and applies through the platform applier (ADR-0008).
+    // --- #704 (T6) the «Досягнення» destination -----------------------------
+
+    private val _achievementsOpen = MutableStateFlow(false)
+    val achievementsOpen: StateFlow<Boolean> = _achievementsOpen.asStateFlow()
+
+    fun openAchievements() {
+        _achievementsOpen.value = true
+        // #705 (T7) — the screen offers the showcase's publish action only when
+        // there is a curator profile for it to appear on, and that is read from
+        // the store. Asking on open is what makes the answer current instead of
+        // whatever the last visit happened to leave behind.
+        refreshMyPublishedCollections()
+    }
+
+    fun closeAchievements() { _achievementsOpen.value = false }
+
+    /** What the screen shows. The RULE lives in [AchievementBoard], not here. */
+    val achievementsBoard: StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementBoard> =
+        App.instance.achievements.earned
+            .map { earned ->
+                com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(
+                    com.slukhayka.audiobooks.data.achievements.AchievementCatalog.definitions,
+                    earned.map { it.id }.toSet()
+                )
+            }
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(emptyList(), emptySet())
+            )
+
+    /** The title, derived from the same snapshot the evaluator uses. */
+    val listenerTitle: StateFlow<com.slukhayka.audiobooks.data.achievements.ListenerTitle> =
+        App.instance.achievements.snapshot
+            .map { com.slukhayka.audiobooks.data.achievements.AchievementTitle.of(it) }
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.data.achievements.ListenerTitle.LISTENER
+            )
+
+    /**
+     * #704 (T6) — put an award on the showcase, or take it off.
+     *
+     * The CURRENT state is read from the store rather than from the screen's
+     * copy: the screen only knows what it last rendered, and a double tap could
+     * otherwise send two pins for an award that is already pinned.
+     */
+    fun toggleAchievementPin(id: String) {
+        viewModelScope.launch {
+            val store = App.instance.achievementStore
+            val alreadyPinned = store.observeShowcase().first().any { it.id == id }
+            if (alreadyPinned) store.unpin(id) else store.pin(id)
+            // #705 (T7) — the listener already chose to show their showcase, so
+            // the profile follows the pins instead of drifting away from them.
+            // Nothing is sent when they have NOT chosen: consent is never
+            // inferred from a pin.
+            syncShowcaseIfPublished()
+        }
+    }
+
+    /** The pinned showcase, newest first. */
+    val achievementShowcase: StateFlow<List<String>> =
+        App.instance.achievementStore.observeShowcase()
+            .map { rows -> rows.map { it.id } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // #705 (T7) — the showcase's public life. Pinning is local; publishing is a
+    // separate, explicit act, and this is where the two meet.
+
+    /** True once the listener confirmed publishing their showcase. */
+    val showcasePublished: StateFlow<Boolean> = App.instance.showcaseConsent.published
+
+    private val _showcasePreview =
+        MutableStateFlow<com.slukhayka.audiobooks.data.achievements.ShowcasePreview?>(null)
+    val showcasePreview:
+        StateFlow<com.slukhayka.audiobooks.data.achievements.ShowcasePreview?> =
+        _showcasePreview.asStateFlow()
+
+    private val showcasePublishedMessage: String
+        get() = getApplication<Application>().getString(R.string.showcase_publish_published)
+
+    private val showcaseWithdrawnMessage: String
+        get() = getApplication<Application>().getString(R.string.showcase_withdrawn)
+
+    private val showcaseUnavailableMessage: String
+        get() = getApplication<Application>().getString(R.string.showcase_publish_unavailable)
+
+    /**
+     * #705 (T7) — opens the consent for the showcase, and nothing else.
+     *
+     * The pseudonym is read from the store rather than from whatever the screen
+     * happens to hold: the profile is the authority on the public name, and
+     * asking it is also how "there is no profile" is discovered honestly.
+     */
+    fun requestPublishShowcase() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            val pseudonym = if (authorId.isEmpty()) {
+                ""
+            } else {
+                App.instance.publicCollectionsGate.publishedBy(authorId)
+                    .firstOrNull { it.pseudonym.isNotBlank() }
+                    ?.pseudonym
+                    .orEmpty()
+            }
+            val preview = com.slukhayka.audiobooks.data.achievements.ShowcasePreviewFactory.of(
+                pinnedIds = achievementShowcase.first(),
+                pseudonym = pseudonym,
+                // Passed IN rather than imported: `achievements` must not depend
+                // on `collections`, which already depends on it.
+                maxPseudonymLength =
+                    com.slukhayka.audiobooks.data.collections.PublishedCollectionCodec
+                        .MAX_PSEUDONYM_LEN,
+                nameOf = { id ->
+                    com.slukhayka.audiobooks.ui.achievements
+                        .achievementName(getApplication(), id)
+                }
+            )
+            withContext(Dispatchers.Main) {
+                if (preview == null) {
+                    _publishMessage.value = showcaseUnavailableMessage
+                } else {
+                    _showcasePreview.value = preview
+                }
+            }
+        }
+    }
+
+    fun dismissPublishShowcase() {
+        _showcasePreview.value = null
+    }
+
+    /** Only the explicit confirmation lands here. */
+    fun confirmPublishShowcase() {
+        val preview = _showcasePreview.value ?: return
+        _showcasePreview.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
+            val result = App.instance.publicCollectionsGate.publishShowcase(authorId, preview.awards)
+            withContext(Dispatchers.Main) {
+                if (result == com.slukhayka.audiobooks.data.collections.PublishResult.Published) {
+                    // Recorded only AFTER the write succeeded: consent the
+                    // network never honoured would make every later pin publish
+                    // silently against a profile that has nothing.
+                    App.instance.showcaseConsent.grant()
+                    _publishMessage.value = showcasePublishedMessage
+                } else {
+                    _publishMessage.value = publishRefusedMessage
+                }
+            }
+        }
+    }
+
+    /**
+     * #705 (T7) — takes the showcase off the profile.
+     *
+     * The withdrawal is a WRITE, not just a local flag: the profile must stop
+     * showing the awards, so an empty showcase is published (which is exactly
+     * what clears it) and only then is the consent dropped.
+     */
+    fun withdrawShowcase() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
+            val result = App.instance.publicCollectionsGate
+                .publishShowcase(authorId, emptyList())
+            withContext(Dispatchers.Main) {
+                if (result == com.slukhayka.audiobooks.data.collections.PublishResult.Published) {
+                    App.instance.showcaseConsent.withdraw()
+                    _publishMessage.value = showcaseWithdrawnMessage
+                } else {
+                    _publishMessage.value = publishRefusedMessage
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends the current pins to the profile, but only for a listener who has
+     * already chosen to show them. Returns null when nothing was sent — which
+     * is the honest answer for "not published", not a failure.
+     */
+    private suspend fun syncShowcaseIfPublished():
+        com.slukhayka.audiobooks.data.collections.PublishResult? {
+        if (!App.instance.showcaseConsent.isPublished()) return null
+        val authorId = currentAuthorId()
+        if (authorId.isEmpty()) return null
+        // An EMPTY list is a real instruction here: it clears the showcase,
+        // which is how unpinning the last award takes it off the profile.
+        val awards = com.slukhayka.audiobooks.data.achievements.ShowcasePublication.of(
+            pinnedIds = achievementShowcase.first(),
+            nameOf = { id ->
+                com.slukhayka.audiobooks.ui.achievements.achievementName(getApplication(), id)
+            }
+        )
+        return App.instance.publicCollectionsGate.publishShowcase(authorId, awards)
+    }
+
+    /**
+     * The signed-in listener's public author id, or "" when there is none. The
+     * raw uid is read and hashed here and never leaves this call.
+     */
+    private suspend fun currentAuthorId(): String {
+        val uid = runCatching { App.instance.listenerIdentity.current()?.uid }.getOrNull()
+        return com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+    }
+
     private val _appLocaleOpen = MutableStateFlow(false)
     val appLocaleOpen: StateFlow<Boolean> = _appLocaleOpen.asStateFlow()
 
@@ -5429,7 +5690,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val book = libraryEntries.getBookSync(bookId)
                 startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
                 offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
-                // CONTEXT.md/ADR-0026: browser recovery never resumes on its
+                // GLOSSARY.md/ADR-0026: browser recovery never resumes on its
                 // own; this explicit Continue is the only door that does.
                 val result = offlineDownloads.resumePendingBrowserRefresh(bookId)
                     ?: offlineDownloads.continueDownload(bookId)
@@ -5994,44 +6255,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Spec-51 (#691) — publishing is ONLINE-ONLY and always consented: nothing
     // reaches the network without an explicit confirmation of the preview.
-    private val _publicationPreview =
-        MutableStateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?>(null)
-    val publicationPreview:
-        StateFlow<com.slukhayka.audiobooks.data.collections.PublicationPreview?> =
-        _publicationPreview.asStateFlow()
+    //
+    // #1154 — the confirmation moved into `PublishCollectionSheet`, which now
+    // owns the pseudonym field and derives the preview live as it is typed. The
+    // view model therefore no longer holds a preview of its own: it holds the
+    // ONE thing only it can know, the outcome, and the one thing only it should
+    // touch, the signed-in identity.
+    //
+    // The outcome is a MESSAGE, not a silent flag: a refusal that nobody sees is
+    // the same defect as no refusal at all.
+    private val _publishMessage = MutableStateFlow<String?>(null)
+    val publishMessage: StateFlow<String?> = _publishMessage.asStateFlow()
+
+    private val publishPublishedMessage: String
+        get() = getApplication<Application>().getString(R.string.publish_collection_published)
+
+    private val publishRefusedMessage: String
+        get() = getApplication<Application>().getString(R.string.publish_collection_refused)
+
+    fun consumePublishMessage() {
+        _publishMessage.value = null
+    }
+
+    private val pseudonymRenamedMessage: String
+        get() = getApplication<Application>().getString(R.string.pseudonym_renamed)
+
+    /**
+     * Spec-51 (#691) — the public name, changed after publishing.
+     *
+     * One name for all of a curator's collections, so this is a single write
+     * over every document they own — and a PARTIAL one: `renameAuthor` merges,
+     * because a full `set` here is exactly the data-loss bug of #1150.
+     *
+     * A blank name is refused before any request: the store would refuse it too,
+     * and there is no reason to spend a round trip to learn that.
+     */
+    fun renamePseudonym(pseudonym: String) {
+        val clean = pseudonym.trim()
+            .take(com.slukhayka.audiobooks.data.collections.PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
+        if (clean.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val authorId = currentAuthorId()
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
+            val result = App.instance.publicCollectionsGate.renameAuthor(authorId, clean)
+            withContext(Dispatchers.Main) {
+                val renamed =
+                    result == com.slukhayka.audiobooks.data.collections.PublishResult.Published
+                _publishMessage.value =
+                    if (renamed) pseudonymRenamedMessage else publishRefusedMessage
+                // Read back rather than assumed: the name the profile shows is
+                // whatever the store now holds, not what was typed.
+                if (renamed) refreshMyPublishedCollections()
+            }
+        }
+    }
 
     /** Public surfaces render only when a shared store exists at all. */
     val publicCollectionsAvailable: Boolean get() = App.instance.publicCollectionsGate.available
 
     /**
-     * @return the preview to confirm, or null when this collection can never be
-     * published (which the UI states honestly instead of showing an empty gate).
+     * #1154 — the explicit confirmation, and the only door to the network.
+     *
+     * The signed-in uid is read and hashed INSIDE the coroutine, exactly as
+     * [refreshMyPublishedCollections] does: the raw identifier never leaves this
+     * block, and the caller — a screen — is never trusted with it.
+     *
+     * The collection is matched BY ID. Two collections may share a title, and
+     * publishing the wrong one would be a real leak of the listener's curation.
      */
-    /** The collection the pending preview belongs to — matched by ID, never by title. */
-    private var pendingPublishCollectionId: String? = null
-
-    fun requestPublish(collectionId: String, pseudonym: String): Boolean {
-        val collection = _listenerCollections.value.firstOrNull { it.id == collectionId } ?: return false
-        val preview = com.slukhayka.audiobooks.data.collections.PublicationPreviewFactory
-            .of(collection, pseudonym) ?: return false
-        pendingPublishCollectionId = collectionId
-        _publicationPreview.value = preview
-        return true
-    }
-
-    fun dismissPublish() {
-        pendingPublishCollectionId = null
-        _publicationPreview.value = null
-    }
-
-    /** Only the explicit confirmation lands here. */
-    fun confirmPublish(authorId: String, pseudonym: String) {
-        if (_publicationPreview.value == null) return
-        // By ID: two collections may share a title, and publishing the wrong
-        // one would be a real leak of the listener's curation.
-        val target = _listenerCollections.value
-            .firstOrNull { it.id == pendingPublishCollectionId } ?: return
+    fun confirmPublish(collectionId: String, pseudonym: String) {
+        val target = _listenerCollections.value.firstOrNull { it.id == collectionId } ?: return
         viewModelScope.launch(Dispatchers.IO) {
+            val uid = runCatching { App.instance.listenerIdentity.current()?.uid }.getOrNull()
+            val authorId = com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)
+            if (authorId.isEmpty()) {
+                withContext(Dispatchers.Main) { _publishMessage.value = publishRefusedMessage }
+                return@launch
+            }
             // #692 — freeze the local display facts of every position, so the
             // published composition renders for a reader who owns none of them.
             val snapshots = target.items.associate { item ->
@@ -6042,15 +6345,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     coverUrl = row?.coverImageUrl
                 )
             }
-            App.instance.publicCollectionsGate.publish(
+            val result = App.instance.publicCollectionsGate.publish(
                 collection = target,
                 authorId = authorId,
                 pseudonym = pseudonym,
                 itemSnapshots = snapshots
             )
             withContext(Dispatchers.Main) {
-                _publicationPreview.value = null
-                pendingPublishCollectionId = null
+                val published =
+                    result == com.slukhayka.audiobooks.data.collections.PublishResult.Published
+                _publishMessage.value =
+                    if (published) publishPublishedMessage else publishRefusedMessage
+                // The listener's own list is what «Мої публікації» reads, so it
+                // is refreshed from the store rather than assumed.
+                if (published) refreshMyPublishedCollections()
             }
         }
     }
@@ -6062,6 +6370,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val publishedListenerCollections:
         StateFlow<List<com.slukhayka.audiobooks.data.collections.PublishedCollection>> =
         _publishedListenerCollections.asStateFlow()
+
+    /**
+     * #705 (T7) — true when the listener has a public profile for a showcase to
+     * appear on.
+     *
+     * A listener with no published collection has no profile, so the showcase
+     * has nowhere to go — the ticket's fourth criterion. The achievements screen
+     * states that honestly rather than offering an action that could only
+     * refuse.
+     *
+     * Declared here, after [publishedListenerCollections], because it derives
+     * from it: a property cannot read one that has not been initialized yet.
+     */
+    val showcasePublishable: StateFlow<Boolean> =
+        _publishedListenerCollections
+            .map { mine -> mine.any { it.pseudonym.isNotBlank() } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // Spec-51 (#692) — «Добірки з цією книгою» on the book page: one query per
     // open book, with a stale answer for a previous book dropped.

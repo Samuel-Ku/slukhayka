@@ -150,12 +150,40 @@ IDs. Cache metadata, toast, PLAYING чи один phase log не є backend ACK.
 Після першої невдачі збережи початковий прогін і виконані контрольні перевірки;
 пізніші фази не зараховуються. Повтор потребує нового слота й дозволу.
 
+## Повтор відхиленого відгуку в тому самому процесі
+
+Сценарій ще не пройдено на пристрої й backend. Для creation або EDIT
+rejection можна додати `--retry failed-once` до команди з
+`--case rejection --reconcile automatic`. Default — `--retry none`.
+ACK і manual mode з `failed-once` відхиляються до роботи зі стендом.
+Чотири фази лишаються ті самі. Повтор відбувається лише в reconnect
+після першого підтвердженого FAILED, у тому самому процесі.
+
+Тест вимикає SDK network, один раз викликає чинний `lifecycle.retry`
+і чекає QUEUED нової generation. Повний payload має збігтися з
+початковим failedSave, включно з createdAt, editedAt і editionTag.
+Перевіряються фактичний SDK pending і один виклик реального adapter.
+Confirmed лишається початковим відгуком з rating 3 і average 3.0;
+pending має rating 5. Після enableNetwork і SDK drain чинні фікстурні
+rules знову дають FAILED. SERVER має залишити повний початковий
+документ. Pending очищується, точний failedSave лишається доступним,
+confirmed, visible і headline повертаються до початкового стану.
+
+Збережи retry pending payload, Work/uid/document, нову generation,
+PID, terminal event і SERVER payload; звір SERVER окремо з host
+backend для тих самих IDs. Події спостерігаються від запуску повтору
+до перевірки SERVER і ще 1000 ms; зберігається фактична тривалість
+цього обмеженого вікна. Це не доводить успішного повтору, редактор UI,
+DELETE чи збереження failedSave після ще однієї смерті процесу.
+
 ## Незавершені Q1 gates
 
 Для актуального кандидата потрібне повне backend/device приймання
 creation ACK/rejection та queued EDIT після process death, offline restart
 і automatic reconnect. Rejection має залишити exact retry payload;
 фактичний retry і його backend verdict теж потребують доказу.
+Opt-in `--retry failed-once` готує повторний FAILED у reconnect; цей
+сценарій ще не виконувався на пристрої.
 
 EDIT rejection ще потребує фактичного backend/device
 приймання всіх чотирьох фаз; локальний rules parser його не заміняє.

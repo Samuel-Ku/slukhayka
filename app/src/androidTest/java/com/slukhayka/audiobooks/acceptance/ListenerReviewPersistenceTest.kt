@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.acceptance
 import android.app.Application
 import android.os.Bundle
 import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Task
@@ -16,9 +17,16 @@ import com.slukhayka.audiobooks.data.reviews.ListenerReview
 import com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveEvent
 import com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle
+import com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore
+import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancelAndJoin
@@ -31,7 +39,6 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -58,6 +65,10 @@ class ListenerReviewPersistenceTest {
         val edit = mutation == "edit"
         val rejected = arguments.getString("acceptanceCase") == "rejection"
         val editRejected = edit && rejected
+        val retryMode = arguments.getString("acceptanceRetry") ?: "none"
+        require(retryMode == "none" || retryMode == "failed-once")
+        val retryFailedOnce = retryMode == "failed-once"
+        require(!retryFailedOnce || rejected && automatic) { "Failed retry requires rejection and automatic reconciliation" }
         require(!editRejected || automatic) { "EDIT rejection requires automatic reconciliation" }
         val uid = if (editRejected) "qa-rejected-edit" else if (edit) "qa-accepted-edit" else if (rejected) "qa-rejected" else "qa-accepted"
         val workId = if (edit) "qa-$run-edit-${if (rejected) "rejection" else "ack"}" else "qa-$run-${if (rejected) "rejection" else "ack"}"
@@ -72,7 +83,9 @@ class ListenerReviewPersistenceTest {
         val firestore = FirebaseFirestore.getInstance(app)
         firestore.useEmulator("10.0.2.2", 8089)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val lifecycle = ListenerReviewLifecycle(FirestoreListenerReviewsStore(firestore),
+        val realStore = FirestoreListenerReviewsStore(firestore)
+        val observedEnqueues = ObservedReviewEnqueues(realStore)
+        val lifecycle = ListenerReviewLifecycle(if (retryFailedOnce) observedEnqueues else realStore,
             now = { if (edit) 200L else System.currentTimeMillis() }, scope = scope)
         lifecycle.open(workId, uid)
         val seed = ListenerReview(workId, if (edit) uid else "qa-seed", "Тестовий читач", 3,
@@ -81,6 +94,7 @@ class ListenerReviewPersistenceTest {
         // Independent EDIT oracle: all fields are fixed before any public/cache read.
         val expectedEdit = if (edit) seed.copy(rating = 5, body = "Переживає restart", editedAt = 200L) else null
         val documentId = ListenerReviewCodec.documentId(workId, uid)
+        var phasePrimary: Throwable? = null
         try {
             when (phase) {
                 "seed" -> {
@@ -261,6 +275,10 @@ class ListenerReviewPersistenceTest {
                         assertTrue(lifecycle.state.value.pending.isEmpty())
                         assertEquals(if (rejected) 3.0 else if (edit) 5.0 else 4.0,
                             CombinedAverage.average(emptyList(), lifecycle.state.value.confirmed.map { it.rating })!!.value, 0.0)
+                        if (retryFailedOnce) {
+                            assertRejectedRetryInSameProcess(lifecycle, observedEnqueues, firestore,
+                                workId, uid, documentId, seed, restored, terminalEvents.single().generation)
+                        }
                     } finally {
                         collecting?.cancel()
                         settled?.cancel()
@@ -272,12 +290,196 @@ class ListenerReviewPersistenceTest {
             instrumentation.sendStatus(0, Bundle().apply {
                 putString("acceptanceEvidence", "PASS phase=$phase case=$uid pid=${Process.myPid()}")
             })
+        } catch (failure: Throwable) {
+            phasePrimary = failure
+            throw failure
         } finally {
-            scope.cancel()
-            if (phase == "seed" || phase == "reconnect") {
-                firestore.terminate().finish()
-                app.delete()
+            closePhaseResources(phasePrimary, scope, firestore, app, phase)
+        }
+    }
+
+    /** Observes the public enqueue only; every operation still uses the real Firestore adapter. */
+    private class ObservedReviewEnqueues(private val real: ListenerReviewsStore) : ListenerReviewsStore by real {
+        private val lock = Any()
+        private val reviews = mutableListOf<ListenerReview>()
+
+        override suspend fun enqueueReview(review: ListenerReview): ReviewWriteReceipt {
+            synchronized(lock) { reviews += review }
+            return real.enqueueReview(review)
+        }
+
+        fun captured(): List<ListenerReview> = synchronized(lock) { reviews.toList() }
+    }
+
+    /** The retry happens after the recovered FAILED, in this same reconnect process. */
+    private suspend fun assertRejectedRetryInSameProcess(
+        lifecycle: ListenerReviewLifecycle,
+        observedEnqueues: ObservedReviewEnqueues,
+        firestore: FirebaseFirestore,
+        workId: String,
+        uid: String,
+        documentId: String,
+        seed: ListenerReview,
+        originalFailed: ListenerReview,
+        recoveredGeneration: Long
+    ) = supervisorScope {
+        require(recoveredGeneration > 0L)
+        assertEquals("The retry belongs to the exact listener document", "${workId}_${uid}", documentId)
+        assertEquals(workId, originalFailed.workId)
+        assertEquals(uid, originalFailed.uid)
+        assertEquals(5, originalFailed.rating)
+        assertEquals("Переживає restart", originalFailed.body)
+        assertEquals(mapOf(documentId to originalFailed), lifecycle.state.value.failedSave)
+        assertEquals(listOf(seed), lifecycle.state.value.confirmed)
+        assertEquals(listOf(seed), lifecycle.state.value.visible)
+        val beforeEnqueues = observedEnqueues.captured()
+        val retryEvents = mutableListOf<ReviewSaveEvent>()
+        val queued = CompletableDeferred<ReviewSaveEvent>()
+        val terminal = CompletableDeferred<ReviewSaveEvent>()
+        val observationStartedMs = SystemClock.elapsedRealtime()
+        val collecting = launch(start = CoroutineStart.UNDISPATCHED) {
+            lifecycle.results.collect { event ->
+                if (event.workId == workId && event.documentId == documentId) {
+                    retryEvents += event
+                    if (event.result == ReviewSaveResult.QUEUED) queued.complete(event)
+                    if (event.result == ReviewSaveResult.FAILED || event.result == ReviewSaveResult.PUBLISHED) {
+                        terminal.complete(event)
+                    }
+                }
             }
+        }
+        var retrying: Deferred<String?>? = null
+        var primary: Throwable? = null
+        try {
+            // Keep the real acknowledgement unavailable until the actual queued SDK payload is observed.
+            firestore.disableNetwork().finish()
+            retrying = async(start = CoroutineStart.UNDISPATCHED) {
+                withTimeout(20_000L) { lifecycle.retry(workId) }
+            }
+            val queuedEvent = withTimeout(20_000L) { queued.await() }
+            assertEquals(ReviewSaveResult.QUEUED, queuedEvent.result)
+            assertTrue("Retry must create a new submission generation", queuedEvent.generation > recoveredGeneration)
+            assertEquals(listOf(originalFailed), observedEnqueues.captured().drop(beforeEnqueues.size))
+            assertFalse("The real retry cannot finish while the SDK network is disabled", requireNotNull(retrying).isCompleted)
+            val pendingState = lifecycle.state.value
+            assertEquals(workId, pendingState.workId)
+            assertEquals(uid, pendingState.uid)
+            assertEquals(mapOf(documentId to originalFailed), pendingState.pending)
+            assertTrue(pendingState.failedSave.isEmpty())
+            assertTrue(pendingState.failedDelete.isEmpty())
+            assertTrue(pendingState.deleting.isEmpty())
+            assertEquals(listOf(seed), pendingState.confirmed)
+            assertEquals(if (seed.uid == uid) setOf(originalFailed) else setOf(seed, originalFailed), pendingState.visible.toSet())
+            assertEquals(3.0, CombinedAverage.average(emptyList(), pendingState.confirmed.map { it.rating })!!.value, 0.0)
+            val sdkPending = firestore.collection("book_reviews").document(documentId).get(Source.CACHE).finish()
+            assertTrue("Retry must reach the actual SDK persistent queue", sdkPending.exists())
+            assertTrue(sdkPending.metadata.isFromCache)
+            assertTrue(sdkPending.metadata.hasPendingWrites())
+            assertEquals(documentId, sdkPending.id)
+            assertEquals("Retry must preserve the full original failed payload", originalFailed,
+                requireNotNull(sdkPending.data?.let(ListenerReviewCodec::fromMap)))
+            InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply {
+                putString("acceptanceRetryPendingPayload", JSONObject(requireNotNull(sdkPending.data))
+                    .put("documentId", sdkPending.id).toString())
+                putString("acceptanceRetryEvidence", "QUEUED pid=${Process.myPid()} workId=$workId uid=$uid documentId=$documentId generation=${queuedEvent.generation} publicEnqueues=1 SDKPending=true")
+            })
+
+            firestore.enableNetwork().finish()
+            firestore.waitForPendingWrites().finish()
+            assertEquals("The one real retry returns its exact document", documentId, requireNotNull(retrying).await())
+            val failedEvent = withTimeout(20_000L) { terminal.await() }
+            assertEquals(ReviewSaveResult.FAILED, failedEvent.result)
+            assertEquals(queuedEvent.generation, failedEvent.generation)
+            assertEquals(workId, failedEvent.workId)
+            assertEquals(documentId, failedEvent.documentId)
+            val server = firestore.collection("book_reviews").whereEqualTo("workId", workId).get(Source.SERVER).finish()
+            assertFalse(server.metadata.isFromCache)
+            assertFalse(server.metadata.hasPendingWrites())
+            val actual = server.documents.associate { doc ->
+                assertFalse(doc.metadata.isFromCache)
+                assertFalse(doc.metadata.hasPendingWrites())
+                doc.id to requireNotNull(doc.data?.let(ListenerReviewCodec::fromMap))
+            }
+            assertEquals("The rejected retry leaves the full original backend seed unchanged",
+                mapOf("${workId}_${seed.uid}" to seed), actual)
+            val failedState = lifecycle.state.value
+            assertEquals(workId, failedState.workId)
+            assertEquals(uid, failedState.uid)
+            assertTrue(failedState.pending.isEmpty())
+            assertTrue(failedState.deleting.isEmpty())
+            assertTrue(failedState.failedDelete.isEmpty())
+            assertFalse(failedState.readFailed)
+            assertEquals(mapOf(documentId to originalFailed), failedState.failedSave)
+            assertEquals(listOf(seed), failedState.confirmed)
+            assertEquals(listOf(seed), failedState.visible)
+            assertEquals(3.0, CombinedAverage.average(emptyList(), failedState.confirmed.map { it.rating })!!.value, 0.0)
+            // Only this recorded bounded window, never a lifetime uniqueness claim.
+            delay(1_000L)
+            collecting.cancelAndJoin()
+            assertEquals(listOf(ReviewSaveResult.QUEUED, ReviewSaveResult.FAILED), retryEvents.map { it.result })
+            assertTrue(retryEvents.all { it.generation == queuedEvent.generation })
+            assertEquals(listOf(originalFailed), observedEnqueues.captured().drop(beforeEnqueues.size))
+            InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply {
+                putString("acceptanceRetryServerPayload", server.documents.joinToString(prefix = "[", postfix = "]") {
+                    JSONObject(requireNotNull(it.data)).put("documentId", it.id).toString()
+                })
+                putString("acceptanceRetryTerminalEvent", JSONObject().put("workId", workId)
+                    .put("uid", uid).put("documentId", documentId).put("generation", failedEvent.generation)
+                    .put("result", failedEvent.result.name).put("additionalObservationMs", 1000)
+                    .put("observationDurationMs", SystemClock.elapsedRealtime() - observationStartedMs)
+                    .put("publicEnqueues", 1).put("pid", Process.myPid()).toString())
+            })
+        } catch (failure: Throwable) {
+            primary = failure
+            throw failure
+        } finally {
+            closeOwnedRetryJobs(primary, retrying, collecting)
+        }
+    }
+
+    private suspend fun closePhaseResources(
+        primary: Throwable?, scope: CoroutineScope, firestore: FirebaseFirestore, app: FirebaseApp, phase: String
+    ) {
+        var cleanupFailure: Throwable? = null
+        suspend fun attempt(action: suspend () -> Unit) {
+            try {
+                action()
+            } catch (failure: Throwable) {
+                val existing = cleanupFailure
+                if (existing == null) cleanupFailure = failure
+                else if (existing !== failure) existing.addSuppressed(failure)
+            }
+        }
+        withContext(NonCancellable) {
+            attempt { requireNotNull(scope.coroutineContext[Job]).cancelAndJoin() }
+            if (phase == "seed" || phase == "reconnect") {
+                attempt { firestore.terminate().finish() }
+                attempt { app.delete() }
+            }
+        }
+        cleanupFailure?.let { failure ->
+            if (primary == null) throw failure
+            if (primary !== failure) primary.addSuppressed(failure)
+        }
+    }
+
+    private suspend fun closeOwnedRetryJobs(primary: Throwable?, vararg jobs: Job?) {
+        var cleanupFailure: Throwable? = null
+        withContext(NonCancellable) {
+            for (job in jobs) {
+                if (job == null) continue
+                try {
+                    job.cancelAndJoin()
+                } catch (failure: Throwable) {
+                    val existing = cleanupFailure
+                    if (existing == null) cleanupFailure = failure
+                    else if (existing !== failure) existing.addSuppressed(failure)
+                }
+            }
+        }
+        cleanupFailure?.let { failure ->
+            if (primary == null) throw failure
+            if (primary !== failure) primary.addSuppressed(failure)
         }
     }
 

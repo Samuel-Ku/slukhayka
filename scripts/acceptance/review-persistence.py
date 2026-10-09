@@ -32,7 +32,11 @@ def main():
     parser.add_argument("--case", choices=("ack", "rejection"), default="ack")
     parser.add_argument("--reconcile", choices=("manual", "automatic"), default="manual")
     parser.add_argument("--mutation", choices=("creation", "edit"), default="creation")
+    parser.add_argument("--retry", choices=("none", "failed-once"), default="none",
+                        help="Retry the exact failed save once in the reconnect process; rejection/automatic only")
     args = parser.parse_args()
+    if args.retry == "failed-once" and (args.case != "rejection" or args.reconcile != "automatic"):
+        parser.error("Failed retry requires rejection and automatic reconciliation")
     if args.mutation == "edit" and args.case == "rejection" and args.reconcile != "automatic":
         parser.error("EDIT rejection requires automatic reconciliation and its exact FAILED event")
     if not args.serial.startswith("emulator-"):
@@ -66,6 +70,7 @@ def main():
                                  "-e", "acceptanceRun", run, "-e", "acceptanceCase", args.case,
                                  "-e", "acceptanceReconcile", args.reconcile,
                                  "-e", "acceptanceMutation", args.mutation,
+                                 "-e", "acceptanceRetry", args.retry,
                                  "-e", "acceptancePhase", phase, RUNNER)
         completed = subprocess.run(command, text=True, capture_output=True, timeout=150)
         log = completed.stdout + completed.stderr
@@ -74,7 +79,7 @@ def main():
         records.append({"phase": phase, "passed": passed, "returnCode": completed.returncode,
                         "forceStopReturnCode": stopped.returncode})
         (output / "result.json").write_text(json.dumps({"run": run, "project": PROJECT,
-                "case": args.case, "reconcile": args.reconcile, "mutation": args.mutation, "serial": args.serial,
+                "case": args.case, "reconcile": args.reconcile, "mutation": args.mutation, "retry": args.retry, "serial": args.serial,
                 "recordedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "phases": records}, indent=2) + "\n")
         print(f"{phase}: {'PASS' if passed else 'FAIL'}", flush=True)

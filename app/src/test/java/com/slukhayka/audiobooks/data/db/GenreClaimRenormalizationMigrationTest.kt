@@ -13,6 +13,7 @@ import com.slukhayka.audiobooks.data.achievements.RoomAchievementStore
 import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import java.io.File
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -115,7 +116,8 @@ class GenreClaimRenormalizationMigrationTest {
 
             // Нагорода справді відкривається після міграції — це і є сенс зрізу.
             val snapshot = RoomAchievementProgressSource(
-                achievementDao, RoomAchievementStore(achievementDao), emptySet()
+                achievementDao, RoomAchievementStore(achievementDao), emptySet(),
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
             assertTrue(
                 "«10 книг у жанрі» мусить відкритись на наявних заявах",

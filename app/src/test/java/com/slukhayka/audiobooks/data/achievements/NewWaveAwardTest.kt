@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.source.SourceRegistry
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -95,7 +96,7 @@ class NewWaveAwardTest {
         appearedOnOf: (String) -> LocalDate? = SourceRegistry::appearedOn
     ): AchievementProgress = RoomAchievementProgressSource(
         database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
-        appearedOnOf = appearedOnOf, zoneId = kyiv
+        appearedOnOf = appearedOnOf, zoneId = kyiv, abandonedBookIds = flowOf(emptySet())
     ).observe().first()
 
     private suspend fun earned(

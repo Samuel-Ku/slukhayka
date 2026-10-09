@@ -878,12 +878,50 @@ class App : Application() {
         com.slukhayka.audiobooks.data.achievements.AchievementEngine(
             com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource(
                 database.achievementDao(), achievementStore,
-                com.slukhayka.audiobooks.data.source.SourceRegistry.ids()), achievementStore,
+                com.slukhayka.audiobooks.data.source.SourceRegistry.ids(),
+                // #1174 (друга смуга): «Не кидаю» reads the LIVE marks through
+                // the mark owner's own flow, so the award, the library badge and
+                // the book page answer "is this book abandoned?" with one
+                // answer — and a mark only the database still carries (a
+                // completion that arrived from another device) cannot close the
+                // award for good.
+                abandonedBookIds = abandonedBooks.observeLiveAbandonedBookIds()), achievementStore,
             onFailure = { android.util.Log.w("Achievements", "local evaluation will retry", it) })
     }
     /** Enqueue a real acceptance without tying its persistence to the screen coroutine. */
     fun recordAchievementFact(fact: com.slukhayka.audiobooks.data.achievements.AchievementFact) {
         achievementRecorder.captureFact(fact)
+    }
+
+    /**
+     * #1174 (друга смуга) — завершення книги знімає позначку «покинуто».
+     *
+     * The completion moment is the last one that can see the mark, so
+     * [com.slukhayka.audiobooks.data.entries.AbandonedBooks.finish] captures
+     * the «завершив після покинутого» fact BEFORE it rewrites the pass. That
+     * capture goes through the store rather than the recorder's in-memory FIFO
+     * on purpose: the row it talks about stops proving the fact the instant it
+     * is written, so an ordering that only survives inside the process is not
+     * enough here. One insert in a background coroutine costs nothing on the
+     * completion path, and the FIFO stays what ADR-0060 made it — the carrier
+     * for facts observed in player callbacks.
+     */
+    private fun clearAbandonMarkOnCompletion(bookId: String) {
+        achievementScope.launch {
+            runCatching {
+                abandonedBooks.finish(bookId) {
+                    achievementStore.recordFact(
+                        com.slukhayka.audiobooks.data.achievements.AchievementFact.FINISHED_AFTER_ABANDON
+                    )
+                }
+            }.onFailure {
+                // The completion itself has happened; only this write failed.
+                // The badge stays hidden for a finished book either way, so the
+                // listener sees nothing wrong — the log is where a stale mark
+                // can be told from one that was taken away.
+                android.util.Log.w("Achievements", "позначку «покинуто» не знято: $bookId", it)
+            }
+        }
     }
 
     /**
@@ -1486,6 +1524,11 @@ class App : Application() {
             onBookCompleted = { bookId ->
                 bookFeedbackStore.completed(bookId)
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.BOOK_COMPLETED)
+                // #1174 (друга смуга): the end-of-book event is the completion
+                // the awards read, so THIS is the door that both takes the
+                // «покинуто» mark away and captures «завершив після покинутого»
+                // — in that order, inside the one call.
+                clearAbandonMarkOnCompletion(bookId)
             },
             onListeningObservation = achievementRecorder::recordObservation,
             onActualPlaybackStarted = { offline ->

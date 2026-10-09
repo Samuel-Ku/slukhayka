@@ -786,6 +786,8 @@
     <string name="achievement_sync_4h">Синхронно</string>
     <string name="achievement_night_shift_2h">Нічна зміна</string>
     <string name="achievement_dawn_5">Світанок</string>
+    <!-- #1174 (друга смуга, US28): «Не кидаю» — 10 завершених книг і жодної позначки «покинуто». -->
+    <string name="achievement_never_abandon_10">Не кидаю</string>
     <string name="achievements_title">Досягнення</string>
     <string name="settings_desc_achievements">Нагороди за прослухане</string>
     <string name="achievements_tier">Титул: %1$s</string>

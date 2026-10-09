@@ -21,6 +21,13 @@ data class LocalAudioEntry(
      * same-named folders in different branches never merge into one book.
      */
     val parentFolder: String?,
+    /**
+     * The SAF document URI of the file itself (ADR-0061). When the folder is
+     * the storage, this URI is the track's playable address — the import
+     * writes it instead of copying bytes into app storage. Null only for
+     * entries built without a document (legacy seams).
+     */
+    val uri: String? = null,
     val openStream: () -> InputStream
 )
 
@@ -49,9 +56,11 @@ object LocalFolderScanner {
             val name = root.name ?: return emptyList()
             if (name.substringAfterLast('.', "").lowercase() !in AUDIO_EXTENSIONS) return emptyList()
             val uri = root.uri
-            return listOf(LocalAudioEntry(fileName = name, parentFolder = null) {
-                resolver.openInputStream(uri)!!
-            })
+            return listOf(
+                LocalAudioEntry(fileName = name, parentFolder = null, uri = uri.toString()) {
+                    resolver.openInputStream(uri)!!
+                }
+            )
         }
         val result = mutableListOf<LocalAudioEntry>()
         collect(dir = root, relativePath = null, resolver = resolver, out = result)
@@ -73,9 +82,15 @@ object LocalFolderScanner {
                 }
                 child.isFile && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS -> {
                     val uri = child.uri
-                    out.add(LocalAudioEntry(fileName = name, parentFolder = relativePath) {
-                        resolver.openInputStream(uri)!!
-                    })
+                    out.add(
+                        LocalAudioEntry(
+                            fileName = name,
+                            parentFolder = relativePath,
+                            uri = uri.toString()
+                        ) {
+                            resolver.openInputStream(uri)!!
+                        }
+                    )
                 }
             }
         }

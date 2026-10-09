@@ -8,7 +8,12 @@ import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
 import com.slukhayka.audiobooks.data.catalog.LibrarySeeder.SeedBudget
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.cancel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -172,5 +177,146 @@ class LibrarySeederTest {
         assertEquals(0, result.imported)
         assertTrue(importedAt.isEmpty())
         assertTrue(resolvedAt.isNotEmpty())
+    }
+
+    @Test
+    fun `a received detail contributes recommendations even without a playable stream`() = runBlocking {
+        val url = "https://sluhay.com.ua/100:tyhrolovy"
+        val received = SourceBookDetail("Тигролови", "Іван Багряний", url = url,
+            chapters = emptyList(), related = listOf(com.slukhayka.audiobooks.data.source.RelatedBook(
+                "Місто", "Валер’ян Підмогильний", "https://sluhay.com.ua/102:misto")))
+        val requests = mutableListOf<String>()
+        val observed = mutableListOf<Pair<String, SourceBookDetail>>()
+        var probes = 0
+        var imports = 0
+        val adapter = object : SourceAdapter {
+            override val sourceId = "sluhayua"
+            override suspend fun search(query: String): List<SourceBook> = error("no search")
+            override suspend fun fetchNew(limit: Int): List<SourceBook> = error("no feed")
+            override suspend fun fetchBookPage(url: String): SourceBookDetail {
+                requests += url
+                return received
+            }
+        }
+        val candidate = directCard.copy(title = received.title, author = received.author,
+            mergeKey = "тигролови|багряний", sources = listOf(GlobalSearchSource("sluhayua", "Слухай UA", url)))
+        val seeder = LibrarySeeder(candidates = { listOf(candidate) }, adapterFor = { adapter },
+            streamProbe = { probes++; error("no unplayable stream probe") }, known = { false },
+            import = { _, _ -> imports++; error("no unplayable book import") },
+            onSourceDetailObserved = { sourceId, detail -> observed += sourceId to detail })
+
+        val result = seeder.seedOnce()
+
+        assertEquals("already received recommendations are observed before the playable guard", 1, observed.size)
+        assertEquals("sluhayua" to received, observed.single())
+        assertEquals(listOf(url), requests)
+        assertEquals(0, probes)
+        assertEquals(0, imports)
+        assertEquals(LibrarySeeder.SeedResult(0, 0, 1, 0), result)
+    }
+
+    /** Fixture only for the external source/probe/import/observer boundaries. */
+    private fun observationPass(
+        events: MutableList<String>,
+        known: Boolean = false,
+        playable: Boolean = true,
+        fetchFailure: Exception? = null,
+        observed: suspend () -> Unit = {}
+    ): LibrarySeeder {
+        val url = "https://sluhay.com.ua/100:tyhrolovy"
+        val received = detail(url).copy(related = listOf(com.slukhayka.audiobooks.data.source.RelatedBook(
+            "Місто", "Валер’ян Підмогильний", "https://sluhay.com.ua/102:misto")))
+        val adapter = object : SourceAdapter {
+            override val sourceId = "sluhayua"
+            override suspend fun search(query: String): List<SourceBook> = error("no search")
+            override suspend fun fetchNew(limit: Int): List<SourceBook> = error("no feed")
+            override suspend fun fetchBookPage(url: String): SourceBookDetail {
+                events += "fetch"
+                fetchFailure?.let { throw it }
+                return received
+            }
+        }
+        val candidate = directCard.copy(sources = listOf(GlobalSearchSource("sluhayua", "Слухай UA", url)))
+        return LibrarySeeder(candidates = { listOf(candidate) }, adapterFor = { adapter }, known = { known },
+            streamProbe = { events += "probe"; playable }, import = { _, _ -> events += "import" },
+            onSourceDetailObserved = { sourceId, detail ->
+                assertEquals("sluhayua", sourceId)
+                assertSame(received, detail)
+                events += "observe"
+                observed()
+            })
+    }
+
+    @Test
+    fun `an unreachable stream still observes the received detail before its one probe`() = runBlocking {
+        val events = mutableListOf<String>()
+        val result = observationPass(events, playable = false).seedOnce()
+        assertEquals(listOf("fetch", "observe", "probe"), events)
+        assertEquals(LibrarySeeder.SeedResult(0, 0, 1, 0), result)
+    }
+
+    @Test
+    fun `a playable seed observes once before its one probe and import`() = runBlocking {
+        val events = mutableListOf<String>()
+        val result = observationPass(events).seedOnce()
+        assertEquals(listOf("fetch", "observe", "probe", "import"), events)
+        assertEquals(LibrarySeeder.SeedResult(1, 1, 0, 0), result)
+    }
+
+    @Test
+    fun `a known seed does not masquerade as an observed source detail`() = runBlocking {
+        val events = mutableListOf<String>()
+        val result = observationPass(events, known = true).seedOnce()
+        assertTrue(events.isEmpty())
+        assertEquals(LibrarySeeder.SeedResult(0, 0, 0, 1), result)
+    }
+
+    @Test
+    fun `a failed source resolve never invokes the observer or probe`() = runBlocking {
+        val events = mutableListOf<String>()
+        val result = observationPass(events, fetchFailure = IllegalStateException("source down")).seedOnce()
+        assertEquals(listOf("fetch"), events)
+        assertEquals(LibrarySeeder.SeedResult(0, 0, 1, 0), result)
+    }
+
+    @Test
+    fun `an ordinary observer failure cannot reject a playable seed`() = runBlocking {
+        val events = mutableListOf<String>()
+        val result = observationPass(events, observed = { throw IllegalStateException("metadata down") }).seedOnce()
+        assertEquals(listOf("fetch", "observe", "probe", "import"), events)
+        assertEquals(LibrarySeeder.SeedResult(1, 1, 0, 0), result)
+    }
+
+    @Test
+    fun `observer cancellation propagates before any probe or import`() {
+        val events = mutableListOf<String>()
+        val cancelled = CancellationException("metadata cancelled")
+        val thrown = assertThrows(CancellationException::class.java) {
+            runBlocking { observationPass(events, observed = { throw cancelled }).seedOnce() }
+        }
+        assertSame(cancelled, thrown)
+        assertEquals(listOf("fetch", "observe"), events)
+    }
+
+    @Test
+    fun `source cancellation is not converted to a failed seed`() {
+        val events = mutableListOf<String>()
+        val cancelled = CancellationException("source cancelled")
+        val thrown = assertThrows(CancellationException::class.java) {
+            runBlocking { observationPass(events, fetchFailure = cancelled).seedOnce() }
+        }
+        assertSame(cancelled, thrown)
+        assertEquals(listOf("fetch"), events)
+    }
+
+    @Test
+    fun `external cancellation swallowed by the observer still prevents probe and import`() {
+        val events = mutableListOf<String>()
+        assertThrows(CancellationException::class.java) {
+            runBlocking {
+                observationPass(events, observed = { currentCoroutineContext().cancel() }).seedOnce()
+            }
+        }
+        assertEquals(listOf("fetch", "observe"), events)
     }
 }

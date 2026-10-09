@@ -21,6 +21,9 @@ import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -46,7 +49,9 @@ class LibraryEntries(
     // #581 W0.3 — the Work-relationship sync writer: removing a Work
     // mirrors as a `tombstone` row (the web's hide filter and every device
     // agree). Null in tests / without Firebase; best-effort and silent.
-    private val workRelationshipsSync: WorkRelationshipsSync? = null
+    private val workRelationshipsSync: WorkRelationshipsSync? = null,
+    /** Metadata from an actual successful source detail fetch. */
+    private val onSourceDetailObserved: (suspend (String, SourceBookDetail) -> Unit)? = null
 ) {
 
     // Spec-45 (#405) R1 (#508): the shared facet-projection seam — the SAME
@@ -189,6 +194,18 @@ class LibraryEntries(
         }
     }
 
+    private suspend fun observeLiveDetail(sourceId: String, detail: SourceBookDetail) {
+        currentCoroutineContext().ensureActive()
+        try {
+            onSourceDetailObserved?.invoke(sourceId, detail)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional metadata cannot discard the requested source profile.
+        }
+        currentCoroutineContext().ensureActive()
+    }
+
     suspend fun fetchSourceProfiles(bookId: String): List<SourceProfile> =
         withContext(Dispatchers.IO) {
             val sources = dao.getSourcesForBookSync(bookId)
@@ -197,6 +214,7 @@ class LibraryEntries(
                     ?: return@mapNotNull null
                 try {
                     val detail = adapter.fetchBookPage(source.url)
+                    observeLiveDetail(source.type, detail)
                     // A page that yielded nothing (blank title AND no chapters)
                     // is a failure, not an empty block.
                     if (detail.title.isBlank() && detail.chapters.isEmpty()) return@mapNotNull null
@@ -210,6 +228,8 @@ class LibraryEntries(
                         genres = detail.genres,
                         visitorComments = detail.visitorComments
                     )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     null
                 }
@@ -331,6 +351,7 @@ class LibraryEntries(
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext
             val detail = adapter.fetchBookPage(book.sourceUrl)
+            observeLiveDetail(sourceId, detail)
             // #855 (T2) — a cover the listener pinned is not the page's to
             // change: their Override outranks this claim too, so the fix
             // survives every book-page open.

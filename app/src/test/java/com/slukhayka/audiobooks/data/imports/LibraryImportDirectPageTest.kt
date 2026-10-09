@@ -2,11 +2,14 @@ package com.slukhayka.audiobooks.data.imports
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonIdentity
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
@@ -16,10 +19,15 @@ import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -27,6 +35,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * #477 — the import layer of the best-effort direct browser-source page door,
@@ -96,6 +109,14 @@ class LibraryImportDirectPageTest {
         val first = imports.importBrowserSourceDirectPage("sluhay", detail().url)
         assertTrue(first != null)
         assertEquals(1, dao.getAllAudiobooks().first().size)
+        val workId = requireNotNull(first!!.workId)
+        val carriers = dao.getWorkSourcesForWorkSync(workId)
+        assertEquals(1, carriers.size)
+        val admitted = carriers.single()
+        assertEquals("sluhay", admitted.sourceId)
+        assertEquals(detail().url, admitted.sourceUrl)
+        assertEquals("$workId|sluhay|${Integer.toHexString(detail().url.hashCode())}", admitted.id)
+        assertEquals(1, dao.countWorkSources())
 
         // Tap 2 (another day, challenge passed): the page is fetched again —
         // one request, no fabricated cache — and merges into the SAME rows.
@@ -108,6 +129,188 @@ class LibraryImportDirectPageTest {
         val sources = dao.getSourcesForBookSync(bookId).filter { it.type == "sluhay" }
         assertEquals(1, sources.size)
         assertTrue(dao.getEditionForWork(bookId) != null)
+        assertEquals(1, dao.countWorkSources())
+        assertEquals(admitted.id, dao.getWorkSourcesForWorkSync(workId).single().id)
+        assertEquals(detail().url, dao.getWorkSourcesForWorkSync(workId).single().sourceUrl)
+    }
+
+    @Test
+    fun `direct page preserves admitted catalogue metadata until it has a legitimate new claim`() = runBlocking {
+        var page = detail()
+        val adapter = FakeBrowserAdapter("sluhay") { page }
+        val imports = imports(adapter)
+        val catalog = SourceCatalog(dao, emptyList(), imports)
+        val catalogWork = catalog.writeWorkEdition(
+            sourceId = "sluhay",
+            title = page.title,
+            author = page.author,
+            narrator = page.narrator,
+            sourceUrl = page.url,
+            streamOnly = streamOnlyFor("sluhay"),
+            coverImageUrl = "https://sluhay.com/covers/bovari.jpg",
+            durationSeconds = 7_200L
+        ).work
+        val admitted = dao.getWorkSourcesForWorkSync(catalogWork.id).single()
+        assertEquals(1, dao.countWorkSources())
+
+        // The ordinary own-page door has a playable chapter, but no cover/duration claim.
+        val first = requireNotNull(imports.importBrowserSourceDirectPage("sluhay", page.url))
+        assertEquals(catalogWork.id, first.workId)
+        assertEquals(admitted, dao.getWorkSourcesForWorkSync(catalogWork.id).single())
+        val repeated = requireNotNull(imports.importBrowserSourceDirectPage("sluhay", page.url))
+        assertEquals(first.id, repeated.id)
+        assertEquals(admitted, dao.getWorkSourcesForWorkSync(catalogWork.id).single())
+        assertEquals(1, dao.countWorkSources())
+
+        // Blank cover and the legacy duration sentinel are absent claims too.
+        page = page.copy(coverImageUrl = "  ", totalDurationSeconds = 14_400L)
+        val absentClaim = requireNotNull(imports.importBrowserSourceDirectPage("sluhay", page.url))
+        assertEquals(first.id, absentClaim.id)
+        assertEquals(admitted, dao.getWorkSourcesForWorkSync(catalogWork.id).single())
+
+        // A real new own-page claim may update only the metadata, after normalization.
+        page = page.copy(
+            coverImageUrl = "  https://sluhay.com/covers/bovari-new.jpg  ",
+            totalDurationSeconds = 8_100L
+        )
+        val freshClaim = requireNotNull(imports.importBrowserSourceDirectPage("sluhay", page.url))
+        assertEquals(first.id, freshClaim.id)
+        assertEquals(
+            admitted.copy(coverImageUrl = "https://sluhay.com/covers/bovari-new.jpg", durationSeconds = 8_100L),
+            dao.getWorkSourcesForWorkSync(catalogWork.id).single()
+        )
+        assertEquals(4, adapter.fetchCalls)
+        assertEquals(1, dao.countWorkSources())
+        assertEquals(catalogWork, dao.getWorkById(catalogWork.id))
+        assertEquals(1, dao.getAllAudiobooks().first().size)
+    }
+
+    @Test
+    fun `own claim reads the latest catalog carrier inside its merge transaction`() = runBlocking {
+        val databaseName = "work-source-overlap-${UUID.randomUUID()}"
+        val armed = AtomicBoolean(false)
+        val gateTimedOut = AtomicBoolean(false)
+        var entered = CountDownLatch(1)
+        var release = CountDownLatch(1)
+        val mergeDb = Room.databaseBuilder(context, AudiobookDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .setQueryCallback(object : RoomDatabase.QueryCallback {
+                override fun onQuery(sqlQuery: String, bindArgs: List<Any?>) {
+                    if (sqlQuery.startsWith("BEGIN") && armed.compareAndSet(true, false)) {
+                        entered.countDown()
+                        if (!release.await(15, TimeUnit.SECONDS)) gateTimedOut.set(true)
+                    }
+                }
+            }, Executor { it.run() })
+            .build()
+        val catalogDb = Room.databaseBuilder(context, AudiobookDatabase::class.java, databaseName)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            // Independent Room queues over ONE real SQLite file let the catalog commit
+            // while the other connection is paused BEFORE acquiring its write transaction.
+            val mergeDao = mergeDb.audiobookDao()
+            val catalogDao = catalogDb.audiobookDao()
+            val catalog = SourceCatalog(catalogDao, emptyList(), LibraryImport(catalogDao, context, emptyList()))
+            suspend fun admit(cover: String, duration: Long): WorkSourceEntity {
+                val work = catalog.writeWorkEdition(
+                    sourceId = "sluhay", title = detail().title, author = detail().author,
+                    narrator = detail().narrator, sourceUrl = detail().url,
+                    streamOnly = streamOnlyFor("sluhay"), coverImageUrl = cover, durationSeconds = duration
+                ).work
+                return catalogDao.getWorkSourcesForWorkSync(work.id).single()
+            }
+            val oldCover = "https://sluhay.com/covers/bovari.jpg"
+            val newCover = "https://sluhay.com/covers/bovari-new.jpg"
+            val original = admit(oldCover, 7_200L)
+            // Open the merge connection before arming; schema/open callbacks are not the barrier.
+            assertEquals(original, mergeDao.getWorkSourceById(original.id))
+
+            // Execute the previous public read→guarded REPLACE seam as a causal control.
+            // The snapshot is genuinely read BEFORE the later catalog admission.
+            val stale = requireNotNull(mergeDao.getWorkSourceById(original.id))
+            armed.set(true)
+            val oldWrite = async(Dispatchers.IO) { mergeDao.safeUpsertWorkSource(stale) }
+            try {
+                assertTrue("old merge must reach its pre-lock transaction barrier", entered.await(15, TimeUnit.SECONDS))
+                assertFalse("the old write is still held before later admission", oldWrite.isCompleted)
+                val later = withTimeout(15_000) { admit(newCover, 8_100L) }
+                release.countDown()
+                assertTrue(withTimeout(15_000) { oldWrite.await() })
+                assertEquals(stale, mergeDao.getWorkSourceById(stale.id))
+                assertFalse("control must demonstrate erased newer metadata", later == mergeDao.getWorkSourceById(stale.id))
+            } finally {
+                release.countDown()
+                withTimeout(15_000) { oldWrite.await() }
+            }
+            assertFalse("control barrier must never time out", gateTimedOut.get())
+
+            // SAME pre-lock schedule, now with an absent own claim and atomic preservation.
+            admit(oldCover, 7_200L)
+            entered = CountDownLatch(1)
+            release = CountDownLatch(1)
+            val ownClaim = original.copy(coverImageUrl = null, durationSeconds = null)
+            armed.set(true)
+            val atomicWrite = async(Dispatchers.IO) { mergeDao.mergeAdmittedWorkSource(ownClaim) }
+            try {
+                assertTrue("atomic merge must reach its pre-lock transaction barrier", entered.await(15, TimeUnit.SECONDS))
+                assertFalse("the atomic write is still held before later admission", atomicWrite.isCompleted)
+                val later = withTimeout(15_000) { admit(newCover, 8_100L) }
+                release.countDown()
+                assertTrue(withTimeout(15_000) { atomicWrite.await() })
+                assertEquals(later, mergeDao.getWorkSourceById(later.id))
+                assertEquals(1, mergeDao.countWorkSources())
+                assertEquals(1, mergeDao.workSearchRowCount())
+                assertEquals(listOf(later.workId), mergeDao.matchWorkSearch("боварі*", 10))
+            } finally {
+                release.countDown()
+                withTimeout(15_000) { atomicWrite.await() }
+            }
+            assertFalse("atomic barrier must never time out", gateTimedOut.get())
+        } finally {
+            release.countDown()
+            mergeDb.close()
+            catalogDb.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun `carrier merge rolls back when the real search index refresh fails`() = runBlocking {
+        val catalog = SourceCatalog(dao, emptyList(), LibraryImport(dao, context, emptyList()))
+        val work = catalog.writeWorkEdition(
+            sourceId = "sluhay", title = detail().title, author = detail().author,
+            narrator = detail().narrator, sourceUrl = detail().url,
+            streamOnly = streamOnlyFor("sluhay"),
+            coverImageUrl = "https://sluhay.com/covers/bovari.jpg", durationSeconds = 7_200L
+        ).work
+        val admitted = dao.getWorkSourcesForWorkSync(work.id).single()
+        var page = detail()
+        val imports = imports(FakeBrowserAdapter("sluhay") { page })
+        val first = requireNotNull(imports.importBrowserSourceDirectPage("sluhay", page.url))
+        assertEquals(admitted, dao.getWorkSourceById(admitted.id))
+        assertEquals(1, dao.workSearchRowCount())
+        // A real SQLite storage error AFTER carrier upsert, at the index-refresh SQL.
+        // This private in-memory fixture owns the removed table; no DAO is replaced.
+        db.openHelper.writableDatabase.execSQL("DROP TABLE works_fts")
+        val result = runCatching {
+            dao.mergeAdmittedWorkSource(admitted.copy(
+                coverImageUrl = "https://sluhay.com/covers/bovari-new.jpg", durationSeconds = 8_100L
+            ))
+        }
+        assertTrue("storage error must escape the transaction", result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("works_fts"))
+        assertEquals(admitted, dao.getWorkSourceById(admitted.id))
+        assertEquals(1, dao.countWorkSources())
+        assertEquals(work, dao.getWorkById(work.id))
+
+        // The public import contains the metadata failure only AFTER the rollback.
+        page = page.copy(coverImageUrl = "https://sluhay.com/covers/bovari-new.jpg", totalDurationSeconds = 8_100L)
+        val repeated = requireNotNull(imports.importBrowserSourceDirectPage("sluhay", page.url))
+        assertEquals(first.id, repeated.id)
+        assertEquals(admitted, dao.getWorkSourceById(admitted.id))
+        assertEquals(1, dao.countWorkSources())
+        assertEquals(1, dao.getAllAudiobooks().first().size)
     }
 
     @Test

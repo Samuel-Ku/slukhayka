@@ -46,6 +46,8 @@ import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -117,7 +119,9 @@ class LibraryImport(
      */
     private val onChapterOrderCommitted: suspend (String, List<String>) -> Unit = { _, _ -> },
     /** Same post-commit publication boundary for confirmed and automatic topology repair. */
-    private val onChapterStructureCommitted: suspend (AudiobookEntity) -> Unit = {}
+    private val onChapterStructureCommitted: suspend (AudiobookEntity) -> Unit = {},
+    /** An actual live detail observation; cached/generic imports never invoke this boundary. */
+    private val onSourceDetailObserved: (suspend (String, SourceBookDetail) -> Unit)? = null
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
@@ -237,7 +241,7 @@ class LibraryImport(
                 }
             }
 
-            if (existing == null) {
+            val imported = if (existing == null) {
                 // Spec-14 T2/T3: the shared import path persists the enriched
                 // profile the seam now provides (genres → genre, rating,
                 // series) — every import door's card agrees with the source.
@@ -417,6 +421,35 @@ class LibraryImport(
                 }
                 existing.toAudiobookEntity()
             }
+            // ADR-0007/0010: the admitted page also supplies its Work's browse Source claim.
+            // Never register related URLs or invent a parent for a blank/unmergeable identity.
+            if (mergeKey.isNotBlank() && detail.url.isNotBlank()) {
+                val domainWorkId = imported.workId?.takeIf(String::isNotBlank)
+                    ?: dao.findWorkByMergeKey(mergeKey)?.id
+                if (domainWorkId != null) {
+                    try {
+                        dao.mergeAdmittedWorkSource(
+                            WorkSourceEntity(
+                                id = "$domainWorkId|$sourceId|${Integer.toHexString(detail.url.hashCode())}",
+                                workId = domainWorkId,
+                                sourceId = sourceId,
+                                sourceUrl = detail.url,
+                                streamOnly = streamOnlyFor(sourceId),
+                                coverImageUrl = MetadataAssertions.coverDelta(detail.coverImageUrl),
+                                durationSeconds = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds),
+                                addedAt = System.currentTimeMillis()
+                            )
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        // Best-effort browse metadata, AFTER the DAO transaction has rolled back.
+                        // The admitted playable import keeps its existing success contract.
+                        Log.w("LibraryImport", "Work Source claim could not be merged for $domainWorkId", failure)
+                    }
+                }
+            }
+            imported
         }
 
     private fun sourceRow(sourceId: String, bookId: String, editionId: String, url: String) = SourceEntity(
@@ -447,6 +480,18 @@ class LibraryImport(
             .removeSuffix(".m3u")
             .ifBlank { "book-${System.currentTimeMillis()}" }
         return "$sourceId-$slug"
+    }
+
+    private suspend fun observeLiveDetail(sourceId: String, detail: SourceBookDetail) {
+        currentCoroutineContext().ensureActive()
+        try {
+            onSourceDetailObserved?.invoke(sourceId, detail)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Metadata publication is best-effort; it never breaks an ordinary import.
+        }
+        currentCoroutineContext().ensureActive()
     }
 
     /**
@@ -510,6 +555,7 @@ class LibraryImport(
             }
             try {
                 val detail = adapter.fetchBookPage(url)
+                observeLiveDetail(sourceId, detail)
                 if (detail.chapters.isEmpty()) return@withContext null
                 // The card's cover survives a page that carries none (see
                 // KnownBookIdentity.coverImageUrl).
@@ -517,6 +563,8 @@ class LibraryImport(
                     detail.copy(coverImageUrl = known.coverImageUrl)
                 } else detail
                 importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 // Fail-open: the re-fetch failed (source down / Cloudflare) —
                 // serve the STALE profile when one exists, never nothing, and
@@ -554,16 +602,25 @@ class LibraryImport(
                 ?: return@withContext null
             val detail = try {
                 adapter.fetchBookPage(url)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 return@withContext null
             }
+            observeLiveDetail(sourceId, detail)
             if (detail.chapters.isEmpty()) return@withContext null
             // The card's cover survives a page that carries none (see
             // KnownBookIdentity.coverImageUrl).
             val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
                 detail.copy(coverImageUrl = known.coverImageUrl)
             } else detail
-            runCatching { importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported) }.getOrNull()
+            try {
+                importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
         }
 
     /**
@@ -809,6 +866,7 @@ class LibraryImport(
             } catch (_: Exception) {
                 null
             } ?: return@withContext null
+            observeLiveDetail(sourceId, detail)
             if (detail.chapters.isEmpty()) return@withContext null
             // The physical track of the failed chapter, on the book's primary
             // source — the same pairing the player resolves chapter → track

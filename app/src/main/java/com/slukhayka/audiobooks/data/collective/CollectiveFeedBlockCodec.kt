@@ -60,10 +60,11 @@ object CollectiveFeedBlockCodec {
         val attemptStatus = (map["attemptStatus"] as? String)?.let { status ->
             CollectiveAttemptStatus.entries.firstOrNull { it.name == status }
         } ?: return null
-        val cards = (map["cards"] as? List<*>).orEmpty().mapNotNull { item ->
-            val card = item as? Map<*, *> ?: return@mapNotNull null
-            val title = card["title"] as? String ?: return@mapNotNull null
-            val sourceUrl = card["sourceUrl"] as? String ?: return@mapNotNull null
+        val cardValues = map["cards"] as? List<*> ?: return null
+        val cards = cardValues.map { item ->
+            val card = item as? Map<*, *> ?: return null
+            val title = card["title"] as? String ?: return null
+            val sourceUrl = card["sourceUrl"] as? String ?: return null
             CollectiveBlockCard(
                 sourceId = card["sourceId"] as? String ?: sourceId,
                 sourceUrl = sourceUrl,

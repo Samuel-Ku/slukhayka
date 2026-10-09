@@ -701,6 +701,27 @@ class App : Application() {
         )
     }
 
+    /** Projects recommendations only from a detail already resolved by an existing operation. */
+    private suspend fun observeSourceDetail(
+        sourceId: String,
+        detail: com.slukhayka.audiobooks.data.source.SourceBookDetail
+    ) {
+        collectiveFeedRefresh.observeExplicit(
+            com.slukhayka.audiobooks.data.collective.collectiveBlockKey(
+                sourceId, com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.RECOMMENDATIONS
+            )
+        ) {
+            sourceCatalog.collectiveRelatedBlock(sourceId, detail)
+        }
+    }
+
+    /** Persisted overview blocks, read independently of deliberate source refresh. */
+    val collectiveOverviewBlocks: com.slukhayka.audiobooks.data.collective.CollectiveOverviewBlocks by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveOverviewBlocks(
+            store = com.slukhayka.audiobooks.data.collective.RoomCollectiveFeedBlockStore(database.audiobookDao())
+        )
+    }
+
     /** #530 — the lightweight identity (title, author) of one book row. */
     suspend fun bookIdentity(bookId: String): Pair<String, String>? =
         database.audiobookDao().getAudiobookById(bookId)?.let { row ->
@@ -1000,6 +1021,7 @@ class App : Application() {
             database.audiobookDao(),
             this,
             sourceAdapters,
+            onSourceDetailObserved = ::observeSourceDetail,
             popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             // Spec-26 T8 (#182): a new imported book whose series belongs to
             // a cached universe immediately re-validates that universe's
@@ -1108,6 +1130,7 @@ class App : Application() {
             database.audiobookDao(),
             sourceAdapters,
             libraryImport,
+            onSourceDetailObserved = ::observeSourceDetail,
             popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             collectionLists = CollectionAssets.load(this),
             liveCollectionSources = listOf(
@@ -1258,7 +1281,8 @@ class App : Application() {
 
     /** Library Entries: delete/remove/favourite/metadata + library reads. */
     val libraryEntries: LibraryEntries by lazy {
-        LibraryEntries(database.audiobookDao(), sourceAdapters, workRelationshipsSync)
+        LibraryEntries(database.audiobookDao(), sourceAdapters, workRelationshipsSync,
+            onSourceDetailObserved = ::observeSourceDetail)
     }
 
     /**
@@ -1272,7 +1296,8 @@ class App : Application() {
         DurationEnrichment(
             database.audiobookDao(),
             adapterFor = { sourceId -> sourceAdapters.firstOrNull { it.sourceId == sourceId } },
-            sharedStore = sharedMetaStore
+            sharedStore = sharedMetaStore,
+            onSourceDetailObserved = ::observeSourceDetail
         )
     }
 
@@ -1313,7 +1338,8 @@ class App : Application() {
                 if (!com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(sourceId)) {
                     libraryImport.importBookFromSource(sourceId, detail, origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.AUTO_SEED)
                 }
-            }
+            },
+            onSourceDetailObserved = ::observeSourceDetail
         )
     }
 

@@ -5,6 +5,9 @@ import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): каталог →
@@ -31,7 +34,9 @@ class LibrarySeeder(
     /** The already-in-library check (mergeKey) — zero requests. */
     private val known: suspend (String) -> Boolean,
     /** The ordinary import door (idempotent by Edition). */
-    private val import: suspend (sourceId: String, detail: SourceBookDetail) -> Unit
+    private val import: suspend (sourceId: String, detail: SourceBookDetail) -> Unit,
+    /** Already fetched source metadata; does not depend on playability. */
+    private val onSourceDetailObserved: (suspend (String, SourceBookDetail) -> Unit)? = null
 ) {
 
     /** Bounds of one pass — small by design; the next pass continues. */
@@ -70,11 +75,22 @@ class LibrarySeeder(
 
             val detail = try {
                 adapterFor(source.sourceId)?.fetchBookPage(source.url) ?: continue
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 if (++consecutiveFailures >= budget.maxConsecutiveFailures) break
                 failed++
                 continue
             }
+            currentCoroutineContext().ensureActive()
+            try {
+                onSourceDetailObserved?.invoke(source.sourceId, detail)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Optional metadata does not decide whether a stream is playable.
+            }
+            currentCoroutineContext().ensureActive()
             val stream = detail.chapters.firstOrNull()?.streamUrl
             if (detail.chapters.isEmpty() || stream.isNullOrBlank() || !streamProbe(stream)) {
                 consecutiveFailures++

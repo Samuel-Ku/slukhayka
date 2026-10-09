@@ -2,8 +2,17 @@ package com.slukhayka.audiobooks.data.collective
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -119,6 +128,117 @@ class CollectiveFeedRefreshTest {
         val owned = owner.await()
         assertEquals(1, calls)
         assertEquals(2L, owned!!.version)
+    }
+
+    @Test(timeout = 10_000L)
+    fun `an expired refresh cannot replace the newer block from its successor`() = runTest {
+        val store = InMemoryCollectiveFeedBlockStore()
+        store.activate(block(listOf(card("Стара")), fetchedAt = now - 7L * 60 * 60 * 1000))
+        val firstStarted = CompletableDeferred<Unit>()
+        val returnFirst = CompletableDeferred<Unit>()
+        var calls = 0
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = {
+                when (++calls) {
+                    1 -> {
+                        firstStarted.complete(Unit)
+                        returnFirst.await()
+                        CollectiveRefreshOutcome.Success(block(listOf(card("Запізніла A")), fetchedAt = 0L))
+                    }
+                    2 -> CollectiveRefreshOutcome.Success(block(listOf(card("Нова B")), fetchedAt = 0L))
+                    else -> error("A fresh successor must not trigger another source request")
+                }
+            },
+            clock = { now }
+        )
+
+        val first = async { refresh.read(key) }
+        firstStarted.await()
+        now += CollectiveFeedRefresh.DEFAULT_LEASE_TTL_MS + 1L
+        val successor = refresh.read(key)
+        assertEquals(listOf("Нова B"), successor!!.cards.map { it.title })
+        returnFirst.complete(Unit)
+
+        assertEquals("The expired owner must return the committed successor", successor, first.await())
+        assertEquals(successor, store.active(key))
+        assertEquals(successor, refresh.read(key))
+        assertEquals(2, calls)
+    }
+
+    @Test(timeout = 10_000L)
+    fun `an expired owner cannot release the successor lease to admit another request`() = runTest {
+        val store = InMemoryCollectiveFeedBlockStore()
+        store.activate(block(listOf(card("Стара")), fetchedAt = now - 7L * 60 * 60 * 1000))
+        val firstStarted = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val returnFirst = CompletableDeferred<Unit>()
+        val returnSecond = CompletableDeferred<Unit>()
+        var calls = 0
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = {
+                when (++calls) {
+                    1 -> {
+                        firstStarted.complete(Unit)
+                        returnFirst.await()
+                        CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
+                    }
+                    2 -> {
+                        secondStarted.complete(Unit)
+                        returnSecond.await()
+                        CollectiveRefreshOutcome.Success(block(listOf(card("Нова B")), fetchedAt = 0L))
+                    }
+                    else -> CollectiveRefreshOutcome.Empty
+                }
+            },
+            clock = { now }
+        )
+
+        val first = async { refresh.read(key) }
+        firstStarted.await()
+        now += CollectiveFeedRefresh.DEFAULT_LEASE_TTL_MS + 1L
+        val successor = async { refresh.read(key) }
+        secondStarted.await()
+        returnFirst.complete(Unit)
+        first.await()
+        val concurrentReader = refresh.read(key)
+        returnSecond.complete(Unit)
+        val committed = successor.await()
+
+        assertEquals("The expired owner must not admit request C while B holds the lease", 2, calls)
+        assertEquals(listOf("Стара"), concurrentReader!!.cards.map { it.title })
+        assertEquals(listOf("Нова B"), committed!!.cards.map { it.title })
+        assertEquals(committed, store.active(key))
+    }
+
+    @Test(timeout = 10_000L)
+    fun `a cancelled expired owner cannot continue after fetch swallowed cancellation`() = runTest {
+        val store = InMemoryCollectiveFeedBlockStore()
+        val seeded = block(listOf(card("Стара")), fetchedAt = now - 7L * 60 * 60 * 1000)
+        store.activate(seeded)
+        val refresh = CollectiveFeedRefresh(
+            store = store,
+            lease = InMemoryCollectiveRefreshLease(),
+            fetch = {
+                currentCoroutineContext().cancel()
+                now += CollectiveFeedRefresh.DEFAULT_LEASE_TTL_MS + 1L
+                CollectiveRefreshOutcome.Empty
+            },
+            clock = { now }
+        )
+        var successfulContinuation = false
+        val caller = async {
+            refresh.read(key)
+            successfulContinuation = true
+        }
+        caller.join()
+
+        assertFalse("Cancelled read must not allow a successful caller continuation", successfulContinuation)
+        assertTrue(caller.isCancelled)
+        assertEquals(seeded, store.active(key))
     }
 
     @Test
@@ -343,5 +463,134 @@ class CollectiveFeedRefreshTest {
         assertEquals(good.cards, rendered!!.cards)
         assertEquals(1L, rendered.version)
         assertEquals(CollectiveAttemptStatus.CHALLENGE, rendered.lastAttempt.status)
+    }
+
+    @Test
+    fun `cancellation after the observed outcome keeps the previous active block and publication`() {
+        val store = InMemoryCollectiveFeedBlockStore()
+        val good = block(listOf(card("Попередня")), fetchedAt = now)
+        runBlocking { store.activate(good) }
+        var publications = 0
+        val refresh = CollectiveFeedRefresh(store, InMemoryCollectiveRefreshLease(),
+            fetch = { error("no source fetching") }, clock = { now }, onActivated = { publications++ })
+        assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking {
+                refresh.observeExplicit(key) {
+                    currentCoroutineContext().cancel()
+                    CollectiveRefreshOutcome.Success(block(listOf(card("Скасована")), fetchedAt = 0L))
+                }
+            }
+        }
+        assertEquals(good, runBlocking { store.active(key) })
+        assertEquals(0, publications)
+    }
+
+    @Test
+    fun `shared publication cancellation propagates after the local block is committed`() {
+        val store = InMemoryCollectiveFeedBlockStore()
+        runBlocking { store.activate(block(listOf(card("Попередня")), fetchedAt = now)) }
+        val cancelled = kotlinx.coroutines.CancellationException("publication cancelled")
+        val refresh = CollectiveFeedRefresh(store, InMemoryCollectiveRefreshLease(),
+            fetch = { error("no source fetching") }, clock = { now }, onActivated = { throw cancelled })
+        val thrown = assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking {
+                refresh.observeExplicit(key) {
+                    CollectiveRefreshOutcome.Success(block(listOf(card("Відкрита")), fetchedAt = 0L))
+                }
+            }
+        }
+        assertTrue(
+            "the publisher's cancellation must propagate directly or through stacktrace recovery",
+            thrown === cancelled || thrown.cause === cancelled
+        )
+        assertEquals(cancelled.message, thrown.message)
+        val committed = runBlocking { store.active(key) }!!
+        assertEquals(listOf("Відкрита"), committed.cards.map { it.title })
+        assertEquals(2L, committed.version)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `an unavailable publication returns the committed observation within one second`() = runTest {
+        val store = InMemoryCollectiveFeedBlockStore()
+        var publications = 0
+        val refresh = CollectiveFeedRefresh(store, InMemoryCollectiveRefreshLease(),
+            fetch = { error("no additional source request") }, clock = { now },
+            onActivated = { publications++; awaitCancellation() })
+        val result = async {
+            refresh.observeExplicit(key) {
+                CollectiveRefreshOutcome.Success(block(listOf(card("Відкрита")), fetchedAt = 0L))
+            }
+        }
+        try {
+            runCurrent()
+            val committed = store.active(key)!!
+            assertEquals(listOf("Відкрита"), committed.cards.map { it.title })
+            advanceTimeBy(1_000L)
+            runCurrent()
+            assertTrue("an offline publication cannot hold the observed result", result.isCompleted)
+            assertEquals(committed, result.await())
+            assertEquals(committed, store.active(key))
+            assertEquals(CollectiveAttemptStatus.SUCCESS, committed.lastAttempt.status)
+            assertEquals(1, publications)
+        } finally {
+            result.cancelAndJoin()
+        }
+    }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `the configured publication budget bounds only the shared callback`() = runTest {
+        val store = InMemoryCollectiveFeedBlockStore()
+        val refresh = CollectiveFeedRefresh(store, InMemoryCollectiveRefreshLease(),
+            fetch = { error("no source request") }, clock = { now },
+            onActivated = { awaitCancellation() }, publicationTimeoutMs = 25L)
+        val result = async {
+            refresh.observeExplicit(key) {
+                CollectiveRefreshOutcome.Success(block(listOf(card("Відкрита")), fetchedAt = 0L))
+            }
+        }
+        try {
+            runCurrent()
+            val committed = store.active(key)!!
+            advanceTimeBy(24L)
+            runCurrent()
+            assertTrue("the configured budget has not expired", !result.isCompleted)
+            advanceTimeBy(1L)
+            runCurrent()
+            assertTrue("the configured budget has expired", result.isCompleted)
+            assertEquals(committed, result.await())
+            assertEquals(committed, store.active(key))
+        } finally {
+            result.cancelAndJoin()
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `external cancellation cannot become success when the publisher swallows it`() = runTest {
+        val store = InMemoryCollectiveFeedBlockStore()
+        var swallowed = false
+        var returned = false
+        val refresh = CollectiveFeedRefresh(store, InMemoryCollectiveRefreshLease(),
+            fetch = { error("no source request") }, clock = { now }, onActivated = {
+                try {
+                    awaitCancellation()
+                } catch (_: kotlinx.coroutines.CancellationException) {
+                    swallowed = true
+                }
+            })
+        val result = async {
+            refresh.observeExplicit(key) {
+                CollectiveRefreshOutcome.Success(block(listOf(card("Відкрита")), fetchedAt = 0L))
+            }
+            returned = true
+        }
+        runCurrent()
+        val committed = store.active(key)!!
+        result.cancelAndJoin()
+        assertTrue("the external publisher swallowed its cancellation", swallowed)
+        assertTrue("the observed call cannot continue as a success", !returned)
+        assertTrue(result.isCancelled)
+        assertEquals(committed, store.active(key))
     }
 }

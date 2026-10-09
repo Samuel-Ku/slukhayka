@@ -6,14 +6,22 @@
 результатами виконання. Актуальний кандидат ще не має завершеного
 backend/device приймання.
 
+Код сценарію EDIT rejection уже застосовано: CLI, instrumentation test
+і фікстурні rules. Локальний Firestore emulator прийняв parser і всі
+23 REST-перевірки цих rules, включно з відхиленням неповного seed через
+403/PERMISSION_DENIED. Це перевірка лише фікстурних правил. Пристроєвий
+прогін EDIT rejection ще не виконувався; Android SDK drain, process restart
+і автоматичний FAILED цим локальним REST-прогоном не підтверджені.
+
 Для Q1 прийнято окремі вузькі перевірки: 74 цільові тести відгуків
 (45 lifecycle, 26 confirmed snapshots, 3 write-task), 7 перевірок
 SDK36 AtomicFile/noBackup у Robolectric, один native Room-тест скасування
 після fetch до persistence та 18 pure JVM-регресій FeedSnapshotRefresh.
 Останні два прогони перевіряють cache publication. Вони не доводять
 Firestore ACK, відновлення SDK-черги після смерті процесу чи DELETE.
-Статус чинної хвилі та прийняті докази записані в
-[плані](../plans/2026-10-07-next-work.md). #620 і #533 лишаються відкритими.
+Серверне й пристроєве приймання ще потрібне для
+[#620](https://github.com/Samuel-Ku/slukhayka/issues/620) і
+[#533](https://github.com/Samuel-Ku/slukhayka/issues/533).
 
 ## Ізольований Q1 стенд
 
@@ -24,8 +32,14 @@ Firestore ACK, відновлення SDK-черги після смерті п�
 
 Стенд працює лише з `demo-slukhayka-acceptance`. Host Firestore слухає
 `127.0.0.1:8089`; Android SDK у тесті підключається до `10.0.2.2:8089`.
-Фікстурні правила дозволяють read і delete. Create/update з
-`uid = qa-rejected` відхиляються; решта фікстурних записів дозволена.
+Фікстурні правила дозволяють read і delete.
+Create/update з `uid = qa-rejected` відхиляються. Для `qa-rejected-edit`
+дозволено лише CREATE точного початкового відгуку: rating 3, body
+`Початковий відгук`, editionTag `Тестове видання`, createdAt 100,
+authorName `Тестовий читач`, погоджені Work/document IDs і рівно сім
+обов’язкових полів. Подальший UPDATE цього документа відхиляється,
+зокрема при спробі замінити uid. `qa-accepted` і `qa-accepted-edit`
+зберігають дозволені фікстурні CREATE/UPDATE.
 Це не перевірка production security rules, акаунтів чи документів.
 
 Opt-in instrumentation runner запускає звичайний `Application`,
@@ -74,8 +88,20 @@ python3 scripts/acceptance/review-persistence.py \
 Для EDIT ACK — з новим output directory і
 `--case ack --mutation edit --reconcile automatic`.
 
+Для EDIT rejection:
+
+```bash
+python3 scripts/acceptance/review-persistence.py \
+  --serial emulator-5554 \
+  --app-apk app/build/outputs/apk/debug/app-debug.apk \
+  --test-apk app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+  --output /tmp/review-persistence-edit-rejection-RUN_ID \
+  --case rejection --mutation edit --reconcile automatic
+```
+
 Driver допускає `--case ack|rejection`, `--mutation creation|edit` та
-`--reconcile manual|automatic`. EDIT rejection навмисно відхиляється.
+`--reconcile manual|automatic`. EDIT rejection потребує `automatic`;
+`--case rejection --mutation edit --reconcile manual` відхиляється до запуску.
 Default reconcile — `manual`; його успіх не приймає automatic reconnect.
 DELETE не є режимом цього CLI. Ці обмеження не звужують #620:
 бракуючі вертикальні сценарії треба окремо підготувати й прийняти.
@@ -104,6 +130,21 @@ Driver виконує `am force-stop` перед кожною фазою і зу
   чи exact failed retry draft. Поточний тест перевіряє один terminal event
   лише в записаному обмеженому вікні; це не доказ довічної унікальності.
 
+Для EDIT rejection seed має підтверджений повний початковий DTO. Queue
+вимикає мережу й зберігає повний EDIT: rating 5, body `Переживає restart`,
+createdAt 100, editedAt 200 та незмінний editionTag. Після force-stop
+restart-offline має інший PID і той самий SDK pending payload, а confirmed
+лишається початковим. Перед reconnect встановлюються scoped event collector
+і waiter на pending-empty; мережа вмикається після них.
+
+Після фактичного `waitForPendingWrites` SERVER має містити лише повний
+початковий документ без pending metadata. Automatic lifecycle має видати
+FAILED для exact Work/document і спостереженої generation, прибрати pending,
+зберегти exact EDIT у failedSave та відновити початковий visible/confirmed
+відгук і average 3.0. Перевіряється один terminal event у записаному вікні
+1000 ms. Самої розбіжності SERVER і draft недостатньо для FAILED. Збережи
+seed/queue/restart/reconnect PID witnesses, повні payloads і event evidence.
+
 Серверну істину звір окремо з demo backend для тих самих run/Work/document
 IDs. Cache metadata, toast, PLAYING чи один phase log не є backend ACK.
 Після першої невдачі збережи початковий прогін і виконані контрольні перевірки;
@@ -116,12 +157,15 @@ creation ACK/rejection та queued EDIT після process death, offline restar
 і automatic reconnect. Rejection має залишити exact retry payload;
 фактичний retry і його backend verdict теж потребують доказу.
 
-Окремо потрібні EDIT rejection і queued DELETE: локальне прийняття,
+EDIT rejection ще потребує фактичного backend/device
+приймання всіх чотирьох фаз; локальний rules parser його не заміняє.
+
+Окремо потрібен queued DELETE: локальне прийняття,
 смерть процесу, відновлення без вигаданого підтвердженого стану, reconnect,
 exact terminal verdict та retry при відмові. Для DELETE треба зберегти
 чесний deleting intent і відрізнити pending absence від підтвердженої
-відсутності після SDK drain та авторитетного SERVER read. Чинний driver
-цих сценаріїв не виконує; не передавай йому вигаданий `--mutation delete`.
+відсутності після SDK drain та авторитетного SERVER read. Driver не
+виконує DELETE; не передавай йому вигаданий `--mutation delete`.
 Фікстурні rules дозволяють delete, тому вони не дають DELETE rejection
 без окремо погодженої фікстури.
 

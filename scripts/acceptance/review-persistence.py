@@ -33,8 +33,8 @@ def main():
     parser.add_argument("--reconcile", choices=("manual", "automatic"), default="manual")
     parser.add_argument("--mutation", choices=("creation", "edit"), default="creation")
     args = parser.parse_args()
-    if args.mutation == "edit" and args.case != "ack":
-        parser.error("Only the reviewed first EDIT ACK vertical is enabled")
+    if args.mutation == "edit" and args.case == "rejection" and args.reconcile != "automatic":
+        parser.error("EDIT rejection requires automatic reconciliation and its exact FAILED event")
     if not args.serial.startswith("emulator-"):
         parser.error("Only a dedicated disposable Android emulator is accepted")
     root = pathlib.Path(__file__).resolve().parents[2]

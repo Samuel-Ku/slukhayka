@@ -57,9 +57,10 @@ class ListenerReviewPersistenceTest {
         require(mutation == "creation" || mutation == "edit")
         val edit = mutation == "edit"
         val rejected = arguments.getString("acceptanceCase") == "rejection"
-        require(!edit || !rejected) { "Only the first EDIT ACK vertical is enabled; rejection fixture is not granted" }
-        val uid = if (edit) "qa-accepted-edit" else if (rejected) "qa-rejected" else "qa-accepted"
-        val workId = if (edit) "qa-$run-edit-ack" else "qa-$run-${if (rejected) "rejection" else "ack"}"
+        val editRejected = edit && rejected
+        require(!editRejected || automatic) { "EDIT rejection requires automatic reconciliation" }
+        val uid = if (editRejected) "qa-rejected-edit" else if (edit) "qa-accepted-edit" else if (rejected) "qa-rejected" else "qa-accepted"
+        val workId = if (edit) "qa-$run-edit-${if (rejected) "rejection" else "ack"}" else "qa-$run-${if (rejected) "rejection" else "ack"}"
         val preferences = context.getSharedPreferences("acceptance-$run", 0)
         instrumentation.sendStatus(0, Bundle().apply {
             putString("acceptanceEvidence", "phase=$phase case=$uid pid=${Process.myPid()} queuePid=${preferences.getInt("queue-$uid", -1)}")
@@ -86,6 +87,8 @@ class ListenerReviewPersistenceTest {
                     val receipt = FirestoreListenerReviewsStore(firestore).enqueueReview(seed)
                     require(receipt is com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt.Queued)
                     assertEquals(com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult.PUBLISHED, receipt.awaitRemote())
+                    // The rejection fixture permits only this original CREATE; future EDIT is UPDATE.
+                    if (editRejected) firestore.waitForPendingWrites().finish()
                     val authoritativeSeed = firestore.collection("book_reviews")
                         .document(ListenerReviewCodec.documentId(workId, seed.uid)).get(Source.SERVER).finish()
                     assertTrue(authoritativeSeed.exists())
@@ -102,6 +105,11 @@ class ListenerReviewPersistenceTest {
                     assertTrue(preferences.edit().putInt("seed-$uid", Process.myPid()).commit())
                 }
                 "queue" -> {
+                    if (editRejected) {
+                        val seedPid = preferences.getInt("seed-$uid", -1)
+                        assertTrue("The own seed must have completed in an earlier process", seedPid > 0)
+                        assertFalse("Queue must not reuse the seed process", seedPid == Process.myPid())
+                    }
                     firestore.disableNetwork().finish()
                     lifecycle.refresh(workId)
                     assertEquals(listOf(3), lifecycle.state.value.confirmed.map { it.rating })
@@ -128,6 +136,7 @@ class ListenerReviewPersistenceTest {
                     assertTrue(preferences.edit().putInt("queue-$uid", Process.myPid()).commit())
                 }
                 "restart-offline" -> {
+                    if (editRejected) assertTrue("A recorded queue process is required", preferences.getInt("queue-$uid", -1) > 0)
                     firestore.disableNetwork().finish()
                     assertFalse("A fresh process is required", preferences.getInt("queue-$uid", -1) == Process.myPid())
                     val snapshot = firestore.collection("book_reviews").whereEqualTo("workId", workId)
@@ -157,6 +166,11 @@ class ListenerReviewPersistenceTest {
                     assertEquals(3.0, CombinedAverage.average(emptyList(), lifecycle.state.value.confirmed.map { it.rating })!!.value, 0.0)
                 }
                 "reconnect" -> {
+                    if (editRejected) {
+                        val queuePid = preferences.getInt("queue-$uid", -1)
+                        assertTrue("The queued EDIT must have a recorded process", queuePid > 0)
+                        assertFalse("Reconnect must not reuse the queued EDIT process", queuePid == Process.myPid())
+                    }
                     firestore.disableNetwork().finish()
                     lifecycle.refresh(workId)
                     assertEquals(listOf(3), lifecycle.state.value.confirmed.map { it.rating })
@@ -207,6 +221,11 @@ class ListenerReviewPersistenceTest {
                         if (automatic) {
                             val event = withTimeout(20_000L) { firstTerminal.await() }
                             assertEquals(if (rejected) ReviewSaveResult.FAILED else ReviewSaveResult.PUBLISHED, event.result)
+                            if (editRejected) {
+                                assertEquals("FAILED belongs to the restarted EDIT Work", workId, event.workId)
+                                assertEquals("FAILED belongs to the exact seeded document", documentId, event.documentId)
+                                assertTrue("A real recovered submission has an observed generation", event.generation > 0L)
+                            }
                             assertTrue(requireNotNull(settled).await().pending.isEmpty())
                             // Bounded observation only; no UI refresh or production timer.
                             delay(1_000L)
@@ -214,6 +233,9 @@ class ListenerReviewPersistenceTest {
                             assertEquals("Exactly one terminal event in the recorded window", 1, terminalEvents.size)
                             instrumentation.sendStatus(0, Bundle().apply {
                                 putString("acceptanceEvidence", "TERMINAL count=${terminalEvents.size} result=${event.result} documentId=$documentId observationMs=1000")
+                                if (editRejected) putString("acceptanceTerminalEvent", JSONObject()
+                                    .put("workId", event.workId).put("documentId", event.documentId)
+                                    .put("generation", event.generation).put("result", event.result.name).toString())
                             })
                         } else {
                             lifecycle.refresh(workId)
@@ -223,6 +245,12 @@ class ListenerReviewPersistenceTest {
                             assertEquals("Exact restored retry draft", restored, lifecycle.state.value.failedSave[documentId])
                             assertTrue(lifecycle.state.value.failedDelete.isEmpty())
                             assertFalse(lifecycle.state.value.readFailed)
+                            if (editRejected) {
+                                assertEquals("Only the full exact EDIT remains retryable",
+                                    mapOf(documentId to requireNotNull(expectedEdit)), lifecycle.state.value.failedSave)
+                                assertEquals("Backend rejection restores the original full voice", listOf(seed), lifecycle.state.value.visible)
+                                assertTrue("Rejected EDIT creates no deleting intent", lifecycle.state.value.deleting.isEmpty())
+                            }
                             instrumentation.sendStatus(0, Bundle().apply {
                                 putString("acceptanceFailedPayload", JSONObject(ListenerReviewCodec.toMap(
                                     lifecycle.state.value.failedSave.getValue(documentId))).put("documentId", documentId).toString())

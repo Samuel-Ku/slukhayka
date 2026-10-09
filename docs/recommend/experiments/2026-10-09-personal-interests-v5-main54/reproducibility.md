@@ -25,3 +25,14 @@
 Фізичні JavaExec-команди обох процесів збережено в локальних доказах. Поточні evaluator, ranker і GenreIdentity завантажувалися з актуальних Kotlin outputs. Пізніші старі копії Genre/Facet у runtime jar перекриті порядком classpath; вони не були effective classes цих двох процесів. Після завершення власні Gradle та JavaExec-процеси відсутні.
 
 Це перевірка незмінної бібліографічної proxy-вибірки й поточного production ранжування з перевіреним кешем. Вона не є cold inference, особистим журналом слухача чи перевіркою користі у живому використанні. [Діагностика Mac/Linux одного Твору](../../boundary-comparison-2026-10-09.md) встановила розбіжність raw hidden state до pooling; ці Mac-журнали не доводять Linux native parity. Нового ручного Linux-запуску тут не було.
+
+
+## Окремий холодний Linux CI
+
+[CI #37969862229](https://github.com/Samuel-Ku/slukhayka/actions/runs/37969862229) на merge `086c0df1e6d329d551591bb639f0b2f582e9b918` (HEAD `b46835f6`, main `f8827d86`) завершився з NO-GO. На Ubuntu 24.04.5 / Temurin 21.0.12-1 evaluator заново обчислив 18 188 E5 vectors і 18 188 keyword vectors. Поточні кеші починалися з 0; Mac-журнали для цього cold прогону не використовувалися.
+
+[Окремий пакет Linux](linux-cold-ci-37969862229/README.md) зберігає п’ять незмінених raw файлів artifact `11637610502` і точні SHAs. Report, catalog і ledger побайтно тотожні Mac. У всіх 24 folds відрізняється лише semanticTopK: збіг 16–19 із 20, у середньому 18. Baseline top-20, cohort/held-out identity, candidate counts і ranks незмінні. Перевірено top-20/exclusions та всі нульові hits. Recall@20 і NDCG@20 обох моделей лишаються 0.
+
+Linux [folds](linux-cold-ci-37969862229/real-scale-folds.tsv) мають SHA-256 `752f057b8dce965b0138defebb8f57708105632408e658489e8752cab6d90bef`. [Manifest](linux-cold-ci-37969862229/real-scale-results.sha256) також відрізняється: містить лише два поточні journals замість восьми Mac, а заявлена сума поточного semantic journal інша. Native payloads не завантажені; це не byte-parity proof і не пояснення причини semantic відмінностей. Попередній Mac repeat і його п’ять SHAs вище лишаються чинними.
+
+Actual CI виконав `./gradlew :app:runRecommendationEval --no-daemon`. Після завершеного strict NO-GO/exit1 отримав ще 2 525 configuration-cache storage problems у Chaquopy/AGP. Вимкнення configuration cache для цього target відповідає команді відтворення; нульові метрики від цього не стають GO. Нового ручного one-work Linux-запуску не було. Інші CI jobs успішні або пропущені, Kover aggregation пройшов. Runtime-release fallback AC #487 ще відкритий.

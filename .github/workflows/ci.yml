@@ -507,7 +507,7 @@ jobs:
           key: recommendation-vectors-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docs/recommend/experiments/2026-10-09-personal-interests-v5-main54/real-scale-inputs.properties') }}
 
       - name: Recommendation eval gate (real ONNX model)
-        run: ./gradlew :app:runRecommendationEval --no-daemon
+        run: ./gradlew :app:runRecommendationEval --no-daemon --no-configuration-cache
         env:
           FAIL_ON_NO_GO: "true"
 

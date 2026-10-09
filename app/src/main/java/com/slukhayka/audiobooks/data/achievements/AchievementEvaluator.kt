@@ -148,14 +148,17 @@ data class AchievementProgress(
      */
     val booksFinishedAfterAbandon: Long = 0,
     /**
-     * #1174 (друга смуга, US28) — «Не кидаю»: how many books carry the
-     * «покинуто» mark right now (`readthroughs` AUDIO passes in state
-     * ABANDONED).
+     * #1174 (друга смуга, US28) — «Не кидаю»: how many books carry a LIVE
+     * «покинуто» mark right now — an AUDIO pass in state ABANDONED whose book is
+     * still not finished by the ONE completion rule (owner's decision on
+     * 2026-10-09).
      *
      * The mark is the listener's own declared act, and the award reads it for
-     * exactly one thing: while a mark stands, the metric is zero. The same rows
-     * feed the library badge, so the award and the badge can never disagree
-     * about which books are abandoned.
+     * exactly one thing: while a live mark stands, the metric is zero. The
+     * filter is not this module's own idea of "finished" — it is the mark
+     * owner's answer (`AbandonedBooks.observeLiveAbandonedBookIds`), the very
+     * flow the library badge and the book page read, so the award can never
+     * stay shut over a mark no surface shows.
      */
     val abandonedBooks: Long = 0,
     /**
@@ -412,9 +415,11 @@ object AchievementCatalog {
         // single «покинуто» mark standing. The threshold is the ticket's, and
         // the count is the same real end-of-book event the book ladder reads —
         // a hand-set «Прослухано» never adds a book (ADR-0060). The metric
-        // reads the completed count while no mark exists and 0 as soon as one
-        // does, so a listener who comes back and clears the abandoned passes
-        // opens the SAME award instead of a second one.
+        // reads the completed count while no LIVE mark exists and 0 as soon as
+        // one does, so a listener who comes back and clears the abandoned
+        // passes opens the SAME award instead of a second one — and a mark only
+        // the database still carries (a completion that arrived from another
+        // device) cannot close it for good.
         AchievementDefinition("never_abandon_10", "habits", 6, AchievementMetric.COMPLETED_BOOKS_WITHOUT_ABANDON, 10),
         AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
         AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5),

@@ -447,6 +447,54 @@ class AbandonedBooksRoomTest {
 
     // --- #1174 (друга смуга): завершення книги знімає позначку --------------
 
+    /**
+     * #1174 (друга смуга) — the LIVE marks, as opposed to the stored rows.
+     *
+     * A completion that arrives from another device writes ONLY the Listening
+     * State row (`ListeningStateStore.applyRemoteProgress`), so the pass keeps
+     * ABANDONED while the book is finished — and the badge, the book page and
+     * the «Не кидаю» award all hide behind the ONE completion rule. The mark is
+     * therefore not live any more, even though the row still says so. Both
+     * halves of that rule are exercised: the manual flag AND a position that
+     * reached the book's end.
+     */
+    @Test
+    fun `a mark stops being live once the completion rule calls the book finished`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+        assertEquals("поки книга не завершена, позначка жива", setOf(BOOK_ID), abandonedBooks.observeLiveAbandonedBookIds().first())
+
+        // The sync door's shape: the flag alone, and nothing else moves.
+        listen(completed = true)
+
+        assertEquals("рядок усе ще каже ABANDONED — дрейф справжній", setOf(BOOK_ID), abandonedBooks.observeAbandonedBookIds().first())
+        assertEquals(
+            "але живої позначки немає: ту саму межу читають двері, полиця й бейдж",
+            emptySet<String>(),
+            abandonedBooks.observeLiveAbandonedBookIds().first()
+        )
+    }
+
+    /** The other half of the rule: a position that reached the book's own end. */
+    @Test
+    fun `a mark stops being live when the position reaches the books end`() = runBlocking {
+        seedImportedBook()
+        seedPass(ReadingState.IN_PROGRESS)
+        listen()
+        abandonedBooks.abandon(BOOK_ID)
+
+        listen(chapterIndex = CHAPTER_DURATIONS.lastIndex, positionSeconds = CHAPTER_DURATIONS.last())
+
+        assertEquals(setOf(BOOK_ID), abandonedBooks.observeAbandonedBookIds().first())
+        assertEquals(
+            "позиція в кінці книги — завершено, і позначка більше не жива",
+            emptySet<String>(),
+            abandonedBooks.observeLiveAbandonedBookIds().first()
+        )
+    }
+
     @Test
     fun `finishing a marked book takes the mark away and leaves the pass finished`() = runBlocking {
         seedImportedBook()

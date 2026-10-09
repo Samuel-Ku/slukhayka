@@ -182,7 +182,8 @@ class SecondWindAfterAbandonTest {
     private suspend fun snapshot(): AchievementProgress = RoomAchievementProgressSource(
         dao = database.achievementDao(),
         store = store(),
-        registeredSourceIds = emptySet()
+        registeredSourceIds = emptySet(),
+        abandonedBookIds = abandoned.observeLiveAbandonedBookIds()
     ).observe().first()
 
     private suspend fun seed(bookId: String) {

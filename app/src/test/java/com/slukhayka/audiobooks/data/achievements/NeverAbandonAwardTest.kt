@@ -6,6 +6,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
 import com.slukhayka.audiobooks.data.db.PlaybackEventKind
+import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.ReadthroughMapping
 import com.slukhayka.audiobooks.data.entries.AbandonUndo
 import com.slukhayka.audiobooks.data.entries.AbandonedBooks
@@ -27,20 +28,23 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * #1174 (друга смуга, US28) — «Не кидаю»: ten FINISHED books and not one
+ * #1174 (друга смуга, US28) — «Не кидаю»: ten FINISHED books and not one live
  * «покинуто» mark standing.
  *
  * The metric asks ONE question with one number: the completed count itself
- * while no mark exists, and 0 the moment one does. That reading is the owner's,
- * and it is what makes the award reachable AGAIN after a return — a listener
- * who comes back and clears the abandoned passes opens the SAME award, not a
- * second one.
+ * while no LIVE mark exists, and 0 the moment one does. That reading is the
+ * owner's, and it is what makes the award reachable AGAIN after a return — a
+ * listener who comes back and clears the abandoned passes opens the SAME award,
+ * not a second one. "Live" is the point of the drift case below: a mark on a
+ * book whose completion is already proven is one no surface shows, so the award
+ * may not stay shut over it.
  *
  * Every case writes REAL rows into an in-memory Room, because both halves of
  * the answer are SQL: the completed count (a `COMPLETED` event per book, the
  * very fact the book ladder reads) and the marks (`readthroughs` AUDIO passes in
- * state ABANDONED, the same rows the library badge follows). A hand-built
- * snapshot would prove neither.
+ * state ABANDONED). The snapshot is then fed the mark owner's own flow, exactly
+ * as production wires it, so the test proves the whole path the surfaces and
+ * the award share.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -143,6 +147,53 @@ class NeverAbandonAwardTest {
     }
 
     /**
+     * The drift the sync door leaves behind, pinned as the owner decided on
+     * 2026-10-09: a completion that arrived from another device writes the
+     * Listening State row and NOTHING else, so the pass keeps ABANDONED while
+     * the book is finished. No surface shows such a mark (the badge and the
+     * cancel are hidden for a finished book), so it must not close «Не кидаю»
+     * for good — the metric reads the LIVE marks, the very flow the badge and
+     * the book page read.
+     */
+    @Test
+    fun `a mark no surface can show does not close the award`() = runBlocking {
+        repeat(10) { complete("book-$it") }
+        markAbandoned("book-abandoned")
+        assertFalse(
+            "поки книга не завершена, позначка тримає нагороду закритою",
+            AWARD in earned(snapshot())
+        )
+        assertEquals(
+            setOf("book-abandoned"),
+            abandoned.observeLiveAbandonedBookIds().first()
+        )
+
+        // The completion arrives from another device: the flag alone, in the
+        // shape `ListeningStateStore.applyRemoteProgress` writes it.
+        dao.savePlaybackProgress(
+            PlaybackProgressEntity(
+                editionId = "edition-book-abandoned",
+                bookId = "book-abandoned",
+                isCompleted = true
+            )
+        )
+
+        assertEquals(
+            "рядок усе ще каже ABANDONED — дрейф справжній",
+            setOf("book-abandoned"),
+            abandoned.observeAbandonedBookIds().first()
+        )
+        val live = abandoned.observeLiveAbandonedBookIds().first()
+        assertEquals("але живої позначки немає", emptySet<String>(), live)
+        val snapshot = snapshot()
+        assertEquals("бейдж і метрика читають один потік", live.size.toLong(), snapshot.abandonedBooks)
+        assertTrue(
+            "нагорода відкривається на тих самих десяти завершених книгах",
+            AWARD in earned(snapshot)
+        )
+    }
+
+    /**
      * A second mark after the award was already earned does not take it back:
      * the store hands an id out once, and the metric going to zero can only
      * keep an award from OPENING.
@@ -178,7 +229,7 @@ class NeverAbandonAwardTest {
         dao = database.achievementDao(),
         store = RoomAchievementStore(database.achievementDao()),
         registeredSourceIds = emptySet(),
-        abandonedBookIds = abandoned.observeAbandonedBookIds()
+        abandonedBookIds = abandoned.observeLiveAbandonedBookIds()
     ).observe().first()
 
     /** One book really finished: the event the book ladder and this award both read. */

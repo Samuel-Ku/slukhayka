@@ -879,10 +879,13 @@ class App : Application() {
             com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource(
                 database.achievementDao(), achievementStore,
                 com.slukhayka.audiobooks.data.source.SourceRegistry.ids(),
-                // #1174 (друга смуга): «Не кидаю» reads the marks through the
-                // mark owner's own flow, so the award and the library badge
-                // answer "is this book abandoned?" with ONE query.
-                abandonedBookIds = abandonedBooks.observeAbandonedBookIds()), achievementStore,
+                // #1174 (друга смуга): «Не кидаю» reads the LIVE marks through
+                // the mark owner's own flow, so the award, the library badge and
+                // the book page answer "is this book abandoned?" with one
+                // answer — and a mark only the database still carries (a
+                // completion that arrived from another device) cannot close the
+                // award for good.
+                abandonedBookIds = abandonedBooks.observeLiveAbandonedBookIds()), achievementStore,
             onFailure = { android.util.Log.w("Achievements", "local evaluation will retry", it) })
     }
     /** Enqueue a real acceptance without tying its persistence to the screen coroutine. */

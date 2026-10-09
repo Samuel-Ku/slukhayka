@@ -11,6 +11,7 @@ import com.slukhayka.audiobooks.testing.TestDataFactory
 import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -70,7 +71,8 @@ class HiddenAwardBoundaryTest {
             opened.achievementDao(),
             RoomAchievementStore(opened.achievementDao()),
             emptySet(),
-            zoneId = kyiv
+            zoneId = kyiv,
+            abandonedBookIds = flowOf(emptySet())
         )
     }
 

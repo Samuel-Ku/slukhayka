@@ -12,6 +12,7 @@ import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import java.io.File
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,7 +31,7 @@ class RoomAchievementProgressSourceTest {
         val file = File.createTempFile("699-download-proof", ".mp3",context.cacheDir).apply { writeBytes(byteArrayOf(1)) }
         try {
             val store = RoomAchievementStore(database.achievementDao())
-            val source = RoomAchievementProgressSource(database.achievementDao(),store,setOf("sluhay","youtube"))
+            val source = RoomAchievementProgressSource(database.achievementDao(),store,setOf("sluhay","youtube"), abandonedBookIds = flowOf(emptySet()))
             val empty = source.observe().first()
             assertEquals(0L,empty.explicitBooks); assertEquals(0L,empty.downloadedBooks)
             assertEquals(setOf("sluhay","youtube"),empty.registeredSourceIds)
@@ -102,7 +103,8 @@ class RoomAchievementProgressSourceTest {
             // And the ladder does not open on a single book — the thresholds are
             // the spec's, not mine.
             val snapshot = RoomAchievementProgressSource(
-                achievementDao, RoomAchievementStore(achievementDao), emptySet()
+                achievementDao, RoomAchievementStore(achievementDao), emptySet(),
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
             assertEquals(1L, snapshot.fastBooks)
             assertTrue(
@@ -222,7 +224,7 @@ class RoomAchievementProgressSourceTest {
             assertFalse(
                 "«Чотири двері» не мають відкриватись на трьох",
                 AchievementEvaluator.evaluate(
-                    RoomAchievementProgressSource(achievementDao, RoomAchievementStore(achievementDao), emptySet())
+                    RoomAchievementProgressSource(achievementDao, RoomAchievementStore(achievementDao), emptySet(), abandonedBookIds = flowOf(emptySet()))
                         .observe().first(),
                     emptySet()
                 ).map { it.id }.any { it == "four_doors" }
@@ -338,7 +340,8 @@ class RoomAchievementProgressSourceTest {
 
             // And the snapshot carries it through to the awards.
             val snapshot = RoomAchievementProgressSource(
-                achievementDao, RoomAchievementStore(achievementDao), emptySet()
+                achievementDao, RoomAchievementStore(achievementDao), emptySet(),
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
             assertEquals(2, snapshot.genreCounts.size)
             assertFalse(
@@ -379,7 +382,8 @@ class RoomAchievementProgressSourceTest {
             claimed.forEach { dao.upsertLibraryEntry(it, it, false, 1L, 0f) }
 
             val snapshot = RoomAchievementProgressSource(
-                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet()
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
 
             assertEquals("десять заявлених книг — одна полиця", 10L, snapshot.genreCounts["horror"])
@@ -466,7 +470,8 @@ class RoomAchievementProgressSourceTest {
 
             val source = RoomAchievementProgressSource(
                 database.achievementDao(), RoomAchievementStore(database.achievementDao()),
-                emptySet(), zoneId = kyiv
+                emptySet(), zoneId = kyiv,
+                abandonedBookIds = flowOf(emptySet())
             )
             val snapshot = source.observe().first()
 
@@ -517,11 +522,13 @@ class RoomAchievementProgressSourceTest {
 
             val inKyiv = RoomAchievementProgressSource(
                 database.achievementDao(), RoomAchievementStore(database.achievementDao()),
-                emptySet(), zoneId = kyiv
+                emptySet(), zoneId = kyiv,
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
             val inLondon = RoomAchievementProgressSource(
                 database.achievementDao(), RoomAchievementStore(database.achievementDao()),
-                emptySet(), zoneId = london
+                emptySet(), zoneId = london,
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
 
             assertEquals("у Києві це ніч", 1L, inKyiv.nightCompletions)
@@ -580,7 +587,8 @@ class RoomAchievementProgressSourceTest {
 
             // And the awards themselves open from the snapshot.
             val snapshot = RoomAchievementProgressSource(
-                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet()
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
             val earned = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
             assertTrue("«Старовинна» мусить відкритись", "vintage" in earned)
@@ -622,7 +630,8 @@ class RoomAchievementProgressSourceTest {
                 database.achievementDao().observeLateCompletions().first())
 
             val snapshot = RoomAchievementProgressSource(
-                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet()
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
             assertTrue(
                 "«Ніколи не пізно» мусить відкритись",

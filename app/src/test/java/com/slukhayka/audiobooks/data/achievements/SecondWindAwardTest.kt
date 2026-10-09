@@ -11,6 +11,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -231,7 +232,8 @@ class SecondWindAwardTest {
         return try {
             build(database)
             RoomAchievementProgressSource(
-                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet()
+                database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
+                abandonedBookIds = flowOf(emptySet())
             ).observe().first()
         } finally {
             database.close()

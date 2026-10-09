@@ -7,6 +7,10 @@ import com.slukhayka.audiobooks.data.db.ReadthroughMapping
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.bookProgress
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /**
@@ -166,9 +170,47 @@ class AbandonedBooks(
     }
 
     /**
-     * The books carrying the mark right now — one flow for both surfaces (the
-     * library badge and the book page's cancel).
+     * #1174 (друга смуга) — the books carrying a LIVE «покинуто» mark: the pass
+     * still says ABANDONED **and** the book is not finished by the ONE
+     * completion rule ([bookProgress] / [isBookFinished]).
+     *
+     * Every surface and the award read THIS flow, so "is this book abandoned?"
+     * has one answer. The filter is not a second definition of "finished": it
+     * calls the same function over the same rows ([playback_progress],
+     * [chapters], [audiobooks]) the abandon door itself reads. What it buys is
+     * the honest answer for the drift the sync door leaves behind — a
+     * completion that arrived from another device writes the Listening State
+     * row and nothing else, so the pass keeps ABANDONED while the book is
+     * finished. A mark no surface can show (the badge and the cancel are hidden
+     * for a finished book) must not close «Не кидаю» forever.
      */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeLiveAbandonedBookIds(): Flow<Set<String>> =
+        dao.observeAbandonedAudioPasses().map { it.toSet() }.distinctUntilChanged()
+            .flatMapLatest { marked ->
+                if (marked.isEmpty()) flowOf(emptySet())
+                else combine(marked.map { bookId -> markIsLive(bookId) }) { live ->
+                    marked.filterIndexed { index, _ -> live[index] }.toSet()
+                }
+            }
+
+    /**
+     * One mark, judged by the shared completion rule: the book is live-abandoned
+     * while its own position (or its own «Прослухано» flag) has not reached the
+     * end. The same three reads the door makes, so the two can never disagree —
+     * and a row that cannot be read at all (no book, no chapters) is NOT
+     * finished, which keeps the mark standing rather than silently dropping it
+     * (ADR-0014).
+     */
+    private fun markIsLive(bookId: String): Flow<Boolean> = combine(
+        dao.getPlaybackProgress(bookId),
+        dao.getChaptersForBook(bookId),
+        dao.observeAudiobookById(bookId)
+    ) { progress, chapters, book ->
+        !bookProgress(chapters, progress, book?.totalDurationSeconds ?: 0L).isFinished
+    }.distinctUntilChanged()
+
+    /** The stored rows, exactly as they are — the base the live answer filters. */
     fun observeAbandonedBookIds(): Flow<Set<String>> =
         dao.observeAbandonedAudioPasses().map { it.toSet() }
 

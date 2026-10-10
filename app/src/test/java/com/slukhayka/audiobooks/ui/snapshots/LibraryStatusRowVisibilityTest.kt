@@ -68,7 +68,10 @@ class LibraryStatusRowVisibilityTest {
     val composeTestRule = createComposeRule()
 
     // Every one-tap status, in turn: whichever chip carries the selection is
-    // the one the listener has to be able to read.
+    // the one the listener has to be able to read. The walk goes FORWARD and
+    // then BACK — a forward-only walk only ever asks the row to scroll right,
+    // so the left half of the reveal (coming home to «Усі» after the far end)
+    // would never run.
     @Test
     fun every_selected_status_chip_lies_inside_the_row() {
         val selected = mutableStateOf(LibraryFilter.ALL)
@@ -79,7 +82,7 @@ class LibraryStatusRowVisibilityTest {
         }
         composeTestRule.waitForIdle()
 
-        STATUS_FILTERS.forEach { filter ->
+        (STATUS_FILTERS + STATUS_FILTERS.reversed()).forEach { filter ->
             composeTestRule.runOnIdle { selected.value = filter }
             composeTestRule.waitForIdle()
             assertChipInsideTheRow(filter, "library_status_${filter.name.lowercase()}")
@@ -103,6 +106,33 @@ class LibraryStatusRowVisibilityTest {
             composeTestRule.runOnIdle { selected.value = filter }
             composeTestRule.waitForIdle()
             assertChipInsideTheRow(filter, TRAILING_TAG)
+        }
+    }
+
+    // #1165 review — the trip BACK from the launcher. The launcher sits at the
+    // far end of the line, so a status picked after it has to be revealed by
+    // scrolling the row LEFT, and the walk above never asked for that. «Усі»
+    // is the longest such trip — and the chip the golden shows leaving the row
+    // when the far end is revealed.
+    @Test
+    fun a_status_picked_after_a_rare_filter_lies_inside_the_row() {
+        val selected = mutableStateOf(LibraryFilter.ALL)
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                StatusRowFixture(selected = selected.value, onSelect = { selected.value = it })
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        val rareFilter = SHEET_FILTERS.last()
+        composeTestRule.runOnIdle { selected.value = rareFilter }
+        composeTestRule.waitForIdle()
+        assertChipInsideTheRow(rareFilter, TRAILING_TAG)
+
+        STATUS_FILTERS.forEach { filter ->
+            composeTestRule.runOnIdle { selected.value = filter }
+            composeTestRule.waitForIdle()
+            assertChipInsideTheRow(filter, "library_status_${filter.name.lowercase()}")
         }
     }
 

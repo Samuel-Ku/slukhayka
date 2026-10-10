@@ -90,8 +90,15 @@ private val FilterChipAccentColors
         labelColor = MaterialTheme.colorScheme.onSurface
     )
 
-/** The row's own content padding — and the margin the reveal leaves a chip. */
-private val StatusRowPadding = 16.dp
+/**
+ * The row's own content padding — the page-side inset the book grid below also
+ * uses, so the first chip lines up with the list it filters.
+ *
+ * It is deliberately the SAME number the reveal uses as the margin a revealed
+ * chip keeps: one inset, so a chip that was just scrolled into view can never
+ * end up flush against the window edge.
+ */
+private val StatusRowPadding = AppDimens.PageSides
 
 /**
  * #1165 — where the row's chips sit inside its viewport, in pixels.
@@ -143,17 +150,24 @@ private class StatusRowGeometry {
  *
  * UI (v1.5 review): the FlowRow detour is gone. Wrapping «Завантажені» onto a
  * second line and «Фільтр» onto a third was exactly the stacked chrome the
- * design guide forbids; the partially visible edge chip is the scroll
+ * design guide forbids; a chip left half-visible at an edge is the scroll
  * affordance, not a broken chip.
  *
  * #1165 — that affordance has ONE exception: the chip that carries the
  * selection. The row is wider than the window, so a selected last chip would
  * sit half under the window edge — unreadable, and the active filter is exactly
- * the label the listener needs. The row therefore reveals the selected chip
- * (its own, or the [trailing] launcher while a rare filter is active) whenever
- * the selection changes, and leaves a row the listener scrolled by hand alone.
- * #390 fixed this same chip by eye and left no test, which is how the #885
- * redesign brought it back; `LibraryStatusRowVisibilityTest` is that test now.
+ * the label the listener needs. On every selection change the row therefore
+ * scrolls as far as that chip needs to sit fully inside the viewport, keeping
+ * the row's own content padding as the margin — its own chip, or the [trailing]
+ * launcher while a rare filter is active.
+ *
+ * What that costs is visible, and it is NOT a promise that hand-scrolling is
+ * sacred: a row the listener scrolled by hand moves only when the newly
+ * selected chip is not already fully visible — and revealing the LAST chip
+ * scrolls the FIRST one («Усі») out of the row entirely, so the affordance is
+ * gone on the left. #390 fixed this same chip by eye and left no test, which is
+ * how the #885 redesign brought it back; `LibraryStatusRowVisibilityTest` is
+ * that test now.
  *
  * [trailing] carries the «Фільтр» launcher on the same line.
  */
@@ -182,7 +196,8 @@ fun LibraryStatusRow(
                 edges.endInclusive - (viewport - revealMargin)
             // Sticks out on the left: push it in.
             edges.start < revealMargin -> -(revealMargin - edges.start)
-            // Readable in full already — never move a row the listener placed.
+            // This selection is readable in full already, so it asks for no
+            // scroll: the position the listener set by hand stays as it is.
             else -> return@LaunchedEffect
         }
         scrollState.animateScrollTo(

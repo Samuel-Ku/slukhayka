@@ -97,8 +97,14 @@ interface AchievementDao {
     fun observeSessionStartTimes(): Flow<List<Long>>
 
     /**
-     * #703 (T5) — «Старовинна»: books finished at least a YEAR after they were
-     * added to the library.
+     * #703 (T5) — «Старовинна»: books finished MORE than a year after they
+     * were added to the library.
+     *
+     * The edge is STRICT by the owner's decision in #1182: the award says
+     * «понад рік», so a book added exactly 365 days before it was finished is
+     * not «Старовинна» — it takes one more millisecond. The previous wording
+     * here ("at least a YEAR") named the other side of that 1 ms edge; the
+     * query itself never changed.
      *
      * Both ends are historical facts (the completion's timestamp and the
      * entry's `createdAt`), so this needs no "now" and cannot drift as time

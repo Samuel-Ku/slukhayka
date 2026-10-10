@@ -374,13 +374,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // ([miniPlayerHasBook]): the leading column must not widen for a bar that
     // will draw nothing.
     val miniPlayerVisible = !miniPlayerDismissed && selectedTab != SelectedTab.LISTEN
-    val miniPlayerHasBook = miniPlayerHasBook(playerState)
+    val barHasBook = miniPlayerHasBook(playerState)
     // The bar leaves the leading column while the full player is open — pane or
     // modal. That is what the modal does today by covering it, and it is what
     // keeps the player pane on a window with room at the width the audit
     // measured (≈456 dp: the bar would otherwise take 280 dp of it).
     val leadingMiniPlayer = rememberShowsLeadingMiniPlayer(
-        miniPlayerVisible && miniPlayerHasBook && !showFullPlayer
+        miniPlayerVisible && barHasBook && !showFullPlayer
     )
     // Every window without room for that column — every phone, portrait or
     // landscape — keeps the bar in the Scaffold's bottomBar exactly as it was.

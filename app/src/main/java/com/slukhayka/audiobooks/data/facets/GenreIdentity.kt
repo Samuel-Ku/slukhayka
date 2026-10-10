@@ -26,6 +26,17 @@ object GenreIdentity {
      * pages, sound-books' categories, lihtar's library). «Класика» і
      * «нон-фікшн» тут НЕМАЄ: жодне джерело цих слів не заявляє, а назвати їх
      * означало б вигадати словник (ADR-0014).
+     *
+     * #1053 added «Попаданці», and it too is a claim, not a wish: chitaka.com.ua
+     * lists the shelf under Фантастика with its own page
+     * (`/zhanryi/fantastika/popadancy/`, captured 2026-10-10 — the genre index
+     * carries `title="Попаданці"`, the shelf page says «Попаданці» in its own
+     * title and heading). 4read uses the same word only as a tag («попаданці»,
+     * «попаданці в інші світи»), never in the genre row the app reads. The
+     * entry fixes the identity ahead of the claim reaching the filters: no
+     * source the app currently reads genres from claims the word yet, so the
+     * chip appears when one does — and it appears under a stable id instead of
+     * a hash, without the late-dictionary migration #702 (T4) had to write.
      */
     private val canonical = mapOf(
         "фентезі" to NormalizedGenre("fantasy", "Фентезі"),
@@ -47,7 +58,8 @@ object GenreIdentity {
         "історична проза" to NormalizedGenre("historical-prose", "Історична проза"),
         "дитячі" to NormalizedGenre("childrens-literature", "Дитяча література"),
         "дитяча література" to NormalizedGenre("childrens-literature", "Дитяча література"),
-        "любовні романи" to NormalizedGenre("romance", "Любовні романи")
+        "любовні романи" to NormalizedGenre("romance", "Любовні романи"),
+        "попаданці" to NormalizedGenre("portal-fantasy", "Попаданці")
     )
     private val nonGenres = setOf("каталог", "4read каталог", "усі жанри", "all genres")
 

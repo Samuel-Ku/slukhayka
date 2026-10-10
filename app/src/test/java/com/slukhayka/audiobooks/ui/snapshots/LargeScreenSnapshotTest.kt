@@ -263,8 +263,9 @@ class LargeScreenSnapshotTest {
      * first version of this frame could not show (review S1): the bar in the
      * leading column AND the wide two-pane Медіатека in the SAME window.
      *
-     * The bar's 360 dp column leaves the Library's list pane 0.4 × (840 − 80 −
-     * 360) = 192 dp, far under the 284 dp two tile columns need. The frame shows
+     * The bar's 360 dp column — the rail sits INSIDE it, not beside it — leaves
+     * the Library's list pane 0.4 × (840 − 360) = 192 dp, far under the 284 dp
+     * two tile columns need. The frame shows
      * what the app does about it — an adaptive grid draws ONE tile per row
      * instead of two squeezed ones — and the assertions pin what an image
      * cannot: every tile keeps at least the canonical poster's width and none
@@ -378,7 +379,10 @@ class LargeScreenSnapshotTest {
         }
     }
 
-    /** The four books the Медіатека frame shows as tiles. */
+    /**
+     * The books the Медіатека frame shows as tiles: the shared fixture's own,
+     * capped so a growing fixture cannot turn the frame into a shelf list.
+     */
     private val frameLibrary: List<LibraryBook> by lazy {
         buildLibraryBooks(
             books = TestDataFactory.dataBooks().take(4),

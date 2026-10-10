@@ -1593,9 +1593,10 @@ internal fun LibraryContinueCard(
  *
  * `Adaptive`, not `Fixed(2)`: the width the book area gets is not the window's,
  * it is whatever container the screen was handed — and since #1205 a wide window
- * can hand the Library's list pane as little as 192 dp, because the mini-player's
- * 360 dp leading column takes its share of a 840 dp window (0.4 × (840 − 80 −
- * 360) = 192 dp).
+ * can hand the Library's list pane as little as 192 dp. The mini-player's
+ * leading column is 360 dp WIDE and the rail sits INSIDE it, not beside it, so
+ * an 840 dp window gives the content 840 − 360 = 480 dp and the list pane
+ * 0.4 × 480 = 192 dp.
  *
  * Two FIXED columns in that pane gave each tile ≈74 dp — under the canonical
  * [PosterWidth] poster (ADR-0033) and a column of truncated titles, which is the
@@ -1609,6 +1610,10 @@ internal fun LibraryContinueCard(
  * width. `GridCells.Adaptive(minSize)` guarantees cells of at least `minSize`
  * for every container of at least that width, and the narrowest pane the app can
  * produce is 192 dp, so the tiles can no longer be squeezed below the poster.
+ * That is also why there is no separate `widthIn(min = PosterWidth)` floor
+ * (review of #1217): `Adaptive` already IS the floor for every reachable width,
+ * and in the one container narrower than a poster, where such a floor would
+ * fire, it would clip the tile where fitting it is the point.
  */
 internal fun libraryGridColumns(gridMode: Boolean): GridCells =
     if (gridMode) GridCells.Adaptive(minSize = PosterWidth) else GridCells.Fixed(1)

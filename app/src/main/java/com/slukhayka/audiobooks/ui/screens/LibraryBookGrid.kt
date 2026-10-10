@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -16,53 +15,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookDownloadCount
 import com.slukhayka.audiobooks.ui.SubmissionBadge
-import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-
-/**
- * #1206 — the narrowest container that may hold the TWO-column tile grid.
- *
- * Two tiles no narrower than the canonical poster — `PosterWidth` (120 dp,
- * `PosterCard`) taken as the tile's MINIMUM, not as the width the library tile
- * is drawn at: that tile stretches to its grid cell — plus the column gap and
- * the grid's own side padding, read from the very `AppDimens` tokens the grid
- * lays out with, so the floor cannot drift from the layout it guards:
- * 2 × 120 + 12 + 32 = **284 dp**.
- */
-internal val LibraryGridMinWidth: Dp =
-    PosterWidth * 2 + AppDimens.SpaceMd + AppDimens.PageSides * 2
-
-/**
- * #1206 — may the book area draw TILES, or must it fall back to the LIST?
- *
- * A wide window at its 600 dp breakpoint gives the Library's list pane only
- * 0.4 of its width — 239.6 dp — and two tile columns cannot live there: the
- * grid would force each cell to ≈98 dp, i.e. 22 dp UNDER the canonical poster,
- * and the titles would ellipsise into the «column of truncated titles»
- * `WindowLayout` warns about. So below [LibraryGridMinWidth] the listener's
- * grid choice degrades to the list — the same rows the list mode draws —
- * rather than being drawn squeezed or cropped.
- *
- * The container decides, not the window: the same screen is a full window on a
- * phone and a fraction of one inside a wide window's pane, and only the width
- * it is actually handed can answer.
- *
- * [gridMode] is the listener's stored choice. It is never upgraded: a window
- * that grows back over the floor shows the grid again, and a listener who
- * chose the list never gets tiles.
- */
-internal fun libraryGridShowsTiles(availableWidth: Dp, gridMode: Boolean): Boolean =
-    gridMode && availableWidth >= LibraryGridMinWidth
 
 /**
  * #1206 — the Медіатека's book area: the section header and the books, in the
@@ -75,15 +38,17 @@ internal fun libraryGridShowsTiles(availableWidth: Dp, gridMode: Boolean): Boole
  * The book area is the one place on the screen whose shape depends on the
  * CONTAINER it is given rather than on the window: inside a wide window's list
  * pane (see `WideDetailPane`) it is handed a fraction of the window, not the
- * whole of it. So this composable — and not the screen's caller — owns the
- * decision of how many columns its own width may hold.
+ * whole of it. The column COUNT is not decided here — [libraryGridColumns]
+ * (#1205/#1217) is its one carrier, and this composable both draws it and ASKS
+ * it how many columns the container it was handed will get, instead of keeping
+ * a second copy of that arithmetic.
  *
  * [entries] arrive already built, because the screen remembers them for its
  * focus-return and availability queues. That is sound only for the shape the
  * screen builds: on «Книги» (`browsing = false`) the entry list does not depend
- * on the view mode, so the mode can still be decided here, after it. A caller
- * that ever wants `browsing = true` — where the mode picks a shelf instead of
- * tiles — must build its entries from the EFFECTIVE mode, not from [gridMode].
+ * on the view mode, so the mode can still be read here, after it. A caller that
+ * ever wants `browsing = true` — where the mode picks a shelf instead of tiles
+ * — must build its entries from the same mode it passes here.
  */
 @Composable
 internal fun LibraryBookGrid(
@@ -106,24 +71,43 @@ internal fun LibraryBookGrid(
     submissionBadges: Map<String, SubmissionBadge> = emptyMap()
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        // #1206 — the ONE container-dependent decision on this screen: how much
+        // #1206 — the ONE container-dependent fact on this screen: how much
         // width the book area was actually handed. `maxWidth` is the incoming
         // constraint, so it answers for the list pane of a wide window exactly
         // as it answers for a whole phone window.
-        val showsTiles = libraryGridShowsTiles(availableWidth = maxWidth, gridMode = gridMode)
+        val columns = libraryGridColumns(gridMode)
+        val density = LocalDensity.current
+        // `calculateCrossAxisCellSizes` is the very call `LazyVerticalGrid`
+        // makes to place its columns, with the same content width (the grid's
+        // own side paddings taken out) and the same spacing — so ASKING it is
+        // how this composable knows whether a second column fits, instead of
+        // keeping a second copy of the rule that could drift from the shipped
+        // one. The snapshot test cross-checks the answer against the columns
+        // the layout really drew.
+        val columnCount = with(columns) {
+            with(density) {
+                calculateCrossAxisCellSizes(
+                    availableSize = (maxWidth - AppDimens.PageSides * 2)
+                        .roundToPx()
+                        .coerceAtLeast(0),
+                    spacing = AppDimens.SpaceMd.roundToPx()
+                ).size
+            }
+        }
         Column(modifier = Modifier.fillMaxSize()) {
-            // #1206 — the degradation is STATED, not silent. The chip in the
-            // filter sheet keeps saying «Сітка»: it is the listener's stored
-            // preference, and the grid comes back as soon as the pane can
-            // afford it — so the pane has to say why it is showing rows
-            // instead, and it has to say it HERE, where the rows are, rather
-            // than in a sheet the listener has already closed.
+            // #1206 — the chip in the filter sheet says «Сітка», and the pane
+            // must not quietly contradict it: it draws TILES either way, and
+            // when the container can only hold one column it says so. That is
+            // the whole of this note — a reason, not a degradation. The policy
+            // (#1217) is that a narrow pane keeps the tiles at the canonical
+            // poster's width instead of squeezing two columns under it or
+            // falling back to the list.
             //
-            // The note sits ABOVE the grid rather than as a leading grid item
-            // on purpose: `LibraryScreen` maps a grid INDEX back to a
+            // It sits ABOVE the grid rather than as a leading grid item on
+            // purpose: `LibraryScreen` maps a grid INDEX back to a
             // `LibraryGridEntry` for its availability queue and its focus
             // return, so an extra leading item would shift every one of them.
-            if (gridMode && !showsTiles) {
+            if (gridMode && columnCount < 2) {
                 Text(
                     text = stringResource(R.string.lib_grid_pane_too_narrow),
                     style = MaterialTheme.typography.labelSmall,
@@ -135,11 +119,11 @@ internal fun LibraryBookGrid(
                             end = AppDimens.PageSides,
                             top = AppDimens.SpaceSm
                         )
-                        .testTag("library_grid_degraded_note")
+                        .testTag("library_grid_single_column_note")
                 )
             }
             LazyVerticalGrid(
-                columns = GridCells.Fixed(if (showsTiles) 2 else 1),
+                columns = columns,
                 state = gridState,
                 // #962 — the grid takes what is LEFT of the column rather than
                 // claiming everything: `fillMaxSize` inside a Column is measured
@@ -168,11 +152,7 @@ internal fun LibraryBookGrid(
                     // renderer falls back to the wall of cards and none of the
                     // row work shows up.
                     browsing = browsing,
-                    // #1206 — the EFFECTIVE mode, not the listener's stored one:
-                    // a pane under the floor draws the dense rows, which is what
-                    // the list mode draws, so the degradation is the list itself
-                    // and not a third presentation.
-                    gridMode = showsTiles,
+                    gridMode = gridMode,
                     availability = availability,
                     downloadCounts = downloadCounts,
                     restoreFocusBookId = restoreFocusBookId,

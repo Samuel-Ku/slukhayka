@@ -35,27 +35,26 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * #1206 — the Медіатека's book grid at the wide-window breakpoint, as GEOMETRY.
+ * #1206 — the Медіатека's book grid in the 600–839 dp band, as GEOMETRY.
  *
  * The defect the ticket files: a wide window at exactly its 600 dp breakpoint
- * hands the Library's list pane 0.4 of its width, and the two-column tile grid
- * has to live inside that. The pane is 239.6 dp of a 600 dp window (0.4 of
- * 600 − 1 dp for the divider), while two tiles at the canonical poster width
- * plus the gap and the grid's own side padding need
- * 2 × 120 + 12 + 32 = **284 dp**. Nothing in the golden set rendered that band:
- * the fixtures are 411 dp (a phone) and 840 dp (a tablet), so the squeeze was
- * never in a frame.
+ * hands the Library's list pane 0.4 of its width — 239.6 dp — and the grid has
+ * to live inside that. With a FIXED two-column grid each tile was forced to
+ * (239.6 − 44) / 2 = 97.8 dp, i.e. 22 dp UNDER the canonical poster; nothing in
+ * the golden set rendered that band (the fixtures are 411 dp and 840 dp), so the
+ * squeeze was never in a frame.
  *
- * These assertions are on BOUNDS and on STRUCTURE, not on pixels, and they say
- * two things at once, which is what makes the boundary visible from both sides:
- *  - at 600 dp no book card may leave the pane, and no card may be squeezed
- *    under the canonical poster — the two tile columns do not fit, so the grid
- *    degrades to the list, says so in the pane, and every card carries the
- *    dense row's own `library_row_progress_<id>` marker. That marker is what
- *    separates the LIST from a ONE-column grid of tiles, which is stacked
- *    exactly the same way and would otherwise pass every geometry assertion;
- *  - at 840 dp the two tile columns are still there, still inside the pane, no
- *    card is a row and no degradation note is shown.
+ * The owner's answer (#1217) is an ADAPTIVE grid — `libraryGridColumns`, the one
+ * carrier this test's book area goes through — where a narrow pane keeps the
+ * tiles at the canonical poster's width and opens a second column only when two
+ * of them plus the gap fit inside the padded content box, i.e. from
+ * 2 × 120 + 12 + 32 = 284 dp of pane. These assertions pin that policy from both
+ * sides, on BOUNDS and on STRUCTURE rather than on pixels:
+ *  - at 600 dp every tile is at least `PosterWidth` wide and stays inside the
+ *    pane, the books are drawn as TILES and not as the list the chip does not
+ *    say, and the pane states that it can only hold one column;
+ *  - at 840 dp the two columns are still there, still inside the pane, still
+ *    tiles, and no one-column note is shown.
  *
  * The frames this class also writes (`library-grid-600dp.png`,
  * `library-grid-840dp.png`) are the reviewable half of the same evidence; the
@@ -71,26 +70,25 @@ class LibraryGridBreakpointTest {
 
     /**
      * Exactly the wide window's own breakpoint: 600 dp of window, so 239.6 dp
-     * of list pane.
+     * of list pane and one tile column.
      */
     @Test
-    fun at600ThePaneCannotHoldTwoTileColumnsSoTheBooksStayInsideItAsAList() {
+    fun at600ThePaneKeepsTilesAtTheCanonicalPosterWidthInOneColumn() {
         showLibraryPane()
 
         val pane = paneBounds()
         val paneWidth = pane.right.value - pane.left.value
         assertTrue(
             "the fixture must be the defect's own window: the list pane of a 600 dp " +
-                "window is ${paneWidth} dp, under the $LibraryGridFloorDp dp two tile " +
-                "columns need",
-            paneWidth < LibraryGridFloorDp
+                "window is ${paneWidth} dp, under the $TwoColumnMinWidthDp dp a second " +
+                "tile column needs",
+            paneWidth < TwoColumnMinWidthDp
         )
 
         val cards = bookCards()
         // The grid is LAZY, so this is "what the viewport composed", not "how
-        // many books the fixture has" — and it is deliberately low: a
-        // regression that draws tall one-column tiles composes fewer of them,
-        // and the assertions below must fail on the SHAPE, not on the count.
+        // many books the fixture has" — and it is deliberately low, so that a
+        // regression fails on the SHAPE below rather than on the count.
         assertTrue("the fixture must lay out books", cards.size >= 2)
 
         cards.forEach { card ->
@@ -100,41 +98,41 @@ class LibraryGridBreakpointTest {
                 card.left.value >= pane.left.value - Tolerance &&
                     card.right.value <= pane.right.value + Tolerance
             )
-        }
-
-        cards.forEach { card ->
             val width = card.right.value - card.left.value
             assertTrue(
-                "no book card may be squeezed under the canonical poster width " +
-                    "(${PosterWidth.value} dp): a card measured $width dp — the two " +
-                    "tile columns need $LibraryGridFloorDp dp of pane, this pane has " +
-                    "$paneWidth dp, so the books must be presented as a list instead",
+                "a tile may not be squeezed under the canonical poster " +
+                    "(${PosterWidth.value} dp): one measured $width dp. Two columns in " +
+                    "this $paneWidth dp pane would be " +
+                    "${(paneWidth - 44f) / 2} dp each — the adaptive grid must open ONE " +
+                    "column of full-width tiles instead",
                 width >= PosterWidth.value - Tolerance
             )
         }
 
         assertEquals(
-            "with the two tile columns unaffordable the books must be one per row " +
-                "(a list), not squeezed into a single column of tiles",
+            "the pane cannot hold a second column, so the tiles must be one per row",
             cards.size,
             rowTops(cards).size
         )
 
-        composeTestRule.onNodeWithTag("library_grid_degraded_note").assertExists()
-        assertEquals(
-            "every card must be the dense ROW the list mode draws, not a tile: a " +
-                "ONE-column grid of tiles is stacked as well, so 'one per row' alone " +
-                "cannot tell the two apart — the row's own progress marker can",
-            cards.size,
-            rowProgressMarkers().size
+        // The chip in the filter sheet says «Сітка»: the pane must draw tiles
+        // and not the list behind its back. The dense row's own progress
+        // marker is the one thing a tile never carries — a ONE-column grid of
+        // tiles is stacked exactly like the list, so bounds alone cannot tell
+        // them apart.
+        assertTrue(
+            "the grid choice must draw TILES, not the list: no card may carry the " +
+                "dense row's progress marker",
+            rowProgressMarkers().isEmpty()
         )
+        composeTestRule.onNodeWithTag("library_grid_single_column_note").assertExists()
 
         composeTestRule.onRoot().captureRoboImage(filePath = Frame600Dp)
     }
 
     /**
-     * The contrast case: the same pane rule on the width the golden set already
-     * covers, where two tiles DO fit — 0.4 × (840 − 1) = 335.6 dp.
+     * The contrast case: the same grid on the width the golden set already
+     * covers, where a second column DOES fit — 0.4 × (840 − 1) = 335.6 dp.
      */
     @Test
     @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
@@ -144,9 +142,9 @@ class LibraryGridBreakpointTest {
         val pane = paneBounds()
         val paneWidth = pane.right.value - pane.left.value
         assertTrue(
-            "the contrast fixture must afford two tile columns: the list pane of an " +
+            "the contrast fixture must afford a second column: the list pane of an " +
                 "840 dp window is ${paneWidth} dp",
-            paneWidth >= LibraryGridFloorDp
+            paneWidth >= TwoColumnMinWidthDp
         )
 
         val cards = bookCards()
@@ -173,12 +171,11 @@ class LibraryGridBreakpointTest {
             rowTops(cards).size
         )
 
-        composeTestRule.onNodeWithTag("library_grid_degraded_note").assertDoesNotExist()
         assertTrue(
-            "a pane that affords the grid must draw TILES: the dense rows' own " +
-                "progress markers must be absent",
+            "a pane that affords two columns must draw TILES, not the list",
             rowProgressMarkers().isEmpty()
         )
+        composeTestRule.onNodeWithTag("library_grid_single_column_note").assertDoesNotExist()
 
         composeTestRule.onRoot().captureRoboImage(filePath = Frame840Dp)
     }
@@ -269,9 +266,10 @@ class LibraryGridBreakpointTest {
     private companion object {
         /**
          * 2 × the canonical poster + the grid's gap + its two 16 dp side
-         * paddings — the arithmetic the ticket files as 284 dp.
+         * paddings — the arithmetic the ticket files as 284 dp, and the width
+         * from which the adaptive grid opens its second column.
          */
-        const val LibraryGridFloorDp = 284f
+        const val TwoColumnMinWidthDp = 284f
 
         /** Sub-pixel slack: Robolectric lays out in pixels, the assertions in dp. */
         const val Tolerance = 0.5f
@@ -279,7 +277,7 @@ class LibraryGridBreakpointTest {
         /** The band no golden covered before #1206: the defect's own window. */
         const val Frame600Dp = "src/test/snapshots/library-grid-600dp.png"
 
-        /** The contrast frame: the same pane rule where two tiles DO fit. */
+        /** The contrast frame: the same grid where a second column DOES fit. */
         const val Frame840Dp = "src/test/snapshots/library-grid-840dp.png"
     }
 }
@@ -287,8 +285,8 @@ class LibraryGridBreakpointTest {
 /**
  * Four books, deterministic and cover-less, every one STARTED: enough for two
  * tile rows in a pane that affords them, long titles so a squeezed tile would
- * be visible as an ellipsis rather than as a crop, and progress rows so each
- * dense row carries the `library_row_progress_<id>` marker the assertions read.
+ * be visible as an ellipsis rather than as a crop, and progress rows so the
+ * assertions can tell a dense row from a tile by its own marker.
  */
 private val fixtureLibrary: List<LibraryBook> by lazy {
     val template = TestDataFactory.dataBooks().first()

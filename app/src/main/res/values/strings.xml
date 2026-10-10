@@ -639,10 +639,10 @@
     <string name="lib_filter">Фільтр</string>
     <string name="lib_no_results_title">Нічого не знайдено</string>
     <string name="lib_no_results_body">Спробуйте інший фільтр або змініть пошуковий запит.</string>
-    <!-- #1206 — the two-column grid needs 284 dp of pane; inside a wide
-         window's list pane at 600 dp there are only 240, so the books are
-         drawn as the list and the pane itself says why. -->
-    <string name="lib_grid_pane_too_narrow">Панель завузька для сітки — показуємо списком</string>
+    <!-- #1206 — the adaptive grid opens a second column from 284 dp of pane;
+         a wide window's list pane at 600 dp has only 240, so the pane says
+         why it is showing one column of tiles. -->
+    <string name="lib_grid_pane_too_narrow">Панель завузька для двох колонок — плитки в один стовпчик</string>
     <string name="lib_audiobook_fallback">Аудіокнига</string>
     <string name="lib_source_local">Локальна</string>
     <string name="lib_continue_label">ПРОДОВЖИТИ</string>

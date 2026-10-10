@@ -155,6 +155,18 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # `updateLintBaseline` writes the path of the checkout it runs in, so a
+      # baseline regenerated inside a lane worktree pins `.worktrees/<lane>/…`
+      # (or a `$HOME/…` checkout path) into entries that then match nothing —
+      # on CI, and on any other machine. Fail loudly instead of letting dead
+      # entries accumulate.
+      - name: Refuse a baseline that cites a machine path
+        run: |
+          if grep -qE 'file="[^"]*(\.worktrees/|\$HOME/)' app/lint-baseline.xml; then
+            echo "::error::app/lint-baseline.xml cites a worktree or home path — regenerate it from the repository root, and drop entries that point outside the module"
+            exit 1
+          fi
+
       # #386 configured Android Lint with a checked-in baseline so that
       # `lintDebug` passes and CI can adopt it — this job is that adoption. The
       # baseline absorbs the inherited debt; a NEW issue outside it fails here,

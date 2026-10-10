@@ -13,8 +13,8 @@ import kotlin.system.exitProcess
 
 /** Real frozen catalog, actual ONNX backend, full-candidate production LOO, strict offline gate. */
 object RunRecommendationEval {
-    private const val ACTIVE_PROTOCOL = "personal-interests-v5-main54"
-    private const val ACTIVE_PROTOCOL_DIR = "docs/recommend/experiments/2026-10-09-personal-interests-v5-main54"
+    private const val ACTIVE_PROTOCOL = "personal-interests-v5-main-ec19"
+    private const val ACTIVE_PROTOCOL_DIR = "docs/recommend/experiments/2026-10-10-personal-interests-v5-main-ec19"
     @JvmStatic
     fun main(args: Array<String>) {
         if (args.firstOrNull() == "--acquire") {

@@ -98,6 +98,16 @@ class GenreIdentityTest {
             NormalizedGenre("portal-fantasy", "Попаданці"),
             GenreIdentity.canonicalIdentities["portal-fantasy"]
         )
+        // Реальна форма заяви chitaka: полиця вкладена ПІД Фантастику, а
+        // трейл джерела склеюється в один рядок (SourceCatalog.kt:1576) —
+        // обидві полиці мусять вижити окремо, жодного злиття в один facet.
+        assertEquals(
+            listOf(
+                NormalizedGenre("science-fiction", "Фантастика"),
+                NormalizedGenre("portal-fantasy", "Попаданці")
+            ),
+            GenreIdentity.fromSourceText("Фантастика · Попаданці")
+        )
     }
 
     /**

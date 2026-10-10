@@ -37,6 +37,8 @@ object GenreIdentity {
      * source the app currently reads genres from claims the word yet, so the
      * chip appears when one does — and it appears under a stable id instead of
      * a hash, without the late-dictionary migration #702 (T4) had to write.
+     * Reading chitaka's genres is deferred to #1162; that work must reuse THIS
+     * id (`portal-fantasy`) rather than introduce a second wording of the shelf.
      */
     private val canonical = mapOf(
         "фентезі" to NormalizedGenre("fantasy", "Фентезі"),

@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -625,47 +624,38 @@ fun LibraryScreen(
                             body = stringResource(R.string.lib_no_results_body)
                         )
 
-                        else -> LazyVerticalGrid(
-                            columns = libraryGridColumns(gridMode),
-                            state = libraryGridState,
-                            // #962 — the grid takes what is LEFT of the column
-                            // rather than claiming everything: `fillMaxSize`
-                            // inside a Column is measured against the whole
-                            // window, so it both over-reported its height and
-                            // pushed the rows it did lay out past the bottom
-                            // edge. `weight(1f)` is the honest ask — "the rest
-                            // of the screen" — and it is what makes the list
-                            // scrollable in a 411 dp landscape window.
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .testTag("library_grid"),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            libraryGridContent(
-                                entries = gridEntries,
-                                // #885 — must match the shape `libraryGridEntries`
-                                // built above (always the dense rows on «Книги»),
-                                // otherwise the renderer falls back to the wall of
-                                // cards and none of the row work shows up.
-                                browsing = false,
-                                gridMode = gridMode,
-                                availability = libraryAvailability,
-                                downloadCounts = bookDownloadCounts,
-                                restoreFocusBookId = restoreFocusBookId,
-                                bookReturnFocusRequester = bookReturnFocusRequester,
-                                awaitingSubmissionBookIds = awaitingSubmissionBookIds,
-                                submissionBadges = submissionBadges,
-                                watchingSubmissionBookIds = watchingSubmissionBookIds,
-                                deferredPublicationBookIds = deferredPublicationBookIds,
-                                abandonedBookIds = abandonedBookIds,
-                                onBookClick = onBookClick,
-                                onPlayClick = onPlayClick,
-                                onRecheck = { viewModel.recheckAvailability(it) }
-                            )
-                        }
+                        // #1206 — the book area is `LibraryBookGrid`, the same
+                        // composable the snapshot test drives: the screen and
+                        // the harness must not be able to disagree about the
+                        // shape of the book area.
+                        else -> LibraryBookGrid(
+                            entries = gridEntries,
+                            // #885 — must match the shape `libraryGridEntries`
+                            // built above (always the dense rows on «Книги»),
+                            // otherwise the renderer falls back to the wall of
+                            // cards and none of the row work shows up.
+                            browsing = false,
+                            gridMode = gridMode,
+                            availability = libraryAvailability,
+                            downloadCounts = bookDownloadCounts,
+                            restoreFocusBookId = restoreFocusBookId,
+                            bookReturnFocusRequester = bookReturnFocusRequester,
+                            awaitingSubmissionBookIds = awaitingSubmissionBookIds,
+                            submissionBadges = submissionBadges,
+                            watchingSubmissionBookIds = watchingSubmissionBookIds,
+                            deferredPublicationBookIds = deferredPublicationBookIds,
+                            abandonedBookIds = abandonedBookIds,
+                            onBookClick = onBookClick,
+                            onPlayClick = onPlayClick,
+                            onRecheck = { viewModel.recheckAvailability(it) },
+                            gridState = libraryGridState,
+                            // #962 — `weight(1f)` is the honest ask, "the rest
+                            // of the screen": `fillMaxSize` inside a Column is
+                            // measured against the whole window, so it both
+                            // over-reported its height and pushed the rows it
+                            // did lay out past the bottom edge.
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
 

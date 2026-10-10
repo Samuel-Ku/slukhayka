@@ -1799,6 +1799,10 @@ internal fun LibraryShelf(
  * The dense row of a narrowed-down library (no cover, a timeline rail, the
  * honest time left on the right). Same a11y contract as [LibraryBookCard]:
  * one node for the row body, one real play node next to the offline badge.
+ *
+ * #1165 — that one node spans the WHOLE row: the timeline rail and the
+ * trailing column («новий»/«18 хв» + the offline badge) are inside the
+ * interaction area, so its indication never draws an edge through the title.
  */
 @Composable
 internal fun LibraryDenseRow(
@@ -1837,8 +1841,41 @@ internal fun LibraryDenseRow(
     }
     Row(
         modifier = Modifier
+            // #885 — the card attaches the return-focus requester FIRST in
+            // the chain; the row must do the same, otherwise the focus never
+            // lands and the a11y journey times out waiting for `Focused`.
+            .then(
+                if (bookReturnFocusRequester != null) {
+                    Modifier.focusRequester(bookReturnFocusRequester)
+                } else {
+                    Modifier
+                }
+            )
             .fillMaxWidth()
-            .height(IntrinsicSize.Min),
+            .height(IntrinsicSize.Min)
+            // #1165 — the interaction area is the WHOLE row, not the text
+            // column: the clip used to sit on the title/author block, so the
+            // press/focus indication stopped exactly where the trailing column
+            // («новий»/«18 хв» + the cloud) begins and the listener read that
+            // hard edge as the title being cut off by the badge. The row's
+            // boundary is the row's own box now, so the indication can only
+            // ever end where the row does.
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .focusProperties { canFocus = true }
+            .clickable(onClick = onOpen)
+            // #885 — the dense row IS the library book item: keep the
+            // long-standing contract tag the journeys click, so the
+            // accessibility and playback tests keep their anchor.
+            .testTag("library_book_item_${book.book.id}")
+            .clearAndSetSemantics {
+                contentDescription = description
+                stateDescription = state
+                role = Role.Button
+                onClick(label = openLabel) {
+                    onOpen()
+                    true
+                }
+            },
         verticalAlignment = Alignment.CenterVertically
     ) {
         // The timeline thread: one continuous hairline per row, a fill dot on
@@ -1871,38 +1908,8 @@ internal fun LibraryDenseRow(
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
         Column(
             modifier = Modifier
-                // #885 — the card attaches the return-focus requester FIRST in
-                // the chain; the row must do the same, otherwise the focus never
-                // lands and the a11y journey times out waiting for `Focused`.
-                .then(
-                    if (bookReturnFocusRequester != null) {
-                        Modifier.focusRequester(bookReturnFocusRequester)
-                    } else {
-                        Modifier
-                    }
-                )
                 .weight(1f)
                 .padding(vertical = AppDimens.SpaceMd)
-                // #885 — the focus/ripple indication painted a hard square box
-                // behind the row (clearly visible on the focused book right
-                // after returning from it). The prototype's shapes are soft, so
-                // the indication is clipped to a rounded rectangle.
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                .focusProperties { canFocus = true }
-                .clickable(onClick = onOpen)
-                // #885 — the dense row IS the library book item: keep the
-                        // long-standing contract tag the journeys click, so the
-                        // accessibility and playback tests keep their anchor.
-                        .testTag("library_book_item_${book.book.id}")
-                .clearAndSetSemantics {
-                    contentDescription = description
-                    stateDescription = state
-                    role = Role.Button
-                    onClick(label = openLabel) {
-                        onOpen()
-                        true
-                    }
-                }
         ) {
             Text(
                 text = book.book.title,

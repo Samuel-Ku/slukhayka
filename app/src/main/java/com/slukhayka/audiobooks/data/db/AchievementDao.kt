@@ -133,8 +133,11 @@ interface AchievementDao {
     fun observeReturnsAfterBreak(): Flow<Long>
 
     /**
-     * #703 (T5) — «Ніколи не пізно»: books FINISHED two years or more after
-     * they were first opened.
+     * #703 (T5) — «Ніколи не пізно»: books FINISHED more than two years after
+     * they were first opened. The edge is STRICT (`> 730 days`, #1182): a book
+     * opened exactly two years before the completion is not «Ніколи не пізно»,
+     * it needs one more millisecond — the same 1 ms edge the vintage award has,
+     * and the earlier "two years or more" named the wrong side of it.
      *
      * Absolute, like the vintage award: both the completion and the first
      * session are recorded facts, so nothing here depends on the day it runs.

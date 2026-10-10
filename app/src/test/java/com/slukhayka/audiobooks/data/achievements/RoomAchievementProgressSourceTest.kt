@@ -539,8 +539,8 @@ class RoomAchievementProgressSourceTest {
     }
 
     /**
-     * #703 (T5) — «Старовинна» needs a YEAR between adding a book and finishing
-     * it, and «Перерва» needs a SIX-MONTH gap between two sessions.
+     * #703 (T5) — «Старовинна» needs MORE than a year between adding a book and
+     * finishing it, and «Перерва» needs a SIX-MONTH gap between two sessions.
      *
      * Both are absolute comparisons between recorded facts, so the test can use
      * fixed instants and never depends on the day it runs. Each has its

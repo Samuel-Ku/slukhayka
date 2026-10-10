@@ -1,5 +1,22 @@
 package com.slukhayka.audiobooks.data.repository
 
+import com.slukhayka.audiobooks.data.search.GlobalSearchUpdate
+import com.slukhayka.audiobooks.data.source.SourceRequestClass
+import kotlinx.coroutines.CancellationException
+import org.junit.Assert.assertThrows
+import com.slukhayka.audiobooks.data.metadata.CleanProfileProbeVerdict
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfilePublisher
+import com.slukhayka.audiobooks.data.metadata.CleanProfileProber
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfile
+import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
+import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.ProfileChapter
+import com.slukhayka.audiobooks.data.metadata.ProfilePublication
+import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
+import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.metadata.DurationProvenance
+import com.slukhayka.audiobooks.data.metadata.CoverProvenance
+
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -13,6 +30,8 @@ import com.slukhayka.audiobooks.data.search.SearchResultCodec
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.data.source.SourceAdapter
+import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
+import com.slukhayka.audiobooks.testing.FakeFetcher
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -66,7 +85,8 @@ class GlobalSearchRepositoryTest {
         override val sourceId: String,
         private val searchBooks: List<SourceBook> = emptyList(),
         private val feedBooks: List<SourceBook> = emptyList(),
-        private val detail: SourceBookDetail? = null
+        private val detail: SourceBookDetail? = null,
+        override val supportsSearch: Boolean = true
     ) : SourceAdapter {
         override suspend fun search(query: String): List<SourceBook> =
             searchBooks.filter { it.title.contains(query, ignoreCase = true) || it.author.contains(query, ignoreCase = true) }
@@ -188,10 +208,152 @@ class GlobalSearchRepositoryTest {
         SourceBook(title = title, author = author, url = "https://$sourceId.example/$title", sourceId = sourceId)
 
     @Test
+    fun `a successful empty SluhayUA search settles without a second feed request`() = runBlocking {
+        val endpoint = "https://sluhay.com.ua/find/allcards?search=%D0%BA%D0%BE%D0%B1%D0%B7%D0%B0%D1%80&page=1"
+        val fetcher = FakeFetcher(mapOf(endpoint to """{"cards":[],"pageCount":1}"""))
+        val updates = mutableListOf<GlobalSearchUpdate>()
+
+        val results = repo(SluhayuaAdapter(fetcher)).searchAllSources("кобзар", updates::add)
+
+        assertTrue(results.isEmpty())
+        assertEquals(listOf(endpoint), fetcher.requestedUrls)
+        assertEquals(listOf(true, false), updates.map { it.isSearchingSources })
+        assertEquals(false, updates.last().hasSourceFailures)
+    }
+
+    @Test
+    fun `an unavailable SluhayUA search settles as partial without hiding another source`() = runBlocking {
+        val fetcher = FakeFetcher()
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        val catalog = repo(SluhayuaAdapter(fetcher), FakeAdapter("knigionline",
+            searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "knigionline"))))
+
+        val result = catalog.searchAllSources("кобзар", updates::add)
+
+        assertEquals(listOf("Кобзар"), result.map { it.title })
+        assertEquals(1, fetcher.requestedUrls.size)
+        assertEquals(listOf(true, false), updates.map { it.isSearchingSources })
+        assertTrue(updates.last().hasSourceFailures)
+    }
+
+    @Test
+    fun `cancelling SluhayUA search never fetches a feed or publishes a settled answer`() {
+        var requests = 0
+        val fetcher = object : FakeFetcher() {
+            override fun getText(url: String, extraHeaders: Map<String, String>,
+                requestClass: SourceRequestClass,
+                cacheTtlMillis: Long): String {
+                requests++
+                throw CancellationException("listener cancelled")
+            }
+        }
+        val updates = mutableListOf<GlobalSearchUpdate>()
+        assertThrows(CancellationException::class.java) {
+            runBlocking { repo(SluhayuaAdapter(fetcher)).searchAllSources("кобзар", updates::add) }
+        }
+        assertEquals(1, requests)
+        assertEquals(listOf(true), updates.map { it.isSearchingSources })
+    }
+
+    @Test
+    fun `SluhayUA search imports ordered chapters and verified publication requires player and clean probe`() = runBlocking {
+        val searchUrl = "https://sluhay.com.ua/find/allcards?search=%D0%9A%D0%B2%D1%96%D1%82%D0%BA%D0%B0&page=1"
+        val pageUrl = "https://sluhay.com.ua/5931576:grigorij-kvitka-osnovjanenko-serdjeshna-oksana"
+        val streams = listOf(
+            "https://mp3.sluhay.com.ua/Serdeshna/01.mp3",
+            "https://mp3.sluhay.com.ua/Serdeshna/02.mp3",
+            "https://mp3.sluhay.com.ua/Serdeshna/03.mp3",
+            "https://mp3.sluhay.com.ua/Serdeshna/04.mp3",
+            "https://mp3.sluhay.com.ua/Serdeshna/05.mp3",
+            "https://mp3.sluhay.com.ua/Serdeshna/06.mp3",
+            "https://mp3.sluhay.com.ua/Serdeshna/07.mp3"
+        )
+        val responses = mutableMapOf(
+            searchUrl to """{"cards":[{"_id":5931576,"slug":"grigorij-kvitka-osnovjanenko-serdjeshna-oksana","bookName":"Сердешна Оксана","bookAuthor":["Григорій Квітка-Основяненко"],"audioAuthor":["Діана Гончаренко"]}],"pageCount":1}""",
+            pageUrl to """<html><head>
+                <meta property="og:title" content="Григорій Квітка-Основяненко - Сердешна Оксана. Слухай аудіокнигу онлайн" />
+                <meta property="og:description" content="Аудіокнигу онлайн Сердешна Оксана, читає Діана Гончаренко." />
+                </head><body><script>var playlist = [["0",0],["1",1],["2",2],["3",3],["4",4],["5",5],["6",6]];</script></body></html>"""
+        )
+        streams.forEachIndexed { index, stream ->
+            responses["https://sluhay.com.ua/play?bookId=5931576&fileId=$index"] = stream
+        }
+        val fetcher = FakeFetcher(responses)
+        val adapter = SluhayuaAdapter(fetcher)
+        val importer = imports(adapter)
+        val catalog = SourceCatalog(dao, listOf(adapter), importer)
+        val sourceCard = catalog.searchAllSources("Квітка").single().sources.single()
+        val imported = requireNotNull(importer.importFromSourceUrl(sourceCard.sourceId, sourceCard.url))
+        val playable = catalog.getPlayableChapters(imported.id)
+
+        assertEquals("Сердешна Оксана", imported.title)
+        assertEquals("Григорій Квітка-Основяненко", imported.author)
+        assertEquals("Діана Гончаренко", imported.narrator)
+        assertEquals("uk", imported.language)
+        assertEquals(listOf("Глава 1", "Глава 2", "Глава 3", "Глава 4", "Глава 5", "Глава 6", "Глава 7"),
+            playable.map { it.chapter.title })
+        assertEquals(streams, playable.map { it.track?.url })
+        assertEquals(9, fetcher.requestedUrls.size) // one search, one page, seven chapter URLs
+        assertTrue(fetcher.requestedUrls.none { it.contains("sort=time") })
+
+        val store = VerifiedProfileStore()
+        var probeVerdict = CleanProfileProbeVerdict.BLOCKED
+        var probeCalls = 0
+        val publisher = VerifiedSourceProfilePublisher(store,
+            CleanProfileProber { url, headers ->
+                probeCalls++
+                assertEquals("https://mp3.sluhay.com.ua/Serdeshna/01.mp3", url)
+                assertTrue(headers.keys.none { it.equals("Cookie", ignoreCase = true) })
+                probeVerdict
+            })
+        val source = dao.getSourcesForBookSync(imported.id).single()
+        val candidate = VerifiedSourceProfile(
+            sourceId = "sluhayua", editionId = requireNotNull(source.editionId), playerOpened = false,
+            source = SourceAccessCandidate("sluhayua", url = pageUrl),
+            profile = BookProfile(
+                title = imported.title, author = imported.author, narrator = imported.narrator,
+                chapters = playable.map { ProfileChapter(
+                    it.chapter.title, requireNotNull(it.track).url, it.chapter.durationSeconds) }))
+        assertEquals(ProfilePublication.LOCAL_ONLY, publisher.publish(candidate))
+        assertEquals(0, probeCalls)
+        assertEquals(0, store.published.size)
+        assertEquals(ProfilePublication.LOCAL_ONLY,
+            publisher.publish(candidate.copy(playerOpened = true)))
+        assertEquals(0, store.published.size)
+        probeVerdict = CleanProfileProbeVerdict.PLAYABLE
+        assertEquals(ProfilePublication.PUBLISHED,
+            publisher.publish(candidate.copy(playerOpened = true)))
+        assertEquals(1, store.published.size)
+        assertEquals(streams, store.published.single().first.chapters.map { it.streamUrl })
+        assertEquals(ProfileProvenance.SOURCE_VERIFIED,
+            store.published.single().second.source)
+        assertEquals(9, fetcher.requestedUrls.size)
+    }
+
+    private class VerifiedProfileStore : SharedBookMetaStore {
+        val published = mutableListOf<Pair<BookProfile,
+            ProfileProvenance>>()
+        override suspend fun getDuration(editionId: String): Long? = null
+        override suspend fun getDurations(editionIds: List<String>): Map<String, Long> = emptyMap()
+        override suspend fun putDuration(editionId: String, durationSeconds: Long,
+            provenance: DurationProvenance) = Unit
+        override suspend fun getProfile(sourceId: String, editionId: String): BookProfile? = null
+        override suspend fun getProfileEntry(sourceId: String, editionId: String):
+            com.slukhayka.audiobooks.data.metadata.SharedProfileEntry? = null
+        override suspend fun putProfile(sourceId: String, editionId: String,
+            profile: BookProfile,
+            provenance: ProfileProvenance) { published += profile to provenance }
+        override suspend fun getCover(mergeKey: String): String? = null
+        override suspend fun getCovers(mergeKeys: List<String>): Map<String, String> = emptyMap()
+        override suspend fun putCover(mergeKey: String, coverUrl: String,
+            provenance: CoverProvenance) = Unit
+    }
+
+    @Test
     fun `global search queries all sources and merges deduped into one Work card`() = runBlocking {
         val repository = repo(
             FakeAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))),
-            FakeAdapter("soundbooks", feedBooks = listOf(book("КОБЗАР", "Тарас Шевченко", "soundbooks")))
+            FakeAdapter("soundbooks", feedBooks = listOf(book("КОБЗАР", "Тарас Шевченко", "soundbooks")), supportsSearch = false)
         )
 
         val results = repository.searchAllSources("кобзар")
@@ -206,7 +368,7 @@ class GlobalSearchRepositoryTest {
     fun `feed-only sources are discovered by the query`() = runBlocking {
         val repository = repo(
             FakeAdapter("sluhayua"), // no search hits
-            FakeAdapter("lihtar", feedBooks = listOf(book("Лісова пісня", "", "lihtar")))
+            FakeAdapter("lihtar", feedBooks = listOf(book("Лісова пісня", "", "lihtar")), supportsSearch = false)
         )
 
         assertEquals(1, repository.searchAllSources("лісова").size)
@@ -228,7 +390,7 @@ class GlobalSearchRepositoryTest {
         )
         val repository = repo(
             FakeAdapter("sluhayua", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))),
-            FakeAdapter("audiobookmp3", feedBooks = listOf(book("Кобзар", "", "audiobookmp3")), detail = detail)
+            FakeAdapter("audiobookmp3", feedBooks = listOf(book("Кобзар", "", "audiobookmp3")), detail = detail, supportsSearch = false)
         )
 
         val results = repository.searchAllSources("кобзар")
@@ -307,7 +469,8 @@ class GlobalSearchRepositoryTest {
     private class CountingAdapter(
         override val sourceId: String,
         private val searchBooks: List<SourceBook> = emptyList(),
-        private val feedBooks: List<SourceBook> = emptyList()
+        private val feedBooks: List<SourceBook> = emptyList(),
+        override val supportsSearch: Boolean = true
     ) : SourceAdapter {
         var searchCalls = 0
         var feedCalls = 0
@@ -455,7 +618,8 @@ class GlobalSearchRepositoryTest {
         // always did; the replacement volley consumes the same seam.
         val adapter = CountingAdapter(
             "soundbooks",
-            feedBooks = listOf(book("Кобзар", "Тарас Шевченко", "soundbooks"))
+            feedBooks = listOf(book("Кобзар", "Тарас Шевченко", "soundbooks")),
+            supportsSearch = false
         )
         val repository = repo(adapter)
 
@@ -464,6 +628,7 @@ class GlobalSearchRepositoryTest {
         assertEquals(1, found.size)
         assertEquals("soundbooks", found.single().sourceId)
         assertEquals(1, adapter.feedCalls)
+        assertEquals(0, adapter.searchCalls)
     }
 
     @Test

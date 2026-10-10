@@ -1,8 +1,14 @@
 import com.android.build.api.artifact.SingleArtifact
 import com.android.build.api.variant.BuiltArtifactsLoader
+import com.android.build.api.variant.HasUnitTest
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 import java.io.File
+import java.lang.ProcessHandle
+import java.nio.file.Files
+import java.security.MessageDigest
 import java.util.Properties
+import java.util.concurrent.TimeUnit
+import java.util.zip.ZipFile
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
@@ -13,6 +19,7 @@ import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.testing.Test as GradleTest
 import org.gradle.kotlin.dsl.register
 
 plugins {
@@ -541,6 +548,9 @@ afterEvaluate {
       ?.split(',')
       ?.filter(String::isNotBlank)
       ?: partitionAliases.getValue(requestedAlias).get()
+    check(selectedClasses.all { it in partitionAliases.getValue(requestedAlias).get() }) {
+      "Selected classes must belong to the requested normal partition; controlled App uses python3 scripts/test-controlled-app.py run"
+    }
     baseJvmTest.configure {
       systemProperty("slukhayka.test.workerCohort", requestedAlias)
       if (requestedAlias == "testRoomRobolectric") {
@@ -729,3 +739,304 @@ val downloadTdlib by tasks.registering(Exec::class) {
 // #829 — the AAR is a compile dependency, so the pinned artifact must exist
 // before any build; the download task is the only supported producer.
 tasks.named("preBuild") { dependsOn(downloadTdlib) }
+
+// #525: this manual macOS composition target owns one supervised native worker.
+// Production startup and the six normal CI partitions keep their own contracts.
+val controlledAppCases = mapOf(
+  "related-import" to ("com.slukhayka.audiobooks.data.collective.ControlledAttachedAppRelatedCompositionTest" to
+    "actual attached App public import persists observed related cards for its public overview reader"),
+  "overview-late-room" to ("com.slukhayka.audiobooks.data.collective.ControlledAttachedAppLateRoomOverviewTest" to
+    "actual attached App live overview publishes a later same Room block without another refresh"),
+  "arrivals-live-feed" to ("com.slukhayka.audiobooks.data.collective.ControlledAttachedAppArrivalsCompositionTest" to
+    "actual attached App public live feed persists received arrivals for its public overview reader"),
+)
+val controlledAppCase = providers.gradleProperty("controlledApp.case").orElse("related-import").get()
+val controlledAppSelection = controlledAppCases[controlledAppCase]
+  ?: throw GradleException("Unknown controlled App case")
+val controlledAppClass = controlledAppSelection.first
+val controlledAppMethod = controlledAppSelection.second
+val controlledAppPatterns = setOf("$controlledAppClass.$controlledAppMethod", "$controlledAppClass.$controlledAppMethod[36]")
+val controlledAppMainClasses = mapOf(
+  "related-import" to listOf("com/slukhayka/audiobooks/App.class", "com/slukhayka/audiobooks/data/imports/LibraryImport.class", "com/slukhayka/audiobooks/data/db/AudiobookDao.class", "com/slukhayka/audiobooks/data/db/AudiobookDao_Impl.class", "com/slukhayka/audiobooks/data/imports/LibraryImport\$importBookFromSource\$2.class"),
+  "overview-late-room" to listOf("com/slukhayka/audiobooks/App.class", "com/slukhayka/audiobooks/ui/MainViewModel.class", "com/slukhayka/audiobooks/ui/MainViewModel\$refreshCollectiveBlocks\$1.class", "com/slukhayka/audiobooks/ui/MainViewModel\$fillBlockCovers\$1.class", "com/slukhayka/audiobooks/data/db/AudiobookDatabase.class", "com/slukhayka/audiobooks/data/db/AudiobookDao.class", "com/slukhayka/audiobooks/data/db/AudiobookDao_Impl.class", "com/slukhayka/audiobooks/data/collective/CollectiveOverviewBlocks.class", "com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore.class", "com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore\$activate\$2.class", "com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore\$active\$2.class", "com/slukhayka/audiobooks/data/collective/CollectiveFeedBlockCodec.class"),
+  "arrivals-live-feed" to listOf("com/slukhayka/audiobooks/App.class", "com/slukhayka/audiobooks/App\$sourceCatalog\$2\$1.class", "com/slukhayka/audiobooks/App\$sourceCatalog\$2\$2.class", "com/slukhayka/audiobooks/App\$observeSourceArrivals\$3.class", "com/slukhayka/audiobooks/data/catalog/SourceCatalog.class", "com/slukhayka/audiobooks/data/catalog/SourceCatalog\$refreshSourceFeeds\$2.class", "com/slukhayka/audiobooks/data/catalog/SourceCatalog\$newFeedFor\$outcome\$1.class", "com/slukhayka/audiobooks/data/catalog/FeedSnapshotRefresh.class", "com/slukhayka/audiobooks/data/catalog/FeedSnapshotStore.class", "com/slukhayka/audiobooks/data/catalog/WorkIndexStore.class", "com/slukhayka/audiobooks/data/catalog/WorkIndexRefresher.class", "com/slukhayka/audiobooks/data/collective/CollectiveFeedRefresh.class", "com/slukhayka/audiobooks/data/collective/CollectiveOverviewBlocks.class", "com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore.class", "com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore\$activateIfUnchanged\$2.class", "com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore\$active\$2.class", "com/slukhayka/audiobooks/data/collective/CollectiveFeedBlockCodec.class", "com/slukhayka/audiobooks/data/source/SluhayuaAdapter.class", "com/slukhayka/audiobooks/data/source/HttpFetcher.class", "com/slukhayka/audiobooks/data/source/SourceRequestGate.class", "com/slukhayka/audiobooks/data/db/AudiobookDatabase.class", "com/slukhayka/audiobooks/data/db/AudiobookDao.class", "com/slukhayka/audiobooks/data/db/AudiobookDao_Impl.class"),
+).getValue(controlledAppCase)
+
+val controlledAppRequested = gradle.startParameter.taskNames.any {
+  it.substringAfterLast(':') == "testControlledAttachedApp"
+}
+val controlledRunDirectory = providers.gradleProperty("controlledApp.runDirectory").orNull
+fun controlledJson(file: File, value: Any) {
+  file.writeText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(value)) + "\n")
+}
+fun controlledSha(file: File): String = MessageDigest.getInstance("SHA-256")
+  .digest(file.readBytes()).joinToString("") { "%02x".format(it.toInt() and 255) }
+fun controlledNegativeFirebase() {
+  check(file(".").walkTopDown().none { it.name == "google-services.json" }) {
+    "Controlled App target requires an unconfigured Firebase fixture; use a separate checkout without google-services.json. No credentials are removed."
+  }
+  check(file("build/generated").walkTopDown().none { it.name.startsWith("google-services") }) {
+    "Generated Firebase resources are present; use a separate unconfigured checkout."
+  }
+}
+fun controlledSupervisor(stage: String = "startup"): File {
+  val run = controlledRunDirectory?.let(::File)
+    ?: throw GradleException("Use python3 scripts/test-controlled-app.py run; direct controlled dispatch is unsupported")
+  val parent = rootProject.layout.buildDirectory.dir("controlled-app").get().asFile
+  check(run.isDirectory && !Files.isSymbolicLink(run.toPath())) { "Controlled App $stage supervisor: run directory missing or symbolic link" }
+  check(run.canonicalFile == run.absoluteFile && Files.isSameFile(run.parentFile.toPath(), parent.toPath())) { "Controlled App $stage supervisor: run directory is not canonical or parent physical identity differs" }
+  val receipt = groovy.json.JsonSlurper().parse(run.resolve("supervisor.json")) as Map<*, *>
+  check(Files.isSameFile(File(receipt["root"] as String).toPath(), rootProject.projectDir.toPath())) { "Controlled App $stage supervisor: repository physical identity differs" }
+  check(Files.isSameFile(File(receipt["runDirectory"] as String).toPath(), run.toPath())) { "Controlled App $stage supervisor: receipt run directory physical identity differs" }
+  check(receipt["case"] == controlledAppCase && receipt["class"] == controlledAppClass && receipt["method"] == controlledAppMethod) { "Controlled App $stage case/class/method differs from owned supervisor" }
+  check(receipt["state"] == "one-supervised-gradle-attempt") { "Controlled App $stage supervisor: receipt state is not an active one-shot attempt" }
+  check(receipt["token"] == System.getenv("SLUKHAYKA_CONTROLLED_APP_TOKEN")) { "Controlled App $stage supervisor: ownership token does not match" }
+  val pid = (receipt["pid"] as Number).toLong()
+  val supervisor = ProcessHandle.of(pid).orElseThrow()
+  check(supervisor.isAlive) { "Controlled App $stage supervisor: owned process is no longer alive" }
+  check(supervisor.info().startInstant().orElseThrow().epochSecond == (receipt["processStartEpochSecond"] as Number).toLong()) { "Controlled App $stage supervisor: process birth identity differs" }
+  check(supervisor.info().commandLine().orElseThrow().contains("test-controlled-app.py")) { "Controlled App $stage supervisor: process command identity differs" }
+  check(!run.resolve("process-terminal.json").exists() && !run.resolve("receipt.json").exists()) { "Controlled App $stage supervisor: attempt already has terminal or acceptance receipt" }
+  check(System.getProperty("os.name").startsWith("Mac")) { "Controlled App pins support macOS only" }
+  controlledNegativeFirebase()
+  return run
+}
+if (!controlledAppRequested && gradle.startParameter.taskRequests.flatMap { it.args }.any { it.contains("ControlledAttachedApp") || it.contains("ControlledAppFixtureRunner") }) {
+  throw GradleException("Use python3 scripts/test-controlled-app.py run for the controlled App oracle")
+}
+if ((controlledRunDirectory != null || providers.gradleProperty("controlledApp.case").isPresent) && !controlledAppRequested) {
+  throw GradleException("controlledApp.runDirectory is reserved for scripts/test-controlled-app.py run")
+}
+if (controlledAppRequested) {
+  check(gradle.startParameter.taskNames == listOf(":app:validateTestPartitions", ":app:testControlledAttachedApp"))
+  check(!providers.gradleProperty("test.selectedClasses").isPresent)
+  check(gradle.startParameter.allInitScripts.isEmpty() && gradle.startParameter.excludedTaskNames.isEmpty()) {
+    "Controlled target rejects init scripts and excluded tasks; use the supervised helper in a normal clean Gradle environment"
+  }
+  check(gradle.startParameter.taskRequests.flatMap { it.args } == listOf(":app:validateTestPartitions", ":app:testControlledAttachedApp"))
+  check(!gradle.startParameter.isBuildCacheEnabled && !gradle.startParameter.isConfigurationCacheRequested)
+  val run = controlledSupervisor()
+  check(!run.resolve("gradle-configured.json").exists()) { "One supervised Gradle invocation only" }
+  val supervisorReceipt = groovy.json.JsonSlurper().parse(run.resolve("supervisor.json")) as Map<*, *>
+  val supervisorProcess = ProcessHandle.of((supervisorReceipt["pid"] as Number).toLong()).orElseThrow()
+  check(supervisorProcess.descendants().use { children -> children.anyMatch { it.pid() == ProcessHandle.current().pid() } })
+  controlledJson(run.resolve("gradle-configured.json"), mapOf(
+    "gradlePID" to ProcessHandle.current().pid(), "supervisorSHA256" to controlledSha(run.resolve("supervisor.json")),
+    "tasks" to gradle.startParameter.taskNames, "case" to controlledAppCase, "class" to controlledAppClass, "method" to controlledAppMethod,
+  ))
+  tasks.named("preBuild") { doFirst { controlledSupervisor() } }
+}
+val controlledSdk = if (controlledAppRequested) configurations.create("controlledAppRobolectricSdk") {
+  isCanBeConsumed = false
+  isCanBeResolved = true
+  isTransitive = false
+} else null
+if (controlledSdk != null) dependencies.add(controlledSdk.name,
+  "org.robolectric:android-all-instrumented:16-robolectric-13921718-i7")
+
+// Gradle task abbreviations must not turn a direct manual alias into an
+// unrestricted base Test run before the missing supervisor is detected.
+gradle.taskGraph.whenReady {
+  if (hasTask(":app:testControlledAttachedApp") && !controlledAppRequested) {
+    throw GradleException("Use python3 scripts/test-controlled-app.py run; controlled task abbreviations/dependency aliases are unsupported")
+  }
+  if (controlledAppRequested) {
+    check(hasTask(":app:testControlledAttachedApp")) { "Controlled App compiler configuration requires the selected controlled target" }
+    val compiler = allTasks.singleOrNull { it.path == ":app:compileDebugUnitTestKotlin" }
+      ?: throw GradleException("Controlled App requires exactly one selected compileDebugUnitTestKotlin task")
+    val mainCompiler = allTasks.singleOrNull { it.path == ":app:compileDebugKotlin" }
+      ?: throw GradleException("Controlled App requires exactly one selected main compiler")
+    check(mainCompiler is org.jetbrains.kotlin.gradle.tasks.KotlinCompileTool)
+    val baselineRun = controlledSupervisor("main-baseline")
+    check(!baselineRun.resolve("main-class-baseline.json").exists()) { "One actual main baseline only" }
+    val mainOutput = mainCompiler.destinationDirectory.get().asFile
+    controlledJson(baselineRun.resolve("main-class-baseline.json"), mapOf(
+      "case" to controlledAppCase, "class" to controlledAppClass, "method" to controlledAppMethod,
+      "task" to mainCompiler.path, "timeMillis" to System.currentTimeMillis(),
+      "destinationDirectory" to mainOutput.canonicalPath,
+      "classes" to controlledAppMainClasses.map { name ->
+        val file = mainOutput.resolve(name)
+        mapOf("class" to name, "exists" to file.isFile,
+          "SHA256" to if (file.isFile) controlledSha(file) else null,
+          "mtimeMillis" to if (file.isFile) file.lastModified() else null)
+      },
+    ))
+    // The graph contains realized tasks; configure this compiler before execution and input snapshots.
+    compiler.apply {
+      check(this is org.jetbrains.kotlin.gradle.tasks.KotlinCompileTool)
+      check(this is org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompile<*>)
+      val compile = this as org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompile<*>
+      val tool = this as org.jetbrains.kotlin.gradle.tasks.KotlinCompileTool
+      compile.incremental = false
+      outputs.upToDateWhen { false }
+      outputs.cacheIf { false }
+      doFirst {
+        val run = controlledSupervisor("precompile")
+        check(!run.resolve("compile-start.json").exists()) { "One actual targeted compile only" }
+        check(!compile.incremental) { "Controlled App precompile requires incremental=false after selected-task configuration" }
+        controlledJson(run.resolve("compile-start.json"), mapOf(
+          "task" to path, "timeMillis" to System.currentTimeMillis(), "incremental" to false,
+          "case" to controlledAppCase, "class" to controlledAppClass, "method" to controlledAppMethod,
+          "actualTaskClass" to javaClass.name,
+          "compilerCodeSource" to org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompile::class.java.protectionDomain.codeSource.location.toString(),
+          "compilerCodeSourceSHA256" to controlledSha(File(org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompile::class.java.protectionDomain.codeSource.location.toURI())),
+          "destinationDirectory" to tool.destinationDirectory.get().asFile.canonicalPath,
+        ))
+      }
+      doLast {
+        val run = controlledSupervisor()
+        val output = tool.destinationDirectory.get().asFile
+        val classes = listOf(controlledAppClass.substringAfterLast('.'), "ControlledAppFixtureRunner").map { name ->
+          val file = output.resolve("com/slukhayka/audiobooks/data/collective/$name.class")
+          check(file.isFile)
+          mapOf("path" to file.canonicalPath, "SHA256" to controlledSha(file), "mtimeMillis" to file.lastModified())
+        }
+        controlledJson(run.resolve("compile-end.json"), mapOf(
+          "task" to path, "timeMillis" to System.currentTimeMillis(), "classes" to classes,
+          "case" to controlledAppCase, "class" to controlledAppClass, "method" to controlledAppMethod,
+        ))
+      }
+    }
+  }
+}
+tasks.register("testControlledAttachedApp") {
+  group = "verification"
+  description = "Runs the manually supervised, provider-free attached App composition on macOS."
+  dependsOn("testDebugUnitTest")
+  doFirst { controlledSupervisor() }
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) { variant ->
+  (variant as HasUnitTest).unitTest?.configureTestTask { test: GradleTest ->
+    if (!controlledAppRequested) {
+      // The explicit composition fixture never enters an unrestricted/default CI worker.
+      controlledAppCases.values.forEach { test.filter.excludeTestsMatching(it.first) }
+    } else {
+      test.workingDir = projectDir
+      test.maxParallelForks = 1
+      test.forkEvery = 1
+      test.outputs.upToDateWhen { false }
+      test.outputs.cacheIf { false }
+      test.setIncludes(emptyList<String>())
+      test.setExcludes(emptyList<String>())
+      test.filter.setIncludePatterns(*controlledAppPatterns.toTypedArray())
+      test.filter.setExcludePatterns()
+      test.filter.isFailOnNoMatchingTests = true
+      test.systemProperty("robolectric.installFakeMediaProvider", "false")
+      test.doFirst {
+        val run = controlledSupervisor()
+        check(!run.resolve("runtime-input.json").exists()) { "One controlled dispatch only" }
+        check(test.filter.includePatterns == controlledAppPatterns && test.filter.excludePatterns.isEmpty())
+        check(test.includes.isEmpty() && test.excludes.isEmpty())
+        check(test.maxParallelForks == 1 && test.forkEvery == 1L && test.workingDir.canonicalFile == projectDir.canonicalFile)
+        val task = tasks.named("compileDebugUnitTestKotlin").get()
+        check(task is org.jetbrains.kotlin.gradle.tasks.KotlinCompileTool)
+        val main = tasks.named("compileDebugKotlin").get()
+        check(main is org.jetbrains.kotlin.gradle.tasks.KotlinCompileTool)
+        val classpath = test.classpath.files.toList()
+        // Capture public producer outputs and completed state, not guessed optional paths.
+        val dependencyRoots = test.classpath.buildDependencies.getDependencies(test).sortedBy { it.path }
+        val dependencyTasks = mutableMapOf<String, org.gradle.api.Task>()
+        val dependencyEdges = mutableSetOf<Pair<String, String>>()
+        val pendingDependencies = dependencyRoots.toMutableList()
+        while (pendingDependencies.isNotEmpty()) {
+          val dependency = pendingDependencies.removeAt(0)
+          if (dependencyTasks.putIfAbsent(dependency.path, dependency) == null) {
+            dependency.taskDependencies.getDependencies(dependency).sortedBy { it.path }.forEach { child ->
+              dependencyEdges.add(dependency.path to child.path)
+              pendingDependencies.add(child)
+            }
+          }
+        }
+        val selectedTasks = gradle.taskGraph.allTasks.associateBy { it.path }
+        val producerPaths = listOf(":app:kspDebugUnitTestKotlin", ":app:compileDebugUnitTestJavaWithJavac")
+        val producers = producerPaths.map { path ->
+          val producer = selectedTasks[path] ?: error("Controlled output producer is not selected: $path")
+          check(dependencyTasks[path] === producer) { "Producer has no actual Test classpath dependency witness: $path" }
+          val state = producer.state
+          check(state.executed && state.failure == null) { "Controlled output producer did not complete successfully: $path" }
+          val record = mutableMapOf<String, Any?>(
+            "task" to path, "selected" to true, "className" to producer.javaClass.name,
+            "outputs" to producer.outputs.files.files.map { it.canonicalPath }.sorted(),
+            "state" to mapOf("executed" to state.executed, "didWork" to state.didWork,
+              "upToDate" to state.upToDate, "noSource" to state.noSource,
+              "skipped" to state.skipped, "skipMessage" to state.skipMessage,
+              "hasFailure" to (state.failure != null)),
+          )
+          if (path == ":app:compileDebugUnitTestJavaWithJavac") {
+            check(producer is org.gradle.api.tasks.compile.JavaCompile) { "Actual Java output producer must be public JavaCompile" }
+            record["destinationDirectory"] = producer.destinationDirectory.get().asFile.canonicalPath
+            record["sourceFiles"] = producer.source.files.map { it.canonicalPath }.sorted()
+            record["sourceEmpty"] = producer.source.files.isEmpty()
+          }
+          record
+        }
+        val buildDirectory = layout.buildDirectory.get().asFile.canonicalFile
+        val javaDestination = producers.single { it["task"] == ":app:compileDebugUnitTestJavaWithJavac" }["destinationDirectory"]
+        val outputProvenance = mapOf(
+          "gradleVersion" to gradle.gradleVersion, "selectedTestTask" to test.path,
+          "projectBuildDirectory" to buildDirectory.canonicalPath,
+          "classpathBuildDependencyRoots" to dependencyRoots.map { it.path },
+          "dependencyEdges" to dependencyEdges.sortedWith(compareBy({ it.first }, { it.second })).map { listOf(it.first, it.second) },
+          "producers" to producers,
+          "optionalOutputs" to listOf(
+            mapOf("path" to buildDirectory.resolve("generated/ksp/debugUnitTest/resources").canonicalPath,
+              "producerTask" to ":app:kspDebugUnitTestKotlin", "role" to "ksp-resources"),
+            mapOf("path" to buildDirectory.resolve("generated/ksp/debugUnitTest/classes").canonicalPath,
+              "producerTask" to ":app:kspDebugUnitTestKotlin", "role" to "ksp-classes"),
+            mapOf("path" to javaDestination, "producerTask" to ":app:compileDebugUnitTestJavaWithJavac", "role" to "java-classes"),
+          ),
+        )
+        val configEntry = "com/android/tools/test_config.properties"
+        val definitions = classpath.mapNotNull { entry ->
+          if (entry.isDirectory) {
+            val member = entry.resolve(configEntry)
+            if (member.isFile) entry to member.readBytes() else null
+          } else if (entry.extension == "jar") {
+            ZipFile(entry).use { zip -> zip.getEntry(configEntry)?.let { entry to zip.getInputStream(it).use { stream -> stream.readBytes() } } }
+          } else null
+        }
+        check(definitions.size == 1) { "Exactly one actual Test classpath test_config.properties is required" }
+        val properties = Properties().apply {
+          definitions.single().second.inputStream().reader(Charsets.UTF_8).use { load(it) }
+        }
+        val original = File(properties.getProperty("android_resource_apk") ?: error("android_resource_apk missing"))
+          .let { if (it.isAbsolute) it else File(test.workingDir, it.path) }.canonicalFile
+        val sdkFile = controlledSdk!!.singleFile
+        check(sdkFile.name == "android-all-instrumented-16-robolectric-13921718-i7.jar")
+        controlledJson(run.resolve("runtime-input.json"), mapOf(
+          "case" to controlledAppCase, "class" to controlledAppClass, "method" to controlledAppMethod,
+          "timeMillis" to System.currentTimeMillis(),
+          "mainCompilerState" to mapOf("task" to main.path, "executed" to main.state.executed,
+            "upToDate" to main.state.upToDate, "didWork" to main.state.didWork, "hasFailure" to (main.state.failure != null)),
+          "task" to test.path, "workingDirectory" to test.workingDir.canonicalPath,
+          "classpath" to classpath.map { it.canonicalPath },
+          "classpathOutputProvenance" to outputProvenance,
+          "testConfigOrigin" to definitions.single().first.canonicalPath,
+          "testConfigSHA256" to MessageDigest.getInstance("SHA-256").digest(definitions.single().second).joinToString("") { "%02x".format(it.toInt() and 255) },
+          "originalApk" to original.canonicalPath,
+          "sdkDirectory" to androidComponents.sdkComponents.sdkDirectory.get().asFile.canonicalPath,
+          "robolectricSdk" to sdkFile.canonicalPath,
+          "unitDestinationDirectory" to task.destinationDirectory.get().asFile.canonicalPath,
+          "mainDestinationDirectory" to main.destinationDirectory.get().asFile.canonicalPath,
+          "runtimeSourceClaims" to "actual ordered Test.classpath and public compiler destinationDirectory",
+        ))
+        val log = run.resolve("pre-worker-packager.log")
+        val packager = ProcessBuilder("python3", rootProject.file("scripts/test-controlled-app.py").absolutePath,
+          "package", "--run-directory", run.canonicalPath).directory(rootProject.projectDir)
+          .redirectErrorStream(true).redirectOutput(log).start()
+        if (!packager.waitFor(90, TimeUnit.SECONDS)) {
+          packager.destroy()
+          if (!packager.waitFor(5, TimeUnit.SECONDS)) packager.destroyForcibly()
+          throw GradleException("Controlled packager exceeded 90 seconds; see ${log.path}")
+        }
+        check(packager.exitValue() == 0) { "Controlled pre-worker gate failed; see ${log.path}" }
+        controlledNegativeFirebase()
+        val gate = run.resolve("fixture/fixture.properties")
+        test.systemProperty("slukhayka.s2.fixtureGate", gate.canonicalPath)
+        test.systemProperty("slukhayka.s2.fixtureGateSHA256", controlledSha(gate))
+        test.systemProperty("robolectric.dependency.dir", sdkFile.parentFile.canonicalPath)
+        test.systemProperty("robolectric.offline", "true")
+      }
+    }
+  }
+}

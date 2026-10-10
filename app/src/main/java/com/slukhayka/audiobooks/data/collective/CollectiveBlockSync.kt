@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.collective
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -98,11 +99,14 @@ class CollectiveBlockSync(
             if (page.blocks.isEmpty() && page.nextCursor == null) return@withContext applied
             if (cursor != null && page.nextCursor == cursor) return@withContext applied
             for (block in page.blocks) {
-                val mirrored = runCatching {
-                    val existing = local.active(block.blockKey)
-                    val newer = existing == null || block.fetchedAt > existing.fetchedAt
-                    newer && block.cards.isNotEmpty() && local.activate(block)
-                }.getOrDefault(false)
+                val mirrored = try {
+                    local.activateIfNewer(block)
+                } catch (cancelled: CancellationException) {
+                    // This page is not consumed until local admission completes.
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
                 if (mirrored) applied++
             }
             val next = page.nextCursor ?: return@withContext applied

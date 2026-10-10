@@ -9,10 +9,14 @@ import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.SourceAdapter
+import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -50,7 +54,9 @@ class DurationEnrichment(
     // is written back so the next listener reads it instead of re-fetching
     // the page. Null without Firebase keys: enrichment behaves exactly as
     // before. Best-effort by contract — a failing write never breaks a pass.
-    private val sharedStore: SharedBookMetaStore? = null
+    private val sharedStore: SharedBookMetaStore? = null,
+    /** Already received source detail; independent of its optional duration. */
+    private val onSourceDetailObserved: (suspend (String, SourceBookDetail) -> Unit)? = null
 ) {
 
     /** Timestamp of the last completed pass, as an atomic CAS gate. */
@@ -86,6 +92,7 @@ class DurationEnrichment(
             val adapter = adapterFor(sourceId) ?: continue
             try {
                 val detail = adapter.fetchBookPage(book.sourceUrl)
+                observeLiveDetail(sourceId, detail)
                 val duration = detail.totalDurationSeconds
                 // Any positive page-reported duration is real and written; the
                 // honest-data row gate (DurationBuckets.hasKnownDuration)
@@ -96,7 +103,7 @@ class DurationEnrichment(
                     // shared base (sanity-gated), keyed by the same Edition id
                     // the read path uses — the next user never re-fetches.
                     if (DurationSanity.isPlausible(duration)) {
-                        runCatching {
+                        try {
                             sharedStore?.putDuration(
                                 editionId = EditionId.forBook(book.mergeKey ?: "", book.id, book.narrator),
                                 durationSeconds = duration,
@@ -106,15 +113,34 @@ class DurationEnrichment(
                                     method = DurationProvenance.METHOD_SOURCE_METADATA
                                 )
                             )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Ordinary shared metadata failure remains best effort.
                         }
+                        currentCoroutineContext().ensureActive()
                     }
                     enriched++
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w("DurationEnrichment", "Duration enrichment failed for ${book.id}", e)
             }
         }
         enriched
+    }
+
+    private suspend fun observeLiveDetail(sourceId: String, detail: SourceBookDetail) {
+        currentCoroutineContext().ensureActive()
+        try {
+            onSourceDetailObserved?.invoke(sourceId, detail)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Optional recommendation metadata must not fail duration enrichment.
+        }
+        currentCoroutineContext().ensureActive()
     }
 
     companion object {

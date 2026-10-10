@@ -55,6 +55,7 @@ class TestPartitionsCliTest(unittest.TestCase):
         self.assertEqual(
             {
                 "compose-roborazzi": 1,
+                "controlled-app": 0,
                 "pure-jvm": 1,
                 "room-native": 1,
                 "room-robolectric": 1,
@@ -94,6 +95,7 @@ class TestPartitionsCliTest(unittest.TestCase):
 
         self.assertEqual(
             {
+                "explicitTargets": {},
                 "fullSuite": False,
                 "partitions": {
                     "pure-jvm": ["com.slukhayka.audiobooks.player.SmartRewindTest"]

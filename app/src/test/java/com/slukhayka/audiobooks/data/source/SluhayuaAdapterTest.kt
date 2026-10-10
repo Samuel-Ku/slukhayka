@@ -83,6 +83,22 @@ class SluhayuaAdapterTest {
     }
 
     @Test
+    fun `unavailable search responses never masquerade as successful empty results`() {
+        for (body in listOf("", "<html>Service unavailable</html>", "{\"cards\":[", "{\"cards\":{}}")) {
+            val fetcher = FakeFetcher(fallback = body)
+            val adapter = SluhayuaAdapter(fetcher)
+
+            org.junit.Assert.assertThrows(java.io.IOException::class.java) {
+                runBlocking { adapter.search("Шевченко") }
+            }
+            assertEquals(1, fetcher.requestedUrls.size)
+        }
+        val fetcher = FakeFetcher(fallback = """{"cards":[],"pageCount":1}""")
+        assertTrue(runBlocking { SluhayuaAdapter(fetcher).search("Шевченко") }.isEmpty())
+        assertEquals(1, fetcher.requestedUrls.size)
+    }
+
+    @Test
     fun `blank query returns nothing`() = runBlocking {
         val adapter = SluhayuaAdapter(FakeFetcher(emptyMap()))
 

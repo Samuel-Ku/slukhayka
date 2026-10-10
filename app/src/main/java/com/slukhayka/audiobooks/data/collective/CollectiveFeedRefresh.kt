@@ -1,6 +1,11 @@
 package com.slukhayka.audiobooks.data.collective
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * #523 / ADR-0041 — stale-while-revalidate for ONE collective Огляд block.
@@ -26,7 +31,9 @@ class CollectiveFeedRefresh(
      * that observed it can share it (the collective lane). Best-effort: a
      * failing publish never changes what the local listener sees.
      */
-    private val onActivated: (suspend (CollectiveFeedBlock) -> Unit)? = null
+    private val onActivated: (suspend (CollectiveFeedBlock) -> Unit)? = null,
+    /** The shared write is optional; its deadline never encloses local activation. */
+    private val publicationTimeoutMs: Long = DEFAULT_PUBLICATION_TIMEOUT_MS
 ) {
 
     /** The block to render: the last good one, refreshed at most once per TTL. */
@@ -37,19 +44,28 @@ class CollectiveFeedRefresh(
             return active
         }
 
-        // Stale (or never fetched): only the lease owner may hit the source.
-        if (!lease.acquire(blockKey, now, leaseTtlMs)) return active
-        val outcome = try {
-            fetch(blockKey)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
+        val token = lease.acquire(blockKey, clock(), leaseTtlMs) ?: return active
+        val applied = try {
+            // A preceding commit may have completed while acquisition waited.
+            val current = store.active(blockKey)
+            if (current != null && !current.isStale(clock()) && !CollectiveBlockPolicy.requiresSourceRefresh(current)) {
+                currentCoroutineContext().ensureActive()
+                return current
+            }
+            val outcome = try {
+                fetch(blockKey)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
+            }
+            lease.applyIfOwned(token, clock) { commitOutcome(blockKey, current, outcome) }
         } finally {
-            lease.release(blockKey)
+            withContext(NonCancellable) { lease.release(token) }
         }
-
-        return applyOutcome(blockKey, active, outcome)
+        currentCoroutineContext().ensureActive()
+        if (applied == null) return store.active(blockKey)
+        return finishOutcome(applied)
     }
 
     /**
@@ -74,49 +90,73 @@ class CollectiveFeedRefresh(
         } catch (e: Exception) {
             CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
         }
-        return applyOutcome(blockKey, active, outcome)
+        return finishOutcome(commitOutcome(blockKey, active, outcome))
     }
 
-    /** The ONE activation path: a valid non-empty candidate wins, everything else keeps the block. */
-    private suspend fun applyOutcome(
+    private data class AppliedBlock(
+        val active: CollectiveFeedBlock?,
+        val newlyActivated: CollectiveFeedBlock? = null
+    )
+
+    /** Local admission only; shared publication never holds the lease mutex. */
+    private suspend fun commitOutcome(
         blockKey: String,
         active: CollectiveFeedBlock?,
         outcome: CollectiveRefreshOutcome
-    ): CollectiveFeedBlock? {
+    ): AppliedBlock {
+        currentCoroutineContext().ensureActive()
         val at = clock()
         return when (outcome) {
             is CollectiveRefreshOutcome.Success -> {
                 val candidate = outcome.block
-                val activated = candidate.copy(
-                    fetchedAt = at,
-                    staleAfter = at + CollectiveBlockPolicy.ttlMillisFor(candidate.kind),
-                    version = (active?.version ?: 0L) + 1L,
-                    lastAttempt = CollectiveAttempt(at, CollectiveAttemptStatus.SUCCESS)
-                )
-                if (store.activate(activated)) {
-                    // #527 — share what this owner just observed; a failing
-                    // publish leaves the local block exactly as it is.
-                    runCatching { onActivated?.invoke(activated) }
-                    activated
-                } else {
+                if (candidate.cards.isEmpty()) {
                     store.recordAttempt(blockKey, CollectiveAttempt(at, CollectiveAttemptStatus.EMPTY))
-                    store.active(blockKey)
+                    AppliedBlock(store.active(blockKey))
+                } else {
+                    val activated = candidate.copy(
+                        fetchedAt = at,
+                        staleAfter = at + CollectiveBlockPolicy.ttlMillisFor(candidate.kind),
+                        version = (active?.version ?: 0L) + 1L,
+                        lastAttempt = CollectiveAttempt(at, CollectiveAttemptStatus.SUCCESS)
+                    )
+                    if (store.activateIfUnchanged(active, activated)) {
+                        AppliedBlock(activated, activated)
+                    } else {
+                        // An intervening commit wins; conflict is not EMPTY.
+                        AppliedBlock(store.active(blockKey))
+                    }
                 }
             }
-
             CollectiveRefreshOutcome.Empty -> {
                 store.recordAttempt(blockKey, CollectiveAttempt(at, CollectiveAttemptStatus.EMPTY))
-                store.active(blockKey)
+                AppliedBlock(store.active(blockKey))
             }
-
             is CollectiveRefreshOutcome.Failure -> {
                 store.recordAttempt(blockKey, CollectiveAttempt(at, outcome.status))
-                store.active(blockKey)
+                AppliedBlock(store.active(blockKey))
             }
         }
     }
 
+    private suspend fun finishOutcome(applied: AppliedBlock): CollectiveFeedBlock? {
+        if (applied.newlyActivated != null) {
+            currentCoroutineContext().ensureActive()
+            try {
+                withTimeoutOrNull(publicationTimeoutMs) { onActivated?.invoke(applied.newlyActivated) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A shared write failure leaves the committed local block intact.
+            }
+            currentCoroutineContext().ensureActive()
+        }
+        return applied.active
+    }
+
     companion object {
+        /** A pending shared write cannot hold an already committed block indefinitely. */
+        const val DEFAULT_PUBLICATION_TIMEOUT_MS: Long = 1_000L
+
         /** Short by design: a refresh is one page, and an abandoned one frees up. */
         const val DEFAULT_LEASE_TTL_MS: Long = 60_000L
     }

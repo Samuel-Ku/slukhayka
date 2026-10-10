@@ -359,6 +359,7 @@ class LocalSearchRoomTest {
     @Test
     fun `failed feed fallback is not reported as a successful empty search`() = runBlocking {
         val failed = object : SourceAdapter by LiveAdapter("t1", emptyList()) {
+            override val supportsSearch: Boolean = false
             override suspend fun fetchNew(limit: Int): List<SourceBook> = error("offline feed")
         }
         val updates = mutableListOf<GlobalSearchUpdate>()
@@ -372,6 +373,7 @@ class LocalSearchRoomTest {
     fun `failed feed enrichment keeps the card but reports partial source results`() = runBlocking {
         val feedBook = book("Кобзар", "", "https://t1.example/kobzar")
         val failed = object : SourceAdapter by LiveAdapter("t1", emptyList()) {
+            override val supportsSearch: Boolean = false
             override suspend fun fetchNew(limit: Int): List<SourceBook> = listOf(feedBook)
             override suspend fun fetchBookPage(url: String): SourceBookDetail = error("offline detail")
         }

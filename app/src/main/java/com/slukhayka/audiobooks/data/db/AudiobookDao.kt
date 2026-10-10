@@ -3,6 +3,9 @@ package com.slukhayka.audiobooks.data.db
 import androidx.paging.PagingSource
 import androidx.room.*
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
+import com.slukhayka.audiobooks.data.collective.CollectiveAttempt
+import com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock
+import com.slukhayka.audiobooks.data.collective.CollectiveFeedBlockCodec
 import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
 import com.slukhayka.audiobooks.data.source.SourceRegistry
 import kotlinx.coroutines.flow.Flow
@@ -562,6 +565,35 @@ interface AudiobookDao {
             android.util.Log.w("AudiobookDao", "safeUpsertWorkSource failed for ${workSource.id}: ${e.message}")
             false
         }
+    }
+
+    @Query("SELECT * FROM work_sources WHERE id = :id LIMIT 1")
+    suspend fun getWorkSourceById(id: String): WorkSourceEntity?
+
+    /**
+     * An admitted own-page claim merges with the latest carrier under the SAME
+     * transaction as its write/index refresh. Nullable metadata is already
+     * normalized by MetadataAssertions at the import boundary; absence never
+     * erases a catalogue claim admitted while that import was being resolved.
+     * Unexpected storage failures escape so Room rolls the entire merge back.
+     */
+    @Transaction
+    suspend fun mergeAdmittedWorkSource(claim: WorkSourceEntity): Boolean {
+        if (claim.sourceId.isBlank() || claim.sourceUrl.isBlank() ||
+            claim.id != "${claim.workId}|${claim.sourceId}|${Integer.toHexString(claim.sourceUrl.hashCode())}" ||
+            getWorkById(claim.workId) == null) return false
+        val existing = getWorkSourceById(claim.id)
+        // A deterministic-ID collision must never re-parent or overwrite another claim.
+        if (existing != null && (existing.workId != claim.workId ||
+                existing.sourceId != claim.sourceId || existing.sourceUrl != claim.sourceUrl)) return false
+        upsertWorkSource(claim.copy(
+            streamOnly = SourceRegistry.streamOnlyFor(claim.sourceId),
+            coverImageUrl = claim.coverImageUrl ?: existing?.coverImageUrl,
+            durationSeconds = claim.durationSeconds ?: existing?.durationSeconds,
+            addedAt = existing?.addedAt ?: claim.addedAt
+        ))
+        refreshWorkSearchIndex(claim.workId)
+        return true
     }
 
     // --- Пошуковий індекс: FTS4 projection of the mirror (#822, #823) ------
@@ -1957,12 +1989,54 @@ interface AudiobookDao {
     )
     suspend fun getFeedSnapshot(sourceId: String, feedKey: String, pageCursor: String = ""): FeedSnapshotEntity?
 
+    /** Compares and replaces a collective block under the same Room write transaction. */
+    @Transaction
+    suspend fun activateCollectiveFeedIfUnchanged(
+        expected: CollectiveFeedBlock?, candidate: FeedSnapshotEntity
+    ): Boolean {
+        val row = getFeedSnapshot(candidate.sourceId, candidate.feedKey, candidate.pageCursor)
+        val current = row?.let { CollectiveFeedBlockCodec.decode(it.cardsJson) }
+        if (current != expected) return false
+        upsertFeedSnapshot(candidate)
+        return true
+    }
+
+    /** Admits the newest observed whole collective block in one Room write transaction. */
+    @Transaction
+    suspend fun activateCollectiveFeedIfNewer(candidate: FeedSnapshotEntity): Boolean {
+        val incoming = CollectiveFeedBlockCodec.decode(candidate.cardsJson) ?: return false
+        if (incoming.cards.isEmpty()) return false
+        val row = getFeedSnapshot(candidate.sourceId, candidate.feedKey, candidate.pageCursor)
+        val current = row?.let { CollectiveFeedBlockCodec.decode(it.cardsJson) }
+        if (current != null && incoming.fetchedAt <= current.fetchedAt) return false
+        upsertFeedSnapshot(candidate)
+        return true
+    }
+
+    /** Records an attempt on the latest valid collective row in one Room transaction. */
+    @Transaction
+    suspend fun recordCollectiveFeedAttempt(sourceId: String, feedKey: String, attempt: CollectiveAttempt) {
+        val row = getFeedSnapshot(sourceId, feedKey) ?: return
+        val block = CollectiveFeedBlockCodec.decode(row.cardsJson) ?: return
+        // Keep the latest row's cards, identity, version and time window.
+        upsertFeedSnapshot(
+            row.copy(cardsJson = CollectiveFeedBlockCodec.encode(block.copy(lastAttempt = attempt)))
+        )
+    }
+
     /** Every snapshot row of one feed, page order — a multi-page pull reads as one. */
     @Query(
         "SELECT * FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey " +
             "ORDER BY pageCursor ASC"
     )
     suspend fun getFeedSnapshots(sourceId: String, feedKey: String): List<FeedSnapshotEntity>
+
+    /** Payload-bearing local observation of exactly the requested collective rows. */
+    @Query(
+        "SELECT * FROM feed_snapshots WHERE pageCursor = '' " +
+            "AND (sourceId || '|' || feedKey) IN (:snapshotKeys) ORDER BY sourceId, feedKey"
+    )
+    fun observeCollectiveFeedSnapshots(snapshotKeys: List<String>): Flow<List<FeedSnapshotEntity>>
 
     /** Drops one feed's snapshots (a changed page-cursor shape invalidates the old rows). */
     @Query("DELETE FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey")

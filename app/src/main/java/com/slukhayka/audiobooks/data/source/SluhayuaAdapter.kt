@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import java.net.URLEncoder
+import java.io.IOException
+import com.slukhayka.audiobooks.data.collections.MiniJson
 
 /**
  * sluhay.com.ua [SourceAdapter] (spec-11 T2; endpoints verified live in the
@@ -54,8 +56,14 @@ class SluhayuaAdapter(
     override suspend fun search(query: String): List<SourceBook> {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return emptyList()
-        return cardsFrom(fetcher.getText(allCardsUrl("search=${urlEncode(cleanQuery)}"), XHR, SourceRequestClass.LISTENER_ACTION, FeedSnapshotPolicy.CATALOG_TTL_MS))
-            .map { it.toSourceBook() }
+        val response = fetcher.getText(allCardsUrl("search=${urlEncode(cleanQuery)}"), XHR, SourceRequestClass.LISTENER_ACTION, FeedSnapshotPolicy.CATALOG_TTL_MS)
+        // The transport uses a blank body for unavailable/deferred requests.
+        // Only a real cards array (including []) is a successful search.
+        val document = MiniJson.parseLenient(response) as? Map<*, *>
+        if (document?.get("cards") !is List<*>) {
+            throw IOException("SluhayUA search response is unavailable or malformed")
+        }
+        return cardsFrom(response).map { it.toSourceBook() }
     }
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> =

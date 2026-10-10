@@ -42,6 +42,8 @@ class ChitakaAdapter(
      * — the honest refusal the seam contract allows; unified search covers
      * the source through the catalogue union.
      */
+    override val supportsSearch: Boolean = false
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     /** Page 1 of `/audioknyhy/` in the site's own order. */

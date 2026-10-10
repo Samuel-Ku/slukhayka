@@ -13,7 +13,10 @@ from pathlib import Path
 
 TEST_ROOT = Path("app/src/test/java")
 MAIN_ROOT = Path("app/src/main/java")
-PARTITIONS = ("pure-jvm", "room-robolectric", "compose-roborazzi")
+PARTITIONS = ("pure-jvm", "room-robolectric", "compose-roborazzi", "controlled-app")
+CONTROLLED_CLASS = "com.slukhayka.audiobooks.data.collective.ControlledAttachedAppRelatedCompositionTest"
+CONTROLLED_CLASSES = frozenset({CONTROLLED_CLASS, "com.slukhayka.audiobooks.data.collective.ControlledAttachedAppLateRoomOverviewTest", "com.slukhayka.audiobooks.data.collective.ControlledAttachedAppArrivalsCompositionTest"})
+CONTROLLED_RUNNER = "ControlledAppFixtureRunner"
 ROBOLECTRIC_MARKERS = (
     "RobolectricTestRunner",
     "AndroidJUnit4",
@@ -65,6 +68,15 @@ def discover(root: Path) -> list[TestClass]:
         package = package_match.group(1)
         fqcn = f"{package}.{path.stem}"
         relative = path.relative_to(source_root).as_posix()
+        if CONTROLLED_RUNNER in text:
+            if (fqcn not in CONTROLLED_CLASSES
+                or "@RunWith(ControlledAppFixtureRunner::class)" not in text
+                or "@Config(sdk = [36], application = Application::class)" not in text):
+                raise ValueError(f"unregistered controlled App fixture: {path.relative_to(root)}")
+            result.append(TestClass(fqcn, package, "controlled-app", True, 36, path))
+            continue
+        if fqcn in CONTROLLED_CLASSES:
+            raise ValueError("controlled App test must retain its public fixture runner and SDK 36")
         compose_match = (
             "/ui/snapshots/" in f"/{relative}"
             or "Roborazzi" in text
@@ -114,9 +126,10 @@ def validate(test_classes: list[TestClass]) -> dict[str, int]:
     for test_class in test_classes:
         counts[test_class.partition] += 1
     return {
+        "controlled-app": counts["controlled-app"],
         "compose-roborazzi": counts["compose-roborazzi"],
         "pure-jvm": counts["pure-jvm"],
-        "room-native": sum(test_class.room_native for test_class in test_classes),
+        "room-native": sum(test_class.room_native and test_class.partition == "room-robolectric" for test_class in test_classes),
         "room-robolectric": counts["room-robolectric"],
         "total": len(test_classes),
     }
@@ -152,10 +165,16 @@ def execution_partition(test_class: TestClass) -> str:
 
 
 def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str, object]:
+    # Manual composition is independent of the six normal CI legs. A normal
+    # full-suite fallback must never discard this explicit verification target.
+    controlled = [test for test in test_classes if test.partition == "controlled-app"]
+    explicit = {"controlled-app": sorted(test.fqcn for test in controlled)} if controlled else {}
+    def fallback(reason: str) -> dict[str, object]:
+        return {"fullSuite": True, "partitions": {}, "explicitTargets": explicit, "reason": reason}
     if not changed_files:
-        return {"fullSuite": True, "partitions": {}, "reason": "no changed files"}
+        return fallback("no changed files")
     if any(is_shared_or_unknown(path) for path in changed_files):
-        return {"fullSuite": True, "partitions": {}, "reason": "shared infrastructure changed"}
+        return fallback("shared infrastructure changed")
 
     selected: dict[str, set[str]] = {}
     by_fqcn = {test_class.fqcn: test_class for test_class in test_classes}
@@ -164,8 +183,9 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
         if exact_fqcn is not None:
             test_class = by_fqcn.get(exact_fqcn)
             if test_class is None:
-                return {"fullSuite": True, "partitions": {}, "reason": "unknown changed test"}
-            selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
+                return fallback("unknown changed test")
+            if test_class.partition != "controlled-app":
+                selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
             continue
 
         package = production_package(path)
@@ -183,7 +203,7 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
                 if rendered_by:
                     selected.setdefault("compose-roborazzi", set()).update(rendered_by)
                     continue
-            return {"fullSuite": True, "partitions": {}, "reason": "unmapped changed path"}
+            return fallback("unmapped changed path")
 
         matches: list[TestClass] = []
         candidate = package
@@ -197,12 +217,23 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
                 break
             candidate = candidate.rpartition(".")[0]
         if not matches:
-            return {"fullSuite": True, "partitions": {}, "reason": "no tests for changed module"}
+            return fallback("no tests for changed module")
         for test_class in matches:
-            selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
+            if test_class.partition != "controlled-app":
+                selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
 
+    exact_controlled = {changed_test_fqcn(path) for path in changed_files
+                        if changed_test_fqcn(path) in CONTROLLED_CLASSES}
+    controlled_only = all(changed_test_fqcn(path) in CONTROLLED_CLASSES for path in changed_files)
     return {
         "fullSuite": False,
+        "explicitTargets": {"controlled-app": sorted(exact_controlled)} if controlled_only else explicit if any(
+            path.startswith(MAIN_ROOT.as_posix() + "/")
+            or path.startswith("app/src/test/java/com/slukhayka/audiobooks/data/collective/")
+            or path.startswith("app/src/test/java/com/slukhayka/audiobooks/data/imports/")
+            or path.startswith("app/src/test/java/com/slukhayka/audiobooks/data/db/")
+            or path == "app/src/test/resources/s2-app-composition-serdeshna.html"
+            for path in changed_files) else {},
         "partitions": {
             partition: sorted(selected[partition])
             for partition in (

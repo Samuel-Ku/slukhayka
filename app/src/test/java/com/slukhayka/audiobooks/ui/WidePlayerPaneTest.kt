@@ -247,6 +247,55 @@ class WidePlayerPaneTest {
         )
     }
 
+    /**
+     * The figure the owner's decision 3 names on its own: a PHONE IN LANDSCAPE,
+     * 905 × 411 dp (OnePlus 8 Pro, measured in #962). It is past the 840 dp line
+     * by WIDTH and well under any height line the app might be tempted to add —
+     * and there is none: the pane answers by width alone, exactly as the
+     * decision says («умови на висоту немає»).
+     *
+     * The pane is 0.6 × (905 − 80) ≈ 495 dp wide and only 411 dp tall, so this
+     * is the tightest window the pane ever gets. `PlayerScreen` picks its
+     * two-column landscape layout from the WINDOW's configuration
+     * (`PlayerScreen.kt:559`), so that layout is what runs inside this pane; the
+     * assertion is the one #962 made about the full-screen player: every control
+     * is LAID OUT (a non-zero box) and inside the window, never clipped by the
+     * bottom edge.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w905dp-h411dp-560dpi", sdk = [36])
+    fun `at 905x411 the player pane lays out every control inside the window`() {
+        val viewModel = composeRootWithAPausedBook()
+
+        compose.runOnIdle { viewModel.setShowFullPlayer(true) }
+        awaitTag("player_pane")
+
+        compose.onNodeWithTag("player_pane", useUnmergedTree = true).assertIsDisplayed()
+        val window = compose.onRoot().getUnclippedBoundsInRoot()
+
+        listOf(
+            "player_play_pause_button",
+            "speed_chip",
+            "sleep_timer_chip",
+            "add_bookmark_chip",
+            "chapters_chip"
+        ).forEach { tag ->
+            val bounds = compose.onNodeWithTag(tag, useUnmergedTree = true)
+                .getUnclippedBoundsInRoot()
+            assertTrue(
+                "$tag was never laid out in the 905 × 411 pane: bounds=" +
+                    "[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]",
+                (bounds.right.value - bounds.left.value) > 0f &&
+                    (bounds.bottom.value - bounds.top.value) > 0f
+            )
+            assertTrue(
+                "$tag falls outside the landscape window: bounds=$bounds, window=$window",
+                bounds.bottom.value <= window.bottom.value + 1f &&
+                    bounds.right.value <= window.right.value + 1f
+            )
+        }
+    }
+
     // ------------------------------------------- the mini-player's slot
 
     /**

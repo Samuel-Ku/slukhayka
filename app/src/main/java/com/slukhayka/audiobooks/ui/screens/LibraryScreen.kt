@@ -94,6 +94,7 @@ import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -625,7 +626,7 @@ fun LibraryScreen(
                         )
 
                         else -> LazyVerticalGrid(
-                            columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
+                            columns = libraryGridColumns(gridMode),
                             state = libraryGridState,
                             // #962 — the grid takes what is LEFT of the column
                             // rather than claiming everything: `fillMaxSize`
@@ -1586,6 +1587,36 @@ internal fun LibraryContinueCard(
         }
     }
 }
+
+/**
+ * #1205 (review S1) — how many tile columns the Медіатека's grid may draw.
+ *
+ * `Adaptive`, not `Fixed(2)`: the width the book area gets is not the window's,
+ * it is whatever container the screen was handed — and since #1205 a wide window
+ * can hand the Library's list pane as little as 192 dp. The mini-player's
+ * leading column is 360 dp WIDE and the rail sits INSIDE it, not beside it, so
+ * an 840 dp window gives the content 840 − 360 = 480 dp and the list pane
+ * 0.4 × 480 = 192 dp.
+ *
+ * Two FIXED columns in that pane gave each tile ≈74 dp — under the canonical
+ * [PosterWidth] poster (ADR-0033) and a column of truncated titles, which is the
+ * defect the #900 audit warned about. An adaptive column keeps every tile at
+ * least [PosterWidth] wide and draws fewer of them instead: at 192 dp it is ONE
+ * tile of ≈160 dp rather than two squeezed 74 dp ones. On a roomy pane the tile
+ * count follows the room the same way; on a phone window (411 dp, ≈184 dp per
+ * tile) the two columns are byte-identical to the fixed pair this replaces.
+ *
+ * The listener's grid/list CHOICE is untouched — only the count follows the
+ * width. `GridCells.Adaptive(minSize)` guarantees cells of at least `minSize`
+ * for every container of at least that width, and the narrowest pane the app can
+ * produce is 192 dp, so the tiles can no longer be squeezed below the poster.
+ * That is also why there is no separate `widthIn(min = PosterWidth)` floor
+ * (review of #1217): `Adaptive` already IS the floor for every reachable width,
+ * and in the one container narrower than a poster, where such a floor would
+ * fire, it would clip the tile where fitting it is the point.
+ */
+internal fun libraryGridColumns(gridMode: Boolean): GridCells =
+    if (gridMode) GridCells.Adaptive(minSize = PosterWidth) else GridCells.Fixed(1)
 
 /**
  * The stateless renderer of the Медіатека grid (v1.5 review).

@@ -62,6 +62,17 @@ private const val MiniPlayerDismissWidthFraction = 0.35f
  */
 val MiniPlayerColumnWidth: Dp = 360.dp
 
+/**
+ * #1205 — the mini-player's ONE gate: does this state give the bar anything to
+ * draw?
+ *
+ * `MiniPlayerBar` returns early without a current book, and the composition root
+ * has to ask the SAME question BEFORE it widens the leading column for the bar —
+ * a column widened for a bar that draws nothing is a hole in the navigation
+ * column. Both callers ask here, so the two answers cannot drift apart.
+ */
+fun miniPlayerHasBook(playerState: PlayerState): Boolean = playerState.currentBook != null
+
 @Composable
 fun MiniPlayerBar(
     playerState: PlayerState,
@@ -81,7 +92,10 @@ fun MiniPlayerBar(
     onPreviousClick: () -> Unit = {},
     viewedBookId: String? = null
 ) {
-    val book = playerState.currentBook ?: return
+    // The one gate (#1205), asked in the same words by the composition root
+    // before it widens the leading column for this bar.
+    if (!miniPlayerHasBook(playerState)) return
+    val book = checkNotNull(playerState.currentBook)
     val chapterTitle = if (
         playerState.chapters.isNotEmpty() &&
         playerState.currentChapterIndex in playerState.chapters.indices

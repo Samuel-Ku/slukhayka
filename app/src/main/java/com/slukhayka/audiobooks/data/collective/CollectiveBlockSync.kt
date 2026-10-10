@@ -99,9 +99,7 @@ class CollectiveBlockSync(
             if (cursor != null && page.nextCursor == cursor) return@withContext applied
             for (block in page.blocks) {
                 val mirrored = runCatching {
-                    val existing = local.active(block.blockKey)
-                    val newer = existing == null || block.fetchedAt > existing.fetchedAt
-                    newer && block.cards.isNotEmpty() && local.activate(block)
+                    local.activateIfNewer(block)
                 }.getOrDefault(false)
                 if (mirrored) applied++
             }

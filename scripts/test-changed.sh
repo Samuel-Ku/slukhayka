@@ -34,8 +34,8 @@ trap cleanup EXIT HUP INT TERM
 if [[ ${#changed_files[@]} -eq 0 ]]; then
   cd "$repo_root" || exit 2
   if ! git rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; then
-    printf '%s\n' "Base ref '$base_ref' is unavailable; running the full suite." >&2
-    exec "$repo_root/scripts/test-all.sh"
+    printf '%s\n' "Base ref '$base_ref' is unavailable; running all six legs and the explicit controlled App target." >&2
+    exec "$repo_root/scripts/test-all.sh" --include-controlled-app
   fi
   git diff --name-only "$base_ref" -- > "$scratch/changed-files"
   git ls-files --others --exclude-standard >> "$scratch/changed-files"
@@ -50,9 +50,18 @@ for path in "${changed_files[@]}"; do
 done
 selection=$(python3 "${selector_arguments[@]}") || exit $?
 
+controlled=$(python3 -c 'import json,sys; print("yes" if json.loads(sys.argv[1]).get("explicitTargets", {}).get("controlled-app") else "no")' "$selection")
+if [[ "$controlled" == yes && $(uname -s) != Darwin ]]; then
+  printf '%s\n' "Controlled App verification is selected, but its reviewed tool pins support macOS only. Run python3 scripts/test-controlled-app.py run on macOS; Linux requires a separate pin review." >&2
+  exit 2
+fi
+
 if [[ $(python3 -c 'import json,sys; print("yes" if json.loads(sys.argv[1])["fullSuite"] else "no")' "$selection") == yes ]]; then
   reason=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["reason"])' "$selection")
   printf '%s\n' "Changed-test selection fell back to the full suite: $reason"
+  if [[ "$controlled" == yes ]]; then
+    exec "$repo_root/scripts/test-all.sh" --include-controlled-app
+  fi
   exec "$repo_root/scripts/test-all.sh"
 fi
 
@@ -78,3 +87,18 @@ while IFS="$(printf '\t')" read -r partition classes; do
   printf '%s\n' "-Ptest.selectedClasses=$selected_classes" >> "$scratch/gradle-arguments"
   SLUKHAYKA_GRADLE_ARGS_FILE="$scratch/gradle-arguments" "$repo_root/scripts/test-all.sh" || exit $?
 done < "$scratch/selection"
+
+if [[ "$controlled" == yes ]]; then
+  python3 -c 'import json,sys; print("\n".join(json.loads(sys.argv[1])["explicitTargets"]["controlled-app"]))' "$selection" > "$scratch/controlled-classes"
+  while IFS= read -r fixture_class; do
+    case "$fixture_class" in
+      com.slukhayka.audiobooks.data.collective.ControlledAttachedAppRelatedCompositionTest)
+        python3 "$repo_root/scripts/test-controlled-app.py" run || exit $? ;;
+      com.slukhayka.audiobooks.data.collective.ControlledAttachedAppLateRoomOverviewTest)
+        python3 "$repo_root/scripts/test-controlled-app.py" run --case overview-late-room || exit $? ;;
+      com.slukhayka.audiobooks.data.collective.ControlledAttachedAppArrivalsCompositionTest)
+        python3 "$repo_root/scripts/test-controlled-app.py" run --case arrivals-live-feed || exit $? ;;
+      *) printf '%s\n' "Unknown controlled App fixture: $fixture_class" >&2; exit 2 ;;
+    esac
+  done < "$scratch/controlled-classes"
+fi

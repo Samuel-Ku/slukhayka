@@ -160,8 +160,10 @@ fun HomeScreen(
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
     // similarity of catalogue descriptions to favourite/completed/recent
     // signals, computed locally, with a per-card reason chip.
-    val recommendedBooks by viewModel.recommendedBooks.collectAsState()
-    val recommendationsReady by viewModel.recommendationsReady.collectAsState()
+    val recommendationContent by viewModel.recommendationContent.collectAsState()
+    val recommendedBooks = recommendationContent.books
+    val recommendationsReady = recommendationContent.ready
+    val embeddingModelState by viewModel.embeddingModelState.collectAsState()
     val recommendationSettings by viewModel.recommendationSettings.collectAsState()
     var showRecommendationDisclosure by rememberSaveable { mutableStateOf(false) }
     val recommendationDisclosureTriggerFocusRequester = remember { FocusRequester() }
@@ -418,6 +420,11 @@ fun HomeScreen(
                 peopleNewArrivals = peopleNewArrivals,
                 recommendedBooks = recommendedBooks,
                 recommendationsReady = recommendationsReady,
+                recommendationModelMode = if (recommendationSettings.localPersonalizationEnabled) {
+                    com.slukhayka.audiobooks.data.recommend.RecommendationModelPolicy.mode(
+                        embeddingModelState, recommendationContent.backendStatus
+                    )
+                } else null,
                 personalCycles = personalCycles,
                 similarCycles = similarCycles,
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },

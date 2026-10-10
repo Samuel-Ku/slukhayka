@@ -10,11 +10,13 @@
     <string name="action_delete">Видалити</string>
 
     <string name="recommendations_title">Персональні рекомендації</string>    <string name="recommendations_model_title">Модель рекомендацій</string>
-    <string name="recommendations_model_full">Завантажено — рекомендації на повній моделі E5.</string>
+    <string name="recommendations_model_full">Рекомендації працюють на повній моделі.</string>
     <string name="recommendations_model_downloading">Завантажується… %1$d%%</string>
     <string name="recommendations_model_downloading_unknown">Завантажується…</string>
-    <string name="recommendations_model_simplified">Спрощений режим: повна модель ще не завантажена, підбір працює на ключових словах.</string>
-    <string name="recommendations_model_failed">Не вдалося завантажити модель. Спрощений режим лишається чинним.</string>
+    <string name="recommendations_model_simplified">Спрощений режим: підбір за ключовими словами.</string>
+    <string name="recommendations_model_failed">Не вдалося завантажити файли моделі.</string>
+    <string name="recommendations_model_not_loaded">Модель ще не запущена.</string>
+    <string name="recommendations_model_runtime_retry">Повторити запуск моделі</string>
     <string name="recommendations_model_retry">Повторити завантаження</string>
 
     <string name="recommendations_local_title">Навчатися лише на цьому пристрої</string>

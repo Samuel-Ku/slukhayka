@@ -4130,14 +4130,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // hits require the same backend/context/text; misses compute and
     // persist. CatalogEmbeddingService degrades failures to a
     // smaller (or empty) map, so the row just goes quiet — no crash.
-    private val embeddingPass = MutableStateFlow(
-        com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot()
+    private data class RuntimeEmbeddingPass(
+        val snapshot: com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot =
+            com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot(),
+        val backendStatus: com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus =
+            com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus.NotLoaded
     )
+
+    // The selected backend and the vectors it produced publish in one frame.
+    private val embeddingPass = MutableStateFlow(RuntimeEmbeddingPass())
     val catalogVectors: StateFlow<Map<String, FloatArray>> = embeddingPass
-        .map { it.vectors }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+        .map { it.snapshot.vectors }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     /** Distinguishes an empty recommendation result from a pass still computing it. */
     val recommendationsReady: StateFlow<Boolean> = embeddingPass
-        .map { it.ready }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+        .map { it.snapshot.ready }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val recommendationBackendStatus = embeddingPass.map { it.backendStatus }
+        .stateIn(
+            viewModelScope, SharingStarted.Eagerly,
+            com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus.NotLoaded
+        )
     private val embeddingPassGate = com.slukhayka.audiobooks.data.recommend.EmbeddingPassGate()
     // ADR-0041: recommendations are a discovery surface of the Mirror, so the
     // pool is the CLAIMED Works only — a Work whose every Source was removed
@@ -4148,12 +4159,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
 
     fun refreshEmbeddingVectors() {
-        val ticket = embeddingPassGate.begin {
-            embeddingPass.value = embeddingPass.value.copy(ready = false)
-        } ?: return
-        // #483 — a listener interaction starts the one-time model install.
+        // Existing listener refreshes may request installation; pass reruns cannot.
         if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
+        refreshRecommendationPass()
+    }
+
+    private fun refreshRecommendationPass() {
+        if (recommendationBackendClosed) return
+        val ticket = embeddingPassGate.begin {
+            embeddingPass.value = embeddingPass.value.let { it.copy(snapshot = it.snapshot.copy(ready = false)) }
+        } ?: return
         viewModelScope.launch(Dispatchers.IO) {
+            var backendStatus: com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus =
+                com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus.NotLoaded
+            var capturedBackend: com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend? = null
             var context: com.slukhayka.audiobooks.data.recommend.EmbeddingContext? = null
             var vectors: Map<String, FloatArray> = emptyMap()
             var attempted: Map<String, Set<String>> = emptyMap()
@@ -4164,12 +4183,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Record input attempts even when no usable backend can be loaded.
                 // Both texts for one Work stop unchanged failed-input reruns.
                 attempted = signals.groupBy { it.id }.mapValues { (_, values) -> values.mapTo(linkedSetOf()) { it.text } }
-                if (works.isEmpty()) return@launch
-                // Capture one backend after begin releases its monitor. An install
+                // Capture one handle after begin releases its monitor. An install
                 // invalidates this ticket, rather than mixing vector spaces.
-                val embedder = currentEmbedder()
+                val backend = acquireRecommendationBackend().also { capturedBackend = it }
+                backendStatus = backend.status
+                val embedder = backend.embedder
                 val capturedContext = embedder.cacheContext ?: return@launch
                 context = capturedContext
+                if (works.isEmpty()) return@launch
                 val unionKeys = sourceCatalog.unifiedCatalog.value.mapTo(HashSet()) { it.key }
                 val libraryKeys = library.mapTo(HashSet()) { lb ->
                     lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } }
@@ -4203,13 +4224,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 vectors = computed
             } finally {
                 try {
-                    embeddingPassGate.finish(ticket) {
-                        embeddingPass.value = com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot(
-                            context, vectors, attempted, ready = true
-                        )
-                    }
+                    capturedBackend?.let(::releaseRecommendationBackend)
                 } finally {
-                    if (embeddingPassGate.takePendingRerun()) refreshEmbeddingVectors()
+                    try {
+                        embeddingPassGate.finish(ticket) {
+                            embeddingPass.value = RuntimeEmbeddingPass(
+                                snapshot = com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot(
+                                    context, vectors, attempted, ready = true
+                                ),
+                                backendStatus = backendStatus
+                            )
+                        }
+                    } finally {
+                        if (embeddingPassGate.takePendingRerun()) refreshRecommendationPass()
+                    }
                 }
             }
         }
@@ -4243,72 +4271,100 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _embeddingInstallInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     @Volatile
-    private var embedderInstance: com.slukhayka.audiobooks.data.recommend.TextEmbedder? = null
+    private var loadedRecommendationBackend:
+        com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend? = null
 
-    private fun currentEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
-        embedderInstance?.let { return it }
-        return synchronized(this) {
-            embedderInstance ?: loadEmbedder().also { embedderInstance = it }
+    // Gate permits one vector pass. Native handles retire after that pass releases them.
+    private var activeRecommendationBackend: com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend? = null
+    private val retiredRecommendationBackends =
+        ArrayDeque<com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend>()
+    @Volatile private var recommendationBackendClosed = false
+
+    private fun acquireRecommendationBackend(): com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend =
+        synchronized(this) {
+            if (recommendationBackendClosed) throw kotlinx.coroutines.CancellationException("Recommendations closed")
+            drainRetiredRecommendationBackends()
+            (loadedRecommendationBackend ?: loadRecommendationBackend().also { loadedRecommendationBackend = it })
+                .also { activeRecommendationBackend = it }
+        }
+
+    private fun releaseRecommendationBackend(backend: com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend) {
+        synchronized(this) {
+            check(activeRecommendationBackend === backend)
+            activeRecommendationBackend = null
+            drainRetiredRecommendationBackends()
         }
     }
 
-    /**
-     * The production embedder (spec-19 T3/T4): the ONNX multilingual-e5-small
-     * model. Loaded from the runtime-installed copy first (#483), then the
-     * dev-time asset, else the keyword baseline (T2 contract: the row
-     * degrades, never crashes). Loaded lazily on the IO dispatcher inside the
-     * background pass, never on the UI thread.
-     */
-    private fun loadEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
-        val fromFiles = try {
-            val model = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MODEL_NAME)
-                .takeIf { it.length() >= com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MIN_MODEL_BYTES }
-            val tokenizer = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.TOKENIZER_NAME)
-                .takeIf { it.length() > 0L }
-            if (model != null && tokenizer != null) {
-                com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
-                    ai.onnxruntime.OrtEnvironment.getEnvironment(), model.readBytes(), tokenizer.readBytes()
-                )
-            } else {
-                null
+    /** Called only with the VM monitor; never acquires Gate or closes an in-use session. */
+    private fun drainRetiredRecommendationBackends() {
+        val iterator = retiredRecommendationBackends.iterator()
+        while (iterator.hasNext()) {
+            val backend = iterator.next()
+            if (backend === activeRecommendationBackend) continue
+            iterator.remove()
+            try {
+                (backend.embedder as? AutoCloseable)?.close()
+            } catch (_: Exception) {
+                // Cleanup failure cannot restore a retired backend or change the UI mode.
             }
-        } catch (e: Exception) {
-            null
         }
-        if (fromFiles != null) return fromFiles
-        val fromAssets = try {
-            val assets = getApplication<Application>().assets
-            val model = assets.open("models/e5/model.onnx").use { it.readBytes() }
-            val tokenizer = assets.open("models/e5/tokenizer.json").use { it.readBytes() }
-            com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
-                ai.onnxruntime.OrtEnvironment.getEnvironment(), model, tokenizer
-            )
-        } catch (e: Exception) {
-            null
-        }
-        return fromAssets ?: com.slukhayka.audiobooks.data.recommend.KeywordEmbedder()
     }
 
-    /**
-     * #483 — starts the one-time model download on listener interaction
-     * (Overview or settings). Idempotent and single-flight; a successful
-     * install rebuilds the embedder and re-embeds with the full model.
-     */
-    fun ensureEmbeddingModel() {
-        if (_embeddingModelState.value is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) return
+    private fun clearRecommendationBackend(closing: Boolean = false) {
+        // Reset owns Gate before the VM monitor; native cleanup runs after Gate is released.
+        embeddingPassGate.invalidate {
+            synchronized(this@MainViewModel) {
+                if (closing) recommendationBackendClosed = true
+                loadedRecommendationBackend?.let { retiredRecommendationBackends.addLast(it) }
+                loadedRecommendationBackend = null
+                embeddingPass.value = RuntimeEmbeddingPass()
+            }
+        }
+        synchronized(this) { drainRetiredRecommendationBackends() }
+    }
+
+    /** File/native initialization runs on IO; the loader owns bounded fallback outcomes. */
+    private fun loadRecommendationBackend(): com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend =
+        com.slukhayka.audiobooks.data.recommend.RecommendationBackendLoader(
+            installedFactory = {
+                val model = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MODEL_NAME)
+                    .takeIf { it.length() >= com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MIN_MODEL_BYTES }
+                val tokenizer = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.TOKENIZER_NAME)
+                    .takeIf { it.length() > 0L }
+                if (model != null && tokenizer != null) {
+                    com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
+                        ai.onnxruntime.OrtEnvironment.getEnvironment(), model.readBytes(), tokenizer.readBytes()
+                    )
+                } else null
+            },
+            bundledFactory = {
+                val assets = getApplication<Application>().assets
+                val model = assets.open("models/e5/model.onnx").use { it.readBytes() }
+                val tokenizer = assets.open("models/e5/tokenizer.json").use { it.readBytes() }
+                com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
+                    ai.onnxruntime.OrtEnvironment.getEnvironment(), model, tokenizer
+                )
+            }
+        ).load()
+
+    /** Opening Overview/settings starts installation or the first runtime load, once. */
+    fun ensureEmbeddingModel() = prepareEmbeddingModel(allowDownload = true)
+
+    /** Installed files are retained: a listener retry reopens the actual backend. */
+    fun retryEmbeddingModel() = prepareEmbeddingModel(allowDownload = false)
+
+    private fun prepareEmbeddingModel(allowDownload: Boolean) {
+        if (recommendationBackendClosed) return
+        if (allowDownload && modelInstaller.isInstalled() && loadedRecommendationBackend != null) return
         if (!_embeddingInstallInFlight.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val state = modelInstaller.ensureInstalled()
-                if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
-                    embeddingPassGate.invalidate {
-                        synchronized(this@MainViewModel) {
-                            embedderInstance = null
-                            embeddingPass.value = com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot()
-                        }
-                    }
-                    refreshEmbeddingVectors()
+                val state = if (allowDownload) modelInstaller.ensureInstalled() else _embeddingModelState.value
+                if (!allowDownload || state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
+                    clearRecommendationBackend()
                 }
+                refreshRecommendationPass()
             } finally {
                 _embeddingInstallInFlight.set(false)
             }
@@ -4406,19 +4462,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { facts -> facts.associateBy { it.mergeKey } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    data class RecommendationContent(
+        val books: List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation> = emptyList(),
+        val backendStatus: com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus =
+            com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus.NotLoaded,
+        val ready: Boolean = false
+    )
+
     @OptIn(kotlinx.coroutines.FlowPreview::class)
-    val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
+    val recommendationContent: StateFlow<RecommendationContent> = combine(
         recommendationLibrarySignals,
         recommendationWorks,
         embeddingPass,
         recommendationPreferences,
         recommendationSettings
-    ) { library, works, snapshot, preferences, settings ->
-        if (!settings.localPersonalizationEnabled) return@combine emptyList()
+    ) { library, works, runtimePass, preferences, settings ->
+        val snapshot = runtimePass.snapshot
+        fun content(books: List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>) =
+            RecommendationContent(books, runtimePass.backendStatus, snapshot.ready)
+        if (!settings.localPersonalizationEnabled) return@combine content(emptyList())
         val allSignals = currentSignals(library) + currentFeedbackSignals(works, preferences)
-        if (works.isNotEmpty() && snapshot.needsRefresh(allSignals)) refreshEmbeddingVectors()
+        if (works.isNotEmpty() && snapshot.needsRefresh(allSignals)) refreshRecommendationPass()
         val vectors = snapshot.vectors
-        if (vectors.isEmpty()) return@combine emptyList()
+        if (vectors.isEmpty()) return@combine content(emptyList())
         // #732 / ADR-0041 — candidates are the Mirror's local Works, including
         // ones the listener has not imported yet: the row needs no union
         // refresh and survives a dead network. The card id is the Work key, so
@@ -4435,7 +4501,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val hiddenAuthors = preferences
             .filter { it.kind == RecommendationPreferenceEntity.HIDE_AUTHOR }
             .mapTo(mutableSetOf()) { it.targetKey }
-        if (candidates.isEmpty() || allSignals.isEmpty()) return@combine emptyList()
+        if (candidates.isEmpty() || allSignals.isEmpty()) return@combine content(emptyList())
         // Ranking reads the coherent published pass; it never embeds inline.
         // #486 — the persisted source signals (#485): fresh rank positions and
         // claimed ratings feed the ONE small popularity component, and the
@@ -4486,8 +4552,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             topN = 10,
             popularityByWorkId = popularityByWorkId,
             sourceLabelsByWorkId = sourceLabelsByWorkId
-        )
+        ).let(::content)
     }.debounce(1_000L).flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecommendationContent())
+
+    val recommendedBooks = recommendationContent.map { it.books }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val pendingRecommendationBookId = java.util.concurrent.atomic.AtomicReference<String?>(null)
@@ -6206,6 +6275,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // The captured-page import doors remain repository seams; 4read's release
     // browser now reaches them through WebSourceBrowserScreen as well.
+
+    override fun onCleared() {
+        clearRecommendationBackend(closing = true)
+        super.onCleared()
+    }
 
     // NOTE: we intentionally do NOT release the player in onCleared(). The
     // AudioPlayerManager is application-scoped (App.kt) and must keep playing

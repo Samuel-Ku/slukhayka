@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
+import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.AudiobookApp
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
@@ -32,7 +33,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * #1205 — the two placements of the player on the REAL composition root.
+ * #1205 — the two placements of the player, and the mini-player's column, on
+ * the REAL composition root.
  *
  * The frames in `LargeScreenSnapshotTest` show what the boundary looks like;
  * this class pins the WIRING behind them, which a frame only mirrors: it renders
@@ -78,9 +80,9 @@ class WidePlayerPaneTest {
     )
 
     /**
-     * The unmerged tree on purpose: the tags this class reads (`player_pane`)
-     * sit on plain layout nodes, and an unmerged lookup finds them whatever
-     * their ancestors merge.
+     * The unmerged tree on purpose: the tags this class reads (`player_pane`,
+     * `mini_player_bar`) sit on plain layout nodes, and an unmerged lookup finds
+     * them whatever their ancestors merge.
      */
     private fun awaitTag(tag: String) {
         compose.waitUntil(20_000) {
@@ -200,6 +202,16 @@ class WidePlayerPaneTest {
                 "(content right=${content.right}, player left=${player.left})",
             content.right.value <= player.left.value + 1f
         )
+        // The pane IS the player here: the bar has no slot at all at this width
+        // (a strip under the pane would be the full-width layout decision 2
+        // moved away from, and would take its ≈76 dp off the pane's height).
+        compose.onNodeWithTag("mini_player_bar", useUnmergedTree = true).assertDoesNotExist()
+        assertEquals(
+            "the pane must have the window's whole height",
+            window.bottom.value - window.top.value,
+            player.bottom.value - player.top.value,
+            1f
+        )
     }
 
     /**
@@ -232,6 +244,70 @@ class WidePlayerPaneTest {
             window.right.value - window.left.value,
             player.right.value - player.left.value,
             1f
+        )
+    }
+
+    // ------------------------------------------- the mini-player's slot
+
+    /**
+     * #1205 decision 2 — with room beside the content, the bar drops the
+     * full-width strip under the rail and sits IN the leading column instead:
+     * below the rail, left of the content. The bottom bar is gone there anyway
+     * (the rail replaced it), which is what makes this slot the only one.
+     */
+    @Test
+    fun `at 840 dp the mini-player sits in the leading column under the rail`() {
+        composeRootWithAPausedBook()
+
+        awaitTag("mini_player_bar")
+
+        compose.onNodeWithTag("bottom_navigation_bar", useUnmergedTree = true)
+            .assertDoesNotExist()
+
+        val rail = compose.onNodeWithTag("navigation_rail", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val bar = compose.onNodeWithTag("mini_player_bar", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val content = compose.onNodeWithTag("library_screen", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+
+        assertTrue(
+            "the bar must sit UNDER the rail (rail bottom=${rail.bottom}, " +
+                "bar top=${bar.top})",
+            bar.top.value >= rail.bottom.value - 1f
+        )
+        assertTrue(
+            "the bar must sit in the leading column, left of the content " +
+                "(bar right=${bar.right}, content left=${content.left})",
+            bar.right.value <= content.left.value + 1f
+        )
+        assertTrue("the bar was not laid out: $bar", (bar.bottom.value - bar.top.value) > 0f)
+    }
+
+    /**
+     * The phone contract, on the same real root: below the line the bar is the
+     * full-width strip in the Scaffold's `bottomBar` it has always been, over
+     * the bottom navigation bar — nothing about the phone route moved.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+    fun `on a phone the mini-player keeps the bottom strip`() {
+        composeRootWithAPausedBook()
+
+        awaitTag("mini_player_bar")
+
+        compose.onNodeWithTag("bottom_navigation_bar", useUnmergedTree = true)
+            .assertExists()
+
+        val window = compose.onRoot().getUnclippedBoundsInRoot()
+        val bar = compose.onNodeWithTag("mini_player_bar", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+
+        val windowHeight = window.bottom.value - window.top.value
+        assertTrue(
+            "the phone bar must stay in the LOWER half of the window, not in a " +
+                "leading column: bar top=${bar.top}, window bottom=${window.bottom}",
+            bar.top.value > windowHeight / 2f
         )
     }
 }

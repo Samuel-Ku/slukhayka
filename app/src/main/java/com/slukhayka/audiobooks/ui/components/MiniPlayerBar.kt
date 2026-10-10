@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.player.PlayerState
@@ -45,6 +46,21 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * about, so the gesture answers intent rather than distance.
  */
 private const val MiniPlayerDismissWidthFraction = 0.35f
+
+/**
+ * #1205 — how wide the leading column must be to hold the mini-player under the
+ * rail.
+ *
+ * 360 dp is not a new number: it is the narrow phone this bar's own snapshot
+ * test names as the floor its control row survives (`MiniPlayerBarSnapshotTest`
+ * — «360 dp is the narrow phone the control row has to survive»), and it keeps
+ * the 64 dp the title box is asserted to hold there. Of the bar's width, 260 dp
+ * is fixed chrome (48 dp cover + 24 dp outer and inner horizontal padding +
+ * 20 dp spacers + three 48 dp targets, ADR-0044); the rest is the title. A
+ * column narrower than this would not «fit» the bar, it would clip the title
+ * out of it — the one thing the owner's decision refuses to do.
+ */
+val MiniPlayerColumnWidth: Dp = 360.dp
 
 @Composable
 fun MiniPlayerBar(

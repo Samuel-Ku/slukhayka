@@ -54,6 +54,7 @@ import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
+import com.slukhayka.audiobooks.ui.adaptive.rememberShowsLeadingMiniPlayer
 import com.slukhayka.audiobooks.ui.adaptive.rememberShowsPlayerPane
 import com.slukhayka.audiobooks.ui.adaptive.rememberWindowLayout
 import com.slukhayka.audiobooks.ui.adaptive.showsWideDetailPane
@@ -61,6 +62,7 @@ import com.slukhayka.audiobooks.ui.adaptive.showsWideExploreDetailPane
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.AppNavigationRail
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.MiniPlayerColumnWidth
 import com.slukhayka.audiobooks.ui.components.PlayerPane
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -367,6 +369,24 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
     val playerState by viewModel.playerState.collectAsState()
     val miniPlayerDismissed by viewModel.miniPlayerDismissed.collectAsState()
+    // #1205 — the bar's own gate (`MiniPlayerBar` returns early and draws
+    // NOTHING without a current book) is read here as well, because the leading
+    // column must not widen for a bar that will not draw.
+    val miniPlayerVisible = !miniPlayerDismissed && selectedTab != SelectedTab.LISTEN
+    val miniPlayerHasBook = playerState.currentBook != null
+    // The bar leaves the leading column while the full player is open — pane or
+    // modal. That is what the modal does today by covering it, and it is what
+    // keeps the player pane on a window with room at the width the audit
+    // measured (≈456 dp: the bar would otherwise take 280 dp of it).
+    val leadingMiniPlayer = rememberShowsLeadingMiniPlayer(
+        miniPlayerVisible && miniPlayerHasBook && !showFullPlayer
+    )
+    // Every window without room for that column — every phone, portrait or
+    // landscape — keeps the bar in the Scaffold's bottomBar exactly as it was.
+    // Where the player IS a pane the bar has no slot at all: the pane is the
+    // player, and a full-width strip under it would be the very layout the
+    // owner's decision 2 moved away from (and would take ≈76 dp off the pane).
+    val bottomMiniPlayer = miniPlayerVisible && !leadingMiniPlayer && !playerPaneOpen
     val narrationSwitchPrompt by viewModel.narrationSwitchPrompt.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
@@ -789,6 +809,37 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    // #1205 — ONE mini-player, two slots: the Scaffold's `bottomBar` on a
+    // window without room, the leading column under the rail on a window with
+    // it. The definition lives in one place on purpose — two placements of one
+    // surface must not drift into two bars (the risk the #900 audit named).
+    // Closed by a leftward swipe on the bar (TalkBack gets the same action from
+    // the summary's actions menu); it returns when audio does.
+    // UI: на «Слухати» міні-плеєр не потрібен — угорі вже стоїть hero-картка
+    // «Продовжити слухати» з тим самим керуванням, тож панель лише дублювала її.
+    val miniPlayerContent: @Composable () -> Unit = {
+        MiniPlayerBar(
+            playerState = playerState,
+            viewedBookId = selectedBookId,
+            onPlayPauseClick = {
+                val current = viewModel.playerManager.playerState.value
+                current.currentBook?.let { book ->
+                    viewModel.togglePlaybackFromPlayer(
+                        book.id,
+                        current.currentChapterIndex,
+                        current.currentPositionMs
+                    )
+                }
+            },
+            onSkipNextClick = { viewModel.playerManager.nextChapter() },
+            // Issue #808: the bar carries the full transport —
+            // previous chapter sits where cast used to be.
+            onPreviousClick = { viewModel.playerManager.previousChapter() },
+            onCloseClick = { viewModel.dismissMiniPlayer() },
+            onBarClick = { viewModel.setShowFullPlayer(true) }
+        )
+    }
+
     // #900 — «Огляд»: does the list the work was opened FROM stay beside the
     // work's card? The answer lives in ui/adaptive (the one place that decides
     // layouts); it is read into a val HERE, before the list lambdas, because
@@ -907,33 +958,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             },
             bottomBar = {
                 Column {
-                    // Floating Persistent Mini Player. Closed by a leftward
-                    // swipe on the bar (TalkBack gets the same action from the
-                    // summary's actions menu); it returns when audio does.
-                    // UI: на «Слухати» міні-плеєр не потрібен — угорі вже
-                    // стоїть hero-картка «Продовжити слухати» з тим самим
-                    // керуванням, тож панель лише дублювала її.
-                    if (!miniPlayerDismissed && selectedTab != SelectedTab.LISTEN) {
-                        MiniPlayerBar(
-                            playerState = playerState,
-                            viewedBookId = selectedBookId,
-                            onPlayPauseClick = {
-                                val current = viewModel.playerManager.playerState.value
-                                current.currentBook?.let { book ->
-                                    viewModel.togglePlaybackFromPlayer(
-                                        book.id,
-                                        current.currentChapterIndex,
-                                        current.currentPositionMs
-                                    )
-                                }
-                            },
-                            onSkipNextClick = { viewModel.playerManager.nextChapter() },
-                            // Issue #808: the bar carries the full transport —
-                            // previous chapter sits where cast used to be.
-                            onPreviousClick = { viewModel.playerManager.previousChapter() },
-                            onCloseClick = { viewModel.dismissMiniPlayer() },
-                            onBarClick = { viewModel.setShowFullPlayer(true) }
-                        )
+                    // #1205 — the phone's slot for the bar. A window with room
+                    // draws the same [miniPlayerContent] in its leading column
+                    // instead (see AdaptiveNavigationLayout below), so this slot
+                    // stays empty there and the content rectangle keeps its
+                    // height.
+                    if (bottomMiniPlayer) {
+                        miniPlayerContent()
                     }
 
                     // Four primary destinations, including the settings home (#547).
@@ -964,7 +995,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     bookDetailChildOrigin = null
                     bookDetailChildEditionId = null
                     viewModel.selectTab(tab)
-                }
+                },
+                // #1205 — the second slot of the same bar: the leading column,
+                // under the rail, on a window with room for it.
+                miniPlayer = miniPlayerContent.takeIf { leadingMiniPlayer }
             ) {
             Box(
                 modifier = Modifier
@@ -1676,6 +1710,15 @@ fun AppBottomBarSlot(
  * same [SelectedTab] state and the same [onSelect] callback as the bar, so
  * switching surfaces never changes what a destination means.
  *
+ * #1205 — the rail is a COLUMN, not a lone surface: when [miniPlayer] is
+ * given, the bar sits under the rail inside that column, and the column is
+ * widened to [MiniPlayerColumnWidth] to hold it. The point is the one the
+ * owner named — the content rectangle stops paying for the bar's appearance,
+ * so starting or stopping playback no longer pushes the whole screen up and
+ * down; the shift is confined to the navigation column. [miniPlayer] is null
+ * wherever the window has no room for that column: every phone keeps the bar
+ * in the Scaffold's `bottomBar`, byte for byte.
+ *
  * This is a different LAYOUT of the same screens, never a second set of them
  * (issue #900).
  */
@@ -1685,16 +1728,34 @@ fun AdaptiveNavigationLayout(
     selectedTab: SelectedTab,
     bookDetailOpen: Boolean,
     onSelect: (SelectedTab) -> Unit,
+    miniPlayer: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         if (layout == WindowLayout.EXPANDED) {
-            AppNavigationRail(
-                selectedTab = selectedTab,
-                bookDetailOpen = bookDetailOpen,
-                onSelect = onSelect,
-                modifier = Modifier.fillMaxHeight()
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .then(
+                        if (miniPlayer == null) Modifier
+                        else Modifier.width(MiniPlayerColumnWidth)
+                    )
+                    .testTag("navigation_column")
+            ) {
+                AppNavigationRail(
+                    selectedTab = selectedTab,
+                    bookDetailOpen = bookDetailOpen,
+                    onSelect = onSelect,
+                    modifier = Modifier
+                        .weight(1f)
+                        // The widened column is a navigation surface too: the
+                        // rail's own tonal container fills it, with the same
+                        // centred items it draws at 80 dp. A column sized by the
+                        // rail itself (no mini-player) is left to the rail.
+                        .then(if (miniPlayer == null) Modifier else Modifier.fillMaxWidth())
+                )
+                miniPlayer?.invoke()
+            }
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             content()

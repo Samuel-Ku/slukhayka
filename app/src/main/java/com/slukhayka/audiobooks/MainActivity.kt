@@ -54,12 +54,16 @@ import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
+import com.slukhayka.audiobooks.ui.adaptive.rememberShowsLeadingMiniPlayer
+import com.slukhayka.audiobooks.ui.adaptive.rememberShowsPlayerPane
 import com.slukhayka.audiobooks.ui.adaptive.rememberWindowLayout
 import com.slukhayka.audiobooks.ui.adaptive.showsWideDetailPane
 import com.slukhayka.audiobooks.ui.adaptive.showsWideExploreDetailPane
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.AppNavigationRail
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.MiniPlayerColumnWidth
+import com.slukhayka.audiobooks.ui.components.PlayerPane
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -345,8 +349,17 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val top100BookListState = rememberLazyListState()
     val personBookListState = rememberLazyListState()
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
+    // #1205 — from 840 dp the player stands BESIDE the content it was opened
+    // from instead of covering it; the width alone answers, with no height
+    // condition (the owner's decision 3), and the answer follows a resize.
+    val playerPaneOpen = rememberShowsPlayerPane(showFullPlayer)
+    // The AnimatedVisibility further down is the MODAL, so it is visible only
+    // where the player is not a pane. On a window with room the content beside
+    // the player stays visible and reachable, and the Scaffold must not hide it
+    // from TalkBack the way it hides a modal background.
+    val fullPlayerOverlayVisible = showFullPlayer && !playerPaneOpen
     val fullPlayerTransition = updateTransition(
-        targetState = showFullPlayer,
+        targetState = fullPlayerOverlayVisible,
         label = "full player"
     )
     val fullPlayerModalActive = shouldHideAppBackgroundForFullPlayerTransition(
@@ -356,6 +369,24 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
     val playerState by viewModel.playerState.collectAsState()
     val miniPlayerDismissed by viewModel.miniPlayerDismissed.collectAsState()
+    // #1205 — the bar's own gate (`MiniPlayerBar` returns early and draws
+    // NOTHING without a current book) is read here as well, because the leading
+    // column must not widen for a bar that will not draw.
+    val miniPlayerVisible = !miniPlayerDismissed && selectedTab != SelectedTab.LISTEN
+    val miniPlayerHasBook = playerState.currentBook != null
+    // The bar leaves the leading column while the full player is open — pane or
+    // modal. That is what the modal does today by covering it, and it is what
+    // keeps the player pane on a window with room at the width the audit
+    // measured (≈456 dp: the bar would otherwise take 280 dp of it).
+    val leadingMiniPlayer = rememberShowsLeadingMiniPlayer(
+        miniPlayerVisible && miniPlayerHasBook && !showFullPlayer
+    )
+    // Every window without room for that column — every phone, portrait or
+    // landscape — keeps the bar in the Scaffold's bottomBar exactly as it was.
+    // Where the player IS a pane the bar has no slot at all: the pane is the
+    // player, and a full-width strip under it would be the very layout the
+    // owner's decision 2 moved away from (and would take ≈76 dp off the pane).
+    val bottomMiniPlayer = miniPlayerVisible && !leadingMiniPlayer && !playerPaneOpen
     val narrationSwitchPrompt by viewModel.narrationSwitchPrompt.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
@@ -760,6 +791,55 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    // #1205 — the full player's body, wired ONCE for both placements: the
+    // full-screen overlay on a window without room, the right pane on a window
+    // with it. Two placements, one surface — the same rule #900 wrote for the
+    // library («лише інша розкладка тих самих»), so the two routes cannot drift
+    // into two players.
+    val playerContent: @Composable () -> Unit = {
+        PlayerScreen(
+            viewModel = viewModel,
+            // ADR-0008 batch 4 (#159): the module comes in as a parameter from
+            // the composition root.
+            libraryEntries = viewModel.libraryEntries,
+            onDismiss = {
+                if (hiddenAutomaticRecovery) viewModel.closeWebSource()
+                viewModel.setShowFullPlayer(false)
+            }
+        )
+    }
+
+    // #1205 — ONE mini-player, two slots: the Scaffold's `bottomBar` on a
+    // window without room, the leading column under the rail on a window with
+    // it. The definition lives in one place on purpose — two placements of one
+    // surface must not drift into two bars (the risk the #900 audit named).
+    // Closed by a leftward swipe on the bar (TalkBack gets the same action from
+    // the summary's actions menu); it returns when audio does.
+    // UI: на «Слухати» міні-плеєр не потрібен — угорі вже стоїть hero-картка
+    // «Продовжити слухати» з тим самим керуванням, тож панель лише дублювала її.
+    val miniPlayerContent: @Composable () -> Unit = {
+        MiniPlayerBar(
+            playerState = playerState,
+            viewedBookId = selectedBookId,
+            onPlayPauseClick = {
+                val current = viewModel.playerManager.playerState.value
+                current.currentBook?.let { book ->
+                    viewModel.togglePlaybackFromPlayer(
+                        book.id,
+                        current.currentChapterIndex,
+                        current.currentPositionMs
+                    )
+                }
+            },
+            onSkipNextClick = { viewModel.playerManager.nextChapter() },
+            // Issue #808: the bar carries the full transport —
+            // previous chapter sits where cast used to be.
+            onPreviousClick = { viewModel.playerManager.previousChapter() },
+            onCloseClick = { viewModel.dismissMiniPlayer() },
+            onBarClick = { viewModel.setShowFullPlayer(true) }
+        )
+    }
+
     // #900 — «Огляд»: does the list the work was opened FROM stay beside the
     // work's card? The answer lives in ui/adaptive (the one place that decides
     // layouts); it is read into a val HERE, before the list lambdas, because
@@ -878,33 +958,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             },
             bottomBar = {
                 Column {
-                    // Floating Persistent Mini Player. Closed by a leftward
-                    // swipe on the bar (TalkBack gets the same action from the
-                    // summary's actions menu); it returns when audio does.
-                    // UI: на «Слухати» міні-плеєр не потрібен — угорі вже
-                    // стоїть hero-картка «Продовжити слухати» з тим самим
-                    // керуванням, тож панель лише дублювала її.
-                    if (!miniPlayerDismissed && selectedTab != SelectedTab.LISTEN) {
-                        MiniPlayerBar(
-                            playerState = playerState,
-                            viewedBookId = selectedBookId,
-                            onPlayPauseClick = {
-                                val current = viewModel.playerManager.playerState.value
-                                current.currentBook?.let { book ->
-                                    viewModel.togglePlaybackFromPlayer(
-                                        book.id,
-                                        current.currentChapterIndex,
-                                        current.currentPositionMs
-                                    )
-                                }
-                            },
-                            onSkipNextClick = { viewModel.playerManager.nextChapter() },
-                            // Issue #808: the bar carries the full transport —
-                            // previous chapter sits where cast used to be.
-                            onPreviousClick = { viewModel.playerManager.previousChapter() },
-                            onCloseClick = { viewModel.dismissMiniPlayer() },
-                            onBarClick = { viewModel.setShowFullPlayer(true) }
-                        )
+                    // #1205 — the phone's slot for the bar. A window with room
+                    // draws the same [miniPlayerContent] in its leading column
+                    // instead (see AdaptiveNavigationLayout below), so this slot
+                    // stays empty there and the content rectangle keeps its
+                    // height.
+                    if (bottomMiniPlayer) {
+                        miniPlayerContent()
                     }
 
                     // Four primary destinations, including the settings home (#547).
@@ -935,469 +995,507 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     bookDetailChildOrigin = null
                     bookDetailChildEditionId = null
                     viewModel.selectTab(tab)
-                }
+                },
+                // #1205 — the second slot of the same bar: the leading column,
+                // under the rail, on a window with room for it.
+                miniPlayer = miniPlayerContent.takeIf { leadingMiniPlayer }
             ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                when {
-                    // Spec-13 T3: a WebView-pattern source's browser surface
-                    // (4read + sluhay). Fullscreen pushed destination; 4read
-                    // remains available in release for session recovery.
-                    selectedWebSource != null -> WebSourceBrowserScreen(
-                        viewModel = viewModel,
-                        sourceId = selectedWebSource!!.sourceId,
-                        homeUrl = selectedWebSource!!.homeUrl,
-                        displayName = selectedWebSource!!.displayName,
-                        recoveryBookId = selectedWebSource!!.recoveryBookId,
-                        recoveryChapterIndex = selectedWebSource!!.recoveryChapterIndex,
-                        recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
-                        automaticRecovery = selectedWebSource!!.automaticRecovery,
-                        cloudflareChallenge = selectedWebSource!!.cloudflareChallenge,
-                        onCloudflareChallengeChanged = { required ->
-                            viewModel.setRecoveryCloudflareChallenge(required)
-                        },
-                        onAutomaticRecoveryFailed = viewModel::failAutomaticBrowserRecovery,
-                        onClose = { viewModel.closeWebSource() }
-                    )
+                // #1205 — the Scaffold's content as ONE value: the phone
+                // route draws it alone, a window with room draws it beside the
+                // player pane (the file's own idiom — libraryRootContent,
+                // bookDetailContent).
+                val appContent: @Composable () -> Unit = {
+                    when {
+                        // Spec-13 T3: a WebView-pattern source's browser surface
+                        // (4read + sluhay). Fullscreen pushed destination; 4read
+                        // remains available in release for session recovery.
+                        selectedWebSource != null -> WebSourceBrowserScreen(
+                            viewModel = viewModel,
+                            sourceId = selectedWebSource!!.sourceId,
+                            homeUrl = selectedWebSource!!.homeUrl,
+                            displayName = selectedWebSource!!.displayName,
+                            recoveryBookId = selectedWebSource!!.recoveryBookId,
+                            recoveryChapterIndex = selectedWebSource!!.recoveryChapterIndex,
+                            recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
+                            automaticRecovery = selectedWebSource!!.automaticRecovery,
+                            cloudflareChallenge = selectedWebSource!!.cloudflareChallenge,
+                            onCloudflareChallengeChanged = { required ->
+                                viewModel.setRecoveryCloudflareChallenge(required)
+                            },
+                            onAutomaticRecoveryFailed = viewModel::failAutomaticBrowserRecovery,
+                            onClose = { viewModel.closeWebSource() }
+                        )
 
-                    bookDetailChildRouteOpen &&
-                        bookDetailChildFocusOrigin == BookDetailLinkOrigin.SERIES &&
-                        selectedSeries != null -> SeriesScreen(
-                        viewModel = viewModel,
-                        onBackClick = { closeBookDetailChildRoute() },
-                        onBookClick = { id ->
-                            val childSeries = selectedSeries
-                            closeBookDetailChildRoute()
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            if (childSeries != null) {
-                                viewModel.openSeries(childSeries.title, childSeries.url)
-                                secondaryBookRoute = SecondaryBookRouteFrame(
-                                    parent = SecondaryBookParent.SERIES,
-                                    originBookId = id,
-                                    detailBookId = id,
-                                    parentTitle = childSeries.title,
-                                    parentUrl = childSeries.url
-                                )
-                            }
-                            viewModel.selectBook(id)
-                        }
-                    )
-
-                    bookDetailChildRouteOpen &&
-                        bookDetailChildFocusOrigin in setOf(
-                            BookDetailLinkOrigin.AUTHOR,
-                            BookDetailLinkOrigin.NARRATOR
-                        ) && selectedPerson != null -> PersonBooksScreen(
-                        viewModel = viewModel,
-                        personBookmarks = viewModel.personBookmarks,
-                        onBackClick = { closeBookDetailChildRoute() },
-                        onBookClick = { id ->
-                            val childPerson = selectedPerson
-                            closeBookDetailChildRoute()
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            if (childPerson != null) {
-                                viewModel.openPersonBooks(
-                                    CatalogPerson(
-                                        childPerson.name,
-                                        childPerson.path,
-                                        0,
-                                        childPerson.role
+                        bookDetailChildRouteOpen &&
+                            bookDetailChildFocusOrigin == BookDetailLinkOrigin.SERIES &&
+                            selectedSeries != null -> SeriesScreen(
+                            viewModel = viewModel,
+                            onBackClick = { closeBookDetailChildRoute() },
+                            onBookClick = { id ->
+                                val childSeries = selectedSeries
+                                closeBookDetailChildRoute()
+                                bookDetailChildOrigin = null
+                                bookDetailChildEditionId = null
+                                if (childSeries != null) {
+                                    viewModel.openSeries(childSeries.title, childSeries.url)
+                                    secondaryBookRoute = SecondaryBookRouteFrame(
+                                        parent = SecondaryBookParent.SERIES,
+                                        originBookId = id,
+                                        detailBookId = id,
+                                        parentTitle = childSeries.title,
+                                        parentUrl = childSeries.url
                                     )
+                                }
+                                viewModel.selectBook(id)
+                            }
+                        )
+
+                        bookDetailChildRouteOpen &&
+                            bookDetailChildFocusOrigin in setOf(
+                                BookDetailLinkOrigin.AUTHOR,
+                                BookDetailLinkOrigin.NARRATOR
+                            ) && selectedPerson != null -> PersonBooksScreen(
+                            viewModel = viewModel,
+                            personBookmarks = viewModel.personBookmarks,
+                            onBackClick = { closeBookDetailChildRoute() },
+                            onBookClick = { id ->
+                                val childPerson = selectedPerson
+                                closeBookDetailChildRoute()
+                                bookDetailChildOrigin = null
+                                bookDetailChildEditionId = null
+                                if (childPerson != null) {
+                                    viewModel.openPersonBooks(
+                                        CatalogPerson(
+                                            childPerson.name,
+                                            childPerson.path,
+                                            0,
+                                            childPerson.role
+                                        )
+                                    )
+                                    secondaryBookRoute = SecondaryBookRouteFrame(
+                                        parent = SecondaryBookParent.PERSON,
+                                        originBookId = id,
+                                        detailBookId = id,
+                                        parentName = childPerson.name,
+                                        parentPath = childPerson.path,
+                                        parentRole = childPerson.role
+                                    )
+                                }
+                                viewModel.selectBook(id)
+                            }
+                        )
+
+                        // #900 — on a wide «Огляд», the genre/series the work was
+                        // opened from keeps the left pane and the work's card takes
+                        // the right: the same two screens the phone shows one at a
+                        // time. Any other parent list keeps the phone route below
+                        // (the question is on issue #900).
+                        wideExplorePaneOpen && !playerPaneOpen -> WideDetailPane(
+                            list = requireNotNull(wideExploreListContent),
+                            detail = bookDetailContent
+                        )
+
+                        // #1205 — the same rule as the library above: the player
+                        // pane takes the card's share, the list keeps its own.
+                        wideExplorePaneOpen -> requireNotNull(wideExploreListContent)()
+
+                        // A book opened from a pushed catalogue list overlays
+                        // that retained parent route. Closing details reveals the
+                        // same list and lets it restore the originating card.
+                        secondaryBookDetailOpen -> bookDetailContent()
+
+                        // Series (cycle) page (spec #8 ticket T8).
+                        selectedSeries != null -> seriesListContent()
+
+                        // spec-28 (#189): the «Серії» index — every series from
+                        // the catalogue sections; tapping one pushes the existing
+                        // series page on top of this index.
+                        seriesIndexOpen -> SeriesIndexScreen(
+                            viewModel = viewModel,
+                            onBackClick = { viewModel.closeSeriesIndex() },
+                            onSeriesClick = { series ->
+                                seriesIndexFocusReturnUrl = series.url
+                                viewModel.openSeries(series.title, series.url)
+                            },
+                            restoreFocusSeriesUrl = seriesIndexFocusReturnUrl,
+                            onSeriesFocusRestored = { restoredUrl ->
+                                if (seriesIndexFocusReturnUrl == restoredUrl) {
+                                    seriesIndexFocusReturnUrl = null
+                                }
+                            },
+                            gridState = seriesIndexGridState
+                        )
+
+                        // spec-28 (#190): the «Колекції» index — every matched
+                        // smart collection with its books; tapping a book
+                        // resolves-and-plays it (same as the inline cards).
+                        collectionsIndexOpen -> CollectionsIndexScreen(
+                            viewModel = viewModel,
+                            onBackClick = { viewModel.closeCollectionsIndex() },
+                            onBookClick = { result -> viewModel.openGlobalSearchResult(result) }
+                        )
+
+                        // spec-28 (#194) destination, extended by #899: the
+                        // settings row «Завантаження та пам'ять» opens the
+                        // download manager (the queue and its controls) and keeps
+                        // the storage tools (summary, rescan, destructive delete)
+                        // beneath it.
+                        storageDestinationOpen -> DownloadManagerScreen(
+                            viewModel = viewModel,
+                            onBackClick = {
+                                viewModel.closeStorageDestination()
+                            }
+                        )
+
+                        // spec-38 T2 (#254): the «Приватність мережі» destination —
+                        // the route choice, reached from Settings.
+                        privacySettingsOpen -> NetworkPrivacyScreen(
+                            viewModel = viewModel,
+                            crashReporting = viewModel.crashReportingModule,
+                            onBackClick = {
+                                viewModel.closePrivacySettings()
+                            }
+                        )
+
+                        recommendationSettingsOpen -> RecommendationSettingsScreen(
+                            viewModel = viewModel,
+                            onBackClick = {
+                                viewModel.closeRecommendationSettings()
+                            }
+                        )
+
+                        // Spec-45 (#405) T6 (#494): the «Мови контенту»
+                        // destination — Settings. R6 (#513): the
+                        // screen reads the PREFERENCE MODULE directly (ADR-0008);
+                        // the ViewModel only owns navigation.
+                        contentLanguagesOpen -> ContentLanguageScreen(
+                            prefs = App.instance.contentLanguagePrefs,
+                            // Spec-51 (#742): the offered list is the catalogue's
+                            // real languages, never a hardcoded pair.
+                            availableLanguages = contentLanguageOptions,
+                            onBackClick = {
+                                viewModel.closeContentLanguages()
+                            }
+                        )
+
+                        // ADR-0037 (spec-49 T1): the «Аудіо джерел»
+                        // destination — the screen reads the PREFERENCE MODULE
+                        // directly (ADR-0008); the ViewModel owns navigation.
+                        sourceAudioRefusalOpen -> SourceAudioRefusalScreen(
+                            prefs = App.instance.sourceAudioRefusal,
+                            sharedStore = App.instance.sharedMetaStore,
+                            uidProvider = { App.instance.listenerIdentity.current()?.uid },
+                            onBackClick = {
+                                viewModel.closeSourceAudioRefusal()
+                            }
+                        )
+
+                        // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу»
+                        // destination — Settings. The choice
+                        // applies immediately through the platform applier.
+                        // #704 (T6) — the «Досягнення» destination. What to show
+                        // is decided by the board; the screen only renders it.
+                        achievementsOpen -> AchievementsScreen(
+                            board = achievementsBoard,
+                            title = listenerTitle,
+                            showcase = achievementShowcase,
+                            onBackClick = { viewModel.closeAchievements() },
+                            onTogglePin = { id -> viewModel.toggleAchievementPin(id) },
+                            // #705 (T7) — the showcase goes public only through the
+                            // consent sheet below; this screen only reports intent.
+                            showcasePublished = showcasePublished,
+                            showcasePublishable = showcasePublishable,
+                            onPublishShowcase = { viewModel.requestPublishShowcase() },
+                            onWithdrawShowcase = { viewModel.withdrawShowcase() }
+                        )
+                        appLocaleOpen -> AppLocaleScreen(
+                            localePrefs = App.instance.appLocalePrefs,
+                            // The choice applies immediately through the platform
+                            // applier — the Activity comes from the composition
+                            // context (the same idiom as the notification-tap
+                            // handler above).
+                            onApply = { locale ->
+                                (context as? MainActivity)?.let { AppLocaleApplier.apply(it, locale) }
+                            },
+                            onBackClick = {
+                                viewModel.closeAppLocale()
+                            }
+                        )
+
+                        // spec-40 #275 (t1): the «Профіль» destination — the
+                        // silent listener identity's visible surface, reached
+                        // from Settings.
+                        profileOpen -> ProfileScreen(
+                            identity = viewModel.listenerIdentityModule,
+                            onBackClick = {
+                                viewModel.closeProfileSettings()
+                            },
+                            hiddenAuthors = hiddenAuthors,
+                            onUnhideAuthor = { viewModel.unhideAuthor(it) },
+                            progressSyncSettings = viewModel.progressSyncSettingsModule,
+                            crashReporting = App.instance.crashReporting,
+                            onClearSourceSession = SourceWebViewSession::clear
+                        )
+
+                        // Genre (category) page ("Аудіокниги жанру:").
+                        selectedGenre != null -> genreListContent()
+
+                        // #738 — the library rating (local, offline).
+                        selectedTop100 -> LibraryRatingScreen(
+                            viewModel = viewModel,
+                            onBackClick = {
+                                secondaryBookRoute = SecondaryBookRouteFrame()
+                                viewModel.closeTop100()
+                            },
+                            onBookClick = { id ->
+                                secondaryBookRoute = SecondaryBookRouteFrame(
+                                    parent = SecondaryBookParent.TOP_100,
+                                    originBookId = id,
+                                    detailBookId = id
                                 )
+                                viewModel.selectBook(id)
+                            },
+                            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                                secondaryBookRoute.parent == SecondaryBookParent.TOP_100
+                            },
+                            onBookFocusRestored = { restoredId ->
+                                if (secondaryBookRoute.parent == SecondaryBookParent.TOP_100 &&
+                                    secondaryBookRoute.originBookId == restoredId
+                                ) {
+                                    secondaryBookRoute = SecondaryBookRouteFrame()
+                                }
+                            },
+                            listState = top100BookListState
+                        )
+
+                        authorsIndexOpen -> {
+                            // The full 10k-capable alphabetical projection is cold:
+                            // collect it only while its destination is visible.
+                            // #736 — the default list is the Медіатека's people; a
+                            // search result set still spans the full index.
+                            val canonicalAuthors by viewModel.sourceCatalog.libraryAuthors.collectAsState(initial = emptyList())
+                            val authorList = authorsIndexResults ?: canonicalAuthors
+                            AuthorsIndexScreen(
+                                authors = authorList,
+                                onBackClick = { viewModel.closeAuthorsIndex() },
+                                onAuthorClick = { author ->
+                                    val idx = authorList.indexOfFirst { it.id == author.id }
+                                        .coerceAtLeast(0)
+                                    viewModel.openAuthorPage(author, idx)
+                                },
+                                initialScrollIndex = viewModel.authorsIndexScrollIndex.collectAsState().value
+                            )
+                        }
+
+                        // One person's books (opened from Виконавці/Автори index).
+                        selectedPerson != null -> PersonBooksScreen(
+                            viewModel = viewModel,
+                            personBookmarks = viewModel.personBookmarks,
+                            onBackClick = {
+                                secondaryBookRoute = SecondaryBookRouteFrame()
+                                viewModel.closePersonBooks()
+                            },
+                            onBookClick = { id ->
                                 secondaryBookRoute = SecondaryBookRouteFrame(
                                     parent = SecondaryBookParent.PERSON,
                                     originBookId = id,
                                     detailBookId = id,
-                                    parentName = childPerson.name,
-                                    parentPath = childPerson.path,
-                                    parentRole = childPerson.role
+                                    parentName = selectedPerson?.name.orEmpty(),
+                                    parentPath = selectedPerson?.path.orEmpty(),
+                                    parentRole = selectedPerson?.role
                                 )
-                            }
-                            viewModel.selectBook(id)
-                        }
-                    )
-
-                    // #900 — on a wide «Огляд», the genre/series the work was
-                    // opened from keeps the left pane and the work's card takes
-                    // the right: the same two screens the phone shows one at a
-                    // time. Any other parent list keeps the phone route below
-                    // (the question is on issue #900).
-                    wideExplorePaneOpen -> WideDetailPane(
-                        list = requireNotNull(wideExploreListContent),
-                        detail = bookDetailContent
-                    )
-
-                    // A book opened from a pushed catalogue list overlays
-                    // that retained parent route. Closing details reveals the
-                    // same list and lets it restore the originating card.
-                    secondaryBookDetailOpen -> bookDetailContent()
-
-                    // Series (cycle) page (spec #8 ticket T8).
-                    selectedSeries != null -> seriesListContent()
-
-                    // spec-28 (#189): the «Серії» index — every series from
-                    // the catalogue sections; tapping one pushes the existing
-                    // series page on top of this index.
-                    seriesIndexOpen -> SeriesIndexScreen(
-                        viewModel = viewModel,
-                        onBackClick = { viewModel.closeSeriesIndex() },
-                        onSeriesClick = { series ->
-                            seriesIndexFocusReturnUrl = series.url
-                            viewModel.openSeries(series.title, series.url)
-                        },
-                        restoreFocusSeriesUrl = seriesIndexFocusReturnUrl,
-                        onSeriesFocusRestored = { restoredUrl ->
-                            if (seriesIndexFocusReturnUrl == restoredUrl) {
-                                seriesIndexFocusReturnUrl = null
-                            }
-                        },
-                        gridState = seriesIndexGridState
-                    )
-
-                    // spec-28 (#190): the «Колекції» index — every matched
-                    // smart collection with its books; tapping a book
-                    // resolves-and-plays it (same as the inline cards).
-                    collectionsIndexOpen -> CollectionsIndexScreen(
-                        viewModel = viewModel,
-                        onBackClick = { viewModel.closeCollectionsIndex() },
-                        onBookClick = { result -> viewModel.openGlobalSearchResult(result) }
-                    )
-
-                    // spec-28 (#194) destination, extended by #899: the
-                    // settings row «Завантаження та пам'ять» opens the
-                    // download manager (the queue and its controls) and keeps
-                    // the storage tools (summary, rescan, destructive delete)
-                    // beneath it.
-                    storageDestinationOpen -> DownloadManagerScreen(
-                        viewModel = viewModel,
-                        onBackClick = {
-                            viewModel.closeStorageDestination()
-                        }
-                    )
-
-                    // spec-38 T2 (#254): the «Приватність мережі» destination —
-                    // the route choice, reached from Settings.
-                    privacySettingsOpen -> NetworkPrivacyScreen(
-                        viewModel = viewModel,
-                        crashReporting = viewModel.crashReportingModule,
-                        onBackClick = {
-                            viewModel.closePrivacySettings()
-                        }
-                    )
-
-                    recommendationSettingsOpen -> RecommendationSettingsScreen(
-                        viewModel = viewModel,
-                        onBackClick = {
-                            viewModel.closeRecommendationSettings()
-                        }
-                    )
-
-                    // Spec-45 (#405) T6 (#494): the «Мови контенту»
-                    // destination — Settings. R6 (#513): the
-                    // screen reads the PREFERENCE MODULE directly (ADR-0008);
-                    // the ViewModel only owns navigation.
-                    contentLanguagesOpen -> ContentLanguageScreen(
-                        prefs = App.instance.contentLanguagePrefs,
-                        // Spec-51 (#742): the offered list is the catalogue's
-                        // real languages, never a hardcoded pair.
-                        availableLanguages = contentLanguageOptions,
-                        onBackClick = {
-                            viewModel.closeContentLanguages()
-                        }
-                    )
-
-                    // ADR-0037 (spec-49 T1): the «Аудіо джерел»
-                    // destination — the screen reads the PREFERENCE MODULE
-                    // directly (ADR-0008); the ViewModel owns navigation.
-                    sourceAudioRefusalOpen -> SourceAudioRefusalScreen(
-                        prefs = App.instance.sourceAudioRefusal,
-                        sharedStore = App.instance.sharedMetaStore,
-                        uidProvider = { App.instance.listenerIdentity.current()?.uid },
-                        onBackClick = {
-                            viewModel.closeSourceAudioRefusal()
-                        }
-                    )
-
-                    // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу»
-                    // destination — Settings. The choice
-                    // applies immediately through the platform applier.
-                    // #704 (T6) — the «Досягнення» destination. What to show
-                    // is decided by the board; the screen only renders it.
-                    achievementsOpen -> AchievementsScreen(
-                        board = achievementsBoard,
-                        title = listenerTitle,
-                        showcase = achievementShowcase,
-                        onBackClick = { viewModel.closeAchievements() },
-                        onTogglePin = { id -> viewModel.toggleAchievementPin(id) },
-                        // #705 (T7) — the showcase goes public only through the
-                        // consent sheet below; this screen only reports intent.
-                        showcasePublished = showcasePublished,
-                        showcasePublishable = showcasePublishable,
-                        onPublishShowcase = { viewModel.requestPublishShowcase() },
-                        onWithdrawShowcase = { viewModel.withdrawShowcase() }
-                    )
-                    appLocaleOpen -> AppLocaleScreen(
-                        localePrefs = App.instance.appLocalePrefs,
-                        // The choice applies immediately through the platform
-                        // applier — the Activity comes from the composition
-                        // context (the same idiom as the notification-tap
-                        // handler above).
-                        onApply = { locale ->
-                            (context as? MainActivity)?.let { AppLocaleApplier.apply(it, locale) }
-                        },
-                        onBackClick = {
-                            viewModel.closeAppLocale()
-                        }
-                    )
-
-                    // spec-40 #275 (t1): the «Профіль» destination — the
-                    // silent listener identity's visible surface, reached
-                    // from Settings.
-                    profileOpen -> ProfileScreen(
-                        identity = viewModel.listenerIdentityModule,
-                        onBackClick = {
-                            viewModel.closeProfileSettings()
-                        },
-                        hiddenAuthors = hiddenAuthors,
-                        onUnhideAuthor = { viewModel.unhideAuthor(it) },
-                        progressSyncSettings = viewModel.progressSyncSettingsModule,
-                        crashReporting = App.instance.crashReporting,
-                        onClearSourceSession = SourceWebViewSession::clear
-                    )
-
-                    // Genre (category) page ("Аудіокниги жанру:").
-                    selectedGenre != null -> genreListContent()
-
-                    // #738 — the library rating (local, offline).
-                    selectedTop100 -> LibraryRatingScreen(
-                        viewModel = viewModel,
-                        onBackClick = {
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            viewModel.closeTop100()
-                        },
-                        onBookClick = { id ->
-                            secondaryBookRoute = SecondaryBookRouteFrame(
-                                parent = SecondaryBookParent.TOP_100,
-                                originBookId = id,
-                                detailBookId = id
-                            )
-                            viewModel.selectBook(id)
-                        },
-                        restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                            secondaryBookRoute.parent == SecondaryBookParent.TOP_100
-                        },
-                        onBookFocusRestored = { restoredId ->
-                            if (secondaryBookRoute.parent == SecondaryBookParent.TOP_100 &&
-                                secondaryBookRoute.originBookId == restoredId
-                            ) {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                            }
-                        },
-                        listState = top100BookListState
-                    )
-
-                    authorsIndexOpen -> {
-                        // The full 10k-capable alphabetical projection is cold:
-                        // collect it only while its destination is visible.
-                        // #736 — the default list is the Медіатека's people; a
-                        // search result set still spans the full index.
-                        val canonicalAuthors by viewModel.sourceCatalog.libraryAuthors.collectAsState(initial = emptyList())
-                        val authorList = authorsIndexResults ?: canonicalAuthors
-                        AuthorsIndexScreen(
-                            authors = authorList,
-                            onBackClick = { viewModel.closeAuthorsIndex() },
-                            onAuthorClick = { author ->
-                                val idx = authorList.indexOfFirst { it.id == author.id }
-                                    .coerceAtLeast(0)
-                                viewModel.openAuthorPage(author, idx)
+                                viewModel.selectBook(id)
                             },
-                            initialScrollIndex = viewModel.authorsIndexScrollIndex.collectAsState().value
-                        )
-                    }
-
-                    // One person's books (opened from Виконавці/Автори index).
-                    selectedPerson != null -> PersonBooksScreen(
-                        viewModel = viewModel,
-                        personBookmarks = viewModel.personBookmarks,
-                        onBackClick = {
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            viewModel.closePersonBooks()
-                        },
-                        onBookClick = { id ->
-                            secondaryBookRoute = SecondaryBookRouteFrame(
-                                parent = SecondaryBookParent.PERSON,
-                                originBookId = id,
-                                detailBookId = id,
-                                parentName = selectedPerson?.name.orEmpty(),
-                                parentPath = selectedPerson?.path.orEmpty(),
-                                parentRole = selectedPerson?.role
-                            )
-                            viewModel.selectBook(id)
-                        },
-                        restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                            secondaryBookRoute.parent == SecondaryBookParent.PERSON
-                        },
-                        onBookFocusRestored = { restoredId ->
-                            if (secondaryBookRoute.parent == SecondaryBookParent.PERSON &&
-                                secondaryBookRoute.originBookId == restoredId
-                            ) {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                            }
-                        },
-                        listState = personBookListState
-                    )
-
-                    // Виконавці or Автори index.
-                    selectedPeopleKind != null -> PeopleScreen(
-                        viewModel = viewModel,
-                        onBackClick = { viewModel.closePeople() },
-                        onBookClick = { id -> viewModel.selectBook(id) },
-                        onPersonClick = { person ->
-                            peopleFocusReturnPath = person.path
-                            viewModel.openPersonBooks(person)
-                        },
-                        restoreFocusPersonPath = peopleFocusReturnPath,
-                        onPersonFocusRestored = { restoredPath ->
-                            if (peopleFocusReturnPath == restoredPath) {
-                                peopleFocusReturnPath = null
-                            }
-                        },
-                        listState = peopleListState
-                    )
-
-                    // #900 — a wide window keeps the Бібліотека list beside the
-                    // opened book's page instead of replacing it: the SAME two
-                    // screens, one click still, no second library to keep in
-                    // sync. The phone path below is untouched.
-                    wideDetailPaneOpen -> WideDetailPane(
-                        list = libraryRootContent,
-                        detail = bookDetailContent
-                    )
-
-                    selectedBookId != null -> bookDetailContent()
-
-                    else -> com.slukhayka.audiobooks.ui.components.TabSaveableHost(
-                        tabKey = selectedTab.name
-                    ) { when (selectedTab) {
-                        // Spec-9: first tab is the listening panel, not the storefront.
-                        SelectedTab.LISTEN -> ListenScreen(
-                            // #958 — the gear opens Settings from THIS root,
-                            // wired exactly as EXPLORE, LIBRARY and FRIENDS
-                            // already are (ADR-0049: the gear sits in the SAME
-                            // place on EVERY root). Without it the header
-                            // button fell through to ListenScreen's
-                            // `onOpenSettings = {}` default and did nothing.
-                            onOpenSettings = {
-                                settingsReturnTab = SelectedTab.LISTEN
-                                viewModel.selectTab(SelectedTab.SETTINGS)
+                            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                                secondaryBookRoute.parent == SecondaryBookParent.PERSON
                             },
-                            viewModel = viewModel,
-                            // ADR-0008 batch 3 (#158): the modules come in as
-                            // parameters from the composition root. spec-28
-                            // (#192): discovery left the tab, so only the
-                            // library module is read here.
-                            libraryEntries = viewModel.libraryEntries,
-                            onBookClick = { id -> viewModel.selectBook(id) },
-                            onPlayClick = { book ->
-                                viewModel.playAudiobook(book)
-                                viewModel.setShowFullPlayer(true)
-                            },
-                            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                            onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
-                        )
-                        SelectedTab.EXPLORE ->                        HomeScreen(
-                            // #860 — the gear opens Settings from THIS root.
-                            onOpenSettings = {
-                                settingsReturnTab = SelectedTab.EXPLORE
-                                viewModel.selectTab(SelectedTab.SETTINGS)
-                            },
-                            durationEnrichment = viewModel.durationEnrichment,
-                            chapterDurationProbe = viewModel.chapterDurationProbe,
-                            updateChecker = viewModel.updateChecker,
-                            viewModel = viewModel,
-                            // ADR-0008 batches 2 + contract (#156, #160): the
-                            // modules come in as parameters from the
-                            // composition root.
-                            libraryEntries = viewModel.libraryEntries,
-                            sourceCatalog = viewModel.sourceCatalog,
-                            personBookmarks = App.instance.personBookmarks,
-                            onBookClick = { id -> viewModel.selectBook(id) },
-                            onPlayClick = { book ->
-                                viewModel.playAudiobook(book)
-                                viewModel.setShowFullPlayer(true)
-                            },
-                            // Spec-13 T3 + spec-15 T2: the «Більше книг на
-                            // Sluhay» exit CTA (spec-28 #192, moved from
-                            // Listen) renders only in debug builds — in
-                            // release the same row would open an in-app
-                            // browser that cannot exist. The 4read door is
-                            // gone (#741): the source is scam.
-                            onOpenWebSource = if (BuildConfig.DEBUG) {
-                                {
-                                    viewModel.openWebSource(
-                                        sourceId = "sluhay",
-                                        homeUrl = "https://sluhay.com/",
-                                        displayName = "Sluhay"
-                                    )
+                            onBookFocusRestored = { restoredId ->
+                                if (secondaryBookRoute.parent == SecondaryBookParent.PERSON &&
+                                    secondaryBookRoute.originBookId == restoredId
+                                ) {
+                                    secondaryBookRoute = SecondaryBookRouteFrame()
                                 }
-                            } else {
-                                null
-                            }
+                            },
+                            listState = personBookListState
                         )
-                        SelectedTab.LIBRARY -> libraryRootContent()
-                        SelectedTab.FRIENDS -> FriendsScreen(
-                            // #916 — the state that EXISTS: the friendship and
-                            // block facts read from the local store. Posts are
-                            // still absent because no shared base holds them
-                            // yet (§5: a post lives with an audience in the
-                            // shared store, not on this device), so the feed
-                            // honestly shows «friends, no posts» or «no
-                            // friends» instead of invented content (§6.4).
-                            feed = FriendsFeedState(
-                                friendsNow = socialSnapshot.friendsNow,
-                                posts = emptyList(),
-                                blocks = socialSnapshot.blocks
-                            ),
-                            viewerPseudonym = listenerProfile?.nickname.orEmpty(),
-                            // A post's `sourceId` points at a Work/review; the
-                            // book page opens by that same id.
-                            onOpenBook = { id -> viewModel.selectBook(id) },
-                            // ADR-0049 — the gear sits in the SAME place on
-                            // every root.
-                            onOpenSettings = {
-                                settingsReturnTab = SelectedTab.FRIENDS
-                                viewModel.selectTab(SelectedTab.SETTINGS)
-                            }
-                        )
-                        SelectedTab.SETTINGS -> SettingsScreen(
-                            returnDestination = settingsReturnDestination,
-                            onOpen = { destination ->
-                                settingsReturnDestination = destination
-                                when (destination) {
-                                    SettingsDestination.Profile -> viewModel.openProfileSettings()
-                                    SettingsDestination.Storage -> viewModel.openStorageDestination()
-                                    SettingsDestination.NetworkPrivacy -> viewModel.openPrivacySettings()
-                                    SettingsDestination.Recommendations -> viewModel.openRecommendationSettings()
-                                    SettingsDestination.ContentLanguages -> viewModel.openContentLanguages()
-                                    SettingsDestination.SourceAudioRefusal -> viewModel.openSourceAudioRefusal()
-                                    SettingsDestination.AppLocale -> viewModel.openAppLocale()
-                                    SettingsDestination.Achievements -> viewModel.openAchievements()
+
+                        // Виконавці or Автори index.
+                        selectedPeopleKind != null -> PeopleScreen(
+                            viewModel = viewModel,
+                            onBackClick = { viewModel.closePeople() },
+                            onBookClick = { id -> viewModel.selectBook(id) },
+                            onPersonClick = { person ->
+                                peopleFocusReturnPath = person.path
+                                viewModel.openPersonBooks(person)
+                            },
+                            restoreFocusPersonPath = peopleFocusReturnPath,
+                            onPersonFocusRestored = { restoredPath ->
+                                if (peopleFocusReturnPath == restoredPath) {
+                                    peopleFocusReturnPath = null
                                 }
-                            }
+                            },
+                            listState = peopleListState
                         )
+
+                        // #900 — a wide window keeps the Бібліотека list beside the
+                        // opened book's page instead of replacing it: the SAME two
+                        // screens, one click still, no second library to keep in
+                        // sync. The phone path below is untouched.
+                        wideDetailPaneOpen && !playerPaneOpen -> WideDetailPane(
+                            list = libraryRootContent,
+                            detail = bookDetailContent
+                        )
+
+                        // #1205 — with the player in the pane the page is NOT
+                        // drawn twice: the list keeps its place and the player
+                        // takes the page's share, exactly as the owner's decision
+                        // says («правою панеллю замість сторінки книги»). Closing
+                        // the player brings the page back where it was.
+                        wideDetailPaneOpen -> libraryRootContent()
+
+                        selectedBookId != null -> bookDetailContent()
+
+                        else -> com.slukhayka.audiobooks.ui.components.TabSaveableHost(
+                            tabKey = selectedTab.name
+                        ) { when (selectedTab) {
+                            // Spec-9: first tab is the listening panel, not the storefront.
+                            SelectedTab.LISTEN -> ListenScreen(
+                                // #958 — the gear opens Settings from THIS root,
+                                // wired exactly as EXPLORE, LIBRARY and FRIENDS
+                                // already are (ADR-0049: the gear sits in the SAME
+                                // place on EVERY root). Without it the header
+                                // button fell through to ListenScreen's
+                                // `onOpenSettings = {}` default and did nothing.
+                                onOpenSettings = {
+                                    settingsReturnTab = SelectedTab.LISTEN
+                                    viewModel.selectTab(SelectedTab.SETTINGS)
+                                },
+                                viewModel = viewModel,
+                                // ADR-0008 batch 3 (#158): the modules come in as
+                                // parameters from the composition root. spec-28
+                                // (#192): discovery left the tab, so only the
+                                // library module is read here.
+                                libraryEntries = viewModel.libraryEntries,
+                                onBookClick = { id -> viewModel.selectBook(id) },
+                                onPlayClick = { book ->
+                                    viewModel.playAudiobook(book)
+                                    viewModel.setShowFullPlayer(true)
+                                },
+                                onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
+                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
+                            )
+                            SelectedTab.EXPLORE ->                        HomeScreen(
+                                // #860 — the gear opens Settings from THIS root.
+                                onOpenSettings = {
+                                    settingsReturnTab = SelectedTab.EXPLORE
+                                    viewModel.selectTab(SelectedTab.SETTINGS)
+                                },
+                                durationEnrichment = viewModel.durationEnrichment,
+                                chapterDurationProbe = viewModel.chapterDurationProbe,
+                                updateChecker = viewModel.updateChecker,
+                                viewModel = viewModel,
+                                // ADR-0008 batches 2 + contract (#156, #160): the
+                                // modules come in as parameters from the
+                                // composition root.
+                                libraryEntries = viewModel.libraryEntries,
+                                sourceCatalog = viewModel.sourceCatalog,
+                                personBookmarks = App.instance.personBookmarks,
+                                onBookClick = { id -> viewModel.selectBook(id) },
+                                onPlayClick = { book ->
+                                    viewModel.playAudiobook(book)
+                                    viewModel.setShowFullPlayer(true)
+                                },
+                                // Spec-13 T3 + spec-15 T2: the «Більше книг на
+                                // Sluhay» exit CTA (spec-28 #192, moved from
+                                // Listen) renders only in debug builds — in
+                                // release the same row would open an in-app
+                                // browser that cannot exist. The 4read door is
+                                // gone (#741): the source is scam.
+                                onOpenWebSource = if (BuildConfig.DEBUG) {
+                                    {
+                                        viewModel.openWebSource(
+                                            sourceId = "sluhay",
+                                            homeUrl = "https://sluhay.com/",
+                                            displayName = "Sluhay"
+                                        )
+                                    }
+                                } else {
+                                    null
+                                }
+                            )
+                            SelectedTab.LIBRARY -> libraryRootContent()
+                            SelectedTab.FRIENDS -> FriendsScreen(
+                                // #916 — the state that EXISTS: the friendship and
+                                // block facts read from the local store. Posts are
+                                // still absent because no shared base holds them
+                                // yet (§5: a post lives with an audience in the
+                                // shared store, not on this device), so the feed
+                                // honestly shows «friends, no posts» or «no
+                                // friends» instead of invented content (§6.4).
+                                feed = FriendsFeedState(
+                                    friendsNow = socialSnapshot.friendsNow,
+                                    posts = emptyList(),
+                                    blocks = socialSnapshot.blocks
+                                ),
+                                viewerPseudonym = listenerProfile?.nickname.orEmpty(),
+                                // A post's `sourceId` points at a Work/review; the
+                                // book page opens by that same id.
+                                onOpenBook = { id -> viewModel.selectBook(id) },
+                                // ADR-0049 — the gear sits in the SAME place on
+                                // every root.
+                                onOpenSettings = {
+                                    settingsReturnTab = SelectedTab.FRIENDS
+                                    viewModel.selectTab(SelectedTab.SETTINGS)
+                                }
+                            )
+                            SelectedTab.SETTINGS -> SettingsScreen(
+                                returnDestination = settingsReturnDestination,
+                                onOpen = { destination ->
+                                    settingsReturnDestination = destination
+                                    when (destination) {
+                                        SettingsDestination.Profile -> viewModel.openProfileSettings()
+                                        SettingsDestination.Storage -> viewModel.openStorageDestination()
+                                        SettingsDestination.NetworkPrivacy -> viewModel.openPrivacySettings()
+                                        SettingsDestination.Recommendations -> viewModel.openRecommendationSettings()
+                                        SettingsDestination.ContentLanguages -> viewModel.openContentLanguages()
+                                        SettingsDestination.SourceAudioRefusal -> viewModel.openSourceAudioRefusal()
+                                        SettingsDestination.AppLocale -> viewModel.openAppLocale()
+                                        SettingsDestination.Achievements -> viewModel.openAchievements()
+                                    }
+                                }
+                            )
+                        }
+                        }
                     }
-                    }
+                }
+
+                // #1205 — from 840 dp the player takes the pane the opened
+                // book's page would hold, and the page that would sit there is
+                // not drawn twice (owner's decision: «правою панеллю замість
+                // сторінки книги»). Below the line there is no pane: the same
+                // content fills the window and the player is the full-screen
+                // surface this file has always drawn over it.
+                if (playerPaneOpen) {
+                    PlayerPane(
+                        playerPaneTitle = stringResource(R.string.pane_player),
+                        content = appContent,
+                        player = playerContent
+                    )
+                } else {
+                    appContent()
                 }
             }
             }
         }
 
-    // Full Screen Player Overlay
+    // Full Screen Player Overlay — the placement for a window WITHOUT room for
+    // the pane (#1205): the very same [playerContent], over the very same
+    // content, with the pane absent.
     fullPlayerTransition.AnimatedVisibility(
         visible = { it },
         enter = slideInVertically(initialOffsetY = { it }),
@@ -1408,16 +1506,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             fullPlayerContentPresent = true
             onDispose { fullPlayerContentPresent = false }
         }
-        PlayerScreen(
-            viewModel = viewModel,
-            // ADR-0008 batch 4 (#159): the module comes in as a parameter from
-            // the composition root.
-            libraryEntries = viewModel.libraryEntries,
-            onDismiss = {
-                if (hiddenAutomaticRecovery) viewModel.closeWebSource()
-                viewModel.setShowFullPlayer(false)
-            }
-        )
+        playerContent()
     }
 
     com.slukhayka.audiobooks.ui.screens.BookFeedbackHost(
@@ -1621,6 +1710,15 @@ fun AppBottomBarSlot(
  * same [SelectedTab] state and the same [onSelect] callback as the bar, so
  * switching surfaces never changes what a destination means.
  *
+ * #1205 — the rail is a COLUMN, not a lone surface: when [miniPlayer] is
+ * given, the bar sits under the rail inside that column, and the column is
+ * widened to [MiniPlayerColumnWidth] to hold it. The point is the one the
+ * owner named — the content rectangle stops paying for the bar's appearance,
+ * so starting or stopping playback no longer pushes the whole screen up and
+ * down; the shift is confined to the navigation column. [miniPlayer] is null
+ * wherever the window has no room for that column: every phone keeps the bar
+ * in the Scaffold's `bottomBar`, byte for byte.
+ *
  * This is a different LAYOUT of the same screens, never a second set of them
  * (issue #900).
  */
@@ -1630,16 +1728,34 @@ fun AdaptiveNavigationLayout(
     selectedTab: SelectedTab,
     bookDetailOpen: Boolean,
     onSelect: (SelectedTab) -> Unit,
+    miniPlayer: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         if (layout == WindowLayout.EXPANDED) {
-            AppNavigationRail(
-                selectedTab = selectedTab,
-                bookDetailOpen = bookDetailOpen,
-                onSelect = onSelect,
-                modifier = Modifier.fillMaxHeight()
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .then(
+                        if (miniPlayer == null) Modifier
+                        else Modifier.width(MiniPlayerColumnWidth)
+                    )
+                    .testTag("navigation_column")
+            ) {
+                AppNavigationRail(
+                    selectedTab = selectedTab,
+                    bookDetailOpen = bookDetailOpen,
+                    onSelect = onSelect,
+                    modifier = Modifier
+                        .weight(1f)
+                        // The widened column is a navigation surface too: the
+                        // rail's own tonal container fills it, with the same
+                        // centred items it draws at 80 dp. A column sized by the
+                        // rail itself (no mini-player) is left to the rail.
+                        .then(if (miniPlayer == null) Modifier else Modifier.fillMaxWidth())
+                )
+                miniPlayer?.invoke()
+            }
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             content()

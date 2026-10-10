@@ -70,6 +70,12 @@ so `scripts/test-changed.sh` sends it to the full suite — that is the safe
 answer, not a broken mapping, and it is why a strings change costs the whole
 matrix locally.
 
+A partition that dies with `OutOfMemoryError` in classes your diff never
+touched has told you about the machine, not the code — one run reported 2707
+tests and 13 such failures with ~400 MB free and 11 GB of swap, then ran the
+same commit clean. Free memory and re-run before you believe it, and before
+you go looking for a regression that is not there.
+
 ## The lint baseline
 
 `app/lint-baseline.xml` is checked in, so `:app:lintDebug` fails on any new

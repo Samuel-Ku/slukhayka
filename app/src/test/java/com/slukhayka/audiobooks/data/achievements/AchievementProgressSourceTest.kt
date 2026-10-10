@@ -39,11 +39,40 @@ class AchievementProgressSourceTest {
         // the facts now, so the full fixture carries its field too. Every fact
         // of the enum floors its own field, and a fixture that forgets one reads
         // as "the fold invented a number" — which is exactly what CI caught
-        // here when the fact was added without this line.
-        val full = AchievementProgress(5, 4, 3, 2, 7, 8, 6, 9, 3_600_000, booksFinishedAfterAbandon = 1)
+        // here when the fact was added without this line. #701's two mechanism
+        // facts join the same rule.
+        val full = AchievementProgress(
+            5, 4, 3, 2, 7, 8, 6, 9, 3_600_000,
+            booksFinishedAfterAbandon = 1,
+            crossResolves = 1,
+            sourceRecoveries = 1
+        )
         val source = LocalAchievementProgressSource(MutableStateFlow(full), MutableStateFlow(AchievementFact.entries.toSet()))
         assertEquals(full, source.observe().first())
         assertEquals(full, source.observe().first())
+    }
+
+    /**
+     * #701 (US44, US45) — the two mechanism awards are FACTS, so the fold is
+     * what carries them: nothing in Room proves that a cross-resolve or a
+     * source recovery ever happened, and a snapshot without the fact must leave
+     * both shut.
+     */
+    @Test fun `the mechanism facts alone open the resolver and the recoverer`() = runTest {
+        val facts = MutableStateFlow(emptySet<AchievementFact>())
+        val source = LocalAchievementProgressSource(MutableStateFlow(AchievementProgress()), facts)
+
+        assertTrue(
+            "без жодного факту механізмів нагород бути не має",
+            earned(source).none { it in setOf("resolver", "recoverer") }
+        )
+        facts.value = setOf(AchievementFact.CROSS_RESOLVED)
+        assertTrue("сам факт крос-резолву відкриває «Резолвера»", "resolver" in earned(source))
+        assertFalse("і не відкриває «Відновлювача»", "recoverer" in earned(source))
+
+        facts.value = setOf(AchievementFact.SOURCE_RECOVERED)
+        assertTrue("сам факт відновлення відкриває «Відновлювача»", "recoverer" in earned(source))
+        assertFalse("і не відкриває «Резолвера»", "resolver" in earned(source))
     }
 
     /**

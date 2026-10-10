@@ -701,6 +701,16 @@
     <string name="achievement_mono_genre_25">Single-genre devotee</string>
     <string name="achievement_deep_search">Deep search</string>
     <string name="achievement_five_in_a_row">Five in a row</string>
+    <!-- #701 (T3 tail): the series, universe, collection and mechanism awards. -->
+    <string name="achievement_in_cycle">In the cycle</string>
+    <string name="achievement_series_man">Series man</string>
+    <string name="achievement_in_order">In order</string>
+    <string name="achievement_one_universe">One universe</string>
+    <string name="achievement_collector">Collector</string>
+    <string name="achievement_all_doors">All doors</string>
+    <string name="achievement_resolver">Resolver</string>
+    <string name="achievement_recoverer">Restorer</string>
+    <string name="achievement_same_voice">Same voice</string>
     <string name="achievement_english_start">English start</string>
     <string name="achievement_night_watch">Night watch</string>
     <string name="achievement_owl_and_lark">Owl and lark</string>

@@ -67,8 +67,14 @@ class AchievementImportProvenanceTest {
         // one AND the «Глибокий пошук» mechanism award (the spec asks for both,
         // and they have different meanings). Assert both are present and that
         // nothing ELSE appeared, which is the contract this test protects.
+        //
+        // #701 (T3 tail) — «Усі двері» joins them for an honest reason: the
+        // registry injected into this fixture holds exactly ONE door ("sluhay")
+        // and the import really came through it, so every door of THAT registry
+        // was used. The production registry has fourteen non-scam doors, which
+        // is why the award is hard on a phone and trivial in this fixture.
         val earnedFromSearch = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }.sorted()
-        assertEquals(listOf("deep_search", "first_search_import"), earnedFromSearch)
+        assertEquals(listOf("all_doors", "deep_search", "first_search_import"), earnedFromSearch)
         adapter.page=detail("Браузер прямо")
         val direct=imports.importBrowserSourceDirectPage("sluhay",adapter.page.url,onNewBookImported={ accepted+=it.id })!!
         assertEquals("UNKNOWN",db.audiobookDao().libraryEntryById(direct.id)!!.origin)

@@ -236,6 +236,78 @@ data class AchievementProgress(
      * inside one dawn are still one morning (owner's decision, #1166).
      */
     val morningDays: Long = 0,
+    /**
+     * #701 — «У циклі» / «Серієман»: series the listener owns AND has finished
+     * entirely — every own book of the series carries a recorded completion.
+     *
+     * The full membership of a series is not in the database (it lives online),
+     * so the owner's reading (#701) is the own-books one. The series IDENTITY is
+     * the cycles shelf's (`PersonalCycles.finished` groups by the normalized
+     * title, ADR-0012), but the COMPLETION here is STRICTER: the recorded
+     * end-of-book event, never `playback_progress.isCompleted` — ADR-0060
+     * accepts only the event, and a hand-set «Прослухано» must not finish a
+     * series. See [PersonalSeries].
+     */
+    val completedSeries: Long = 0,
+    /**
+     * #701 — «По порядку»: series whose own NUMBERED tomes were finished in
+     * numeric order, read from `works.seriesIndex` where it is known.
+     *
+     * The award is about order, not completeness (#701): a tome without a
+     * number proves nothing and is not counted, and an unfinished tome has no
+     * instant to sort by. See [PersonalSeries.inOrder].
+     */
+    val orderedSeries: Long = 0,
+    /**
+     * #701 — «Один всесвіт»: the most own books belonging to ONE curated
+     * universe (`universes/` assets, resolved through `UniverseMatcher`).
+     *
+     * The unit is the Work, and completion is not required: the award is about
+     * three books of one world, not about three finished ones. See
+     * [UniverseBreadth].
+     */
+    val universeBooks: Long = 0,
+    /**
+     * #701 — «Колекціонер»: curated collections (`collections/` assets) whose
+     * EVERY entry is covered by an own book the listener finished. See
+     * [CollectionCompletion].
+     */
+    val passedCollections: Long = 0,
+    /**
+     * #701 — «Усі двері»: 1 when every registered source except the scam ones
+     * was really used, 0 otherwise.
+     *
+     * Derived from the registry at read time, so a new source raises the bar
+     * without a code change (#701's acceptance criterion); an already earned
+     * award is never taken back. See [SourceDoors].
+     */
+    val allDoorsReached: Long = 0,
+    /**
+     * #701 (US44) — «Резолвер»: the listener's Work was really cross-resolved
+     * onto a direct counterpart. A recorded fact, written only where the
+     * mapping returned a match (`MainViewModel.crossResolveDirectSource`), so a
+     * tap that found nothing cannot open the award.
+     */
+    val crossResolves: Long = 0,
+    /**
+     * #701 (US45) — «Відновлювач»: a book was really recovered. ONE fact with
+     * TWO honest doors — the stream self-heal that obtained a fresh URL
+     * (`AudioPlayerManager`) and the browser recovery that ended in
+     * `Outcome.Success` — because both are the same story: a broken source was
+     * rescued (owner's decision, #701).
+     */
+    val sourceRecoveries: Long = 0,
+    /**
+     * #701 (US46) — «Той самий голос»: how many renditions the listener holds
+     * in TWO OR MORE sources.
+     *
+     * No fact is written for this one (owner's decision, #701): the same
+     * narration already IS a row — `editions.id` hashes
+     * `mergeKey|narrator|language`, so two `sources` rows pointing at one
+     * editionId are the same voice from two doors, and the database has said so
+     * since the first import.
+     */
+    val sharedNarrations: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
 )
@@ -265,7 +337,13 @@ enum class AchievementMetric {
     LONGEST_OFFLINE_SESSION_MILLIS, END_OF_CHAPTER_ARMS, MORNING_DAYS,
     // #1174 (друга смуга, US28) — «Не кидаю»: the completed count itself while
     // no «покинуто» mark stands, and 0 the moment one does.
-    COMPLETED_BOOKS_WITHOUT_ABANDON;
+    COMPLETED_BOOKS_WITHOUT_ABANDON,
+    // #701 — the rest of T3, now that the owner's readings (#701, 2026-10-07)
+    // turned each gap into a decision: the series pair and «По порядку», the
+    // curated universe and collection, the dynamic «Усі двері», and the two
+    // mechanism facts plus the narration already recorded in the database.
+    COMPLETED_SERIES, ORDERED_SERIES, UNIVERSE_BOOKS, PASSED_COLLECTIONS, ALL_DOORS,
+    CROSS_RESOLVES, SOURCE_RECOVERIES, SHARED_NARRATIONS;
 
     /**
      * [genreId] is read by [GENRE_BOOKS] alone — the one metric that asks about
@@ -323,6 +401,16 @@ enum class AchievementMetric {
         MORNING_DAYS -> snapshot.morningDays
         COMPLETED_BOOKS_WITHOUT_ABANDON ->
             if (snapshot.abandonedBooks == 0L) snapshot.completedBooks else 0L
+        // #701 — one metric per reading the owner accepted; the snapshot
+        // already carries the arithmetic (see each field's own note).
+        COMPLETED_SERIES -> snapshot.completedSeries
+        ORDERED_SERIES -> snapshot.orderedSeries
+        UNIVERSE_BOOKS -> snapshot.universeBooks
+        PASSED_COLLECTIONS -> snapshot.passedCollections
+        ALL_DOORS -> snapshot.allDoorsReached
+        CROSS_RESOLVES -> snapshot.crossResolves
+        SOURCE_RECOVERIES -> snapshot.sourceRecoveries
+        SHARED_NARRATIONS -> snapshot.sharedNarrations
     }
 }
 
@@ -487,12 +575,37 @@ object AchievementCatalog {
         // registered sources stay undated on purpose, which is why this stays
         // in «Попереду» until a dated source arrives.
         AchievementDefinition("new_wave", "doors", 3, AchievementMetric.NEW_WAVE_BOOKS, 1),
+        // #701 (US40) — «Усі двері»: EVERY registered source except the scam
+        // ones. The required set is the registry's own answer, so adding a
+        // source makes the award harder without a code change; a scam source is
+        // never required, because its audio is not the book and no listener
+        // passes that door honestly (ADR-0038). One metric at threshold 1
+        // because the snapshot already answers the whole question: it is 1 only
+        // while every required door was really used, so an earned award can
+        // never be taken back by a source appearing later.
+        AchievementDefinition("all_doors", "doors", 4, AchievementMetric.ALL_DOORS, 1),
         // #701 (T3) — «Глибокий пошук»: a book found through GLOBAL search. The
         // fact already exists and is written only when the import really came
         // from that path (`MainViewModel` records SEARCH_IMPORTED when
         // `target.fromGlobalSearch`), so this rewards the mechanism rather than
         // any import that happens to follow a search.
         AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1),
+        // #701 (US44) — «Резолвер»: the cross-resolve really found a direct
+        // counterpart for the Work. The fact is written at the one success
+        // point (`MainViewModel.crossResolveDirectSource`, where the mapping
+        // verdict is non-null), so a tap that resolved nothing cannot open it.
+        AchievementDefinition("resolver", "mechanisms", 2, AchievementMetric.CROSS_RESOLVES, 1),
+        // #701 (US45) — «Відновлювач»: ONE award, TWO honest doors. A stream
+        // heal that obtained a fresh URL and a browser recovery that ended in
+        // success are the same story — a broken source was rescued — so they
+        // write ONE fact (`SOURCE_RECOVERED`) and this reads it. Two catalogue
+        // entries would fire two notices for one story.
+        AchievementDefinition("recoverer", "mechanisms", 3, AchievementMetric.SOURCE_RECOVERIES, 1),
+        // #701 (US46) — «Той самий голос»: the same narration in two sources.
+        // Deliberately needs NO recorded fact: `editions.id` hashes
+        // `mergeKey|narrator|language`, so two `sources` rows pointing at one
+        // editionId already prove the same voice came through two doors.
+        AchievementDefinition("same_voice", "mechanisms", 4, AchievementMetric.SHARED_NARRATIONS, 1),
         // #701 — «П'ять поспіль» (spec story 35): five consecutive completions
         // that belong to Works of ONE series. Read LITERALLY as a run in time,
         // never as «томи за порядком номерів» — `works.seriesIndex` exists, but
@@ -501,6 +614,31 @@ object AchievementCatalog {
         // series breaks the run, and a relisten of one book adds no tome; see
         // `SeriesRun`.
         AchievementDefinition("five_in_a_row", "series", 1, AchievementMetric.LONGEST_SERIES_RUN, 5),
+        // #701 (US33, US34) — «У циклі» / «Серієман»: a series the listener owns
+        // and has finished ENTIRELY. The owner's reading (#701) is the own-books
+        // one — the full membership of a series lives online, so "every volume
+        // in the world" is not a promise local data can keep. See
+        // `PersonalSeries.finished`.
+        AchievementDefinition("in_cycle", "series", 2, AchievementMetric.COMPLETED_SERIES, 1),
+        AchievementDefinition("series_man", "series", 3, AchievementMetric.COMPLETED_SERIES, 5),
+        // #701 (US36) — «По порядку»: the own NUMBERED tomes of a series were
+        // finished in numeric order. Re-read by the owner as an award about
+        // ORDER, not about completeness: `works.seriesIndex` is incomplete and a
+        // real full membership would need a persisted online list. A tome
+        // without a number proves nothing and is not counted. See
+        // `PersonalSeries.inOrder`.
+        AchievementDefinition("in_order", "series", 4, AchievementMetric.ORDERED_SERIES, 1),
+        // #701 (US37) — «Один всесвіт»: three books of ONE curated universe
+        // (`universes/`, resolved through `UniverseMatcher`). The unit is the
+        // Work; completion is not required, because the award is about the
+        // connections between the books, not about finishing them.
+        AchievementDefinition("one_universe", "series", 5, AchievementMetric.UNIVERSE_BOOKS, 3),
+        // #701 (US38) — «Колекціонер»: ONE curated collection passed entirely
+        // (`collections/`), by own records. The curated asset carries the whole
+        // composition, so "every entry" is a set the data can actually answer —
+        // and reading it as "the entries I happen to own" would hand out a
+        // collection on a single finished book. See `CollectionCompletion`.
+        AchievementDefinition("collector", "series", 6, AchievementMetric.PASSED_COLLECTIONS, 1),
         // #701 — «Англомовний старт»: a book the listener STARTED whose
         // rendition really claims English. The ticket names the award but sets
         // no threshold, and the spec does not mention it at all, so the

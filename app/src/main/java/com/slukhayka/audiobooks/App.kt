@@ -885,7 +885,14 @@ class App : Application() {
                 // answer — and a mark only the database still carries (a
                 // completion that arrived from another device) cannot close the
                 // award for good.
-                abandonedBookIds = abandonedBooks.observeLiveAbandonedBookIds()), achievementStore,
+                abandonedBookIds = abandonedBooks.observeLiveAbandonedBookIds(),
+                // #701 (US37, US38) — the curated lists are assets, so the
+                // composition reads them here (the module owns no Context) and
+                // hands them over as data. «Усі двері» needs no extra wiring:
+                // the registry ids above already carry the doors, and the
+                // default scam reader is the registry's own answer.
+                curatedCollections = com.slukhayka.audiobooks.data.collections.CollectionAssets.load(this),
+                curatedUniverses = com.slukhayka.audiobooks.data.universe.UniverseAssets.load(this)), achievementStore,
             onFailure = { android.util.Log.w("Achievements", "local evaluation will retry", it) })
     }
     /** Enqueue a real acceptance without tying its persistence to the screen coroutine. */
@@ -1541,6 +1548,13 @@ class App : Application() {
             onEndOfChapterArmed = {
                 achievementRecorder.captureCounter(
                     com.slukhayka.audiobooks.data.achievements.AchievementCounter.END_OF_CHAPTER_ARM)
+            },
+            // #701 (US45) — «Відновлювач», the stream-heal door: the player's
+            // self-heal obtained a fresh URL and re-prepared with it. The
+            // browser-recovery door writes the SAME fact (MainViewModel), so one
+            // award reads both mechanisms.
+            onStreamHealed = {
+                recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.SOURCE_RECOVERED)
             },
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },

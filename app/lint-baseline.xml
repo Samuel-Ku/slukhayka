@@ -8215,6 +8215,105 @@
 
     <issue
         id="MissingTranslation"
+        message="&quot;achievement_in_cycle&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_in_cycle&quot;&gt;У циклі&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="768"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_series_man&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_series_man&quot;&gt;Серієман&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="769"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_in_order&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_in_order&quot;&gt;По порядку&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="770"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_one_universe&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_one_universe&quot;&gt;Один всесвіт&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="771"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_collector&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_collector&quot;&gt;Колекціонер&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="772"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_all_doors&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_all_doors&quot;&gt;Усі двері&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="773"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_resolver&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_resolver&quot;&gt;Резолвер&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="774"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_recoverer&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_recoverer&quot;&gt;Відновлювач&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="775"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;achievement_same_voice&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;achievement_same_voice&quot;&gt;Той самий голос&lt;/string&gt;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="776"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
         message="&quot;achievement_night_watch&quot; is not translated in &quot;pl&quot; (Polish)"
         errorLine1="    &lt;string name=&quot;achievement_night_watch&quot;>Нічний вартовий&lt;/string>"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">

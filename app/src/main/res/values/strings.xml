@@ -764,6 +764,16 @@
     <string name="achievement_mono_genre_25">Однолюб жанру</string>
     <string name="achievement_deep_search">Глибокий пошук</string>
     <string name="achievement_five_in_a_row">П’ять поспіль</string>
+    <!-- #701 (хвіст T3): серійні, всесвітні, колекційні та механізмні нагороди. -->
+    <string name="achievement_in_cycle">У циклі</string>
+    <string name="achievement_series_man">Серієман</string>
+    <string name="achievement_in_order">По порядку</string>
+    <string name="achievement_one_universe">Один всесвіт</string>
+    <string name="achievement_collector">Колекціонер</string>
+    <string name="achievement_all_doors">Усі двері</string>
+    <string name="achievement_resolver">Резолвер</string>
+    <string name="achievement_recoverer">Відновлювач</string>
+    <string name="achievement_same_voice">Той самий голос</string>
     <string name="achievement_english_start">Англомовний старт</string>
     <string name="achievement_night_watch">Нічний вартовий</string>
     <string name="achievement_owl_and_lark">Сова й жайворонок</string>

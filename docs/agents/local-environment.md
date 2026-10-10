@@ -57,6 +57,14 @@ to.
 `-Ptest.selectedClasses=<FQCN,...>` works through it, and `--rerun` is how a
 fresh run is forced after a mutation.
 
+`scripts/test-changed.sh` (and `test-all.sh` under it) calls `./gradlew`
+itself, so it slips past the slot unless the wrapper runs the script — wrap the
+script, not just Gradle:
+
+```sh
+.worktrees/gt scripts/test-changed.sh
+```
+
 A change under `app/src/main/res/` (a string, a colour) maps to no partition,
 so `scripts/test-changed.sh` sends it to the full suite — that is the safe
 answer, not a broken mapping, and it is why a strings change costs the whole

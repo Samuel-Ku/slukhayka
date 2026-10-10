@@ -20,6 +20,10 @@ work, not caution: a lane that ran for hours before its first commit has one
 point of failure, and the step boundaries are also what make a review read the
 change the way it was built.
 
+A rebase rewrites the commit hashes, so a PR body that cited one now cites a
+commit nobody can find. After a rebase, refresh the hash in the PR body — or
+cite the branch's `HEAD` instead of a hash.
+
 ## The build slot
 
 Run Gradle **only** through `.worktrees/gt`:

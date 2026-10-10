@@ -50,6 +50,19 @@ to.
 `-Ptest.selectedClasses=<FQCN,...>` works through it, and `--rerun` is how a
 fresh run is forced after a mutation.
 
+A change under `app/src/main/res/` (a string, a colour) maps to no partition,
+so `scripts/test-changed.sh` sends it to the full suite — that is the safe
+answer, not a broken mapping, and it is why a strings change costs the whole
+matrix locally.
+
+## The lint baseline
+
+`app/lint-baseline.xml` is checked in, so `:app:lintDebug` fails on any new
+issue. Regenerate it with `updateLintBaseline` **from the repository root**:
+run inside a worktree it writes `.worktrees/<lane>/…` into the entries, which
+then match nothing once that worktree is gone. The Android Lint job refuses a
+baseline carrying such a path.
+
 ## Work claims
 
 ```sh

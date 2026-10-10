@@ -5,6 +5,13 @@ file says which ones exist and why they are shaped that way.
 
 ## Worktrees
 
+The main checkout is **not** `main`: it sits on whatever branch another chat
+left there, and `git fetch` updates `origin/main` without touching its working
+tree. Reading a file straight out of it silently answers about that other
+branch — a grep for a catalog once returned 33 entries where `main` had 60.
+Read `main`'s files with `git show origin/main:<path>`, or from a lane's
+worktree, and never commit in the main checkout.
+
 One lane, one worktree, one branch, off `origin/main`:
 
 ```sh

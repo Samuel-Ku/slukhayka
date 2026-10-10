@@ -13,6 +13,7 @@ import java.io.InputStream
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.util.Enumeration
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -151,9 +152,9 @@ class PlaybackProxy(
      * never throws.
      */
     fun wifiBindAddress(): InetAddress? = try {
-        NetworkInterface.getNetworkInterfaces()?.asIterator()?.asSequence()
+        NetworkInterface.getNetworkInterfaces()?.asSequenceCompat()
             ?.filter { it.isUp && !it.isLoopback }
-            ?.flatMap { it.inetAddresses.asIterator().asSequence() }
+            ?.flatMap { it.inetAddresses.asSequenceCompat() }
             ?.firstOrNull { address ->
                 address is Inet4Address &&
                     !address.isLoopbackAddress &&
@@ -338,4 +339,12 @@ class PlaybackProxy(
             override fun getDescription(): String = "502 Bad Gateway"
         }
     }
+}
+
+/**
+ * `Enumeration#asIterator` arrived in API 33, so the proxy carries its own
+ * lazy adapter: the enumeration is walked once, in order, on every API level.
+ */
+private fun <T : Any> Enumeration<T>.asSequenceCompat(): Sequence<T> = sequence {
+    while (hasMoreElements()) yield(nextElement())
 }

@@ -12,8 +12,10 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
+import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.PosterWidth
@@ -110,6 +112,8 @@ class LibraryGridBreakpointTest {
             cards.size,
             rowTops(cards).size
         )
+
+        composeTestRule.onRoot().captureRoboImage(filePath = Frame600Dp)
     }
 
     /**
@@ -152,6 +156,8 @@ class LibraryGridBreakpointTest {
             (cards.size + 1) / 2,
             rowTops(cards).size
         )
+
+        composeTestRule.onRoot().captureRoboImage(filePath = Frame840Dp)
     }
 
     /**
@@ -227,6 +233,12 @@ class LibraryGridBreakpointTest {
 
         /** Sub-pixel slack: Robolectric lays out in pixels, the assertions in dp. */
         const val Tolerance = 0.5f
+
+        /** The band no golden covered before #1206: the defect's own window. */
+        const val Frame600Dp = "src/test/snapshots/library-grid-600dp.png"
+
+        /** The contrast frame: the same pane rule where two tiles DO fit. */
+        const val Frame840Dp = "src/test/snapshots/library-grid-840dp.png"
     }
 }
 

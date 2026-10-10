@@ -244,8 +244,9 @@ dependencies {
   // The java.time/Base64 backport for API 24-25 that
   // `isCoreLibraryDesugaringEnabled` above is inert without. Note it is a
   // desugaring input, not a runtime dependency of the app's own classpath.
-  // desugar_jdk_libs 2.1.5 does NOT cover java.net.URLEncoder (see
-  // NetworkRoute.kt), so that baseline entry stays.
+  // desugar_jdk_libs 2.1.5 does NOT cover java.net.URLEncoder, so
+  // NetworkRoute.kt uses the API-1 `encode(String, String)` overload instead
+  // of the Charset one — there is no baseline entry left to hide behind.
   coreLibraryDesugaring(libs.desugar.jdk.libs)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))

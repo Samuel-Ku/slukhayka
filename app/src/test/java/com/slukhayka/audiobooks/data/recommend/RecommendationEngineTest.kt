@@ -133,4 +133,17 @@ class RecommendationEngineTest {
         )
         assertEquals(5, recommendations.size)
     }
+    @Test
+    fun `cached vector wrapper preserves separate interests reasons and known exclusions`() {
+        val ranked = RecommendationEngine.recommendWithVectors(
+            candidates = listOf("A", "B", "Bridge", "Known").map { candidate(it, it) },
+            signals = listOf(RecommendationEngine.Signal("P1", "First", weight = 1.0), RecommendationEngine.Signal("P2", "Second", weight = 1.0)),
+            vectors = mapOf("P1" to floatArrayOf(1f, 0f), "P2" to floatArrayOf(0f, 1f),
+                "A" to floatArrayOf(1f, 0f), "B" to floatArrayOf(0f, 1f), "Bridge" to floatArrayOf(1f, 1f), "Known" to floatArrayOf(1f, 0f)),
+            excludeIds = setOf("Known"), topN = 3
+        )
+        assertEquals(listOf("A", "B", "Bridge"), ranked.map { it.candidate.id })
+        assertEquals(listOf("First", "Second", "First"), ranked.map { it.reasonTitle })
+    }
+
 }

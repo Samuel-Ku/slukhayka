@@ -33,6 +33,7 @@ fun RecommendationSettingsScreen(viewModel: MainViewModel, onBackClick: () -> Un
     // #483 — opening settings is a listener interaction: it may start the
     // one-time model download. The state is always visible below.
     val modelState by viewModel.embeddingModelState.collectAsState()
+    val backendStatus by viewModel.recommendationBackendStatus.collectAsState()
     LaunchedEffect(Unit) { viewModel.ensureEmbeddingModel() }
     var resetNotice by remember { mutableStateOf<String?>(null) }
     var resetDialogVisible by remember { mutableStateOf(false) }
@@ -55,7 +56,9 @@ fun RecommendationSettingsScreen(viewModel: MainViewModel, onBackClick: () -> Un
             item {
                 ModelStateCard(
                     state = modelState,
-                    onRetry = { viewModel.ensureEmbeddingModel() }
+                    backendStatus = backendStatus,
+                    onRetryDownload = { viewModel.ensureEmbeddingModel() },
+                    onRetryBackend = { viewModel.retryEmbeddingModel() }
                 )
             }
             item {
@@ -159,20 +162,12 @@ fun RecommendationSettingsScreen(viewModel: MainViewModel, onBackClick: () -> Un
 @Composable
 private fun ModelStateCard(
     state: com.slukhayka.audiobooks.data.recommend.EmbeddingModelState,
-    onRetry: () -> Unit
+    backendStatus: com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus,
+    onRetryDownload: () -> Unit,
+    onRetryBackend: () -> Unit
 ) {
-    val mode = com.slukhayka.audiobooks.data.recommend.RecommendationModelPolicy.mode(state)
-    val stateText = when (state) {
-        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed ->
-            stringResource(R.string.recommendations_model_full)
-        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Downloading ->
-            state.progress?.let { stringResource(R.string.recommendations_model_downloading, (it * 100).toInt()) }
-                ?: stringResource(R.string.recommendations_model_downloading_unknown)
-        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Failed ->
-            stringResource(R.string.recommendations_model_failed)
-        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.NotInstalled ->
-            stringResource(R.string.recommendations_model_simplified)
-    }
+    val mode = com.slukhayka.audiobooks.data.recommend.RecommendationModelPolicy.mode(state, backendStatus)
+    val downloading = state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Downloading
     SettingsCard {
         Text(
             text = stringResource(R.string.recommendations_model_title),
@@ -180,19 +175,40 @@ private fun ModelStateCard(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = stateText,
+            text = recommendationRuntimeModeText(mode),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("recommendations_model_status")
+                .semantics { liveRegion = LiveRegionMode.Polite }
         )
-        if (mode == com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.SIMPLIFIED ||
-            mode == com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.FAILED
-        ) {
-            Spacer(Modifier.height(4.dp))
-            TextButton(
-                onClick = onRetry,
-                modifier = Modifier.testTag("recommendations_model_retry")
+        if (downloading) {
+            Text(
+                text = state.progress?.let {
+                    stringResource(R.string.recommendations_model_downloading, (it * 100).toInt())
+                } ?: stringResource(R.string.recommendations_model_downloading_unknown),
+                style = MaterialTheme.typography.bodySmall
+            )
+        } else if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Failed) {
+            Text(
+                text = stringResource(R.string.recommendations_model_failed),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        if (!downloading) {
+            if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Failed ||
+                state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.NotInstalled
             ) {
-                Text(stringResource(R.string.recommendations_model_retry))
+                Spacer(Modifier.height(4.dp))
+                TextButton(
+                    onClick = onRetryDownload,
+                    modifier = Modifier.testTag("recommendations_model_retry")
+                ) { Text(stringResource(R.string.recommendations_model_retry)) }
+            } else if (mode == com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.SIMPLIFIED) {
+                Spacer(Modifier.height(4.dp))
+                TextButton(
+                    onClick = onRetryBackend,
+                    modifier = Modifier.testTag("recommendations_model_runtime_retry")
+                ) { Text(stringResource(R.string.recommendations_model_runtime_retry)) }
             }
         }
     }

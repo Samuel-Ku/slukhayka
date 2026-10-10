@@ -1,0 +1,16 @@
+{
+  "model": "Xenova/multilingual-e5-small",
+  "revision": "761b726dd34fb83930e26aab4e9ac3899aa1fa78",
+  "modelFile": "onnx/model_quantized.onnx",
+  "modelSha256": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193",
+  "tokenizerFile": "tokenizer.json",
+  "tokenizerSha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+  "dimension": 384,
+  "onnxruntime": "1.21.0",
+  "prefix": "passage: ",
+  "pooling": "masked mean followed by L2 normalization",
+  "maxTokens": 512,
+  "provenance": "https://huggingface.co/api/models/Xenova/multilingual-e5-small/revision/761b726dd34fb83930e26aab4e9ac3899aa1fa78?blobs=true",
+  "runtimeJarSha256": "5b57b8c6303303f8d8cbed7f787f31611718b746ab2fa45c888c9df153f1b3c2",
+  "runtimeProvenance": "https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.21.0/onnxruntime-1.21.0.jar.sha256"
+}

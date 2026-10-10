@@ -20,6 +20,17 @@ object VectorCodec {
         return FloatArray(bytes.size / 4) { buffer.getFloat() }
     }
 
+    /** Length framing binds exact text to backend, preprocessing and vector shape. */
+    fun contextHash(text: String, context: EmbeddingContext): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        for (field in listOf(context.identity, context.dimension.toString(), text)) {
+            val bytes = field.toByteArray(Charsets.UTF_8)
+            digest.update(ByteBuffer.allocate(4).putInt(bytes.size).array())
+            digest.update(bytes)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     /** SHA-256 of the exact text that was embedded. */
     fun textHash(text: String): String =
         MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
@@ -28,7 +39,8 @@ object VectorCodec {
 
 /**
  * #482 — the Room-backed per-book embedding cache. A row is reused while the
- * Work's text hash matches; a changed text (e.g. a new description) misses and
+ * Work's backend/context/text hash matches. Legacy text-only rows miss.
+ * A changed backend, processor or text (e.g. a new description) misses and
  * re-embeds only that book, and the cache survives a restart because it is
  * Room, not filesDir. Catalogue-union churn no longer invalidates everything.
  *
@@ -41,7 +53,7 @@ class RoomEmbeddingCache(
 ) {
 
     /** The vectors whose stored text hash still matches the given text. */
-    suspend fun loadFresh(texts: Map<String, String>): Map<String, FloatArray> {
+    suspend fun loadFresh(texts: Map<String, String>, context: EmbeddingContext): Map<String, FloatArray> {
         if (texts.isEmpty()) return emptyMap()
         // The pool can be the whole Room catalogue (10k+); query in chunks so
         // the SQLite variable limit is never hit.
@@ -54,26 +66,27 @@ class RoomEmbeddingCache(
         val result = LinkedHashMap<String, FloatArray>()
         for ((id, text) in texts) {
             val row = rows[id] ?: continue
-            if (row.textHash == VectorCodec.textHash(text)) {
-                result[id] = VectorCodec.decode(row.vector)
-            }
+            if (row.textHash != VectorCodec.contextHash(text, context) ||
+                row.vector.size != context.dimension * 4) continue
+            val vector = runCatching { VectorCodec.decode(row.vector) }.getOrNull() ?: continue
+            if (context.accepts(vector)) result[id] = vector
         }
         return result
     }
 
     /** Persists computed vectors keyed by the text they were built from. */
-    suspend fun save(entries: Map<String, Pair<String, FloatArray>>) {
+    suspend fun save(entries: Map<String, Pair<String, FloatArray>>, context: EmbeddingContext) {
         if (entries.isEmpty()) return
         val now = clock()
-        val rows = entries.map { (id, textAndVector) ->
+        val rows = entries.filterValues { context.accepts(it.second) }.map { (id, textAndVector) ->
             EmbeddingVectorEntity(
                 workId = id,
-                textHash = VectorCodec.textHash(textAndVector.first),
+                textHash = VectorCodec.contextHash(textAndVector.first, context),
                 vector = VectorCodec.encode(textAndVector.second),
                 updatedAt = now
             )
         }
-        runCatching { dao.upsertEmbeddingVectors(rows) }
+        if (rows.isNotEmpty()) runCatching { dao.upsertEmbeddingVectors(rows) }
     }
 
     private companion object {

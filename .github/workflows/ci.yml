@@ -512,7 +512,10 @@ jobs:
   recommendation-eval:
     name: Recommendation eval
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # #487: measured cold inference alone takes ~26 min for 18,223 Works.
+    # Allow compilation and slower hosted CPUs; every fold and the strict
+    # recall/NDCG gate still run. This cap does not turn NO-GO into success.
+    timeout-minutes: 90
     needs: timing-start
 
     steps:
@@ -545,10 +548,33 @@ jobs:
       - name: Download e5 model
         run: ./gradlew :app:downloadE5Model --no-daemon
 
+      - name: Cache verified recommendation vectors
+        uses: actions/cache@v6
+        with:
+          # Public frozen-catalog vectors only. The runner rechecks the model,
+          # runtime, text, dimension, norm and record checksums before reuse.
+          # No restore prefix: another preregistered input never matches.
+          path: .gradle/recommendation-eval-cache
+          key: recommendation-vectors-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docs/recommend/experiments/2026-10-10-personal-interests-v5-main-ec19/real-scale-inputs.properties') }}
+
       - name: Recommendation eval gate (real ONNX model)
-        run: ./gradlew :app:runRecommendationEval --no-daemon
+        run: ./gradlew :app:runRecommendationEval --no-daemon --no-configuration-cache
         env:
           FAIL_ON_NO_GO: "true"
+
+      - name: Upload recommendation evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: recommendation-eval-evidence
+          path: |
+            docs/recommend/experiments/2026-10-10-personal-interests-v5-main-ec19/EVAL-REPORT.md
+            docs/recommend/experiments/2026-10-10-personal-interests-v5-main-ec19/real-scale-inputs.properties
+            docs/recommend/experiments/2026-10-10-personal-interests-v5-main-ec19/real-scale-folds.tsv
+            docs/recommend/experiments/2026-10-10-personal-interests-v5-main-ec19/real-scale-catalog.tsv
+            docs/recommend/experiments/2026-10-10-personal-interests-v5-main-ec19/real-scale-results.sha256
+          retention-days: 14
+          if-no-files-found: warn
 
   # #943 (part 2): the web tree had no CI surface at all. Web parity (v1.15)
   # merged 6+ slices on author discipline alone, and a red `tsc` sat on main

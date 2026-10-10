@@ -1,0 +1,1528 @@
+{
+  "schemaVersion": 1,
+  "correctedAt": "2026-10-04T14:18:23.416751+00:00",
+  "correctionReason": "Independent pre-score review found same-Work recording aliases. The first run produced partial vectors and stopped with exit130 before any fold or metric. Relevance labels remain unchanged and were preregistered before that run. This manifest corrects identity before renewed inference.",
+  "cohortsSha256": "197205d7457c6ebe805e770940693f927f0d13d43278ea3dd704867199147ea0",
+  "feedManifestSha256": "3044f6e44e72ecf7753828091d540b2161251efe76882dd4d870d4c06225c1bc",
+  "scope": "All 24 cohort Works audited across 1160 frozen raw cards whose declared creators contain the cohort surnames; known recordings, translations and abridged editions share identity. Distinct sequels, retellings, poems and anthologies remain separate. This is a conservative frozen-corpus identity assertion, not a universal bibliography.",
+  "representativeRule": "Lexicographically first source identifier among recordings matching the original preregistered English title/titleAliases after generic normalization, excluding the author suffix now repaired. No selection depends on embeddings or scores. The actual source title, creator, subject and description are used for both backends.",
+  "works": [
+    {
+      "title": "Dracula",
+      "author": "Bram Stoker",
+      "authorSurname": "Stoker",
+      "representativeIdentifier": "dracula_1006_librivox",
+      "records": [
+        {
+          "identifier": "dracula_1006_librivox",
+          "title": "Dracula (version 2)",
+          "creator": "Bram Stoker",
+          "descriptionSha256": "32bbf25bd737ebfe1c2dac506666e1334ec8e6ee1e68fab365426d3c9fdb970c",
+          "sourceUrl": "https://archive.org/details/dracula_1006_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/dracula_1006_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "dracula_ks_1608_librivox",
+          "title": "Dracula",
+          "creator": "Bram Stoker",
+          "descriptionSha256": "6cbc549181592adf86cb2a1f488d1d994d8d9556febb36de2f550ea38c96869a",
+          "sourceUrl": "https://archive.org/details/dracula_ks_1608_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/dracula_ks_1608_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "dracula_librivox",
+          "title": "Dracula",
+          "creator": "Bram Stoker",
+          "descriptionSha256": "3ec77dd4ae03c1f299882869aa4693656a4db68ac4af6885b20423928725bf8f",
+          "sourceUrl": "https://archive.org/details/dracula_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/dracula_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "dracula_v4_1903_librivox",
+          "title": "Dracula (version 4)",
+          "creator": "Bram Stoker",
+          "descriptionSha256": "0e28213d815e880e1bd55eaad5399ed74e3b70bea77031b6310dfea2adc2bf51",
+          "sourceUrl": "https://archive.org/details/dracula_v4_1903_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/dracula_v4_1903_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "dracula_version_5_2012_librivox",
+          "title": "Dracula (version 5)",
+          "creator": "Bram Stoker",
+          "descriptionSha256": "315c38f384b74d8d169037ee50d1650b68cfa013fdff62f86fbb9bc463b1177b",
+          "sourceUrl": "https://archive.org/details/dracula_version_5_2012_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/dracula_version_5_2012_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Frankenstein",
+      "author": "Mary Wollstonecraft Shelley",
+      "authorSurname": "Shelley",
+      "representativeIdentifier": "frankenstein1831_tac_librivox",
+      "records": [
+        {
+          "identifier": "frankenstein1831_tac_librivox",
+          "title": "Frankenstein (Edition 1831)",
+          "creator": "Mary Shelley Wollstonecraft",
+          "descriptionSha256": "17c13db5eb6e1d2451745e113d0a4dbd36cf35d39dc0503b5e52be46f0de572a",
+          "sourceUrl": "https://archive.org/details/frankenstein1831_tac_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein1831_tac_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "frankenstein_1107_librivox",
+          "title": "Frankenstein",
+          "creator": "Mary Shelley",
+          "descriptionSha256": "756d1fa17eeff9f19807e37a3065b4bdccbaea473904ec4cec79d1d450734604",
+          "sourceUrl": "https://archive.org/details/frankenstein_1107_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein_1107_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "frankenstein_1210_librivox",
+          "title": "Frankenstein (dramatic reading)",
+          "creator": "Mary Shelley",
+          "descriptionSha256": "c72a64c55c53b8d3d4e86577bd58fa468eab03e1c377a77dd3d24ed87b759e3c",
+          "sourceUrl": "https://archive.org/details/frankenstein_1210_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein_1210_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "frankenstein_4_2010_librivox",
+          "title": "Frankenstein: or, the Modern Prometheus (Version 4)",
+          "creator": "Mary Wollstonecraft Shelley",
+          "descriptionSha256": "fadd3faced72535173f246a1fcd97d028b540cb304718ad435aa6aca66d8259e",
+          "sourceUrl": "https://archive.org/details/frankenstein_4_2010_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein_4_2010_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "frankenstein_cs_librivox",
+          "title": "Frankenstein; or, The Modern Prometheus (1818)",
+          "creator": "Mary Wollstonecraft Shelley",
+          "descriptionSha256": "a30dbe0aa2575ae6ef8f034047318e00944266aa992a790be8ffa655d2d68ee7",
+          "sourceUrl": "https://archive.org/details/frankenstein_cs_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein_cs_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "frankenstein_de_1211_librivox",
+          "title": "Frankenstein oder Der moderne Prometheus",
+          "creator": "Mary Wollstonecraft Shelley",
+          "descriptionSha256": "9c98de6fecedda9c4d9e33da6049d11f48185c18e12c8fe7eeb5cfbc745084e9",
+          "sourceUrl": "https://archive.org/details/frankenstein_de_1211_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein_de_1211_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "frankenstein_el_moderno_prometeo_1611_librivox",
+          "title": "Frankenstein (El Moderno Prometeo)",
+          "creator": "Mary Wollstonecraft Shelley",
+          "descriptionSha256": "0e9fcdfea76156ee7b93c069fbc32f75c593ecf47da44115a845447bdeb7a57e",
+          "sourceUrl": "https://archive.org/details/frankenstein_el_moderno_prometeo_1611_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein_el_moderno_prometeo_1611_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "frankenstein_shelley",
+          "title": "Frankenstein",
+          "creator": "Mary W. Shelley",
+          "descriptionSha256": "c4044695bc492a7dec49c5ae72beb0dfbc3b961592a467a8c60e41187358adc5",
+          "sourceUrl": "https://archive.org/details/frankenstein_shelley",
+          "evidenceUrls": [
+            "https://archive.org/details/frankenstein_shelley"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "frankensteinver5_2607_librivox",
+          "title": "Frankenstein; or, The Modern Prometheus, Version 5",
+          "creator": "Mary Wollstonecraft Shelley",
+          "descriptionSha256": "a4317b7e16b9be73d1c0aad7284739df3056e8da4cac441c05cba4eebe096aff",
+          "sourceUrl": "https://archive.org/details/frankensteinver5_2607_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/frankensteinver5_2607_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Carmilla",
+      "author": "Joseph Sheridan Le Fanu",
+      "authorSurname": "Fanu",
+      "representativeIdentifier": "carmilla_1903_librivox",
+      "records": [
+        {
+          "identifier": "carmilla_1903_librivox",
+          "title": "Carmilla",
+          "creator": "Joseph Sheridan Le Fanu",
+          "descriptionSha256": "2b87f57c5bcd096f0fa19578b8405bbc9120f4bde81cdc3c5eed57eb3b67c0ad",
+          "sourceUrl": "https://archive.org/details/carmilla_1903_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/carmilla_1903_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "carmilla_2011_librivox",
+          "title": "Carmilla (Version 3)",
+          "creator": "Joseph Sheridan Le Fanu",
+          "descriptionSha256": "e5ac9dd216ac5f831fef87ad85128c02248c495a6a8a0e14af861aa327513df7",
+          "sourceUrl": "https://archive.org/details/carmilla_2011_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/carmilla_2011_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "carmilla_s_lefanu_librivox",
+          "title": "Carmilla",
+          "creator": "LeFanu, Joseph Sheridan",
+          "descriptionSha256": "1b0260966d36ff92f5845acd0ed5ff017fc8d858f94449df698d67e7cdad3d80",
+          "sourceUrl": "https://archive.org/details/carmilla_s_lefanu_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/carmilla_s_lefanu_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "The Picture of Dorian Gray",
+      "author": "Oscar Wilde",
+      "authorSurname": "Wilde",
+      "representativeIdentifier": "dorian_gray_librivox",
+      "records": [
+        {
+          "identifier": "dorian_gray_librivox",
+          "title": "The Picture of Dorian Gray",
+          "creator": "Oscar Wilde",
+          "descriptionSha256": "fa41ad0dc4d6206444311d916122dbdf2e098c5967702f50dcd62df8e227018f",
+          "sourceUrl": "https://archive.org/details/dorian_gray_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/dorian_gray_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "bildnis_dorian_gray_ak_librivox",
+          "title": "Das Bildnis des Dorian Gray",
+          "creator": "Oscar Wilde",
+          "descriptionSha256": "b0a06fa18b3292b9976858fc8fe5ab775176d54a7ce58f5b779d33202c002cac",
+          "sourceUrl": "https://archive.org/details/bildnis_dorian_gray_ak_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/bildnis_dorian_gray_ak_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "picture_dorian_gray_1204_librivox",
+          "title": "The Picture of Dorian Gray (1891 Version)",
+          "creator": "Oscar Wilde",
+          "descriptionSha256": "1b124914cb87bce59d5c6e10bfb24a0060bf0e749a51c90813dd6e853f3789ac",
+          "sourceUrl": "https://archive.org/details/picture_dorian_gray_1204_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/picture_dorian_gray_1204_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "picture_doriangray_1012_librivox",
+          "title": "The Picture of Dorian Gray",
+          "creator": "Oscar Wilde",
+          "descriptionSha256": "73ab051f27ad9cd5c3f7d919d2e09f823da4f8edf66c06a3fe4a00605dd29f4e",
+          "sourceUrl": "https://archive.org/details/picture_doriangray_1012_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/picture_doriangray_1012_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "picture_of_dorian_gray_2107_librivox",
+          "title": "The Picture of Dorian Gray (Version 3)",
+          "creator": "Oscar Wilde",
+          "descriptionSha256": "728859f7e56150a46c1ae6f4b6a90ea3261d969d04d8bbc5e3ac0fbf2842143f",
+          "sourceUrl": "https://archive.org/details/picture_of_dorian_gray_2107_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/picture_of_dorian_gray_2107_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "portrait_de_dorian_gray_1811_librivox",
+          "title": "Le Portrait de Dorian Gray",
+          "creator": "Oscar Wilde",
+          "descriptionSha256": "3f32683b6b20f8b603bd1e77e50a172721e4a5683975b8a50f68b84a5ea91e03",
+          "sourceUrl": "https://archive.org/details/portrait_de_dorian_gray_1811_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/portrait_de_dorian_gray_1811_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        }
+      ]
+    },
+    {
+      "title": "The Strange Case of Dr. Jekyll and Mr. Hyde",
+      "author": "Robert Louis Stevenson",
+      "authorSurname": "Stevenson",
+      "representativeIdentifier": "drjeckyll_and_mr_hyde_1901_librivox",
+      "records": [
+        {
+          "identifier": "drjeckyll_and_mr_hyde_1901_librivox",
+          "title": "The Strange Case of Dr. Jekyll and Mr. Hyde (version 5)",
+          "creator": "Robert Louis Stevenson",
+          "descriptionSha256": "a0c8a4125dbfe4d330e2c7b6053571a555ce312f8e65a3a9fef63f457beb866c",
+          "sourceUrl": "https://archive.org/details/drjeckyll_and_mr_hyde_1901_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/drjeckyll_and_mr_hyde_1901_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "drjekyll_und_mrhyde_1407_librivox",
+          "title": "Wunderbares Ereignis des Dr. Jekyll und Mr. Hyde",
+          "creator": "Robert Louis Stevenson",
+          "descriptionSha256": "368dfc52723c4d77a355d62f02d5d77bca79c9fa2cf7cf165723791956d78796",
+          "sourceUrl": "https://archive.org/details/drjekyll_und_mrhyde_1407_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/drjekyll_und_mrhyde_1407_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "drjekyllandmrhydedr_1505_librivox",
+          "title": "The Strange Case of Jekyll and Hyde (Version 4 - Dramatic Reading)",
+          "creator": "Robert Louis Stevenson",
+          "descriptionSha256": "e875865b81c3461048236f34c185f5157b53c05b4d8000b158cbf0351882e8ed",
+          "sourceUrl": "https://archive.org/details/drjekyllandmrhydedr_1505_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/drjekyllandmrhydedr_1505_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "extranocaso_doctorjekyll_senorhyde_1803_librivox",
+          "title": "El extraño caso del doctor Jekyll y el señor Hyde",
+          "creator": "Robert Louis Stevenson",
+          "descriptionSha256": "988403c5b8cb3feb44c0d00876b55b59cfd7237fba8d8efbbfef8f3e1985e7e4",
+          "sourceUrl": "https://archive.org/details/extranocaso_doctorjekyll_senorhyde_1803_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/extranocaso_doctorjekyll_senorhyde_1803_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "jekyll_and_hyde_klh_0904_librivox",
+          "title": "The Strange Case of Dr. Jekyll and Mr. Hyde",
+          "creator": "Robert Louis Stevenson",
+          "descriptionSha256": "fceef16ea9fbdfd21829270069c9d061a5b5e79ec633e651b7173dbabd3d98b8",
+          "sourceUrl": "https://archive.org/details/jekyll_and_hyde_klh_0904_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/jekyll_and_hyde_klh_0904_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "jekyll_and_hyde_librivox",
+          "title": "The Strange Case of Dr Jekyll & Mr Hyde",
+          "creator": "Robert Louis Stevenson",
+          "descriptionSha256": "706556a793d5feda6bafcbe33b4f1e88cbfcd01630177b312ede8069c6724873",
+          "sourceUrl": "https://archive.org/details/jekyll_and_hyde_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/jekyll_and_hyde_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "jekyll_hyde_1111_librivox",
+          "title": "The Strange Case of Dr. Jekyll And Mr. Hyde",
+          "creator": "Robert Louis Stevenson",
+          "descriptionSha256": "154257cf767dd8207aed7541ad9470051fd3d6cb6afc15f51b8560b9ac3a0245",
+          "sourceUrl": "https://archive.org/details/jekyll_hyde_1111_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/jekyll_hyde_1111_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "The Time Machine",
+      "author": "Herbert George Wells",
+      "authorSurname": "Wells",
+      "representativeIdentifier": "thetimemachine_2004_librivox",
+      "records": [
+        {
+          "identifier": "thetimemachine_2004_librivox",
+          "title": "The Time Machine (version 5)",
+          "creator": "H. G. Wells",
+          "descriptionSha256": "b1e0414f9e9c3ea9e23c0a4e6a42d31f3dd26a7ff9f4ace170a6a32373e73a5b",
+          "sourceUrl": "https://archive.org/details/thetimemachine_2004_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/thetimemachine_2004_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "la_maquina_exploradora_del_tiempo_2210_librivox",
+          "title": "La maquina exploradora del tiempo",
+          "creator": "H. G. Wells",
+          "descriptionSha256": "c485d4eb1ce8dac2c254163d6006fd55319059d0efbbea551fa08c088e355f93",
+          "sourceUrl": "https://archive.org/details/la_maquina_exploradora_del_tiempo_2210_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/la_maquina_exploradora_del_tiempo_2210_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "thetimemachineversion_7_2105_librivox",
+          "title": "The Time Machine (Version 7)",
+          "creator": "H. G. Wells",
+          "descriptionSha256": "344344c3439964d2d6febf5f09079c88f813fd6379da806d3b212c3e751df44e",
+          "sourceUrl": "https://archive.org/details/thetimemachineversion_7_2105_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/thetimemachineversion_7_2105_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "time_machine_0805_librivox",
+          "title": "The Time Machine",
+          "creator": "H.G. Wells",
+          "descriptionSha256": "eea6dfc189edb079d20c675a08358c39253b43e4b53caec9263ce1cf30e5942b",
+          "sourceUrl": "https://archive.org/details/time_machine_0805_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/time_machine_0805_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "time_machine_1201_librivox",
+          "title": "The Time Machine (version 4)",
+          "creator": "H. G. Wells",
+          "descriptionSha256": "03237cd1ff9a89abb85f8e798e7c3d667c6df670a0439a07fc2e610d1a08d224",
+          "sourceUrl": "https://archive.org/details/time_machine_1201_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/time_machine_1201_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "time_machine_ms_librivox",
+          "title": "The Time Machine (version 2)",
+          "creator": "H. G. Wells",
+          "descriptionSha256": "d1b504dcb0bf50f47c4d718276bd92cb99fd3aac61bb9403e3fec243de796706",
+          "sourceUrl": "https://archive.org/details/time_machine_ms_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/time_machine_ms_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "time_machine_v6_2008_librivox",
+          "title": "The Time Machine (Version 6)",
+          "creator": "H. G. Wells",
+          "descriptionSha256": "bf168b89bfd936cae94c5052d388c5bc7595de98283b5e9420c5badcc6b6303d",
+          "sourceUrl": "https://archive.org/details/time_machine_v6_2008_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/time_machine_v6_2008_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "timemachine_sjm_librivox",
+          "title": "The Time Machine (version 3)",
+          "creator": "H. G. Wells",
+          "descriptionSha256": "9599c6309ff53344cfe3657d15d540955fea4afe278d78d445649a5693e3c3da",
+          "sourceUrl": "https://archive.org/details/timemachine_sjm_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/timemachine_sjm_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "The Coming Race",
+      "author": "Edward George Bulwer-Lytton",
+      "authorSurname": "Lytton",
+      "representativeIdentifier": "coming_race_0806_librivox",
+      "records": [
+        {
+          "identifier": "coming_race_0806_librivox",
+          "title": "The Coming Race",
+          "creator": "Edward George Bulwer-Lytton",
+          "descriptionSha256": "021c7012343edde381d11b70584521849a7c46f84f1abb88b9196f97f131adae",
+          "sourceUrl": "https://archive.org/details/coming_race_0806_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/coming_race_0806_librivox",
+            "https://projekt-gutenberg.org/authors/edward-bulwer-lytton/books/das-geschlecht-der-zukunft-2/"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "das_geschlecht_der_zukunft_2110_librivox",
+          "title": "Das Geschlecht der Zukunft",
+          "creator": "Edward Bulwer-Lytton",
+          "descriptionSha256": "c964e51a18603ee3c07d9af253e02c389da339deb8f3071dc0969f5539ae6024",
+          "sourceUrl": "https://archive.org/details/das_geschlecht_der_zukunft_2110_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/das_geschlecht_der_zukunft_2110_librivox",
+            "https://projekt-gutenberg.org/authors/edward-bulwer-lytton/books/das-geschlecht-der-zukunft-2/"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        }
+      ]
+    },
+    {
+      "title": "Looking Backward",
+      "author": "Edward Bellamy",
+      "authorSurname": "Bellamy",
+      "representativeIdentifier": "lookingbackward_0909_librivox",
+      "records": [
+        {
+          "identifier": "lookingbackward_0909_librivox",
+          "title": "Looking Backward: 2000-1887",
+          "creator": "Edward Bellamy",
+          "descriptionSha256": "ab1ccdf79c0fd24ad8fed4593054b12742fb4fe98612910fd2a957d005cdab7e",
+          "sourceUrl": "https://archive.org/details/lookingbackward_0909_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/lookingbackward_0909_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Erewhon",
+      "author": "Samuel Butler",
+      "authorSurname": "Butler",
+      "representativeIdentifier": "erewhon_0902_librivox",
+      "records": [
+        {
+          "identifier": "erewhon_0902_librivox",
+          "title": "Erewhon",
+          "creator": "Samuel Butler",
+          "descriptionSha256": "25259dbe9cc5e2009eb3925ce8310792743228827c9c0e71801553d0dd699647",
+          "sourceUrl": "https://archive.org/details/erewhon_0902_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/erewhon_0902_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "News from Nowhere",
+      "author": "William Morris",
+      "authorSurname": "Morris",
+      "representativeIdentifier": "newsfromnowhere_etk_librivox",
+      "records": [
+        {
+          "identifier": "newsfromnowhere_etk_librivox",
+          "title": "News From Nowhere",
+          "creator": "William Morris",
+          "descriptionSha256": "abe0028e7c4186c27e22e6d36f8dd7b33dd20805e7a7e9ad3390805f8973522d",
+          "sourceUrl": "https://archive.org/details/newsfromnowhere_etk_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/newsfromnowhere_etk_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Moby Dick",
+      "author": "Herman Melville",
+      "authorSurname": "Melville",
+      "representativeIdentifier": "moby_dick_librivox",
+      "records": [
+        {
+          "identifier": "moby_dick_librivox",
+          "title": "Moby Dick, or the Whale",
+          "creator": "Herman Melville",
+          "descriptionSha256": "4c0a4bc33e7649fc84b6c0086c200edf0e84a2412a02e20672ef7b184f1dc136",
+          "sourceUrl": "https://archive.org/details/moby_dick_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/moby_dick_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "mobydick2_2511_librivox",
+          "title": "Moby Dick; or, The Whale version 2",
+          "creator": "Herman Melville",
+          "descriptionSha256": "1c0f577d64a713ae0be18599adc15fc31e8311dcc9221ccab3a164a3b0fcc630",
+          "sourceUrl": "https://archive.org/details/mobydick2_2511_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/mobydick2_2511_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Two Years Before the Mast",
+      "author": "Richard Henry Dana Jr",
+      "authorSurname": "Dana",
+      "representativeIdentifier": "twoyearsmast_1306_librivox",
+      "records": [
+        {
+          "identifier": "twoyearsmast_1306_librivox",
+          "title": "Two Years Before the Mast",
+          "creator": "Richard Henry Dana, Jr.",
+          "descriptionSha256": "cf87a4121877c6117d8447b418af21448712e5c06f8f6a02783d3eb47e6716a9",
+          "sourceUrl": "https://archive.org/details/twoyearsmast_1306_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/twoyearsmast_1306_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "The Sea-Wolf",
+      "author": "Jack London",
+      "authorSurname": "London",
+      "representativeIdentifier": "sea_wolf_0907_librivox",
+      "records": [
+        {
+          "identifier": "sea_wolf_0907_librivox",
+          "title": "The Sea Wolf",
+          "creator": "Jack London",
+          "descriptionSha256": "94f5c8448c415a92cd926941e2cf281721e19c5fc9c0c9931827b479122133dd",
+          "sourceUrl": "https://archive.org/details/sea_wolf_0907_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/sea_wolf_0907_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "sea_wolf_2_nb_1603_librivox",
+          "title": "The Sea Wolf - Version 2",
+          "creator": "Jack London",
+          "descriptionSha256": "08a74a0ea80f6d0593b1bad6fa4e8bf509337b333e2ac44d8e3c6fd9e217f403",
+          "sourceUrl": "https://archive.org/details/sea_wolf_2_nb_1603_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/sea_wolf_2_nb_1603_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Captains Courageous",
+      "author": "Rudyard Kipling",
+      "authorSurname": "Kipling",
+      "representativeIdentifier": "captains_courageous_mfs_librivox",
+      "records": [
+        {
+          "identifier": "captains_courageous_mfs_librivox",
+          "title": "Captains Courageous",
+          "creator": "Rudyard Kipling",
+          "descriptionSha256": "255647f3c8cd86391c91c5d2690e394e1e1aeae46f436e2e7455d672271240e9",
+          "sourceUrl": "https://archive.org/details/captains_courageous_mfs_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/captains_courageous_mfs_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "The Narrative of Arthur Gordon Pym of Nantucket",
+      "author": "Edgar Allan Poe",
+      "authorSurname": "Poe",
+      "representativeIdentifier": "narrative_gordon_pym_librivox",
+      "records": [
+        {
+          "identifier": "narrative_gordon_pym_librivox",
+          "title": "Narrative of Arthur Gordon Pym",
+          "creator": "Poe, Edgar Allan",
+          "descriptionSha256": "9c5f7b007e64f396e3b614f103279cb5f2207b1656c7e8e0ce169538c0c1d874",
+          "sourceUrl": "https://archive.org/details/narrative_gordon_pym_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/narrative_gordon_pym_librivox",
+            "https://es.wikisource.org/wiki/Aventuras_de_Arturo_Gordon_Pym"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "aventurasde_arturogordonpym_1812_librivox",
+          "title": "Aventuras de Arturo Gordon Pym",
+          "creator": "Edgar Allan Poe",
+          "descriptionSha256": "779e69955f50bff97d6c268d1195e7ba18856c74934d95cd5b1b159659db23fc",
+          "sourceUrl": "https://archive.org/details/aventurasde_arturogordonpym_1812_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/aventurasde_arturogordonpym_1812_librivox",
+            "https://es.wikisource.org/wiki/Aventuras_de_Arturo_Gordon_Pym"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        }
+      ]
+    },
+    {
+      "title": "The Moonstone",
+      "author": "Wilkie Collins",
+      "authorSurname": "Collins",
+      "representativeIdentifier": "moonstone_0802_librivox",
+      "records": [
+        {
+          "identifier": "moonstone_0802_librivox",
+          "title": "The Moonstone",
+          "creator": "Wilkie Collins",
+          "descriptionSha256": "4f60d8058e725fccccbc9c64c61d5a8e54694445c5479100fac9c093a3b239c9",
+          "sourceUrl": "https://archive.org/details/moonstone_0802_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/moonstone_0802_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "der_mondstein_2309_librivox",
+          "title": "Der Mondstein",
+          "creator": "Wilkie Collins",
+          "descriptionSha256": "1366d090deff5a13cafaf51ad9542200f1cf37a076c71d2c4b64292900c826d8",
+          "sourceUrl": "https://archive.org/details/der_mondstein_2309_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/der_mondstein_2309_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "moonstone_1610_librivox",
+          "title": "The Moonstone (version 2)",
+          "creator": "Wilkie Collins",
+          "descriptionSha256": "8514e176e0da3bb128ef054cdc6f5761b8858945df94d8668e3fee7e2c16b443",
+          "sourceUrl": "https://archive.org/details/moonstone_1610_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/moonstone_1610_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "The Hound of the Baskervilles",
+      "author": "Arthur Conan Doyle",
+      "authorSurname": "Doyle",
+      "representativeIdentifier": "hound_baskervilles_1206_librivox",
+      "records": [
+        {
+          "identifier": "hound_baskervilles_1206_librivox",
+          "title": "The Hound of the Baskervilles (dramatic reading)",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "47e5b87ec36afba3c4e7fe979bc34be8872812ffab7dddf14856716a8b642ec2",
+          "sourceUrl": "https://archive.org/details/hound_baskervilles_1206_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/hound_baskervilles_1206_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "derhundvonbaskervilleversion2_2602_librivox",
+          "title": "Der Hund von Baskerville",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "a20569e09308504e775600e0ec01ee77f590390b7b9cd197b26dbbb0f4aa7146",
+          "sourceUrl": "https://archive.org/details/derhundvonbaskervilleversion2_2602_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/derhundvonbaskervilleversion2_2602_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "hound_baskervilles_1304_librivox",
+          "title": "The Hound of the Baskervilles",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "7a7374671d11b182d13177fb0f90a1dc30d7cc7eced83d003f95f11e21300077",
+          "sourceUrl": "https://archive.org/details/hound_baskervilles_1304_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/hound_baskervilles_1304_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "hound_baskervilles_2212_librivox",
+          "title": "The Hound of the Baskervilles (Version 6)",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "eb6743f0838ae4d2153825a014c8d4f2ac9a50eec525036fa171fae85cece2c7",
+          "sourceUrl": "https://archive.org/details/hound_baskervilles_2212_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/hound_baskervilles_2212_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "hound_baskervilles_bn_librivox",
+          "title": "The Hound of the Baskervilles",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "26da77e2c4c573b9cbd6ab689c609611dd6c28b402c3d2b0ac6291ef8140f49c",
+          "sourceUrl": "https://archive.org/details/hound_baskervilles_bn_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/hound_baskervilles_bn_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "hound_baskervilles_librivox",
+          "title": "The Hound of the Baskervilles",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "65219e29e0591a7118f0ee555f9af32b0d2650a81455241e891915e2d7a3fda9",
+          "sourceUrl": "https://archive.org/details/hound_baskervilles_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/hound_baskervilles_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "houndofthebaskervilles_1503_librivox",
+          "title": "The Hound of The Baskervilles (Version 4)",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "8814e40b87047bae14314684a0ea185df59b9190c5b7efe2c2a64eb5c48464b2",
+          "sourceUrl": "https://archive.org/details/houndofthebaskervilles_1503_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/houndofthebaskervilles_1503_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "hund_von_baskerville_1709_librivox",
+          "title": "Der Hund von Baskerville",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "f3564dc32e880f3941dbab6d1bcba2e709deca65c1e1925d2302e5a303331528",
+          "sourceUrl": "https://archive.org/details/hund_von_baskerville_1709_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/hund_von_baskerville_1709_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "sabuesodelosbaskerville_1512_librivox",
+          "title": "El Sabueso de los Baskerville",
+          "creator": "Sir Arthur Conan Doyle",
+          "descriptionSha256": "0ecd15c8fb0798d320712153cc8cb65fc5e29f8047fc2e273d88d4acc51d8265",
+          "sourceUrl": "https://archive.org/details/sabuesodelosbaskerville_1512_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/sabuesodelosbaskerville_1512_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "tajemnica_baskervile_1302_librivox",
+          "title": "Tajemnica Baskerville'ów",
+          "creator": "Arthur Conan Doyle",
+          "descriptionSha256": "6df2ea4e8e57de56d2c69998d0fa7c2b45393bca1a665617c348f181f8728c9a",
+          "sourceUrl": "https://archive.org/details/tajemnica_baskervile_1302_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/tajemnica_baskervile_1302_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        }
+      ]
+    },
+    {
+      "title": "The Mystery of the Yellow Room",
+      "author": "Gaston Leroux",
+      "authorSurname": "Leroux",
+      "representativeIdentifier": "mystery_yellow_room_0901_librivox",
+      "records": [
+        {
+          "identifier": "mystery_yellow_room_0901_librivox",
+          "title": "The Mystery of the Yellow Room",
+          "creator": "Gaston Leroux",
+          "descriptionSha256": "93f02a6dd4f16e59a4227ae53f5fd6741779ebbdb0d1e02918ff42d3ecc3ac2d",
+          "sourceUrl": "https://archive.org/details/mystery_yellow_room_0901_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/mystery_yellow_room_0901_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "mystere_chambre_jaune_1006_librivox",
+          "title": "Le Mystère de la chambre jaune",
+          "creator": "Gaston Leroux",
+          "descriptionSha256": "2edab147a72216ff80eafd8291534c976f6244a09978b201b3c5837c6667b760",
+          "sourceUrl": "https://archive.org/details/mystere_chambre_jaune_1006_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/mystere_chambre_jaune_1006_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        }
+      ]
+    },
+    {
+      "title": "The Leavenworth Case",
+      "author": "Anna Katharine Green",
+      "authorSurname": "Green",
+      "representativeIdentifier": "leavenworth_case_librivox",
+      "records": [
+        {
+          "identifier": "leavenworth_case_librivox",
+          "title": "The Leavenworth Case",
+          "creator": "Anna Katharine Green",
+          "descriptionSha256": "a855da75daf95e79223bb7b34198c111763686952669a291f931c43155e938fa",
+          "sourceUrl": "https://archive.org/details/leavenworth_case_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/leavenworth_case_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "el_caso_leavenworth_2209_librivox",
+          "title": "El caso Leavenworth",
+          "creator": "Anna Katharine Green",
+          "descriptionSha256": "d13049e7b05400aaaa567ad5afca3eb651c16e9abf8522b613e1addb5a402618",
+          "sourceUrl": "https://archive.org/details/el_caso_leavenworth_2209_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/el_caso_leavenworth_2209_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "theleavenworthcaseversion2_1604_librivox",
+          "title": "The Leavenworth Case (Version 2)",
+          "creator": "Anna Katharine Green",
+          "descriptionSha256": "eccb62e9a0790f6783b2a3ee12289d65366e861fbc47453f01276214ff8bc204",
+          "sourceUrl": "https://archive.org/details/theleavenworthcaseversion2_1604_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/theleavenworthcaseversion2_1604_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Alice’s Adventures in Wonderland",
+      "author": "Lewis Carroll",
+      "authorSurname": "Carroll",
+      "representativeIdentifier": "alice_adventures_v_1208_librivox",
+      "records": [
+        {
+          "identifier": "alice_adventures_v_1208_librivox",
+          "title": "Alice's Adventures in Wonderland",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "e3542de4c65f0c4295abc5f99bb59c81382691bf9c1b8276bb2e421500377792",
+          "sourceUrl": "https://archive.org/details/alice_adventures_v_1208_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alice_adventures_v_1208_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alice_au_pays_des_merveilles_1811_librivox",
+          "title": "Aventures d'Alice au Pays des Merveilles",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "5c20c4a20ff7b69379212db866c7c6dcec2b75fa25ad3bbb5b36388194289022",
+          "sourceUrl": "https://archive.org/details/alice_au_pays_des_merveilles_1811_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alice_au_pays_des_merveilles_1811_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "alice_in_wonderland_librivox",
+          "title": "Alice's Adventures in Wonderland, by Lewis Carroll",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "72fd4be5cc1e08d36dd43b609dc0ace797e87fc3145b651f8ed1a013fc305c82",
+          "sourceUrl": "https://archive.org/details/alice_in_wonderland_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alice_in_wonderland_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alice_wonderland_0711_librivox",
+          "title": "Alice's Adventures in Wonderland",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "2ce252ee1847cf355e5a75d3cb6fc092133346318053bbde02587da18f3505ef",
+          "sourceUrl": "https://archive.org/details/alice_wonderland_0711_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alice_wonderland_0711_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "aliceinwonderland_1102_librivox",
+          "title": "Alice's Adventures in Wonderland (dramatic reading)",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "39be5fc55673c7abc3f2c029c9d1f6f1dc9125d2357cc406efd188646a6e3ebd",
+          "sourceUrl": "https://archive.org/details/aliceinwonderland_1102_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/aliceinwonderland_1102_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "aliceinwonderland_2106_librivox",
+          "title": "Alice's Adventures in Wonderland (Version 8)",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "a1e08b58d7b936ac5f8ad68a91d4f596c4c560492c6bc8b61c489f9f4610e64c",
+          "sourceUrl": "https://archive.org/details/aliceinwonderland_2106_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/aliceinwonderland_2106_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alices_abenteuer_0911",
+          "title": "Alice's Abenteuer im Wunderland",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "90ba4c94277be1c2b38e4ca29cc93e257a669d21afdaa04e748d5e5b964b1d21",
+          "sourceUrl": "https://archive.org/details/alices_abenteuer_0911",
+          "evidenceUrls": [
+            "https://archive.org/details/alices_abenteuer_0911"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "alices_adventures",
+          "title": "Alice's Adventures in Wonderland",
+          "creator": "Carroll, Lewis",
+          "descriptionSha256": "7dd36abe58c4cd98abd77c3d62221a82d01aeff6ba76ec8ec77768aa390b20ba",
+          "sourceUrl": "https://archive.org/details/alices_adventures",
+          "evidenceUrls": [
+            "https://archive.org/details/alices_adventures"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alices_adventures_1003",
+          "title": "Alice's Adventures in Wonderland",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "7c93f05ba570adbdf896e63e8a9c9cd8e5abdc95a68797b374820a8b000fb48d",
+          "sourceUrl": "https://archive.org/details/alices_adventures_1003",
+          "evidenceUrls": [
+            "https://archive.org/details/alices_adventures_1003"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alices_adventures_1005_librivox",
+          "title": "Alice's Adventures in Wonderland",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "efae113fd5232d30f80a2a9f248d6dd254ab42d0f12e6930d5802aca2460b051",
+          "sourceUrl": "https://archive.org/details/alices_adventures_1005_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alices_adventures_1005_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alicesadventure_abridged_pc_librivox",
+          "title": "Alice's Adventure in Wonderland - Abridged",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "6535be7ce2678e1f5880dceea1df8225b270535444294723a938dd61ff019984",
+          "sourceUrl": "https://archive.org/details/alicesadventure_abridged_pc_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alicesadventure_abridged_pc_librivox"
+          ],
+          "reason": "Explicit abridged edition/translation of Alice’s Adventures in Wonderland, identified by frozen recording description; the source text is the same Work, unlike Nursery Alice or Underground."
+        },
+        {
+          "identifier": "alicesadventuresinwonderland_1902_librivox",
+          "title": "Alice's Adventures in Wonderland (version 6)",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "3fcf6c2bf688ee75cc34b1d11056cc69939536807620326c3afa40f6c61f6d26",
+          "sourceUrl": "https://archive.org/details/alicesadventuresinwonderland_1902_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alicesadventuresinwonderland_1902_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alicesadventuresinwonderland_2005_librivox",
+          "title": "Alice's Adventures in Wonderland (Version 7)",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "f74593927bfff7837c318305dfdbe0bbec68f5012f0132be58bd8fd8bf1b5b67",
+          "sourceUrl": "https://archive.org/details/alicesadventuresinwonderland_2005_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alicesadventuresinwonderland_2005_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "alicia_1708_librivox",
+          "title": "Alicia en el País de las Maravillas (abreviado)",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "cf54193f40c7634b1189bafb214e4cad0d88537e851d44fba5cad87e36927634",
+          "sourceUrl": "https://archive.org/details/alicia_1708_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/alicia_1708_librivox"
+          ],
+          "reason": "Explicit abridged edition/translation of Alice’s Adventures in Wonderland, identified by frozen recording description; the source text is the same Work, unlike Nursery Alice or Underground."
+        },
+        {
+          "identifier": "avventuredalice_1907_librivox",
+          "title": "Le Avventure d'Alice nel Paese delle Meraviglie",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "ddca0886c3aa9d7963d5fc4c61bdf625b509a829839d267dcae06297d855827e",
+          "sourceUrl": "https://archive.org/details/avventuredalice_1907_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/avventuredalice_1907_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "laaventuro_de_alicio0912_librivox",
+          "title": "Aventuroj de Alicio en Mirlando, La",
+          "creator": "Lewis Carroll",
+          "descriptionSha256": "95bf871beab406802026a5c86144b67422269e512152d274106f2feaf90c951d",
+          "sourceUrl": "https://archive.org/details/laaventuro_de_alicio0912_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/laaventuro_de_alicio0912_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        }
+      ]
+    },
+    {
+      "title": "The Wonderful Wizard of Oz",
+      "author": "L Frank Baum",
+      "authorSurname": "Baum",
+      "representativeIdentifier": "wizard_of_oz",
+      "records": [
+        {
+          "identifier": "wizard_of_oz",
+          "title": "The Wonderful Wizard of Oz",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "3a3909d71b74d0c9e1e3498cc1af6c522a9516c7a9546698007535e9b7caee06",
+          "sourceUrl": "https://archive.org/details/wizard_of_oz",
+          "evidenceUrls": [
+            "https://archive.org/details/wizard_of_oz"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "mirinda_sorcisto_de_oz_jdz_2304_librivox",
+          "title": "La Mirinda Sorĉisto de Oz",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "47c7bc15da55c0a3305c1edf551972572d66ee63ea3ce014d758f3afade4f847",
+          "sourceUrl": "https://archive.org/details/mirinda_sorcisto_de_oz_jdz_2304_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/mirinda_sorcisto_de_oz_jdz_2304_librivox"
+          ],
+          "reason": "Translation of the same authored Work: declared creator and frozen recording description identify the source text; translated title does not create a new Work."
+        },
+        {
+          "identifier": "wizardofoz_1001_librivox",
+          "title": "The Wonderful Wizard of Oz (Dramatic Reading)",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "9e2452fd5c4250c2c22a4f13aefbfc4105dc0a938fa16ac0e19a3a18b454c5fd",
+          "sourceUrl": "https://archive.org/details/wizardofoz_1001_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wizardofoz_1001_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wizardofoz_1712_librivox",
+          "title": "The Wonderful Wizard of Oz (version 7)",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "bf9d2c329d63ab470016bfcb6a6f812f13facb806c270a3ecdf0a85cef62a093",
+          "sourceUrl": "https://archive.org/details/wizardofoz_1712_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wizardofoz_1712_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wizardofoz_pc_librivox",
+          "title": "The Wonderful Wizard of Oz (solo version 2)",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "3b225a19ea9f4ec1a0e36aa143cc3d0c0c3ff496fc8a150e98a68ca21c3be5d1",
+          "sourceUrl": "https://archive.org/details/wizardofoz_pc_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wizardofoz_pc_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wonderful_wizard_of_oz_version_9_2308_librivox",
+          "title": "The Wonderful Wizard of Oz (version 9)",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "5d692c6c985d94b04748cc8523c244b1628a4262557aaa6f28425e19242f6904",
+          "sourceUrl": "https://archive.org/details/wonderful_wizard_of_oz_version_9_2308_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wonderful_wizard_of_oz_version_9_2308_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wonderful_wizard_oz_version_4_1501_librivox",
+          "title": "The Wonderful Wizard of Oz (Version 4)",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "82b242b53d414e74b2694641a81502e4addce19cf7375951c1f9baa310cfd8d0",
+          "sourceUrl": "https://archive.org/details/wonderful_wizard_oz_version_4_1501_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wonderful_wizard_oz_version_4_1501_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wonderfulwizardofoz5_1701_librivox",
+          "title": "The Wonderful Wizard of Oz (version 5)",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "ed3756b2666081111a1df2549d8cc576b74428f803d2c81727ba86339706d607",
+          "sourceUrl": "https://archive.org/details/wonderfulwizardofoz5_1701_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wonderfulwizardofoz5_1701_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wonderfulwizardofoz_v8_2205_librivox",
+          "title": "The Wonderful Wizard of Oz",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "a1d94ad587005383ea82371fd43f7876545f6f09d6ca3a3208d6daf4f4660e20",
+          "sourceUrl": "https://archive.org/details/wonderfulwizardofoz_v8_2205_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wonderfulwizardofoz_v8_2205_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wonderfulwizardoz6_1705_librivox",
+          "title": "The Wonderful Wizard of Oz (Version 6 Dramatic Reading)",
+          "creator": "L. Frank Baum",
+          "descriptionSha256": "1591b024d70fbfb472df225a93c0ba040a5d3c5b0c1e3f2953d12ebcf4363991",
+          "sourceUrl": "https://archive.org/details/wonderfulwizardoz6_1705_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wonderfulwizardoz6_1705_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "Peter Pan",
+      "author": "James Matthew Barrie",
+      "authorSurname": "Barrie",
+      "representativeIdentifier": "peter_pan_0707_librivox",
+      "records": [
+        {
+          "identifier": "peter_pan_0707_librivox",
+          "title": "Peter Pan",
+          "creator": "J. M. Barrie",
+          "descriptionSha256": "e102e36785561d6e1ad68809bcc20ce5775422b3e109bb382fe3ce86d80884d4",
+          "sourceUrl": "https://archive.org/details/peter_pan_0707_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/peter_pan_0707_librivox",
+            "https://www.gutenberg.org/cache/epub/16/pg16-images.html"
+          ],
+          "reason": "Recording of the 1911 novel Peter and Wendy, also published as Peter Pan. Frozen descriptions identify the novel; public Archive chapter listings for Peter Pan versions 1, 2, 4, 5 match the 17-chapter 1911 Gutenberg text. The stage play and Daniel O’Connor retelling are distinct."
+        },
+        {
+          "identifier": "peter_and_wendy_2209_librivox",
+          "title": "Peter and Wendy",
+          "creator": "J. M. Barrie",
+          "descriptionSha256": "718211770ceb5252785ee114d71bb18bf0ee1024c15bacfe330177bde447ce89",
+          "sourceUrl": "https://archive.org/details/peter_and_wendy_2209_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/peter_and_wendy_2209_librivox",
+            "https://www.gutenberg.org/cache/epub/16/pg16-images.html"
+          ],
+          "reason": "Recording of the 1911 novel Peter and Wendy, also published as Peter Pan. Frozen descriptions identify the novel; public Archive chapter listings for Peter Pan versions 1, 2, 4, 5 match the 17-chapter 1911 Gutenberg text. The stage play and Daniel O’Connor retelling are distinct."
+        },
+        {
+          "identifier": "peterandwendy_1210_librivox",
+          "title": "Peter and Wendy",
+          "creator": "J. M. Barrie",
+          "descriptionSha256": "872e6e8416b73f028303fa2af5f21f2e41b89295a2aa5132975577cf47348bc3",
+          "sourceUrl": "https://archive.org/details/peterandwendy_1210_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/peterandwendy_1210_librivox",
+            "https://www.gutenberg.org/cache/epub/16/pg16-images.html"
+          ],
+          "reason": "Recording of the 1911 novel Peter and Wendy, also published as Peter Pan. Frozen descriptions identify the novel; public Archive chapter listings for Peter Pan versions 1, 2, 4, 5 match the 17-chapter 1911 Gutenberg text. The stage play and Daniel O’Connor retelling are distinct."
+        },
+        {
+          "identifier": "peterpan_0801_librivox",
+          "title": "Peter Pan (version 2)",
+          "creator": "J. M. Barrie",
+          "descriptionSha256": "b67a25be6641164007c6e177902a7dfef8198bc609442471fbb741a66c00d63a",
+          "sourceUrl": "https://archive.org/details/peterpan_0801_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/peterpan_0801_librivox",
+            "https://www.gutenberg.org/cache/epub/16/pg16-images.html"
+          ],
+          "reason": "Recording of the 1911 novel Peter and Wendy, also published as Peter Pan. Frozen descriptions identify the novel; public Archive chapter listings for Peter Pan versions 1, 2, 4, 5 match the 17-chapter 1911 Gutenberg text. The stage play and Daniel O’Connor retelling are distinct."
+        },
+        {
+          "identifier": "peterpan_1706_librivox",
+          "title": "Peter Pan (version 4)",
+          "creator": "J. M. Barrie",
+          "descriptionSha256": "b2673a6bdac4f6fae01d3d4ddb80a5294c409f65237c4377308cd8c0ba7b644d",
+          "sourceUrl": "https://archive.org/details/peterpan_1706_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/peterpan_1706_librivox",
+            "https://www.gutenberg.org/cache/epub/16/pg16-images.html"
+          ],
+          "reason": "Recording of the 1911 novel Peter and Wendy, also published as Peter Pan. Frozen descriptions identify the novel; public Archive chapter listings for Peter Pan versions 1, 2, 4, 5 match the 17-chapter 1911 Gutenberg text. The stage play and Daniel O’Connor retelling are distinct."
+        },
+        {
+          "identifier": "peterpan_2105_librivox",
+          "title": "Peter Pan (Version 5)",
+          "creator": "J. M. Barrie",
+          "descriptionSha256": "4f773c6f77645489be1fe8927d9e3dbb3b54bacfa6c49a366a158078e6cdbf4a",
+          "sourceUrl": "https://archive.org/details/peterpan_2105_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/peterpan_2105_librivox",
+            "https://www.gutenberg.org/cache/epub/16/pg16-images.html"
+          ],
+          "reason": "Recording of the 1911 novel Peter and Wendy, also published as Peter Pan. Frozen descriptions identify the novel; public Archive chapter listings for Peter Pan versions 1, 2, 4, 5 match the 17-chapter 1911 Gutenberg text. The stage play and Daniel O’Connor retelling are distinct."
+        },
+        {
+          "identifier": "peterpandramaticreading_1409_librivox",
+          "title": "Peter Pan (Dramatic Reading)",
+          "creator": "J. M. Barrie",
+          "descriptionSha256": "273bf80cea42a1f65270ab6a179d67521c8a7c7c5367778dbb30167f97ffe559",
+          "sourceUrl": "https://archive.org/details/peterpandramaticreading_1409_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/peterpandramaticreading_1409_librivox",
+            "https://www.gutenberg.org/cache/epub/16/pg16-images.html"
+          ],
+          "reason": "Recording of the 1911 novel Peter and Wendy, also published as Peter Pan. Frozen descriptions identify the novel; public Archive chapter listings for Peter Pan versions 1, 2, 4, 5 match the 17-chapter 1911 Gutenberg text. The stage play and Daniel O’Connor retelling are distinct."
+        }
+      ]
+    },
+    {
+      "title": "The Wind in the Willows",
+      "author": "Kenneth Grahame",
+      "authorSurname": "Grahame",
+      "representativeIdentifier": "wind_in_the_willows_collab_librivox",
+      "records": [
+        {
+          "identifier": "wind_in_the_willows_collab_librivox",
+          "title": "The Wind in the Willows",
+          "creator": "Kenneth Grahame",
+          "descriptionSha256": "f28787c84bb3ca39eef2f916b9dbb36dd2d674070e986f431d234e3c67e91517",
+          "sourceUrl": "https://archive.org/details/wind_in_the_willows_collab_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wind_in_the_willows_collab_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wind_in_the_willows_solo",
+          "title": "The Wind in the Willows",
+          "creator": "Kenneth Grahame",
+          "descriptionSha256": "14f2d3b6a2e866ee808d5427eea36d4e1f7fe58b11a558d39a1b54db42919b97",
+          "sourceUrl": "https://archive.org/details/wind_in_the_willows_solo",
+          "evidenceUrls": [
+            "https://archive.org/details/wind_in_the_willows_solo"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wind_willows_1202_librivox",
+          "title": "The Wind in the Willows",
+          "creator": "Kenneth Grahame",
+          "descriptionSha256": "41436861dc2bd1618a568deda7570aeca8bfe2e98f0e586e81f62ae7205b6730",
+          "sourceUrl": "https://archive.org/details/wind_willows_1202_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wind_willows_1202_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wind_willows_1306_librivox",
+          "title": "The Wind in the Willows",
+          "creator": "Kenneth Grahame",
+          "descriptionSha256": "ea3c8b989a4071e342e3d97cd84383d9694921aee07878f77dee15169d22dfb3",
+          "sourceUrl": "https://archive.org/details/wind_willows_1306_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wind_willows_1306_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "wind_willows_ap_librivox",
+          "title": "The Wind in the Willows",
+          "creator": "Kenneth Grahame",
+          "descriptionSha256": "5ed939d93ab322211c2d6ffa3c3b4727fb36d2f08b445816e2bc04733c2675b4",
+          "sourceUrl": "https://archive.org/details/wind_willows_ap_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/wind_willows_ap_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "windinthewillows_2109_librivox",
+          "title": "The Wind in the Willows (Version 6)",
+          "creator": "Kenneth Grahame",
+          "descriptionSha256": "6aa3bca519bd16352b4340c68ac996814f77d5061a730c23c49845966ee360bb",
+          "sourceUrl": "https://archive.org/details/windinthewillows_2109_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/windinthewillows_2109_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "windinwillowsdr_2207_librivox",
+          "title": "The Wind in the Willows (Version 7 Dramatic Reading)",
+          "creator": "Kenneth Grahame",
+          "descriptionSha256": "303b0d2897e3512dfe154ce41e4819f9e0b75c2c6d090624fb43e008184878ce",
+          "sourceUrl": "https://archive.org/details/windinwillowsdr_2207_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/windinwillowsdr_2207_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    },
+    {
+      "title": "The Princess and the Goblin",
+      "author": "George MacDonald",
+      "authorSurname": "MacDonald",
+      "representativeIdentifier": "princess_goblin_0907_librivox",
+      "records": [
+        {
+          "identifier": "princess_goblin_0907_librivox",
+          "title": "The Princess and the Goblin",
+          "creator": "George MacDonald",
+          "descriptionSha256": "186e1474822f9cd91336231f95b525f1d31c59c8f9c84babdd7396500df4497b",
+          "sourceUrl": "https://archive.org/details/princess_goblin_0907_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/princess_goblin_0907_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "princess_goblin_librivox",
+          "title": "Princess and the Goblin, The",
+          "creator": "George MacDonald",
+          "descriptionSha256": "d7c06da38804343fb24b2da0eb3e3e44271ee5c9b968825808eadf627b95a17a",
+          "sourceUrl": "https://archive.org/details/princess_goblin_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/princess_goblin_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        },
+        {
+          "identifier": "princessandthegoblin_2004_librivox",
+          "title": "The Princess and the Goblin (Dramatic Reading)",
+          "creator": "George MacDonald",
+          "descriptionSha256": "44c7d8593ecd41257bf5c5b158fcfcf6d53f47320d150703c4bdea137f4b13d3",
+          "sourceUrl": "https://archive.org/details/princessandthegoblin_2004_librivox",
+          "evidenceUrls": [
+            "https://archive.org/details/princessandthegoblin_2004_librivox"
+          ],
+          "reason": "Another recording of the same authored Work, identified by declared source title and creator."
+        }
+      ]
+    }
+  ],
+  "distinctRelatedRecords": [
+    {
+      "identifier": "story_peterpan_pc_librivox",
+      "title": "The Story of Peter Pan",
+      "creator": "J. M. Barrie",
+      "descriptionSha256": "d8ca14df1c0dab11149909de63b5c1eb89a71a4a12732f07bf7fe19f3c5cc24f",
+      "sourceUrl": "https://archive.org/details/story_peterpan_pc_librivox",
+      "reason": "Daniel O’Connor retelling of the play, predating the 1911 novel; frozen description states this explicitly despite creator metadata naming Barrie."
+    },
+    {
+      "identifier": "peterpan_kensingtongardens-0908_librivox",
+      "title": "Peter Pan in Kensington Gardens",
+      "creator": "J. M. Barrie",
+      "descriptionSha256": "eaa940dfe5f520eb36554e4b877ce258b45cc190c47148542b96b27a4eee7890",
+      "sourceUrl": "https://archive.org/details/peterpan_kensingtongardens-0908_librivox",
+      "reason": "Distinct 1906 Work, not the 1911 novel."
+    },
+    {
+      "identifier": "nursery_alice_1705_librivox",
+      "title": "The Nursery Alice",
+      "creator": "Lewis Carroll",
+      "descriptionSha256": "560b75e7a1c83973358f9e4d03b1f99c3cde6f639f82272aa516f112b3c4fff9",
+      "sourceUrl": "https://archive.org/details/nursery_alice_1705_librivox",
+      "reason": "Author’s distinct adaptation with new interpolations for ages 0–5."
+    },
+    {
+      "identifier": "alice_underground_pc_librivox",
+      "title": "Alice's Adventures Underground",
+      "creator": "Lewis Carroll",
+      "descriptionSha256": "5f285fe93eda3d8927962f959afb9f95653ebc18cff34b46ac6ca0e311d4b0c7",
+      "sourceUrl": "https://archive.org/details/alice_underground_pc_librivox",
+      "reason": "Distinct earlier manuscript text."
+    },
+    {
+      "identifier": "alice_poem_librivox",
+      "title": "Alice Pleasance Liddell",
+      "creator": "Lewis Carroll",
+      "descriptionSha256": "fa3f12c62bf4db34467ecff4a7aa7ad1340650b70b5a533d9843dc7ab895a472",
+      "sourceUrl": "https://archive.org/details/alice_poem_librivox",
+      "reason": "Distinct poem."
+    },
+    {
+      "identifier": "lookingglass_ap_librivox",
+      "title": "Through the Looking-glass and What Alice Found There",
+      "creator": "Lewis Carroll",
+      "descriptionSha256": "f8b02eec75baa23a7b201c15802a1896752d523d550b707ab48b08bf5034f904",
+      "sourceUrl": "https://archive.org/details/lookingglass_ap_librivox",
+      "reason": "Distinct sequel."
+    },
+    {
+      "identifier": "songs_aliceinwonderland_throughthelookingglass_2012_librivox",
+      "title": "Songs from Alice in Wonderland and Through the Looking-Glass",
+      "creator": "Lewis Carroll",
+      "descriptionSha256": "7122856a518f45e61302f47fd44535fd41c4db81c8548c13631dfedba9823dde",
+      "sourceUrl": "https://archive.org/details/songs_aliceinwonderland_throughthelookingglass_2012_librivox",
+      "reason": "Distinct collection of poems and music from two books."
+    },
+    {
+      "identifier": "dorothy_and_thewizard_pc_librivox",
+      "title": "Dorothy and the Wizard in Oz",
+      "creator": "L. Frank Baum",
+      "descriptionSha256": "2b3cc036148cf42ef91a85629b29c8e6a53a58a15dcde9faf518d773682b1e2c",
+      "sourceUrl": "https://archive.org/details/dorothy_and_thewizard_pc_librivox",
+      "reason": "Distinct Oz sequel."
+    },
+    {
+      "identifier": "the_princess_and_curdie_librivox",
+      "title": "The Princess and Curdie",
+      "creator": "George MacDonald",
+      "descriptionSha256": "846eae079a7c1e94218d887e6f6774635479a04eca57d00172d714032d18a4de",
+      "sourceUrl": "https://archive.org/details/the_princess_and_curdie_librivox",
+      "reason": "Distinct sequel."
+    },
+    {
+      "identifier": "draculas_guest_1003_librivox",
+      "title": "Dracula's Guest and other Weird Tales",
+      "creator": "Bram Stoker",
+      "descriptionSha256": "da3e21c95023927640b4c7b31802e1605a81d509e5c110f08caf9cc2f2d0187b",
+      "sourceUrl": "https://archive.org/details/draculas_guest_1003_librivox",
+      "reason": "Distinct short-story collection."
+    }
+  ]
+}

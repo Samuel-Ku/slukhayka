@@ -274,12 +274,17 @@ class HiddenAwardBoundaryTest {
 
     /**
      * `(e.timestamp - le.createdAt) > 31536000000` — STRICTLY more than 365
-     * days. A book added exactly a year before it was finished does not count,
-     * and one millisecond past that does.
+     * days.
      *
-     * The wording around this edge is not unambiguous («понад рік» in the
-     * ticket, "at least a YEAR" in the DAO comment), so this test pins the
-     * behaviour that is actually there rather than choosing for the owner.
+     * The owner's decision (#1182) keeps that edge and has the DAO comment name
+     * it: the award says «понад рік», so a book added exactly a year before it
+     * was finished is not «Старовинна», and one millisecond past the year is.
+     * The rows below are that pair, exactly 1 ms apart, so a `>=` typed in
+     * later fails here instead of shipping.
+     *
+     * The same decision left the catalogue alone, and the last assertion says
+     * so: «Старовинна» stays HIDDEN, as it was before #1182 — a secret award
+     * the screen leaned on beforehand would spoil its own day.
      */
     @Test fun `vintage needs more than 365 days, not exactly 365`() = runBlocking {
         val cases = listOf(
@@ -294,10 +299,17 @@ class HiddenAwardBoundaryTest {
             record(dao, book, PlaybackEventKind.COMPLETED, BASE + delta)
 
             assertEquals(
+                "через $delta мс після додавання: знімок «Старовинної»",
+                if (expected) 1L else 0L, source.observe().first().vintageCompletions
+            )
+            assertEquals(
                 "через $delta мс після додавання: «Старовинна»",
                 expected, "vintage" in earnedIds(source)
             )
         }
+
+        val definition = AchievementCatalog.definitions.single { it.id == "vintage" }
+        assertTrue("«Старовинна» лишається прихованою — це її стан у каталозі", definition.hidden)
     }
 
     // --- «Перерва»: понад 180 днів між двома сесіями -------------------------

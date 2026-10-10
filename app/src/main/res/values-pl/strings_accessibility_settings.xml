@@ -1,0 +1,4 @@
+<resources>
+    <string name="recommendations_model_not_loaded">Model nie został jeszcze uruchomiony.</string>
+    <string name="recommendations_model_runtime_retry">Ponów uruchomienie modelu</string>
+</resources>

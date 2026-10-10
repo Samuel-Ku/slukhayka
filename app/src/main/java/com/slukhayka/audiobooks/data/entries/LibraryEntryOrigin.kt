@@ -32,6 +32,17 @@ enum class LibraryEntryOrigin {
 }
 
 /**
+ * ADR-0047 §2 — the personal rule in the ONE form SQL can read.
+ *
+ * `library_entries.origin` stores the enum by NAME, so a query that asks for
+ * personal rows needs those names as a SQL list. It lives beside
+ * [LibraryEntryOriginPolicy.isPersonal] so the two cannot drift, and the
+ * achievement queries interpolate it instead of spelling the pair out again
+ * (`LibraryEntryOriginPolicyTest` pins the two forms to each other).
+ */
+const val PERSONAL_ORIGIN_SQL_LIST = "'EXPLICIT_SAVE','EXPLICIT_IMPORT'"
+
+/**
  * ADR-0047 §2–§4 — the pure rules of intent. «Мої книги» builds on links that
  * began EXPLICITLY; an auto-seeded Work stays reachable through the catalogue
  * mirror but never pretends to be a personal choice; and a row whose origin is

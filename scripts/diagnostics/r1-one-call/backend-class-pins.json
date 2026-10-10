@@ -1,0 +1,23 @@
+{
+  "com/slukhayka/audiobooks/data/recommend/E5RecommendationInput.class": "958ec7ce86b90ddfc97d26d0565b8e5976a249618f8d41aa7e087ef6536a2e1a",
+  "com/slukhayka/audiobooks/data/recommend/EmbeddingContext.class": "f5932449210233b6f1ebe5a27201b57968a72c8ccc3bf4826232b6a51a588dd7",
+  "com/slukhayka/audiobooks/data/recommend/KeywordEmbedder$Companion.class": "72de7da3f769571a6eda583d0e3b3a30940e1f04440e183d237ccce43493e2b0",
+  "com/slukhayka/audiobooks/data/recommend/KeywordEmbedder.class": "aea1382824fa4949b6777a77cfed37807519a0dc37be04cf5532a6095d7c85a9",
+  "com/slukhayka/audiobooks/data/recommend/OnnxEmbedder$Companion.class": "2b370eb8c15d75bac7fc3d198a709f052eed16db0ae0b1de09cd0e7323070aae",
+  "com/slukhayka/audiobooks/data/recommend/OnnxEmbedder.class": "2d3d8db1a25a40ac30dd3a053be81790ea22f2bbb6daf5181ec35cb3d4e750d4",
+  "com/slukhayka/audiobooks/data/recommend/PrecompiledCharsMap.class": "e88af0060083954e5384bd8e11c262fad61c316d97cc30c460822a6ed42f6414",
+  "com/slukhayka/audiobooks/data/recommend/TextEmbedder$DefaultImpls.class": "bf13499b9946aed49feb3e2b0e801790844d5db38396b7dfce2e555ffc0952fa",
+  "com/slukhayka/audiobooks/data/recommend/TextEmbedder.class": "c344f56600b7d066e3e64d07ccebbef574178d1674fd079e46d3578cd2bc3ae4",
+  "com/slukhayka/audiobooks/data/recommend/UnicodeGraphemeTables.class": "6695dbb5e980f77e7053b13b975385a4c525cf6200e09ba437f00e6e013b628e",
+  "com/slukhayka/audiobooks/data/recommend/UnicodeGraphemes.class": "0b226f3104ba9df30932b059ef8f68bbbe7ff37f439ea0e40b1383d0dc676a01",
+  "com/slukhayka/audiobooks/data/recommend/UnigramPreTokenizer$Companion.class": "d14843eef467863bcb01821b27645ff2e427e52d46b9741c0bda01ddeb5e5d87",
+  "com/slukhayka/audiobooks/data/recommend/UnigramPreTokenizer.class": "229bf9c796438c94e5a229d08fe098b55be649e653b262fd597f979ed247fdd4",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTextNormalizer$Companion.class": "7536d2e13802b6d5466ce6a49575e85e360b94abd67988cd3472bf72e8b154e1",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTextNormalizer.class": "8e00714567b7beb6d8ace6d5f13d5231cd7790fc75850d78f0740fa614a17145",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTokenizer$AddedToken.class": "0abfe04c9b029ca6222d16ef04d9e62cb8264cee24ea61608184a5b01ff482b7",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTokenizer$Companion.class": "a8fe96a41c9e76146806c27e47037c0d9612e8cbed4340dc90b9f92c7ec997f6",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTokenizer$ModelTemplate.class": "ca2e0b883bf6faba351704958e5ab841130947b5719c066189725e8fb55be6c3",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTokenizer$PieceTrie$Node.class": "9caa6a38bc240d54c272a8218535d7cab69e21bc323f03b8bb2f1e2503bac810",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTokenizer$PieceTrie.class": "7e6c78311d7595ed65a835fd31a377c8c0ef25c71963a3f330bc8900dc269823",
+  "com/slukhayka/audiobooks/data/recommend/UnigramTokenizer.class": "45ca9a4f822b6529ddbc78f647dca465b239b55044055731808924fc4c8fb410"
+}

@@ -454,9 +454,24 @@ libraryEntryId, editionId, state, дати, unitValue і raw journalJson збе�
 з іншим id. Merge не створює другого pass і не змінює цей вибір.
 DAO Flow повертає libraryEntryId всіх AUDIO/ABANDONED rows; бейдж і дія
 скасування лишаються на відповідній начитці через цей незмінний ключ.
-Завершення зараз лише ховає бейдж/дію через спільний completion verdict;
-stored pass лишається ABANDONED. Merge та ordinary import/metadata refresh
-не видають відсутній completion/reward write за виконаний.
+### Completion після main ec19e50 (#1191)
+
+У попередньому зрізі `acdf0758` завершення лише ховало бейдж/дію,
+а stored pass лишався ABANDONED. Це історичний стан, не поведінка всіх
+чинних completion paths.
+
+Після #1191 у main `ec19e50` локальне завершення має окремий writer:
+`AbandonedBooks.finish` знаходить AUDIO/ABANDONED pass і через
+`ReadthroughPolicy.finish` записує FINISHED та finishedAt. Player end-of-book
+перед цим записом зберігає факт FINISHED_AFTER_ABANDON через achievement store;
+ручне «Прослухано» викликає той самий finish без цього факту. Після успішного
+запису pass видаляється його AbandonUndo note. Merge та ordinary import/metadata
+refresh не викликають finish і не відтворюють completion чи reward.
+
+`observeLiveAbandonedBookIds` фільтрує stored marks за спільним completion
+verdict. Завершення, отримане з іншого пристрою, або невдалий локальний finish
+можуть залишити raw ABANDONED pass, хоча бейдж і дія вже приховані. Merge
+зберігає фактичний raw state; прихований бейдж не є доказом записаного FINISHED.
 
 `SharedPreferencesAbandonUndo` — ще один зовнішній носій: private prefs
 `abandon_undo`, ключ `before:<bookId>`, raw value `0|` для створеного mark
@@ -464,12 +479,17 @@ pass або `1|<ReadingState.name>` для попереднього pass. До c
 і відсутність ключа, і точні raw bytes; merge не rekey, не consume, не
 переобчислює нотатку через Work resolver. Чинний remember робить `.apply()`
 до Room persist і повторний abandon не перезаписує першу нотатку; cancel
-recall/forget робить перед delete/restore pass. Це два носії, не атомарна
-Room операція і не cross-device контракт.
+recall/forget робить перед delete/restore pass. Finish, навпаки, викликає
+forget після успішного persist FINISHED. Player fact capture, запис pass і
+прибирання prefs note виконуються послідовно; спільна транзакція між ними
+не заявляється. Це не атомарна Room/prefs операція і не cross-device контракт.
 
 Перед merge та Undo перераховуються всі фактичні external closure fingerprints.
-Abandon/cancel мають бути включені до спільного participant write gate
-наступної реалізації, як інші writer дії; її наявність сьогодні не стверджується.
+Abandon/cancel і обидва локальні completion writer paths мають бути включені
+до спільного participant write gate наступної реалізації, як інші writer дії;
+його наявність сьогодні не стверджується. Closure охоплює raw pass, AbandonUndo
+note та чинні achievement facts; merge/Undo не відтворюють і не відкочують
+факт завершення, записаний після preview або merge.
 Зміна raw нотатки, state або видалення pass після preview дає Stale;
 після merge блокує сліпий Undo як UndoNeedsDecision. Undo не відновлює
 спожиту нотатку і не воскресає pass, який слухач свідомо прибрав cancel.
@@ -481,9 +501,14 @@ prefs: PLANNED→ABANDONED→merge→cancel повертає PLANNED; mark-creat
 два окремі abandoned passes та restart зберігаються. Повторний abandon не
 замінює before-note. Cancel до побудови preview входить до нового snapshot і сам по собі
 не є stale. Cancel між preview та apply дає Stale; cancel після merge
-перед Undo дає UndoNeedsDecision без втрати нової дії. Completed badge-hidden case
-зберігає stored ABANDONED до окремого completion writer. Ці перевірки
-заплановані, не виконані в D1. Три рішення власника нижче не змінюються;
+перед Undo дає UndoNeedsDecision без втрати нової дії. Окремо заплановано:
+локальний finish після merge зберігає FINISHED/finishedAt і прибирає note;
+player capture перед persist зберігається, а ручний finish не створює цього
+факту. Finish між preview та apply дає Stale, після merge — UndoNeedsDecision,
+без воскресіння ABANDONED або спожитої note. Для sync completion і невдалого
+локального writer badge-hidden case зберігає фактичний raw ABANDONED; його не
+ремонтує merge. Ці перевірки заплановані, не виконані в D1. Три рішення
+власника нижче не змінюються;
 production/schema/name repair та D2 не запускаються цим уточненням.
 
 

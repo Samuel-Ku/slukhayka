@@ -20,6 +20,22 @@ class LibraryEntryOriginPolicyTest {
         assertFalse(LibraryEntryOriginPolicy.isPersonal(LibraryEntryOrigin.UNKNOWN))
     }
 
+    /**
+     * #701 — the same rule has a second form, because `library_entries.origin`
+     * stores the enum by NAME and the achievement queries read personal rows in
+     * SQL ([PERSONAL_ORIGIN_SQL_LIST]). This pins the two spellings to each
+     * other: a new personal origin that changes only one of them fails here
+     * instead of quietly counting the wrong books.
+     */
+    @Test
+    fun `the SQL list carries exactly the personal origins`() {
+        val expected = LibraryEntryOrigin.entries
+            .filter(LibraryEntryOriginPolicy::isPersonal)
+            .joinToString(",") { "'${it.name}'" }
+
+        assertEquals(expected, PERSONAL_ORIGIN_SQL_LIST)
+    }
+
     @Test
     fun `an unknown origin is NOT declared an auto-seed by guesswork`() {
         assertTrue(LibraryEntryOriginPolicy.needsTriage(LibraryEntryOrigin.UNKNOWN))

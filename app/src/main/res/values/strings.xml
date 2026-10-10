@@ -755,6 +755,8 @@
     <string name="achievement_deep_reserve_10">Глибокий запас</string>
     <string name="achievement_four_doors">Чотири двері</string>
     <string name="achievement_browser_guest">Гість</string>
+    <!-- #1175 (T3): «Нова хвиля» — книга з джерела, дата появи якого живе в реєстрі. -->
+    <string name="achievement_new_wave">Нова хвиля</string>
     <string name="achievement_bilingual_2">Двомовний</string>
     <string name="achievement_polyglot_3">Поліглот</string>
     <string name="achievement_genre_polyglot_8">Жанровий поліглот</string>
@@ -762,6 +764,16 @@
     <string name="achievement_mono_genre_25">Однолюб жанру</string>
     <string name="achievement_deep_search">Глибокий пошук</string>
     <string name="achievement_five_in_a_row">П’ять поспіль</string>
+    <!-- #701 (хвіст T3): серійні, всесвітні, колекційні та механізмні нагороди. -->
+    <string name="achievement_in_cycle">У циклі</string>
+    <string name="achievement_series_man">Серієман</string>
+    <string name="achievement_in_order">По порядку</string>
+    <string name="achievement_one_universe">Один всесвіт</string>
+    <string name="achievement_collector">Колекціонер</string>
+    <string name="achievement_all_doors">Усі двері</string>
+    <string name="achievement_resolver">Резолвер</string>
+    <string name="achievement_recoverer">Відновлювач</string>
+    <string name="achievement_same_voice">Той самий голос</string>
     <string name="achievement_english_start">Англомовний старт</string>
     <string name="achievement_night_watch">Нічний вартовий</string>
     <string name="achievement_owl_and_lark">Сова й жайворонок</string>
@@ -773,6 +785,19 @@
     <string name="achievement_week_in_earphones">Тиждень у навушниках</string>
     <string name="achievement_month_in_earphones">Місяць у навушниках</string>
     <string name="achievement_mondays_10">Понеділковий</string>
+    <!-- #1166 (T8, US13): «Слухацький рік» — 365 різних днів зі слуханням кумулятивно. -->
+    <string name="achievement_listening_year_365">Слухацький рік</string>
+    <!-- #1183 (T9b): нагороди на записаних годинах офлайну й касту, сеансах і лічильнику. -->
+    <string name="achievement_autonomous_10h">Автономний</string>
+    <string name="achievement_download_gourmet_100h">Гурман завантажень</string>
+    <string name="achievement_big_screen_10h">Великий екран</string>
+    <string name="achievement_airplane_2h">Літак</string>
+    <string name="achievement_chapter_end_10">До кінця розділу</string>
+    <string name="achievement_sync_4h">Синхронно</string>
+    <string name="achievement_night_shift_2h">Нічна зміна</string>
+    <string name="achievement_dawn_5">Світанок</string>
+    <!-- #1174 (друга смуга, US28): «Не кидаю» — 10 завершених книг і жодної позначки «покинуто». -->
+    <string name="achievement_never_abandon_10">Не кидаю</string>
     <string name="achievements_title">Досягнення</string>
     <string name="settings_desc_achievements">Нагороди за прослухане</string>
     <string name="achievements_tier">Титул: %1$s</string>

@@ -24,6 +24,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
@@ -121,6 +122,23 @@ class LibraryStatusRowVisibilityTest {
         composeTestRule.runOnIdle { selected.value = LibraryFilter.DOWNLOADED }
         composeTestRule.waitForIdle()
         assertChipInsideTheRow(LibraryFilter.DOWNLOADED, "library_status_downloaded")
+    }
+
+    // The visible delta as a picture (ADR-0017): the row the screen draws, with
+    // «Завантажені» selected — the very chip the ticket's screenshot shows cut
+    // mid-glyph. The assertion above is the gate; this golden is what a
+    // reviewer looks at, and it is exactly what #390's eye-only fix lacked.
+    @Test
+    fun the_downloaded_chip_selected_is_drawn_in_full() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                StatusRowFixture(selected = LibraryFilter.DOWNLOADED, onSelect = {})
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(ROW_TAG).captureRoboImage(
+            filePath = "src/test/snapshots/library_status_row_downloaded.png"
+        )
     }
 
     /**

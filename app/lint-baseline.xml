@@ -6147,6 +6147,17 @@
 
     <issue
         id="MissingTranslation"
+        message="&quot;lib_grid_pane_too_narrow&quot; is not translated in &quot;pl&quot; (Polish)"
+        errorLine1="    &lt;string name=&quot;lib_grid_pane_too_narrow&quot;>Панель завузька для двох колонок — плитки в один стовпчик&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="645"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
         message="&quot;lib_progress_percent&quot; is not translated in &quot;pl&quot; (Polish)"
         errorLine1="    &lt;string name=&quot;lib_progress_percent&quot;>Прослухано %1$d%%&lt;/string>"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">

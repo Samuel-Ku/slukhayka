@@ -158,12 +158,14 @@ jobs:
       # `updateLintBaseline` writes the path of the checkout it runs in, so a
       # baseline regenerated inside a lane worktree pins `.worktrees/<lane>/…`
       # (or a `$HOME/…` checkout path) into entries that then match nothing —
-      # on CI, and on any other machine. Fail loudly instead of letting dead
-      # entries accumulate.
+      # on CI, and on any other machine. `$GRADLE_USER_HOME/…` is the same trap
+      # one layer down: it points at a transformed artifact in one machine's
+      # Gradle cache, keyed by a hash that the next machine need not share.
+      # Fail loudly instead of letting dead entries accumulate.
       - name: Refuse a baseline that cites a machine path
         run: |
-          if grep -qE 'file="[^"]*(\.worktrees/|\$HOME/)' app/lint-baseline.xml; then
-            echo "::error::app/lint-baseline.xml cites a worktree or home path — regenerate it from the repository root, and drop entries that point outside the module"
+          if grep -qE 'file="[^"]*(\.worktrees/|\$HOME/|\$GRADLE_USER_HOME/)' app/lint-baseline.xml; then
+            echo "::error::app/lint-baseline.xml cites a worktree, home or Gradle-cache path — regenerate it from the repository root, and drop entries that point outside the module"
             exit 1
           fi
 

@@ -64,6 +64,7 @@ import com.slukhayka.audiobooks.ui.components.AppNavigationRail
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.MiniPlayerColumnWidth
 import com.slukhayka.audiobooks.ui.components.PlayerPane
+import com.slukhayka.audiobooks.ui.components.miniPlayerHasBook
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -369,11 +370,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
     val playerState by viewModel.playerState.collectAsState()
     val miniPlayerDismissed by viewModel.miniPlayerDismissed.collectAsState()
-    // #1205 — the bar's own gate (`MiniPlayerBar` returns early and draws
-    // NOTHING without a current book) is read here as well, because the leading
-    // column must not widen for a bar that will not draw.
+    // #1205 — the bar's own gate, asked in the bar's OWN words
+    // ([miniPlayerHasBook]): the leading column must not widen for a bar that
+    // will draw nothing.
     val miniPlayerVisible = !miniPlayerDismissed && selectedTab != SelectedTab.LISTEN
-    val miniPlayerHasBook = playerState.currentBook != null
+    val miniPlayerHasBook = miniPlayerHasBook(playerState)
     // The bar leaves the leading column while the full player is open — pane or
     // modal. That is what the modal does today by covering it, and it is what
     // keeps the player pane on a window with room at the width the audit

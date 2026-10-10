@@ -170,6 +170,19 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
 
         package = production_package(path)
         if package is None:
+            # A Roborazzi golden is the product of exactly one partition — the
+            # one whose tests render it. Without this case the path counts as
+            # unknown and every golden change drags the whole matrix in
+            # locally, which is the one thing a lane cannot afford here.
+            if path.startswith("app/src/test/snapshots/"):
+                rendered_by = [
+                    test_class.fqcn
+                    for test_class in test_classes
+                    if execution_partition(test_class) == "compose-roborazzi"
+                ]
+                if rendered_by:
+                    selected.setdefault("compose-roborazzi", set()).update(rendered_by)
+                    continue
             return {"fullSuite": True, "partitions": {}, "reason": "unmapped changed path"}
 
         matches: list[TestClass] = []

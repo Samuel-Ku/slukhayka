@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.db.ListeningStatEntity
 import java.io.File
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
@@ -34,8 +35,55 @@ class RoomAchievementProgressSource(
      * would depend on the machine running the tests, and "between 02:00 and
      * 04:00" would mean different instants in CI and on a phone.
      */
-    private val zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault()
+    private val zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    /**
+     * #1174 (друга смуга, US28) — the books carrying a LIVE «покинуто» mark, as
+     * the mark owner's own flow
+     * ([com.slukhayka.audiobooks.data.entries.AbandonedBooks.observeLiveAbandonedBookIds]).
+     *
+     * Injected rather than re-queried here for the reason the «завершено» edge
+     * was moved into one function: a second copy of "what counts as abandoned"
+     * would let the badge and the award drift apart. Every surface reads the
+     * same flow, so the award cannot stay shut over a mark the listener is no
+     * longer shown — which is what a completion arriving from another device
+     * used to leave behind.
+     *
+     * There is deliberately NO default: "nobody told me" must not quietly mean
+     * "nothing is abandoned", because that answer is the one that OPENS the
+     * award. A caller that truly knows there are no marks says so with
+     * `flowOf(emptySet())`.
+     */
+    private val abandonedBookIds: Flow<Set<String>>,
+    /**
+     * #701 (US37, US38) — the curated lists the app ships: the `collections/`
+     * and `universes/` assets, as data.
+     *
+     * Injected for the same reason [registeredSourceIds] is: the composition
+     * owns the asset read (`CollectionAssets.load` / `UniverseAssets.load` in
+     * `App.kt`), and a test can then pin a two-entry collection or a
+     * one-series universe without inventing one in the shipped assets.
+     *
+     * The EMPTY default is the honest direction, not a convenience: with no
+     * curated list nobody can say what "the whole collection" is, and both
+     * awards stay shut instead of guessing (ADR-0014).
+     */
+    private val curatedCollections: List<com.slukhayka.audiobooks.data.collections.CollectionList> = emptyList(),
+    private val curatedUniverses: List<com.slukhayka.audiobooks.data.universe.UniverseList> = emptyList(),
+    /**
+     * #701 (US40) — whether a registered source is a scam door.
+     *
+     * A reader rather than a second set, so the registry stays the ONE carrier
+     * of that fact (ADR-0038) and a test can mark one of its own ids as scam.
+     * The required door set is [registeredSourceIds] minus these, which is what
+     * makes «Усі двері» dynamic: a source added to the registry raises the bar
+     * with no code change, while 4read (whose audio is not the book) is never
+     * required.
+     */
+    private val isScamSource: (String) -> Boolean =
+        com.slukhayka.audiobooks.data.source.SourceRegistry::isScam
 ) : AchievementProgressSource {
+    /** #701 — the doors «Усі двері» asks about: every registered source but the scam ones. */
+    private val requiredDoors: Set<String> = registeredSourceIds.filterNot(isScamSource).toSet()
     private val counters = combine(dao.observeExplicitBooks(), dao.observeVerifiedListeningMillis(),
         dao.observeNotInterestedChoices(), dao.observeCompletedBooks()) { books, millis, choices, completed ->
         AchievementProgress(explicitBooks = books, verifiedListeningMillis = millis,
@@ -172,6 +220,38 @@ class RoomAchievementProgressSource(
     private val withNewWave = combine(withArms, dao.observeSourceArrivals()) { base, arrivals ->
         base.copy(newWaveBooks = NewWave.books(arrivals, appearedOnOf, zoneId))
     }
+    // #1174 (друга смуга, US28) — the LIVE «покинуто» marks standing right now.
+    // The SAME flow feeds the library badge and the book page, so the award and
+    // the surfaces cannot disagree about which books are abandoned — including
+    // the marks only the database still carries (`markIsLive`: a finished book
+    // is not an abandoned one). The count is per BOOK, and the mark owner
+    // already answers that way.
+    private val withAbandoned = combine(withNewWave, abandonedBookIds) { base, marked ->
+        base.copy(abandonedBooks = marked.size.toLong())
+    }
+    // #701 (T3) — the curated rules, folded in like every step above. ONE Room
+    // read answers all four of them: the own books carry the series identity,
+    // the universe claim and the title/author pair the collection matcher
+    // reads. The curated lists themselves are Kotlin (assets), so the matching
+    // happens here rather than in SQL.
+    private val withOwnLibrary = combine(withAbandoned, dao.observeOwnLibraryBooks()) { base, own ->
+        base.copy(
+            completedSeries = PersonalSeries.finished(own),
+            orderedSeries = PersonalSeries.inOrder(own),
+            universeBooks = UniverseBreadth.largest(own, curatedUniverses),
+            passedCollections = CollectionCompletion.passed(own, curatedCollections)
+        )
+    }
+    // #701 (US40) — «Усі двері»: the doors really used against the registry's
+    // own list. The list is Kotlin (ADR-0038), so the comparison is too.
+    private val withAllDoors = combine(withOwnLibrary, dao.observeUsedSourceTypes()) { base, used ->
+        base.copy(allDoorsReached = SourceDoors.allUsed(used, requiredDoors))
+    }
+    // #701 (US46) — «Той самий голос»: no fact and no new write, just the
+    // editionId two sources already share.
+    private val withSharedNarrations = combine(withAllDoors, dao.observeSharedNarrations()) { base, shared ->
+        base.copy(sharedNarrations = shared)
+    }
 
     /**
      * A row whose date cannot be read is not a day we can count, so it is
@@ -219,7 +299,7 @@ class RoomAchievementProgressSource(
     private val topology = combine(downloads, dao.observeKnownSeriesMemberships()) { downloaded, members ->
         downloaded to members.map { AchievementSeriesMembership(it.seriesId, it.workId, it.position) }.toSet()
     }
-    private val aggregates = combine(withNewWave, topology) { counters, topology ->
+    private val aggregates = combine(withSharedNarrations, topology) { counters, topology ->
         counters.copy(downloadedBooks = topology.first, registeredSourceIds = registeredSourceIds,
             knownSeriesMemberships = topology.second)
     }

@@ -43,6 +43,18 @@ private val named = mapOf(
     "mono_genre_25" to R.string.achievement_mono_genre_25,
     "deep_search" to R.string.achievement_deep_search,
     "five_in_a_row" to R.string.achievement_five_in_a_row,
+    // #701 (T3 tail) — the series, universe, collection and mechanism awards.
+    // Plain ids with no number in them, so the two numeric ladders above stay
+    // the only dynamic cases.
+    "in_cycle" to R.string.achievement_in_cycle,
+    "series_man" to R.string.achievement_series_man,
+    "in_order" to R.string.achievement_in_order,
+    "one_universe" to R.string.achievement_one_universe,
+    "collector" to R.string.achievement_collector,
+    "all_doors" to R.string.achievement_all_doors,
+    "resolver" to R.string.achievement_resolver,
+    "recoverer" to R.string.achievement_recoverer,
+    "same_voice" to R.string.achievement_same_voice,
     "english_start" to R.string.achievement_english_start,
     "night_watch" to R.string.achievement_night_watch,
     "owl_and_lark" to R.string.achievement_owl_and_lark,
@@ -80,7 +92,10 @@ private val named = mapOf(
     "chapter_end_10" to R.string.achievement_chapter_end_10,
     "sync_4h" to R.string.achievement_sync_4h,
     "night_shift_2h" to R.string.achievement_night_shift_2h,
-    "dawn_5" to R.string.achievement_dawn_5
+    "dawn_5" to R.string.achievement_dawn_5,
+    // #1174 (друга смуга, US28) — «Не кидаю»: ten finished books and not one
+    // «покинуто» mark standing. Plain id, no number rule needed.
+    "never_abandon_10" to R.string.achievement_never_abandon_10
 )
 
 /**

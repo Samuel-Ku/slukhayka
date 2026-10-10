@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.ui.achievements.achievementName
 import java.time.DayOfWeek
 import java.time.LocalDate
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,7 +40,7 @@ class RegularityAwardsTest {
             .allowMainThreadQueries().build()
         try {
             val store = RoomAchievementStore(database.achievementDao())
-            block(database, RoomAchievementProgressSource(database.achievementDao(), store, emptySet()))
+            block(database, RoomAchievementProgressSource(database.achievementDao(), store, emptySet(), abandonedBookIds = flowOf(emptySet())))
         } finally {
             database.close()
         }

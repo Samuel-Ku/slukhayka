@@ -2,19 +2,25 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookDownloadCount
@@ -23,25 +29,18 @@ import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
-/** #1206 — the Медіатека grid's own side padding: 16 dp at each edge. */
-internal val LibraryGridSidePadding = 16.dp
-
-/** #1206 — the gap the grid puts between two tile columns. */
-internal val LibraryGridColumnGap = 12.dp
-
 /**
  * #1206 — the narrowest container that may hold the TWO-column tile grid.
  *
- * Two tiles at the canonical poster width (ADR-0033: one poster, 120 dp — the
- * same width `PosterCard` pins), the gap between them and the grid's own side
- * padding: 2 × 120 + 12 + 32 = **284 dp**.
- *
- * The floor is stated in the grid's own terms on purpose: it is the same
- * arithmetic the tile is drawn from, so a later change to the poster or to the
- * grid's padding moves the floor with it instead of leaving a stale number.
+ * Two tiles no narrower than the canonical poster — `PosterWidth` (120 dp,
+ * `PosterCard`) taken as the tile's MINIMUM, not as the width the library tile
+ * is drawn at: that tile stretches to its grid cell — plus the column gap and
+ * the grid's own side padding, read from the very `AppDimens` tokens the grid
+ * lays out with, so the floor cannot drift from the layout it guards:
+ * 2 × 120 + 12 + 32 = **284 dp**.
  */
 internal val LibraryGridMinWidth: Dp =
-    PosterWidth * 2 + LibraryGridColumnGap + LibraryGridSidePadding * 2
+    PosterWidth * 2 + AppDimens.SpaceMd + AppDimens.PageSides * 2
 
 /**
  * #1206 — may the book area draw TILES, or must it fall back to the LIST?
@@ -112,53 +111,82 @@ internal fun LibraryBookGrid(
         // constraint, so it answers for the list pane of a wide window exactly
         // as it answers for a whole phone window.
         val showsTiles = libraryGridShowsTiles(availableWidth = maxWidth, gridMode = gridMode)
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(if (showsTiles) 2 else 1),
-            state = gridState,
-            // #962 — the grid takes what is LEFT of the column rather than
-            // claiming everything: `fillMaxSize` inside a Column is measured
-            // against the whole window, so it both over-reported its height and
-            // pushed the rows it did lay out past the bottom edge. `weight(1f)`
-            // — handed in by the caller — is the honest ask, "the rest of the
-            // screen", and it is what makes the list scrollable in a 411 dp
-            // landscape window.
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("library_grid"),
-            contentPadding = PaddingValues(
-                start = LibraryGridSidePadding,
-                end = LibraryGridSidePadding,
-                top = 8.dp,
-                bottom = AppDimens.SpaceAboveMiniPlayer
-            ),
-            horizontalArrangement = Arrangement.spacedBy(LibraryGridColumnGap),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            libraryGridContent(
-                entries = entries,
-                // #885 — must match the shape the caller built its entries
-                // with (always the dense rows on «Книги»), otherwise the
-                // renderer falls back to the wall of cards and none of the row
-                // work shows up.
-                browsing = browsing,
-                // #1206 — the EFFECTIVE mode, not the listener's stored one: a
-                // pane under the floor draws the dense rows, which is what the
-                // list mode draws, so the degradation is the list itself and
-                // not a third presentation.
-                gridMode = showsTiles,
-                availability = availability,
-                downloadCounts = downloadCounts,
-                restoreFocusBookId = restoreFocusBookId,
-                bookReturnFocusRequester = bookReturnFocusRequester,
-                awaitingSubmissionBookIds = awaitingSubmissionBookIds,
-                submissionBadges = submissionBadges,
-                watchingSubmissionBookIds = watchingSubmissionBookIds,
-                deferredPublicationBookIds = deferredPublicationBookIds,
-                abandonedBookIds = abandonedBookIds,
-                onBookClick = onBookClick,
-                onPlayClick = onPlayClick,
-                onRecheck = onRecheck
-            )
+        Column(modifier = Modifier.fillMaxSize()) {
+            // #1206 — the degradation is STATED, not silent. The chip in the
+            // filter sheet keeps saying «Сітка»: it is the listener's stored
+            // preference, and the grid comes back as soon as the pane can
+            // afford it — so the pane has to say why it is showing rows
+            // instead, and it has to say it HERE, where the rows are, rather
+            // than in a sheet the listener has already closed.
+            //
+            // The note sits ABOVE the grid rather than as a leading grid item
+            // on purpose: `LibraryScreen` maps a grid INDEX back to a
+            // `LibraryGridEntry` for its availability queue and its focus
+            // return, so an extra leading item would shift every one of them.
+            if (gridMode && !showsTiles) {
+                Text(
+                    text = stringResource(R.string.lib_grid_pane_too_narrow),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = AppDimens.PageSides,
+                            end = AppDimens.PageSides,
+                            top = AppDimens.SpaceSm
+                        )
+                        .testTag("library_grid_degraded_note")
+                )
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(if (showsTiles) 2 else 1),
+                state = gridState,
+                // #962 — the grid takes what is LEFT of the column rather than
+                // claiming everything: `fillMaxSize` inside a Column is measured
+                // against the whole window, so it both over-reported its height
+                // and pushed the rows it did lay out past the bottom edge.
+                // `weight(1f)` — handed in by the caller — is the honest ask,
+                // "the rest of the screen", and it is what makes the list
+                // scrollable in a 411 dp landscape window.
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .testTag("library_grid"),
+                contentPadding = PaddingValues(
+                    start = AppDimens.PageSides,
+                    end = AppDimens.PageSides,
+                    top = 8.dp,
+                    bottom = AppDimens.SpaceAboveMiniPlayer
+                ),
+                horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd),
+                verticalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd)
+            ) {
+                libraryGridContent(
+                    entries = entries,
+                    // #885 — must match the shape the caller built its entries
+                    // with (always the dense rows on «Книги»), otherwise the
+                    // renderer falls back to the wall of cards and none of the
+                    // row work shows up.
+                    browsing = browsing,
+                    // #1206 — the EFFECTIVE mode, not the listener's stored one:
+                    // a pane under the floor draws the dense rows, which is what
+                    // the list mode draws, so the degradation is the list itself
+                    // and not a third presentation.
+                    gridMode = showsTiles,
+                    availability = availability,
+                    downloadCounts = downloadCounts,
+                    restoreFocusBookId = restoreFocusBookId,
+                    bookReturnFocusRequester = bookReturnFocusRequester,
+                    awaitingSubmissionBookIds = awaitingSubmissionBookIds,
+                    submissionBadges = submissionBadges,
+                    watchingSubmissionBookIds = watchingSubmissionBookIds,
+                    deferredPublicationBookIds = deferredPublicationBookIds,
+                    abandonedBookIds = abandonedBookIds,
+                    onBookClick = onBookClick,
+                    onPlayClick = onPlayClick,
+                    onRecheck = onRecheck
+                )
+            }
         }
     }
 }

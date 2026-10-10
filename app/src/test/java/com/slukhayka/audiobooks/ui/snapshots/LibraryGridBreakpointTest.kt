@@ -14,7 +14,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.DpRect
-import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.testing.TestDataFactory
@@ -47,12 +46,16 @@ import org.robolectric.annotation.GraphicsMode
  * the fixtures are 411 dp (a phone) and 840 dp (a tablet), so the squeeze was
  * never in a frame.
  *
- * These assertions are on BOUNDS, not on pixels, and they say two things at
- * once, which is what makes the boundary visible from both sides:
+ * These assertions are on BOUNDS and on STRUCTURE, not on pixels, and they say
+ * two things at once, which is what makes the boundary visible from both sides:
  *  - at 600 dp no book card may leave the pane, and no card may be squeezed
  *    under the canonical poster — the two tile columns do not fit, so the grid
- *    degrades to the list;
- *  - at 840 dp the two tile columns are still there, still inside the pane.
+ *    degrades to the list, says so in the pane, and every card carries the
+ *    dense row's own `library_row_progress_<id>` marker. That marker is what
+ *    separates the LIST from a ONE-column grid of tiles, which is stacked
+ *    exactly the same way and would otherwise pass every geometry assertion;
+ *  - at 840 dp the two tile columns are still there, still inside the pane, no
+ *    card is a row and no degradation note is shown.
  *
  * The frames this class also writes (`library-grid-600dp.png`,
  * `library-grid-840dp.png`) are the reviewable half of the same evidence; the
@@ -84,7 +87,11 @@ class LibraryGridBreakpointTest {
         )
 
         val cards = bookCards()
-        assertTrue("the fixture must lay out books", cards.size >= 4)
+        // The grid is LAZY, so this is "what the viewport composed", not "how
+        // many books the fixture has" — and it is deliberately low: a
+        // regression that draws tall one-column tiles composes fewer of them,
+        // and the assertions below must fail on the SHAPE, not on the count.
+        assertTrue("the fixture must lay out books", cards.size >= 2)
 
         cards.forEach { card ->
             assertTrue(
@@ -111,6 +118,15 @@ class LibraryGridBreakpointTest {
                 "(a list), not squeezed into a single column of tiles",
             cards.size,
             rowTops(cards).size
+        )
+
+        composeTestRule.onNodeWithTag("library_grid_degraded_note").assertExists()
+        assertEquals(
+            "every card must be the dense ROW the list mode draws, not a tile: a " +
+                "ONE-column grid of tiles is stacked as well, so 'one per row' alone " +
+                "cannot tell the two apart — the row's own progress marker can",
+            cards.size,
+            rowProgressMarkers().size
         )
 
         composeTestRule.onRoot().captureRoboImage(filePath = Frame600Dp)
@@ -155,6 +171,13 @@ class LibraryGridBreakpointTest {
             "two tiles must still share every row of the grid at 840 dp",
             (cards.size + 1) / 2,
             rowTops(cards).size
+        )
+
+        composeTestRule.onNodeWithTag("library_grid_degraded_note").assertDoesNotExist()
+        assertTrue(
+            "a pane that affords the grid must draw TILES: the dense rows' own " +
+                "progress markers must be absent",
+            rowProgressMarkers().isEmpty()
         )
 
         composeTestRule.onRoot().captureRoboImage(filePath = Frame840Dp)
@@ -220,6 +243,25 @@ class LibraryGridBreakpointTest {
             }
     }
 
+    /**
+     * The `library_row_progress_<id>` tags of the laid-out DENSE ROWS.
+     *
+     * `LibraryDenseRow` draws that hairline for every started book and nothing
+     * else does, so the tag is the one marker that separates "the list" from
+     * "tiles" — including from a ONE-column grid of tiles, which is stacked
+     * exactly like the list. It has to be read from the UNMERGED tree: the row
+     * clears its descendants' semantics for TalkBack.
+     */
+    private fun rowProgressMarkers(): List<String> {
+        val matcher = SemanticsMatcher("testTag starts with library_row_progress_") { node ->
+            node.config.getOrNull(SemanticsProperties.TestTag)
+                ?.startsWith("library_row_progress_") == true
+        }
+        return composeTestRule.onAllNodes(matcher, useUnmergedTree = true)
+            .fetchSemanticsNodes()
+            .mapNotNull { it.config.getOrNull(SemanticsProperties.TestTag) }
+    }
+
     /** The distinct tops of the laid-out cards: one per grid row. */
     private fun rowTops(cards: List<DpRect>): Set<Int> =
         cards.map { it.top.value.roundToInt() }.toSet()
@@ -243,9 +285,10 @@ class LibraryGridBreakpointTest {
 }
 
 /**
- * Four books, deterministic and cover-less: enough for two tile rows in a pane
- * that affords them, and long titles so a squeezed tile would be visible as an
- * ellipsis rather than as a crop.
+ * Four books, deterministic and cover-less, every one STARTED: enough for two
+ * tile rows in a pane that affords them, long titles so a squeezed tile would
+ * be visible as an ellipsis rather than as a crop, and progress rows so each
+ * dense row carries the `library_row_progress_<id>` marker the assertions read.
  */
 private val fixtureLibrary: List<LibraryBook> by lazy {
     val template = TestDataFactory.dataBooks().first()
@@ -259,18 +302,21 @@ private val fixtureLibrary: List<LibraryBook> by lazy {
             totalDurationSeconds = 36_000L
         )
     }
+    // EVERY fixture book is started: the dense row draws its own
+    // `library_row_progress_<id>` hairline only for a started book, and that
+    // tag is the marker the assertions use to tell a row from a tile.
     buildLibraryBooks(
         entities,
-        listOf(
+        entities.mapIndexed { index, entity ->
             PlaybackProgressEntity(
-                editionId = "edition-grid-fixture-1",
-                bookId = "grid-fixture-1",
+                editionId = "edition-${entity.id}",
+                bookId = entity.id,
                 currentChapterIndex = 1,
-                currentPositionSeconds = 3_600L,
+                currentPositionSeconds = 3_600L * (index + 1),
                 lastListenedAt = TestDataFactory.FIXED_CLOCK_MS,
                 isCompleted = false
             )
-        ),
+        },
         emptyMap()
     )
 }

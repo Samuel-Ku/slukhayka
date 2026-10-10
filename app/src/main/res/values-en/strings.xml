@@ -578,6 +578,9 @@
     <string name="lib_filter">Filter</string>
     <string name="lib_no_results_title">Nothing found</string>
     <string name="lib_no_results_body">Try another filter or change your search query.</string>
+    <!-- #1206 — parity for the degraded-grid reason the pane shows when the
+         two-column grid cannot fit (see values/strings.xml). -->
+    <string name="lib_grid_pane_too_narrow">The pane is too narrow for the grid — showing the list</string>
     <string name="lib_audiobook_fallback">Audiobook</string>
     <string name="lib_source_local">Local</string>
     <string name="lib_continue_label">CONTINUE</string>

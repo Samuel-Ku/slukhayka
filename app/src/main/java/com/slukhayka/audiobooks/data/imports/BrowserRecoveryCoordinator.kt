@@ -73,7 +73,20 @@ class BrowserRecoveryCoordinator(
             val isNewImport: Boolean = false,
             /** #470 — the structure repair ran automatically (no dialog). */
             val autoRepairedStructure: Boolean = false
-        ) : Outcome
+        ) : Outcome {
+            /**
+             * #701 (US45) — does this success count as a RESCUE of a broken
+             * source?
+             *
+             * A recovery of an EXISTING book is one: the listener's own copy
+             * was just made playable again. A success that is a NEW import is
+             * the browser door doing its ordinary job — nothing was broken, so
+             * nothing was rescued, and «Відновлювач» must not be handed out for
+             * a first import (ADR-0014). The decision lives here, beside the
+             * fact it reads, so the caller cannot re-derive it differently.
+             */
+            val isRescue: Boolean get() = !isNewImport
+        }
 
         data class Failure(
             val message: String,

@@ -10,14 +10,14 @@ import com.slukhayka.audiobooks.data.collections.CollectionMatcher
  * ВЛАСНІ твори серії»: the full membership of a series exists only online
  * (`fetchSeriesBooks` caches it in memory), so a promise about the whole world
  * could never be kept from local data. What CAN be proven locally is that
- * every own book of the series was finished — which is exactly what the cycles
- * shelf already counts (`PersonalCycles.finished`), and this rule reuses its
- * series identity (the normalized title, ADR-0012) rather than inventing a
- * second one.
+ * every own book of the series was finished — and this rule reuses the series
+ * IDENTITY the cycles shelf groups by (the normalized title,
+ * `PersonalCycles.finished`, ADR-0012) rather than inventing a second one.
  *
- * Completion is the recorded end-of-book event ([OwnLibraryBook.completedAt]),
- * never `playback_progress.isCompleted`: ADR-0060 accepts only the event, and a
- * hand-set mark must not finish a series.
+ * Completion, however, is STRICTER than the shelf's: the recorded end-of-book
+ * event ([OwnLibraryBook.completedAt]), never `playback_progress.isCompleted`.
+ * ADR-0060 accepts only the event, and a hand-set «Прослухано» must not finish
+ * a series.
  */
 object PersonalSeries {
 

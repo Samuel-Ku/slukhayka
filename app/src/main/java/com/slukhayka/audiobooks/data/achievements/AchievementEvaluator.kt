@@ -241,8 +241,12 @@ data class AchievementProgress(
      * entirely — every own book of the series carries a recorded completion.
      *
      * The full membership of a series is not in the database (it lives online),
-     * so the owner's reading (#701) is the own-books one the cycles shelf
-     * already counts (`PersonalCycles.finished`). See [PersonalSeries].
+     * so the owner's reading (#701) is the own-books one. The series IDENTITY is
+     * the cycles shelf's (`PersonalCycles.finished` groups by the normalized
+     * title, ADR-0012), but the COMPLETION here is STRICTER: the recorded
+     * end-of-book event, never `playback_progress.isCompleted` — ADR-0060
+     * accepts only the event, and a hand-set «Прослухано» must not finish a
+     * series. See [PersonalSeries].
      */
     val completedSeries: Long = 0,
     /**

@@ -2271,13 +2271,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // playback verdict; keep that opened track installed.
                         _showFullPlayer.value = true
                         // #701 (US45) — «Відновлювач», the browser-recovery
-                        // door: an EXISTING book's source was really rescued
-                        // (the coordinator's success carries a factual playback
-                        // verdict). A success that is a NEW import is the
-                        // browser door doing its ordinary job, not a rescue, so
-                        // it writes nothing — the stream self-heal writes the
-                        // SAME fact (App.kt), and one award reads both.
-                        if (!outcome.isNewImport) {
+                        // door. A SUCCESS is not by itself a rescue: an
+                        // ordinary URL recovery carries a factual playback
+                        // verdict, while an automatic topology repair
+                        // (`autoRepairedStructure`) is published paused and has
+                        // none — both still restored a source the listener
+                        // already had, which is what the award is about. A
+                        // success that is a NEW import is the browser door doing
+                        // its ordinary job, so it writes nothing
+                        // (`Outcome.Success.isRescue` owns that reading). The
+                        // stream self-heal writes the SAME fact (App.kt), and
+                        // one award reads both.
+                        if (outcome.isRescue) {
                             App.instance.recordAchievementFact(
                                 com.slukhayka.audiobooks.data.achievements.AchievementFact.SOURCE_RECOVERED
                             )

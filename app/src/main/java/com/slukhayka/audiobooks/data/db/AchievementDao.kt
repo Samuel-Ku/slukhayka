@@ -5,11 +5,12 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import com.slukhayka.audiobooks.data.entries.PERSONAL_ORIGIN_SQL_LIST
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AchievementDao {
-    @Query("SELECT COUNT(*) FROM library_entries WHERE origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')")
+    @Query("SELECT COUNT(*) FROM library_entries WHERE origin IN ($PERSONAL_ORIGIN_SQL_LIST)")
     fun observeExplicitBooks(): Flow<Long>
     @Query("SELECT COALESCE(SUM(verifiedListenedMillis),0) FROM listening_stats")
     fun observeVerifiedListeningMillis(): Flow<Long>
@@ -357,14 +358,17 @@ interface AchievementDao {
      * OWN means the listener really saved or imported the row (ADR-0060): an
      * AUTO_SEED / CATALOG_SYNC / UNKNOWN entry is a mirror of the catalogue,
      * not a choice, so it can neither complete a series nor cover a curated
-     * collection. The `origin IN (...)` filter is the same one
-     * [observeExplicitBooks] counts.
+     * collection. The filter is [PERSONAL_ORIGIN_SQL_LIST] — the same rule
+     * [observeExplicitBooks] counts, spelled once beside
+     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.isPersonal].
      *
-     * [completedAt] is the FIRST real end-of-book event (`MIN(timestamp)`), not
-     * a flag: ADR-0060 accepts only the recorded completion, and «По порядку»
-     * needs the instant the listener finished the tome to sort the sequence.
-     * A second pass at the same book does not move it — the first finish is
-     * when the tome was taken.
+     * [completedAt] is the earliest SURVIVING end-of-book event
+     * (`MIN(timestamp)`), not necessarily the first one ever written:
+     * `PlaybackEventPolicy` protects only the newest
+     * [PlaybackEventPolicy.PROTECTED_COMPLETION_EVENTS] COMPLETED rows per
+     * (book, source), so a third pass can prune the original finish and move
+     * this instant forward. It stays a recorded event either way — never a
+     * flag (ADR-0060) — and it is the same instant the second-pass award reads.
      *
      * The identity comes from the Work, with the book row as the fallback for a
      * local import that has no Works row; both title and author are read from
@@ -386,7 +390,7 @@ interface AchievementDao {
             "FROM library_entries le " +
             "LEFT JOIN works w ON w.id = le.workId " +
             "LEFT JOIN audiobooks a ON a.id = le.id " +
-            "WHERE le.origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')"
+            "WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)"
     )
     fun observeOwnLibraryBooks(): Flow<List<com.slukhayka.audiobooks.data.achievements.OwnLibraryBook>>
 

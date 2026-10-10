@@ -5,11 +5,12 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import com.slukhayka.audiobooks.data.entries.PERSONAL_ORIGIN_SQL_LIST
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AchievementDao {
-    @Query("SELECT COUNT(*) FROM library_entries WHERE origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')")
+    @Query("SELECT COUNT(*) FROM library_entries WHERE origin IN ($PERSONAL_ORIGIN_SQL_LIST)")
     fun observeExplicitBooks(): Flow<Long>
     @Query("SELECT COALESCE(SUM(verifiedListenedMillis),0) FROM listening_stats")
     fun observeVerifiedListeningMillis(): Flow<Long>
@@ -96,8 +97,14 @@ interface AchievementDao {
     fun observeSessionStartTimes(): Flow<List<Long>>
 
     /**
-     * #703 (T5) — «Старовинна»: books finished at least a YEAR after they were
-     * added to the library.
+     * #703 (T5) — «Старовинна»: books finished MORE than a year after they
+     * were added to the library.
+     *
+     * The edge is STRICT by the owner's decision in #1182: the award says
+     * «понад рік», so a book added exactly 365 days before it was finished is
+     * not «Старовинна» — it takes one more millisecond. The previous wording
+     * here ("at least a YEAR") named the other side of that 1 ms edge; the
+     * query itself never changed.
      *
      * Both ends are historical facts (the completion's timestamp and the
      * entry's `createdAt`), so this needs no "now" and cannot drift as time
@@ -126,8 +133,11 @@ interface AchievementDao {
     fun observeReturnsAfterBreak(): Flow<Long>
 
     /**
-     * #703 (T5) — «Ніколи не пізно»: books FINISHED two years or more after
-     * they were first opened.
+     * #703 (T5) — «Ніколи не пізно»: books FINISHED more than two years after
+     * they were first opened. The edge is STRICT (`> 730 days`, #1182): a book
+     * opened exactly two years before the completion is not «Ніколи не пізно»,
+     * it needs one more millisecond — the same 1 ms edge the vintage award has,
+     * and the earlier "two years or more" named the wrong side of it.
      *
      * Absolute, like the vintage award: both the completion and the first
      * session are recorded facts, so nothing here depends on the day it runs.
@@ -282,6 +292,21 @@ interface AchievementDao {
     @Query("SELECT COUNT(DISTINCT type) FROM sources")
     fun observeUsedSourceDoors(): Flow<Long>
 
+    /**
+     * #1175 (US42) — every library row that came through a source: the book,
+     * the door (`sources.type`, the persisted registry id) and WHEN that row
+     * arrived.
+     *
+     * `addedAt` is the arrival of the BOOK, not the appearance of the source:
+     * the source's own date is a registry fact (`SourceFacts.appearedOn`,
+     * ADR-0038), so no column here carries it and no migration is needed.
+     * Nothing is grouped in SQL for the same reason — the registry is Kotlin,
+     * so the thirty-day window is decided in
+     * [com.slukhayka.audiobooks.data.achievements.NewWave].
+     */
+    @Query("SELECT s.bookId AS bookId, s.type AS sourceType, s.addedAt AS addedAt FROM sources s")
+    fun observeSourceArrivals(): Flow<List<com.slukhayka.audiobooks.data.achievements.SourceArrival>>
+
     /** #700 (T2) — every bookmark the listener placed, notes or not. */
     @Query("SELECT COUNT(*) FROM bookmarks")
     fun observeBookmarks(): Flow<Long>
@@ -335,6 +360,80 @@ interface AchievementDao {
     )
     fun observeBooksFinishedTwice(): Flow<Long>
 
+    /**
+     * #701 (T3) — every OWN library book with the Work identity the series,
+     * universe and collection rules read.
+     *
+     * OWN means the listener really saved or imported the row (ADR-0060): an
+     * AUTO_SEED / CATALOG_SYNC / UNKNOWN entry is a mirror of the catalogue,
+     * not a choice, so it can neither complete a series nor cover a curated
+     * collection. The filter is [PERSONAL_ORIGIN_SQL_LIST] — the same rule
+     * [observeExplicitBooks] counts, spelled once beside
+     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.isPersonal].
+     *
+     * [completedAt] is the earliest SURVIVING end-of-book event
+     * (`MIN(timestamp)`), not necessarily the first one ever written:
+     * `PlaybackEventPolicy` protects only the newest
+     * [PlaybackEventPolicy.PROTECTED_COMPLETION_EVENTS] COMPLETED rows per
+     * (book, source), so a third pass can prune the original finish and move
+     * this instant forward. It stays a recorded event either way — never a
+     * flag (ADR-0060) — and it is the same instant the second-pass award reads.
+     *
+     * The identity comes from the Work, with the book row as the fallback for a
+     * local import that has no Works row; both title and author are read from
+     * the SAME source, so a mixed pair can never be assembled. The final `''`
+     * covers the row that has NEITHER — a Library Entry whose book row is gone
+     * (a migration state the older schemas allow) reads as an empty identity,
+     * which matches no curated entry instead of crashing the whole snapshot.
+     * `seriesUrl` rides along because the universe matcher is URL-first
+     * (ADR-0038 keeps the series page's URL a real claim), and `seriesIndex`
+     * because the order rule reads `works.seriesIndex` and nothing else.
+     */
+    @Query(
+        "SELECT le.id AS bookId, le.workId AS workId, " +
+            "COALESCE(NULLIF(w.title, ''), a.title, '') AS title, " +
+            "COALESCE(NULLIF(w.author, ''), a.author, '') AS author, " +
+            "w.seriesTitle AS seriesTitle, w.seriesUrl AS seriesUrl, w.seriesIndex AS seriesIndex, " +
+            "(SELECT MIN(e.timestamp) FROM playback_events e " +
+            "WHERE e.bookId = le.id AND e.kind='COMPLETED') AS completedAt " +
+            "FROM library_entries le " +
+            "LEFT JOIN works w ON w.id = le.workId " +
+            "LEFT JOIN audiobooks a ON a.id = le.id " +
+            "WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)"
+    )
+    fun observeOwnLibraryBooks(): Flow<List<com.slukhayka.audiobooks.data.achievements.OwnLibraryBook>>
+
+    /**
+     * #701 (T3) — the persisted source types the listener actually has rows
+     * from, as a SET rather than a count.
+     *
+     * «Усі двері» has to compare them against the registry's own list, which is
+     * Kotlin, so the comparison cannot happen in SQL — the same reason the
+     * thirty-day window of «Нова хвиля» is decided in Kotlin. A source row only
+     * exists once a book came through it, so these are doors really used, not
+     * doors merely offered.
+     */
+    @Query("SELECT DISTINCT type FROM sources")
+    fun observeUsedSourceTypes(): Flow<List<String>>
+
+    /**
+     * #701 (US46) — «Той самий голос»: renditions the listener holds in TWO OR
+     * MORE sources.
+     *
+     * No new fact is needed (owner's decision, #701): `editions.id` hashes
+     * `mergeKey|narrator|language`, so two `sources` rows carrying one
+     * editionId ARE the same narration from two doors. DISTINCT on `type` is
+     * what makes "two sources" true — two rows of the same source are one door,
+     * and counting them would let a re-import of one book earn the award.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM (" +
+            "SELECT editionId FROM sources " +
+            "WHERE editionId IS NOT NULL AND editionId != '' " +
+            "GROUP BY editionId HAVING COUNT(DISTINCT type) >= 2)"
+    )
+    fun observeSharedNarrations(): Flow<Long>
+
     @Query("SELECT * FROM series_members")
     fun observeKnownSeriesMemberships(): Flow<List<SeriesMemberEntity>>
     @Query("SELECT s.bookId, s.id AS sourceId, s.type AS sourceType, " +
@@ -378,6 +477,69 @@ interface AchievementDao {
 
     @Query("SELECT * FROM achievement_counters ORDER BY `key`")
     fun observeCounters(): Flow<List<AchievementCounterEntity>>
+
+    // --- #1183 (T9b) the measurement layer's own columns --------------------
+    // Every number below is READ from what #1173 already writes; none of it is
+    // derived from something else (ADR-0014). The three day columns start at
+    // zero in v54, so a listener whose hours predate the measurement layer
+    // cannot open these awards by accident.
+
+    /** #1183 (T9b) — verified millis really played from a local source. */
+    @Query("SELECT COALESCE(SUM(offlineListenedMillis),0) FROM listening_stats")
+    fun observeOfflineListeningMillis(): Flow<Long>
+
+    /** #1183 (T9b) — verified millis really played on a Cast receiver. */
+    @Query("SELECT COALESCE(SUM(castListenedMillis),0) FROM listening_stats")
+    fun observeCastListeningMillis(): Flow<Long>
+
+    /** #1183 (T9b) — verified millis written inside the 00:00–04:00 window. */
+    @Query("SELECT COALESCE(SUM(nightListenedMillis),0) FROM listening_stats")
+    fun observeNightListeningMillis(): Flow<Long>
+
+    /**
+     * #1183 (T9b) — the longest session ever and the longest OFFLINE one, in
+     * ONE round trip.
+     *
+     * `playback_sessions` is never pruned (`PlaybackSessionEntity`), which is
+     * what makes both maxima monotone — an award built on them cannot be taken
+     * back by a later quiet week — and also what makes this a full scan: the
+     * table carries no index on either column, and #1183 forbids a migration to
+     * add one. The table is invalidated on every written tick, so the scan
+     * repeats while the listener plays; the two MAXes share one statement to
+     * keep that to a single scan, and the caller collapses equal answers before
+     * the snapshot above is rebuilt (`distinctUntilChanged`), the same way the
+     * download proof skips its file inspection when its rows did not change.
+     */
+    @Query(
+        "SELECT COALESCE(MAX(verifiedMillis),0) AS longestSessionMillis, " +
+            "COALESCE(MAX(offlineMillis),0) AS longestOfflineSessionMillis FROM playback_sessions"
+    )
+    fun observeLongestSessions(): Flow<com.slukhayka.audiobooks.data.achievements.SessionExtremes>
+
+    /**
+     * #1183 (T9b) — when every session STARTED, for «Світанок».
+     *
+     * Only the instants come back; which morning each one belongs to is decided
+     * in Kotlin against the listener's own zone, like the completion times
+     * above — SQL `localtime` cannot be pinned in a test.
+     *
+     * `startedAt` never changes after a row is inserted (only `endedAt` and the
+     * millis are updated in place), so a repeat of the same list is the same
+     * answer: the caller stops it there instead of re-deriving the mornings on
+     * every tick of the session it is watching.
+     */
+    @Query("SELECT startedAt FROM playback_sessions")
+    fun observePlaybackSessionStarts(): Flow<List<Long>>
+
+    /**
+     * #1183 (T9b) — one durable counter, zero while it was never stepped.
+     *
+     * COALESCE on an aggregate rather than a nullable scalar: «never armed» and
+     * «armed zero times» are the same fact for the award, and the snapshot field
+     * is a number.
+     */
+    @Query("SELECT COALESCE(MAX(count),0) FROM achievement_counters WHERE `key` = :key")
+    fun observeCounter(key: String): Flow<Long>
 
     @Query("SELECT * FROM achievements WHERE seenAt IS NULL AND id IN (:knownIds) ORDER BY earnedAt, id LIMIT 1")
     suspend fun pendingNotice(knownIds: Set<String>): AchievementEntity?

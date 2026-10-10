@@ -266,7 +266,23 @@ class AudioPlayerManager(
      * TIMER_STOP event: at a chapter boundary the timer re-arms and that event
      * may never be written (#700).
      */
-    private val onEndOfChapterArmed: () -> Unit = {}
+    private val onEndOfChapterArmed: () -> Unit = {},
+    /**
+     * #701 (US45) — «Відновлювач»: the self-heal really obtained a fresh URL
+     * for the failed chapter and re-prepared with it.
+     *
+     * Called at the ONE point the heal turns into a remedy — after the fresh
+     * URL passed the same-URL and blocked-audio refusals — because that is what
+     * the mechanism's success IS: the page was re-read and a usable URL came
+     * back. A heal that yields nothing reports the honest failure instead
+     * ([reportHealFailed]) and never reaches this callback.
+     *
+     * The YouTube branch is deliberately NOT a caller: a watch URL never
+     * changes, so that path only re-asks the resolver and cannot tell a rescue
+     * from a second failure — recording it would record an attempt, not a
+     * success (ADR-0014).
+     */
+    private val onStreamHealed: (() -> Unit)? = null
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -1198,6 +1214,11 @@ class AudioPlayerManager(
                 failed()
                 return@launch
             }
+            // #701 (US45) — the heal really produced a remedy, so the
+            // «Відновлювач» fact is captured HERE: further down the re-prepare
+            // may still fail, but the mechanism itself did its job, and this is
+            // the last point that can tell the two apart.
+            onStreamHealed?.invoke()
             // ADR-0007: swap the physical track's URL (the pairing the next
             // prepare resolves chapter → track by), then re-prepare the same
             // chapter from the last known position. The budget stays spent so

@@ -49,6 +49,7 @@ ADR-0035) входять локальним Source `youtube` через «+ До
 | Текст заяви | id | Доказ (захоплена сторінка) |
 |---|---|---|
 | «Жахи» | `horror` | 4read — меню жанрів (`/horror/`) у `app/src/test/resources/fixtures/4read-book-7589-2026-09-03.html`; sound-books — категорії (`/zhakhy/`) у `web/src/worker/fixtures/soundbooks-categories.html` |
+| «Попаданці» | `portal-fantasy` | chitaka — піджанр Фантастики (`/zhanryi/fantastika/popadancy/`) у `app/src/test/resources/fixtures/chitaka-zhanryi-2026-10-10.html`; 4read має лише теґ, не жанр. Жанри chitaka застосунок поки не читає (відкладено до #1162), тож чіп прийде з першою жанровою заявою |
 
 Lihtar у захоплених фікстурах слова «жахи» не заявляє, тому рядка немає —
 додати його можна лише з новою фікстурою. Решта записів словника та їхні

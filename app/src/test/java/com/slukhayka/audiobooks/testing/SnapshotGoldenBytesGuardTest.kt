@@ -413,6 +413,33 @@ class SnapshotGoldenBytesGuardTest {
          * `TabHeadersSnapshotTest`, so the Listen, Library and Friends headers
          * have NO golden covering their wordmark. That coverage hole is
          * recorded on #885 rather than papered over here.
+         *
+         * ## One re-pinned on 2026-10-10 (#1165 — the dense row's interaction box)
+         *
+         * The dense library row's clip + `clickable` moved off the title column
+         * and onto the row itself, so the press/focus indication covers the
+         * WHOLE row instead of ending where the trailing «новий»/time column
+         * begins — a listener read that hard edge as a cut-off title.
+         *
+         * Exactly ONE of the nine moved, and the visible delta is the row's own
+         * progress hairline: `.padding(vertical)` sits BEFORE `.clip()` in the
+         * old chain, so the clip box WAS the content box and the 3 dp bar lay
+         * exactly on its bottom edge, inside the 12 dp corner arc — its left
+         * end (the fill) and its right end (the track) were sliced diagonally.
+         * With the clip on the whole row the bar sits 32 dp right of the row's
+         * left edge and 16 dp above its bottom, so it draws its designed 2 dp
+         * caps. The timeline hairline's ends are tapered by ~0.4 dp where the
+         * row's corner now rounds them (a 5x2 px blob per row) — sub-pixel.
+         *
+         * Measured, not eyeballed: 312 differing pixels, bounding box
+         * `750x756+66+771` — the four dense rows' frames. The header, the
+         * search field, the status row and the footer are byte-identical, so
+         * nothing in the frame moved. A forced re-record
+         * (`--rerun --no-build-cache`) reproduced the new bytes exactly, and a
+         * full-partition record left every OTHER golden byte-identical — which
+         * is why this pin moved alone: the change reaches the dense row and
+         * nothing else in the suite (the player, the Explore header and the
+         * home feed are untouched by it).
          */
         val PINS = listOf(
             Pin(
@@ -438,7 +465,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "35f82b14b6380bd01e35e587445179ce" + "373120021a73cf33fb52ef76be14e47b"
+                "a59a4a753b94e6943efbad57089d2270" + "6f0f0e666c8cc202a5497e0d63521dcd"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

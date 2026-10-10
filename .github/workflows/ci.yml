@@ -125,6 +125,57 @@ jobs:
           set -euo pipefail
           scripts/check-base-sync.sh "origin/$BASE_REF" "HEAD"
 
+  lint:
+    name: Android Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: timing-start
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: wrapper
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # `updateLintBaseline` writes the path of the checkout it runs in, so a
+      # baseline regenerated inside a lane worktree pins `.worktrees/<lane>/…`
+      # (or a `$HOME/…` checkout path) into entries that then match nothing —
+      # on CI, and on any other machine. `$GRADLE_USER_HOME/…` is the same trap
+      # one layer down: it points at a transformed artifact in one machine's
+      # Gradle cache, keyed by a hash that the next machine need not share.
+      # Fail loudly instead of letting dead entries accumulate.
+      - name: Refuse a baseline that cites a machine path
+        run: |
+          if grep -qE 'file="[^"]*(\.worktrees/|\$HOME/|\$GRADLE_USER_HOME/)' app/lint-baseline.xml; then
+            echo "::error::app/lint-baseline.xml cites a worktree, home or Gradle-cache path — regenerate it from the repository root, and drop entries that point outside the module"
+            exit 1
+          fi
+
+      # #386 configured Android Lint with a checked-in baseline so that
+      # `lintDebug` passes and CI can adopt it — this job is that adoption. The
+      # baseline absorbs the inherited debt; a NEW issue outside it fails here,
+      # which is the point: mechanical violations stop reaching review.
+      - name: Run Android Lint
+        run: ./gradlew :app:lintDebug
+
   timing-start:
     name: Start workflow timer
     runs-on: ubuntu-latest
@@ -604,7 +655,14 @@ jobs:
           # The action invokes a multiline script one line at a time, so shell
           # variables do not survive between lines. Keep status capture and
           # logcat collection in one repository script instead.
-          script: bash .github/scripts/run-accessibility-test.sh
+          #
+          # This leg fails before the tests now and then — the runner's `adb`
+          # never comes up and `connectedDebugAndroidTest` dies with it — and
+          # every such failure blocks a merge while telling you nothing about
+          # the diff. One retry on the already-booted emulator is cheap; a
+          # failure that happens while BOOTING the AVD still needs a rerun,
+          # because nothing here can reboot it.
+          script: bash .github/scripts/run-accessibility-test.sh || { echo "::warning::first attempt failed — retrying once (this leg flakes before the tests start)"; bash .github/scripts/run-accessibility-test.sh; }
 
       - name: Upload API 35 accessibility results
         if: always()

@@ -1,0 +1,12 @@
+{
+  "work-id.txt": "1fe7065d8ebe70769d48fcd3fbe85f36ffd5475f600d39ddfc7a19f9ef3aacc1",
+  "unprefixed-text.utf8": "9a40dd0a1d09ed1d0bd385c206ffc0791fd5188bb820b5c216227250fc0ba017",
+  "actual-prefixed-text.utf8": "28a4215eb95e81090141b1a2bd3f0d163ee4672c3575623745e9dff55a484ecc",
+  "actual-token-ids.i32be": "08f8a3875183f1642f5bd884eda0d1096d2d74860ca48a3b7630ea55bbce577f",
+  "heap-inputIds.i64be": "36d1b4fcf2dd417c9e8525bad45207cb65d87ef477280d7552d473c9898c5404",
+  "heap-attention.i64be": "5f6bc4765700c5cffabd888fe36a10a7e9edf6251ac7e035ecb37d89789b5398",
+  "heap-tokenTypes.i64be": "7e8fd724013868d6228184629c10df6163e6b259de1777fdfe3d8faf806cee79",
+  "bound-input-0.i64be": "36d1b4fcf2dd417c9e8525bad45207cb65d87ef477280d7552d473c9898c5404",
+  "bound-input-1.i64be": "5f6bc4765700c5cffabd888fe36a10a7e9edf6251ac7e035ecb37d89789b5398",
+  "bound-input-2.i64be": "7e8fd724013868d6228184629c10df6163e6b259de1777fdfe3d8faf806cee79"
+}

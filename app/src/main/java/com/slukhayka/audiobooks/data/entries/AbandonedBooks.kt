@@ -7,6 +7,10 @@ import com.slukhayka.audiobooks.data.db.ReadthroughMapping
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.bookProgress
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /**
@@ -15,6 +19,9 @@ import kotlinx.coroutines.flow.map
  * The DECISION belongs to [ReadthroughPolicy] and [AbandonBookPolicy]; this
  * class reads the book's evidence, asks them, and persists the answer. Two
  * honest outcomes, never a silent success: `Changed` or `Refused`.
+ *
+ * #1174 (друга смуга) adds the third move — [finish], the completion that
+ * takes the mark away and captures the fact the award needs before it does.
  *
  * The mark lives on the book's AUDIO Readthrough, and a pass the mark has to
  * bring into being is written under [readthroughId] — the deterministic id the
@@ -25,7 +32,13 @@ import kotlinx.coroutines.flow.map
 class AbandonedBooks(
     private val dao: AudiobookDao,
     private val listeningState: ListeningStateStore,
-    private val undo: AbandonUndo
+    private val undo: AbandonUndo,
+    /**
+     * #1174 (друга смуга) — the moment a completed book's pass is stamped with.
+     * Injectable for the same reason the store's clock is: a test of the
+     * completion write must not depend on when it runs.
+     */
+    private val now: () -> Long = System::currentTimeMillis
 ) {
 
     sealed interface Result {
@@ -114,9 +127,90 @@ class AbandonedBooks(
     }
 
     /**
-     * The books carrying the mark right now — one flow for both surfaces (the
-     * library badge and the book page's cancel).
+     * #1174 (друга смуга) — завершення книги знімає позначку: a finished book
+     * is not an abandoned one, so the pass the mark sits on goes back to
+     * FINISHED through the SAME policy the reading side uses
+     * ([ReadthroughPolicy.finish]) — the state the mark overwrote is not
+     * invented here (ADR-0014), and a pass that already reads FINISHED is
+     * history and is refused by that policy.
+     *
+     * [onFinishedAfterAbandon] runs BEFORE the row is rewritten and ONLY while
+     * the mark is still on it. That order is the whole point: this is the last
+     * moment the fact «завершив після покинутого» is readable at all, and
+     * «Друге дихання» has to see it — after the write the pass reads FINISHED
+     * and nothing says it was ever abandoned. The callback is therefore a
+     * CAPTURE, not a notification, and it is suspending so the capture can be
+     * durable before the row it talks about stops proving it.
+     *
+     * Called from the two doors where THIS device declares a book finished: the
+     * player's own end-of-book event (which passes the capture) and the manual
+     * «Прослухано» mark (which does not — ADR-0060 reads completion for the
+     * awards as the end-of-book event, never as a hand-set flag).
+     *
+     * @return true when the book carried the mark and the pass now reads
+     *   FINISHED; false when there was nothing to take away — the ordinary
+     *   outcome of finishing a book nobody abandoned, and never an error.
      */
+    suspend fun finish(bookId: String, onFinishedAfterAbandon: suspend (String) -> Unit = {}): Boolean {
+        val stored = abandonedPass(bookId)
+        // A row the strict mapping cannot read is left alone (ADR-0014), and a
+        // book without the mark has nothing to clear: the completion itself
+        // belongs to its own door and is not refused here.
+        val pass = (stored as? StoredPass.Found)?.pass ?: return false
+        val finished = ReadthroughPolicy.finish(pass, at = now()) ?: return false
+        onFinishedAfterAbandon(bookId)
+        persist(finished)
+        // The note described the live mark; the mark is gone (AbandonUndo:
+        // «the cancel consumed it, or the mark is gone»). Forgetting it after
+        // the write keeps the harmless direction on a process death — a note
+        // without a mark is overwritten by the next one, while a mark without a
+        // note would make the cancel guess.
+        undo.forget(bookId)
+        return true
+    }
+
+    /**
+     * #1174 (друга смуга) — the books carrying a LIVE «покинуто» mark: the pass
+     * still says ABANDONED **and** the book is not finished by the ONE
+     * completion rule ([bookProgress] / [isBookFinished]).
+     *
+     * Every surface and the award read THIS flow, so "is this book abandoned?"
+     * has one answer. The filter is not a second definition of "finished": it
+     * calls the same function over the same rows ([playback_progress],
+     * [chapters], [audiobooks]) the abandon door itself reads. What it buys is
+     * the honest answer for the drift the sync door leaves behind — a
+     * completion that arrived from another device writes the Listening State
+     * row and nothing else, so the pass keeps ABANDONED while the book is
+     * finished. A mark no surface can show (the badge and the cancel are hidden
+     * for a finished book) must not close «Не кидаю» forever.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeLiveAbandonedBookIds(): Flow<Set<String>> =
+        dao.observeAbandonedAudioPasses().map { it.toSet() }.distinctUntilChanged()
+            .flatMapLatest { marked ->
+                if (marked.isEmpty()) flowOf(emptySet())
+                else combine(marked.map { bookId -> markIsLive(bookId) }) { live ->
+                    marked.filterIndexed { index, _ -> live[index] }.toSet()
+                }
+            }
+
+    /**
+     * One mark, judged by the shared completion rule: the book is live-abandoned
+     * while its own position (or its own «Прослухано» flag) has not reached the
+     * end. The same three reads the door makes, so the two can never disagree —
+     * and a row that cannot be read at all (no book, no chapters) is NOT
+     * finished, which keeps the mark standing rather than silently dropping it
+     * (ADR-0014).
+     */
+    private fun markIsLive(bookId: String): Flow<Boolean> = combine(
+        dao.getPlaybackProgress(bookId),
+        dao.getChaptersForBook(bookId),
+        dao.observeAudiobookById(bookId)
+    ) { progress, chapters, book ->
+        !bookProgress(chapters, progress, book?.totalDurationSeconds ?: 0L).isFinished
+    }.distinctUntilChanged()
+
+    /** The stored rows, exactly as they are — the base the live answer filters. */
     fun observeAbandonedBookIds(): Flow<Set<String>> =
         dao.observeAbandonedAudioPasses().map { it.toSet() }
 

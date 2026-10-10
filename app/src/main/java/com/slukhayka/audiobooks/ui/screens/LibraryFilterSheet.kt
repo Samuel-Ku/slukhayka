@@ -8,6 +8,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,11 +39,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -59,6 +65,8 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.STATUS_FILTERS
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import kotlinx.coroutines.flow.first
+import kotlin.math.roundToInt
 
 /**
  * spec-28 #193 — the Медіатека filter chrome, split into a visible segmented
@@ -83,6 +91,58 @@ private val FilterChipAccentColors
     )
 
 /**
+ * The row's own content padding — the page-side inset the book grid below also
+ * uses, so the first chip lines up with the list it filters.
+ *
+ * It is deliberately the SAME number the reveal uses as the margin a revealed
+ * chip keeps: one inset, so a chip that was just scrolled into view can never
+ * end up flush against the window edge.
+ */
+private val StatusRowPadding = AppDimens.PageSides
+
+/**
+ * #1165 — where the row's chips sit inside its viewport, in pixels.
+ *
+ * Recorded from the layout phase ([Modifier.onGloballyPositioned]) and read by
+ * the reveal effect. Deliberately NOT snapshot state: nothing is drawn from it,
+ * so recording a position must not invalidate composition — and the positions
+ * themselves move with the scroll, which is why only the effect, running on a
+ * selection change, reads them.
+ */
+private class StatusRowGeometry {
+    private var viewportLeft = 0f
+    private val chips = HashMap<LibraryFilter, ClosedFloatingPointRange<Float>>()
+    private var trailing: ClosedFloatingPointRange<Float>? = null
+
+    /** The scroll container itself: the chips are measured against its edge. */
+    fun recordViewport(coordinates: LayoutCoordinates) {
+        viewportLeft = coordinates.positionInRoot().x
+    }
+
+    fun recordStatus(filter: LibraryFilter, coordinates: LayoutCoordinates) {
+        chips[filter] = inViewport(coordinates)
+    }
+
+    fun recordTrailing(coordinates: LayoutCoordinates) {
+        trailing = inViewport(coordinates)
+    }
+
+    /**
+     * The chip that CARRIES [selected]: its own status chip, or — when the
+     * selection is a rare filter — the launcher at the row's end, which is the
+     * control that draws that selection and therefore the one that must read in
+     * full.
+     */
+    fun edgesOf(selected: LibraryFilter): ClosedFloatingPointRange<Float>? =
+        chips[selected] ?: trailing?.takeIf { selected !in STATUS_FILTERS }
+
+    private fun inViewport(coordinates: LayoutCoordinates): ClosedFloatingPointRange<Float> {
+        val left = coordinates.positionInRoot().x - viewportLeft
+        return left..(left + coordinates.size.width)
+    }
+}
+
+/**
  * The visible segmented status row: five one-tap statuses, horizontally
  * scrollable so a narrow screen never wraps them onto a second line (design
  * guide §6.3). A plain `Row` + `horizontalScroll` (not a `LazyRow`) so every
@@ -90,12 +150,26 @@ private val FilterChipAccentColors
  *
  * UI (v1.5 review): the FlowRow detour is gone. Wrapping «Завантажені» onto a
  * second line and «Фільтр» onto a third was exactly the stacked chrome the
- * design guide forbids; the partially visible edge chip is the scroll
+ * design guide forbids; a chip left half-visible at an edge is the scroll
  * affordance, not a broken chip.
  *
- * [trailing] carries the «Фільтр» launcher on the same line, and [scrollState]
- * lets the screen scroll it into view whenever a rare filter is active — a
- * non-default filter must never be selected off-screen.
+ * #1165 — that affordance has ONE exception: the chip that carries the
+ * selection. The row is wider than the window, so a selected last chip would
+ * sit half under the window edge — unreadable, and the active filter is exactly
+ * the label the listener needs. On every selection change the row therefore
+ * scrolls as far as that chip needs to sit fully inside the viewport, keeping
+ * the row's own content padding as the margin — its own chip, or the [trailing]
+ * launcher while a rare filter is active.
+ *
+ * What that costs is visible, and it is NOT a promise that hand-scrolling is
+ * sacred: a row the listener scrolled by hand moves only when the newly
+ * selected chip is not already fully visible — and revealing the LAST chip
+ * scrolls the FIRST one («Усі») out of the row entirely, so the affordance is
+ * gone on the left. #390 fixed this same chip by eye and left no test, which is
+ * how the #885 redesign brought it back; `LibraryStatusRowVisibilityTest` is
+ * that test now.
+ *
+ * [trailing] carries the «Фільтр» launcher on the same line.
  */
 @Composable
 fun LibraryStatusRow(
@@ -104,14 +178,44 @@ fun LibraryStatusRow(
     scrollState: ScrollState = rememberScrollState(),
     trailing: (@Composable () -> Unit)? = null
 ) {
+    val geometry = remember { StatusRowGeometry() }
+    val revealMargin = with(LocalDensity.current) { StatusRowPadding.roundToPx() }
+
+    LaunchedEffect(selected, scrollState) {
+        // The viewport size is only known once the row has been measured, and
+        // the chip edges are recorded in that same layout pass. The frame wait
+        // then puts the read past the layout that follows a selection change —
+        // the launcher's own label changes width there — so the edges below
+        // belong to the selection being revealed.
+        val viewport = snapshotFlow { scrollState.viewportSize }.first { it > 0 }
+        withFrameNanos { }
+        val edges = geometry.edgesOf(selected) ?: return@LaunchedEffect
+        val shift = when {
+            // Sticks out on the right: pull it back by the overhang.
+            edges.endInclusive > viewport - revealMargin ->
+                edges.endInclusive - (viewport - revealMargin)
+            // Sticks out on the left: push it in.
+            edges.start < revealMargin -> -(revealMargin - edges.start)
+            // This selection is readable in full already, so it asks for no
+            // scroll: the position the listener set by hand stays as it is.
+            else -> return@LaunchedEffect
+        }
+        scrollState.animateScrollTo(
+            (scrollState.value + shift).roundToInt().coerceIn(0, scrollState.maxValue)
+        )
+    }
+
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.material3.LocalMinimumInteractiveComponentSize provides AppDimens.MinTouchTarget
     ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // #1165 — the viewport's own origin, so every chip can be read as a
+            // position inside the row rather than somewhere in the window.
+            .onGloballyPositioned { geometry.recordViewport(it) }
             .horizontalScroll(scrollState)
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = StatusRowPadding)
             .testTag("library_status_row"),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -142,11 +246,16 @@ fun LibraryStatusRow(
                 modifier = Modifier
                     .heightIn(min = 36.dp)
                     .testTag("library_status_${f.name.lowercase()}")
+                    .onGloballyPositioned { geometry.recordStatus(f, it) }
             )
         }
         if (trailing != null) {
             Spacer(modifier = Modifier.width(4.dp))
-            trailing()
+            // #1165 — the launcher's own edges: while a rare filter is active
+            // this chip IS the selection, so it is revealed like a status chip.
+            Box(modifier = Modifier.onGloballyPositioned { geometry.recordTrailing(it) }) {
+                trailing()
+            }
         }
     }
     }

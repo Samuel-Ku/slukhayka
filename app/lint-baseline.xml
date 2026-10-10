@@ -67,335 +67,35 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ActivityManager#getHistoricalProcessExitReasons`"
-        errorLine1="        val info = activityManager.getHistoricalProcessExitReasons(null, 0, 1).firstOrNull()"
-        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="80"
-            column="36"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ApplicationExitInfo#getProcessStateSummary`"
-        errorLine1="        val summary = info.processStateSummary ?: return null"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="82"
-            column="28"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ApplicationExitInfo#getTimestamp`"
-        errorLine1="            timestampMillis = info.timestamp,"
-        errorLine2="                                   ~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="85"
-            column="36"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ApplicationExitInfo#getReason`"
-        errorLine1="            reason = info.reason.toBoundedReason(),"
-        errorLine2="                          ~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="86"
-            column="27"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ApplicationExitInfo#getStatus`"
-        errorLine1="            status = info.status,"
-        errorLine2="                          ~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="87"
-            column="27"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ApplicationExitInfo#getImportance`"
-        errorLine1="            importance = info.importance.toBoundedImportance(),"
-        errorLine2="                              ~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="88"
-            column="31"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ApplicationExitInfo#getRss`"
-        errorLine1="            rssKb = info.rss,"
-        errorLine2="                         ~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="89"
-            column="26"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.app.ApplicationExitInfo#getPss`"
-        errorLine1="            pssKb = info.pss,"
-        errorLine2="                         ~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/diagnostics/AndroidProcessExitHistory.kt"
-            line="90"
-            column="26"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#getNotificationChannel`"
-        errorLine1="        if (nm.getNotificationChannel(CHANNEL_ID) == null) {"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="82"
-            column="16"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel()`"
-        errorLine1="            nm.createNotificationChannel(NotificationChannel("
-        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="83"
-            column="42"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#createNotificationChannel`"
-        errorLine1="            nm.createNotificationChannel(NotificationChannel("
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="83"
-            column="16"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setDescription`"
-        errorLine1="                description = getString(R.string.download_notification_channel_description)"
-        errorLine2="                ~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="87"
-            column="17"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setDescription`"
-        errorLine1="                description = getString(R.string.download_notification_channel_description)"
-        errorLine2="                            ~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="87"
-            column="29"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setShowBadge`"
-        errorLine1="                setShowBadge(false)"
-        errorLine2="                ~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="88"
-            column="17"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#getNotificationChannel`"
-        errorLine1="        if (nm.getNotificationChannel(CHANNEL_ID) == null) {"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="131"
-            column="16"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel()`"
-        errorLine1="            nm.createNotificationChannel(NotificationChannel("
-        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="132"
-            column="42"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#createNotificationChannel`"
-        errorLine1="            nm.createNotificationChannel(NotificationChannel("
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="132"
-            column="16"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setDescription`"
-        errorLine1="                description = getString(R.string.download_notification_channel_description)"
-        errorLine2="                ~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="136"
-            column="17"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setDescription`"
-        errorLine1="                description = getString(R.string.download_notification_channel_description)"
-        errorLine2="                            ~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="136"
-            column="29"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setShowBadge`"
-        errorLine1="                setShowBadge(false)"
-        errorLine2="                ~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="137"
-            column="17"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.content.Context#startForegroundService`"
-        errorLine1="            ctx.startForegroundService(Intent(ctx, DownloadNotificationService::class.java).apply {"
-        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/downloads/DownloadNotificationService.kt"
-            line="230"
-            column="17"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 33, or core library desugaring (current min is 24): `java.net.URLEncoder#encode`"
-        errorLine1="            baseUrl + QUERY_PARAM_URL + URLEncoder.encode(targetUrl, Charsets.UTF_8)"
-        errorLine2="                                                   ~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/privacy/NetworkRoute.kt"
-            line="51"
-            column="52"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#getNotificationChannel`"
-        errorLine1="            if (manager.getNotificationChannel(CHANNEL_ID) == null) {"
-        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/personbookmarks/PeopleNewArrivalWorker.kt"
-            line="73"
-            column="25"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel()`"
-        errorLine1="                manager.createNotificationChannel(NotificationChannel("
-        errorLine2="                                                  ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/personbookmarks/PeopleNewArrivalWorker.kt"
-            line="74"
-            column="51"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#createNotificationChannel`"
-        errorLine1="                manager.createNotificationChannel(NotificationChannel("
-        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/personbookmarks/PeopleNewArrivalWorker.kt"
-            line="74"
-            column="25"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 33 (current min is 24): `java.util.Enumeration#asIterator`"
-        errorLine1="        NetworkInterface.getNetworkInterfaces()?.asIterator()?.asSequence()"
-        errorLine2="                                                 ~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/player/PlaybackProxy.kt"
-            line="154"
-            column="50"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 33 (current min is 24): `java.util.Enumeration#asIterator`"
-        errorLine1="            ?.flatMap { it.inetAddresses.asIterator().asSequence() }"
-        errorLine2="                                         ~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/player/PlaybackProxy.kt"
-            line="156"
-            column="42"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#getNotificationChannel`"
-        errorLine1="        if (manager.getNotificationChannel(CHANNEL_ID) == null) {"
-        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/watch/SourceWatchNotifier.kt"
-            line="110"
-            column="21"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel()`"
-        errorLine1="            manager.createNotificationChannel(NotificationChannel("
-        errorLine2="                                              ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/watch/SourceWatchNotifier.kt"
-            line="111"
-            column="47"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#createNotificationChannel`"
-        errorLine1="            manager.createNotificationChannel(NotificationChannel("
-        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/data/watch/SourceWatchNotifier.kt"
-            line="111"
-            column="21"/>
-    </issue>
 
     <issue
         id="RequiresFeature"

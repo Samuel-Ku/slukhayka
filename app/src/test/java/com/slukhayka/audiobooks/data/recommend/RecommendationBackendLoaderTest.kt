@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.recommend
 
 import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -81,6 +82,37 @@ class RecommendationBackendLoaderTest {
             "R1_RUNTIME_CANCELLATION_MUST_PROPAGATE_INSTALLED_FACTORY_EXCEPTION",
             cancellation,
             propagated
+        )
+    }
+
+    @Test
+    fun `installed backend linkage failure selects the actual simplified backend`() {
+        val linkage = UnsatisfiedLinkError("neutral native loading failure")
+        val loader = RecommendationBackendLoader(
+            installedFactory = { throw linkage },
+            bundledFactory = { null }
+        )
+        var escaped: UnsatisfiedLinkError? = null
+        val loaded = try {
+            loader.load()
+        } catch (error: UnsatisfiedLinkError) {
+            escaped = error
+            null
+        }
+
+        assertNull("R1_RUNTIME_NATIVE_LINKAGE_FAILURE_MUST_SELECT_RECOVERY_BACKEND", escaped)
+        val backend = requireNotNull(loaded)
+        assertTrue(backend.embedder is KeywordEmbedder)
+        assertEquals(
+            RecommendationBackendStatus.Keyword(
+                RecommendationBackendFailure.LOAD_FAILED,
+                RecommendationBackendFailure.UNAVAILABLE
+            ),
+            backend.status
+        )
+        assertEquals(
+            RecommendationModelMode.SIMPLIFIED,
+            RecommendationModelPolicy.mode(EmbeddingModelState.Installed, backend.status)
         )
     }
 }

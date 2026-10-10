@@ -69,6 +69,8 @@ class RecommendationBackendLoader(
         Attempt(factory(), RecommendationBackendFailure.UNAVAILABLE)
     } catch (cancelled: CancellationException) {
         throw cancelled
+    } catch (e: LinkageError) {
+        Attempt(null, RecommendationBackendFailure.LOAD_FAILED)
     } catch (e: Exception) {
         Attempt(null, RecommendationBackendFailure.LOAD_FAILED)
     }

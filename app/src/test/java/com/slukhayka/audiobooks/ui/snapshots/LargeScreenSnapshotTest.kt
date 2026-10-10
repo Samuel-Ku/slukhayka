@@ -11,18 +11,30 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.AdaptiveNavigationLayout
 import com.slukhayka.audiobooks.AppBottomBarSlot
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.adaptive.WindowLayout
 import com.slukhayka.audiobooks.ui.adaptive.isLandscapePhoneWindow
+import com.slukhayka.audiobooks.ui.adaptive.showsPlayerPane
+import com.slukhayka.audiobooks.ui.adaptive.windowLayoutFor
 import com.slukhayka.audiobooks.ui.components.AppSettingsGear
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
+import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.PlayerPane
+import com.slukhayka.audiobooks.ui.screens.PlayerScreenContent
+import com.slukhayka.audiobooks.ui.screens.calculatePlayerProgress
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import org.junit.Rule
@@ -194,6 +206,208 @@ class LargeScreenSnapshotTest {
             filePath = "$frameDir/portrait-phone-full-header.png"
         )
     }
+
+    /**
+     * #1205 — the 840 dp line, as two frames of the SAME wiring: at 840 dp the
+     * player takes the right-hand pane beside the rail and the content, and at
+     * 839 dp the same player covers the window. Both are 1000 dp tall, so the
+     * only thing between them is the width the owner's decision draws at.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
+    fun large_player_pane() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { PlayerBoundaryFrame(widthDp = 840) }
+        }
+
+        composeTestRule.onNodeWithTag("player_pane", useUnmergedTree = true)
+            .assertIsDisplayed()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "$frameDir/large-player-pane.png"
+        )
+    }
+
+    /** The same window one dp below the line: the player is the whole screen. */
+    @Test
+    @Config(qualifiers = "uk-rUA-w839dp-h1000dp-420dpi", sdk = [36])
+    fun player_full_screen_below_the_line() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) { PlayerBoundaryFrame(widthDp = 839) }
+        }
+
+        composeTestRule.onNodeWithTag("player_pane", useUnmergedTree = true)
+            .assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "$frameDir/player-full-screen-839dp.png"
+        )
+    }
+
+    /**
+     * #1205 decision 2 — the mini-player's own delta: with room beside the
+     * content the bar is NOT the full-width strip under the rail any more, it
+     * sits in the leading column under the rail, and the content column keeps
+     * the window's whole height.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
+    fun large_leading_mini_player() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    AdaptiveNavigationLayout(
+                        layout = WindowLayout.EXPANDED,
+                        selectedTab = SelectedTab.LIBRARY,
+                        bookDetailOpen = false,
+                        onSelect = {},
+                        miniPlayer = {
+                            MiniPlayerBar(
+                                playerState = miniPlayerState,
+                                onPlayPauseClick = {},
+                                onPreviousClick = {},
+                                onSkipNextClick = {},
+                                onCloseClick = {},
+                                onBarClick = {}
+                            )
+                        }
+                    ) {
+                        PanePlaceholder("Мої книги", "840 dp · смуга під рейлом")
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("mini_player_bar", useUnmergedTree = true)
+            .assertIsDisplayed()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "$frameDir/large-leading-mini-player.png"
+        )
+    }
+
+    /**
+     * The app's own wiring at this width, mirrored: [AdaptiveNavigationLayout]
+     * leads with the rail, and INSIDE the content area it leads (exactly where
+     * the Scaffold's padded content box sits) the player is either the right
+     * pane ([PlayerPane], the slot the opened book's page holds) or — below the
+     * line — the full-screen surface drawn over the whole window, which is what
+     * MainActivity's outer `AnimatedVisibility` does.
+     *
+     * The real [PlayerScreenContent] is used, so the frame shows the player
+     * itself and not a placeholder; the content beside it stays a placeholder
+     * because a MainViewModel-composing frame belongs to the Room/Robolectric
+     * partition (see the note above).
+     */
+    @Composable
+    private fun PlayerBoundaryFrame(widthDp: Int) {
+        val paneOpen = showsPlayerPane(widthDp = widthDp, playerOpen = true)
+
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AdaptiveNavigationLayout(
+                    layout = windowLayoutFor(widthDp),
+                    selectedTab = SelectedTab.LIBRARY,
+                    bookDetailOpen = true,
+                    onSelect = {}
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        val content: @Composable () -> Unit = {
+                            PanePlaceholder("Мої книги", "$widthDp dp · рейл ліворуч")
+                        }
+                        if (paneOpen) {
+                            PlayerPane(
+                                playerPaneTitle = "Плеєр",
+                                content = content,
+                                player = { PlayerBody() }
+                            )
+                        } else {
+                            content()
+                        }
+                    }
+                }
+                if (!paneOpen) {
+                    PlayerBody()
+                }
+            }
+        }
+    }
+
+    /** The pure player surface with the frame's fixed fixture. */
+    @Composable
+    private fun PlayerBody() {
+        PlayerScreenContent(
+            playerState = playerState,
+            book = playerBook,
+            currentChapterTitle = playerChapters[1].title,
+            progress = calculatePlayerProgress(
+                playerChapters,
+                playerState.currentChapterIndex,
+                playerState.currentPositionMs,
+                playerState.durationMs,
+                emptyList()
+            ),
+            artworkAccent = androidx.compose.ui.graphics.Color(0xFF355D67),
+            onArtworkLoaded = {},
+            onDismiss = {},
+            onToggleFavorite = {},
+            onToggleDebug = {},
+            onSeek = {},
+            onBookSeek = {},
+            onPreviousChapter = {},
+            onBack = {},
+            onPlayPause = {},
+            onForward = {},
+            onNextChapter = {},
+            onUndoSeek = {},
+            onSpeed = {},
+            onTimer = {},
+            onBookmark = {},
+            onChapters = {}
+        )
+    }
+
+    private val playerBook = AudiobookEntity(
+        id = "wide-frame-book",
+        title = "Нейромант",
+        author = "Вільям Гібсон",
+        narrator = "Олександр Завальський",
+        description = "",
+        coverDrawableRes = 0,
+        genre = "Кіберпанк",
+        sourceUrl = "https://example.invalid/book",
+        isDownloaded = true,
+        totalDurationSeconds = 1_980,
+        totalChapters = 3
+    )
+
+    private val playerChapters = listOf(600L, 660L, 720L).mapIndexed { index, duration ->
+        ChapterEntity(
+            id = "wide-frame-chapter-$index",
+            bookId = playerBook.id,
+            chapterIndex = index,
+            title = "Розділ ${index + 1}. Зустріч у Чіба-сіті",
+            durationSeconds = duration
+        )
+    }
+
+    private val playerState = PlayerState(
+        currentBook = playerBook,
+        chapters = playerChapters,
+        currentChapterIndex = 1,
+        isPlaying = true,
+        currentPositionMs = 320_000,
+        durationMs = playerChapters[1].durationSeconds * 1_000,
+        playbackSpeed = 1.25f,
+        isOfflineMode = true
+    )
+
+    /** The mini-player's fixture: whatever the library test data starts with. */
+    private val miniPlayerState = PlayerState(
+        currentBook = TestDataFactory.dataBooks().first(),
+        chapters = TestDataFactory.dataChapters(listOf(TestDataFactory.dataBooks().first())),
+        currentChapterIndex = 0,
+        isPlaying = true,
+        currentPositionMs = 90_000,
+        durationMs = 600_000
+    )
 
     @Composable
     private fun PanePlaceholder(title: String, subtitle: String) {

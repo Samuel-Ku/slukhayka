@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.recommend
 
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -58,6 +59,28 @@ class RecommendationBackendLoaderTest {
                 EmbeddingModelState.Installed,
                 RecommendationBackendStatus.NotLoaded
             )
+        )
+    }
+
+    @Test
+    fun `cancelled installed backend loading propagates the same cancellation`() {
+        val cancellation = CancellationException("neutral installed loading cancellation")
+        val loader = RecommendationBackendLoader(
+            installedFactory = { throw cancellation },
+            bundledFactory = { null }
+        )
+
+        val propagated = try {
+            loader.load()
+            null
+        } catch (error: CancellationException) {
+            error
+        }
+
+        assertSame(
+            "R1_RUNTIME_CANCELLATION_MUST_PROPAGATE_INSTALLED_FACTORY_EXCEPTION",
+            cancellation,
+            propagated
         )
     }
 }

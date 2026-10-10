@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.recommend
 
+import kotlinx.coroutines.CancellationException
+
 /** Which existing E5 loading boundary supplied the backend. */
 enum class RecommendationBackendSource { INSTALLED, BUNDLED }
 
@@ -65,6 +67,8 @@ class RecommendationBackendLoader(
 
     private fun attempt(factory: () -> TextEmbedder?): Attempt = try {
         Attempt(factory(), RecommendationBackendFailure.UNAVAILABLE)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (e: Exception) {
         Attempt(null, RecommendationBackendFailure.LOAD_FAILED)
     }

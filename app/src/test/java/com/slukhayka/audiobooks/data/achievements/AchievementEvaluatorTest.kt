@@ -227,20 +227,48 @@ class AchievementEvaluatorTest {
     }
 
     /**
-     * The three mechanisms that need data nothing records yet stay ABSENT on
-     * purpose: «Резолвер» (cross-resolve), «Відновлювач» (source recovery) and
-     * «Той самий голос» (same narration from two sources). Keeping this a test
-     * means the gap is a decision, not an oversight — adding them must add
-     * their data too.
+     * #701 (T3 tail) — the mechanism awards USED to stay absent on purpose,
+     * because nothing recorded a cross-resolve, a source recovery or a shared
+     * narration. The owner's decision (2026-10-07) closed that gap: the first
+     * two are written at their success points, and the third needed no write at
+     * all — the same `editionId` in two sources is already in the database.
+     *
+     * The pin is inverted rather than deleted: these three ids must now EXIST,
+     * and each must still need its own data — a snapshot with nothing in it
+     * earns none of them.
      */
-    @Test fun `mechanism awards that need unrecorded events are absent`() {
+    @Test fun `the mechanism awards exist and need their own recorded data`() {
         val all = AchievementCatalog.definitions.map { it.id }
 
         assertTrue(
-            "жодної нагороди за кросс-резолв, відновлення чи збіг начитки бути не має",
-            all.none { it in setOf("resolver", "recoverer", "same_voice") }
+            "нагороди за крос-резолв, відновлення та збіг начитки мусять бути в каталозі",
+            all.containsAll(setOf("resolver", "recoverer", "same_voice"))
         )
-        assertTrue("«Глибокий пошук» натомість мусить бути", "deep_search" in all)
+        val empty = AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+        assertTrue(
+            "порожній знімок не має відкривати жодної з них",
+            empty.none { it in setOf("resolver", "recoverer", "same_voice") }
+        )
+        assertTrue("«Глибокий пошук» лишається на місці", "deep_search" in all)
+    }
+
+    /**
+     * #701 (T3 tail) — the series pair, «По порядку», the universe and the
+     * collection are read from own books, so an empty snapshot opens none of
+     * them: a listener with no library has no finished series, no universe and
+     * no collection (ADR-0014).
+     */
+    @Test fun `the curated awards stay shut on an empty snapshot`() {
+        val earned = AchievementEvaluator.evaluate(AchievementProgress(), emptySet()).map { it.id }
+
+        assertTrue(
+            "порожній знімок не має відкривати жодної серійної чи курованої нагороди",
+            earned.none { it in setOf("in_cycle", "series_man", "in_order", "one_universe", "collector") }
+        )
+        assertTrue(
+            "«Усі двері» теж закриті, доки жодного джерела не використано",
+            "all_doors" !in earned
+        )
     }
 
     /**

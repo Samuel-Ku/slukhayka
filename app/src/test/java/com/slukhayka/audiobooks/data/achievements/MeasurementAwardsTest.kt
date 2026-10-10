@@ -11,6 +11,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackSessionEntity
 import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -60,7 +61,8 @@ class MeasurementAwardsTest {
             .allowMainThreadQueries().build()
         try {
             val store = RoomAchievementStore(database.achievementDao())
-            block(database, RoomAchievementProgressSource(database.achievementDao(), store, emptySet(), zoneId = kyiv))
+            block(database, RoomAchievementProgressSource(database.achievementDao(), store, emptySet(), zoneId = kyiv,
+                abandonedBookIds = flowOf(emptySet())))
         } finally {
             database.close()
         }

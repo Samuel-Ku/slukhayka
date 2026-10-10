@@ -56,12 +56,24 @@ object CollectionMatcher {
         MergeKey.normalizePerson(stripTrailingParenthetical(author)).let { dropDiacritics(it) }
 
     /** One entry matched against one catalog card. */
-    fun entryMatches(entry: CollectionEntry, book: GlobalSearchResult): Boolean {
+    fun entryMatches(entry: CollectionEntry, book: GlobalSearchResult): Boolean =
+        entryMatches(entry, book.title, book.author)
+
+    /**
+     * #701 (T3) — the same rule against a bare title/author pair.
+     *
+     * The achievements module reads the Медіатека from its own Room projection
+     * (own entries plus their completion), not from catalog cards, and a second
+     * copy of "author agreement, then the optional title" would let the two
+     * answers drift. The card version above delegates here, so there is still
+     * ONE matching rule.
+     */
+    fun entryMatches(entry: CollectionEntry, title: String, author: String): Boolean {
         if (entry.author.isBlank()) return false
-        if (normalizeAuthor(book.author) != normalizeAuthor(entry.author)) return false
+        if (normalizeAuthor(author) != normalizeAuthor(entry.author)) return false
         val entryTitle = entry.title?.takeIf { it.isNotBlank() }
         if (entryTitle == null) return true // author-only fallback
-        return normalizeTitle(book.title) == normalizeTitle(entryTitle)
+        return normalizeTitle(title) == normalizeTitle(entryTitle)
     }
 
     /** Matches one collection against the catalog union. */

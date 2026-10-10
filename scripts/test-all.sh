@@ -22,7 +22,11 @@ fi
 is_jdk_21() {
   local candidate=$1
   [[ -x "$candidate/bin/java" ]] || return 1
-  "$candidate/bin/java" -version 2>&1 | head -n 1 | grep -Eq 'version "21([.]|\")'
+  # `JAVA_TOOL_OPTIONS` makes every JVM print "Picked up JAVA_TOOL_OPTIONS: …"
+  # BEFORE the version line, so reading line 1 makes this probe answer "not 21"
+  # on a machine whose wrapper sets it — and the caller then exits 2 having run
+  # no tests at all. Read the first line that is actually the version.
+  "$candidate/bin/java" -version 2>&1 | grep -v '^Picked up ' | head -n 1 | grep -Eq 'version "21([.]|\")'
 }
 
 resolve_jdk_21() {

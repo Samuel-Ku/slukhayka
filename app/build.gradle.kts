@@ -142,6 +142,11 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
+    // minSdk is 24 and java.time/Base64 arrived in API 26, so on API 24-25 the
+    // app died with NoClassDefFoundError. Core library desugaring backports
+    // those stdlib classes (lint: "requires API level 26, or core library
+    // desugaring"); the dependency lives in `dependencies` below.
+    isCoreLibraryDesugaringEnabled = true
   }
   buildFeatures {
     compose = true
@@ -243,6 +248,13 @@ dependencies {
     }
   }
   implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
+  // The java.time/Base64 backport for API 24-25 that
+  // `isCoreLibraryDesugaringEnabled` above is inert without. Note it is a
+  // desugaring input, not a runtime dependency of the app's own classpath.
+  // desugar_jdk_libs 2.1.5 does NOT cover java.net.URLEncoder, so
+  // NetworkRoute.kt uses the API-1 `encode(String, String)` overload instead
+  // of the Charset one — there is no baseline entry left to hide behind.
+  coreLibraryDesugaring(libs.desugar.jdk.libs)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

@@ -3530,16 +3530,15 @@ private fun libraryChrome(
     // second row. The rare-filter launcher (Обрані / Локальні /
     // Онлайн) rides the same line and keeps its accent + its own
     // name while active, so a non-default filter stays visible.
+    //
+    // #1165 — the row itself reveals whichever chip carries the
+    // selection (the active status, or this launcher while a rare
+    // filter is active). The screen used to scroll the line here,
+    // and for every one-tap status that meant «back to the start»:
+    // the LAST chip, «Завантажені», stayed under the right window
+    // edge while selected — the #390 defect the #885 redesign
+    // brought back.
     val isSheetFilterActive = filter in SHEET_FILTERS
-    LaunchedEffect(filter) {
-        // The rare-filter launcher lives at the far end of the row:
-        // scroll it into view while it is the active filter, and
-        // back to the statuses when a one-tap status takes over.
-        withFrameNanos { }
-        statusRowScrollState.animateScrollTo(
-            if (isSheetFilterActive) statusRowScrollState.maxValue else 0
-        )
-    }
     LibraryStatusRow(
         selected = filter,
         onSelect = onFilterChange,

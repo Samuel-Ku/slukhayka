@@ -48,6 +48,8 @@ SAMPLE_TARGET = "scripts/tests/test_subject.py::SampleTest"
 OTHER_TARGET = "scripts/tests/test_subject.py::OtherTest"
 SAMPLE_KEY = "test_subject.SampleTest"
 OTHER_KEY = "test_subject.OtherTest"
+ERROR_TARGET = "scripts/tests/test_subject.py::ErrorTest"
+SKIPPED_TARGET = "scripts/tests/test_subject.py::SkippedTest"
 ARTIFACT_DIR = ".mutations/artifacts"
 
 SUBJECT_SOURCE = '''"""The fixture's subject: the file a mutation edits."""
@@ -82,6 +84,19 @@ class OtherTest(unittest.TestCase):
 
 class EmptyTest(unittest.TestCase):
     """No test methods: a target that would "run green" having run nothing."""
+
+
+class ErrorTest(unittest.TestCase):
+    """Notices a mutation by raising: unittest counts that in errors, not failures."""
+
+    def test_answer(self):
+        self.assertEqual(42, subject.answer())
+
+
+class SkippedTest(unittest.TestCase):
+    @unittest.skip("the fixture skips its only test")
+    def test_never_runs(self):
+        self.fail("a skipped test must not run")
 
 
 class SlowTest(unittest.TestCase):
@@ -138,6 +153,9 @@ class Fixture:
         )
         self.syntax_patch = self.edit_patch(
             "syntax-error", SUBJECT, "return 42", "return 42("
+        )
+        self.raises_patch = self.edit_patch(
+            "answer-raises", SUBJECT, "return 42", 'raise RuntimeError("mutated")'
         )
 
     # -- repository plumbing -------------------------------------------------
@@ -248,11 +266,12 @@ class Fixture:
     def run_target(self, patch: Path, target: str = SAMPLE_TARGET, **overrides):
         return self.run_script("--patch", str(patch), "--python", target, **overrides)
 
-    def run_target_directly(self, target: str = SAMPLE_KEY):
-        """A run outside mutate.sh: the same artifact path, written by the runner.
+    def run_runner_directly(self, target: str, *, artifact: str | None = None):
+        """The runner on its own: its own contract, without mutate.sh in between.
 
-        This is the Python spelling of `gradlew` writing the XML behind the
-        tool's back — the artifact a later reader could take for the mutation's.
+        mutate.sh turns any non-zero runner exit that left no artifact into the
+        same "no verdict", so what the runner's exit codes actually are is
+        invisible through it — the module's contract needs its own test.
         """
         return subprocess.run(
             [
@@ -263,7 +282,7 @@ class Fixture:
                 "--target",
                 target,
                 "--artifact",
-                artifact_of(target),
+                artifact or artifact_of(target),
             ],
             cwd=self.root,
             check=False,
@@ -271,6 +290,14 @@ class Fixture:
             text=True,
             env=self.environment(),
         )
+
+    def run_target_directly(self, target: str = SAMPLE_KEY):
+        """A run outside mutate.sh: the same artifact path, written by the runner.
+
+        This is the Python spelling of `gradlew` writing the XML behind the
+        tool's back — the artifact a later reader could take for the mutation's.
+        """
+        return self.run_runner_directly(target)
 
     def status(self, target: str = SAMPLE_TARGET) -> dict:
         result = self.run_script("status", "--python", target)
@@ -384,9 +411,11 @@ class PythonMutationRunTest(PythonFixtureTest):
         self.assertEqual(0, result.returncode, result.stderr)
         record = self.last_record()
         self.assertEqual("test_subject", record["class"])
-        # SampleTest fails, OtherTest and SlowTest pass: the whole file ran.
-        self.assertEqual(3, record["tests"])
-        self.assertEqual(1, record["failures"])
+        # SampleTest and ErrorTest both pin 42 and both fail; OtherTest passes;
+        # SkippedTest is counted as run and skipped; the class without test
+        # methods contributes nothing — the whole file ran.
+        self.assertEqual(5, record["tests"])
+        self.assertEqual(2, record["failures"])
         self.assertEqual("killed", record["outcome"])
         self.assertClean()
 
@@ -446,6 +475,52 @@ class PythonMutationRunTest(PythonFixtureTest):
         self.assertEqual(unrecorded_sha, self.fixture.artifact_sha())
         self.assertEqual("genuine", self.fixture.status()["verdict"])
         self.assertClean()
+
+    def test_records_an_error_as_a_caught_mutation(self):
+        # A witness can notice a mutation by raising, not only by failing an
+        # assertion, and unittest counts that in `errors`. The verdict reads
+        # failures and errors alike, so both counts have to be carried into the
+        # artifact and read back out of it.
+        result = self.fixture.run_target(self.fixture.raises_patch, ERROR_TARGET)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("killed", record["outcome"])
+        self.assertEqual(1, record["tests"])
+        self.assertEqual(0, record["failures"])
+        self.assertEqual(1, record["errors"])
+        self.assertIn("errors=1", record["detail"])
+        self.assertIn("verdict: caught", result.stderr)
+        self.assertClean()
+
+    def test_no_verdict_when_every_test_was_skipped(self):
+        # tests=1 failures=0 errors=0 and a zero exit is exactly what a survivor
+        # looks like — except that nothing executed. Recorded as survived it
+        # would call a live mutation a survivor, so a run that skipped everything
+        # is no verdict.
+        result = self.fixture.run_target(self.fixture.answer_patch, SKIPPED_TARGET)
+
+        self.assertEqual(3, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("no-verdict", record["outcome"])
+        self.assertEqual(1, record["tests"])
+        self.assertEqual(0, record["failures"])
+        self.assertIn("every test was skipped", record["detail"])
+        self.assertClean()
+
+    def test_the_runner_names_a_target_it_cannot_load_with_exit_three(self):
+        # The module's contract, not mutate.sh's translation of it: exit 3 and no
+        # artifact at all, both for a name that does not resolve and for a class
+        # that declares no tests.
+        for target in ("test_subject.NopeTest", "test_subject.EmptyTest"):
+            with self.subTest(target=target):
+                artifact = artifact_of(target)
+
+                result = self.fixture.run_runner_directly(target, artifact=artifact)
+
+                self.assertEqual(3, result.returncode, result.stderr)
+                self.assertFalse((self.fixture.root / artifact).exists())
+                self.assertFalse((self.fixture.root / artifact).parent.exists())
 
     def test_a_second_run_of_the_same_target_is_fresh_not_stale(self):
         first = self.fixture.run_target(self.fixture.answer_patch)
@@ -710,6 +785,27 @@ class PythonSensitivityTest(unittest.TestCase):
             '"failures": str(len(result.failures) + len(result.unexpectedSuccesses)),',
             '"failures": "0",',
             "test_mutate_python.PythonMutationRunTest.test_runs_one_python_class_and_records_a_caught_mutation",
+        ),
+        (
+            "the python error counts",
+            "runner",
+            '"errors": str(len(result.errors)),',
+            '"errors": "0",',
+            "test_mutate_python.PythonMutationRunTest.test_records_an_error_as_a_caught_mutation",
+        ),
+        (
+            "the load-failure exit code",
+            "runner",
+            "LOAD_FAILURE = 3",
+            "LOAD_FAILURE = 7",
+            "test_mutate_python.PythonMutationRunTest.test_the_runner_names_a_target_it_cannot_load_with_exit_three",
+        ),
+        (
+            "the all-skipped guard",
+            "script",
+            'elif [[ $skipped == "$tests" ]]; then',
+            "elif false; then",
+            "test_mutate_python.PythonMutationRunTest.test_no_verdict_when_every_test_was_skipped",
         ),
         (
             "the artifact timestamp",

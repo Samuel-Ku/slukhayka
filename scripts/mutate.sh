@@ -73,7 +73,12 @@ the same way and both carry tests/failures/errors, so `status` answers for eithe
 status mode prints one JSON object: whether the newest test artifact for that
 target on disk was written by a recorded mutation run ("mutational"), by a run
 this tool did not record ("genuine"), is gone ("no-artifact"), or cannot be
-decided because no record log exists in this worktree ("unknown").
+decided because no record log exists in this worktree ("unknown"). Records are
+matched by that target key alone: a JVM class whose fully qualified name happened
+to spell a Python target's key would be answered as that key's artifact.
+
+Verdicts: a run where no test executed is no verdict, not a survivor — a target
+that declares no tests, and a suite whose every test was skipped, both end at 3.
 
 Honest limits: this tool records mutations that run through it. It does not
 write mutations (which mutation to write stays your judgement) and it does not
@@ -249,7 +254,7 @@ detail=""
 trace_written=0
 run_id="" patch_sha="" task="" partition="" branch="" head=""
 started_at="" finished_at="" duration="" run_status="" mutation_name=""
-tests="" failures="" errors=""
+tests="" failures="" errors="" skipped=""
 artifact_sha="" artifact_fresh=0 artifact_path="" artifact_before=""
 touched=()
 pristine=()
@@ -381,8 +386,10 @@ trap 'interrupted=HUP; interrupted_status=129; exit 129' HUP
 
 if [[ $runner_kind == python ]]; then
   # The Python half is a unittest target inside the script-tests job's own
-  # directory: no partition selector, no Gradle task. `task` stays the command a
-  # reader would re-run, `partition` the CI job that owns the file.
+  # directory: no partition selector, no Gradle task. `task` names the target the
+  # way that job loads it — `python3 -m unittest <target>` finds the module only
+  # from scripts/tests, not from the repository root — and `partition` names the
+  # CI job that owns the file.
   artifact_relative=$python_results_relative
   task="python3 -m unittest $test_class"
   partition=script-tests
@@ -504,11 +511,16 @@ try:
     root = ET.parse(sys.argv[1]).getroot()
 except (ET.ParseError, OSError):
     sys.exit(1)
-print(root.get("tests", "0"), root.get("failures", "0"), root.get("errors", "0"))
+print(
+    root.get("tests", "0"),
+    root.get("failures", "0"),
+    root.get("errors", "0"),
+    root.get("skipped", "0"),
+)
 PY
   ) || counts=""
   if [[ -n $counts ]]; then
-    read -r tests failures errors <<< "$counts"
+    read -r tests failures errors skipped <<< "$counts"
   else
     artifact_fresh=0
   fi
@@ -532,6 +544,14 @@ elif [[ $failures -gt 0 || $errors -gt 0 ]]; then
 elif [[ $run_status -ne 0 ]]; then
   outcome=no-verdict
   detail="the artifact shows no failure but the runner exited ${run_status}: no verdict"
+elif [[ $skipped == "$tests" ]]; then
+  # Every test skipped (or none declared: tests=0, skipped=0) is a green run that
+  # ran nothing. "Survived" has to mean the tests executed and stayed green —
+  # a live mutation this recorded as a survivor is the one answer this tool must
+  # never invent. Both halves write `skipped` into their JUnit XML, so both are
+  # covered by the one rule.
+  outcome=no-verdict
+  detail="every test was skipped (tests=$tests skipped=$skipped): a run that executed nothing is no verdict"
 else
   outcome=survived
   detail="the class ran green under the mutation (tests=$tests)"

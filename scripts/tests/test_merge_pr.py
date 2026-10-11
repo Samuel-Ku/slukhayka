@@ -785,6 +785,10 @@ class MergePrTest(unittest.TestCase):
 
         self.assertEqual(behind, self.git_out("rev-parse", PR_BRANCH))
         self.assertEqual(0, result.returncode, result.stderr)
+        # Мовчки: це входження, а не розбіжність історій. Якщо перевірку
+        # перетягнути в рівність, сюди приїде WARN про ребаз — і тест почервоніє.
+        self.assertNotIn("розійшлися", result.stderr)
+        self.assertNotIn("уже у вершині за патчем", result.stderr)
         self.assertEqual(
             ["pr merge 1239 --squash --match-head-commit %s" % head], self.merge_calls())
 

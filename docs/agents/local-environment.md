@@ -156,17 +156,19 @@ Python, and the stand-in `gradlew` wrote `errors=0` always in the JVM half.
 `scripts/verdict_field_mutants.py` finds every place a deciding field (`tests`,
 `failures`, `errors`, `skipped`, `artifactSha256`) enters the chain — the JUnit
 attribute the producer writes, the read out of the XML, the transport into the
-record, the record's own field, a read of that field, and the comparison that makes
-the verdict — builds a mutant that leaves the field its zero at each one, and runs
-the witness tests. A green suite means that place holds nothing (`1`, naming the
+record, the record's own field, a read of that field, the same field in a `status`
+answer, and the comparison that makes the verdict — builds a mutant that leaves the
+field its zero at each one, and runs the witness tests. A green suite means that place holds nothing (`1`, naming the
 field, the place and the witness); an unknown (a field with no place, no witness
 module, a red suite *without* a mutation, a run that never finished, a missing tool
 part, a mutant that does not parse) is `2`.
 `python3 scripts/verdict_field_mutants.py --list` names the places and the zero it
 would write. Its named limits: the JVM producer is Gradle and is not in the tree,
 so that half is pinned through the XML read; a mention of the field in prose (a
-`detail` string, a comment) is not a place; and `skipped` decides a verdict but
-never travels into the record at all.
+`detail` string, a comment) is not a place; `skipped` decides a verdict but never
+travels into the record at all; and a field with no verdict-rule place at all is an
+unknown (`2`), not a pass — moving the decision onto another variable would leave
+every remaining mutant alive.
 
 ### Before a merge
 

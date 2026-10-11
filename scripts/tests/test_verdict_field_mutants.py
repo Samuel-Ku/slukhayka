@@ -158,6 +158,26 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual('record.get("artifactSha256")', found[0].original)
         self.assertEqual("None", found[0].replacement)
 
+    def test_a_non_ascii_line_does_not_shift_the_span(self):
+        """`ast` рахує колонки в БАЙТАХ, а текст — у символах.
+
+        Без перекладу межа їде на кожному не-ASCII символі перед місцем (тут —
+        на дванадцяти байтах «помилка»), і мутант замінює не той шматок: або
+        рве файл (код 2), або вбиває місце з чужої причини.
+        """
+        source = (
+            "def build(values):\n"
+            "    return {\n"
+            '        "schema": 1,\n'
+            '        "detail": "помилка", "errors": 0,\n'
+            "    }\n"
+        )
+
+        site = v.python_sites(Path("trace.py"), source, self.errors())[0]
+
+        self.assertEqual("0", site.original)
+        self.assertEqual("0", site.replacement)
+
     def test_an_unparsable_python_file_is_an_error_not_an_empty_search(self):
         with self.assertRaises(v.FieldError):
             v.python_sites(Path("trace.py"), "def broken(:\n", self.errors())
@@ -394,6 +414,49 @@ class FailClosedTest(unittest.TestCase):
         self.assertEqual(2, status, out)
         self.assertIn("немає серед полів", err)
 
+    def test_a_field_that_no_longer_decides_anything_is_unknown(self):
+        """Поле, яке ніде не вирішує, не має проходити зеленим (огляд #1263).
+
+        Досить перенести рішення на іншу змінну — прибрати `|| $errors -gt 0` —
+        і мутант на кожному місці, що лишилося, виживе: поле їде в запис, а
+        вердикт від нього вже не залежить. Механізм мусить відмовити на самому
+        плані, а не сказати «усі місця вбиті».
+        """
+        root = self.root()
+        tool = root / "scripts" / "mutate.sh"
+        tool.write_text(
+            tool.read_text(encoding="utf-8").replace(
+                "elif [[ $failures -gt 0 || $errors -gt 0 ]]; then",
+                "elif [[ $failures -gt 0 ]]; then",
+            ),
+            encoding="utf-8",
+        )
+
+        status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("жодного «правило вердикту»", err)
+        self.assertIn("errors", err)
+
+    def test_the_list_refuses_an_unknown_field_instead_of_answering_silently(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = v.main(["--root", str(FIXTURES / "pinned"), "--field", "skiped", "--list"])
+
+        self.assertEqual(2, status, out.getvalue())
+        self.assertIn("немає серед полів", err.getvalue())
+
+    def test_a_worker_that_cannot_copy_the_tree_is_unknown_not_a_crash(self):
+        """Диск, права, ліміти: невдача воркера — це код 2, а не трейсбек."""
+        root = self.root()
+
+        with mock.patch.object(v.shutil, "copytree", side_effect=OSError("no space left")):
+            report = v.check(root, TESTS_DIR, only=["errors"])
+
+        self.assertEqual([], report.verdicts)
+        self.assertTrue(report.blocked, "невдача копіювання мусить бути названа")
+        self.assertIn("перевірити не вдалося", report.blocked[0])
+
     def test_a_tool_without_a_witness_is_refused(self):
         root = self.root()
         (root / "scripts" / "tests" / "test_gate.py").unlink()
@@ -511,6 +574,45 @@ class FailClosedTest(unittest.TestCase):
         self.assertIn("не пінить жоден тест", refused.stderr)
 
 
+class EnvironmentTest(unittest.TestCase):
+    """Фікстура не залежить від середовища, яке дісталося їй у спадок.
+
+    CI-раннер приносить у процес власні змінні, і серед них може бути будь-що:
+    експортована функція затіняє команду (`BASH_FUNC_dirname%%`), `repo_root`
+    підставного інструмента стає `/`, `python3` не знаходить
+    `mutation_trace.py` — і виходить із кодом 2 при незмінному файлі. Саме так
+    цей модуль і почервонів у CI: локально 298 тестів зелені, у CI — шість
+    падінь із `CalledProcessError: … exit status 2` на кожному запуску
+    підставного інструмента.
+
+    Тому свідок фікстури задає оточення інструмента сам (свіжим словником, як
+    `scripts/tests/test_mutate.py`), а цей тест пінить саме це: отруєне
+    успадковане оточення не мусить доходити до інструмента.
+    """
+
+    HOSTILE = {
+        "BASH_FUNC_dirname%%": "() { return 1; }",
+        "BASH_FUNC_pwd%%": "() { return 1; }",
+        "BASH_FUNC_cd%%": "() { return 1; }",
+        "BASH_FUNC_python3%%": "() { return 2; }",
+        "BASH_ENV": "/nonexistent/rc",
+        "CDPATH": "/tmp",
+        "PYTHONPATH": "/nonexistent",
+    }
+
+    def test_a_poisoned_inherited_environment_does_not_reach_the_tool(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "root"
+            shutil.copytree(FIXTURES / "pinned" / "scripts", root / "scripts")
+
+            with mock.patch.dict(os.environ, self.HOSTILE):
+                report = v.check(root, TESTS_DIR, only=["errors"])
+
+        self.assertEqual([], report.blocked)
+        self.assertEqual([], report.findings)
+        self.assertEqual(4, len(report.killed))
+
+
 class PlanTest(unittest.TestCase):
     """Типовий виклик мусить покривати всі поля, а не те, що зручно."""
 
@@ -614,8 +716,8 @@ class SensitivityTest(unittest.TestCase):
         ),
         (
             "поле без жодного місця — невідомість",
-            "if not found[field.name]:",
-            "if False:  # mutated",
+            "        if not places:",
+            "        if False:  # mutated",
             "test_verdict_field_mutants.FailClosedTest"
             ".test_a_field_with_no_site_is_unknown_not_a_pass",
         ),
@@ -692,6 +794,36 @@ class SensitivityTest(unittest.TestCase):
             "    code = _blank_comments(text)",
             "    code = text  # mutated",
             "test_verdict_field_mutants.DiscoveryTest.test_a_mention_in_prose_is_not_a_site",
+        ),
+        (
+            "поле мусить мати місце «правило вердикту»",
+            "        elif not any(site.kind == VERDICT_RULE for site in places):",
+            "        elif False:  # mutated",
+            "test_verdict_field_mutants.FailClosedTest"
+            ".test_a_field_that_no_longer_decides_anything_is_unknown",
+        ),
+        (
+            "колонки ast — у байтах, а не в символах",
+            '        column = len(lines[lineno - 1].encode("utf-8")[:byte_column].decode("utf-8"))',
+            "        column = byte_column  # mutated",
+            "test_verdict_field_mutants.DiscoveryTest"
+            ".test_a_non_ascii_line_does_not_shift_the_span",
+        ),
+        (
+            "--list відмовляє на невідомому полі",
+            "        unknown = [name for name in arguments.field if name not in FIELDS_BY_NAME]",
+            "        unknown = []  # mutated",
+            "test_verdict_field_mutants.FailClosedTest"
+            ".test_the_list_refuses_an_unknown_field_instead_of_answering_silently",
+        ),
+        (
+            "невдача воркера — невідомість, а не трейсбек",
+            "                except (OSError, FieldError) as error:\n"
+            "                    # Копіювання дерева",
+            "                except ZeroDivisionError as error:  # mutated\n"
+            "                    # Копіювання дерева",
+            "test_verdict_field_mutants.FailClosedTest"
+            ".test_a_worker_that_cannot_copy_the_tree_is_unknown_not_a_crash",
         ),
         (
             "мета-тест набору — не свідок поля",

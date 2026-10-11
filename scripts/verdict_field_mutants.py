@@ -81,7 +81,13 @@
    `build_record`, ні у виклику рекордера, тож місця «поле запису» в нього
    немає — є читання з артефакту, правило вердикту й атрибут артефакту. Це факт
    про інструмент, а не тиха діра механізму: читач запису не відрізнить «усі
-   тести пропущені» від «артефакту немає» за жодним полем, лише за `detail`.
+   тести пропущені» від «артефакту немає» за жодним полем, лише за `detail`;
+ - поле без жодного місця «правило вердикту» — невідомість (код 2), а не зелене
+   світло. Досить перенести рішення на іншу змінну (`[[ $failures -gt 0 ||
+   $errors -gt 0 ]]` → без `errors`), і кожен мутант на решті місць виживе:
+   поле їде в запис, а вердикт від нього вже не залежить. Цю дірку знайшов
+   огляд #1263 — «обіцяли шість видів місць, а вимагали лише непорожній
+   перелік»;
 
 Вимикача немає навмисно: жодного `--skip`, жодної змінної, яка дозволяє.
 `--field` і `--jobs` — звуження, не вимикачі: перше зменшує перелік полів (ним
@@ -92,7 +98,13 @@
 
 Хто це тримає. Механізм біжить у наявній джобі `script-tests`
 (`python3 -m unittest discover -s scripts/tests -p "test_*.py"`): його жене
-`scripts/tests/test_verdict_field_mutants.py`. Той самий файл пінить КОЖНУ
+`scripts/tests/test_verdict_field_mutants.py`. Свідок фікстури задає оточення
+підставного інструмента САМ (свіжим словником, як `scripts/tests/test_mutate.py`),
+а не бере успадковане: у CI-раннера в оточенні може бути будь-що — експортована
+функція затіняє `dirname`, `repo_root` стає `/`, і `python3` виходить із кодом 2
+при незмінному файлі. Саме так цей модуль і почервонів у CI (шість падінь,
+`CalledProcessError: … exit status 2`), і саме тому той факт пінить
+`EnvironmentTest`. Той самий файл пінить КОЖНУ
 перевірку механізму — з копії механізму знімається одна перевірка за раз, і
 названий тест мусить почервоніти: вимога червоного набору, червоний базовий
 прогін, таймаут, поле без місця, інструмент без свідка, неповна проводка,
@@ -246,6 +258,11 @@ RECORD_MARKER = "schema"
 # Словник атрибутів JUnit-артефакту впізнається за цим елементом.
 ARTIFACT_ELEMENT = "testsuite"
 
+# Вид місця, у якому поле й вирішує. Поле без жодного такого місця — не поле
+# вердикту: рішення можна перенести на іншу змінну, і жоден мутант на решті
+# місць не почервоніє. Тому цей вид не «один із», а вимога (див. plan).
+VERDICT_RULE = "правило вердикту"
+
 
 @dataclasses.dataclass(frozen=True)
 class Site:
@@ -329,18 +346,29 @@ def tool_files(root: Path) -> list[Path]:
 # --------------------------------------------------------------------------
 
 
-def _span(text: str, offsets: list[int], node: ast.AST) -> tuple[int, int]:
-    return (
-        offsets[node.lineno - 1] + node.col_offset,
-        offsets[node.end_lineno - 1] + node.end_col_offset,
-    )
-
-
 def _line_offsets(text: str) -> list[int]:
+    """Зсув початку кожного рядка в СИМВОЛАХ — у тих самих, у яких і `text`."""
     offsets = [0]
     for line in text.splitlines(keepends=True):
         offsets.append(offsets[-1] + len(line))
     return offsets
+
+
+def _span(text: str, offsets: list[int], node: ast.AST) -> tuple[int, int]:
+    """Межі вузла в символах `text`.
+
+    `col_offset` у `ast` — це зсув у БАЙТАХ UTF-8, а `text` — рядок символів:
+    без перекладу межа їде на кожному не-ASCII символі перед місцем, і мутант
+    замінює не той шматок (або рве файл). Переклад іде від початку рядка:
+    `line.encode()[:col].decode()`.
+    """
+    lines = text.splitlines()
+
+    def position(lineno: int, byte_column: int) -> int:
+        column = len(lines[lineno - 1].encode("utf-8")[:byte_column].decode("utf-8"))
+        return offsets[lineno - 1] + column
+
+    return position(node.lineno, node.col_offset), position(node.end_lineno, node.end_col_offset)
 
 
 def _constant_key(node: ast.AST, field: str) -> bool:
@@ -493,7 +521,7 @@ def shell_sites(relative: Path, text: str, field: Field) -> list[Site]:
         for match in re.finditer(r"^.*\[\[.*$", code, re.MULTILINE):
             for reference in quoted.finditer(match.group(0)):
                 start = match.start() + reference.start()
-                sites.append(Site(field, "правило вердикту", relative,
+                sites.append(Site(field, VERDICT_RULE, relative,
                                   code.count("\n", 0, start) + 1, start,
                                   match.start() + reference.end(), reference.group(0),
                                   '"%s"' % field.shell_zero))
@@ -501,7 +529,7 @@ def shell_sites(relative: Path, text: str, field: Field) -> list[Site]:
             for reference in bare.finditer(stripped):
                 start = match.start() + reference.start()
                 zero = field.shell_zero or '""'
-                sites.append(Site(field, "правило вердикту", relative,
+                sites.append(Site(field, VERDICT_RULE, relative,
                                   code.count("\n", 0, start) + 1, start,
                                   match.start() + reference.end(), reference.group(0),
                                   zero))
@@ -898,7 +926,8 @@ def plan(root: Path, tests_dir: Path = TESTS_DIR,
     blocked: list[str] = []
     sites: list[Site] = []
     for field in fields:
-        if not found[field.name]:
+        places = found[field.name]
+        if not places:
             # «Поле не знайдено» — не дозвіл, а невідомість: механізм не знає,
             # що мутувати, і не вдає, що поле піниться.
             blocked.append(
@@ -906,7 +935,20 @@ def plan(root: Path, tests_dir: Path = TESTS_DIR,
                 "що мутувати."
                 % (field.name, ", ".join(str(path.relative_to(root)) for path in files))
             )
-        sites.extend(found[field.name])
+        elif not any(site.kind == VERDICT_RULE for site in places):
+            # Поле, яке ніде не вирішує, — не поле вердикту: досить перенести
+            # рішення на іншу змінну, і мутанти на решті місць лишаться
+            # зеленими. Обіцянка «кожне місце ланцюга, в тому числі правило
+            # вердикту» мусить триматися, а не мовчати: без цієї вимоги
+            # інструмент, де поле їде лише в запис, проходив би як зелений
+            # (знахідка огляду #1263).
+            blocked.append(
+                "FAIL  поле %s має місця (%s), але жодного «%s»: поле, яке ніде не вирішує "
+                "вердикт, мутантом не перевірити — перенесення рішення на іншу змінну "
+                "лишило б набір зеленим."
+                % (field.name, ", ".join(sorted({site.kind for site in places})), VERDICT_RULE)
+            )
+        sites.extend(places)
 
     witnesses: dict[Path, list[Path]] = {
         path.relative_to(root): paired_modules(root, tests_dir, path) for path in files
@@ -936,11 +978,23 @@ def check(root: Path, tests_dir: Path = TESTS_DIR, only: list[str] | None = None
     if report.blocked:
         return report
 
-    runner = Runner(root, tests_dir)
+    try:
+        runner = Runner(root, tests_dir)
+    except OSError as error:
+        report.blocked.append("FAIL  тимчасового каталогу для мутантів не створити: %s" % error)
+        return report
     try:
         with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-            futures = [pool.submit(judge_site, site, tests_dir, witnesses, runner)
-                       for site in report.sites]
+            def judged(site: Site):
+                try:
+                    return judge_site(site, tests_dir, witnesses, runner)
+                except (OSError, FieldError) as error:
+                    # Копіювання дерева, тимчасовий каталог, читання файлу —
+                    # усе це може не вдатися (диск, права, ліміти). Контракт
+                    # каже «невідомість — код 2», а не «трейсбек і код 1».
+                    return "FAIL  %s: перевірити не вдалося: %s" % (site.describe(), error)
+
+            futures = [pool.submit(judged, site) for site in report.sites]
             outcomes = []
             for position, future in enumerate(futures):
                 try:
@@ -987,6 +1041,13 @@ def main(argv: list[str] | None = None) -> int:
     root = arguments.root.resolve()
 
     if arguments.list:
+        unknown = [name for name in arguments.field if name not in FIELDS_BY_NAME]
+        if unknown:
+            # Той самий перелік, що й у перевірочному шляху: `--list` не має
+            # відповідати мовчки на поле, якого механізм не знає.
+            print("FAIL  поля %s немає серед полів, що вирішують вердикт (%s)."
+                  % (", ".join(unknown), ", ".join(FIELDS_BY_NAME)), file=sys.stderr)
+            return 2
         try:
             files = tool_files(root)
             for field in FIELDS:

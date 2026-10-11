@@ -7,8 +7,8 @@
 набором-свідком, і механізм на ньому зелений. Обидва корені мають байт-у-байт
 той самий `gate.sh`: різниця тільки в тестах, і це піниться окремим тестом.
 
-Механізм по всьому репозиторію жене окремий тест — він додається разом із
-чищенням того, що механізм знайшов на першому прогоні.
+Останній тест жене механізм по справжньому репозиторію — саме він і робить
+`script-tests` гейтом, а не звітом.
 """
 
 import contextlib
@@ -200,6 +200,27 @@ class FailClosedTest(unittest.TestCase):
         self.assertEqual(2, skipped.returncode, skipped.stderr)
         self.assertEqual(1, refused.returncode, refused.stdout)
         self.assertIn("не пінить жоден тест", refused.stderr)
+
+
+class RepositoryTest(unittest.TestCase):
+    def test_the_repository_empty_shapes_are_pinned(self):
+        """Механізм по всьому репозиторію: зелений і не порожній.
+
+        Порожній зелений («форм не знайдено») теж був би зеленим, тож тест
+        вимагає, щоб механізм назвав хоч одну вбиту форму — і саме форму
+        merge-pr.sh:483, ту, яку відкрив огляд #1254.
+        """
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = esm.main([])
+
+        printed = out.getvalue()
+        self.assertEqual(0, status, err.getvalue())
+        killed = [line for line in printed.splitlines() if "убита" in line]
+        self.assertEqual(1, len(killed), printed)
+        self.assertIn("merge-pr.sh:", killed[0])
+        self.assertIn("порожня форма", killed[0])
+        self.assertIn("убита test_merge_pr.py", killed[0])
 
 
 if __name__ == "__main__":

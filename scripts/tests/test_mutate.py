@@ -653,9 +653,14 @@ class MutationStatusTest(MutateFixtureTest):
         mutation_sha = self.fixture.artifact_sha()
 
         self.fixture.simulate_real_run(SAMPLE_CLASS, tests=7)
+        real_sha = self.fixture.artifact_sha()
 
         status = self.fixture.status()
         self.assertEqual("genuine", status["verdict"])
+        # Хеш називається точно, а не «не такий, як у мутації»: `assertNotEqual`
+        # проходить і на `None`, тож поле, стерте з відповіді, лишалося б
+        # непоміченим — а воно і є тим, за чим читач знаходить XML на диску.
+        self.assertEqual(real_sha, status["artifactSha256"])
         self.assertNotEqual(mutation_sha, status["artifactSha256"])
         self.assertIn("genuine", status["summary"])
 

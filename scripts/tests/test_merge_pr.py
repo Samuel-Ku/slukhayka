@@ -639,6 +639,52 @@ class MergePrTest(unittest.TestCase):
         self.assertIn(str(linked), result.stderr)  # названо чужу робочу копію
         self.assertEqual([], self.merge_calls())
 
+    def test_warns_but_merges_when_another_band_is_mid_rebase(self):
+        """Чужий ребаз не ставить цей PR у чергу за чужою смугою.
+
+        У репозиторії десятки worktree й паралельні агенти: відмова на будь-
+        якому ребазі зупинила б усі мерджі, а «Далі» радило б завершувати
+        операцію в чужій копії — тобто знищило б чуже розвʼязання конфлікту.
+        """
+        self.commit("conflict.txt", "base\n", "chore: спільний файл")
+        linked = self.linked_worktree("t9999-other-band")
+        self.conflict_on_both_sides(linked, "t9999-other-band")
+        stopped = self.stop_rebase(linked)
+        self.assertNotEqual(0, stopped.returncode, stopped.stdout)
+        self.assertTrue(
+            (self.repo / ".git" / "worktrees" / "linked" / "rebase-merge").is_dir())
+
+        result = self.gate()
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("незавершений ребаз чужої гілки", result.stderr)
+        self.assertIn("t9999-other-band", result.stderr)
+        self.assertNotIn("лишився незавершений ребаз —", result.stderr)
+        self.assertNotEqual([], self.merge_calls())
+
+    def test_refuses_a_rebase_whose_branch_is_not_named(self):
+        """`head-name` = detached HEAD: гілку не названо — відмова, не WARN.
+
+        Приписати такий ребаз чужій смузі нема підстав, а мовчазно пропустити
+        його означало б пропустити і свій.
+        """
+        self.commit("conflict.txt", "base\n", "chore: спільний файл")
+        self.conflict_on_both_sides(self.repo, PR_BRANCH)
+        self.git("checkout", "-q", "--detach", PR_BRANCH)
+        stopped = self.stop_rebase(self.repo)
+        self.assertNotEqual(0, stopped.returncode, stopped.stdout)
+        head_name = (self.repo / ".git" / "rebase-merge" / "head-name").read_text(
+            encoding="utf-8").strip()
+        self.assertEqual("detached HEAD", head_name)
+
+        # Гілка PR тут навіть не та, що ребазується: відмова не про збіг імені.
+        result = self.gate(pr=pr_payload(head_ref="t9999-elsewhere"))
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("незавершений ребаз", result.stderr)
+        self.assertIn("не названо", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
     def test_fails_closed_when_the_working_copy_scan_fails(self):
         """Скан не вдався — код 2, а не «маркерів немає».
 

@@ -35,7 +35,14 @@
 Зелений набір під мутантом означає, що порожню форму не виробляє жоден тест:
 твердження «нічого = ось це» нічим не піниться. Це рівно та діра, яку знайшов
 незалежний огляд #1254; на історичній парі (скрипт і тест з 9b653ad3) цей
-механізм червоний, на виправленій — зелений.
+механізм червоний, на виправленій — зелений. Відтворити історичний доказ:
+
+  mkdir -p /tmp/hist/scripts/tests
+  gh api 'repos/{owner}/{repo}/contents/scripts/merge-pr.sh?ref=9b653ad3' \
+      --jq .content | base64 -d > /tmp/hist/scripts/merge-pr.sh
+  gh api 'repos/{owner}/{repo}/contents/scripts/tests/test_merge_pr.py?ref=9b653ad3' \
+      --jq .content | base64 -d > /tmp/hist/scripts/tests/test_merge_pr.py
+  python3 scripts/empty_shape_mutants.py --root /tmp/hist   # exit 1 на формі L467
 
 Межі, названі прямо:
 

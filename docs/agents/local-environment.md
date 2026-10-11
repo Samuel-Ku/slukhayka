@@ -51,6 +51,62 @@ changes, no test results. `pgrep -af 'gradlew --offline'` says whose run holds
 the slot, and the waiting lane's own command line names the worktree it belongs
 to.
 
+## Mutations
+
+A mutation run leaves the same artifacts as a real one: the same
+`app/build/test-results/testDebugUnitTest/*.xml`, overwritten in place. An XML
+on disk therefore cannot say whether it came from a mutation or from a run of
+HEAD — a review once spent a whole finding on that ambiguity. `scripts/mutate.sh`
+records the difference.
+
+```sh
+../gt scripts/mutate.sh --patch .mutations/patches/<name>.patch \
+    --class com.slukhayka.audiobooks.player.SmartRewindTest
+```
+
+It refuses a dirty worktree (a mutation must not mix with working edits), applies
+the patch, runs that one class on the partition `scripts/test_partitions.py`
+gives it, rolls the patch back, and appends one JSON record to
+`.mutations/runs.jsonl`. The rollback runs from a trap, so a failing or
+interrupted run rolls back too, and the sha256 of every touched file is printed
+before and after. `.mutations/` is git-ignored — otherwise the tool's own record
+would make the tree dirty for the next run. stderr is the proof, stdout is the
+record. Exit codes: `0` caught · `1` survived · `2` refused · `3` no verdict ·
+`128+N` interrupted.
+
+Ask which the last run was instead of guessing:
+
+```sh
+scripts/mutate.sh status --class com.slukhayka.audiobooks.player.SmartRewindTest
+```
+
+One JSON object, where `verdict` is `mutational` (the XML on disk is
+byte-identical to a recorded mutation artifact), `genuine` (it differs from every
+recorded one), `no-artifact` (nothing is on disk) or `unknown` (this worktree has
+no record log at all). `summary` says the same in a sentence, `artifactRunId`
+names the run that wrote the XML, and `headMatches` says whether HEAD still is
+the commit the record was made at. Verdicts are decided in that order: with
+neither an XML nor a log, the answer is `no-artifact`, not `unknown`.
+
+Three honest limits. The records cover mutations that ran through this script — a
+hand-edited tree is invisible to it. `--class` reaches JVM test sources under
+`app/src/test/java`; a mutation whose only witness is an instrumented test cannot
+be recorded here. And nothing invents mutations or finds survivors: `survived`
+means only that the class ran green under the mutation, so which mutation to
+write stays the author's judgement — the script automates the bookkeeping, not
+the thinking.
+
+### Before a merge
+
+1. `../gt scripts/test-changed.sh` — the real run over the changed paths.
+2. One patch per mutation under `.mutations/patches/`, one call each, through the
+   slot: `../gt scripts/mutate.sh --patch … --class …`. A `survived` verdict is a
+   finding: the class does not pin the behaviour you changed.
+3. `scripts/mutate.sh status --class <FQCN>` for every class whose XML the review
+   will read, so the next reader does not have to work out whether the artifact
+   on disk is a mutation's. Rollback restores sources; it does not delete the
+   XML, and `status` is what keeps that leftover from reading as a run of HEAD.
+
 ## Partitions
 
 `AGENTS.md` names them. The wrapper forwards its arguments, so

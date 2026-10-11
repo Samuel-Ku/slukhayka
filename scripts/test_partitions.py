@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Classify JVM tests and select the narrowest safe verification scope."""
+"""Classify JVM tests and select the narrowest safe verification scope.
+
+`select` answers with the JVM partitions a diff touches and the non-JVM checks
+it needs — `web/**` maps to the web check, not to the full Android matrix.
+"""
 
 from __future__ import annotations
 
@@ -39,6 +43,13 @@ SHARED_FILES = {
     "gradle.properties",
     "settings.gradle.kts",
 }
+WEB_CHECK_PREFIX = "web/"
+WEB_CHECK = "web"
+# The steps the web check runs. `select` names them so a caller routing the
+# payload to a runner knows what the check costs; `scripts/test-changed.sh`
+# executes exactly these, mirroring the `web` job in `.github/workflows/ci.yml`.
+WEB_CHECK_STEPS = ("npm ci", "npx tsc --noEmit", "npx vitest run")
+WEB_CHECK_DESCRIPTION = f"{WEB_CHECK} check ({', '.join(WEB_CHECK_STEPS)})"
 
 
 @dataclass(frozen=True)
@@ -151,6 +162,23 @@ def execution_partition(test_class: TestClass) -> str:
     return test_class.partition
 
 
+def contains_tests(test_classes: list[TestClass], package: str) -> bool:
+    return any(
+        test_class.package == package or test_class.package.startswith(f"{package}.")
+        for test_class in test_classes
+    )
+
+
+def ancestor_packages(package: str) -> list[str]:
+    """The changed package and every package above it, deepest first."""
+    result: list[str] = []
+    candidate = package
+    while candidate:
+        result.append(candidate)
+        candidate = candidate.rpartition(".")[0]
+    return result
+
+
 def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str, object]:
     if not changed_files:
         return {"fullSuite": True, "partitions": {}, "reason": "no changed files"}
@@ -158,6 +186,7 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
         return {"fullSuite": True, "partitions": {}, "reason": "shared infrastructure changed"}
 
     selected: dict[str, set[str]] = {}
+    checks: set[str] = set()
     by_fqcn = {test_class.fqcn: test_class for test_class in test_classes}
     for path in changed_files:
         exact_fqcn = changed_test_fqcn(path)
@@ -166,6 +195,14 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
             if test_class is None:
                 return {"fullSuite": True, "partitions": {}, "reason": "unknown changed test"}
             selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
+            continue
+
+        if path.startswith(WEB_CHECK_PREFIX):
+            # A web-only diff used to drag the whole Android matrix in through
+            # the unknown-path fallback, which is the one answer a lane cannot
+            # afford when nothing below web/ needs the JDK. The web tree has
+            # its own check in CI; name that check instead.
+            checks.add(WEB_CHECK)
             continue
 
         package = production_package(path)
@@ -185,23 +222,44 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
                     continue
             return {"fullSuite": True, "partitions": {}, "reason": "unmapped changed path"}
 
-        matches: list[TestClass] = []
-        candidate = package
-        while candidate:
-            matches = [
-                test_class
-                for test_class in test_classes
-                if test_class.package == candidate or test_class.package.startswith(f"{candidate}.")
-            ]
-            if matches:
-                break
-            candidate = candidate.rpartition(".")[0]
-        if not matches:
+        # A change in package P can break a test declared in P or in any
+        # package below it, and also one declared in a package above it: a
+        # test in `ui` names classes from `ui.components` without importing
+        # across the module. The walk used to stop at the deepest ancestor
+        # with tests anywhere below it, so `ui/components/PlayerPane.kt`
+        # reached its own 4 tests and never `ui`'s 100 — `WidePlayerPaneTest`
+        # among them — and the lane had to name the missing classes by hand.
+        # Every package-ancestor now contributes: the deepest one with tests
+        # keeps its whole subtree, and each package above it adds the tests
+        # declared directly in it. Only the direct tests count above that
+        # subtree — taking the whole subtree of every ancestor would select
+        # the entire suite.
+        ancestors = ancestor_packages(package)
+        nearest = next(
+            (ancestor for ancestor in ancestors if contains_tests(test_classes, ancestor)),
+            None,
+        )
+        if nearest is None:
             return {"fullSuite": True, "partitions": {}, "reason": "no tests for changed module"}
+        matches = [
+            test_class
+            for test_class in test_classes
+            if test_class.package == nearest or test_class.package.startswith(f"{nearest}.")
+        ]
+        for ancestor in ancestors[ancestors.index(nearest) + 1 :]:
+            matches.extend(
+                test_class for test_class in test_classes if test_class.package == ancestor
+            )
         for test_class in matches:
             selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
 
-    return {
+    if checks and not selected:
+        reason = f"changed paths map to the {WEB_CHECK_DESCRIPTION}"
+    elif checks:
+        reason = f"matched changed logical modules and the {WEB_CHECK_DESCRIPTION}"
+    else:
+        reason = "matched changed logical modules"
+    result: dict[str, object] = {
         "fullSuite": False,
         "partitions": {
             partition: sorted(selected[partition])
@@ -215,8 +273,11 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
             )
             if partition in selected
         },
-        "reason": "matched changed logical modules",
+        "reason": reason,
     }
+    if checks:
+        result["checks"] = sorted(checks)
+    return result
 
 
 def parser() -> argparse.ArgumentParser:

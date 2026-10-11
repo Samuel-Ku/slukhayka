@@ -1652,12 +1652,12 @@ span.bookrow-body {
 
 /*
  * Everything the expanded layout changes is HERE, under the one attribute
- * `ui/adaptiveLayout.ts` writes on the app root. The boundary (600 px —
- * Android's ExpandedMinWidthDp) is written once, in that module, and pinned
- * by `adaptiveLayout.test.tsx`; there is deliberately no `@media` in this
- * file, because a media query would be the SECOND copy of that number, and
- * two copies drift — #1206 pulled the Android grid's columns and its floor
- * back onto one rule for exactly that reason.
+ * `ui/adaptiveLayout.ts` writes on the app root. The boundary itself is NOT
+ * written in this file: that module owns the number, and
+ * `adaptiveLayout.test.tsx` pins it against Android's `ExpandedMinWidthDp`.
+ * There is deliberately no `@media` here, because a media query would be the
+ * SECOND copy of that number, and two copies drift — #1206 pulled the Android
+ * grid's columns and its floor back onto one rule for exactly that reason.
  *
  * This is width and grid only. The rail and the two panes of the shared map
  * (spec 2026-09-16 §11 step 4) are NOT here: the owner scoped #1207

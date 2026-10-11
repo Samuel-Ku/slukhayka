@@ -92,9 +92,16 @@ function androidExpandedMinWidthDp(): number {
         'оновіть шлях тут, інакше спільну межу Android/Web ніхто не звіряє',
     )
   }
-  // The declaration, not the KDoc link (`[ExpandedMinWidthDp]`) nor the use in
-  // `windowLayoutFor`; underscores are legal in a Kotlin Int literal.
-  const declaration = /const\s+val\s+ExpandedMinWidthDp\s*(?::\s*Int)?\s*=\s*(\d[\d_]*)/.exec(source)
+  // Comments are stripped before the match, the same rule the CSS half of this
+  // file applies: a comment must never be able to satisfy a pin. Without it,
+  // `// const val ExpandedMinWidthDp: Int = 600` over a live `601` read as 600
+  // and kept the suite green (PR #1231 review) — the quiet green this guard
+  // exists to prevent. The match is ALSO anchored to a line start, so a
+  // commented declaration cannot pass for the live one whatever shape the
+  // comment takes; underscores are legal in a Kotlin Int literal.
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const declaration =
+    /^\s*const\s+val\s+ExpandedMinWidthDp\s*(?::\s*Int)?\s*=\s*(\d[\d_]*)/m.exec(code)
   if (declaration === null) {
     throw new Error(
       `константу не знайдено: ExpandedMinWidthDp у ${KOTLIN_WINDOW_LAYOUT} — ` +

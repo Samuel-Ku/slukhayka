@@ -384,6 +384,20 @@ class MutationRunTest(MutateFixtureTest):
         self.assertIn("every test was skipped", record["detail"])
         self.assertClean()
 
+    def test_a_partly_skipped_run_is_still_a_survivor(self):
+        # The guard is "every test skipped", not "any test skipped": one @Ignore'd
+        # case among executing green ones is exactly what survived means, and
+        # tightening the rule to `skipped > 0` would condemn real classes.
+        result = self.fixture.run_class(
+            self.fixture.answer_patch, tests=3, failures=0, MUTATE_TEST_SKIPPED="1"
+        )
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("survived", record["outcome"])
+        self.assertEqual(3, record["tests"])
+        self.assertClean()
+
     def test_reports_no_verdict_when_the_class_leaves_no_artifact(self):
         result = self.fixture.run_script(
             "--patch", str(self.fixture.answer_patch), "--class", SAMPLE_CLASS
@@ -827,6 +841,13 @@ class MutationSensitivityTest(unittest.TestCase):
             'elif [[ $skipped == "$tests" ]]; then',
             "elif false; then",
             "test_mutate.MutationRunTest.test_reports_no_verdict_when_every_test_was_skipped",
+        ),
+        (
+            "the all-skipped boundary",
+            "script",
+            'elif [[ $skipped == "$tests" ]]; then',
+            "elif [[ $skipped -gt 0 ]]; then",
+            "test_mutate.MutationRunTest.test_a_partly_skipped_run_is_still_a_survivor",
         ),
         (
             "the dirty-worktree refusal",

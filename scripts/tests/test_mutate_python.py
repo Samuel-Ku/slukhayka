@@ -50,6 +50,7 @@ SAMPLE_KEY = "test_subject.SampleTest"
 OTHER_KEY = "test_subject.OtherTest"
 ERROR_TARGET = "scripts/tests/test_subject.py::ErrorTest"
 SKIPPED_TARGET = "scripts/tests/test_subject.py::SkippedTest"
+PARTLY_SKIPPED_TARGET = "scripts/tests/test_subject.py::PartlySkippedTest"
 ARTIFACT_DIR = ".mutations/artifacts"
 
 SUBJECT_SOURCE = '''"""The fixture's subject: the file a mutation edits."""
@@ -95,6 +96,15 @@ class ErrorTest(unittest.TestCase):
 
 class SkippedTest(unittest.TestCase):
     @unittest.skip("the fixture skips its only test")
+    def test_never_runs(self):
+        self.fail("a skipped test must not run")
+
+
+class PartlySkippedTest(unittest.TestCase):
+    def test_runs_green(self):
+        self.assertGreater(subject.answer(), 0)
+
+    @unittest.skip("the fixture skips one of two")
     def test_never_runs(self):
         self.fail("a skipped test must not run")
 
@@ -411,10 +421,11 @@ class PythonMutationRunTest(PythonFixtureTest):
         self.assertEqual(0, result.returncode, result.stderr)
         record = self.last_record()
         self.assertEqual("test_subject", record["class"])
-        # SampleTest and ErrorTest both pin 42 and both fail; OtherTest passes;
-        # SkippedTest is counted as run and skipped; the class without test
+        # SampleTest and ErrorTest both pin 42 and both fail; OtherTest and
+        # PartlySkippedTest's live test pass; SkippedTest and PartlySkippedTest's
+        # other test are counted as run and skipped; the class without test
         # methods contributes nothing — the whole file ran.
-        self.assertEqual(5, record["tests"])
+        self.assertEqual(7, record["tests"])
         self.assertEqual(2, record["failures"])
         self.assertEqual("killed", record["outcome"])
         self.assertClean()
@@ -506,6 +517,19 @@ class PythonMutationRunTest(PythonFixtureTest):
         self.assertEqual(1, record["tests"])
         self.assertEqual(0, record["failures"])
         self.assertIn("every test was skipped", record["detail"])
+        self.assertClean()
+
+    def test_a_partly_skipped_run_is_still_a_survivor(self):
+        # The guard is "every test skipped", not "any test skipped": one @Ignore'd
+        # case among executing green ones is exactly what survived means, and
+        # tightening the rule to `skipped > 0` would condemn real targets.
+        result = self.fixture.run_target(self.fixture.answer_patch, PARTLY_SKIPPED_TARGET)
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("survived", record["outcome"])
+        self.assertEqual(2, record["tests"])
+        self.assertEqual(0, record["failures"])
         self.assertClean()
 
     def test_the_runner_names_a_target_it_cannot_load_with_exit_three(self):
@@ -806,6 +830,13 @@ class PythonSensitivityTest(unittest.TestCase):
             'elif [[ $skipped == "$tests" ]]; then',
             "elif false; then",
             "test_mutate_python.PythonMutationRunTest.test_no_verdict_when_every_test_was_skipped",
+        ),
+        (
+            "the all-skipped boundary",
+            "script",
+            'elif [[ $skipped == "$tests" ]]; then',
+            "elif [[ $skipped -gt 0 ]]; then",
+            "test_mutate_python.PythonMutationRunTest.test_a_partly_skipped_run_is_still_a_survivor",
         ),
         (
             "the artifact timestamp",

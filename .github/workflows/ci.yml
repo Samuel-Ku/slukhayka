@@ -662,7 +662,7 @@ jobs:
           # the diff. One retry on the already-booted emulator is cheap; a
           # failure that happens while BOOTING the AVD still needs a rerun,
           # because nothing here can reboot it.
-          script: bash .github/scripts/run-accessibility-test.sh || { echo "::warning::first attempt failed — retrying once (this leg flakes before the tests start)"; bash .github/scripts/run-accessibility-test.sh; }
+          script: bash .github/scripts/run-accessibility-test.sh 1 || { echo "::warning::first attempt failed — retrying once"; bash .github/scripts/run-accessibility-test.sh 2; }
 
       - name: Upload API 35 accessibility results
         if: always()
@@ -672,6 +672,7 @@ jobs:
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/connected/
+            app/build/accessibility-diagnostics/
           if-no-files-found: warn
           retention-days: 14
 

@@ -38,19 +38,11 @@ Use the five canonical triage labels with their default names. See
 This is a single-context repository with root `CONTEXT.md` and `docs/adr/`.
 See `docs/agents/domain.md`.
 
-## Mutation records and the merge gate
+## The merge gate
 
-Two scripts do the bookkeeping around a run and the step that follows it:
-
-- `scripts/mutate.sh` — one named mutation, one JVM test class under
-  `app/src/test/java`, a rollback on every exit path and a record of which
-  artifact the run left, so a later reader can tell a mutation's XML from a run
-  of HEAD; call it to run a patch you wrote, and again before a merge. See
-  `docs/agents/local-environment.md` ("Mutations").
-- `scripts/merge-pr.sh` — the merge gate: green checks and a fresh
-  `review:pass`, or no merge (squash only, never deletes the branch); call it
-  instead of `gh pr merge`. See `docs/agents/work-coordination.md`
-  ("Вердикт огляду і мердж").
+`scripts/merge-pr.sh` — green checks and a fresh `review:pass`, or no merge
+(squash only, never deletes the branch); call it instead of `gh pr merge`. See
+`docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
 
 ## Testing and verification
 

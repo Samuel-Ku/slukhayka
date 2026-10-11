@@ -59,7 +59,9 @@
 # Змінні: MERGE_PR_GH — шлях до gh (типово `gh`; потрібен для тестів),
 #         MERGE_PR_LABEL — назва мітки вердикту (типово `review:pass`),
 #         MERGE_PR_REPO — робоча копія для перевірок 2 і 3 (типово — git-корінь
-#         поточного каталогу; потрібен для тестів).
+#         поточного каталогу; потрібен для тестів),
+#         MERGE_PR_GIT — шлях до git (типово `git`; теж для тестів: їм треба
+#         показати старий git, який не знає --path-format).
 # Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта (огляд, чеки,
 #              стан PR, обрізана гілка, незавершений ребаз); 2 — перевірити
 #              або злити не вдалося (аргументи, gh, мережа, робоча копія без
@@ -68,6 +70,7 @@ set -euo pipefail
 
 GH="${MERGE_PR_GH:-gh}"
 LABEL="${MERGE_PR_LABEL:-review:pass}"
+GIT="${MERGE_PR_GIT:-git}"
 
 usage() {
   printf 'usage: scripts/merge-pr.sh <номер-PR> [--dry-run]\n'
@@ -411,20 +414,20 @@ fi
 # у w1224, а гейт запускають звідки завгодно.
 REPO_ROOT="${MERGE_PR_REPO:-}"
 if [ -z "$REPO_ROOT" ]; then
-  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  REPO_ROOT="$("$GIT" rev-parse --show-toplevel 2>/dev/null || true)"
 fi
-if [ -z "$REPO_ROOT" ] || ! git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+if [ -z "$REPO_ROOT" ] || ! "$GIT" -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   printf 'FAIL  не вдалося визначити робочу копію (git-репозиторій) — цілісність гілки перевірити нічим.\n' >&2
   printf 'Далі: запусти гейт із каталогу репозиторію (або задай MERGE_PR_REPO=<шлях до робочої копії>).\n' >&2
   exit 2
 fi
-REPO_ROOT="$(git -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$REPO_ROOT")"
+REPO_ROOT="$("$GIT" -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$REPO_ROOT")"
 
 # Друк: "<шлях до маркера>\t<гілка>\t<робоча копія>".
 open_operations() {
   local common git_dir dir marker branch worktree seen
-  common="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)" || return 1
-  git_dir="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir)" || return 1
+  common="$("$GIT" -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)" || return 1
+  git_dir="$("$GIT" -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir)" || return 1
   seen=" "
   for dir in "$git_dir" "$common" "$common"/worktrees/*; do
     [ -d "$dir" ] || continue
@@ -444,7 +447,11 @@ open_operations() {
   return 0
 }
 
-OPERATIONS="$(open_operations || true)"
+if ! OPERATIONS="$(open_operations)"; then
+  printf 'FAIL  не вдалося прочитати стан робочої копії — незавершений ребаз перевірити нічим.\n' >&2
+  printf 'Далі: перевір, що MERGE_PR_REPO вказує на робочу копію, і що git ≥ 2.31 (--path-format=absolute); PR не змінено.\n' >&2
+  exit 2
+fi
 if [ -n "$OPERATIONS" ]; then
   printf 'FAIL  PR #%s: у робочій копії лишився незавершений ребаз — гілку рухали посеред операції, тож на remote могла поїхати її половина.\n' \
     "$PR_NUMBER" >&2
@@ -463,7 +470,7 @@ fi
 # єдине місце, де ще живуть коміти, які рецензували.
 LOCAL_TIP=""
 if [ "$IS_CROSS_REPO" != true ]; then
-  LOCAL_TIP="$(git -C "$REPO_ROOT" rev-parse --verify --quiet "refs/heads/$HEAD_REF" 2>/dev/null || true)"
+  LOCAL_TIP="$("$GIT" -C "$REPO_ROOT" rev-parse --verify --quiet "refs/heads/$HEAD_REF" 2>/dev/null || true)"
 fi
 
 if [ -z "$LOCAL_TIP" ]; then
@@ -473,19 +480,19 @@ if [ -z "$LOCAL_TIP" ]; then
     warn "локальної гілки '$HEAD_REF' немає — цілісність гілки НЕ перевірено (гейт бачить лише цю робочу копію)."
   fi
   note 'це не відмова: «немає гілки» — не доказ обрізання. Переконайся сам, що гілка на remote повна.'
-elif ! git -C "$REPO_ROOT" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+elif ! "$GIT" -C "$REPO_ROOT" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
   printf 'FAIL  PR #%s: у робочій копії немає ревізії %s (вершина PR) — цілісність гілки не перевірити.\n' \
     "$PR_NUMBER" "$HEAD_SHORT" >&2
   printf 'Далі: git fetch origin %s (щоб копія знала вершину PR) і повтори scripts/merge-pr.sh %s\n' \
     "$HEAD_REF" "$PR_NUMBER" >&2
   exit 2
-elif ! git -C "$REPO_ROOT" merge-base --is-ancestor "$LOCAL_TIP" "$HEAD_SHA"; then
+elif ! "$GIT" -C "$REPO_ROOT" merge-base --is-ancestor "$LOCAL_TIP" "$HEAD_SHA"; then
   LOCAL_SHORT="${LOCAL_TIP:0:7}"
-  MISSING_COUNT="$(git -C "$REPO_ROOT" rev-list --count "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null || printf '?')"
+  MISSING_COUNT="$("$GIT" -C "$REPO_ROOT" rev-list --count "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null || printf '?')"
   printf 'FAIL  PR #%s: вершина PR (%s) не містить усіх комітів гілки '\''%s'\'' (%s) — на remote поїхала неповна гілка.\n' \
     "$PR_NUMBER" "$HEAD_SHORT" "$HEAD_REF" "$LOCAL_SHORT" >&2
   printf '      у гілці є, у вершині немає — %s коміт(ів):\n' "$MISSING_COUNT" >&2
-  git -C "$REPO_ROOT" log --oneline --no-decorate -n 10 "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null | sed 's/^/      ✗ /' >&2 || true
+  "$GIT" -C "$REPO_ROOT" log --oneline --no-decorate -n 10 "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null | sed 's/^/      ✗ /' >&2 || true
   if [ "$MISSING_COUNT" != "?" ] && [ "$MISSING_COUNT" -gt 10 ]; then
     printf '      … і ще %s\n' "$((MISSING_COUNT - 10))" >&2
   fi

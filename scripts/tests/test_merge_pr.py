@@ -88,6 +88,18 @@ LATE_AFTER_19_10 = (
     "Workflow timing",
 )
 
+# Підставний git старої версії: --path-format зʼявився лише в 2.31, і без нього
+# скан робочої копії не має права тихо перетворитися на «маркерів немає».
+FAKE_OLD_GIT = '''#!/usr/bin/env bash
+set -u
+for argument in "$@"; do
+  case "$argument" in
+    --path-format*) printf 'error: unknown option `%s\\n' "$argument" >&2; exit 129 ;;
+  esac
+done
+exec git "$@"
+'''
+
 FAKE_GH = '''#!/usr/bin/env bash
 # Підставний gh: віддає фікстури з FAKE_GH_DIR, пише кожен виклик у FAKE_GH_LOG.
 set -u
@@ -625,6 +637,28 @@ class MergePrTest(unittest.TestCase):
         self.assertIn("незавершений ребаз", result.stderr)
         self.assertIn(PR_BRANCH, result.stderr)
         self.assertIn(str(linked), result.stderr)  # названо чужу робочу копію
+        self.assertEqual([], self.merge_calls())
+
+    def test_fails_closed_when_the_working_copy_scan_fails(self):
+        """Скан не вдався — код 2, а не «маркерів немає».
+
+        Старий git (< 2.31) не знає --path-format, і без нього гейт не бачить
+        жодного маркера: маркер у дереві, а він каже «злив би». Невідомість має
+        коштувати код 2, як і ревізія вершини, якої немає в копії.
+        """
+        old_git = self.root / "git"
+        old_git.write_text(FAKE_OLD_GIT, encoding="utf-8")
+        old_git.chmod(old_git.stat().st_mode | stat.S_IXUSR)
+        self.commit("conflict.txt", "base\n", "chore: спільний файл")
+        self.conflict_on_both_sides(self.repo, "t9999-other-band")
+        stopped = self.stop_rebase(self.repo)
+        self.assertNotEqual(0, stopped.returncode, stopped.stdout)
+        self.assertTrue((self.repo / ".git" / "rebase-merge").is_dir())
+
+        result = self.gate(env_extra={"MERGE_PR_GIT": str(old_git)})
+
+        self.assertEqual(2, result.returncode, result.stdout)
+        self.assertIn("не вдалося прочитати стан робочої копії", result.stderr)
         self.assertEqual([], self.merge_calls())
 
     # --- цілісність гілки ---------------------------------------------------

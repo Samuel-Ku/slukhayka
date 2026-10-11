@@ -40,8 +40,9 @@
 # Виклик: scripts/merge-pr.sh <номер-PR> [--dry-run]
 # Змінні: MERGE_PR_GH — шлях до gh (типово `gh`; потрібен для тестів),
 #         MERGE_PR_LABEL — назва мітки вердикту (типово `review:pass`).
-# Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта;
-#              2 — не вдалося перевірити (аргументи, gh, мережа).
+# Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта (огляд, чеки,
+#              стан PR); 2 — перевірити або злити не вдалося (аргументи, gh,
+#              мережа, відмова GitHub на самому мерджі).
 set -euo pipefail
 
 GH="${MERGE_PR_GH:-gh}"
@@ -53,7 +54,8 @@ usage() {
   printf 'Мердж-гейт: зливає PR лише за зеленого CI і свіжого вердикту огляду\n'
   printf "(мітка '%s'; іншу назву дає MERGE_PR_LABEL).\n" "$LABEL"
   printf 'Зливає тільки --squash і ніколи не видаляє гілку.\n'
-  printf 'Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова; 2 — не перевірити.\n'
+  printf 'Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта;\n'
+  printf '             2 — перевірити або злити не вдалося (gh, мережа, відмова GitHub).\n'
 }
 
 PR_NUMBER=""
@@ -126,14 +128,26 @@ def load(path):
     return json.loads(text) if text else None
 
 
-def pages(path):
-    """gh api --paginate --slurp: масив сторінок; розгортаємо в один список."""
+def pages(path, wrapper=None):
+    """gh api --paginate --slurp: масив сторінок; розгортаємо в один список.
+
+    Сторінка буває двома формами: списком (`issues/<n>/timeline`,
+    `pulls/<n>/commits`) або обгорткою-об'єктом зі списком усередині
+    (`/commits/<sha>/check-runs` віддає `{"total_count": N, "check_runs": [...]}`).
+    Режим називає ключ обгортки другим аргументом. Невідома форма сторінки — це
+    помилка, а не «порожньо»: перша версія цієї функції ковтала об'єктну
+    сторінку одним елементом, і перевірка «вердикт старіший за CI» мовчки
+    стала мертвою (n_late_runs=0 на справжніх даних).
+    """
     flat = []
     for page in load(path) or []:
         if isinstance(page, list):
             flat.extend(page)
-        elif page is not None:
-            flat.append(page)
+        elif isinstance(page, dict) and wrapper and wrapper in page:
+            flat.extend(page[wrapper] or [])
+        else:
+            shape = sorted(page)[:8] if isinstance(page, dict) else page
+            sys.exit("несподівана форма сторінки gh api: %r" % (shape,))
     return flat
 
 
@@ -241,7 +255,7 @@ elif MODE == "commits":
 elif MODE == "runs":
     verdict = moment(ARGS[1])
     late_runs, late_fails = [], []
-    for run in pages(ARGS[0]):
+    for run in pages(ARGS[0], "check_runs"):
         started, completed = moment(run.get("started_at")), moment(run.get("completed_at"))
         late_start = bool(started and verdict and started > verdict)
         late_end = bool(completed and verdict and completed > verdict)
@@ -281,9 +295,15 @@ gh_api_slurp() { # gh_api_slurp <path> <outfile> <що читали>
 }
 
 # Мітка може існувати в репозиторії, але не стояти на PR, і навпаки. Це різні
-# підказки, тож перевіряємо обидві. 404 = мітки немає (не помилка мережі).
+# підказки, тож перевіряємо обидві. Три стани: 0 — мітка є, 1 — 404 (немає),
+# 2 — не вдалося спитати (мережа, права): це не «немає», і вгадувати не можна.
 label_exists_in_repo() {
-  "$GH" api "repos/{owner}/{repo}/labels/$LABEL" >/dev/null 2>&1
+  local probe
+  probe="$("$GH" api "repos/{owner}/{repo}/labels/$LABEL" 2>&1 >/dev/null)" && return 0
+  case "$probe" in
+    *"HTTP 404"* | *"Not Found"*) return 1 ;;
+  esac
+  return 2
 }
 
 read_facts() { # read_facts <mode> <args...> ; stdout = key=value, exit 2 якщо не розібрали
@@ -407,9 +427,14 @@ if [ "$HAS_LABEL" != true ]; then
     "$PR_NUMBER" "$LABEL" >&2
   note "Ревізію $HEAD_SHORT ніхто не підтвердив незалежним оглядом (Spec + Standards)."
   note "Саме так #1215 злили з відкритим Spec FAIL — вердикт жив прозою в коментарі."
-  if ! label_exists_in_repo; then
+  label_probe=0
+  label_exists_in_repo || label_probe=$?
+  if [ "$label_probe" -eq 1 ]; then
     note "Мітки '$LABEL' немає і в репозиторії — її створює координатор (один раз):"
     note "gh label create '$LABEL' --description 'Незалежний огляд пройдено (Spec + Standards)' --color 0E8A16"
+  elif [ "$label_probe" -eq 2 ]; then
+    warn "не вдалося перевірити, чи існує мітка '$LABEL' у репозиторії (мережа чи права) —"
+    warn "не стверджую, що її немає; якщо її справді немає, створи: gh label create '$LABEL' …"
   fi
   printf 'Далі: %s\n' "$REVIEW_REMEDY" >&2
   printf '      потім повтори: scripts/merge-pr.sh %s\n' "$PR_NUMBER" >&2
@@ -528,9 +553,11 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 if ! "${MERGE_CMD[@]}" </dev/null 2>"$TMP/merge.err"; then
-  printf 'FAIL  gh pr merge не злито — PR #%s лишився як був:\n' "$PR_NUMBER" >&2
+  # Вихід 2, а не 1: усі перевірки гейта пройдено, злити не вдалося ззовні.
+  # Координатор не має прочитати це як «огляд не пройдено» (код 1).
+  printf 'FAIL  перевірки пройдено, але gh pr merge не злито — PR #%s лишився як був:\n' "$PR_NUMBER" >&2
   sed 's/^/      /' "$TMP/merge.err" >&2 || true
-  printf 'Далі: розбери причину вище і повтори scripts/merge-pr.sh %s\n' "$PR_NUMBER" >&2
-  exit 1
+  printf 'Далі: розбери причину вище (найчастіше HEAD зрушив після перевірки) і повтори scripts/merge-pr.sh %s\n' "$PR_NUMBER" >&2
+  exit 2
 fi
 ok "PR #$PR_NUMBER злито squash-ом у '$BASE'; гілку не видалено."

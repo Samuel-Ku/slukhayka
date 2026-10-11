@@ -62,6 +62,22 @@ HISTORICAL_1215_CHECKS = (
     ("Workflow timing", "SUCCESS", "2026-10-10T19:44:55Z", "2026-10-10T19:44:59Z"),
 )
 
+# Прогони з реального payload #1215, що стартували або завершились після
+# вердикту 2026-10-10T19:10:00Z (пораховано з живого API, а не тим самим
+# кодом, що й у скрипті: інакше тест перевіряв би сам себе).
+LATE_AFTER_19_10 = (
+    "Accessibility journey (API 35)",
+    "Android Lint",
+    "Compose + Roborazzi",
+    "Kover aggregate gate",
+    "Recommendation eval",
+    "Room Robolectric-only",
+    "Room native SDK 35",
+    "Room native SDK 36",
+    "Signed smoke APK",
+    "Workflow timing",
+)
+
 FAKE_GH = '''#!/usr/bin/env bash
 # Підставний gh: віддає фікстури з FAKE_GH_DIR, пише кожен виклик у FAKE_GH_LOG.
 set -u
@@ -80,14 +96,24 @@ case "$sub" in
     cat "$FAKE_GH_DIR/pr.json"
     ;;
   "pr merge")
-    printf '✓ Squashed and merged pull request\\n'
-    exit "${FAKE_GH_MERGE_EXIT:-0}"
+    if [ "${FAKE_GH_MERGE_EXIT:-0}" -eq 0 ]; then
+      printf '✓ Squashed and merged pull request\\n'
+      exit 0
+    fi
+    printf 'gh: Pull request is not mergeable (HTTP 405)\\n' >&2
+    exit "${FAKE_GH_MERGE_EXIT}"
     ;;
   "api "*)
     case "$path" in
       */labels/*)
+        case "${FAKE_GH_LABEL_MODE:-auto}" in
+          error)
+            printf 'error connecting to api.github.com\\n' >&2
+            exit 1
+            ;;
+        esac
         # 404, коли мітки немає в репозиторії — так поводиться справжній gh.
-        [ -f "$FAKE_GH_DIR/label.json" ] || exit 1
+        [ -f "$FAKE_GH_DIR/label.json" ] || { printf 'gh: Not Found (HTTP 404)\\n' >&2; exit 1; }
         cat "$FAKE_GH_DIR/label.json"
         ;;
       */timeline) cat "$FAKE_GH_DIR/timeline.json" ;;
@@ -149,6 +175,27 @@ def history(specs=GREEN_CHECKS):
     return [run(name, conclusion.lower(), started, completed) for name, conclusion, started, completed in specs]
 
 
+def check_runs_page(*runs):
+    """Сторінка /commits/<sha>/check-runs у СПРАВЖНІЙ формі API.
+
+    `gh api --paginate --slurp` тут віддає масив сторінок-об'єктів
+    `[{"total_count": N, "check_runs": [...]}]`, а не масив прогонів. Перша
+    версія гейта чекала на список, тож бачила 0 пізніх прогонів; фікстура
+    мусить мати ту саму форму, інакше тест зеленіє на формі, якої API не
+    віддає ніколи.
+    """
+    return [{"total_count": len(runs), "check_runs": list(runs)}]
+
+
+def real_1215_check_runs_page():
+    """Реальна відповідь API для HEAD #1215: 17 прогонів, 19:05:35–19:44:59.
+
+    Імена, висновки й часи — з `gh api .../commits/735771a.../check-runs?filter=all`;
+    фікстура звірена з живим payload поелементно.
+    """
+    return check_runs_page(*history(HISTORICAL_1215_CHECKS))
+
+
 def rest_commit(sha=HEAD, when=HEAD_COMMITTED_AT, headline=HEAD_HEADLINE):
     """Коміт у REST-списку (gh api .../pulls/N/commits)."""
     return {
@@ -202,7 +249,7 @@ class MergePrTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_script(self, *args):
+    def run_script(self, *args, env_extra=None):
         """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
         environment = os.environ.copy()
         environment.pop("MERGE_PR_LABEL", None)
@@ -211,6 +258,7 @@ class MergePrTest(unittest.TestCase):
             "FAKE_GH_DIR": str(self.fixtures),
             "FAKE_GH_LOG": str(self.log),
         })
+        environment.update(env_extra or {})
         return subprocess.run(
             ["bash", str(MERGE_PR), *args],
             check=False, capture_output=True, text=True,
@@ -218,7 +266,7 @@ class MergePrTest(unittest.TestCase):
         )
 
     def gate(self, *flags, pr=None, timeline=None, check_runs=None, commits=None,
-             repo=None, label_in_repo=True):
+             repo=None, label_in_repo=True, env_extra=None):
         """Записує фікстури й запускає гейт на PR #1215.
 
         Типово — зелений PR зі свіжим вердиктом; кожен тест міняє рівно те,
@@ -227,7 +275,7 @@ class MergePrTest(unittest.TestCase):
         fixtures = {
             "pr.json": pr_payload() if pr is None else pr,
             "timeline.json": page(labeled()) if timeline is None else timeline,
-            "check-runs.json": [history()] if check_runs is None else check_runs,
+            "check-runs.json": check_runs_page(*history()) if check_runs is None else check_runs,
             "commits.json": [[rest_commit()]] if commits is None else commits,
             "repo.json": {"delete_branch_on_merge": False} if repo is None else repo,
         }
@@ -239,7 +287,7 @@ class MergePrTest(unittest.TestCase):
         else:
             # Мітки немає в репозиторії: справжній gh віддає на це 404.
             label_file.unlink(missing_ok=True)
-        return self.run_script("1215", *flags)
+        return self.run_script("1215", *flags, env_extra=env_extra)
 
     def invocations(self):
         if not self.log.exists():
@@ -365,11 +413,11 @@ class MergePrTest(unittest.TestCase):
 
     def test_refuses_a_fail_that_appeared_after_the_verdict_and_was_rerun_green(self):
         """Найтонший випадок: зведення PR зараз зелене, бо fail перезапустили."""
-        check_runs = [[
+        check_runs = check_runs_page(
             *history(),
             run("Room native SDK 36", "failure",
                 "2026-10-10T20:05:00Z", "2026-10-10T20:20:00Z"),
-        ]]
+        )
 
         result = self.gate(check_runs=check_runs)
 
@@ -380,10 +428,10 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual([], self.merge_calls())
 
     def test_refuses_ci_that_reran_after_the_verdict(self):
-        check_runs = [[
+        check_runs = check_runs_page(
             *history(),
             run("Pure JVM", "success", "2026-10-10T20:05:00Z", "2026-10-10T20:09:00Z"),
-        ]]
+        )
 
         result = self.gate(check_runs=check_runs)
 
@@ -397,6 +445,52 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn("delete_branch_on_merge", result.stderr)
         self.assertEqual([], self.merge_calls())
+
+    def test_parses_the_real_check_runs_page_wrapper(self):
+        """Реальний payload #1215 (17 прогонів) у справжній формі сторінки-об'єкта.
+
+        З вердиктом о 19:10:00Z пізніх прогонів рівно 10 — перша версія
+        парсера бачила 0 і зливала PR попри свіжий CI.
+        """
+        result = self.gate(
+            pr=pr_payload(checks=rollup(HISTORICAL_1215_CHECKS)),
+            timeline=page(labeled("2026-10-10T19:10:00Z")),
+            check_runs=real_1215_check_runs_page(),
+        )
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("старіший за останній прогін CI", result.stderr)
+        named = {
+            line.split("✗", 1)[1].split("—")[0].strip()
+            for line in result.stderr.splitlines() if "✗" in line
+        }
+        self.assertEqual(set(LATE_AFTER_19_10), named)
+        self.assertEqual([], self.merge_calls())
+
+    def test_fails_closed_on_an_unexpected_page_shape(self):
+        """Незрозуміла сторінка — код 2, а не «пізніх прогонів немає»."""
+        result = self.gate(check_runs=[{"total_count": 1, "something_else": []}])
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("не вдалося розібрати відповідь gh", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_merge_failure_is_not_reported_as_a_gate_refusal(self):
+        """gh pr merge упав після зелених перевірок — код 2, не 1."""
+        result = self.gate(env_extra={"FAKE_GH_MERGE_EXIT": "1"})
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("перевірки пройдено, але gh pr merge не злито", result.stderr)
+        self.assertIn("not mergeable", result.stderr)
+        self.assertNotIn("машиночитного вердикту", result.stderr)
+
+    def test_does_not_claim_the_label_is_missing_when_the_probe_fails(self):
+        result = self.gate(pr=pr_payload(labels=()), timeline=page(),
+                           env_extra={"FAKE_GH_LABEL_MODE": "error"})
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("не вдалося перевірити, чи існує мітка", result.stderr)
+        self.assertNotIn("немає і в репозиторії", result.stderr)
 
     # --- злиття -------------------------------------------------------------
     def test_merges_with_squash_and_never_deletes_the_branch(self):

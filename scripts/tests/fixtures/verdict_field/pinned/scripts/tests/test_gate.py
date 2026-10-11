@@ -27,9 +27,36 @@ def artifact(tests: int, failures: int, skipped: int = 0, errors: int = 0) -> No
     )
 
 
+def environment() -> dict:
+    """Оточення інструмента — своє, а не успадковане.
+
+    CI-раннер приносить у процес власні змінні, і серед них може бути будь-що:
+    експортована функція (`BASH_FUNC_dirname%%`) затіняє команду, `repo_root`
+    підставного інструмента стає `/`, `python3` не знаходить `mutation_trace.py`
+    і виходить із кодом 2 — при незмінному файлі. Саме так ця фікстура й
+    почервоніла в CI, хоч локально була зелена.
+
+    `scripts/tests/test_mutate.py` задає оточення так само — свіжим словником, а
+    не `os.environ`, — і саме тому його фікстура від раннера не залежить.
+    """
+    return {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(ROOT),
+        "LC_ALL": "C",
+    }
+
+
 def run_tool() -> dict:
     RECORD.unlink(missing_ok=True)
-    subprocess.run(["bash", str(TOOL)], check=True, capture_output=True, text=True)
+    result = subprocess.run(["bash", str(TOOL)], capture_output=True, text=True,
+                            env=environment())
+    if result.returncode != 0:
+        # `check=True` ховає stderr інструмента за CalledProcessError: у CI саме
+        # через це падіння не мало причини в логу. Причина мусить бути в тексті.
+        raise AssertionError(
+            "підставний інструмент вийшов із кодом %d\n--- stdout ---\n%s\n--- stderr ---\n%s"
+            % (result.returncode, result.stdout[-500:], result.stderr[-500:])
+        )
     return json.loads(RECORD.read_text(encoding="utf-8").splitlines()[-1])
 
 

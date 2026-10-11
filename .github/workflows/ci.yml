@@ -178,11 +178,18 @@ jobs:
       # run; nothing failed the 1083 MissingTranslation records that grew by one
       # hand-written entry per new UI string. The guard counts entries per rule
       # — MissingTranslation on its own line, every other rule on its own — and
-      # fails when any rule gained one, so growth has to be deliberate. A
-      # deliberate increase (a new uk string with no translation yet) is the
+      # fails when any rule gained one, so growth has to be deliberate.
+      #
+      # A deliberate increase (a new uk string with no translation yet) is the
       # owner's call, through the repository variable
-      # LINT_BASELINE_GROWTH_ALLOWANCE=MissingTranslation=+3; unset means zero
-      # tolerance, and the guard prints whatever it let through in the summary.
+      # LINT_BASELINE_GROWTH_ALLOWANCE=MissingTranslation=+3@1222. The variable
+      # lives OUTSIDE git and has no expiry while the comparison base moves, so
+      # the value MUST name the issue it belongs to, and the guard prints the
+      # active allowance on EVERY run — log and step summary, even when nothing
+      # grew ("0 із 3 — НЕ витрачено (@1222)"). Remove the variable once the
+      # issue it names is closed; an unused grant is exactly as visible as a
+      # spent one.
+      #
       # It needs no Gradle, so it runs BEFORE the 30-minute lint: growth is
       # visible in a minute.
       - name: Fail when the lint baseline grew

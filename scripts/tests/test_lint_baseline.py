@@ -169,6 +169,37 @@ class BaselineParsingTest(unittest.TestCase):
         self.assertGreater(len(baseline.entries) - len(cosmetic), len(baseline.entries) // 2)
         self.assertEqual(sum(lb.count_by_rule(baseline.entries).values()), len(baseline.entries))
 
+    def test_order_deviation_is_small_and_measured_on_canonical_keys(self):
+        # Коментар `insert_anchor` називає міру й число («17 із 1083»). Тест
+        # тримає саме міру: позиції, де файл відрізняється від канонічно
+        # відсортованого списку — не «переміщення» і не «застарілі рядки».
+        baseline = lb.load_baseline(BASELINE)
+        misplaced, stale = lb.order_deviation(baseline.entries)
+        self.assertEqual(misplaced, 17)
+        self.assertLess(misplaced, 25, "порядок baseline зіпсувався — перевір insert_anchor і коментар до нього")
+        self.assertGreater(stale, 0)
+        # Застарілі рядки — окрема річ і на порядок не впливають: саме тому
+        # insert_anchor якорить за «останній ≤ нового», а не за рядок.
+        self.assertNotEqual(misplaced, stale)
+
+    def test_order_deviation_names_the_block_that_deviates(self):
+        # Коментар каже «17 із 1083 його записів (решта 26 блоків канонічні)» —
+        # тест тримає саме це: відхилення живе в одному блоці, і в тому самому.
+        baseline = lb.load_baseline(BASELINE)
+        by_rule = lb.order_deviation_by_rule(baseline.entries)
+        deviating = {rule: count for rule, (count, _size) in by_rule.items() if count}
+        self.assertEqual(deviating, {"MissingTranslation": 17})
+        self.assertGreater(len(by_rule), 20, "блоків правил побільшало/поменшало — перевір, що міра ще говорить про один блок")
+
+    def test_order_deviation_of_a_canonical_block_is_zero(self):
+        entries = [
+            entry("UseKtx", file="src/main/java/App.kt", line=1),
+            entry("UseKtx", file="src/main/java/App.kt", line=2),
+            entry("UseKtx", file="src/main/java/B.kt", line=1),
+        ]
+        misplaced, _ = lb.order_deviation(entries)
+        self.assertEqual(misplaced, 0)
+
     def test_render_reproduces_the_file(self):
         raw = synthetic_baseline([raw_entry("UseKtx"), raw_entry("UseKtx", line=20)])
         baseline = lb.parse_baseline_text(raw, "synthetic")
@@ -232,21 +263,50 @@ class GrowthDecisionTest(unittest.TestCase):
         self.assertEqual((over, allowed), ([], []))
         self.assertEqual(shrunk[0][3], -83)
 
-    def test_allowance_parsing_accepts_plus_and_spaces(self):
-        allowance = lb.parse_allowance(" MissingTranslation=+3 , UseKtx=1 ", {"MissingTranslation", "UseKtx"})
-        self.assertEqual(allowance, {"MissingTranslation": 3, "UseKtx": 1})
+    def test_allowance_parsing_keeps_the_issue_it_belongs_to(self):
+        allowance = lb.parse_allowance(
+            " MissingTranslation=+3@1222 , UseKtx=1@1234 ", {"MissingTranslation", "UseKtx"}
+        )
+        self.assertEqual(allowance["MissingTranslation"], lb.Allowance(3, "1222"))
+        self.assertEqual(allowance["UseKtx"], lb.Allowance(1, "1234"))
+        self.assertEqual(lb.allowance_counts(allowance), {"MissingTranslation": 3, "UseKtx": 1})
 
     def test_allowance_parsing_refuses_a_typo_instead_of_ignoring_it(self):
         with self.assertRaises(lb.BaselineError):
-            lb.parse_allowance("MissingTranslatio=1", {"MissingTranslation"})
+            lb.parse_allowance("MissingTranslatio=1@1222", {"MissingTranslation"})
 
     def test_allowance_parsing_refuses_a_non_number(self):
         with self.assertRaises(lb.BaselineError):
-            lb.parse_allowance("MissingTranslation=three", {"MissingTranslation"})
+            lb.parse_allowance("MissingTranslation=three@1222", {"MissingTranslation"})
 
     def test_allowance_parsing_refuses_a_missing_equals(self):
         with self.assertRaises(lb.BaselineError):
             lb.parse_allowance("MissingTranslation 3", {"MissingTranslation"})
+
+    def test_allowance_parsing_refuses_a_grant_without_an_issue(self):
+        # Вада, яку це закриває: змінна живе поза git і без терміну, тож без
+        # назви тікета забутий дозвіл тихо пропускає приріст у кожному PR.
+        with self.assertRaises(lb.BaselineError) as caught:
+            lb.parse_allowance("MissingTranslation=+3", {"MissingTranslation"})
+        self.assertIn("@тікета", str(caught.exception))
+
+    def test_allowance_lines_state_usage_and_issue_even_when_unused(self):
+        base = lb.Counter({"MissingTranslation": 1083})
+        head = lb.Counter({"MissingTranslation": 1083})
+        allowance = {"MissingTranslation": lb.Allowance(5, "1222")}
+        line = lb.allowance_lines(base, head, allowance)[0]
+        self.assertIn("0 із 5", line)
+        self.assertIn("НЕ витрачено", line)
+        self.assertIn("1222", line)
+
+    def test_allowance_lines_show_a_spent_grant(self):
+        base = lb.Counter({"MissingTranslation": 1083})
+        head = lb.Counter({"MissingTranslation": 1085})
+        allowance = {"MissingTranslation": lb.Allowance(5, "1222")}
+        line = lb.allowance_lines(base, head, allowance)[0]
+        self.assertIn("2 із 5", line)
+        self.assertIn("витрачено", line)
+        self.assertNotIn("НЕ витрачено", line)
 
 
 class ReportSelectionTest(unittest.TestCase):
@@ -415,6 +475,17 @@ class AddCommandTest(unittest.TestCase):
         self.assertIn("машинний шлях", output)
         self.assertEqual(self.baseline.read_text(encoding="utf-8"), before)
 
+    def test_dry_run_refuses_a_machine_path_too(self):
+        # Огляд #1234: сухий прогін виходив ДО ґарда машинних шляхів і друкував
+        # текст, який реальний прогін відкидає — тобто обіцяв те, чого не буде.
+        self.write_report(self.mt_issue(file=".worktrees/w1222/app/src/main/res/values/strings.xml"))
+        before = self.baseline.read_text(encoding="utf-8")
+        code, output = self.run_add("--dry-run")
+        self.assertEqual(code, 2)
+        self.assertIn("машинний шлях", output)
+        self.assertNotIn("Текст, який було б вставлено", output)
+        self.assertEqual(self.baseline.read_text(encoding="utf-8"), before)
+
     def test_require_changes_turns_nothing_to_add_into_a_failure(self):
         self.write_report(self.mt_issue(message="a"))  # «a» уже в baseline
         code, _ = self.run_add("--require-changes")
@@ -450,12 +521,16 @@ class CheckGrowthCommandTest(unittest.TestCase):
         subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
         subprocess.run(["git", "commit", "-qm", message], cwd=self.root, check=True)
 
-    def run_guard(self, *refs, allowance=None):
+    def run_guard(self, *refs, allowance=None, summary_path=None):
         environment = dict(os.environ)
         if allowance is None:
             environment.pop("LINT_BASELINE_GROWTH_ALLOWANCE", None)
         else:
             environment["LINT_BASELINE_GROWTH_ALLOWANCE"] = allowance
+        if summary_path is None:
+            environment.pop("GITHUB_STEP_SUMMARY", None)
+        else:
+            environment["GITHUB_STEP_SUMMARY"] = str(summary_path)
         output = io.StringIO()
         with mock.patch.object(lb, "REPO_ROOT", self.root), mock.patch.dict(os.environ, environment, clear=True):
             with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
@@ -503,9 +578,50 @@ class CheckGrowthCommandTest(unittest.TestCase):
             ]
         )
         self.commit("+1 MissingTranslation")
-        code, output = self.run_guard(self.base, "HEAD", allowance="MissingTranslation=+1")
+        code, output = self.run_guard(self.base, "HEAD", allowance="MissingTranslation=+1@1222")
         self.assertEqual(code, 0)
         self.assertIn("приріст лише в межах дозволу", output)
+        self.assertIn("1 із 1 — витрачено (1222)", output)
+
+    def test_an_unspent_allowance_is_still_announced_without_any_growth(self):
+        # Вада огляду #1234: «✅ без приросту» мовчало про виставлену змінну, а
+        # вона живе поза git і без терміну — забутий дозвіл тихо пропускав би
+        # до +N у кожному наступному PR.
+        summary = self.root / "summary.md"
+        code, output = self.run_guard(
+            self.base,
+            self.base,
+            allowance="MissingTranslation=+5@1222,UseKtx=+2@1234",
+            summary_path=summary,
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("Дозвіл LINT_BASELINE_GROWTH_ALLOWANCE (активний", output)
+        self.assertIn("MissingTranslation: 0 із 5 — НЕ витрачено (1222)", output)
+        self.assertIn("UseKtx: 0 із 2 — НЕ витрачено (1234)", output)
+        self.assertIn("прибери змінну", output)
+        summary_text = summary.read_text(encoding="utf-8")
+        self.assertIn("LINT_BASELINE_GROWTH_ALLOWANCE", summary_text)
+        self.assertIn("0 із 5", summary_text)
+
+    def test_a_grant_without_an_issue_is_refused_by_the_guard_step(self):
+        code, output = self.run_guard(self.base, self.base, allowance="MissingTranslation=+5")
+        self.assertEqual(code, 2)
+        self.assertIn("@тікета", output)
+
+    def test_a_failing_run_still_prints_the_active_allowance(self):
+        self.write(
+            [
+                entry("MissingTranslation", line=1),
+                entry("UseKtx", file="src/main/java/App.kt", line=5),
+                entry("MissingTranslation", line=2),
+                entry("MissingTranslation", line=3),
+            ]
+        )
+        self.commit("+2 MissingTranslation")
+        code, output = self.run_guard(self.base, "HEAD", allowance="MissingTranslation=+1@1222")
+        self.assertEqual(code, 1)
+        self.assertIn("дозвіл 1 вичерпано", output)
+        self.assertIn("2 із 1 — витрачено (1222)", output)
 
     def test_worktree_flag_reads_the_uncommitted_file(self):
         self.write(
@@ -548,13 +664,28 @@ class MachinePathGuardTest(unittest.TestCase):
         pattern = self.machine_path_grep()
         self.assertIsNone(re.search(pattern, BASELINE.read_text(encoding="utf-8")))
 
-    def test_generator_uses_the_same_three_paths(self):
-        # Дзеркало ґарда в генераторі не має розійтися з ci.yml: ті самі три
-        # шляхи, той самий `file="…"`-контекст.
-        source = Path(lb.__file__).read_text(encoding="utf-8")
-        for token in (".worktrees/", "$HOME/", "$GRADLE_USER_HOME/"):
-            self.assertIn(token, source)
-        self.assertIn(r'file="[^"]*', source)
+    def test_generator_pattern_is_byte_for_byte_the_ci_pattern(self):
+        # Не «ті самі три підрядки», а той самий патерн: генератор і CI мусять
+        # ловити рівно однаковий набір рядків, інакше `--dry-run` обіцяє одне,
+        # а джоба робить інше.
+        self.assertEqual(self.machine_path_grep(), lb.MACHINE_PATH_RE.pattern)
+
+    def test_generator_and_ci_agree_on_every_sample(self):
+        pattern = self.machine_path_grep()
+        samples = (
+            'file="src/main/res/values/strings.xml"',
+            'file=".worktrees/w1222/app/src/main/res/values/strings.xml"',
+            'file="$HOME/checkout/app/src/main/res/values/strings.xml"',
+            'file="$GRADLE_USER_HOME/caches/transforms/x/strings.xml"',
+            'file="../outside/strings.xml"',
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertEqual(
+                    bool(re.search(pattern, sample)),
+                    bool(lb.MACHINE_PATH_RE.search(sample)),
+                    f"ґард CI і патерн генератора розійшлися на {sample}",
+                )
 
 
 if __name__ == "__main__":

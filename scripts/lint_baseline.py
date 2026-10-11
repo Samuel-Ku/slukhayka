@@ -38,9 +38,15 @@
 Виняток для законного додавання — один, і він не в PR, а на рівні власника:
 репозиторна змінна LINT_BASELINE_GROWTH_ALLOWANCE (той самий механізм, що
 BASE_SYNC_MAX_AGE_HOURS у .github/workflows/ci.yml). Формат:
-`Правило=+N[,Правило=+N]`, напр. `MissingTranslation=3`. Порожня змінна = нуль
-допуску. Змінна — не частина PR, тож її не «забувають у коді»: її ставить і
-знімає власник, а ґард щоразу друкує, скільком записам вона дала пройти.
+`Правило=+N@<тікет>[,Правило=+N@<тікет>]`, напр. `MissingTranslation=+3@1222`.
+Порожня змінна = нуль допуску.
+
+Тікет у значенні обов'язковий, і ось чому. Змінна живе ПОЗА git, без терміну, і
+порівнюється з рухомою базою (base-ref PR), тож забутий дозвіл тихо пропускає
+до +N у кожному наступному PR. Назва тікета робить дозвіл прив'язаним до
+роботи, яку видно, а ґард друкує активний дозвіл ЗАВЖДИ — у лог і в підсумок
+кроку, навіть коли приросту немає зовсім («0 із 5 — НЕ витрачено (@1222)»).
+Знімається дозвіл тоді, коли закрито тікет, названий у значенні.
 
 Виклик (локально, з кореня репозиторію):
     python3 scripts/lint_baseline.py check-growth origin/main HEAD
@@ -65,6 +71,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BASELINE_DEFAULT = "app/lint-baseline.xml"
 REPORT_DEFAULT = "app/build/reports/lint-results-debug.xml"
 MISSING_TRANSLATION = "MissingTranslation"
+
+# Дзеркало ґарда #1196 із джоби `lint`: той самий патерн, по символу. Тест
+# витягує рядок `grep -qE '…'` із .github/workflows/ci.yml і порівнює його з
+# цим шаблоном, тож розійтися вони не можуть.
+MACHINE_PATH_RE = re.compile(r'file="[^"]*(\.worktrees/|\$HOME/|\$GRADLE_USER_HOME/)')
 
 # Lint пише ці два записи ПРО сам baseline (скільки придушено, скільком записам
 # уже нічого не відповідає). У baseline вони не потрапляють ніколи — у файлі
@@ -407,37 +418,89 @@ def read_git_file(ref: str, path: str) -> str:
     return result.stdout
 
 
-def parse_allowance(spec: str, known_rules: set[str]) -> dict[str, int]:
-    """LINT_BASELINE_GROWTH_ALLOWANCE → {правило: дозволений приріст}.
+@dataclass(frozen=True)
+class Allowance:
+    """Дозвіл на приріст одного правила: скільки і за яким тікетом.
 
+    `ref` обов'язковий саме тому, що змінна живе поза git і без терміну: без
+    назви тікета забутий дозвіл неможливо ні пояснити, ні прибрати — а він
+    дозволяє до +N у КОЖНОМУ наступному PR (база порівняння рухома).
+    """
+
+    extra: int
+    ref: str
+
+    def __str__(self) -> str:
+        return f"+{self.extra}@{self.ref}"
+
+
+def parse_allowance(spec: str, known_rules: set[str]) -> dict[str, Allowance]:
+    """LINT_BASELINE_GROWTH_ALLOWANCE → {правило: дозвіл}.
+
+    Формат: `Правило=+N@<тікет>[,...]`, напр. `MissingTranslation=+3@1222`.
     Помилка в змінній — падіння, а не «нуль допуску»: мовчазний нуль виглядав
     би як звичайна червона збірка й автор шукав би причину в коді, а не в
     змінній. Невідоме правило — теж падіння (одруківка в id не має тихо
-    дозволяти нічого).
+    дозволяти нічого), як і дозвіл без `@тікета`.
     """
-    allowance: dict[str, int] = {}
+    allowance: dict[str, Allowance] = {}
     for chunk in spec.split(","):
         chunk = chunk.strip()
         if not chunk:
             continue
         if "=" not in chunk:
             raise BaselineError(
-                f"LINT_BASELINE_GROWTH_ALLOWANCE: '{chunk}' без '=' — формат Правило=+N"
+                f"LINT_BASELINE_GROWTH_ALLOWANCE: '{chunk}' без '=' — формат Правило=+N@тікет"
             )
         rule, _, value = chunk.partition("=")
         rule = rule.strip()
-        value = value.strip().lstrip("+")
-        if not rule or not value.isdigit():
+        number, _, ref = value.strip().partition("@")
+        number = number.strip().lstrip("+")
+        ref = ref.strip()
+        if not rule or not number.isdigit():
             raise BaselineError(
-                f"LINT_BASELINE_GROWTH_ALLOWANCE: '{chunk}' не Правило=+N (N — ціле ≥ 0)"
+                f"LINT_BASELINE_GROWTH_ALLOWANCE: '{chunk}' не Правило=+N@тікет (N — ціле ≥ 0)"
+            )
+        if not ref:
+            raise BaselineError(
+                f"LINT_BASELINE_GROWTH_ALLOWANCE: '{chunk}' без '@тікета'. Дозвіл живе поза git "
+                "і без терміну, тож мусить називати тікет, за яким його знімуть — інакше забутий "
+                "дозвіл тихо пропускатиме приріст у кожному наступному PR"
             )
         if rule not in known_rules:
             raise BaselineError(
                 f"LINT_BASELINE_GROWTH_ALLOWANCE: правила '{rule}' немає ні в base, "
                 f"ні в HEAD — одруківка? Відомі: {', '.join(sorted(known_rules))}"
             )
-        allowance[rule] = allowance.get(rule, 0) + int(value)
+        previous = allowance.get(rule)
+        allowance[rule] = Allowance(
+            extra=(previous.extra if previous else 0) + int(number),
+            ref=f"{previous.ref},{ref}" if previous else ref,
+        )
     return allowance
+
+
+def allowance_counts(allowance: dict[str, Allowance]) -> dict[str, int]:
+    return {rule: grant.extra for rule, grant in allowance.items()}
+
+
+def allowance_lines(
+    base_counts: Counter, head_counts: Counter, allowance: dict[str, Allowance]
+) -> list[str]:
+    """Рядки про активний дозвіл — друкуються ЗАВЖДИ, коли змінна непорожня.
+
+    Саме тут закривається вада «забутий дозвіл мовчить»: доки змінна стоїть,
+    кожен прогін — і лог, і `$GITHUB_STEP_SUMMARY` — каже, скільки нею
+    дозволено, скільки витрачено і за яким тікетом її знімати. Дозвіл, який
+    нічого не покрив, видно так само добре, як витрачений.
+    """
+    lines = []
+    for rule in sorted(allowance):
+        grant = allowance[rule]
+        used = max(0, head_counts.get(rule, 0) - base_counts.get(rule, 0))
+        state = "витрачено" if used else "НЕ витрачено"
+        lines.append(f"  · {rule}: {used} із {grant.extra} — {state} ({grant.ref})")
+    return lines
 
 
 def summarize_counts(counts: Counter) -> tuple[int, int]:
@@ -509,13 +572,19 @@ def cmd_check_growth(args: argparse.Namespace) -> int:
     print(f"  {'разом':<20} {sum(base_counts.values()):>5} → {sum(head_counts.values()):>5}  "
           f"{_delta(sum(head_counts.values()) - sum(base_counts.values()))}")
 
-    over, allowed, shrunk = growth_rows(base_counts, head_counts, allowance)
+    over, allowed, shrunk = growth_rows(base_counts, head_counts, allowance_counts(allowance))
     for rule, base_count, head_count, delta, _extra in shrunk:
         print(f"  · {rule}: {base_count} → {head_count} {_delta(delta)}")
 
-    for rule, base_count, head_count, delta, extra in allowed:
-        used = f"дозвіл {extra}, використано {delta}" if extra else "дозвіл не витрачено"
-        print(f"  · {rule}: {base_count} → {head_count} (приріст +{delta}, {used})")
+    # Дозвіл друкується завжди, коли він активний — навіть якщо приросту немає
+    # зовсім: змінна живе поза git і без терміну, тож «тихо виставлений і
+    # забутий» дозвіл мусить бути видно в кожному прогоні, а не лише тоді, коли
+    # він щось пропустив.
+    if allowance:
+        print("Дозвіл LINT_BASELINE_GROWTH_ALLOWANCE (активний, знімається разом із тікетом):")
+        for line in allowance_lines(base_counts, head_counts, allowance):
+            print(line)
+        print("  ↑ доки цей рядок у виводі, дозвіл діє; прибери змінну, коли тікет закрито")
 
     if not over:
         if allowed:
@@ -528,6 +597,11 @@ def cmd_check_growth(args: argparse.Namespace) -> int:
                 f"✅ `app/lint-baseline.xml`: без приросту проти `{args.base_ref}` "
                 f"({sum(base_counts.values())} → {sum(head_counts.values())} записів)"
             )
+        if allowance:
+            _summary(
+                "⚠️ активний дозвіл `LINT_BASELINE_GROWTH_ALLOWANCE`: "
+                + "; ".join(line.strip() for line in allowance_lines(base_counts, head_counts, allowance))
+            )
         return 0
 
     for rule, base_count, head_count, delta, extra in over:
@@ -539,8 +613,8 @@ def cmd_check_growth(args: argparse.Namespace) -> int:
         "\nЗапис у baseline — це придушення, а не полагодження. Якщо порушення "
         "справжнє (напр. новий рядок uk без перекладу), рішення про приріст ухвалює "
         "власник: він виставляє репозиторну змінну "
-        "LINT_BASELINE_GROWTH_ALLOWANCE=<Правило>=+N і знімає її, коли ланка "
-        "змержиться. Вставити запис із звіту lint без ручного копіювання метаданих: "
+        "LINT_BASELINE_GROWTH_ALLOWANCE=<Правило>=+N@<тікет> і знімає її, коли тікет "
+        "закрито. Вставити запис із звіту lint без ручного копіювання метаданих: "
         "python3 scripts/lint_baseline.py add",
         file=sys.stderr,
     )
@@ -579,10 +653,15 @@ def insert_anchor(entries: list[Entry], new_entry: Entry) -> tuple[int, bool]:
     """Після якого запису вставити новий; і чи є взагалі блок цього правила.
 
     Усередині блоку того самого id: останній запис, чий канонічний ключ не
-    більший за ключ нового. Для відсортованого блоку це точний bisect. Блок
-    MissingTranslation відсортований НЕ повністю (18 записів із застарілими
-    рядками стоять не на своєму місці) — «останній ≤ нового» ставить запис
-    поряд із сусідами за метаданими й не перетасовує решту: диф = +1 запис.
+    більший за ключ нового. Для повністю відсортованого блоку це точний bisect.
+    Блок MissingTranslation відсортований НЕ повністю: 17 із 1083 його записів
+    стоять не на своїй позиції канонічного порядку (решта 26 блоків канонічні;
+    міра — «скільки позицій блоку відрізняється від того самого блоку,
+    відсортованого канонічним ключем», не «скільки переміщень» і не «скільки
+    рядків застаріло»: застарілі рядки мають сотні записів, і на порядок вони
+    не впливають) — рахує й друкує `verify`. Через це якір — «останній ≤
+    нового»: він ставить запис поряд із сусідами за метаданими й не перетасовує
+    решту, тож диф = +1 запис.
 
     Якщо новий запис менший за всі наявні в блоці, якір — запис ПЕРЕД блоком
     (тобто вставка на початок блоку); -1 означає початок файлу.
@@ -715,17 +794,21 @@ def cmd_add(args: argparse.Namespace) -> int:
     for entry in selected:
         _summary_entry(entry)
 
+    # Ґард машинних шляхів (#1196) стоїть ПЕРЕД --dry-run: сухий прогін має
+    # показувати те, що реальний прогін справді зробив би, а не текст, який він
+    # за тим самим ґардом відкидає.
+    if not _machine_path_clean(working.raw):
+        raise BaselineError(
+            f"{args.baseline}: вставлений запис цитує машинний шлях "
+            "(.worktrees/, $HOME/, $GRADLE_USER_HOME/) — ґард #1196 його не пропустить"
+        )
+
     if args.dry_run:
         print("\n--dry-run: файл не змінено. Текст, який було б вставлено:\n")
         for entry in selected:
             print(serialize_entry(entry), end="")
         return 0
 
-    if not _machine_path_clean(working.raw):
-        raise BaselineError(
-            f"{args.baseline}: вставлений запис цитує машинний шлях "
-            "(.worktrees/, $HOME/, $GRADLE_USER_HOME/) — ґард #1196 його не пропустить"
-        )
     before, after = count_by_rule(baseline.entries), count_by_rule(working.entries)
     if len(working.entries) != len(baseline.entries) + len(selected):
         raise BaselineError(
@@ -758,7 +841,55 @@ def _print_skipped(skipped: list[str], limit: int = 10) -> None:
 
 def _machine_path_clean(rendered: str) -> bool:
     """Той самий ґард #1196, але на етапі генерації, а не в CI."""
-    return not re.search(r'file="[^"]*(\.worktrees/|\$HOME/|\$GRADLE_USER_HOME/)', rendered)
+    return not MACHINE_PATH_RE.search(rendered)
+
+
+def order_deviation_by_rule(entries: list[Entry]) -> dict[str, tuple[int, int]]:
+    """{правило: (скільки записів не на позиції канонічного ключа, розмір блоку)}."""
+    blocks: dict[str, list[Entry]] = {}
+    for entry in entries:
+        blocks.setdefault(entry.issue_id, []).append(entry)
+    deviation: dict[str, tuple[int, int]] = {}
+    for rule, block in blocks.items():
+        ordered = sorted(block, key=canonical_key)
+        deviation[rule] = (
+            sum(1 for actual, expected in zip(block, ordered) if canonical_key(actual) != canonical_key(expected)),
+            len(block),
+        )
+    return deviation
+
+
+def order_deviation(entries: list[Entry]) -> tuple[int, int]:
+    """Міра відхилення порядку і міра застарілих рядків.
+
+    Перше число — те, на яке спирається `insert_anchor`: скільки ПОЗИЦІЙ
+    списку відрізняється від того самого списку, відсортованого канонічним
+    ключем (не «скільки переміщень», не «скільки інверсій» — саме позицій).
+    Друге — окрема річ: запис зберігає рядок на момент, коли його записали, і
+    файл з того часу зсувався (lint на рядок не дивиться — його тотожність це
+    id + файл + message). Друге не впливає на перше, і саме тому вони не
+    змішуються в одному числі.
+    """
+    misplaced = sum(count for count, _size in order_deviation_by_rule(entries).values())
+
+    by_rule: dict[str, list[Entry]] = {}
+    for entry in entries:
+        by_rule.setdefault(entry.issue_id, []).append(entry)
+
+    stale = 0
+    file_lines: dict[str, list[str]] = {}
+    for block in by_rule.values():
+        for entry in block:
+            if entry.line < 0 or not entry.error_lines:
+                continue
+            if entry.file not in file_lines:
+                path = REPO_ROOT / "app" / entry.file
+                file_lines[entry.file] = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+            lines = file_lines[entry.file]
+            snippet = entry.error_lines[0].strip()
+            if entry.line > len(lines) or lines[entry.line - 1].strip() != snippet:
+                stale += 1
+    return misplaced, stale
 
 
 def _summary_entry(entry: Entry) -> None:
@@ -793,10 +924,18 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print(f"::error::{len(broken)} із {len(baseline.entries)} записів форматер не відтворює", file=sys.stderr)
         return 1
     exact = len(baseline.entries) - len(cosmetic)
+    misplaced, stale = order_deviation(baseline.entries)
     print(
         f"{args.baseline}: {len(baseline.entries)} записів, з них {exact} відтворюються "
         f"байт-у-байт, {len(cosmetic)} — семантично."
     )
+    print(
+        f"Порядок: {misplaced} із {len(baseline.entries)} записів стоять не на позиції канонічного "
+        f"ключа (міра, на яку спирається insert_anchor); застарілий рядок мають {stale}."
+    )
+    for rule, (count, size) in sorted(order_deviation_by_rule(baseline.entries).items()):
+        if count:
+            print(f"  · {rule}: {count} із {size} — блоку цього правила не вистачає канонічного порядку")
     return 0
 
 

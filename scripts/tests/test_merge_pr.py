@@ -625,6 +625,8 @@ class MergePrTest(unittest.TestCase):
                 self.assertIn(marker, result.stderr)
                 self.assertIn(PR_BRANCH, result.stderr)
                 self.assertIn("rebase --abort", result.stderr)
+                # Робоча копія названа нею самою, а не її git-каталогом.
+                self.assertIn("робоча копія %s)" % self.repo, result.stderr)
                 self.assertEqual([], self.merge_calls())
 
     def test_refuses_a_rebase_left_in_another_worktree_of_the_same_copy(self):
@@ -695,6 +697,40 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout)
         self.assertIn("незавершений ребаз", result.stderr)
         self.assertIn("не названо", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_refuses_a_stopped_git_am_that_names_no_branch(self):
+        """`git am` лишає `rebase-apply` БЕЗ `head-name` — і це відмова.
+
+        Не літерал у фікстурі, а справжній зупинений `git am`: саме він
+        відкривав дірку. Запис розділявся табом, а таб — це IFS-whitespace:
+        порожнє поле зникало, шлях worktree з'їжджав у поле гілки, і гейт
+        читав безіменну операцію як «ребаз чужої гілки, названої шляхом» —
+        тобто WARN і мердж там, де гілку рухали й половина могла поїхати.
+        """
+        patch_file = self.root / "incoming.patch"
+        self.commit("am.txt", "base\n", "chore: основа для листа")
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        self.commit("am.txt", "місцеве\n", "feat: місцева правка")
+        self.git("checkout", "-q", "-b", "incoming", "main")
+        self.commit("am.txt", "вхідне\n", "feat: вхідний лист")
+        patch_file.write_text(
+            self.git("format-patch", "-1", "--stdout", "incoming").stdout, encoding="utf-8")
+        self.git("checkout", "-q", PR_BRANCH)
+
+        stopped = self.git("am", str(patch_file), check=False)
+
+        self.assertNotEqual(0, stopped.returncode, stopped.stdout)
+        apply_dir = self.repo / ".git" / "rebase-apply"
+        self.assertTrue(apply_dir.is_dir(), apply_dir)
+        self.assertFalse((apply_dir / "head-name").exists())
+
+        result = self.gate()
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("незавершений ребаз", result.stderr)
+        self.assertIn("не названо", result.stderr)
+        self.assertNotIn("чужої гілки", result.stderr)
         self.assertEqual([], self.merge_calls())
 
     def test_fails_closed_when_the_working_copy_scan_fails(self):

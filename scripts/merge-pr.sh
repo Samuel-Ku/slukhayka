@@ -434,7 +434,11 @@ if [ -z "$REPO_ROOT" ] || ! "$GIT" -C "$REPO_ROOT" rev-parse --git-dir >/dev/nul
 fi
 REPO_ROOT="$("$GIT" -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$REPO_ROOT")"
 
-# Друк: "<шлях до маркера>\t<гілка>\t<робоча копія>".
+# Друк: "<шлях до маркера>|<гілка>|<робоча копія>". Роздільник — НЕ таб і не
+# пробіл: IFS-whitespace згортає повтори, і порожнє поле зникає (`M\t\tW` дає
+# marker=M, branch=W, worktree="") — безіменний ребаз тоді читався б як ребаз
+# чужої гілки, названої шляхом worktree. `|` лишає порожнє поле порожнім, а в
+# останньому полі (шлях) решта рядка зберігається разом із роздільниками.
 open_operations() {
   local common git_dir dir marker branch worktree seen
   common="$("$GIT" -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)" || return 1
@@ -451,8 +455,11 @@ open_operations() {
       if [ -f "$dir/gitdir" ]; then
         worktree="$(sed 's:/\.git/*$::' "$dir/gitdir" 2>/dev/null || true)"
         [ -n "$worktree" ] || worktree="$dir"
+      elif [ "$dir" = "$common" ]; then
+        # Головний worktree: git-каталог — це $REPO_ROOT/.git, а копія — сам $REPO_ROOT.
+        worktree="$REPO_ROOT"
       fi
-      printf '%s\t%s\t%s\n' "$dir/$marker" "${branch#refs/heads/}" "$worktree"
+      printf '%s|%s|%s\n' "$dir/$marker" "${branch#refs/heads/}" "$worktree"
     done
   done
   return 0
@@ -465,18 +472,24 @@ if ! OPERATIONS="$(open_operations)"; then
 fi
 : >"$TMP/rebase_own.txt"
 : >"$TMP/rebase_other.txt"
-while IFS=$'\t' read -r marker branch worktree; do
+while IFS='|' read -r marker branch worktree; do
   [ -n "$marker" ] || continue
   case "$branch" in
-    "" | "detached HEAD") printf '%s\t%s\t%s\n' "$marker" "не названо" "$worktree" >>"$TMP/rebase_own.txt" ;;
-    "$HEAD_REF") printf '%s\t%s\t%s\n' "$marker" "$branch" "$worktree" >>"$TMP/rebase_own.txt" ;;
-    *) printf '%s\t%s\t%s\n' "$marker" "$branch" "$worktree" >>"$TMP/rebase_other.txt" ;;
+    "" | "detached HEAD")
+      # Гілку не названо: `git am` узагалі не пише head-name, а ребаз від
+      # від'єднаного HEAD пише "detached HEAD". Приписати таку операцію чужій
+      # смузі нема підстав, а пропустити означало б пропустити і свій ребаз —
+      # гілку рухали, і ми не знаємо, яку.
+      printf '%s|%s|%s\n' "$marker" "не названо${branch:+ ($branch)}" "$worktree" >>"$TMP/rebase_own.txt"
+      ;;
+    "$HEAD_REF") printf '%s|%s|%s\n' "$marker" "$branch" "$worktree" >>"$TMP/rebase_own.txt" ;;
+    *) printf '%s|%s|%s\n' "$marker" "$branch" "$worktree" >>"$TMP/rebase_other.txt" ;;
   esac
 done <<<"$OPERATIONS"
 
 if [ -s "$TMP/rebase_other.txt" ]; then
   warn "у робочій копії незавершений ребаз чужої гілки — гілку PR '$HEAD_REF' він не рухав, тож мердж не блокую:"
-  while IFS=$'\t' read -r marker branch worktree; do
+  while IFS='|' read -r marker branch worktree; do
     printf '      ? %s (гілка: %s, робоча копія %s)\n' "$marker" "$branch" "$worktree" >&2
   done <"$TMP/rebase_other.txt"
   note "чужу робочу копію не чіпай: ребаз завершує або скасовує його автор — інакше зникне чуже розвʼязання конфлікту."
@@ -485,7 +498,7 @@ fi
 if [ -s "$TMP/rebase_own.txt" ]; then
   printf 'FAIL  PR #%s: у робочій копії лишився незавершений ребаз — гілку рухали посеред операції, тож на remote могла поїхати її половина.\n' \
     "$PR_NUMBER" >&2
-  while IFS=$'\t' read -r marker branch worktree; do
+  while IFS='|' read -r marker branch worktree; do
     printf '      ✗ %s (гілка: %s, робоча копія %s)\n' "$marker" "$branch" "$worktree" >&2
   done <"$TMP/rebase_own.txt"
   printf 'Далі: заверши ребаз (git -C <робоча копія> rebase --continue) або скасуй його (git -C <робоча копія> rebase --abort),\n' >&2

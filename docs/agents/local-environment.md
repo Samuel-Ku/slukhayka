@@ -74,10 +74,34 @@ would make the tree dirty for the next run. stderr is the proof, stdout is the
 record. Exit codes: `0` caught · `1` survived · `2` refused · `3` no verdict ·
 `128+N` interrupted.
 
+`scripts/**` goes through the same tool with `--python`, which takes one target
+from the set the `script-tests` CI job discovers: a whole file, or one class in
+it.
+
+```sh
+../gt scripts/mutate.sh --patch .mutations/patches/<name>.patch \
+    --python scripts/tests/test_merge_pr.py::MergePrTest
+```
+
+None of the bookkeeping changes: the same clean-tree refusal, the same trap, the
+same sha256 proof, the same record fields, the same exit codes. What changes is
+who writes the artifact. A JVM run is witnessed by Gradle's JUnit XML — a file the
+real run overwrites too — and `unittest` writes no file at all, so
+`scripts/mutation_python_runner.py` runs the target and writes a JUnit XML of the
+same shape to `.mutations/artifacts/TEST-<target>.xml`. That is what keeps one
+answer to "is this artifact a mutation's or a real run's" for both worlds.
+
+The runner parks every `.pyc` outside the tree (via `PYTHONPYCACHEPREFIX` into the
+run's scratch directory). That is not tidiness: a `.pyc` is validated by the
+source's size and whole-second mtime, so a same-size mutation applied in the same
+second as the previous compile would be read from the stale cache — the suite
+would stay green and the record would call a live mutation a survivor.
+
 Ask which the last run was instead of guessing:
 
 ```sh
 scripts/mutate.sh status --class com.slukhayka.audiobooks.player.SmartRewindTest
+scripts/mutate.sh status --python scripts/tests/test_merge_pr.py::MergePrTest
 ```
 
 One JSON object, where `verdict` is `mutational` (the XML on disk is
@@ -88,11 +112,17 @@ names the run that wrote the XML, and `headMatches` says whether HEAD still is
 the commit the record was made at. Verdicts are decided in that order: with
 neither an XML nor a log, the answer is `no-artifact`, not `unknown`.
 
-Three honest limits. The records cover mutations that ran through this script — a
+Four honest limits. The records cover mutations that ran through this script — a
 hand-edited tree is invisible to it. `--class` reaches JVM test sources under
-`app/src/test/java`; a mutation whose only witness is an instrumented test cannot
-be recorded here. And nothing invents mutations or finds survivors: `survived`
-means only that the class ran green under the mutation, so which mutation to
+`app/src/test/java`, `--python` the unittest files under `scripts/tests/`; a
+mutation whose only witness is an instrumented test or a web check (`tsc`,
+`vitest`, `scripts/web-layout-probe.mjs`) cannot be recorded here — vitest needs
+Node and `npm ci`, which a unittest runner has no reason to bring. A patch that
+edits `scripts/mutate.sh` itself edits the file the running shell is still
+reading, so that promise is pinned by a copy-mutant in
+`scripts/tests/test_mutate*.py` (`SLUKHAYKA_MUTATE_SCRIPT`) rather than by a run
+through the tool. And nothing invents mutations or finds survivors: `survived`
+means only that the target ran green under the mutation, so which mutation to
 write stays the author's judgement — the script automates the bookkeeping, not
 the thinking.
 
@@ -100,12 +130,14 @@ the thinking.
 
 1. `../gt scripts/test-changed.sh` — the real run over the changed paths.
 2. One patch per mutation under `.mutations/patches/`, one call each, through the
-   slot: `../gt scripts/mutate.sh --patch … --class …`. A `survived` verdict is a
-   finding: the class does not pin the behaviour you changed.
-3. `scripts/mutate.sh status --class <FQCN>` for every class whose XML the review
-   will read, so the next reader does not have to work out whether the artifact
-   on disk is a mutation's. Rollback restores sources; it does not delete the
-   XML, and `status` is what keeps that leftover from reading as a run of HEAD.
+   slot: `../gt scripts/mutate.sh --patch … --class …` for a JVM class,
+   `--patch … --python …` for a `scripts/tests/` target. A `survived` verdict is a
+   finding: the target does not pin the behaviour you changed.
+3. `scripts/mutate.sh status --class <FQCN>` (or `status --python <target>`) for
+   every target whose artifact the review will read, so the next reader does not
+   have to work out whether it is a mutation's. Rollback restores sources; it does
+   not delete the artifact, and `status` is what keeps that leftover from reading
+   as a run of HEAD.
 
 The merge step is described under "CI" below.
 

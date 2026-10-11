@@ -73,10 +73,12 @@ suite.
   checked-in `app/lint-baseline.xml`, so a new issue outside the baseline fails.
 - `scripts/mutate.sh` is the tool for the mutation check `CONTRIBUTING.md`
   requires of new logic: write a patch that breaks it and see whether its test
-  goes red. `--class` reaches JVM test sources under `app/src/test/java`;
-  nothing invents mutations or finds survivors, so which mutation to write is
-  the author's judgement. The recipe and its three honest limits are in
-  `docs/agents/local-environment.md` ("Mutations").
+  goes red. `--class` reaches JVM test sources under `app/src/test/java`,
+  `--python` the unittest files under `scripts/tests/`; both leave the same
+  record and answer `status` in the same words. Nothing invents mutations or
+  finds survivors, so which mutation to write is the author's judgement. The
+  recipe and its honest limits are in `docs/agents/local-environment.md`
+  ("Mutations").
 - Before a release tag, run `scripts/pre-release.sh` — the same gate CI runs on
   `release/**` (dependency-PR report + live YouTube contract canary). See
   `docs/runbooks/component-updates.md`.

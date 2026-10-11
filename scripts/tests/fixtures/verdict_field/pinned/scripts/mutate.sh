@@ -43,6 +43,15 @@ else
   outcome=survived
 fi
 
+# Свій argv — у stderr: коли інструмент падає, причина мусить бути видна одразу
+# (порожній шлях, чуже оточення, інший інтерпретатор). Єдина змінна, яку цей
+# інструмент читає з оточення, — наша й із префіксом; решта імен — його власні,
+# тож колізія з оточенням неможлива.
+if [[ -n ${VERDICT_FIXTURE_ECHO:-} ]]; then
+  printf 'fixture argv: python3 %s record --log %s outcome=%s tests=%s failures=%s errors=%s artifactSha256=%s\n' \
+    "$trace_module" "$record_path" "$outcome" "$tests" "$failures" "$errors" "$artifact_sha" >&2
+fi
+
 python3 "$trace_module" record --log "$record_path" \
   "outcome=$outcome" "tests=$tests" "failures=$failures" "errors=$errors" \
   "artifactSha256=$artifact_sha"

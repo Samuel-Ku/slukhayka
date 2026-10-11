@@ -48,19 +48,26 @@ def environment() -> dict:
         "PATH": "/usr/bin:/bin",
         "HOME": str(ROOT),
         "LC_ALL": "C",
+        # Єдина змінна, яку читає сам інструмент, — наша й із префіксом: вона
+        # просить покласти власний argv у stderr, щоб падіння називало себе.
+        "VERDICT_FIXTURE_ECHO": "1",
     }
 
 
 def run_tool() -> dict:
     RECORD.unlink(missing_ok=True)
-    result = subprocess.run(["bash", str(TOOL)], capture_output=True, text=True,
-                            env=environment())
+    command = ["bash", str(TOOL)]
+    result = subprocess.run(command, capture_output=True, text=True, env=environment())
     if result.returncode != 0:
-        # `check=True` ховає stderr інструмента за CalledProcessError: у CI саме
-        # через це падіння не мало причини в логу. Причина мусить бути в тексті.
+        # `check=True` ховав і argv, і stderr: у CI саме через це падіння не мало
+        # причини в логу, і причину довелося шукати за кодом виходу. Тепер у
+        # тексті є все — команда, оточення (інструмент друкує свій argv сам) і
+        # обидва потоки.
         raise AssertionError(
-            "підставний інструмент вийшов із кодом %d\n--- stdout ---\n%s\n--- stderr ---\n%s"
-            % (result.returncode, result.stdout[-500:], result.stderr[-500:])
+            "підставний інструмент вийшов із кодом %d\n"
+            "--- argv ---\n%s\n--- env ---\n%s\n--- stdout ---\n%s\n--- stderr ---\n%s"
+            % (result.returncode, command, sorted(environment()),
+               result.stdout[-500:], result.stderr[-500:])
         )
     return json.loads(RECORD.read_text(encoding="utf-8").splitlines()[-1])
 

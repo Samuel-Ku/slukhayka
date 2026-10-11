@@ -362,6 +362,32 @@ class HistoricalStateTest(unittest.TestCase):
                 verdict.killed_by,
             )
 
+    def test_the_fixture_cli_is_shaped_like_the_real_one(self):
+        """`record` — підкоманда, а не позиційний аргумент ПЕРЕД опцією.
+
+        Форму `record --log X key=value …` різні patch-версії CPython розбирають
+        по-різному: 3.12.3 (`python3` в ubuntu-24.04, тобто в джобі script-tests)
+        лишає `key=value` «unrecognized arguments», а 3.12.12 розбирає. Саме на
+        цьому CI PR #1263 упав удруге — вже після ліку оточення. Справжній
+        `scripts/mutation_trace.py` використовує підкоманду, і фікстура мусить
+        бути такою самою: інакше вона перевіряє не ту форму, яку вдає.
+        """
+        modules = [REPO_ROOT / "scripts" / "mutation_trace.py"] + [
+            FIXTURES / name / "scripts" / "mutation_trace.py" for name in ("pinned", "unpinned")
+        ]
+        for module in modules:
+            with self.subTest(module=module.name):
+                result = subprocess.run([sys.executable, str(module), "--help"],
+                                        capture_output=True, text=True)
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                usage = result.stdout.splitlines()[0]
+                # Підкоманди (фігурні дужки) — і серед них `record`; стара форма
+                # мала в usage `--log LOG record`, тобто позиційний перед опцією.
+                self.assertIn("{", usage, usage)
+                self.assertIn("record", usage, usage)
+                self.assertNotIn("--log LOG record", usage, usage)
+
     def test_the_two_fixtures_cover_both_real_halves_of_the_chain(self):
         """Чотири місця — це читання, правило, передача й поле запису."""
         report = self.report("pinned")

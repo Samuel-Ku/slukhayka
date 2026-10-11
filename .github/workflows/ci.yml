@@ -589,6 +589,29 @@ jobs:
         working-directory: web
         run: npx vitest run
 
+  # #1219: `scripts/` carried 64 unit tests and no step that ran them, so the
+  # class-to-partition map could rot with every check green — and a map nobody
+  # executes proves nothing, which is what that ticket was about. They are
+  # plain Python on the standard library (no JDK, no Android SDK, no Gradle),
+  # so this is a bare-runner job of its own, like `web` above and for the same
+  # reason: folded into `lint` they would pay that job's JDK and SDK setup and
+  # report under its name, where a red lint baseline would hide them. The job
+  # reports its own check, so whether a red script test blocks a merge is
+  # decided by the repository's required-checks configuration, not by this
+  # file.
+  script-tests:
+    name: Script unit tests
+    needs: timing-start
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run the script unit tests
+        run: python3 -m unittest discover -s scripts/tests -p "test_*.py"
+
   # Back on PRs (2026-09): the journey failed 6/6 and was made push-only to
   # stop a constant red mark on pull requests. The cause is fixed — the 40dp
   # author/narrator touch targets (an -8dp row overlap clipping them) and the

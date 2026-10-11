@@ -107,6 +107,9 @@ the thinking.
    on disk is a mutation's. Rollback restores sources; it does not delete the
    XML, and `status` is what keeps that leftover from reading as a run of HEAD.
 
+The merge itself is not this list: `scripts/merge-pr.sh <PR>` is the gate that
+performs it — see "CI" below.
+
 ## Partitions
 
 `AGENTS.md` names them. The wrapper forwards its arguments, so

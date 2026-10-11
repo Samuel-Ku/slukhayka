@@ -136,7 +136,7 @@ import sys
 import threading
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -900,23 +900,23 @@ def check(root: Path, tests_dir: Path = TESTS_DIR, only: list[str] | None = None
 
     runner = Runner(root, tests_dir)
     try:
-        by_name = {module.name: module for modules in witnesses.values() for module in modules}
-        # Базові прогони — по одному на набір, і теж паралельно: вони нічого не
-        # доводять, але без них «убито» не відрізнити від «набір зламаний».
-        distinct = sorted({
-            (module.name, tuple(targets))
-            for site in report.sites
-            for module in witnesses[site.path]
-            for _phase, targets in phases_for(module, site.field.name)
-            if targets
-        })
         with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-            list(pool.map(lambda key: runner.baseline(by_name[key[0]], list(key[1])), distinct))
-
-            def run(site: Site):
-                return judge_site(site, tests_dir, witnesses, runner)
-
-            outcomes = list(pool.map(run, report.sites))
+            futures = [pool.submit(judge_site, site, tests_dir, witnesses, runner)
+                       for site in report.sites]
+            outcomes = []
+            for position, future in enumerate(futures):
+                try:
+                    outcome = future.result()
+                except CancelledError:
+                    break
+                outcomes.append(outcome)
+                if isinstance(outcome, str):
+                    # Невідомість спиняє перевірку: решта мутантів уже нічого не
+                    # додасть, а прогін, який не завершується, коштував би свого
+                    # таймауту ЧЕРГУ разів.
+                    for pending in futures[position + 1:]:
+                        pending.cancel()
+                    break
     finally:
         runner.cleanup()
 

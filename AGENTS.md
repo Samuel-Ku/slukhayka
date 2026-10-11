@@ -48,11 +48,15 @@ run means `-Ptest.selectedClasses=<FQCN,...>`.
 
 A hand-picked class list proves nothing about the rest of its partition, so
 narrow by **path**, never by class: `scripts/test-changed.sh` maps changed
-paths to the partitions that cover them, and that mapping is complete for the
-files you touched. Run those partitions before calling a change verified, and
-name them. A selected run once hid a broken existing test in the same
-partition and reddened CI; the full matrix on CI stays the exhaustive gate, so
-a local run is for feedback, not for proof of the whole suite.
+paths to the partitions that cover them. For a changed production package that
+map is the deepest package at or above it that has tests, taken whole, plus the
+tests declared directly in each package above that one — a `ui.components`
+change reaches `ui`'s own tests, not the rest of `ui` — and a path no test
+claims falls back to the full suite. Run those partitions before calling a
+change verified, and name them. A selected run once hid a broken existing test
+in the same partition and reddened CI; the full matrix on CI stays the
+exhaustive gate, so a local run is for feedback, not for proof of the whole
+suite.
 
 - `scripts/test-changed.sh` is the default entry point. A path no partition
   claims (among them `app/src/main/res/values*/strings.xml`) falls back to the

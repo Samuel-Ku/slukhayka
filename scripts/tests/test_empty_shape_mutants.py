@@ -268,24 +268,15 @@ class FailClosedTest(unittest.TestCase):
 
 
 class RepositoryTest(unittest.TestCase):
-    def test_the_repository_empty_shapes_are_pinned(self):
-        """Механізм по всьому репозиторію: зелений і не порожній.
+    def assert_merge_pr_shapes_are_killed(self, printed: str):
+        """Кожна форма merge-pr.sh мусить бути названа вбитою.
 
-        Порожній зелений («форм не знайдено») теж був би зеленим, тож очікування
-        беруться з САМОГО скрипта, а не з виводу: кожна форма merge-pr.sh мусить
-        бути названа вбитою. Нова законно пінена форма в іншому скрипті цей тест
-        не валить — вона лише додає рядок.
+        Очікування беруться з САМОГО скрипта, а не з виводу, — і зайвий убитий
+        рядок (законно пінена форма в іншому скрипті) тут не помилка.
         """
         merge_pr = REPO_ROOT / "scripts" / "merge-pr.sh"
         expected = ["%s:%d" % (merge_pr.name, found.line)
                     for found in esm.shapes(merge_pr.read_text(encoding="utf-8"))]
-
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            status = esm.main([])
-
-        printed = out.getvalue()
-        self.assertEqual(0, status, err.getvalue())
         self.assertTrue(expected, "merge-pr.sh мусить мати порожню форму:\n%s" % printed)
         killed = [line for line in printed.splitlines() if "убита" in line]
         for marker in expected:
@@ -293,6 +284,38 @@ class RepositoryTest(unittest.TestCase):
                 any(marker in line and "убита test_merge_pr.py" in line for line in killed),
                 "%s немає серед убитих:\n%s" % (marker, printed),
             )
+
+    def test_the_repository_empty_shapes_are_pinned(self):
+        """Механізм по всьому репозиторію: зелений і не порожній.
+
+        Порожній зелений («форм не знайдено») теж був би зеленим, тож тест
+        вимагає, щоб механізм назвав убинтою кожну форму merge-pr.sh.
+        """
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = esm.main([])
+
+        self.assertEqual(0, status, err.getvalue())
+        self.assert_merge_pr_shapes_are_killed(out.getvalue())
+
+    def test_a_second_pinned_shape_in_another_script_is_not_a_regression(self):
+        """Стійкість до майбутнього: зайвий убитий рядок — не регрес.
+
+        Перша редакція вимагала «рівно одну» вбиту форму (`assertEqual(1,
+        len(killed))`), тож законно пінена форма в іншому скрипті валила б тест
+        із причини, якої немає: регресом було б зникнення форми merge-pr.sh, а
+        не поява нової деінде.
+        """
+        merge_pr = REPO_ROOT / "scripts" / "merge-pr.sh"
+        printed = ["OK    scripts/other.sh:12 — порожня форма (поряд із \"x\") "
+                   "убита test_other.py (0.1 с)"]
+        printed += [
+            "OK    %s:%d — порожня форма (поряд із \"detached HEAD\") "
+            "убита test_merge_pr.py (1.0 с)" % (merge_pr.name, found.line)
+            for found in esm.shapes(merge_pr.read_text(encoding="utf-8"))
+        ]
+
+        self.assert_merge_pr_shapes_are_killed("\n".join(printed))
 
 
 if __name__ == "__main__":

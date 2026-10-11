@@ -9,10 +9,17 @@
 `gh pr checks 1215 --json name,state,bucket,startedAt,completedAt` і
 `gh api repos/{owner}/{repo}/commits/735771adafeb.../check-runs?filter=all`
 (17 прогонів, 16 success + 1 skipped, 19:05:35–19:44:59; мердж о 19:45:17).
+
+Перевірка 2 гейта читає робочу копію, тож кожен тест дістає власний
+git-репозиторій у тимчасовому каталозі (MERGE_PR_REPO). Історія в ньому
+синтетична, але топологія відмови — справжня: ребаз, що впав на конфлікті
+(обидва маркери), — саме з таким злився #1239 (див. `git reflog` у
+.git/worktrees/w1224).
 """
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -31,6 +38,8 @@ VERDICT_LABEL = "review:pass"
 VERDICT_AT = "2026-10-10T19:50:00Z"
 # Вердикт, старіший за частину прогонів — для перевірки «мітка старіша за нове».
 EARLY_VERDICT_AT = "2026-10-10T19:00:00Z"
+# Гілка, за якою тести будують локальний стан.
+PR_BRANCH = "t1205-player-rail"
 
 # (назва, висновок, початок, кінець) — три зелені чеки замість сімнадцяти: решта
 # тестів перевіряють не повноту матриці, а логіку гейта.
@@ -245,9 +254,47 @@ class MergePrTest(unittest.TestCase):
         self.gh = self.root / "gh"
         self.gh.write_text(FAKE_GH, encoding="utf-8")
         self.gh.chmod(self.gh.stat().st_mode | stat.S_IXUSR)
+        self.repo = self.root / "repo"
+        self.make_repo()
 
     def tearDown(self):
         self._tmp.cleanup()
+
+    # --- тимчасова робоча копія ---------------------------------------------
+    def git(self, *args, cwd=None, check=True):
+        """git у тимчасовій копії; жодного конфігу користувача не читає."""
+        environment = os.environ.copy()
+        environment.update({
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Samuel-Ku",
+            "GIT_AUTHOR_EMAIL": "shtopor02@gmail.com",
+            "GIT_COMMITTER_NAME": "Samuel-Ku",
+            "GIT_COMMITTER_EMAIL": "shtopor02@gmail.com",
+        })
+        return subprocess.run(
+            ["git", *args], cwd=str(cwd or self.repo), check=check,
+            capture_output=True, text=True, env=environment,
+        )
+
+    def git_out(self, *args):
+        return self.git(*args).stdout.strip()
+
+    def make_repo(self):
+        """Чиста копія з одним комітом у main — для тестів про локальний стан."""
+        if self.repo.exists():
+            shutil.rmtree(self.repo)
+        self.repo.mkdir(parents=True)
+        self.git("init", "-q", "-b", "main")
+        return self.commit("README.md", "base\n", "chore: основа")
+
+    def commit(self, filename, content, message):
+        path = self.repo / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git_out("rev-parse", "HEAD")
 
     def run_script(self, *args, env_extra=None):
         """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
@@ -255,6 +302,7 @@ class MergePrTest(unittest.TestCase):
         environment.pop("MERGE_PR_LABEL", None)
         environment.update({
             "MERGE_PR_GH": str(self.gh),
+            "MERGE_PR_REPO": str(self.repo),
             "FAKE_GH_DIR": str(self.fixtures),
             "FAKE_GH_LOG": str(self.log),
         })
@@ -267,27 +315,29 @@ class MergePrTest(unittest.TestCase):
 
     def gate(self, *flags, pr=None, timeline=None, check_runs=None, commits=None,
              repo=None, label_in_repo=True, env_extra=None):
-        """Записує фікстури й запускає гейт на PR #1215.
+        """Записує фікстури й запускає гейт на PR з фікстури.
 
         Типово — зелений PR зі свіжим вердиктом; кожен тест міняє рівно те,
-        що перевіряє.
+        що перевіряє. Номер PR береться з фікстури, щоб підпис відмови
+        збігався з тим, що тест насправді моделює.
         """
+        payload = pr_payload() if pr is None else pr
         fixtures = {
-            "pr.json": pr_payload() if pr is None else pr,
+            "pr.json": payload,
             "timeline.json": page(labeled()) if timeline is None else timeline,
             "check-runs.json": check_runs_page(*history()) if check_runs is None else check_runs,
             "commits.json": [[rest_commit()]] if commits is None else commits,
             "repo.json": {"delete_branch_on_merge": False} if repo is None else repo,
         }
-        for name, payload in fixtures.items():
-            (self.fixtures / name).write_text(json.dumps(payload), encoding="utf-8")
+        for name, value in fixtures.items():
+            (self.fixtures / name).write_text(json.dumps(value), encoding="utf-8")
         label_file = self.fixtures / "label.json"
         if label_in_repo:
             label_file.write_text(json.dumps({"name": VERDICT_LABEL}), encoding="utf-8")
         else:
             # Мітки немає в репозиторії: справжній gh віддає на це 404.
             label_file.unlink(missing_ok=True)
-        return self.run_script("1215", *flags, env_extra=env_extra)
+        return self.run_script(str(payload.get("number", 1215)), *flags, env_extra=env_extra)
 
     def invocations(self):
         if not self.log.exists():
@@ -491,6 +541,41 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn("не вдалося перевірити, чи існує мітка", result.stderr)
         self.assertNotIn("немає і в репозиторії", result.stderr)
+
+    # --- локальний стан: незавершений ребаз ---------------------------------
+    def conflicted_rebase(self, backend):
+        """Гілка й main правлять один файл — ребаз спиняється на конфлікті."""
+        self.commit("conflict.txt", "base\n", "chore: спільний файл")
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        self.commit("conflict.txt", "branch\n", "feat: правка гілки")
+        self.git("checkout", "-q", "main")
+        self.commit("conflict.txt", "main\n", "chore: правка main")
+        self.git("checkout", "-q", PR_BRANCH)
+        arguments = ["rebase"] + (["--apply"] if backend == "apply" else []) + ["main"]
+        return self.git(*arguments, check=False)
+
+    def test_refuses_an_unfinished_rebase_left_in_the_working_copy(self):
+        """Обидва маркери, які лишає git: rebase-merge і rebase-apply.
+
+        #1239 злився з `rebase-merge` у дереві: ребаз упав на конфлікті, а
+        гейт цього не бачив. Маркер у w1224, а гейт запускають з іншого
+        worktree, тож перевірка дивиться на всю копію.
+        """
+        for backend, marker in (("merge", "rebase-merge"), ("apply", "rebase-apply")):
+            with self.subTest(backend=backend):
+                self.make_repo()
+                stopped = self.conflicted_rebase(backend)
+                self.assertNotEqual(0, stopped.returncode, stopped.stdout)
+                self.assertTrue((self.repo / ".git" / marker).is_dir(), marker)
+
+                result = self.gate()
+
+                self.assertEqual(1, result.returncode, result.stdout)
+                self.assertIn("незавершений ребаз", result.stderr)
+                self.assertIn(marker, result.stderr)
+                self.assertIn(PR_BRANCH, result.stderr)
+                self.assertIn("rebase --abort", result.stderr)
+                self.assertEqual([], self.merge_calls())
 
     # --- злиття -------------------------------------------------------------
     def test_merges_with_squash_and_never_deletes_the_branch(self):

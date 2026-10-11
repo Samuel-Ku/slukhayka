@@ -18,8 +18,10 @@
 #   scripts/wide-window.sh <target-dp> [--serial <device>]
 #   scripts/wide-window.sh --density-for <width-px> <target-dp>
 #
-# Exit: 0 applied (or already in place); 1 an adb command failed; 2 bad
-# arguments; 3 no usable device (or no adb).
+# Exit: 0 the density is applied (or was already in place); 1 the request could
+# not be answered at all — an adb call failed, `wm size` held no WxH to read, or
+# the target is wider than the panel can be at any density; 2 bad arguments;
+# 3 no usable device, or no adb to reach one with.
 set -u
 
 adb=${SLUKHAYKA_ADB:-adb}

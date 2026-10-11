@@ -42,18 +42,40 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const WEB_DIR = join(REPO_ROOT, 'web')
 
 /**
- * The widths the repository already names, so the probe invents none:
- * 411 — the phone Android's tests pin (`w411dp-h891dp`), and the narrow end
- * where the web must stay a phone; 599/600 — the two sides of the one line
- * `adaptiveLayout.ts` draws (`ui/adaptive/WindowLayout.kt:30` on the Android
- * side); 840 — Android's `PlayerPaneMinWidthDp`, the widest breakpoint either
- * client has; 1280 and 2560 — desktop widths, where the 1040 px cap and its
- * three 320 px tracks are supposed to hold instead of growing.
+ * The widths the repository already names, plus one this probe chose:
+ * 411 — the phone Android's tests pin (`w411dp-h891dp` qualifier in
+ * `AchievementNoticeLifecycleTest`, and `LibraryGridPolicyTest`);
+ * 599/600 — the two sides of the one line `adaptiveLayout.ts` draws
+ * (`ui/adaptive/WindowLayout.kt:30` on the Android side), the pair
+ * `adaptiveLayout.test.tsx` pins; 840 — Android's `PlayerPaneMinWidthDp`,
+ * already in the repo; 2560 — the very wide end, named by both
+ * `WindowLayoutTest` and `adaptiveLayout.test.tsx`; and 1280, which the
+ * repository does NOT name — it is this probe's own, the common desktop
+ * width, and the one #1218's evidence and #1224's ticket used, kept so the
+ * default run stays comparable with them.
+ *
+ * The 599/600 pair is a snapshot of the boundary, not the boundary itself:
+ * the script holds no copy of `EXPANDED_MIN_WIDTH_PX` (a constant here would
+ * be exactly the second copy of the number the seam exists to prevent), so if
+ * that line moves, a default run quietly stops straddling it — `--widths` is
+ * how it is re-aimed, and the expansion is asked of the page either way, never
+ * assumed from the number.
  */
 const DEFAULT_WIDTHS = [411, 599, 600, 840, 1280, 2560]
 const DEFAULT_HEIGHT = 900
 const DEFAULT_ROWS = 6
 const DEFAULT_LIST = '.card-list'
+
+/**
+ * The exit codes, and the point of keeping them apart: a caller that treats
+ * the probe as a gate must never read "the probe could not run" as "the layout
+ * moved". 1 is reserved for a measured field that differs between two
+ * revisions; a run that never got as far as measuring is 2, and a bug in the
+ * probe itself is 3.
+ */
+const EXIT_DIFFERENCE = 1
+const EXIT_FAILED = 2
+const EXIT_CRASH = 3
 
 /** Every child process this run started, so cleanup can reach all of them. */
 const started = []
@@ -76,7 +98,10 @@ const USAGE = `usage: node scripts/web-layout-probe.mjs [options]
   --keep             keep the temporary directory (profile, extracted revisions)
   -h, --help         this text
 
-Exit code is 1 when a comparison finds a difference, 0 otherwise.
+Exit codes: 0 — nothing differed; 1 — a measured field differed; 2 — the run
+could not start (a bad revision, no browser, a failed build, an unwritable
+--json path); 3 — an unexpected error in the probe itself. Only 1 means the
+layout moved.
 `
 
 function parseArgs(argv) {
@@ -182,8 +207,18 @@ function log(message) {
  * Spawn with its own process group: the browser forks zygotes and renderers,
  * and `vite preview` may fork too, so signalling one pid would leave the rest
  * running. `detached` plus a negative-pid signal reaches the whole group.
+ *
+ * Awaits the spawn before handing the child back, because a command that
+ * exists but cannot be executed — `--chrome /etc/hostname`, a binary without
+ * +x — is reported as an `'error'` event and never runs at all. Unhandled,
+ * that event is an uncaught exception: the entry point's `catch` never sees
+ * it, its `finally` never runs, and the process dies with 1 — the code this
+ * script reserves for "the layout moved" — leaving the preview and `dist`
+ * behind. Here it becomes a `ProbeError` instead, which travels the callers'
+ * own chain to that `finally`: the run did not start, so it is 2, and
+ * everything started before it is still given back.
  */
-function start(command, args, options = {}) {
+async function start(command, args, options = {}) {
   const child = spawn(command, args, {
     stdio: options.stdio ?? ['ignore', 'pipe', 'pipe'],
     detached: true,
@@ -194,6 +229,16 @@ function start(command, args, options = {}) {
   child.stdout?.on('data', (chunk) => (child.stdoutText += chunk))
   child.stderr?.on('data', (chunk) => (child.stderrText += chunk))
   started.push(child)
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve)
+    // `on`, not `once`, and left on after the await on purpose: the first
+    // 'error' is this run failing to start, and a later one — a kill that
+    // failed on a child that never ran — must not become an uncaught
+    // exception either.
+    child.on('error', (error) => {
+      reject(new ProbeError(`cannot execute ${command} (${error.code ?? error.message})`))
+    })
+  })
   return child
 }
 
@@ -564,8 +609,17 @@ async function measureRevision(revision, opts, workRoot) {
   // `vite-plugin-pwa` `swDest: 'dist/sw.js'`, and an `--outDir` elsewhere
   // breaks the manifest injection with "unable to find a place to inject".
   // `dist/` is gitignored, and a run that created it removes it again.
+  //
+  // The cleanup is registered BEFORE the build runs, not after it succeeds:
+  // a build that dies late (a `writeBundle` hook, the manifest injection)
+  // leaves a full `dist/` behind, and registering afterwards would both keep
+  // that tree and make it look pre-existing to every later run — the leak
+  // would stick. What a failed build created is still this run's to remove.
   const outDir = join(revision.webDir, 'dist')
   const outDirExisted = existsSync(outDir)
+  if (!outDirExisted) {
+    cleanups.push(() => rmSync(outDir, { recursive: true, force: true }))
+  }
   const build = spawnSync(process.execPath, [vite, 'build'], {
     cwd: revision.webDir,
     encoding: 'utf8',
@@ -573,13 +627,10 @@ async function measureRevision(revision, opts, workRoot) {
   if (build.status !== 0) {
     fail(`${revision.label}: vite build failed\n${build.stdout}\n${build.stderr}`)
   }
-  if (!outDirExisted) {
-    cleanups.push(() => rmSync(outDir, { recursive: true, force: true }))
-  }
   log(`  built → ${outDir}${outDirExisted ? '' : ' (removed after the run)'}`)
 
   const port = await freePort()
-  const preview = start(
+  const preview = await start(
     process.execPath,
     [vite, 'preview', '--outDir', outDir, '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
     { cwd: revision.webDir },
@@ -633,7 +684,7 @@ async function launchBrowser(opts, workRoot, origin) {
     'about:blank',
   ]
   if (process.env.PROBE_NO_SANDBOX === '1') args.unshift('--no-sandbox')
-  const chrome = start(binary, args)
+  const chrome = await start(binary, args)
   cleanups.push(() => stop(chrome, 'browser'))
   log(`  browser: ${binary} (pid ${chrome.pid})`)
 
@@ -725,7 +776,7 @@ async function measureWidths(browser, opts) {
 
 // --- reporting --------------------------------------------------------------
 
-const COLUMNS = ['width', 'layout', 'column', 'col width', 'gutter', 'tracks', 'track widths', 'overflow']
+const COLUMNS = ['width', 'layout', 'column', 'col width', 'gutter', 'source', 'tracks', 'track widths', 'overflow']
 
 function pad(value, width) {
   const text = String(value)
@@ -739,6 +790,10 @@ function table(results) {
     result.column.maxWidth,
     `${result.column.width}px`,
     result.column.gutter ?? '—',
+    // In the table, not only in the note below it: a table copied out of a
+    // terminal has to say whether it measured the app's own list or the
+    // fixture the probe appended.
+    result.list.source,
     `${result.list.columns} (${result.list.display})`,
     result.list.columnWidths.length ? result.list.columnWidths.map((w) => `${w}px`).join(' + ') : '—',
     result.overflow.horizontal ? `YES (${result.overflow.documentScrollWidth} > ${result.overflow.viewport})` : 'no',
@@ -850,11 +905,15 @@ async function main() {
   }
 
   if (opts.json) {
-    writeFileSync(opts.json, `${JSON.stringify({ widths: opts.widths, runs, differences }, null, 2)}\n`)
+    try {
+      writeFileSync(opts.json, `${JSON.stringify({ widths: opts.widths, runs, differences }, null, 2)}\n`)
+    } catch (error) {
+      fail(`cannot write --json ${opts.json}: ${error.message}`)
+    }
     log(`\nwrote ${opts.json}`)
   }
 
-  return differences.length > 0 ? 1 : 0
+  return differences.length > 0 ? EXIT_DIFFERENCE : 0
 }
 
 process.on('SIGINT', () => {
@@ -864,15 +923,21 @@ process.on('SIGTERM', () => {
   cleanup().then(() => process.exit(143))
 })
 
-let exitCode = 1
+let exitCode = EXIT_CRASH
 try {
   exitCode = await main()
 } catch (error) {
   if (error instanceof ProbeError) {
     process.stderr.write(`web-layout-probe: ${error.message}\n`)
-    exitCode = 2
+    exitCode = EXIT_FAILED
   } else {
-    process.stderr.write(`web-layout-probe: ${error.stack ?? error.message}\n`)
+    // Not a layout difference: this is the probe breaking. It gets its own
+    // exit code so that a wrapper around it cannot mistake a crash for the
+    // answer it was asking for.
+    process.stderr.write(
+      `web-layout-probe: unexpected error (exit ${EXIT_CRASH} means the probe broke, ` +
+        `not that a measurement differed):\n${error.stack ?? error.message}\n`,
+    )
   }
 } finally {
   const kept = process.argv.includes('--keep')

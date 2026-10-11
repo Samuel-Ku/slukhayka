@@ -204,6 +204,36 @@ the file still renders byte-for-byte: 1304 of the 1313 do, and 9 hand-written
 insertion rule rests on: how many entries sit off their canonical position, and
 how many keep a stale line number.
 
+## The web layout probe
+
+The CSS half of the web layout — is the column really 640 px at 599, is the
+list really three 320 px tracks at 1280 — is not a question `tsc` or `vitest`
+can answer: jsdom runs no layout engine, so the web job in CI cannot settle it
+either. `scripts/web-layout-probe.mjs` builds `web/`, serves the bundle with
+`vite preview`, measures the rendered page through CDP and prints the numbers:
+
+```sh
+node scripts/web-layout-probe.mjs                      # the working tree
+node scripts/web-layout-probe.mjs --base origin/main   # base against head
+```
+
+The comparison mode exits 1 when a measured field differs, and only then: a run
+that could not start is 2 and an error inside the probe is 3, so a wrapper
+cannot read "the probe failed" as "the layout moved". The widths are the ones
+the repository already names — 411 (the phone Android's tests pin), 599/600
+(the two sides of the one line in `ui/adaptiveLayout.ts`), 840 (Android's
+`PlayerPaneMinWidthDp`), 2560 — plus 1280, which the probe chose: the common
+desktop width, and the one #1218's evidence used.
+
+No dependency is added: the browser is this machine's Chrome/Chromium and the
+CDP client is Node's built-in `WebSocket`. The probe stops its preview and
+browser, removes its temporary profile, and removes `web/dist` if the run
+created it — including a `dist` a failed build left behind. A catalog list
+usually has no data under `vite preview` (the dev API proxy is not a preview
+proxy), so a `fixture` in the table's `source` column means a synthetic list
+was measured inside the app's own `.surface` — the shipped stylesheet still
+drew it.
+
 ## Wide windows on a phone
 
 Not every width question needs a tablet: a density override makes the window
@@ -254,36 +284,6 @@ that proves is the arithmetic and what the script prints — not the phone. No
 device was attached while the script was written, so its device path has run
 only against that stub, and a width nobody read off a real `wm size` is still a
 guess.
-
-## The web layout probe
-
-The CSS half of the web layout — is the column really 640 px at 599, is the
-list really three 320 px tracks at 1280 — is not a question `tsc` or `vitest`
-can answer: jsdom runs no layout engine, so the web job in CI cannot settle it
-either. `scripts/web-layout-probe.mjs` builds `web/`, serves the bundle with
-`vite preview`, measures the rendered page through CDP and prints the numbers:
-
-```sh
-node scripts/web-layout-probe.mjs                      # the working tree
-node scripts/web-layout-probe.mjs --base origin/main   # base against head
-```
-
-The comparison mode exits 1 when a measured field differs, and only then: a run
-that could not start is 2 and an error inside the probe is 3, so a wrapper
-cannot read "the probe failed" as "the layout moved". The widths are the ones
-the repository already names — 411 (the phone Android's tests pin), 599/600
-(the two sides of the one line in `ui/adaptiveLayout.ts`), 840 (Android's
-`PlayerPaneMinWidthDp`), 2560 — plus 1280, which the probe chose: the common
-desktop width, and the one #1218's evidence used.
-
-No dependency is added: the browser is this machine's Chrome/Chromium and the
-CDP client is Node's built-in `WebSocket`. The probe stops its preview and
-browser, removes its temporary profile, and removes `web/dist` if the run
-created it — including a `dist` a failed build left behind. A catalog list
-usually has no data under `vite preview` (the dev API proxy is not a preview
-proxy), so a `fixture` in the table's `source` column means a synthetic list
-was measured inside the app's own `.surface` — the shipped stylesheet still
-drew it.
 
 ## Work claims
 

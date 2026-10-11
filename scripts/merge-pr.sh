@@ -11,22 +11,51 @@
 #
 # Що перевіряє, у цьому порядку:
 #   1) PR відкритий, не чернетка і не в конфлікті — інакше зливати нічого;
-#   2) жоден чек не впав, не скасований і не висить. Порожній список чеків —
+#   2) робоча копія не посеред операції: незавершений ребаз (`rebase-merge` /
+#      `rebase-apply`) ГІЛКИ, ЯКУ ЗЛИВАЮТЬ (або такий, чию гілку не названо), —
+#      це гілка, яку рухали, і поки маркер на місці, на remote могла поїхати її
+#      половина. Саме так злився #1239: ребаз упав на конфлікті, один пік із
+#      чотирьох комітів поїхав force-push-ем, CI пройшов (перевіряти не було
+#      чого), і в `main` потрапила оригінальна версія скрипта — без правок
+#      огляду (лікував окремий PR #1245). Ребаз ЧУЖОЇ названої гілки — WARN, не
+#      відмова: у репозиторії десятки worktree й паралельні смуги, і чужий
+#      ребаз, що спинився, не має зупиняти чергу — тим паче що «Далі» радило б
+#      завершувати операцію в чужій копії й знищило б чуже розв'язання;
+#   3) вершина гілки PR містить УСЮ локальну гілку того самого імені — за
+#      ПАТЧАМИ, не за SHA (`git cherry`): так обрізане дерево відрізняється від
+#      гілки, яку перебазували в іншому клоні, — там патчі вже у вершині, і
+#      відмова з порадою force-push повернула б доребазову історію поверх
+#      доребазованої. Коміт, чийого патча у вершині немає, — це те, що
+#      рецензували, але не злили. GitHub тут не свідок: його список комітів PR
+#      будується з тієї самої вершини, тож обрізання він показує як «один
+#      коміт» (у #1239 — рівно так);
+#   4) жоден чек не впав, не скасований і не висить. Порожній список чеків —
 #      теж відмова: без доказів вердикту нема на чому стояти;
-#   3) на PR стоїть мітка вердикту (типово `review:pass`) — інакше відмова;
-#   4) мітка НОВІША за все, що вона засвідчує: за кожен коміт PR
+#   5) на PR стоїть мітка вердикту (типово `review:pass`) — інакше відмова;
+#   6) мітка НОВІША за все, що вона засвідчує: за кожен коміт PR
 #      (committedDate), за кожен прогін чеків HEAD-ревізії (filter=all, тож
 #      видно й перезапущені спроби) і за будь-який force-push гілки PR.
 #      Вердикт, старіший за новий коміт, новий прогін чи новий fail, не
 #      покриває те, що зливається, — і гейт відмовляє;
-#   5) у репозиторії вимкнено auto-delete гілок: увімкнений
+#   7) у репозиторії вимкнено auto-delete гілок: увімкнений
 #      `delete_branch_on_merge` знищив би гілку PR так само, як колись
 #      `gh pr merge --delete-branch` зніс worktree.
+#
+# Межа перевірки 3, названа прямо: гейт бачить лише ту робочу копію, з якої
+# його запущено. Якщо локальної гілки немає (PR приїхав з іншого клона) або PR
+# з форка — це WARN, а не відмова: «немає гілки» — відомий безневинний стан, а
+# не доказ обрізання. Невідомість інша: якщо гілка локально є, а ревізії
+# вершини PR у копії немає — порівнювати нічого, і це код 2 з підказкою
+# `git fetch`. Перевірка 2, навпаки, дивиться на всю копію — і спільний `.git`,
+# і кожен worktree: ребаз #1239 жив у w1224, а гейт запускають звідки завгодно.
+# Гілку ребаза вона читає з `head-name`: чужа НАЗВАНА гілка — WARN, а
+# «detached HEAD» чи порожньо — відмова, бо приписати такий ребаз комусь
+# іншому нема підстав, а мовчазно пропустити означало б пропустити і свій.
 #
 # Чому мітка, а не `reviewDecision`. Схвалення GitHub-рев'ю («Approve») автор
 # PR поставити собі не може, а всі PR цього репозиторію відкриває той самий
 # акаунт — тож reviewDecision ніколи не стане APPROVED. Мітку автор поставити
-# може. Це процесний сигнал, а не криптографічний доказ, і саме тому п.4
+# може. Це процесний сигнал, а не криптографічний доказ, і саме тому п.6
 # перевіряє ЧАС мітки, а не саму її наявність.
 #
 # Хто ставить мітку і коли — docs/agents/work-coordination.md, розділ
@@ -39,20 +68,27 @@
 #
 # Виклик: scripts/merge-pr.sh <номер-PR> [--dry-run]
 # Змінні: MERGE_PR_GH — шлях до gh (типово `gh`; потрібен для тестів),
-#         MERGE_PR_LABEL — назва мітки вердикту (типово `review:pass`).
+#         MERGE_PR_LABEL — назва мітки вердикту (типово `review:pass`),
+#         MERGE_PR_REPO — робоча копія для перевірок 2 і 3 (типово — git-корінь
+#         поточного каталогу; потрібен для тестів),
+#         MERGE_PR_GIT — шлях до git (типово `git`; теж для тестів: їм треба
+#         показати старий git, який не знає --path-format).
 # Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта (огляд, чеки,
-#              стан PR); 2 — перевірити або злити не вдалося (аргументи, gh,
-#              мережа, відмова GitHub на самому мерджі).
+#              стан PR, обрізана гілка, незавершений ребаз); 2 — перевірити
+#              або злити не вдалося (аргументи, gh, мережа, робоча копія без
+#              ревізії вершини PR, відмова GitHub на самому мерджі).
 set -euo pipefail
 
 GH="${MERGE_PR_GH:-gh}"
 LABEL="${MERGE_PR_LABEL:-review:pass}"
+GIT="${MERGE_PR_GIT:-git}"
 
 usage() {
   printf 'usage: scripts/merge-pr.sh <номер-PR> [--dry-run]\n'
   printf '\n'
   printf 'Мердж-гейт: зливає PR лише за зеленого CI і свіжого вердикту огляду\n'
   printf "(мітка '%s'; іншу назву дає MERGE_PR_LABEL).\n" "$LABEL"
+  printf 'Відмовляє, якщо робоча копія посеред ребаза або гілка PR на remote неповна.\n'
   printf 'Зливає тільки --squash і ніколи не видаляє гілку.\n'
   printf 'Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта;\n'
   printf '             2 — перевірити або злити не вдалося (gh, мережа, відмова GitHub).\n'
@@ -206,7 +242,9 @@ if MODE == "pr":
     print("mergeable=%s" % (pr.get("mergeable") or ""))
     print("merge_status=%s" % (pr.get("mergeStateStatus") or ""))
     print("base=%s" % (pr.get("baseRefName") or ""))
+    print("head_ref=%s" % (pr.get("headRefName") or ""))
     print("head_sha=%s" % (pr.get("headRefOid") or ""))
+    print("cross_repo=%s" % str(bool(pr.get("isCrossRepository"))).lower())
     print("has_label=%s" % str(any(item.get("name") == label for item in pr.get("labels") or [])).lower())
     print("checks_total=%d" % len(pr.get("statusCheckRollup") or []))
     print("n_fail=%d" % len(fails))
@@ -316,7 +354,7 @@ read_facts() { # read_facts <mode> <args...> ; stdout = key=value, exit 2 якщ
 # --- 1) Стан PR -------------------------------------------------------------
 PR_JSON="$TMP/pr.json"
 if ! "$GH" pr view "$PR_NUMBER" \
-  --json state,isDraft,mergeable,mergeStateStatus,baseRefName,headRefOid,labels,statusCheckRollup \
+  --json state,isDraft,mergeable,mergeStateStatus,baseRefName,headRefName,headRefOid,isCrossRepository,labels,statusCheckRollup \
   >"$PR_JSON" 2>"$TMP/pr.err"; then
   printf 'FAIL  не вдалося прочитати PR #%s через gh:\n' "$PR_NUMBER" >&2
   sed 's/^/      /' "$TMP/pr.err" >&2 || true
@@ -324,7 +362,7 @@ if ! "$GH" pr view "$PR_NUMBER" \
   exit 2
 fi
 
-STATE="" DRAFT="" MERGEABLE="" MERGE_STATUS="" BASE="" HEAD_SHA=""
+STATE="" DRAFT="" MERGEABLE="" MERGE_STATUS="" BASE="" HEAD_REF="" HEAD_SHA="" IS_CROSS_REPO=false
 HAS_LABEL=false CHECKS_TOTAL=0 N_FAIL=0 N_PENDING=0 N_CANCEL=0 N_UNTIMED=0
 PR_FACTS="$(read_facts pr "$PR_JSON" "$TMP" "$LABEL")"
 while IFS='=' read -r key value; do
@@ -334,7 +372,9 @@ while IFS='=' read -r key value; do
     mergeable) MERGEABLE="$value" ;;
     merge_status) MERGE_STATUS="$value" ;;
     base) BASE="$value" ;;
+    head_ref) HEAD_REF="$value" ;;
     head_sha) HEAD_SHA="$value" ;;
+    cross_repo) IS_CROSS_REPO="$value" ;;
     has_label) HAS_LABEL="$value" ;;
     checks_total) CHECKS_TOTAL="$value" ;;
     n_fail) N_FAIL="$value" ;;
@@ -344,11 +384,11 @@ while IFS='=' read -r key value; do
   esac
 done <<<"$PR_FACTS"
 
-# Порожня відповідь gh — це не «PR без чеків», а відсутність даних: без стану
-# й HEAD перевіряти нічого, а вгадувати заборонено.
-if [ -z "$STATE" ] || [ -z "$HEAD_SHA" ]; then
+# Порожня відповідь gh — це не «PR без чеків», а відсутність даних: без стану,
+# імені гілки й HEAD перевіряти нічого, а вгадувати заборонено.
+if [ -z "$STATE" ] || [ -z "$HEAD_SHA" ] || [ -z "$HEAD_REF" ]; then
   printf 'FAIL  gh не повернув стан PR #%s (порожня відповідь) — перевіряти нічого.\n' "$PR_NUMBER" >&2
-  printf 'Далі: повтори; якщо повторюється — подивись `gh pr view %s --json state,headRefOid`.\n' "$PR_NUMBER" >&2
+  printf 'Далі: повтори; якщо повторюється — подивись `gh pr view %s --json state,headRefName,headRefOid`.\n' "$PR_NUMBER" >&2
   exit 2
 fi
 
@@ -377,7 +417,183 @@ if [ "$MERGE_STATUS" = "BLOCKED" ]; then
     "перевір налаштування захисту '$BASE' і вимоги PR; сам гейт цього не обходить."
 fi
 
-# --- 2) Чеки ----------------------------------------------------------------
+# --- 2) Робоча копія не посеред операції ------------------------------------
+# Ребаз лишає по собі `rebase-merge` (merge-backend) або `rebase-apply`
+# (apply-backend, він же `git am`). Поки маркер на місці, гілка, яку рухали, є
+# половиною: гілку PR могло вже поїхати на remote частково (#1239).
+# Дивимось УСЮ робочу копію — спільний `.git` і кожен worktree: ребаз #1239 жив
+# у w1224, а гейт запускають звідки завгодно.
+REPO_ROOT="${MERGE_PR_REPO:-}"
+if [ -z "$REPO_ROOT" ]; then
+  REPO_ROOT="$("$GIT" rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+if [ -z "$REPO_ROOT" ] || ! "$GIT" -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  printf 'FAIL  не вдалося визначити робочу копію (git-репозиторій) — цілісність гілки перевірити нічим.\n' >&2
+  printf 'Далі: запусти гейт із каталогу репозиторію (або задай MERGE_PR_REPO=<шлях до робочої копії>).\n' >&2
+  exit 2
+fi
+REPO_ROOT="$("$GIT" -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$REPO_ROOT")"
+
+# Друк: "<шлях до маркера>|<гілка>|<робоча копія>". Роздільник — НЕ таб і не
+# пробіл: IFS-whitespace згортає повтори, і порожнє поле зникає (`M\t\tW` дає
+# marker=M, branch=W, worktree="") — безіменний ребаз тоді читався б як ребаз
+# чужої гілки, названої шляхом worktree. `|` лишає порожнє поле порожнім, а в
+# останньому полі (шлях) решта рядка зберігається разом із роздільниками.
+open_operations() {
+  local common git_dir dir marker branch worktree seen
+  common="$("$GIT" -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)" || return 1
+  git_dir="$("$GIT" -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir)" || return 1
+  seen=" "
+  for dir in "$git_dir" "$common" "$common"/worktrees/*; do
+    [ -d "$dir" ] || continue
+    case "$seen" in *" $dir "*) continue ;; esac
+    seen="$seen$dir "
+    for marker in rebase-merge rebase-apply; do
+      [ -d "$dir/$marker" ] || continue
+      branch="$(cat "$dir/$marker/head-name" 2>/dev/null || true)"
+      worktree="$dir"
+      if [ -f "$dir/gitdir" ]; then
+        worktree="$(sed 's:/\.git/*$::' "$dir/gitdir" 2>/dev/null || true)"
+        [ -n "$worktree" ] || worktree="$dir"
+      elif [ "$dir" = "$common" ]; then
+        # Головний worktree: git-каталог — це $REPO_ROOT/.git, а копія — сам $REPO_ROOT.
+        worktree="$REPO_ROOT"
+      fi
+      printf '%s|%s|%s\n' "$dir/$marker" "${branch#refs/heads/}" "$worktree"
+    done
+  done
+  return 0
+}
+
+if ! OPERATIONS="$(open_operations)"; then
+  printf 'FAIL  не вдалося прочитати стан робочої копії — незавершений ребаз перевірити нічим.\n' >&2
+  printf 'Далі: перевір, що MERGE_PR_REPO вказує на робочу копію, і що git ≥ 2.31 (--path-format=absolute); PR не змінено.\n' >&2
+  exit 2
+fi
+: >"$TMP/rebase_own.txt"
+: >"$TMP/rebase_other.txt"
+while IFS='|' read -r marker branch worktree; do
+  [ -n "$marker" ] || continue
+  case "$branch" in
+    "" | "detached HEAD")
+      # Гілку не названо: `git am` узагалі не пише head-name, а ребаз від
+      # від'єднаного HEAD пише "detached HEAD". Приписати таку операцію чужій
+      # смузі нема підстав, а пропустити означало б пропустити і свій ребаз —
+      # гілку рухали, і ми не знаємо, яку.
+      printf '%s|%s|%s\n' "$marker" "не названо${branch:+ ($branch)}" "$worktree" >>"$TMP/rebase_own.txt"
+      ;;
+    "$HEAD_REF") printf '%s|%s|%s\n' "$marker" "$branch" "$worktree" >>"$TMP/rebase_own.txt" ;;
+    *) printf '%s|%s|%s\n' "$marker" "$branch" "$worktree" >>"$TMP/rebase_other.txt" ;;
+  esac
+done <<<"$OPERATIONS"
+
+if [ -s "$TMP/rebase_other.txt" ]; then
+  warn "у робочій копії незавершений ребаз чужої гілки — гілку PR '$HEAD_REF' він не рухав, тож мердж не блокую:"
+  while IFS='|' read -r marker branch worktree; do
+    printf '      ? %s (гілка: %s, робоча копія %s)\n' "$marker" "$branch" "$worktree" >&2
+  done <"$TMP/rebase_other.txt"
+  note "чужу робочу копію не чіпай: ребаз завершує або скасовує його автор — інакше зникне чуже розвʼязання конфлікту."
+fi
+
+if [ -s "$TMP/rebase_own.txt" ]; then
+  printf 'FAIL  PR #%s: у робочій копії лишився незавершений ребаз — гілку рухали посеред операції, тож на remote могла поїхати її половина.\n' \
+    "$PR_NUMBER" >&2
+  while IFS='|' read -r marker branch worktree; do
+    printf '      ✗ %s (гілка: %s, робоча копія %s)\n' "$marker" "$branch" "$worktree" >&2
+  done <"$TMP/rebase_own.txt"
+  printf 'Далі: заверши ребаз (git -C <робоча копія> rebase --continue) або скасуй його (git -C <робоча копія> rebase --abort),\n' >&2
+  printf '      переконайся, що гілка на remote повна, і повтори scripts/merge-pr.sh %s\n' "$PR_NUMBER" >&2
+  exit 1
+fi
+
+# --- 3) Цілісність гілки PR -------------------------------------------------
+# Вершина PR (headRefOid) мусить містити ВСЮ локальну гілку того самого імені.
+# GitHub тут не свідок: його список комітів PR будується з тієї самої вершини,
+# тож обрізану гілку він показує як «один коміт» і мовчить. Локальна гілка —
+# єдине місце, де ще живуть коміти, які рецензували.
+LOCAL_TIP=""
+if [ "$IS_CROSS_REPO" != true ]; then
+  LOCAL_TIP="$("$GIT" -C "$REPO_ROOT" rev-parse --verify --quiet "refs/heads/$HEAD_REF" 2>/dev/null || true)"
+fi
+
+if [ -z "$LOCAL_TIP" ]; then
+  if [ "$IS_CROSS_REPO" = true ]; then
+    warn "PR #$PR_NUMBER — з форка: локальної гілки '$HEAD_REF' тут бути не може, тож цілісність гілки НЕ перевірено."
+  else
+    warn "локальної гілки '$HEAD_REF' немає — цілісність гілки НЕ перевірено (гейт бачить лише цю робочу копію)."
+  fi
+  note 'це не відмова: «немає гілки» — не доказ обрізання. Переконайся сам, що гілка на remote повна.'
+elif ! "$GIT" -C "$REPO_ROOT" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+  printf 'FAIL  PR #%s: у робочій копії немає ревізії %s (вершина PR) — цілісність гілки не перевірити.\n' \
+    "$PR_NUMBER" "$HEAD_SHORT" >&2
+  printf 'Далі: git fetch origin %s (щоб копія знала вершину PR) і повтори scripts/merge-pr.sh %s\n' \
+    "$HEAD_REF" "$PR_NUMBER" >&2
+  exit 2
+elif ! "$GIT" -C "$REPO_ROOT" merge-base --is-ancestor "$LOCAL_TIP" "$HEAD_SHA"; then
+  # Історії розійшлися — але це ще не обрізання. Гілку могли перебазувати й
+  # запушити з ІНШОГО клона: тоді місцевий ref лишається старим, а патчі комітів
+  # уже у вершині. `--cherry-mark` порівнює саме патчі, а не SHA:
+  #   `=` — коміт гілки вже представлений у вершині (той самий вміст, інший SHA),
+  #   `+` — його патча у вершині немає.
+  # `--right-only` лишає бік гілки, `--no-merges` не рахує злиття (патча в них
+  # немає). Межа цього порівняння, названа прямо: разом із злиттями невидимим
+  # лишається і вміст, що живе ЛИШЕ в merge-коміті, — розв'язання конфлікту, яке
+  # не повторилося в жодному не-мердж коміті. Відмова з порадою force-push
+  # лишається тільки для `+`: у випадку ребазу вона повернула б доребазову
+  # історію поверх доребазованої.
+  if ! CHERRY="$("$GIT" -C "$REPO_ROOT" rev-list --cherry-mark --no-merges --right-only \
+    "$HEAD_SHA...$LOCAL_TIP" 2>"$TMP/cherry.err")"; then
+    printf 'FAIL  PR #%s: не вдалося визначити, які коміти гілки '\''%s'\'' не у вершині PR — цілісність не перевірити.\n' \
+      "$PR_NUMBER" "$HEAD_REF" >&2
+    sed 's/^/      /' "$TMP/cherry.err" >&2 || true
+    printf 'Далі: перевір, що копія й ревізії гілки цілі (git fsck), і повтори scripts/merge-pr.sh %s\n' "$PR_NUMBER" >&2
+    exit 2
+  fi
+  LOCAL_SHORT="${LOCAL_TIP:0:7}"
+  N_REWRITTEN=0
+  N_LOST=0
+  LOST=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "${line:0:1}" in
+      "=") N_REWRITTEN=$((N_REWRITTEN + 1)) ;;
+      "+")
+        N_LOST=$((N_LOST + 1))
+        LOST="$LOST${line:1}"$'\n'
+        ;;
+    esac
+  done <<<"$CHERRY"
+
+  if [ "$N_LOST" -eq 0 ]; then
+    warn "PR #$PR_NUMBER: історії гілки '$HEAD_REF' ($LOCAL_SHORT) і вершини PR ($HEAD_SHORT) розійшлися, але патчів, яких немає у вершині, не видно ($N_REWRITTEN коміт(ів) гілки вже там) — це ребаз із іншого клона, а не обрізання."
+    note "локальна гілка застаріла — онови її з remote: git fetch origin +refs/heads/$HEAD_REF:refs/heads/$HEAD_REF"
+    note "мердж не блокую: зміст гілки у вершині є. Переконайся, що це саме той вміст, який рецензували."
+  else
+    printf 'FAIL  PR #%s: вершина PR (%s) не містить усіх комітів гілки '\''%s'\'' (%s) — на remote поїхала неповна гілка.\n' \
+      "$PR_NUMBER" "$HEAD_SHORT" "$HEAD_REF" "$LOCAL_SHORT" >&2
+    if [ "$N_REWRITTEN" -gt 0 ]; then
+      printf '      %s коміт(ів) гілки вже у вершині за патчем (той самий вміст, інший SHA), а %s — ні:\n' \
+        "$N_REWRITTEN" "$N_LOST" >&2
+    else
+      printf '      у гілці є, у вершині немає — %s коміт(ів):\n' "$N_LOST" >&2
+    fi
+    printf '%s' "$LOST" | head -n 10 | while IFS= read -r sha; do
+      [ -n "$sha" ] || continue
+      printf '      ✗ %s %s\n' "${sha:0:7}" \
+        "$("$GIT" -C "$REPO_ROOT" log -1 --format=%s "$sha" 2>/dev/null || true)" >&2
+    done
+    if [ "$N_LOST" -gt 10 ]; then
+      printf '      … і ще %s\n' "$((N_LOST - 10))" >&2
+    fi
+    printf 'Далі: запуш повну гілку (git push --force-with-lease origin %s) і повтори scripts/merge-pr.sh %s;\n' \
+      "$HEAD_REF" "$PR_NUMBER" >&2
+    printf '      якщо гілку насправді ребазнули в іншому клоні з розвʼязанням конфліктів — не пушити: спершу звір вміст (git diff %s %s).\n' \
+      "$HEAD_SHORT" "$LOCAL_SHORT" >&2
+    exit 1
+  fi
+fi
+
+# --- 4) Чеки ----------------------------------------------------------------
 if [ "$CHECKS_TOTAL" -eq 0 ]; then
   refuse "PR #$PR_NUMBER: немає жодного чека — вердикту нема на чому стояти." \
     "переконайся, що CI запустився на HEAD $HEAD_SHORT (gh pr checks $PR_NUMBER); якщо ні — перезапусти workflow."
@@ -421,7 +637,7 @@ if [ "$N_UNTIMED" -gt 0 ]; then
   done <"$TMP/untimed.txt"
 fi
 
-# --- 3) Вердикт огляду ------------------------------------------------------
+# --- 5) Вердикт огляду ------------------------------------------------------
 if [ "$HAS_LABEL" != true ]; then
   printf 'FAIL  PR #%s: немає машиночитного вердикту огляду — мітки '\''%s'\'' на PR немає.\n' \
     "$PR_NUMBER" "$LABEL" >&2
@@ -441,7 +657,7 @@ if [ "$HAS_LABEL" != true ]; then
   exit 1
 fi
 
-# --- 4) Вердикт новіший за те, що він засвідчує ------------------------------
+# --- 6) Вердикт новіший за те, що він засвідчує ------------------------------
 gh_api_slurp "repos/{owner}/{repo}/issues/$PR_NUMBER/timeline" "$TMP/timeline.json" \
   "таймлайн PR #$PR_NUMBER (час вердикту)"
 
@@ -525,7 +741,7 @@ if [ "$N_LATE_RUNS" -gt 0 ]; then
   exit 1
 fi
 
-# --- 5) Гілка має пережити мердж --------------------------------------------
+# --- 7) Гілка має пережити мердж --------------------------------------------
 if "$GH" api "repos/{owner}/{repo}" >"$TMP/repo.json" 2>"$TMP/repo.err"; then
   DELETE_ON_MERGE=false
   while IFS='=' read -r key value; do
@@ -542,7 +758,7 @@ else
   warn "сам скрипт --delete-branch не передає, тож гілку не видалить він."
 fi
 
-# --- 6) Злиття --------------------------------------------------------------
+# --- 8) Злиття --------------------------------------------------------------
 MERGE_CMD=("$GH" pr merge "$PR_NUMBER" --squash --match-head-commit "$HEAD_SHA")
 ok "PR #$PR_NUMBER: $CHECKS_TOTAL чек(ів) зелені; вердикт '$LABEL' від $VERDICT_TS новіший за HEAD $HEAD_SHORT і за останній прогін CI."
 ok "гілку не видаляю: --delete-branch не передається."

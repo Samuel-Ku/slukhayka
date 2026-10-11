@@ -207,8 +207,18 @@ function log(message) {
  * Spawn with its own process group: the browser forks zygotes and renderers,
  * and `vite preview` may fork too, so signalling one pid would leave the rest
  * running. `detached` plus a negative-pid signal reaches the whole group.
+ *
+ * Awaits the spawn before handing the child back, because a command that
+ * exists but cannot be executed — `--chrome /etc/hostname`, a binary without
+ * +x — is reported as an `'error'` event and never runs at all. Unhandled,
+ * that event is an uncaught exception: the entry point's `catch` never sees
+ * it, its `finally` never runs, and the process dies with 1 — the code this
+ * script reserves for "the layout moved" — leaving the preview and `dist`
+ * behind. Here it becomes a `ProbeError` instead, which travels the callers'
+ * own chain to that `finally`: the run did not start, so it is 2, and
+ * everything started before it is still given back.
  */
-function start(command, args, options = {}) {
+async function start(command, args, options = {}) {
   const child = spawn(command, args, {
     stdio: options.stdio ?? ['ignore', 'pipe', 'pipe'],
     detached: true,
@@ -219,6 +229,16 @@ function start(command, args, options = {}) {
   child.stdout?.on('data', (chunk) => (child.stdoutText += chunk))
   child.stderr?.on('data', (chunk) => (child.stderrText += chunk))
   started.push(child)
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve)
+    // `on`, not `once`, and left on after the await on purpose: the first
+    // 'error' is this run failing to start, and a later one — a kill that
+    // failed on a child that never ran — must not become an uncaught
+    // exception either.
+    child.on('error', (error) => {
+      reject(new ProbeError(`cannot execute ${command} (${error.code ?? error.message})`))
+    })
+  })
   return child
 }
 
@@ -610,7 +630,7 @@ async function measureRevision(revision, opts, workRoot) {
   log(`  built → ${outDir}${outDirExisted ? '' : ' (removed after the run)'}`)
 
   const port = await freePort()
-  const preview = start(
+  const preview = await start(
     process.execPath,
     [vite, 'preview', '--outDir', outDir, '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
     { cwd: revision.webDir },
@@ -664,7 +684,7 @@ async function launchBrowser(opts, workRoot, origin) {
     'about:blank',
   ]
   if (process.env.PROBE_NO_SANDBOX === '1') args.unshift('--no-sandbox')
-  const chrome = start(binary, args)
+  const chrome = await start(binary, args)
   cleanups.push(() => stop(chrome, 'browser'))
   log(`  browser: ${binary} (pid ${chrome.pid})`)
 

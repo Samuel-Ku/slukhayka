@@ -265,7 +265,7 @@ if [[ -n ${MUTATE_TEST_XML_CLASS:-} ]]; then
   mkdir -p app/build/test-results/testDebugUnitTest
   printf '%s\\n' \\
     '<?xml version="1.0" encoding="UTF-8"?>' \\
-    "<testsuite name=\\"$MUTATE_TEST_XML_CLASS\\" tests=\\"${MUTATE_TEST_TESTS:-1}\\" skipped=\\"0\\" failures=\\"${MUTATE_TEST_FAILURES:-0}\\" errors=\\"${MUTATE_TEST_ERRORS:-0}\\" timestamp=\\"$(date -u +%Y-%m-%dT%H:%M:%S.%N.000Z)\\" hostname=\\"fixture\\" time=\\"0.01\\">" \\
+    "<testsuite name=\\"$MUTATE_TEST_XML_CLASS\\" tests=\\"${MUTATE_TEST_TESTS:-1}\\" skipped=\\"${MUTATE_TEST_SKIPPED:-0}\\" failures=\\"${MUTATE_TEST_FAILURES:-0}\\" errors=\\"${MUTATE_TEST_ERRORS:-0}\\" timestamp=\\"$(date -u +%Y-%m-%dT%H:%M:%S.%N.000Z)\\" hostname=\\"fixture\\" time=\\"0.01\\">" \\
     "  <testcase name=\\"case\\" classname=\\"$MUTATE_TEST_XML_CLASS\\" time=\\"0.01\\"/>" \\
     '</testsuite>' > "app/build/test-results/testDebugUnitTest/TEST-$MUTATE_TEST_XML_CLASS.xml"
 fi
@@ -348,6 +348,54 @@ class MutationRunTest(MutateFixtureTest):
         self.assertEqual(3, record["tests"])
         self.assertEqual(0, record["failures"])
         self.assertIn("survived", result.stderr)
+        self.assertClean()
+
+    def test_records_an_error_as_a_caught_mutation(self):
+        # A witness can notice a mutation by raising, not only by failing an
+        # assertion, and that lands in the artifact's `errors`. The verdict reads
+        # failures and errors alike, so both have to be counted and pinned.
+        result = self.fixture.run_class(
+            self.fixture.answer_patch,
+            tests=2,
+            failures=0,
+            exit_status=1,
+            MUTATE_TEST_ERRORS="1",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("killed", record["outcome"])
+        self.assertEqual(0, record["failures"])
+        self.assertEqual(1, record["errors"])
+        self.assertEqual(2, record["tests"])
+        self.assertIn("verdict: caught", result.stderr)
+        self.assertClean()
+
+    def test_reports_no_verdict_when_every_test_was_skipped(self):
+        # Green with nothing executed is not a survivor: a class whose every test
+        # is @Ignore'd would otherwise record a live mutation as caught-by-nobody.
+        result = self.fixture.run_class(
+            self.fixture.answer_patch, tests=1, failures=0, MUTATE_TEST_SKIPPED="1"
+        )
+
+        self.assertEqual(3, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("no-verdict", record["outcome"])
+        self.assertIn("every test was skipped", record["detail"])
+        self.assertClean()
+
+    def test_a_partly_skipped_run_is_still_a_survivor(self):
+        # The guard is "every test skipped", not "any test skipped": one @Ignore'd
+        # case among executing green ones is exactly what survived means, and
+        # tightening the rule to `skipped > 0` would condemn real classes.
+        result = self.fixture.run_class(
+            self.fixture.answer_patch, tests=3, failures=0, MUTATE_TEST_SKIPPED="1"
+        )
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("survived", record["outcome"])
+        self.assertEqual(3, record["tests"])
         self.assertClean()
 
     def test_reports_no_verdict_when_the_class_leaves_no_artifact(self):
@@ -779,6 +827,27 @@ class MutationSensitivityTest(unittest.TestCase):
             'with args.log.open("a", encoding="utf-8") as handle:',
             'with open("/dev/null", "a", encoding="utf-8") as handle:',
             "test_mutate.MutationRunTest.test_runs_the_named_class_and_records_a_caught_mutation",
+        ),
+        (
+            "the error counts",
+            "script",
+            "elif [[ $failures -gt 0 || $errors -gt 0 ]]; then",
+            "elif [[ $failures -gt 0 ]]; then",
+            "test_mutate.MutationRunTest.test_records_an_error_as_a_caught_mutation",
+        ),
+        (
+            "the all-skipped guard",
+            "script",
+            'elif [[ $skipped == "$tests" ]]; then',
+            "elif false; then",
+            "test_mutate.MutationRunTest.test_reports_no_verdict_when_every_test_was_skipped",
+        ),
+        (
+            "the all-skipped boundary",
+            "script",
+            'elif [[ $skipped == "$tests" ]]; then',
+            "elif [[ $skipped -gt 0 ]]; then",
+            "test_mutate.MutationRunTest.test_a_partly_skipped_run_is_still_a_survivor",
         ),
         (
             "the dirty-worktree refusal",

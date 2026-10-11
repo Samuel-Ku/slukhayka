@@ -299,11 +299,23 @@ def scan(text: str) -> list[Arm]:
                     index += 1
                 if index < len(rest) and rest[index] == ")":
                     alternatives = _split_alternatives(rest[:index], offset + position)
-                    if alternatives and alternatives[0].text:
+                    # Порожній перший шаблон — це не помилка розбору, а `| "a")`,
+                    # тобто та сама порожня форма, записана голим `|`: її треба
+                    # бачити, а не відкидати arm.
+                    if alternatives:
                         arms.append(Arm(stack[-1]["line"], lineno, alternatives))
                     stack[-1]["expect"] = False
                     position += index + 1
                     continue
+                if rest.strip():
+                    # Список шаблонів не закрився на цьому рядку. Тихо перейти
+                    # далі означало б ЗАГУБИТИ шаблони з нього — разом із
+                    # порожнім — і сказати «форм немає»: fail-open у гейті, який
+                    # обіцяє fail-closed. Огляд #1258 знайшов це на розірваному
+                    # списку (`"" |` у кінці рядка).
+                    raise ShapeError(
+                        "arms на рядку %d не закрився дужкою: %s" % (lineno, rest.strip()[:60])
+                    )
             position += 1
         offset += len(raw)
 
@@ -507,10 +519,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT, help="корінь дерева (типово — репозиторій)")
     parser.add_argument("--list", action="store_true", help="лише назвати форми, не гнати мутантів")
     parser.add_argument("--script", type=Path, action="append", default=[],
-                        help="обмежитись одним скриптом (можна кілька разів)")
+                        help="обмежитись одним скриптом; відносний шлях — від --root")
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
-    scripts = [path.resolve() for path in arguments.script] or shell_scripts(root)
+    # Відносний `--script` — від кореня, а не від CWD: інакше той самий виклик
+    # залежав би від того, звідки його запустили, і падав би «не під коренем».
+    scripts = [
+        (path if path.is_absolute() else root / path).resolve() for path in arguments.script
+    ] or shell_scripts(root)
     outside = [script for script in scripts if not script.is_relative_to(root)]
     if outside:
         for script in outside:

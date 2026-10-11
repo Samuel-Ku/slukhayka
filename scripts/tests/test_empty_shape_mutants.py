@@ -87,6 +87,31 @@ class ScannerTest(unittest.TestCase):
         with self.assertRaises(esm.ShapeError):
             esm.scan('case "$x" in\n  arm_without_parenthesis\n')
 
+    def test_a_pattern_list_split_across_lines_is_an_error(self):
+        """Розірваний список шаблонів губив порожній шаблон — і це fail-open.
+
+        Огляд #1258: `"" |` у кінці рядка лишався без `)` і просто пропускався;
+        arm записувався з ОДНІЄЮ альтернативою `"a"`, форм було «0», і механізм
+        казав «усе піниться» там, де порожню форму не виробляв жоден тест.
+        """
+        source = 'case "$x" in\n  "" |\n  "a") f ;;\n  *) g ;;\nesac\n'
+
+        with self.assertRaises(esm.ShapeError):
+            esm.scan(source)
+        with self.assertRaises(esm.ShapeError):
+            esm.shapes(source)
+
+    def test_a_bare_empty_pattern_is_still_the_empty_shape(self):
+        """`| "a")` — та сама порожня форма, записана голим `|`, а не `''`.
+
+        Раніше arm з порожнім першим шаблоном відкидався цілком — теж тиха
+        втрата форми.
+        """
+        shapes = esm.shapes('case "$x" in\n  | "a") f ;;\n  *) g ;;\nesac\n')
+
+        self.assertEqual(1, len(shapes))
+        self.assertEqual(('"a"',), shapes[0].named)
+
     def test_the_repository_scripts_all_parse(self):
         """Парсер не відстає від мови скриптів репозиторію — інакше він би мовчав."""
         for script in esm.shell_scripts(REPO_ROOT):
@@ -161,6 +186,46 @@ class FailClosedTest(unittest.TestCase):
         self.assertEqual(1, len(report.blocked))
         self.assertIn("червоний БЕЗ мутації", report.blocked[0])
 
+    def test_a_split_pattern_list_is_refused_end_to_end_not_counted_as_zero(self):
+        """Наскрізно: корінь із розірваним списком мусить дати 2, а не «0 форм».
+
+        Саме так огляд #1258 і обдурив механізм: `"" |` у кінці рядка → «OK
+        порожніх форм: 0» і код 0, хоч ручний мутант лишав набір зеленим.
+        """
+        root = self.fixture("import unittest\n")
+        (root / "scripts" / "gate.sh").write_text(
+            'case "$1" in\n  "" |\n  "a") printf "не названо\\n" >&2; exit 1 ;;\n'
+            '  *) exit 0 ;;\nesac\n',
+            encoding="utf-8",
+        )
+
+        skipped = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "empty_shape_mutants.py"),
+             "--root", str(root)],
+            check=False, capture_output=True, text=True, cwd=str(REPO_ROOT),
+        )
+
+        self.assertEqual(2, skipped.returncode, skipped.stdout)
+        self.assertIn("не закрився дужкою", skipped.stderr)
+        self.assertNotIn("порожніх форм", skipped.stdout)
+
+    def test_the_script_path_is_resolved_against_the_root(self):
+        """`--script` рахується від `--root`, а не від CWD.
+
+        Інакше той самий виклик залежав би від того, звідки його запустили, і
+        замість списку форм давав би «не під коренем».
+        """
+        root = FIXTURES / "pinned"
+
+        listed = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "empty_shape_mutants.py"),
+             "--root", str(root), "--script", "scripts/gate.sh", "--list"],
+            check=False, capture_output=True, text=True, cwd=str(REPO_ROOT),
+        )
+
+        self.assertEqual(0, listed.returncode, listed.stderr)
+        self.assertIn("scripts/gate.sh:", listed.stdout)
+
     def test_the_mechanism_refuses_to_run_inside_itself(self):
         """Маркер глибини може лише відмовити: прогін у себе не доводить нічого."""
         root = self.fixture("import unittest\n")
@@ -206,21 +271,28 @@ class RepositoryTest(unittest.TestCase):
     def test_the_repository_empty_shapes_are_pinned(self):
         """Механізм по всьому репозиторію: зелений і не порожній.
 
-        Порожній зелений («форм не знайдено») теж був би зеленим, тож тест
-        вимагає, щоб механізм назвав хоч одну вбиту форму — і саме форму
-        merge-pr.sh:483, ту, яку відкрив огляд #1254.
+        Порожній зелений («форм не знайдено») теж був би зеленим, тож очікування
+        беруться з САМОГО скрипта, а не з виводу: кожна форма merge-pr.sh мусить
+        бути названа вбитою. Нова законно пінена форма в іншому скрипті цей тест
+        не валить — вона лише додає рядок.
         """
+        merge_pr = REPO_ROOT / "scripts" / "merge-pr.sh"
+        expected = ["%s:%d" % (merge_pr.name, found.line)
+                    for found in esm.shapes(merge_pr.read_text(encoding="utf-8"))]
+
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             status = esm.main([])
 
         printed = out.getvalue()
         self.assertEqual(0, status, err.getvalue())
+        self.assertTrue(expected, "merge-pr.sh мусить мати порожню форму:\n%s" % printed)
         killed = [line for line in printed.splitlines() if "убита" in line]
-        self.assertEqual(1, len(killed), printed)
-        self.assertIn("merge-pr.sh:", killed[0])
-        self.assertIn("порожня форма", killed[0])
-        self.assertIn("убита test_merge_pr.py", killed[0])
+        for marker in expected:
+            self.assertTrue(
+                any(marker in line and "убита test_merge_pr.py" in line for line in killed),
+                "%s немає серед убитих:\n%s" % (marker, printed),
+            )
 
 
 if __name__ == "__main__":

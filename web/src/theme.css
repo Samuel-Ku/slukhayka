@@ -9,6 +9,14 @@
   --accent: #7fa8d9;
   --accent-contrast: #000;
   --bad: #e57373;
+
+  /* #1207 — the adaptive layout's inputs, compact values first: the phone
+     column the app shipped with and the gutters it draws in. Which of the two
+     layouts is on is decided in ui/adaptiveLayout.ts and written on the app
+     root as `data-layout`; the one block that reads it is at the end of this
+     file, and no width below is written twice. */
+  --layout-max-width: 640px;
+  --layout-gutter: 16px;
 }
 
 * {
@@ -30,12 +38,22 @@ body {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  max-width: 640px;
+}
+
+/* The app column: one phone column wide until the window is expanded (#1207,
+   the seam block at the end of this file). The phone layout is unchanged —
+   640 px and 16 px gutters, the same numbers as before. */
+.app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--layout-max-width);
   margin: 0 auto;
 }
 
 .app-header {
-  padding: calc(env(safe-area-inset-top) + 16px) 16px 12px;
+  padding: calc(env(safe-area-inset-top) + 16px) var(--layout-gutter) 12px;
 }
 
 .app-title {
@@ -76,7 +94,7 @@ body {
 .surface {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 16px 24px;
+  padding: 8px var(--layout-gutter) 24px;
 }
 
 .placeholder {
@@ -1628,5 +1646,73 @@ span.bookrow-body {
   padding: 4px 12px;
   color: var(--fg);
   cursor: pointer;
+}
+
+/* --- #1207: the adaptive layout (one seam, one number) --------------------- */
+
+/*
+ * Everything the expanded layout changes is HERE, under the one attribute
+ * `ui/adaptiveLayout.ts` writes on the app root. The boundary (600 px —
+ * Android's ExpandedMinWidthDp) is written once, in that module, and pinned
+ * by `adaptiveLayout.test.tsx`; there is deliberately no `@media` in this
+ * file, because a media query would be the SECOND copy of that number, and
+ * two copies drift — #1206 pulled the Android grid's columns and its floor
+ * back onto one rule for exactly that reason.
+ *
+ * This is width and grid only. The rail and the two panes of the shared map
+ * (spec 2026-09-16 §11 step 4) are NOT here: the owner scoped #1207
+ * (2026-10-10) to the minimum, and that line of the map is a separate decision.
+ */
+.app[data-layout='expanded'] {
+  /* One list column is 320 px — the order of width a phone already gives a
+     row (a 360 px window minus its two 16 px gutters leaves 328 px), so a
+     grid column is not a squeezed row: `.bookrow` keeps its 64 px cover, its
+     10 px gap and its 48 px action buttons, and the title takes what is left. */
+  --list-column-min: 320px;
+  --list-column-gap: 16px;
+  --layout-gutter: 24px;
+  /* The column is three list columns plus their gaps and gutters — built from
+     the same tokens the grids below are, so the cap cannot drift from the
+     layout it holds. A cap at all because the reading surfaces (`.description`,
+     `.review-list`) stay one column wide: past three columns the extra width
+     would only stretch prose. */
+  --layout-max-width: calc(3 * var(--list-column-min) + 2 * var(--list-column-gap) + 2 * var(--layout-gutter));
+}
+
+/* Lists whose entries are one card or one BookRow each become columns — the
+   auto-fill idiom the «Серії» index already uses (#585 `.index-grid`), now at
+   the column width above. Огляд's work lists are deliberately not in this
+   group: a Work with several narrations adds a SECOND row (the picker,
+   `UnifiedWorkRow`), and a grid would set that picker down beside another
+   Work's row — those lists keep one column at the full width instead. */
+.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))),
+.app[data-layout='expanded'] .surface .narrations,
+.app[data-layout='expanded'] .surface .chapters,
+.app[data-layout='expanded'] .surface .collection-list {
+  grid-template-columns: repeat(auto-fill, minmax(var(--list-column-min), 1fr));
+  column-gap: var(--list-column-gap);
+}
+
+/* A BookRow list keeps its hairline (ADR-0018: a divider, never a card): in
+   columns its rows touch, and the grid's own top edge draws the one closing
+   line every column shares — the line `.bookrow:first-child` draws alone
+   while there is a single column. */
+.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))) {
+  row-gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))) > .bookrow:first-child {
+  border-top: none;
+}
+
+/* With the width to show a shelf whole, a rail would hide exactly the cards
+   the window has room for: the rails wrap instead. The scroll-snap left on
+   `.shelf-rail` is inert once nothing scrolls. */
+.app[data-layout='expanded'] .surface .shelf-rail,
+.app[data-layout='expanded'] .surface .poster-row,
+.app[data-layout='expanded'] .surface .collection-rail-row {
+  flex-wrap: wrap;
+  overflow: visible;
 }
 

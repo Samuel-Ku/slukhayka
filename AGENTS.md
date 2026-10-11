@@ -38,6 +38,12 @@ Use the five canonical triage labels with their default names. See
 This is a single-context repository with root `CONTEXT.md` and `docs/adr/`.
 See `docs/agents/domain.md`.
 
+## The merge gate
+
+`scripts/merge-pr.sh` — green checks and a fresh `review:pass`, or no merge
+(squash only, never deletes the branch); call it instead of `gh pr merge`. See
+`docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
+
 ## Testing and verification
 
 The suite runs as **partitions**, one Gradle task each: `:app:testPureJvm`,

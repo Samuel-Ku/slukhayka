@@ -63,6 +63,9 @@ FAKE_GH = r'''#!/usr/bin/env python3
   FAKE_GH_LABEL_MODE=error — проба мітки в репозиторії падає не-404 помилкою;
   FAKE_GH_PR_MODE=empty    — `pr view` віддає порожньо;
   FAKE_GH_PR_MODE=garbage  — `pr view` віддає не-JSON;
+  FAKE_GH_PR_MODE=shape    — `pr view` віддає валідний JSON не тієї форми;
+  FAKE_GH_TIMELINE_MODE=garbage — таймлайн віддає не-JSON;
+  FAKE_GH_TIMELINE_MODE=object  — таймлайн віддає об'єкт замість списку сторінок;
   FAKE_GH_ADD_MODE=noop    — додавання мітки «вдається», але події не створює;
   FAKE_GH_ADD_MODE=error   — додавання мітки падає.
 """
@@ -136,6 +139,9 @@ if arguments[:2] == ["pr", "view"]:
     if mode == "garbage":
         print("це не JSON")
         sys.exit(0)
+    if mode == "shape":
+        print("[]")
+        sys.exit(0)
     payload = load("pr.json", {})
     payload["labels"] = [{"name": name} for name in load("labels.json", [])]
     print(json.dumps(payload))
@@ -160,6 +166,13 @@ if arguments[:1] == ["api"]:
         previous = argument
 
     if path.endswith("/timeline"):
+        mode = os.environ.get("FAKE_GH_TIMELINE_MODE", "")
+        if mode == "garbage":
+            print("це не JSON")
+            sys.exit(0)
+        if mode == "object":
+            print(json.dumps({"events": load("timeline.json", [])}))
+            sys.exit(0)
         print(json.dumps([load("timeline.json", [])]))
         sys.exit(0)
     if "check-runs" in path:
@@ -470,9 +483,19 @@ class ReviewPassTest(unittest.TestCase):
         self.assertIn("лишився БЕЗ вердикту", result.stderr)
         self.assertNotIn(LABEL, self.labels_on_pr())
 
-    def test_fails_closed_on_an_empty_or_unparsable_pr_response(self):
-        """Без HEAD вердикт засвідчував би невідомо що — код 2, не «зроблено»."""
-        for mode, expected in (("empty", "порожня відповідь"), ("garbage", "розібрати відповідь")):
+    def test_fails_closed_on_an_empty_or_unreadable_pr_response(self):
+        """Без HEAD вердикт засвідчував би невідомо що — код 2, не «зроблено».
+
+        Нечитабельний JSON і не та форма відповіді називаються людською мовою:
+        сирий python-трейсбек у stderr ПЕРЕД рядком FAIL ховав би причину —
+        зауваження огляду PR #1262, і саме тому тут перевіряється його немає.
+        """
+        cases = (
+            ("empty", "порожня відповідь"),
+            ("garbage", "не JSON"),
+            ("shape", "не об'єкт JSON"),
+        )
+        for mode, expected in cases:
             with self.subTest(mode=mode):
                 self.write_fixtures()
                 self.log.unlink(missing_ok=True)
@@ -481,6 +504,30 @@ class ReviewPassTest(unittest.TestCase):
 
                 self.assertEqual(2, result.returncode, result.stdout)
                 self.assertIn(expected, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertEqual([], self.mutating_calls())
+
+    def test_fails_closed_on_an_unreadable_timeline_response(self):
+        """Таймлайн — той самий JSON, і причина теж мусить бути названа.
+
+        Обидві форми — не-JSON і об'єкт замість списку сторінок — це код 2 без
+        трейсбека: інакше читач бачив би трейсбек замість причини (огляд #1262),
+        а «0 подій» із нечитабельної відповіді виглядало б як доказ тиші.
+        """
+        cases = (
+            ("garbage", "не JSON"),
+            ("object", "не список сторінок"),
+        )
+        for mode, expected in cases:
+            with self.subTest(mode=mode):
+                self.write_fixtures()
+                self.log.unlink(missing_ok=True)
+
+                result = self.review_pass("1215", env_extra={"FAKE_GH_TIMELINE_MODE": mode})
+
+                self.assertEqual(2, result.returncode, result.stdout)
+                self.assertIn(expected, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
                 self.assertEqual([], self.mutating_calls())
 
     def test_fails_closed_on_an_unexpected_timeline_page(self):

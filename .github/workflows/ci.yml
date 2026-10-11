@@ -134,6 +134,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # HEAD^ is the baseline-growth comparison base on push and
+          # workflow_dispatch, where there is no base_ref to fetch.
+          fetch-depth: 2
 
       - name: Setup JDK 21 (Temurin)
         uses: actions/setup-java@v5
@@ -168,6 +172,36 @@ jobs:
             echo "::error::app/lint-baseline.xml cites a worktree, home or Gradle-cache path — regenerate it from the repository root, and drop entries that point outside the module"
             exit 1
           fi
+
+      # #1222: the step above is about DEAD entries, this one is about a list
+      # that only grows. A new issue outside the baseline already fails the lint
+      # run; nothing failed the 1083 MissingTranslation records that grew by one
+      # hand-written entry per new UI string. The guard counts entries per rule
+      # — MissingTranslation on its own line, every other rule on its own — and
+      # fails when any rule gained one, so growth has to be deliberate. A
+      # deliberate increase (a new uk string with no translation yet) is the
+      # owner's call, through the repository variable
+      # LINT_BASELINE_GROWTH_ALLOWANCE=MissingTranslation=+3; unset means zero
+      # tolerance, and the guard prints whatever it let through in the summary.
+      # It needs no Gradle, so it runs BEFORE the 30-minute lint: growth is
+      # visible in a minute.
+      - name: Fail when the lint baseline grew
+        env:
+          # Empty on push and workflow_dispatch: there the base is HEAD^.
+          BASE_REF: ${{ github.base_ref }}
+          LINT_BASELINE_GROWTH_ALLOWANCE: ${{ vars.LINT_BASELINE_GROWTH_ALLOWANCE }}
+        run: |
+          set -eu
+          if [ -n "$BASE_REF" ]; then
+            # The base tip this PR is built on. `git show` needs that commit's
+            # tree and nothing else, so a depth-1 fetch of the branch is enough
+            # — the same shape the migration-slot guard uses.
+            git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+            BASE="origin/$BASE_REF"
+          else
+            BASE="HEAD^"
+          fi
+          python3 scripts/lint_baseline.py check-growth "$BASE" HEAD
 
       # #386 configured Android Lint with a checked-in baseline so that
       # `lintDebug` passes and CI can adopt it — this job is that adoption. The

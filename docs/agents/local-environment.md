@@ -84,6 +84,22 @@ run inside a worktree it writes `.worktrees/<lane>/…` into the entries, which
 then match nothing once that worktree is gone. The Android Lint job refuses a
 baseline carrying such a path.
 
+A baseline that only ever grows is the same silent debt one layer up, so the job
+also counts entries — `MissingTranslation` on its own line, every other rule on
+its own — and fails on growth against the PR's base ref:
+
+```sh
+python3 scripts/lint_baseline.py check-growth origin/main HEAD        # committed
+python3 scripts/lint_baseline.py check-growth origin/main --worktree  # uncommitted
+```
+
+It compares counts per rule, not the diff, so removing entries is always fine
+and a swap (−5 `UnusedResources`, +5 `MissingTranslation`) still fails on the
+translation growth it would otherwise hide. A deliberate increase — a new uk
+string with no translation yet — is the owner's call, expressed as the
+repository variable `LINT_BASELINE_GROWTH_ALLOWANCE=MissingTranslation=+3`;
+unset means zero tolerance, and the guard prints what it let through.
+
 ## Work claims
 
 ```sh

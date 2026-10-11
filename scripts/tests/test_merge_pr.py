@@ -10,11 +10,11 @@
 `gh api repos/{owner}/{repo}/commits/735771adafeb.../check-runs?filter=all`
 (17 прогонів, 16 success + 1 skipped, 19:05:35–19:44:59; мердж о 19:45:17).
 
-Перевірка 2 гейта читає робочу копію, тож кожен тест дістає власний
+Перевірки 2 і 3 гейта читають робочу копію, тож кожен тест дістає власний
 git-репозиторій у тимчасовому каталозі (MERGE_PR_REPO). Історія в ньому
-синтетична, але топологія відмови — справжня: ребаз, що впав на конфлікті
-(обидва маркери), — саме з таким злився #1239 (див. `git reflog` у
-.git/worktrees/w1224).
+синтетична, але топологія відмов — справжня: ребаз, що впав на конфлікті
+(обидва маркери), і гілка, з якої на remote поїхав лише перший пік ребаза —
+саме так злився #1239 (4 коміти → 1, див. `git reflog` у .git/worktrees/w1224).
 """
 
 import json
@@ -38,7 +38,8 @@ VERDICT_LABEL = "review:pass"
 VERDICT_AT = "2026-10-10T19:50:00Z"
 # Вердикт, старіший за частину прогонів — для перевірки «мітка старіша за нове».
 EARLY_VERDICT_AT = "2026-10-10T19:00:00Z"
-# Гілка, за якою тести будують локальний стан.
+# Гілка PR #1215: у тимчасовому репозиторії її немає, тож перевірка цілісності
+# мовчки (WARN) пропускається скрізь, де її не перевіряють навмисно.
 PR_BRANCH = "t1205-player-rail"
 
 # (назва, висновок, початок, кінець) — три зелені чеки замість сімнадцяти: решта
@@ -229,7 +230,8 @@ def page(*events):
 
 def pr_payload(*, checks=None, labels=(VERDICT_LABEL,), state="OPEN",
                draft=False, mergeable="MERGEABLE", merge_state="CLEAN",
-               base="main", head=HEAD, number=1215):
+               base="main", head=HEAD, head_ref=PR_BRANCH, cross_repo=False,
+               number=1215):
     return {
         "number": number,
         "state": state,
@@ -237,7 +239,9 @@ def pr_payload(*, checks=None, labels=(VERDICT_LABEL,), state="OPEN",
         "mergeable": mergeable,
         "mergeStateStatus": merge_state,
         "baseRefName": base,
+        "headRefName": head_ref,
         "headRefOid": head,
+        "isCrossRepository": cross_repo,
         "url": "https://github.com/Samuel-Ku/slukhayka/pull/%d" % number,
         "labels": [{"name": name} for name in labels],
         "statusCheckRollup": rollup() if checks is None else checks,
@@ -576,6 +580,86 @@ class MergePrTest(unittest.TestCase):
                 self.assertIn(PR_BRANCH, result.stderr)
                 self.assertIn("rebase --abort", result.stderr)
                 self.assertEqual([], self.merge_calls())
+
+    # --- цілісність гілки ---------------------------------------------------
+    def pick_only(self, sha):
+        """Один коміт серії, застосований до main — те, що лишив ребаз #1239."""
+        self.git("checkout", "-q", "-b", "truncated", self.git_out("rev-parse", "main"))
+        self.git("cherry-pick", sha)
+        picked = self.git_out("rev-parse", "HEAD")
+        self.git("checkout", "-q", PR_BRANCH)
+        return picked
+
+    def test_refuses_when_the_pr_head_misses_commits_of_the_local_branch(self):
+        """Топологія #1239: у гілці серія комітів, у вершині PR — лише перший.
+
+        Ребаз спинився на конфлікті, на remote поїхав один пік із чотирьох
+        комітів, CI пройшов (перевіряти не було чого), і в main потрапила
+        оригінальна версія скрипта — без правок огляду. GitHub тут не свідок:
+        його список комітів PR будується з тієї самої вершини.
+        """
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        first = self.commit(
+            "scripts/web-layout-probe.mjs", "let exitCode = 1\n",
+            "feat(scripts): #1224 веб-щуп розкладки — збірка, preview і виміри через CDP")
+        self.commit(
+            "docs/agents/local-environment.md", "розділ щупа\n",
+            "docs(agents): #1224 CSS-половина web перевіряється одною командою")
+        tip = self.commit(
+            "scripts/web-layout-probe.mjs", "const EXIT_DIFFERENCE = 1\n",
+            "fix(scripts): #1224 огляд — коди виходу, source у таблиці")
+        truncated = self.pick_only(first)
+
+        result = self.gate(pr=pr_payload(number=1239, head=truncated, head_ref=PR_BRANCH))
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("PR #1239", result.stderr)
+        self.assertIn("не містить усіх комітів гілки", result.stderr)
+        self.assertIn(PR_BRANCH, result.stderr)
+        self.assertIn(tip[:7], result.stderr)
+        self.assertIn("запуш повну гілку", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_merges_when_the_local_branch_is_fully_in_the_head(self):
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        tip = self.commit(
+            "scripts/web-layout-probe.mjs", "const EXIT_DIFFERENCE = 1\n",
+            "feat(scripts): #1224 веб-щуп розкладки")
+
+        result = self.gate(pr=pr_payload(number=1239, head=tip, head_ref=PR_BRANCH))
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            ["pr merge 1239 --squash --match-head-commit %s" % tip], self.merge_calls())
+
+    def test_warns_and_merges_when_the_local_branch_is_not_here(self):
+        """Межа названа: чужого клона й форка гейт не бачить — це WARN."""
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        self.commit("scripts/probe.mjs", "x\n", "feat: локальний коміт")
+        cases = (
+            (pr_payload(head_ref="t1247-not-in-this-copy"), "локальної гілки"),
+            (pr_payload(head_ref=PR_BRANCH, cross_repo=True), "з форка"),
+        )
+        for pr, expected in cases:
+            with self.subTest(expected=expected):
+                result = self.gate(pr=pr)
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertIn(expected, result.stderr)
+                self.assertIn("НЕ перевірено", result.stderr)
+                self.assertNotEqual([], self.merge_calls())
+
+    def test_fails_closed_when_the_local_copy_lacks_the_pr_head(self):
+        """Гілка локально є, а ревізії вершини немає — код 2, не «злив би»."""
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        self.commit("scripts/probe.mjs", "x\n", "feat: локальний коміт")
+
+        result = self.gate(pr=pr_payload(head="0" * 40, head_ref=PR_BRANCH))
+
+        self.assertEqual(2, result.returncode, result.stdout)
+        self.assertIn("немає ревізії", result.stderr)
+        self.assertIn("git fetch origin %s" % PR_BRANCH, result.stderr)
+        self.assertEqual([], self.merge_calls())
 
     # --- злиття -------------------------------------------------------------
     def test_merges_with_squash_and_never_deletes_the_branch(self):

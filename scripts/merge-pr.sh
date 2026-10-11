@@ -17,26 +17,34 @@
 #      на конфлікті, один пік із чотирьох комітів поїхав force-push-ем, CI
 #      пройшов (перевіряти не було чого), і в `main` потрапила оригінальна
 #      версія скрипта — без правок огляду (лікував окремий PR #1245);
-#   3) жоден чек не впав, не скасований і не висить. Порожній список чеків —
+#   3) вершина гілки PR містить УСЮ локальну гілку того самого імені. Коміт,
+#      якого у вершині немає, — це те, що рецензували, але не злили. GitHub
+#      тут не свідок: його список комітів PR будується з тієї самої вершини,
+#      тож обрізання він показує як «один коміт» (у #1239 — рівно так);
+#   4) жоден чек не впав, не скасований і не висить. Порожній список чеків —
 #      теж відмова: без доказів вердикту нема на чому стояти;
-#   4) на PR стоїть мітка вердикту (типово `review:pass`) — інакше відмова;
-#   5) мітка НОВІША за все, що вона засвідчує: за кожен коміт PR
+#   5) на PR стоїть мітка вердикту (типово `review:pass`) — інакше відмова;
+#   6) мітка НОВІША за все, що вона засвідчує: за кожен коміт PR
 #      (committedDate), за кожен прогін чеків HEAD-ревізії (filter=all, тож
 #      видно й перезапущені спроби) і за будь-який force-push гілки PR.
 #      Вердикт, старіший за новий коміт, новий прогін чи новий fail, не
 #      покриває те, що зливається, — і гейт відмовляє;
-#   6) у репозиторії вимкнено auto-delete гілок: увімкнений
+#   7) у репозиторії вимкнено auto-delete гілок: увімкнений
 #      `delete_branch_on_merge` знищив би гілку PR так само, як колись
 #      `gh pr merge --delete-branch` зніс worktree.
 #
-# Межа перевірки 2, названа прямо: гейт бачить лише ту робочу копію, з якої його
-# запущено. Сам маркер шукається в усій копії — і в спільному `.git`, і в
-# кожному worktree: ребаз #1239 жив у w1224, а гейт запускають звідки завгодно.
+# Межа перевірки 3, названа прямо: гейт бачить лише ту робочу копію, з якої
+# його запущено. Якщо локальної гілки немає (PR приїхав з іншого клона) або PR
+# з форка — це WARN, а не відмова: «немає гілки» — відомий безневинний стан, а
+# не доказ обрізання. Невідомість інша: якщо гілка локально є, а ревізії
+# вершини PR у копії немає — порівнювати нічого, і це код 2 з підказкою
+# `git fetch`. Перевірка 2, навпаки, дивиться на всю копію — і спільний `.git`,
+# і кожен worktree: ребаз #1239 жив у w1224, а гейт запускають звідки завгодно.
 #
 # Чому мітка, а не `reviewDecision`. Схвалення GitHub-рев'ю («Approve») автор
 # PR поставити собі не може, а всі PR цього репозиторію відкриває той самий
 # акаунт — тож reviewDecision ніколи не стане APPROVED. Мітку автор поставити
-# може. Це процесний сигнал, а не криптографічний доказ, і саме тому п.5
+# може. Це процесний сигнал, а не криптографічний доказ, і саме тому п.4
 # перевіряє ЧАС мітки, а не саму її наявність.
 #
 # Хто ставить мітку і коли — docs/agents/work-coordination.md, розділ
@@ -53,8 +61,9 @@
 #         MERGE_PR_REPO — робоча копія для перевірок 2 і 3 (типово — git-корінь
 #         поточного каталогу; потрібен для тестів).
 # Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта (огляд, чеки,
-#              стан PR, незавершений ребаз); 2 — перевірити або злити не
-#              вдалося (аргументи, gh, мережа, відмова GitHub на самому мерджі).
+#              стан PR, обрізана гілка, незавершений ребаз); 2 — перевірити
+#              або злити не вдалося (аргументи, gh, мережа, робоча копія без
+#              ревізії вершини PR, відмова GitHub на самому мерджі).
 set -euo pipefail
 
 GH="${MERGE_PR_GH:-gh}"
@@ -65,7 +74,7 @@ usage() {
   printf '\n'
   printf 'Мердж-гейт: зливає PR лише за зеленого CI і свіжого вердикту огляду\n'
   printf "(мітка '%s'; іншу назву дає MERGE_PR_LABEL).\n" "$LABEL"
-  printf 'Відмовляє, якщо робоча копія посеред ребаза.\n'
+  printf 'Відмовляє, якщо робоча копія посеред ребаза або гілка PR на remote неповна.\n'
   printf 'Зливає тільки --squash і ніколи не видаляє гілку.\n'
   printf 'Коди виходу: 0 — злито (--dry-run: злив би); 1 — відмова гейта;\n'
   printf '             2 — перевірити або злити не вдалося (gh, мережа, відмова GitHub).\n'
@@ -219,7 +228,9 @@ if MODE == "pr":
     print("mergeable=%s" % (pr.get("mergeable") or ""))
     print("merge_status=%s" % (pr.get("mergeStateStatus") or ""))
     print("base=%s" % (pr.get("baseRefName") or ""))
+    print("head_ref=%s" % (pr.get("headRefName") or ""))
     print("head_sha=%s" % (pr.get("headRefOid") or ""))
+    print("cross_repo=%s" % str(bool(pr.get("isCrossRepository"))).lower())
     print("has_label=%s" % str(any(item.get("name") == label for item in pr.get("labels") or [])).lower())
     print("checks_total=%d" % len(pr.get("statusCheckRollup") or []))
     print("n_fail=%d" % len(fails))
@@ -329,7 +340,7 @@ read_facts() { # read_facts <mode> <args...> ; stdout = key=value, exit 2 якщ
 # --- 1) Стан PR -------------------------------------------------------------
 PR_JSON="$TMP/pr.json"
 if ! "$GH" pr view "$PR_NUMBER" \
-  --json state,isDraft,mergeable,mergeStateStatus,baseRefName,headRefOid,labels,statusCheckRollup \
+  --json state,isDraft,mergeable,mergeStateStatus,baseRefName,headRefName,headRefOid,isCrossRepository,labels,statusCheckRollup \
   >"$PR_JSON" 2>"$TMP/pr.err"; then
   printf 'FAIL  не вдалося прочитати PR #%s через gh:\n' "$PR_NUMBER" >&2
   sed 's/^/      /' "$TMP/pr.err" >&2 || true
@@ -337,7 +348,7 @@ if ! "$GH" pr view "$PR_NUMBER" \
   exit 2
 fi
 
-STATE="" DRAFT="" MERGEABLE="" MERGE_STATUS="" BASE="" HEAD_SHA=""
+STATE="" DRAFT="" MERGEABLE="" MERGE_STATUS="" BASE="" HEAD_REF="" HEAD_SHA="" IS_CROSS_REPO=false
 HAS_LABEL=false CHECKS_TOTAL=0 N_FAIL=0 N_PENDING=0 N_CANCEL=0 N_UNTIMED=0
 PR_FACTS="$(read_facts pr "$PR_JSON" "$TMP" "$LABEL")"
 while IFS='=' read -r key value; do
@@ -347,7 +358,9 @@ while IFS='=' read -r key value; do
     mergeable) MERGEABLE="$value" ;;
     merge_status) MERGE_STATUS="$value" ;;
     base) BASE="$value" ;;
+    head_ref) HEAD_REF="$value" ;;
     head_sha) HEAD_SHA="$value" ;;
+    cross_repo) IS_CROSS_REPO="$value" ;;
     has_label) HAS_LABEL="$value" ;;
     checks_total) CHECKS_TOTAL="$value" ;;
     n_fail) N_FAIL="$value" ;;
@@ -357,11 +370,11 @@ while IFS='=' read -r key value; do
   esac
 done <<<"$PR_FACTS"
 
-# Порожня відповідь gh — це не «PR без чеків», а відсутність даних: без стану
-# й HEAD перевіряти нічого, а вгадувати заборонено.
-if [ -z "$STATE" ] || [ -z "$HEAD_SHA" ]; then
+# Порожня відповідь gh — це не «PR без чеків», а відсутність даних: без стану,
+# імені гілки й HEAD перевіряти нічого, а вгадувати заборонено.
+if [ -z "$STATE" ] || [ -z "$HEAD_SHA" ] || [ -z "$HEAD_REF" ]; then
   printf 'FAIL  gh не повернув стан PR #%s (порожня відповідь) — перевіряти нічого.\n' "$PR_NUMBER" >&2
-  printf 'Далі: повтори; якщо повторюється — подивись `gh pr view %s --json state,headRefOid`.\n' "$PR_NUMBER" >&2
+  printf 'Далі: повтори; якщо повторюється — подивись `gh pr view %s --json state,headRefName,headRefOid`.\n' "$PR_NUMBER" >&2
   exit 2
 fi
 
@@ -440,6 +453,45 @@ if [ -n "$OPERATIONS" ]; then
   done <<<"$OPERATIONS"
   printf 'Далі: заверши ребаз (git -C <робоча копія> rebase --continue) або скасуй його (git -C <робоча копія> rebase --abort),\n' >&2
   printf '      переконайся, що гілка на remote повна, і повтори scripts/merge-pr.sh %s\n' "$PR_NUMBER" >&2
+  exit 1
+fi
+
+# --- 3) Цілісність гілки PR -------------------------------------------------
+# Вершина PR (headRefOid) мусить містити ВСЮ локальну гілку того самого імені.
+# GitHub тут не свідок: його список комітів PR будується з тієї самої вершини,
+# тож обрізану гілку він показує як «один коміт» і мовчить. Локальна гілка —
+# єдине місце, де ще живуть коміти, які рецензували.
+LOCAL_TIP=""
+if [ "$IS_CROSS_REPO" != true ]; then
+  LOCAL_TIP="$(git -C "$REPO_ROOT" rev-parse --verify --quiet "refs/heads/$HEAD_REF" 2>/dev/null || true)"
+fi
+
+if [ -z "$LOCAL_TIP" ]; then
+  if [ "$IS_CROSS_REPO" = true ]; then
+    warn "PR #$PR_NUMBER — з форка: локальної гілки '$HEAD_REF' тут бути не може, тож цілісність гілки НЕ перевірено."
+  else
+    warn "локальної гілки '$HEAD_REF' немає — цілісність гілки НЕ перевірено (гейт бачить лише цю робочу копію)."
+  fi
+  note 'це не відмова: «немає гілки» — не доказ обрізання. Переконайся сам, що гілка на remote повна.'
+elif ! git -C "$REPO_ROOT" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+  printf 'FAIL  PR #%s: у робочій копії немає ревізії %s (вершина PR) — цілісність гілки не перевірити.\n' \
+    "$PR_NUMBER" "$HEAD_SHORT" >&2
+  printf 'Далі: git fetch origin %s (щоб копія знала вершину PR) і повтори scripts/merge-pr.sh %s\n' \
+    "$HEAD_REF" "$PR_NUMBER" >&2
+  exit 2
+elif ! git -C "$REPO_ROOT" merge-base --is-ancestor "$LOCAL_TIP" "$HEAD_SHA"; then
+  LOCAL_SHORT="${LOCAL_TIP:0:7}"
+  MISSING_COUNT="$(git -C "$REPO_ROOT" rev-list --count "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null || printf '?')"
+  printf 'FAIL  PR #%s: вершина PR (%s) не містить усіх комітів гілки '\''%s'\'' (%s) — на remote поїхала неповна гілка.\n' \
+    "$PR_NUMBER" "$HEAD_SHORT" "$HEAD_REF" "$LOCAL_SHORT" >&2
+  printf '      у гілці є, у вершині немає — %s коміт(ів):\n' "$MISSING_COUNT" >&2
+  git -C "$REPO_ROOT" log --oneline --no-decorate -n 10 "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null | sed 's/^/      ✗ /' >&2 || true
+  if [ "$MISSING_COUNT" != "?" ] && [ "$MISSING_COUNT" -gt 10 ]; then
+    printf '      … і ще %s\n' "$((MISSING_COUNT - 10))" >&2
+  fi
+  printf 'Далі: запуш повну гілку (git push --force-with-lease origin %s) і повтори scripts/merge-pr.sh %s;\n' \
+    "$HEAD_REF" "$PR_NUMBER" >&2
+  printf '      якщо це слід незавершеного ребаза — спершу заверши або скасуй його.\n' >&2
   exit 1
 fi
 

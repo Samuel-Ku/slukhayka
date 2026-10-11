@@ -19,6 +19,13 @@
  *   delta itself was verified in a real browser against the built bundle,
  *   which cannot run in this job (CI's web job is `npm ci` + `tsc --noEmit` +
  *   `vitest run`).
+ *
+ * The ANDROID half is read as well (#1223): `EXPANDED_MIN_WIDTH_PX` and Kotlin's
+ * `ExpandedMinWidthDp` are one number for two clients, so the guard below opens
+ * `WindowLayout.kt` and compares the pair. The CI web job checks out the whole
+ * repository, so the Kotlin file costs this lane nothing to read — and the
+ * boundary stays written in exactly two places, both of them read here rather
+ * than restated as a third literal.
  */
 import 'fake-indexeddb/auto'
 import { readFileSync } from 'node:fs'
@@ -45,6 +52,65 @@ function appLayout(container: HTMLElement): string | null {
   return container.querySelector('.app')?.getAttribute('data-layout') ?? null
 }
 
+/** The Android half of the one line: `ExpandedMinWidthDp` lives in this file. */
+const KOTLIN_WINDOW_LAYOUT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  'app/src/main/java/com/slukhayka/audiobooks/ui/adaptive/WindowLayout.kt',
+)
+
+/**
+ * `ExpandedMinWidthDp` out of `WindowLayout.kt` (#1223).
+ *
+ * WHY these two clients are bound at all — the reason this test exists rather
+ * than a nice-to-have: ADR-0034 makes the web client a 1:1 rebuild of the
+ * Android one, «a listener switching devices cannot tell which surface they are
+ * on». A width line that exists in two clients but is only TESTED in one is
+ * precisely where that promise dies quietly: the Android lane could move its
+ * boundary, both sides would still be green, and web would keep drawing the map
+ * Android no longer draws — the divergence the shared map exists to prevent,
+ * and the same class of defect #1206 charged a whole PR for. The number is
+ * therefore READ from its Kotlin source, not restated here: a third literal
+ * would be a copy that no test compares to either side.
+ *
+ * The web half is read by IMPORT in the test below — the value the bundle
+ * actually ships, rather than a text match that a refactor could leave green.
+ * No JavaScript module can import Kotlin, so that half is read as text.
+ *
+ * A moved file or a renamed constant must be a RED test, never a quiet green
+ * one: this guard is worth nothing on the day it stops finding both numbers.
+ */
+function androidExpandedMinWidthDp(): number {
+  let source: string
+  try {
+    source = readFileSync(KOTLIN_WINDOW_LAYOUT, 'utf8')
+  } catch {
+    throw new Error(
+      `джерело не знайдено: ${KOTLIN_WINDOW_LAYOUT} — якщо файл переїхав, ` +
+        'оновіть шлях тут, інакше спільну межу Android/Web ніхто не звіряє',
+    )
+  }
+  // Comments are stripped before the match, the same rule the CSS half of this
+  // file applies: a comment must never be able to satisfy a pin. Without it,
+  // `// const val ExpandedMinWidthDp: Int = 600` over a live `601` read as 600
+  // and kept the suite green (PR #1231 review) — the quiet green this guard
+  // exists to prevent. The match is ALSO anchored to a line start, so a
+  // commented declaration cannot pass for the live one whatever shape the
+  // comment takes; underscores are legal in a Kotlin Int literal.
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const declaration =
+    /^\s*const\s+val\s+ExpandedMinWidthDp\s*(?::\s*Int)?\s*=\s*(\d[\d_]*)/m.exec(code)
+  if (declaration === null) {
+    throw new Error(
+      `константу не знайдено: ExpandedMinWidthDp у ${KOTLIN_WINDOW_LAYOUT} — ` +
+        'перейменована чи переписана? оновіть цей тест, а не видаляйте його',
+    )
+  }
+  return Number(declaration[1]!.replace(/_/g, ''))
+}
+
 afterEach(() => {
   cleanup()
   window.localStorage.clear()
@@ -52,11 +118,10 @@ afterEach(() => {
 })
 
 describe('#1207 the adaptive line', () => {
-  it('is Android’s ExpandedMinWidthDp, not a web-only breakpoint', () => {
-    // app/src/main/java/com/slukhayka/audiobooks/ui/adaptive/WindowLayout.kt
-    // draws the one line both clients share (ADR-0034); moving it here alone
-    // would be the divergence the shared map exists to prevent.
-    expect(EXPANDED_MIN_WIDTH_PX).toBe(600)
+  it('is Android’s ExpandedMinWidthDp, read from the Kotlin source (#1223)', () => {
+    // Not `toBe(600)`: the literal would be a third copy nothing compares to
+    // either client. Both halves are read — see `androidExpandedMinWidthDp`.
+    expect(androidExpandedMinWidthDp()).toBe(EXPANDED_MIN_WIDTH_PX)
   })
 
   it('calls 599 px a phone and 600 px not one', () => {
@@ -167,8 +232,10 @@ describe('#1207 theme.css half of the seam', () => {
 
   it('keeps the boundary out of the stylesheet, where it would exist twice', () => {
     // No media query at all: the file has none, and any width key here would
-    // be the second spelling of the 600 px line `adaptiveLayout.ts` owns.
+    // be the second spelling of the line `adaptiveLayout.ts` owns. The key is
+    // asked for by VALUE, so a moved boundary moves this pin with it instead of
+    // leaving a stale `600px` that a fresh `620px` could satisfy.
     expect(css).not.toMatch(/@media/)
-    expect(css).not.toContain('600px')
+    expect(css).not.toContain(`${EXPANDED_MIN_WIDTH_PX}px`)
   })
 })

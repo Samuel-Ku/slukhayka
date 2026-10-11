@@ -21,10 +21,14 @@
 #      відмова: у репозиторії десятки worktree й паралельні смуги, і чужий
 #      ребаз, що спинився, не має зупиняти чергу — тим паче що «Далі» радило б
 #      завершувати операцію в чужій копії й знищило б чуже розв'язання;
-#   3) вершина гілки PR містить УСЮ локальну гілку того самого імені. Коміт,
-#      якого у вершині немає, — це те, що рецензували, але не злили. GitHub
-#      тут не свідок: його список комітів PR будується з тієї самої вершини,
-#      тож обрізання він показує як «один коміт» (у #1239 — рівно так);
+#   3) вершина гілки PR містить УСЮ локальну гілку того самого імені — за
+#      ПАТЧАМИ, не за SHA (`git cherry`): так обрізане дерево відрізняється від
+#      гілки, яку перебазували в іншому клоні, — там патчі вже у вершині, і
+#      відмова з порадою force-push повернула б доребазову історію поверх
+#      доребазованої. Коміт, чийого патча у вершині немає, — це те, що
+#      рецензували, але не злили. GitHub тут не свідок: його список комітів PR
+#      будується з тієї самої вершини, тож обрізання він показує як «один
+#      коміт» (у #1239 — рівно так);
 #   4) жоден чек не впав, не скасований і не висить. Порожній список чеків —
 #      теж відмова: без доказів вердикту нема на чому стояти;
 #   5) на PR стоїть мітка вердикту (типово `review:pass`) — інакше відмова;
@@ -513,19 +517,64 @@ elif ! "$GIT" -C "$REPO_ROOT" cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
     "$HEAD_REF" "$PR_NUMBER" >&2
   exit 2
 elif ! "$GIT" -C "$REPO_ROOT" merge-base --is-ancestor "$LOCAL_TIP" "$HEAD_SHA"; then
-  LOCAL_SHORT="${LOCAL_TIP:0:7}"
-  MISSING_COUNT="$("$GIT" -C "$REPO_ROOT" rev-list --count "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null || printf '?')"
-  printf 'FAIL  PR #%s: вершина PR (%s) не містить усіх комітів гілки '\''%s'\'' (%s) — на remote поїхала неповна гілка.\n' \
-    "$PR_NUMBER" "$HEAD_SHORT" "$HEAD_REF" "$LOCAL_SHORT" >&2
-  printf '      у гілці є, у вершині немає — %s коміт(ів):\n' "$MISSING_COUNT" >&2
-  "$GIT" -C "$REPO_ROOT" log --oneline --no-decorate -n 10 "$HEAD_SHA..$LOCAL_TIP" 2>/dev/null | sed 's/^/      ✗ /' >&2 || true
-  if [ "$MISSING_COUNT" != "?" ] && [ "$MISSING_COUNT" -gt 10 ]; then
-    printf '      … і ще %s\n' "$((MISSING_COUNT - 10))" >&2
+  # Історії розійшлися — але це ще не обрізання. Гілку могли перебазувати й
+  # запушити з ІНШОГО клона: тоді місцевий ref лишається старим, а патчі комітів
+  # уже у вершині. `--cherry-mark` порівнює саме патчі, а не SHA:
+  #   `=` — коміт гілки вже представлений у вершині (той самий вміст, інший SHA),
+  #   `+` — його патча у вершині немає.
+  # `--right-only` лишає бік гілки, `--no-merges` не рахує злиття (патча в них
+  # немає). Відмова з порадою force-push лишається тільки для `+`: у випадку
+  # ребазу вона повернула б доребазову історію поверх доребазованої.
+  if ! CHERRY="$("$GIT" -C "$REPO_ROOT" rev-list --cherry-mark --no-merges --right-only \
+    "$HEAD_SHA...$LOCAL_TIP" 2>"$TMP/cherry.err")"; then
+    printf 'FAIL  PR #%s: не вдалося визначити, які коміти гілки '\''%s'\'' не у вершині PR — цілісність не перевірити.\n' \
+      "$PR_NUMBER" "$HEAD_REF" >&2
+    sed 's/^/      /' "$TMP/cherry.err" >&2 || true
+    printf 'Далі: перевір, що копія й ревізії гілки цілі (git fsck), і повтори scripts/merge-pr.sh %s\n' "$PR_NUMBER" >&2
+    exit 2
   fi
-  printf 'Далі: запуш повну гілку (git push --force-with-lease origin %s) і повтори scripts/merge-pr.sh %s;\n' \
-    "$HEAD_REF" "$PR_NUMBER" >&2
-  printf '      якщо це слід незавершеного ребаза — спершу заверши або скасуй його.\n' >&2
-  exit 1
+  LOCAL_SHORT="${LOCAL_TIP:0:7}"
+  N_REWRITTEN=0
+  N_LOST=0
+  LOST=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "${line:0:1}" in
+      "=") N_REWRITTEN=$((N_REWRITTEN + 1)) ;;
+      "+")
+        N_LOST=$((N_LOST + 1))
+        LOST="$LOST${line:1}"$'\n'
+        ;;
+    esac
+  done <<<"$CHERRY"
+
+  if [ "$N_LOST" -eq 0 ]; then
+    warn "PR #$PR_NUMBER: історії гілки '$HEAD_REF' ($LOCAL_SHORT) і вершини PR ($HEAD_SHORT) розійшлися, але патчів, яких немає у вершині, не видно ($N_REWRITTEN коміт(ів) гілки вже там) — це ребаз із іншого клона, а не обрізання."
+    note "локальна гілка застаріла — онови її з remote: git fetch origin +refs/heads/$HEAD_REF:refs/heads/$HEAD_REF"
+    note "мердж не блокую: зміст гілки у вершині є. Переконайся, що це саме той вміст, який рецензували."
+  else
+    printf 'FAIL  PR #%s: вершина PR (%s) не містить усіх комітів гілки '\''%s'\'' (%s) — на remote поїхала неповна гілка.\n' \
+      "$PR_NUMBER" "$HEAD_SHORT" "$HEAD_REF" "$LOCAL_SHORT" >&2
+    if [ "$N_REWRITTEN" -gt 0 ]; then
+      printf '      %s коміт(ів) гілки вже у вершині за патчем (той самий вміст, інший SHA), а %s — ні:\n' \
+        "$N_REWRITTEN" "$N_LOST" >&2
+    else
+      printf '      у гілці є, у вершині немає — %s коміт(ів):\n' "$N_LOST" >&2
+    fi
+    printf '%s' "$LOST" | head -n 10 | while IFS= read -r sha; do
+      [ -n "$sha" ] || continue
+      printf '      ✗ %s %s\n' "${sha:0:7}" \
+        "$("$GIT" -C "$REPO_ROOT" log -1 --format=%s "$sha" 2>/dev/null || true)" >&2
+    done
+    if [ "$N_LOST" -gt 10 ]; then
+      printf '      … і ще %s\n' "$((N_LOST - 10))" >&2
+    fi
+    printf 'Далі: запуш повну гілку (git push --force-with-lease origin %s) і повтори scripts/merge-pr.sh %s;\n' \
+      "$HEAD_REF" "$PR_NUMBER" >&2
+    printf '      якщо гілку насправді ребазнули в іншому клоні з розвʼязанням конфліктів — не пушити: спершу звір вміст (git diff %s %s).\n' \
+      "$HEAD_SHORT" "$LOCAL_SHORT" >&2
+    exit 1
+  fi
 fi
 
 # --- 4) Чеки ----------------------------------------------------------------

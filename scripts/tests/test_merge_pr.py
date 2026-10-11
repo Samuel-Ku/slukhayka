@@ -100,6 +100,18 @@ done
 exec git "$@"
 '''
 
+# Підставний git, у якого не працює саме порівняння патчів: тоді «патчів, яких
+# немає у вершині, не видно» — це невідомість, а не дозвіл зливати.
+FAKE_BROKEN_GIT = '''#!/usr/bin/env bash
+set -u
+for argument in "$@"; do
+  case "$argument" in
+    --cherry-mark*) printf 'fatal: unable to read tree\\n' >&2; exit 128 ;;
+  esac
+done
+exec git "$@"
+'''
+
 FAKE_GH = '''#!/usr/bin/env bash
 # Підставний gh: віддає фікстури з FAKE_GH_DIR, пише кожен виклик у FAKE_GH_LOG.
 set -u
@@ -775,6 +787,58 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(
             ["pr merge 1239 --squash --match-head-commit %s" % head], self.merge_calls())
+
+    def test_warns_but_merges_when_the_local_branch_was_rebased_elsewhere(self):
+        """Історії розійшлися, але кожен патч гілки вже у вершині.
+
+        Гілку перебазували й запушили з ІНШОГО клона — місцевий ref лишається
+        старим. Відмова тут була б хибною, а її порада (force-push) повернула б
+        доребазову історію поверх доребазованої — тобто знищила б рецензоване.
+        """
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        first = self.commit("scripts/probe.mjs", "перша\n", "feat: перший коміт")
+        second = self.commit("scripts/probe.mjs", "друга\n", "fix: другий коміт")
+        # Вершина — ті самі патчі, накладені на main, який відтоді зрушив.
+        self.git("checkout", "-q", "-b", "pushed", "main")
+        self.commit("README.md", "main рухається\n", "chore: main рухається")
+        self.git("cherry-pick", first)
+        self.git("cherry-pick", second)
+        head = self.git_out("rev-parse", "HEAD")
+        self.assertNotEqual(head, self.git_out("rev-parse", PR_BRANCH))
+
+        result = self.gate(pr=pr_payload(number=1239, head=head, head_ref=PR_BRANCH))
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("розійшлися", result.stderr)
+        self.assertIn("ребаз із іншого клона", result.stderr)
+        self.assertIn("git fetch origin +refs/heads/%s:refs/heads/%s" % (PR_BRANCH, PR_BRANCH),
+                      result.stderr)
+        self.assertNotIn("запуш повну гілку", result.stderr)
+        self.assertEqual(
+            ["pr merge 1239 --squash --match-head-commit %s" % head], self.merge_calls())
+
+    def test_fails_closed_when_the_patch_comparison_fails(self):
+        """Порівняння патчів не відбулося — код 2, не «обрізання не видно».
+
+        Порожній список `--cherry-mark` від невдалого виклику не сміє читатися
+        як «усі патчі у вершині»: це рівно та сама невідомість, що й ревізія
+        вершини, якої немає в копії.
+        """
+        broken = self.root / "git"
+        broken.write_text(FAKE_BROKEN_GIT, encoding="utf-8")
+        broken.chmod(broken.stat().st_mode | stat.S_IXUSR)
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        first = self.commit("scripts/probe.mjs", "перша\n", "feat: перший коміт")
+        self.commit("scripts/probe.mjs", "друга\n", "fix: другий коміт")
+        truncated = self.pick_only(first)
+
+        result = self.gate(
+            pr=pr_payload(number=1239, head=truncated, head_ref=PR_BRANCH),
+            env_extra={"MERGE_PR_GIT": str(broken)})
+
+        self.assertEqual(2, result.returncode, result.stdout)
+        self.assertIn("не вдалося визначити, які коміти", result.stderr)
+        self.assertEqual([], self.merge_calls())
 
     def test_warns_and_merges_when_the_local_branch_is_not_here(self):
         """Межа названа: чужого клона й форка гейт не бачить — це WARN."""

@@ -56,7 +56,8 @@ a local run is for feedback, not for proof of the whole suite.
 
 - `scripts/test-changed.sh` is the default entry point. A path no partition
   claims (among them `app/src/main/res/values*/strings.xml`) falls back to the
-  full suite; run it and say so.
+  full suite; run it and say so. `web/**` is the one exception: it maps to the
+  web check (`npm ci`, `tsc --noEmit`, `vitest run`), which needs no JDK.
 - Run the full suite when the task asks for it, and before a release tag.
 - `./gradlew :app:lintDebug` is the static check: Android Lint against the
   checked-in `app/lint-baseline.xml`, so a new issue outside the baseline fails.

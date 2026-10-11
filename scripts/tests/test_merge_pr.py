@@ -632,6 +632,24 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(
             ["pr merge 1239 --squash --match-head-commit %s" % tip], self.merge_calls())
 
+    def test_merges_when_the_local_branch_is_behind_the_head(self):
+        """Відстала копія — не обрізання: перевірка вимагає входження, не рівності.
+
+        Гілку могли доребазити чи доповнити з іншого клона: локальна копія тоді
+        старіша за вершину PR, і мердж зупиняти нічим.
+        """
+        self.git("checkout", "-q", "-b", PR_BRANCH)
+        behind = self.commit("scripts/probe.mjs", "перша версія\n", "feat: перший коміт")
+        self.git("checkout", "-q", "-b", "pushed")
+        head = self.commit("scripts/probe.mjs", "друга версія\n", "fix: другий коміт")
+
+        result = self.gate(pr=pr_payload(number=1239, head=head, head_ref=PR_BRANCH))
+
+        self.assertEqual(behind, self.git_out("rev-parse", PR_BRANCH))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            ["pr merge 1239 --squash --match-head-commit %s" % head], self.merge_calls())
+
     def test_warns_and_merges_when_the_local_branch_is_not_here(self):
         """Межа названа: чужого клона й форка гейт не бачить — це WARN."""
         self.git("checkout", "-q", "-b", PR_BRANCH)

@@ -96,6 +96,16 @@ means only that the class ran green under the mutation, so which mutation to
 write stays the author's judgement — the script automates the bookkeeping, not
 the thinking.
 
+One exception, and it is a gate rather than a record: the empty shape of a `case`
+decision (`"" | "detached HEAD"` — `#1254`, where a test pinned the literal
+instead of the condition). `scripts/empty_shape_mutants.py` writes that one
+mutation itself, runs the `scripts/tests` modules that name the script, and
+refuses when the witness suite stays green — i.e. when no test produces the empty
+shape at all. It runs inside the `script-tests` job, has no switch to turn it off,
+and covers only `case` arms: a literal alternative such as `-h|--help` is not
+pinned by it. `python3 scripts/empty_shape_mutants.py --list` names the shapes it
+would mutate.
+
 ### Before a merge
 
 1. `../gt scripts/test-changed.sh` — the real run over the changed paths.

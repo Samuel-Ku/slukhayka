@@ -157,6 +157,11 @@ typecheck, recommendation eval, the release/migration/base guards, and Android
 Lint. `gh pr checks <pr>` is the status; `gh pr checks <pr> | awk -F'\t' '$2=="fail"'`
 names the losers.
 
+Merging is not that loop: `scripts/merge-pr.sh <pr>` is the gate. It re-reads the
+checks and refuses without a fresh `review:pass` verdict on the PR — who sets
+that label, and when, is `docs/agents/work-coordination.md`. `--dry-run` prints
+the verdict without merging.
+
 The instrumented leg (`Accessibility journey (API 35)`) boots an emulator and
 can fail before a single test runs. Its artifact `accessibility-api35-results`
 carries the per-class logs — read those before suspecting the diff.

@@ -38,6 +38,12 @@ Use the five canonical triage labels with their default names. See
 This is a single-context repository with root `CONTEXT.md` and `docs/adr/`.
 See `docs/agents/domain.md`.
 
+## The merge gate
+
+`scripts/merge-pr.sh` — green checks and a fresh `review:pass`, or no merge
+(squash only, never deletes the branch); call it instead of `gh pr merge`. See
+`docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
+
 ## Testing and verification
 
 The suite runs as **partitions**, one Gradle task each: `:app:testPureJvm`,
@@ -65,6 +71,12 @@ suite.
 - Run the full suite when the task asks for it, and before a release tag.
 - `./gradlew :app:lintDebug` is the static check: Android Lint against the
   checked-in `app/lint-baseline.xml`, so a new issue outside the baseline fails.
+- `scripts/mutate.sh` is the tool for the mutation check `CONTRIBUTING.md`
+  requires of new logic: write a patch that breaks it and see whether its test
+  goes red. `--class` reaches JVM test sources under `app/src/test/java`;
+  nothing invents mutations or finds survivors, so which mutation to write is
+  the author's judgement. The recipe and its three honest limits are in
+  `docs/agents/local-environment.md` ("Mutations").
 - Before a release tag, run `scripts/pre-release.sh` — the same gate CI runs on
   `release/**` (dependency-PR report + live YouTube contract canary). See
   `docs/runbooks/component-updates.md`.

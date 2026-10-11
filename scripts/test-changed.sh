@@ -72,6 +72,28 @@ for partition, classes in payload["partitions"].items():
     print(partition + "\t" + " ".join(classes))
 ' "$selection" > "$scratch/selection"
 
+python3 -c '
+import json, sys
+for check in json.loads(sys.argv[1]).get("checks", []):
+    print(check)
+' "$selection" > "$scratch/checks"
+
+# A path the selector maps to a named check instead of a partition. Only the
+# web tree has one today: it needs no JDK, so the full Android matrix would be
+# the wrong answer for it. Steps mirror the `web` job in
+# .github/workflows/ci.yml.
+while IFS= read -r check; do
+  case "$check" in
+    web)
+      (cd "$repo_root/web" && npm ci && npx tsc --noEmit && npx vitest run) || exit $?
+      ;;
+    *)
+      printf '%s\n' "Unknown verification check: $check" >&2
+      exit 2
+      ;;
+  esac
+done < "$scratch/checks"
+
 while IFS="$(printf '\t')" read -r partition classes; do
   case "$partition" in
     pure-jvm) task=:app:testPureJvm ;;

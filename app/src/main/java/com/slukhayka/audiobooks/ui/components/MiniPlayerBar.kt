@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.player.PlayerState
@@ -45,6 +46,32 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * about, so the gesture answers intent rather than distance.
  */
 private const val MiniPlayerDismissWidthFraction = 0.35f
+
+/**
+ * #1205 — how wide the leading column must be to hold the mini-player under the
+ * rail.
+ *
+ * 360 dp is not a new number: it is the narrow phone this bar's own snapshot
+ * test names as the floor its control row survives (`MiniPlayerBarSnapshotTest`
+ * — «360 dp is the narrow phone the control row has to survive»), and it keeps
+ * the 64 dp the title box is asserted to hold there. Of the bar's width, 260 dp
+ * is fixed chrome (48 dp cover + 24 dp outer and inner horizontal padding +
+ * 20 dp spacers + three 48 dp targets, ADR-0044); the rest is the title. A
+ * column narrower than this would not «fit» the bar, it would clip the title
+ * out of it — the one thing the owner's decision refuses to do.
+ */
+val MiniPlayerColumnWidth: Dp = 360.dp
+
+/**
+ * #1205 — the mini-player's ONE gate: does this state give the bar anything to
+ * draw?
+ *
+ * `MiniPlayerBar` returns early without a current book, and the composition root
+ * has to ask the SAME question BEFORE it widens the leading column for the bar —
+ * a column widened for a bar that draws nothing is a hole in the navigation
+ * column. Both callers ask here, so the two answers cannot drift apart.
+ */
+fun miniPlayerHasBook(playerState: PlayerState): Boolean = playerState.currentBook != null
 
 @Composable
 fun MiniPlayerBar(
@@ -65,7 +92,10 @@ fun MiniPlayerBar(
     onPreviousClick: () -> Unit = {},
     viewedBookId: String? = null
 ) {
-    val book = playerState.currentBook ?: return
+    // The one gate (#1205), asked in the same words by the composition root
+    // before it widens the leading column for this bar.
+    if (!miniPlayerHasBook(playerState)) return
+    val book = checkNotNull(playerState.currentBook)
     val chapterTitle = if (
         playerState.chapters.isNotEmpty() &&
         playerState.currentChapterIndex in playerState.chapters.indices

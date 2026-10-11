@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -94,6 +93,7 @@ import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -624,47 +624,38 @@ fun LibraryScreen(
                             body = stringResource(R.string.lib_no_results_body)
                         )
 
-                        else -> LazyVerticalGrid(
-                            columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
-                            state = libraryGridState,
-                            // #962 — the grid takes what is LEFT of the column
-                            // rather than claiming everything: `fillMaxSize`
-                            // inside a Column is measured against the whole
-                            // window, so it both over-reported its height and
-                            // pushed the rows it did lay out past the bottom
-                            // edge. `weight(1f)` is the honest ask — "the rest
-                            // of the screen" — and it is what makes the list
-                            // scrollable in a 411 dp landscape window.
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .testTag("library_grid"),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            libraryGridContent(
-                                entries = gridEntries,
-                                // #885 — must match the shape `libraryGridEntries`
-                                // built above (always the dense rows on «Книги»),
-                                // otherwise the renderer falls back to the wall of
-                                // cards and none of the row work shows up.
-                                browsing = false,
-                                gridMode = gridMode,
-                                availability = libraryAvailability,
-                                downloadCounts = bookDownloadCounts,
-                                restoreFocusBookId = restoreFocusBookId,
-                                bookReturnFocusRequester = bookReturnFocusRequester,
-                                awaitingSubmissionBookIds = awaitingSubmissionBookIds,
-                                submissionBadges = submissionBadges,
-                                watchingSubmissionBookIds = watchingSubmissionBookIds,
-                                deferredPublicationBookIds = deferredPublicationBookIds,
-                                abandonedBookIds = abandonedBookIds,
-                                onBookClick = onBookClick,
-                                onPlayClick = onPlayClick,
-                                onRecheck = { viewModel.recheckAvailability(it) }
-                            )
-                        }
+                        // #1206 — the book area is `LibraryBookGrid`, the same
+                        // composable the snapshot test drives: the screen and
+                        // the harness must not be able to disagree about the
+                        // shape of the book area.
+                        else -> LibraryBookGrid(
+                            entries = gridEntries,
+                            // #885 — must match the shape `libraryGridEntries`
+                            // built above (always the dense rows on «Книги»),
+                            // otherwise the renderer falls back to the wall of
+                            // cards and none of the row work shows up.
+                            browsing = false,
+                            gridMode = gridMode,
+                            availability = libraryAvailability,
+                            downloadCounts = bookDownloadCounts,
+                            restoreFocusBookId = restoreFocusBookId,
+                            bookReturnFocusRequester = bookReturnFocusRequester,
+                            awaitingSubmissionBookIds = awaitingSubmissionBookIds,
+                            submissionBadges = submissionBadges,
+                            watchingSubmissionBookIds = watchingSubmissionBookIds,
+                            deferredPublicationBookIds = deferredPublicationBookIds,
+                            abandonedBookIds = abandonedBookIds,
+                            onBookClick = onBookClick,
+                            onPlayClick = onPlayClick,
+                            onRecheck = { viewModel.recheckAvailability(it) },
+                            gridState = libraryGridState,
+                            // #962 — `weight(1f)` is the honest ask, "the rest
+                            // of the screen": `fillMaxSize` inside a Column is
+                            // measured against the whole window, so it both
+                            // over-reported its height and pushed the rows it
+                            // did lay out past the bottom edge.
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
 
@@ -1586,6 +1577,36 @@ internal fun LibraryContinueCard(
         }
     }
 }
+
+/**
+ * #1205 (review S1) — how many tile columns the Медіатека's grid may draw.
+ *
+ * `Adaptive`, not `Fixed(2)`: the width the book area gets is not the window's,
+ * it is whatever container the screen was handed — and since #1205 a wide window
+ * can hand the Library's list pane as little as 192 dp. The mini-player's
+ * leading column is 360 dp WIDE and the rail sits INSIDE it, not beside it, so
+ * an 840 dp window gives the content 840 − 360 = 480 dp and the list pane
+ * 0.4 × 480 = 192 dp.
+ *
+ * Two FIXED columns in that pane gave each tile ≈74 dp — under the canonical
+ * [PosterWidth] poster (ADR-0033) and a column of truncated titles, which is the
+ * defect the #900 audit warned about. An adaptive column keeps every tile at
+ * least [PosterWidth] wide and draws fewer of them instead: at 192 dp it is ONE
+ * tile of ≈160 dp rather than two squeezed 74 dp ones. On a roomy pane the tile
+ * count follows the room the same way; on a phone window (411 dp, ≈184 dp per
+ * tile) the two columns are byte-identical to the fixed pair this replaces.
+ *
+ * The listener's grid/list CHOICE is untouched — only the count follows the
+ * width. `GridCells.Adaptive(minSize)` guarantees cells of at least `minSize`
+ * for every container of at least that width, and the narrowest pane the app can
+ * produce is 192 dp, so the tiles can no longer be squeezed below the poster.
+ * That is also why there is no separate `widthIn(min = PosterWidth)` floor
+ * (review of #1217): `Adaptive` already IS the floor for every reachable width,
+ * and in the one container narrower than a poster, where such a floor would
+ * fire, it would clip the tile where fitting it is the point.
+ */
+internal fun libraryGridColumns(gridMode: Boolean): GridCells =
+    if (gridMode) GridCells.Adaptive(minSize = PosterWidth) else GridCells.Fixed(1)
 
 /**
  * The stateless renderer of the Медіатека grid (v1.5 review).

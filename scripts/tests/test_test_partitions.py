@@ -47,6 +47,18 @@ class TestPartitionsCliTest(unittest.TestCase):
             "import org.robolectric.RobolectricTestRunner\nimport com.github.takahirom.roborazzi.captureRoboImage",
         )
 
+    def seed_ui_tree(self) -> None:
+        """The shape the #1219 report describes: a component whose package has
+        tests, a subpackage of it that has tests, the ancestor `ui` package
+        (where `WidePlayerPaneTest` lives), the module root, and a sibling
+        package the change must not select."""
+        self.write_test("com.slukhayka.audiobooks.ui.components", "MetadataChipTest")
+        self.write_test("com.slukhayka.audiobooks.ui.components.chip", "ChipContrastTest")
+        self.write_test("com.slukhayka.audiobooks.ui", "WidePlayerPaneTest")
+        self.write_test("com.slukhayka.audiobooks.ui", "AdaptiveNavigationLayoutTest")
+        self.write_test("com.slukhayka.audiobooks", "RootContractTest")
+        self.write_test("com.slukhayka.audiobooks.player", "SmartRewindTest")
+
     def test_validate_reports_an_exhaustive_disjoint_partition(self):
         self.seed_three_partitions()
 
@@ -103,6 +115,72 @@ class TestPartitionsCliTest(unittest.TestCase):
                 "reason": "matched changed logical modules",
             },
             json.loads(result.stdout),
+        )
+
+    def test_changed_production_package_selects_the_tests_of_every_ancestor_package(self):
+        self.seed_ui_tree()
+
+        result = self.run_cli(
+            "select",
+            "--changed-file",
+            "app/src/main/java/com/slukhayka/audiobooks/ui/components/PlayerPane.kt",
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["fullSuite"])
+        # The ancestors above `ui.components` contribute their own tests —
+        # `ui` is where `WidePlayerPaneTest` and `AdaptiveNavigationLayoutTest`
+        # live — while the changed package keeps its whole subtree and the
+        # sibling `player` package stays out.
+        self.assertEqual(
+            {
+                "pure-jvm": [
+                    "com.slukhayka.audiobooks.RootContractTest",
+                    "com.slukhayka.audiobooks.ui.AdaptiveNavigationLayoutTest",
+                    "com.slukhayka.audiobooks.ui.WidePlayerPaneTest",
+                    "com.slukhayka.audiobooks.ui.components.MetadataChipTest",
+                    "com.slukhayka.audiobooks.ui.components.chip.ChipContrastTest",
+                ]
+            },
+            payload["partitions"],
+        )
+
+    def test_changed_web_path_selects_the_web_check_not_the_full_suite(self):
+        self.seed_three_partitions()
+
+        for changed_file in (
+            "web/src/ui/adaptiveLayout.ts",
+            "web/package-lock.json",
+        ):
+            with self.subTest(changed_file=changed_file):
+                result = self.run_cli("select", "--changed-file", changed_file)
+
+                payload = json.loads(result.stdout)
+                self.assertFalse(payload["fullSuite"])
+                self.assertEqual({}, payload["partitions"])
+                self.assertEqual(["web"], payload["checks"])
+                # The payload names the check's three steps, so a caller
+                # routing it never has to guess that web costs an npm install.
+                for step in ("npm ci", "tsc --noEmit", "vitest run"):
+                    self.assertIn(step, payload["reason"])
+
+    def test_changed_web_and_production_paths_select_both_surfaces(self):
+        self.seed_three_partitions()
+
+        result = self.run_cli(
+            "select",
+            "--changed-file",
+            "web/src/ui/adaptiveLayout.ts",
+            "--changed-file",
+            "app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt",
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["fullSuite"])
+        self.assertEqual(["web"], payload["checks"])
+        self.assertEqual(
+            {"pure-jvm": ["com.slukhayka.audiobooks.player.SmartRewindTest"]},
+            payload["partitions"],
         )
 
     def test_changed_test_selects_that_exact_class(self):

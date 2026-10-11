@@ -24,6 +24,9 @@ keystore.properties
 # Local agent tooling state — never part of the public repo.
 .headroom/
 .serena/
+# #1221: the mutation-run trail is machine-local too — scripts/mutate.sh refuses
+# to run on a dirty tree, so its own record must not make the tree dirty.
+/.mutations/
 # spec-26 T5: the Firebase config with the project keys is local-only — the
 # shared Firestore layer is absent without it and the app works as before.
 google-services.json

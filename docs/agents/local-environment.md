@@ -51,6 +51,62 @@ changes, no test results. `pgrep -af 'gradlew --offline'` says whose run holds
 the slot, and the waiting lane's own command line names the worktree it belongs
 to.
 
+## Mutations
+
+A mutation run leaves the same artifacts as a real one: the same
+`app/build/test-results/testDebugUnitTest/*.xml`, overwritten in place. An XML
+on disk therefore cannot say whether it came from a mutation or from a run of
+HEAD — a review once spent a whole finding on that ambiguity. `scripts/mutate.sh`
+records the difference.
+
+```sh
+../gt scripts/mutate.sh --patch .mutations/patches/<name>.patch \
+    --class com.slukhayka.audiobooks.player.SmartRewindTest
+```
+
+It refuses a dirty worktree (a mutation must not mix with working edits), applies
+the patch, runs that one class on the partition `scripts/test_partitions.py`
+gives it, rolls the patch back, and appends one JSON record to
+`.mutations/runs.jsonl`. The rollback runs from a trap, so a failing or
+interrupted run rolls back too, and the sha256 of every touched file is printed
+before and after. `.mutations/` is git-ignored — otherwise the tool's own record
+would make the tree dirty for the next run. stderr is the proof, stdout is the
+record. Exit codes: `0` caught · `1` survived · `2` refused · `3` no verdict ·
+`128+N` interrupted.
+
+Ask which the last run was instead of guessing:
+
+```sh
+scripts/mutate.sh status --class com.slukhayka.audiobooks.player.SmartRewindTest
+```
+
+One JSON object, where `verdict` is `mutational` (the XML on disk is
+byte-identical to a recorded mutation artifact), `genuine` (it differs from every
+recorded one), `no-artifact` (nothing is on disk) or `unknown` (this worktree has
+no record log at all). `summary` says the same in a sentence, `artifactRunId`
+names the run that wrote the XML, and `headMatches` says whether HEAD still is
+the commit the record was made at. Verdicts are decided in that order: with
+neither an XML nor a log, the answer is `no-artifact`, not `unknown`.
+
+Three honest limits. The records cover mutations that ran through this script — a
+hand-edited tree is invisible to it. `--class` reaches JVM test sources under
+`app/src/test/java`; a mutation whose only witness is an instrumented test cannot
+be recorded here. And nothing invents mutations or finds survivors: `survived`
+means only that the class ran green under the mutation, so which mutation to
+write stays the author's judgement — the script automates the bookkeeping, not
+the thinking.
+
+### Before a merge
+
+1. `../gt scripts/test-changed.sh` — the real run over the changed paths.
+2. One patch per mutation under `.mutations/patches/`, one call each, through the
+   slot: `../gt scripts/mutate.sh --patch … --class …`. A `survived` verdict is a
+   finding: the class does not pin the behaviour you changed.
+3. `scripts/mutate.sh status --class <FQCN>` for every class whose XML the review
+   will read, so the next reader does not have to work out whether the artifact
+   on disk is a mutation's. Rollback restores sources; it does not delete the
+   XML, and `status` is what keeps that leftover from reading as a run of HEAD.
+
 ## Partitions
 
 `AGENTS.md` names them. The wrapper forwards its arguments, so
@@ -76,6 +132,84 @@ tests and 13 such failures with ~400 MB free and 11 GB of swap, then ran the
 same commit clean. Free memory and re-run before you believe it, and before
 you go looking for a regression that is not there.
 
+## Web diffs
+
+`web/**` is the one tree that never needs the JDK. For it,
+`scripts/test-changed.sh` runs exactly the three steps of the `web` job in
+`.github/workflows/ci.yml`, in `web/`: `npm ci`, `npx tsc --noEmit`,
+`npx vitest run`. The selector names the steps
+(`scripts/test_partitions.py`, `WEB_CHECK_STEPS`) and
+`scripts/tests/test_test_wrappers.py` pins that the wrapper executes those
+three and stops at the first failure.
+
+Run it like any other diff — no wrapper, because no Gradle call is involved:
+
+```sh
+scripts/test-changed.sh --changed-file web/src/ui/adaptiveLayout.ts
+```
+
+A web-only diff runs no Gradle at all, so there is nothing to serialise and the
+slot never enters the picture: the slot is the `flock` inside `.worktrees/gt`,
+and neither `scripts/test-changed.sh` nor `scripts/test-all.sh` takes it — the
+wrapper is what takes it (see "The build slot" above). A diff that touches
+`web/` and Android paths together does both, and it needs the wrapper exactly
+like any other Gradle diff: the web steps run first, and a red one stops the run
+before the first Gradle task.
+
+The check needs a Node toolchain, and `npm ci` installs what
+`web/package-lock.json` pins (it refuses a lockfile that disagrees with
+`package.json`). It needs nothing else: no `local.properties`, no JDK, no
+emulator.
+
+## Room native SDK cohorts
+
+`room-native-sdk35`, `room-native-sdk36` and `room-native-default` are not a
+second opinion about Room — they are one JVM per Android SDK, because the
+native SQLite Room loads through Robolectric belongs to the SDK that runtime
+came from. Two SDKs in one worker is a runtime error, recorded when the 1.3.9
+branches were integrated
+(`docs/audits/2026-09-05-release-integration.md:11`).
+
+The selector places a class by two facts (`scripts/test_partitions.py`): a
+Robolectric test that also names native Room (`androidx.room`,
+`androidx.sqlite`, `Room.inMemoryDatabaseBuilder`,
+`FrameworkSQLiteOpenHelperFactory`, `MigrationTestHelper`, `AppDatabase.`) is a
+native one, and its `@Config(sdk = [...])` picks the cohort — 35, 36, or none,
+where none means Robolectric's default and lands in `room-native-default`. Any
+other SDK is rejected at classification time. Today that is 19 classes in
+SDK 35, 97 in SDK 36, 2 in the default cohort, and 124 Robolectric classes that
+load no native Room at all.
+
+Each cohort runs as its own Gradle task with a fresh worker per class
+(`app/build.gradle.kts`, `forkEvery = 1`, four workers at a time), and CI keeps
+them apart on purpose: `jvm-partitions` gives each cohort its own leg, and the
+`Kover aggregate gate` then requires two worker probes in two distinct JVMs
+with two distinct `sdk=` values (`NativeRoomWorkerIdentity`, the "Require both
+native worker probes" step in `.github/workflows/ci.yml`). A native SDK 35 run
+that quietly used the SDK 36 runtime would fail that step, not just a test.
+
+Locally these are the heaviest legs in the matrix — four workers at 2 GB each,
+on the machine whose OOM note is above — and `AGENTS.md` holds here as
+everywhere else: run the partitions a diff touched, through the wrapper, and
+name them. What the record adds is how they behave. A full local pass with the
+standard JVM config has not finished: on 2026-09-05 the SDK 36 cohort stopped on
+a worker that answered neither jstack nor anything else and was killed (exit
+137, 6m27s), Robolectric-only and Compose hit the same worker hang, and
+Robolectric's temp-dir cleanup failed with `DirectoryNotEmptyException`
+(`docs/audits/2026-09-05-545-overview-covers.md:43`); two other runs reached
+the two-minute-per-task timeout before SDK 36 finished, and the groups after it
+never started
+(`docs/audits/2026-09-05-546-book-detail.md:35`,
+`docs/audits/2026-09-05-547-settings.md:41`). The cohorts' tests themselves did
+pass in pieces once the JVM was tamed — `-XX:TieredStopAtLevel=1`, `-Xint` for
+the last Room scenarios — but that run calls itself a check of the whole set in
+parts, not a continuous green run with the standard JVM configuration
+(`docs/audits/2026-09-05-551-installed-candidate.md:70`). So the local answer
+for a native cohort is the same as for any other partition, and when the SDK 36
+leg is in the diff, "the full set was not run locally" is the honest sentence
+for a PR body — with CI as the exhaustive gate, not a substitute for the run
+your diff asked for.
+
 ## The lint baseline
 
 `app/lint-baseline.xml` is checked in, so `:app:lintDebug` fails on any new
@@ -83,6 +217,129 @@ issue. Regenerate it with `updateLintBaseline` **from the repository root**:
 run inside a worktree it writes `.worktrees/<lane>/…` into the entries, which
 then match nothing once that worktree is gone. The Android Lint job refuses a
 baseline carrying such a path.
+
+A baseline that only ever grows is the same silent debt one layer up, so the job
+also counts entries — `MissingTranslation` on its own line, every other rule on
+its own — and fails on growth against the PR's base ref:
+
+```sh
+python3 scripts/lint_baseline.py check-growth origin/main HEAD        # committed
+python3 scripts/lint_baseline.py check-growth origin/main --worktree  # uncommitted
+```
+
+It compares counts per rule, not the diff, so removing entries is always fine
+and a swap (−5 `UnusedResources`, +5 `MissingTranslation`) still fails on the
+translation growth it would otherwise hide. A deliberate increase — a new uk
+string with no translation yet — is the owner's call, expressed as the
+repository variable `LINT_BASELINE_GROWTH_ALLOWANCE=MissingTranslation=+3@1222`.
+The `@<issue>` part is required: the variable lives outside git and has no
+expiry while the comparison base moves, so a forgotten grant would quietly pass
+up to +N in every later PR. Unset means zero tolerance; while it is set the
+guard prints the active allowance on **every** run — log and step summary, even
+when nothing grew (`0 із 3 — НЕ витрачено`) — and it is removed with the issue it
+names.
+
+Hand-writing the entry (with `errorLine1/2`, the line and the column) is what
+let the list grow unnoticed, so the report writes it instead:
+
+```sh
+.worktrees/gt ./gradlew :app:lintDebug   # fails on the new issue, writes the report
+python3 scripts/lint_baseline.py add     # inserts it where lint keeps such entries
+```
+
+`add` reads `app/build/reports/lint-results-debug.xml`, keeps only what
+`:app:lintDebug` fails on (`--severity` widens that), drops the `LintBaseline*`
+meta entries and anything outside the module, and splices each entry into the
+block of its rule at the position lint's own comparator gives it (basename,
+line, message, path, column) — which is why `values-pl/strings.xml:6` sits
+before `values-en/strings.xml:10`. `--dry-run` prints the text first (and refuses
+a machine path exactly like a real run). `verify` proves every entry already in
+the file still renders byte-for-byte: 1304 of the 1313 do, and 9 hand-written
+`MissingTranslation` entries render semantically instead (they escape `>` as
+`&gt;`, which lint does not). It also prints the order metrics the generator's
+insertion rule rests on: how many entries sit off their canonical position, and
+how many keep a stale line number.
+
+## The web layout probe
+
+The CSS half of the web layout — is the column really 640 px at 599, is the
+list really three 320 px tracks at 1280 — is not a question `tsc` or `vitest`
+can answer: jsdom runs no layout engine, so the web job in CI cannot settle it
+either. `scripts/web-layout-probe.mjs` builds `web/`, serves the bundle with
+`vite preview`, measures the rendered page through CDP and prints the numbers:
+
+```sh
+node scripts/web-layout-probe.mjs                      # the working tree
+node scripts/web-layout-probe.mjs --base origin/main   # base against head
+```
+
+The comparison mode exits 1 when a measured field differs, and only then: a run
+that could not start is 2 and an error inside the probe is 3, so a wrapper
+cannot read "the probe failed" as "the layout moved". The widths are the ones
+the repository already names — 411 (the phone Android's tests pin), 599/600
+(the two sides of the one line in `ui/adaptiveLayout.ts`), 840 (Android's
+`PlayerPaneMinWidthDp`), 2560 — plus 1280, which the probe chose: the common
+desktop width, and the one #1218's evidence used.
+
+No dependency is added: the browser is this machine's Chrome/Chromium and the
+CDP client is Node's built-in `WebSocket`. The probe stops its preview and
+browser, removes its temporary profile, and removes `web/dist` if the run
+created it — including a `dist` a failed build left behind. A catalog list
+usually has no data under `vite preview` (the dev API proxy is not a preview
+proxy), so a `fixture` in the table's `source` column means a synthetic list
+was measured inside the app's own `.surface` — the shipped stylesheet still
+drew it.
+
+## Wide windows on a phone
+
+Not every width question needs a tablet: a density override makes the window
+report a different number of dp, and the layout follows. Two lines are in play,
+and the code owns both numbers
+(`app/src/main/java/com/slukhayka/audiobooks/ui/adaptive/WindowLayout.kt`):
+`ExpandedMinWidthDp` — 600 dp today — for the rail and the wide panes, and
+`PlayerPaneMinWidthDp` — 840 dp today — for the player pane, the second line
+#1205 drew. `scripts/wide-window.sh <dp>` does the whole recipe:
+
+```sh
+scripts/wide-window.sh 840
+```
+
+It reads the resolution from the connected device (`adb shell wm size`), takes
+the narrow side — the width a portrait window gets, and a landscape window is
+only wider — and derives
+
+```text
+density = 160 × width_px / target_dp
+```
+
+**floored**. That direction matters: a density rounded up is a narrower window
+than the one asked for, which is how a run ends up claiming a line it never
+crossed. The script applies the density, reads it back from the device, prints
+the width in dp that follows from those two numbers, and reminds you about
+`wm density reset` (and that the running app keeps the old layout until it
+restarts).
+
+The magic number this replaces is `wm density 280`: on the OnePlus 8 Pro
+(1440 px) that is 822.9 dp — the 2026-09-25 run recorded it as 823 dp — which
+crosses 600 dp and **not** 840 dp
+(`docs/phone-test/2026-09-25-phone-deltas-adr-0017.md` used it for the 600 dp
+run). The arithmetic was re-derived three times — the lane, the reviewer and the
+PR body — which is what the script is for.
+
+With no device attached it exits non-zero and says so: it names
+`adb shell wm size` as the way to learn a resolution, and
+`scripts/wide-window.sh --density-for <width-px> <dp>`, which prints the
+density alone and needs no device. More than one device connected needs
+`--serial` — a density override applied to the wrong phone is a phone nobody
+meant to touch.
+
+The arithmetic is a pure function, `density_for(width_px, target_dp)`, and
+`scripts/tests/test_wide_window.py` pins it together with the device path
+driven by a stub `adb`; the `Script unit tests` job runs both on every PR. What
+that proves is the arithmetic and what the script prints — not the phone. No
+device was attached while the script was written, so its device path has run
+only against that stub, and a width nobody read off a real `wm size` is still a
+guess.
 
 ## Work claims
 
@@ -110,10 +367,22 @@ to `main`'s; a schema-changing migration declares its DDL inside
 
 ## CI
 
-Every PR runs the full matrix: the test partitions, Compose + Roborazzi, web
-typecheck, recommendation eval, the release/migration/base guards, and Android
-Lint. `gh pr checks <pr>` is the status; `gh pr checks <pr> | awk -F'\t' '$2=="fail"'`
-names the losers.
+Every PR runs the six JVM partition legs (pure JVM, the three native Room
+cohorts above, Robolectric-only, Compose + Roborazzi), the `Kover aggregate
+gate`, `Recommendation eval`, `Android Lint`, `Web typecheck and vitest`
+(`web`, the three steps above), `Script unit tests` (`python3 -m unittest
+discover -s scripts/tests -p "test_*.py"`, no JDK), the accessibility journey,
+and the lineage/migration/base-sync guards. `gh pr checks <pr>` is the status;
+`gh pr checks <pr> | awk -F'\t' '$2=="fail"'` names the losers.
+
+`web` and `script-tests` need no JDK and report their own checks; whether a red
+one blocks a merge is the repository's required-checks configuration, not the
+workflow file — both jobs say so in `ci.yml`.
+
+Merging is not that loop: `scripts/merge-pr.sh <pr>` is the gate. It re-reads the
+checks and refuses without a fresh `review:pass` verdict on the PR — who sets
+that label, and when, is `docs/agents/work-coordination.md`. `--dry-run` prints
+the verdict without merging.
 
 The instrumented leg (`Accessibility journey (API 35)`) boots an emulator and
 can fail before a single test runs. Its artifact `accessibility-api35-results`

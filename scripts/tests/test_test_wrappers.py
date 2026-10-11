@@ -176,5 +176,97 @@ class FullSuiteWrapperTest(unittest.TestCase):
         self.assertIn(":app:testComposeRoborazzi", invocations)
 
 
+class ChangedTestWrapperWebCheckTest(unittest.TestCase):
+    """`select` maps `web/**` to the web check instead of the full suite; this
+    pins what `test-changed.sh` then runs for it."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.log = self.root / "invocations.log"
+        self.java_home = self.root / "jdk-21"
+        self.java_home.joinpath("bin").mkdir(parents=True)
+        self.java = self.java_home / "bin/java"
+        self.java.write_text(
+            "#!/usr/bin/env bash\necho 'openjdk version \"21.0.8\"' >&2\n",
+            encoding="utf-8",
+        )
+        self.java.chmod(self.java.stat().st_mode | stat.S_IXUSR)
+        self.gradle = self.root / "gradlew"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def write_web_command(self, name: str, exit_status: int = 0) -> None:
+        target = self.bin / name
+        target.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s %s cwd=%s\\n' \"$(basename \"$0\")\" \"$*\" \"$PWD\" "
+            ">> \"$WRAPPER_TEST_LOG\"\n"
+            f"exit {exit_status}\n",
+            encoding="utf-8",
+        )
+        target.chmod(target.stat().st_mode | stat.S_IXUSR)
+
+    def write_gradle(self) -> None:
+        self.gradle.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf 'gradle %s\\n' \"$*\" >> \"$WRAPPER_TEST_LOG\"\n",
+            encoding="utf-8",
+        )
+        self.gradle.chmod(self.gradle.stat().st_mode | stat.S_IXUSR)
+
+    def run_changed(self, *arguments: str):
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "PATH": f"{self.bin}:/usr/bin:/bin",
+                "SLUKHAYKA_JAVA_HOME": str(self.java_home),
+                "SLUKHAYKA_GRADLEW": str(self.gradle),
+                "WRAPPER_TEST_LOG": str(self.log),
+            }
+        )
+        return subprocess.run(
+            ["bash", str(TEST_CHANGED), *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+
+    def test_web_path_runs_the_web_check_and_no_android_partition(self):
+        self.write_web_command("npm")
+        self.write_web_command("npx")
+        self.write_gradle()
+
+        result = self.run_changed("--changed-file", "web/src/ui/adaptiveLayout.ts")
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        web_root = REPO_ROOT / "web"
+        self.assertEqual(
+            [
+                f"npm ci cwd={web_root}",
+                f"npx tsc --noEmit cwd={web_root}",
+                f"npx vitest run cwd={web_root}",
+            ],
+            self.log.read_text(encoding="utf-8").splitlines(),
+        )
+
+    def test_failing_web_check_stops_before_the_next_step(self):
+        self.write_web_command("npm", exit_status=9)
+        self.write_web_command("npx")
+        self.write_gradle()
+
+        result = self.run_changed("--changed-file", "web/src/ui/adaptiveLayout.ts")
+
+        self.assertEqual(9, result.returncode)
+        self.assertEqual(
+            [f"npm ci cwd={REPO_ROOT / 'web'}"],
+            self.log.read_text(encoding="utf-8").splitlines(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

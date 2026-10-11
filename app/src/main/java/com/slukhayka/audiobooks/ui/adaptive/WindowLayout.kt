@@ -56,6 +56,79 @@ fun rememberWindowLayout(): WindowLayout =
     windowLayoutFor(LocalConfiguration.current.screenWidthDp)
 
 /**
+ * #1205 — the SECOND width line: from here the window has room for the player
+ * BESIDE the screen it was opened from, so the player stops being a modal that
+ * replaces everything.
+ *
+ * The owner's decision on issue #1205 (2026-10-10) puts that line at 840 dp and
+ * keeps the full-screen player on 600–839 dp — below it there is no room NEXT
+ * TO the page, and squeezing the player against the book page is worse than
+ * giving it the whole window. The arithmetic behind the number is the audit's
+ * own (`docs/audits/2026-10-10-900-large-screens-options.md` §2): at 840 dp the
+ * wide split ([com.slukhayka.audiobooks.ui.components.WideDetailPane], 0.4 list
+ * / 0.6 detail) leaves the right pane ≈456 dp once the 80 dp rail has taken its
+ * share — inside the widths the landscape player already proved (≈520 dp,
+ * `PlayerScreen.kt:656-690`).
+ *
+ * It is a width line among width lines, not a third layout class: everything
+ * below [ExpandedMinWidthDp] stays COMPACT, 600–839 dp stays EXPANDED without
+ * this pane, and only the width decides. There is deliberately NO height
+ * condition (owner's decision 3): a landscape phone keeps the rail and the
+ * panes it already has, as #962 measured on the device.
+ */
+const val PlayerPaneMinWidthDp: Int = 840
+
+/**
+ * #1205 — is this window wide enough to give the player its own column?
+ *
+ * Pure, like [windowLayoutFor], so 839 and 840 are a JVM test rather than
+ * something only a device can answer (`WindowLayoutTest`).
+ */
+fun hasRoomForPlayerPane(widthDp: Int): Boolean = widthDp >= PlayerPaneMinWidthDp
+
+/**
+ * #1205 — with the full player OPEN, does it take the right-hand pane (true) or
+ * the full-screen surface it has always been (false)?
+ *
+ * The player's own state is an input on purpose: a wide window with nothing open
+ * has no pane to draw, and asking only about the width would answer «pane» for a
+ * player that is not there.
+ */
+fun showsPlayerPane(widthDp: Int, playerOpen: Boolean): Boolean =
+    playerOpen && hasRoomForPlayerPane(widthDp)
+
+/**
+ * #1205 — does the mini-player live in the leading column, under the rail?
+ *
+ * The owner's decision 2 moves it there, and the line that answers «is there
+ * room» is the SAME [PlayerPaneMinWidthDp]: the column has to hold the bar
+ * itself (`MiniPlayerColumnWidth`), and
+ * at 600–839 dp taking that width would squeeze the very list the 600 dp line
+ * was drawn for. Below 840 dp — every phone, portrait or landscape — the bar
+ * keeps the Scaffold's `bottomBar`, exactly as it is today.
+ */
+fun showsLeadingMiniPlayer(widthDp: Int, miniPlayerVisible: Boolean): Boolean =
+    miniPlayerVisible && hasRoomForPlayerPane(widthDp)
+
+/**
+ * #1205 — the CURRENT window's answer for the full player, the third twin of
+ * [rememberWindowLayout] and [rememberShowsWideChrome].
+ *
+ * Reads the same [LocalConfiguration] (the Activity's own window, so a
+ * split-screen half or a folded foldable answers for itself) and follows a
+ * resize without a restart: a window dragged across 840 dp swaps the modal for
+ * the pane in place.
+ */
+@Composable
+fun rememberShowsPlayerPane(playerOpen: Boolean): Boolean =
+    LocalConfiguration.current.let { showsPlayerPane(it.screenWidthDp, playerOpen) }
+
+/** #1205 — the CURRENT window's answer for the mini-player's leading column. */
+@Composable
+fun rememberShowsLeadingMiniPlayer(miniPlayerVisible: Boolean): Boolean =
+    LocalConfiguration.current.let { showsLeadingMiniPlayer(it.screenWidthDp, miniPlayerVisible) }
+
+/**
  * #900 — should this root render its list with the opened item's page BESIDE
  * it, instead of the phone's one-screen-at-a-time push?
  *

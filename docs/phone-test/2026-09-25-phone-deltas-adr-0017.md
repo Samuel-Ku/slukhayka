@@ -26,8 +26,10 @@
 - Перед кожним кроком `adb logcat -c`; після — `adb logcat -d -s <tag>:* > <файл>`.
 - Шрифт: `adb shell settings get system font_scale` (запам'ятати значення),
   `adb shell settings put system font_scale 2.0`; у кінці повернути зчитане.
-- Широке вікно: `adb shell wm density 280` (дає ~822 dp завширшки);
-  у кінці — `adb shell wm density reset`.
+- Широке вікно: `scripts/wide-window.sh <dp>` — бере роздільність із `wm size`
+  під'єднаного пристрою, рахує щільність, друкує фактичні dp і нагадує
+  `wm density reset` (`docs/agents/local-environment.md`). Число `280` із цього
+  прогону дає ~822 dp: межу 600 dp перетинає, межу 840 dp (#1205) — ні.
 - Заповнений чекліст і є записом за ADR-0017 — окремий звіт не потрібен.
 
 ## v1.13 — канонічні рядки й 200 % шрифту (#950)

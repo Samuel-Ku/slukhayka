@@ -281,8 +281,8 @@ class MergePrTest(unittest.TestCase):
             capture_output=True, text=True, env=environment,
         )
 
-    def git_out(self, *args):
-        return self.git(*args).stdout.strip()
+    def git_out(self, *args, cwd=None):
+        return self.git(*args, cwd=cwd).stdout.strip()
 
     def make_repo(self):
         """Чиста копія з одним комітом у main — для тестів про локальний стан."""
@@ -292,13 +292,45 @@ class MergePrTest(unittest.TestCase):
         self.git("init", "-q", "-b", "main")
         return self.commit("README.md", "base\n", "chore: основа")
 
-    def commit(self, filename, content, message):
-        path = self.repo / filename
+    def commit(self, filename, content, message, cwd=None):
+        root = Path(cwd) if cwd is not None else self.repo
+        path = root / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", message)
-        return self.git_out("rev-parse", "HEAD")
+        self.git("add", "-A", cwd=root)
+        self.git("commit", "-q", "-m", message, cwd=root)
+        return self.git_out("rev-parse", "HEAD", cwd=root)
+
+    def stop_rebase(self, cwd=None, backend="merge", onto="main"):
+        """Ребаз, що спиняється на конфлікті, — саме він лишає маркер."""
+        arguments = ["rebase"] + (["--apply"] if backend == "apply" else []) + [onto]
+        return self.git(*arguments, cwd=cwd, check=False)
+
+    def conflict_on_both_sides(self, cwd, branch):
+        """Гілка (у cwd) і main правлять один файл — ребаз спиниться.
+
+        Гілка мусить бути видимою в тому каталозі, де її ребазують: у
+        лінкованому worktree це окрема робоча копія. Наприкінці cwd стоїть на
+        гілці — інакше ребаз пішов би з main і нічого б не спинив.
+        """
+        root = Path(cwd) if cwd is not None else self.repo
+        exists = self.git("rev-parse", "--verify", "--quiet", "refs/heads/%s" % branch,
+                          cwd=root, check=False)
+        if exists.returncode == 0:
+            self.git("checkout", "-q", branch, cwd=root)
+        else:
+            self.git("checkout", "-q", "-b", branch, cwd=root)
+        self.commit("conflict.txt", "branch\n", "feat: правка гілки", cwd=root)
+        self.git("checkout", "-q", "main", cwd=self.repo)
+        self.commit("conflict.txt", "main\n", "chore: правка main", cwd=self.repo)
+        self.git("checkout", "-q", branch, cwd=root)
+        return root
+
+    def linked_worktree(self, branch):
+        """Друга робоча копія того самого репозиторію — як w1224 поруч із гейтом."""
+        linked = self.root / "linked"
+        self.git("worktree", "add", "-q", "-b", branch, str(linked), "main")
+        return linked
 
     def run_script(self, *args, env_extra=None):
         """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
@@ -547,28 +579,18 @@ class MergePrTest(unittest.TestCase):
         self.assertNotIn("немає і в репозиторії", result.stderr)
 
     # --- локальний стан: незавершений ребаз ---------------------------------
-    def conflicted_rebase(self, backend):
-        """Гілка й main правлять один файл — ребаз спиняється на конфлікті."""
-        self.commit("conflict.txt", "base\n", "chore: спільний файл")
-        self.git("checkout", "-q", "-b", PR_BRANCH)
-        self.commit("conflict.txt", "branch\n", "feat: правка гілки")
-        self.git("checkout", "-q", "main")
-        self.commit("conflict.txt", "main\n", "chore: правка main")
-        self.git("checkout", "-q", PR_BRANCH)
-        arguments = ["rebase"] + (["--apply"] if backend == "apply" else []) + ["main"]
-        return self.git(*arguments, check=False)
-
     def test_refuses_an_unfinished_rebase_left_in_the_working_copy(self):
         """Обидва маркери, які лишає git: rebase-merge і rebase-apply.
 
-        #1239 злився з `rebase-merge` у дереві: ребаз упав на конфлікті, а
-        гейт цього не бачив. Маркер у w1224, а гейт запускають з іншого
-        worktree, тож перевірка дивиться на всю копію.
+        Ребаз гілки, яку зливають: у #1239 маркер лишився в дереві, гілку
+        рухали посеред операції, і гейт цього не бачив.
         """
         for backend, marker in (("merge", "rebase-merge"), ("apply", "rebase-apply")):
             with self.subTest(backend=backend):
                 self.make_repo()
-                stopped = self.conflicted_rebase(backend)
+                self.commit("conflict.txt", "base\n", "chore: спільний файл")
+                self.conflict_on_both_sides(self.repo, PR_BRANCH)
+                stopped = self.stop_rebase(self.repo, backend=backend)
                 self.assertNotEqual(0, stopped.returncode, stopped.stdout)
                 self.assertTrue((self.repo / ".git" / marker).is_dir(), marker)
 
@@ -580,6 +602,30 @@ class MergePrTest(unittest.TestCase):
                 self.assertIn(PR_BRANCH, result.stderr)
                 self.assertIn("rebase --abort", result.stderr)
                 self.assertEqual([], self.merge_calls())
+
+    def test_refuses_a_rebase_left_in_another_worktree_of_the_same_copy(self):
+        """Маркер у лінкованому worktree, гейт запущено з головного.
+
+        Саме так #1239 і злився: ребаз жив у w1224, а гейт кликали з іншого
+        worktree того самого клона. Перевірка, що дивиться лише на свій
+        git-каталог, цієї відмови не дає — і саме тому цей тест є.
+        """
+        self.commit("conflict.txt", "base\n", "chore: спільний файл")
+        linked = self.linked_worktree(PR_BRANCH)
+        self.conflict_on_both_sides(linked, PR_BRANCH)
+        self.git("checkout", "-q", PR_BRANCH, cwd=linked)
+        stopped = self.stop_rebase(linked)
+        self.assertNotEqual(0, stopped.returncode, stopped.stdout)
+        marker = self.repo / ".git" / "worktrees" / "linked" / "rebase-merge"
+        self.assertTrue(marker.is_dir(), marker)
+
+        result = self.gate()
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("незавершений ребаз", result.stderr)
+        self.assertIn(PR_BRANCH, result.stderr)
+        self.assertIn(str(linked), result.stderr)  # названо чужу робочу копію
+        self.assertEqual([], self.merge_calls())
 
     # --- цілісність гілки ---------------------------------------------------
     def pick_only(self, sha):

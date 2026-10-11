@@ -225,8 +225,10 @@ describe('#1207 theme.css half of the seam', () => {
 
   it('keeps the boundary out of the stylesheet, where it would exist twice', () => {
     // No media query at all: the file has none, and any width key here would
-    // be the second spelling of the 600 px line `adaptiveLayout.ts` owns.
+    // be the second spelling of the line `adaptiveLayout.ts` owns. The key is
+    // asked for by VALUE, so a moved boundary moves this pin with it instead of
+    // leaving a stale `600px` that a fresh `620px` could satisfy.
     expect(css).not.toMatch(/@media/)
-    expect(css).not.toContain('600px')
+    expect(css).not.toContain(`${EXPANDED_MIN_WIDTH_PX}px`)
   })
 })

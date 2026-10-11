@@ -16,6 +16,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE = REPO_ROOT / "app" / "lint-baseline.xml"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
+# Дві «локалі» з тим самим basename: саме на них видно, що порядок lint — не за
+# шляхом (values-en < values-pl), а за basename і рядком.
+PL_STRINGS = "src/main/res/values-pl/strings.xml"
+EN_STRINGS = "src/main/res/values-en/strings.xml"
 DEFAULT_STRINGS = "src/main/res/values/strings.xml"
 
 
@@ -43,10 +47,126 @@ def synthetic_baseline(blocks: list[str]) -> str:
     return head + "\n".join(blocks) + "\n</issues>\n"
 
 
+class EscapeTest(unittest.TestCase):
+    def test_escapes_like_the_file_not_like_the_library(self):
+        # `>` у baseline лишається сирим: у файлі 1163 такі атрибути проти 9
+        # рукописних `&gt;`. Екранувати його означало б переписати чуже.
+        self.assertEqual(lb.escape_attr("a > b"), "a > b")
+        self.assertEqual(lb.escape_attr('x = "1"'), "x = &quot;1&quot;")
+        self.assertEqual(lb.escape_attr("<string>"), "&lt;string>")
+        self.assertEqual(lb.escape_attr("a && b"), "a &amp;&amp; b")
+        self.assertEqual(lb.escape_attr("it's"), "it&apos;s")
+        self.assertEqual(lb.escape_attr("a\nb"), "a&#xA;b")
+
+    def test_ampersand_is_escaped_before_others(self):
+        # `&` мусить екрануватися першим, інакше з `&lt;` вийшло б `&amp;lt;`.
+        self.assertEqual(lb.escape_attr("<"), "&lt;")
+
+
+class SerializeTest(unittest.TestCase):
+    def test_entry_with_two_error_lines_and_location(self):
+        subject = lb.Entry(
+            issue_id="MissingTranslation",
+            message='"app_name" is not translated in "pl" (Polish)',
+            error_lines=('    <string name="app_name">Слухайка</string>', "            ~~~~~~~~~~~~~~~"),
+            locations=(lb.Location(file="src/main/res/values/strings.xml", line=2, column=13),),
+        )
+        self.assertEqual(
+            lb.serialize_entry(subject),
+            '    <issue\n'
+            '        id="MissingTranslation"\n'
+            '        message="&quot;app_name&quot; is not translated in &quot;pl&quot; (Polish)"\n'
+            '        errorLine1="    &lt;string name=&quot;app_name&quot;>Слухайка&lt;/string>"\n'
+            '        errorLine2="            ~~~~~~~~~~~~~~~">\n'
+            '        <location\n'
+            '            file="src/main/res/values/strings.xml"\n'
+            '            line="2"\n'
+            '            column="13"/>\n'
+            '    </issue>\n',
+        )
+
+    def test_entry_without_error_lines_and_location_metadata(self):
+        subject = lb.Entry(
+            issue_id="UnusedResources",
+            message="The resource `R.drawable.x` appears to be unused",
+            error_lines=(),
+            locations=(lb.Location(file="src/main/res/drawable/x.webp"),),
+        )
+        self.assertEqual(
+            lb.serialize_entry(subject),
+            '    <issue\n'
+            '        id="UnusedResources"\n'
+            '        message="The resource `R.drawable.x` appears to be unused">\n'
+            '        <location\n'
+            '            file="src/main/res/drawable/x.webp"/>\n'
+            '    </issue>\n',
+        )
+
+    def test_multiple_locations_are_siblings(self):
+        subject = lb.Entry(
+            issue_id="IconDuplicates",
+            message="identical contents",
+            error_lines=(),
+            locations=(
+                lb.Location(file="src/main/res/mipmap-hdpi/a.webp"),
+                lb.Location(file="src/main/res/mipmap-hdpi/b.webp"),
+            ),
+        )
+        self.assertEqual(lb.serialize_entry(subject).count("        <location\n"), 2)
+
+    def test_round_trip_keeps_every_attribute(self):
+        subject = entry("UseKtx", message="Use `edit`?", error_line="    prefs.edit()")
+        self.assertEqual(lb.entry_from_xml(lb.ET.fromstring(lb.serialize_entry(subject))), subject)
+
+
+class FormattingOrderingTest(unittest.TestCase):
+    def test_order_is_by_basename_then_line_not_by_path(self):
+        # Саме так стоїть справжній блок PrivateResource: values-pl/6 перед
+        # values-en/10, хоч «values-en» лексикографічно менший за «values-pl».
+        pl_six = entry("PrivateResource", file=PL_STRINGS, line=6)
+        en_ten = entry("PrivateResource", file=EN_STRINGS, line=10)
+        self.assertLess(lb.canonical_key(pl_six), lb.canonical_key(en_ten))
+
+    def test_same_basename_and_line_falls_back_to_message_then_path(self):
+        first = entry("PrivateResource", file=PL_STRINGS, line=10, message="A")
+        second = entry("PrivateResource", file=PL_STRINGS, line=10, message="B")
+        self.assertLess(lb.canonical_key(first), lb.canonical_key(second))
+
+    def test_missing_line_sorts_before_numbered_lines(self):
+        no_line = lb.Entry("UnusedResources", "m", (), (lb.Location(file="src/main/res/drawable/a.webp"),))
+        numbered = entry("UnusedResources", file="src/main/res/drawable/b.webp", line=3)
+        self.assertLess(lb.canonical_key(no_line), lb.canonical_key(numbered))
+
+    def test_insert_anchor_is_the_last_entry_not_greater(self):
+        entries = [
+            entry("MissingTranslation", line=2),
+            entry("MissingTranslation", line=700),
+            entry("MissingTranslation", line=800),
+            entry("UseKtx", line=1),
+        ]
+        anchor, has_block = lb.insert_anchor(entries, entry("MissingTranslation", line=750))
+        self.assertTrue(has_block)
+        self.assertEqual(anchor, 1)  # після 700, перед 800 — і блок UseKtx не чіпаємо
+
+    def test_insert_anchor_before_the_block_when_smaller_than_everything(self):
+        entries = [entry("UseKtx", line=1), entry("WebViewApiAvailability", line=1), entry("WebViewApiAvailability", line=2)]
+        anchor, has_block = lb.insert_anchor(entries, entry("WebViewApiAvailability", line=0))
+        self.assertTrue(has_block)
+        self.assertEqual(anchor, 0)  # після UseKtx, тобто на початок блоку
+
+    def test_insert_anchor_for_an_unknown_rule(self):
+        entries = [entry("UseKtx", line=1)]
+        self.assertEqual(lb.insert_anchor(entries, entry("BrandNewRule")), (-1, False))
+
+
 class BaselineParsingTest(unittest.TestCase):
     def test_repository_baseline_is_understood_entry_by_entry(self):
-        baseline = lb.parse_baseline_text(BASELINE.read_text(encoding="utf-8"), str(BASELINE))
-        self.assertGreater(len(baseline.entries), 1000)
+        baseline = lb.load_baseline(BASELINE)
+        broken, cosmetic = lb.verify_entries(baseline, str(BASELINE))
+        self.assertEqual(broken, [])
+        # Тривожний дзвінок, а не заморожування стилю: якщо форматер перестане
+        # відтворювати більшість файлу, генератор більше не «пише як lint».
+        self.assertGreater(len(baseline.entries) - len(cosmetic), len(baseline.entries) // 2)
         self.assertEqual(sum(lb.count_by_rule(baseline.entries).values()), len(baseline.entries))
 
     def test_render_reproduces_the_file(self):
@@ -127,6 +247,178 @@ class GrowthDecisionTest(unittest.TestCase):
     def test_allowance_parsing_refuses_a_missing_equals(self):
         with self.assertRaises(lb.BaselineError):
             lb.parse_allowance("MissingTranslation 3", {"MissingTranslation"})
+
+
+class ReportSelectionTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.app = self.root / "app"
+        (self.app / "src" / "main" / "res" / "values").mkdir(parents=True)
+        self.report = self.root / "lint-results-debug.xml"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def write_report(self, issues: str) -> None:
+        self.report.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<issues format="6" by="lint 9.1.1">\n'
+            + issues
+            + "\n</issues>\n",
+            encoding="utf-8",
+        )
+
+    def issue(self, issue_id, severity="Error", file=None, line=9999):
+        file = file or f"{self.app}/src/main/res/values/strings.xml"
+        return (
+            f'    <issue\n        id="{issue_id}"\n        severity="{severity}"\n'
+            f'        message="msg {issue_id}"\n        errorLine1="код"\n        errorLine2="~~~">\n'
+            f'        <location\n            file="{file}"\n            line="{line}"\n            column="13"/>\n'
+            f"    </issue>\n"
+        )
+
+    def select(self, existing=(), severities=("fatal", "error"), only_ids=()):
+        return lb.collect_report_entries(
+            self.report, self.app, set(existing), set(only_ids), set(severities)
+        )
+
+    def test_paths_become_module_relative(self):
+        self.write_report(self.issue("MissingTranslation"))
+        selected, _ = self.select()
+        self.assertEqual(selected[0].file, "src/main/res/values/strings.xml")
+
+    def test_meta_entries_and_out_of_module_files_are_skipped(self):
+        self.write_report(
+            self.issue("LintBaseline", severity="Hint")
+            + self.issue("GradleDependency", severity="Warning", file=f"{self.root}/gradle/libs.versions.toml")
+        )
+        selected, skipped = self.select(severities=("fatal", "error", "warning", "hint"))
+        self.assertEqual(selected, [])
+        self.assertEqual(len(skipped), 2)
+
+    def test_warnings_are_not_baselined_by_default(self):
+        self.write_report(self.issue("GradleDependency", severity="Warning", file=f"{self.app}/src/main/res/values/strings.xml"))
+        selected, skipped = self.select()
+        self.assertEqual(selected, [])
+        self.assertIn("severity", skipped[0])
+
+    def test_already_baselined_issue_is_not_added_twice(self):
+        self.write_report(self.issue("MissingTranslation"))
+        existing = {("MissingTranslation", "src/main/res/values/strings.xml", "msg MissingTranslation")}
+        selected, skipped = self.select(existing=existing)
+        self.assertEqual(selected, [])
+        self.assertIn("уже в baseline", skipped[0])
+
+    def test_nested_locations_are_flattened_into_siblings(self):
+        self.write_report(
+            '    <issue\n        id="IconDuplicates"\n        severity="Error"\n'
+            '        message="identical">\n'
+            f'        <location\n            file="{self.app}/src/main/res/mipmap/a.webp">\n'
+            f'            <location\n                file="{self.app}/src/main/res/mipmap/b.webp"/>\n'
+            "        </location>\n    </issue>\n"
+        )
+        selected, _ = self.select()
+        self.assertEqual(
+            [location.file for location in selected[0].locations],
+            ["src/main/res/mipmap/a.webp", "src/main/res/mipmap/b.webp"],
+        )
+
+
+class AddCommandTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.app = self.root / "app"
+        self.app.mkdir()
+        self.baseline = self.app / "lint-baseline.xml"
+        self.report = self.root / "lint-results-debug.xml"
+        self.baseline.write_text(
+            synthetic_baseline(
+                [
+                    lb.serialize_entry(entry("MissingTranslation", line=100, message="a")),
+                    lb.serialize_entry(entry("MissingTranslation", line=200, message="b")),
+                    lb.serialize_entry(entry("UseKtx", file="src/main/java/App.kt", line=5, message="ktx")),
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def write_report(self, issues: str) -> None:
+        self.report.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<issues format="6" by="lint 9.1.1">\n' + issues + "\n</issues>\n",
+            encoding="utf-8",
+        )
+
+    def run_add(self, *extra):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            code = lb.main(["--baseline", str(self.baseline), "add", "--report", str(self.report), *extra])
+        return code, output.getvalue()
+
+    def mt_issue(self, message="new", file=None, line=150):
+        file = file or f"{self.app}/src/main/res/values/strings.xml"
+        return (
+            f'    <issue\n        id="MissingTranslation"\n        severity="Error"\n'
+            f'        message="{message}"\n        errorLine1="код"\n        errorLine2="~~~">\n'
+            f'        <location\n            file="{file}"\n            line="{line}"\n            column="13"/>\n'
+            f"    </issue>\n"
+        )
+
+    def test_inserts_between_neighbours_with_exact_metadata(self):
+        self.write_report(self.mt_issue(message="probe", line=150))
+        code, output = self.run_add()
+        self.assertEqual(code, 0)
+        text = self.baseline.read_text(encoding="utf-8")
+        baseline = lb.parse_baseline_text(text, "test")
+        self.assertEqual([e.message for e in baseline.entries], ["a", "probe", "b", "ktx"])
+        self.assertIn('line="150"', text)
+        # Один порожній рядок між записами — і жодного зайвого.
+        self.assertNotIn("    </issue>\n\n\n", text)
+        self.assertIn("3 → 4 записів", output)
+
+    def test_second_run_changes_nothing(self):
+        self.write_report(self.mt_issue())
+        self.run_add()
+        after_first = self.baseline.read_text(encoding="utf-8")
+        code, _ = self.run_add()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.baseline.read_text(encoding="utf-8"), after_first)
+
+    def test_dry_run_leaves_the_file_untouched(self):
+        self.write_report(self.mt_issue())
+        before = self.baseline.read_text(encoding="utf-8")
+        code, output = self.run_add("--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("--dry-run", output)
+        self.assertEqual(self.baseline.read_text(encoding="utf-8"), before)
+
+    def test_unknown_rule_is_appended_at_the_end(self):
+        self.write_report(
+            '    <issue\n        id="BrandNewRule"\n        severity="Error"\n'
+            '        message="probe"\n        errorLine1="код"\n        errorLine2="~~~">\n'
+            f'        <location\n            file="{self.app}/src/main/java/App.kt"\n'
+            '            line="9"\n            column="1"/>\n    </issue>\n'
+        )
+        self.run_add()
+        baseline = lb.load_baseline(self.baseline)
+        self.assertEqual(baseline.entries[-1].issue_id, "BrandNewRule")
+        self.assertEqual(lb.count_by_rule(baseline.entries)["BrandNewRule"], 1)
+
+    def test_machine_path_is_refused_and_nothing_is_written(self):
+        self.write_report(self.mt_issue(file=".worktrees/w1222/app/src/main/res/values/strings.xml"))
+        before = self.baseline.read_text(encoding="utf-8")
+        code, output = self.run_add()
+        self.assertEqual(code, 2)
+        self.assertIn("машинний шлях", output)
+        self.assertEqual(self.baseline.read_text(encoding="utf-8"), before)
+
+    def test_require_changes_turns_nothing_to_add_into_a_failure(self):
+        self.write_report(self.mt_issue(message="a"))  # «a» уже в baseline
+        code, _ = self.run_add("--require-changes")
+        self.assertEqual(code, 1)
 
 
 class CheckGrowthCommandTest(unittest.TestCase):
@@ -255,6 +547,15 @@ class MachinePathGuardTest(unittest.TestCase):
     def test_guard_accepts_the_checked_in_baseline(self):
         pattern = self.machine_path_grep()
         self.assertIsNone(re.search(pattern, BASELINE.read_text(encoding="utf-8")))
+
+    def test_generator_uses_the_same_three_paths(self):
+        # Дзеркало ґарда в генераторі не має розійтися з ci.yml: ті самі три
+        # шляхи, той самий `file="…"`-контекст.
+        source = Path(lb.__file__).read_text(encoding="utf-8")
+        for token in (".worktrees/", "$HOME/", "$GRADLE_USER_HOME/"):
+            self.assertIn(token, source)
+        self.assertIn(r'file="[^"]*', source)
+
 
 if __name__ == "__main__":
     unittest.main()

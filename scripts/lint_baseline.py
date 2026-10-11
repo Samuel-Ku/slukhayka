@@ -1,14 +1,29 @@
 #!/usr/bin/env python3
-"""Ґард зростання app/lint-baseline.xml (#1222).
+"""Ґард зростання app/lint-baseline.xml і генератор його записів (#1222).
 
 `app/lint-baseline.xml` — придушення боргу, який lint знайшов один раз. Нове
 порушення ПОЗА baseline валить `:app:lintDebug` (це вже так), але сам список
-придушення ріс мовчки: 1083 записи MissingTranslation на трьох локалях, і ніщо
-не помічало, що записів побільшало.
+придушення ріс мовчки: 1083 записи MissingTranslation на трьох локалях, і кожен
+новий рядок інтерфейсу — це рукописний XML-запис із `errorLine1/2`, рядком і
+колонкою. Ніщо не помічало, що записів побільшало.
 
-`check-growth <base-ref> [<head-ref>]` рахує записи в HEAD і в базовому ref —
-ОКРЕМО MissingTranslation, ОКРЕМО кожне інше правило — і падає на прирості
-(exit 1). Зменшення — норма: записи прибирають, коли порушення полагоджено.
+Дві роботи, один опис запису — щоб ґард і генератор не розійшлися в тому, що
+вважати записом і де він стоїть у файлі:
+
+  check-growth <base-ref> [<head-ref>]
+      Кількість записів у HEAD проти базового ref: ОКРЕМО MissingTranslation,
+      ОКРЕМО кожне інше правило. Будь-який приріст — падіння (exit 1).
+      Зменшення — норма (записи прибирають, коли порушення полагоджено).
+
+  add [--report <lint-results-debug.xml>]
+      Бере записи з XML-звіту lint і вставляє їх у baseline на канонічну
+      позицію, з точними метаданими зі звіту (id, message, errorLine1/2,
+      location) — без ручного копіювання рядка, колонки й екранованого коду.
+
+  verify
+      Доводить, що кожен наявний запис файлу цей самий генератор відтворює
+      байт-у-байт. Якщо ні — `add` відмовиться писати: вставка «своїм» текстом
+      у чужий формат зіпсувала б стиль файлу й дала б шумний диф.
 
 Чому MissingTranslation окремо. Це 1083 з 1313 записів, і саме він росте від
 кожної нової літери інтерфейсу (UI навмисно український, `values-pl` — лише
@@ -30,6 +45,8 @@ BASE_SYNC_MAX_AGE_HOURS у .github/workflows/ci.yml). Формат:
 Виклик (локально, з кореня репозиторію):
     python3 scripts/lint_baseline.py check-growth origin/main HEAD
     python3 scripts/lint_baseline.py check-growth origin/main --worktree
+    python3 scripts/lint_baseline.py add --report app/build/reports/lint-results-debug.xml
+    python3 scripts/lint_baseline.py verify
 """
 
 from __future__ import annotations
@@ -46,12 +63,24 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASELINE_DEFAULT = "app/lint-baseline.xml"
+REPORT_DEFAULT = "app/build/reports/lint-results-debug.xml"
 MISSING_TRANSLATION = "MissingTranslation"
+
+# Lint пише ці два записи ПРО сам baseline (скільки придушено, скільком записам
+# уже нічого не відповідає). У baseline вони не потрапляють ніколи — у файлі
+# таких id немає, — тож генератор мусить їх відкидати, а не вставляти.
+META_ISSUE_IDS = ("LintBaseline", "LintBaselineFixed")
+
+# Severity, на яких падає `:app:lintDebug` (lint abortOnError). Warning у звіті
+# є завжди (напр. GradleDependency), але збірку він не валить — і запис у
+# baseline для нього не потрібен, якщо автор не просив явно через --severity.
+FAILING_SEVERITIES = ("fatal", "error")
 
 USAGE_EPILOG = """\
 Приклади:
   python3 scripts/lint_baseline.py check-growth origin/main HEAD
-  python3 scripts/lint_baseline.py check-growth origin/main --worktree
+  python3 scripts/lint_baseline.py add --dry-run
+  python3 scripts/lint_baseline.py add --id MissingTranslation --severity error
 """
 
 
@@ -95,6 +124,96 @@ class Entry:
         if not self.locations or self.locations[0].column is None:
             return -1
         return self.locations[0].column
+
+
+def canonical_key(entry: Entry) -> tuple:
+    """Ключ, за яким lint сам сортує записи baseline.
+
+    `LintBaseline$ReportedEntry.compareTo` (lint-api 32.1.1) усередині одного
+    правила порівнює: basename файлу, рядок, message, повний шлях, колонку.
+    Саме тому `values-pl/strings.xml` стоїть перед `values-en/strings.xml` за
+    однакового basename — не шляхом, а рядком. Блоки різних правил
+    упорядковані категорією/пріоритетом/id; baseline їх не зберігає, тож
+    порядок блоків ця функція не чіпає — вона рахує позицію ЛИШЕ всередині
+    блоку того самого id (див. insert_position).
+    """
+    return (
+        os.path.basename(entry.file),
+        entry.line,
+        entry.message,
+        entry.file,
+        entry.column,
+    )
+
+
+def identity(entry: Entry) -> tuple[str, str, str]:
+    """Те, за чим lint упізнає вже придушене порушення: id + файл + message.
+
+    Рядок і колонка в цю тотожність не входять: у файлі є записи, чиї рядки
+    застаріли (напр. `achievement_in_cycle` записано на 768, а він тепер 772),
+    і lint їх усе одно придушує — інакше `lintDebug` падав би на кожному
+    зсуві рядків.
+    """
+    return (entry.issue_id, entry.file, entry.message)
+
+
+_ATTR_ESCAPES = (
+    ("&", "&amp;"),
+    ("<", "&lt;"),
+    ('"', "&quot;"),
+    ("'", "&apos;"),
+    ("\n", "&#xA;"),
+    ("\r", "&#xD;"),
+    ("\t", "&#x9;"),
+)
+
+
+def escape_attr(value: str) -> str:
+    """Екранування рівно як у файлі, а не «як взагалі правильно в XML».
+
+    `>` НЕ екранується: у baseline 1163 атрибути з сирим `>` (уся кодова
+    витримка з Kotlin і манифесту) і лише 9 записів із `&gt;` — і ті всі
+    MissingTranslation, дописані руками. `XmlUtils.toXmlAttributeValue` з
+    lint-api екранує й `>`, але baseline пише не він; підганяти файл під
+    бібліотеку означало б переписати 1163 рядки чужого тексту.
+
+    Точність перевіряє `verify`: 1304 з 1313 записів мусять відтворитися
+    байт-у-байт, а 9 рукописних — принаймні семантично (див. verify_entries).
+    """
+    for raw, escaped in _ATTR_ESCAPES:
+        value = value.replace(raw, escaped)
+    return value
+
+
+def serialize_entry(entry: Entry) -> str:
+    """Текст запису в тому вигляді, в якому його пише lint (4/8/12 пробілів).
+
+    Закривальний `>` (або `/>` для запису без location) дописується в кінець
+    останнього рядка атрибута, а не стає на власний рядок — саме так виглядає
+    файл, і `verify` тримає цю рівність байт-у-байт.
+    """
+    attributes = [f'id="{escape_attr(entry.issue_id)}"', f'message="{escape_attr(entry.message)}"']
+    attributes += [
+        f'errorLine{index}="{escape_attr(error_line)}"'
+        for index, error_line in enumerate(entry.error_lines, start=1)
+    ]
+    if not entry.locations:
+        attributes[-1] += "/>"
+        return "    <issue\n" + "".join(f"        {line}\n" for line in attributes) + "    </issue>\n"
+
+    attributes[-1] += ">"
+    out = ["    <issue\n"] + [f"        {line}\n" for line in attributes]
+    for location in entry.locations:
+        location_attributes = [f'file="{escape_attr(location.file)}"']
+        if location.line is not None:
+            location_attributes.append(f'line="{location.line}"')
+        if location.column is not None:
+            location_attributes.append(f'column="{location.column}"')
+        location_attributes[-1] += "/>"
+        out.append("        <location\n")
+        out += [f"            {line}\n" for line in location_attributes]
+    out.append("    </issue>\n")
+    return "".join(out)
 
 
 def entry_from_xml(element: ET.Element) -> Entry:
@@ -171,6 +290,23 @@ class Baseline:
         out.append(self.tail)
         return "".join(out)
 
+    def offset_before(self, index: int) -> int:
+        """Зсув, ПЕРЕД яким вставляється новий запис, якщо якір — запис index.
+
+        Порожній рядок перед новим записом дає вже наявний проміжок (він
+        належить НАСТУПНОМУ запису), а порожній рядок після нього додає
+        вставка. Інакше на межі з'являлися б два порожні рядки — саме так
+        виглядала б вставка «після попереднього», а не «перед наступним».
+        -1 — початок файлу: там проміжок лежить у head (порожній рядок після
+        заголовка), тож вставка йде просто перед першим записом.
+        """
+        if index + 1 < len(self.spans):
+            return self.spans[index + 1][0]
+        closing = self.raw.rindex("</issues>")
+        line_start = self.raw.rfind("\n", 0, closing)
+        return line_start + 1 if line_start != -1 else 0
+
+
 _BLOCK_RE = re.compile(r"^    <issue\b.*?^    </issue>\n", re.MULTILINE | re.DOTALL)
 
 
@@ -214,8 +350,41 @@ def parse_baseline_text(raw: str, source: str = BASELINE_DEFAULT) -> Baseline:
     return baseline
 
 
+def load_baseline(path: Path) -> Baseline:
+    return parse_baseline_text(path.read_text(encoding="utf-8"), str(path))
+
+
 def count_by_rule(entries: list[Entry]) -> Counter:
     return Counter(entry.issue_id for entry in entries)
+
+
+def verify_entries(baseline: Baseline, source: str) -> tuple[list[str], list[str]]:
+    """(семантичні розходження, косметичні).
+
+    Семантичне розходження — форматер міняє `id`/`message`/`errorLine`/location
+    запису. Такого бути не повинно ніколи: це вже не «інший стиль», а інший
+    запис.
+    Косметичне — текст той самий після розбору XML, різниця лише в записі
+    сутності: 9 рукописних записів MissingTranslation екранують `>` як `&gt;`,
+    чого lint не робить. Їх не чіпаємо (правка чужого тексту — не робота
+    генератора), але й мовчати про них не можна.
+    """
+    broken: list[str] = []
+    cosmetic: list[str] = []
+    for entry, block in zip(baseline.entries, baseline.blocks):
+        rendered = serialize_entry(entry)
+        if rendered == block:
+            continue
+        where = f"{source}: {entry.issue_id} {describe(entry)}"
+        try:
+            reparsed = entry_from_xml(ET.fromstring(rendered))
+        except ET.ParseError:
+            reparsed = None
+        if reparsed == entry:
+            cosmetic.append(f"{where} — той самий запис, інший запис сутності")
+        else:
+            broken.append(f"{where} — форматер відтворює його інакше")
+    return broken, cosmetic
 
 
 # --------------------------------------------------------------------------
@@ -402,6 +571,236 @@ def _summary(line: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# add
+# --------------------------------------------------------------------------
+
+
+def insert_anchor(entries: list[Entry], new_entry: Entry) -> tuple[int, bool]:
+    """Після якого запису вставити новий; і чи є взагалі блок цього правила.
+
+    Усередині блоку того самого id: останній запис, чий канонічний ключ не
+    більший за ключ нового. Для відсортованого блоку це точний bisect. Блок
+    MissingTranslation відсортований НЕ повністю (18 записів із застарілими
+    рядками стоять не на своєму місці) — «останній ≤ нового» ставить запис
+    поряд із сусідами за метаданими й не перетасовує решту: диф = +1 запис.
+
+    Якщо новий запис менший за всі наявні в блоці, якір — запис ПЕРЕД блоком
+    (тобто вставка на початок блоку); -1 означає початок файлу.
+    """
+    target = canonical_key(new_entry)
+    same = [index for index, entry in enumerate(entries) if entry.issue_id == new_entry.issue_id]
+    if not same:
+        return (-1, False)
+    not_greater = [index for index in same if canonical_key(entries[index]) <= target]
+    return (max(not_greater) if not_greater else same[0] - 1, True)
+
+
+def module_relative(report_file: str, module_dir: Path) -> str | None:
+    """Шлях зі звіту (абсолютний) → шлях baseline (відносний до модуля app/)."""
+    candidate = Path(report_file)
+    if not candidate.is_absolute():
+        return report_file if not report_file.startswith("..") else None
+    try:
+        return candidate.resolve().relative_to(module_dir.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def collect_report_entries(
+    report_path: Path,
+    module_dir: Path,
+    existing: set[tuple[str, str, str]],
+    only_ids: set[str],
+    severities: set[str],
+) -> tuple[list[Entry], list[str]]:
+    try:
+        root = ET.parse(report_path).getroot()
+    except (ET.ParseError, OSError) as error:
+        raise BaselineError(f"{report_path}: не читається як XML-звіт lint: {error}") from error
+
+    selected: list[Entry] = []
+    skipped: list[str] = []
+    for element in root:
+        if element.tag != "issue":
+            continue
+        issue_id = element.get("id", "")
+        severity = (element.get("severity") or "").lower()
+        if issue_id in META_ISSUE_IDS:
+            skipped.append(f"{issue_id}: запис про сам baseline, у файл не потрапляє")
+            continue
+        if only_ids and issue_id not in only_ids:
+            continue
+        if severity not in severities:
+            skipped.append(f"{issue_id}: severity {element.get('severity')} — не те, на чому падає lint")
+            continue
+        entry = entry_from_xml(element)
+        relative = module_relative(entry.file, module_dir)
+        if relative is None:
+            skipped.append(f"{issue_id}: {entry.file} — поза модулем {module_dir.name}/, AGP його тут не придушить")
+            continue
+        entry = Entry(
+            issue_id=entry.issue_id,
+            message=entry.message,
+            error_lines=entry.error_lines,
+            locations=tuple(
+                Location(file=module_relative(loc.file, module_dir) or loc.file, line=loc.line, column=loc.column)
+                for loc in entry.locations
+            ),
+        )
+        if identity(entry) in existing:
+            skipped.append(f"{issue_id}: {entry.file} — уже в baseline")
+            continue
+        selected.append(entry)
+    return selected, skipped
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    baseline_path = Path(args.baseline)
+    if not baseline_path.is_absolute():
+        baseline_path = REPO_ROOT / baseline_path
+    baseline = load_baseline(baseline_path)
+    module_dir = baseline_path.parent
+
+    broken, cosmetic = verify_entries(baseline, args.baseline)
+    if cosmetic:
+        print(f"Примітка: {len(cosmetic)} наявних запис(ів) мають інший запис сутності (вміст той самий) — не чіпаю.")
+    if broken:
+        # Не падаємо: наявні записи лишаються недоторканими, вставляється лише
+        # новий текст. Але сказати треба — інакше «точні метадані» стануть
+        # неправдою для наступного, хто правитиме файл.
+        print(f"Увага: {len(broken)} запис(ів) файлу форматер відтворює інакше:", file=sys.stderr)
+        for line in broken[:5]:
+            print(f"  {line}", file=sys.stderr)
+
+    report_path = Path(args.report)
+    if not report_path.is_absolute():
+        report_path = REPO_ROOT / report_path
+    only_ids = set(args.id or [])
+    severities = {value.lower() for value in (args.severity or FAILING_SEVERITIES)}
+    if "any" in severities:
+        severities = {"fatal", "error", "warning", "informational", "information", "hint", "ignore"}
+
+    existing = {identity(entry) for entry in baseline.entries}
+    selected, skipped = collect_report_entries(report_path, module_dir, existing, only_ids, severities)
+
+    print(f"Звіт:     {report_path}")
+    print(f"Baseline: {args.baseline} ({len(baseline.entries)} записів)")
+    _print_skipped(skipped)
+    if not selected:
+        print("Немає чого додавати: усі відібрані порушення вже придушені (або не підпадають під фільтр).")
+        return 1 if args.require_changes else 0
+
+    selected.sort(key=lambda entry: (entry.issue_id, canonical_key(entry)))
+    working = baseline
+    for entry in selected:
+        anchor, has_block = insert_anchor(working.entries, entry)
+        if not has_block:
+            anchor = len(working.blocks) - 1
+            where = (
+                f"у кінець файлу: правила {entry.issue_id} у baseline ще немає "
+                "(порядок блоків = порядок lint, і його з baseline не відтворити)"
+            )
+        elif anchor < 0:
+            where = "на початок блоку (менший за всі наявні записи цього правила)"
+        else:
+            neighbour = working.entries[anchor]
+            where = f"після {neighbour.issue_id} {describe(neighbour)}"
+        print(f"  + {entry.issue_id} {describe(entry)} — {where}")
+        offset = working.offset_before(anchor)
+        inserted = serialize_entry(entry) + "\n"
+        # Перечитуємо після кожної вставки: файл, який перестав збиратися
+        # байт-у-байт, — це вже не той файл, у який можна писати далі.
+        working = parse_baseline_text(working.raw[:offset] + inserted + working.raw[offset:], args.baseline)
+
+    for entry in selected:
+        _summary_entry(entry)
+
+    if args.dry_run:
+        print("\n--dry-run: файл не змінено. Текст, який було б вставлено:\n")
+        for entry in selected:
+            print(serialize_entry(entry), end="")
+        return 0
+
+    if not _machine_path_clean(working.raw):
+        raise BaselineError(
+            f"{args.baseline}: вставлений запис цитує машинний шлях "
+            "(.worktrees/, $HOME/, $GRADLE_USER_HOME/) — ґард #1196 його не пропустить"
+        )
+    before, after = count_by_rule(baseline.entries), count_by_rule(working.entries)
+    if len(working.entries) != len(baseline.entries) + len(selected):
+        raise BaselineError(
+            f"{args.baseline}: після вставки записів {len(working.entries)}, "
+            f"а мало бути {len(baseline.entries) + len(selected)} — файл не записано"
+        )
+    missing = [entry for entry in selected if identity(entry) not in {identity(e) for e in working.entries}]
+    if missing:
+        raise BaselineError(f"{args.baseline}: вставка не знайшлася після перечитування — файл не записано")
+
+    baseline_path.write_text(working.raw, encoding="utf-8")
+    delta = {rule: after[rule] - before.get(rule, 0) for rule in after if after[rule] != before.get(rule, 0)}
+    print(
+        f"{args.baseline}: {len(baseline.entries)} → {len(working.entries)} записів "
+        f"({', '.join(f'{rule} +{value}' for rule, value in sorted(delta.items()))})"
+    )
+    return 0
+
+
+def describe(entry: Entry) -> str:
+    return f"{entry.file}:{entry.line}" if entry.line >= 0 else entry.file
+
+
+def _print_skipped(skipped: list[str], limit: int = 10) -> None:
+    for line in skipped[:limit]:
+        print(f"  пропущено {line}")
+    if len(skipped) > limit:
+        print(f"  … і ще {len(skipped) - limit} пропущених")
+
+
+def _machine_path_clean(rendered: str) -> bool:
+    """Той самий ґард #1196, але на етапі генерації, а не в CI."""
+    return not re.search(r'file="[^"]*(\.worktrees/|\$HOME/|\$GRADLE_USER_HOME/)', rendered)
+
+
+def _summary_entry(entry: Entry) -> None:
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"* `{entry.issue_id}` `{describe(entry)}`\n")
+    except OSError:
+        pass
+
+
+# --------------------------------------------------------------------------
+# verify
+# --------------------------------------------------------------------------
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    baseline_path = Path(args.baseline)
+    if not baseline_path.is_absolute():
+        baseline_path = REPO_ROOT / baseline_path
+    baseline = load_baseline(baseline_path)  # усередині вже є перевірка render() == raw
+    broken, cosmetic = verify_entries(baseline, args.baseline)
+    if cosmetic:
+        print(f"{len(cosmetic)} запис(ів) у файлі мають інший запис сутності (вміст той самий):")
+        for line in cosmetic[:3]:
+            print(f"  {line}")
+    if broken:
+        for line in broken[:20]:
+            print(f"::error::{line}", file=sys.stderr)
+        print(f"::error::{len(broken)} із {len(baseline.entries)} записів форматер не відтворює", file=sys.stderr)
+        return 1
+    exact = len(baseline.entries) - len(cosmetic)
+    print(
+        f"{args.baseline}: {len(baseline.entries)} записів, з них {exact} відтворюються "
+        f"байт-у-байт, {len(cosmetic)} — семантично."
+    )
+    return 0
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -409,7 +808,7 @@ def _summary(line: str) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lint_baseline.py",
-        description="Ґард зростання app/lint-baseline.xml: падає, коли записів побільшало (#1222).",
+        description="Ґард зростання app/lint-baseline.xml і генератор його записів (#1222).",
         epilog=USAGE_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -429,6 +828,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     growth.set_defaults(func=cmd_check_growth)
 
+    add = subparsers.add_parser("add", help="вставити записи зі звіту lint у відсортовану позицію")
+    add.add_argument("--report", default=REPORT_DEFAULT, help=f"XML-звіт lint (типово {REPORT_DEFAULT})")
+    add.add_argument("--id", action="append", help="узяти лише це правило (можна кілька разів)")
+    add.add_argument(
+        "--severity",
+        action="append",
+        help="severity зі звіту; типово fatal,error (те, на чому падає lintDebug); 'any' — усі",
+    )
+    add.add_argument("--dry-run", action="store_true", help="показати вставку, не змінюючи файл")
+    add.add_argument(
+        "--require-changes",
+        action="store_true",
+        help="вийти з кодом 1, якщо додавати нічого (для скриптів)",
+    )
+    add.set_defaults(func=cmd_add)
+
+    verify = subparsers.add_parser("verify", help="довести, що кожен запис файлу відтворюється байт-у-байт")
+    verify.set_defaults(func=cmd_verify)
     return parser
 
 

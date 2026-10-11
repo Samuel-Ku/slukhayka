@@ -100,6 +100,24 @@ string with no translation yet — is the owner's call, expressed as the
 repository variable `LINT_BASELINE_GROWTH_ALLOWANCE=MissingTranslation=+3`;
 unset means zero tolerance, and the guard prints what it let through.
 
+Hand-writing the entry (with `errorLine1/2`, the line and the column) is what
+let the list grow unnoticed, so the report writes it instead:
+
+```sh
+.worktrees/gt ./gradlew :app:lintDebug   # fails on the new issue, writes the report
+python3 scripts/lint_baseline.py add     # inserts it where lint keeps such entries
+```
+
+`add` reads `app/build/reports/lint-results-debug.xml`, keeps only what
+`:app:lintDebug` fails on (`--severity` widens that), drops the `LintBaseline*`
+meta entries and anything outside the module, and splices each entry into the
+block of its rule at the position lint's own comparator gives it (basename,
+line, message, path, column) — which is why `values-pl/strings.xml:6` sits
+before `values-en/strings.xml:10`. `--dry-run` prints the text first. `verify`
+proves every entry already in the file still renders byte-for-byte: 1304 of the
+1313 do, and 9 hand-written `MissingTranslation` entries render semantically
+instead (they escape `>` as `&gt;`, which lint does not).
+
 ## Work claims
 
 ```sh

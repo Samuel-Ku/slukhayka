@@ -63,9 +63,11 @@
    змінної не дорівнює імені поля, і в'язати їх здогадом про
    camelCase→snake_case механізм відмовляється. Хеш піниться на передачі в
    запис, у полі запису, на читанні поля й на порівнянні;
- - виклик поза ланцюгом (`detail="… errors=$errors)"`) місцем не є: поле там
-   нічого не вирішує, і мутант на ньому вмирав би з косметичної причини —
-   «перевірка, яка схоже працює», а не перевірка;
+ - проза місцем не є: ні `detail="… errors=$errors)"`, ні коментар праворуч від
+   правила. Поле там нічого не вирішує, і мутант на такій згадці був би
+   еквівалентний — тобто виживав би завжди й давав би відмову за причини, якої
+   немає. Тому shell сканується з заміненими пробілами коментарями (зсуви
+   лишаються), а `detail` не потрапляє під жодне правило місць;
  - «набір виконав 0 тестів» окремою перевіркою не стоїть: цілі мутанта й
    базового прогону ті самі, а модулі-свідки мутація не чіпає, тож зелений
    базовий прогін доводить, що ті самі цілі виконують ті самі тести. Це названо
@@ -406,6 +408,42 @@ def python_sites(relative: Path, text: str, field: Field) -> list[Site]:
     return sites
 
 
+def _blank_comments(text: str) -> str:
+    """Той самий текст, але коментарі замінені пробілами — зсуви не зсуваються.
+
+    Місце поля — це код, а не проза. Згадка в рядку `detail` або в коментарі
+    праворуч від правила нічого не вирішує, і мутант на ній був би еквівалентним
+    (вижив би завжди) — тобто відмовою за причини, якої немає. Пробіли, а не
+    вирізання: межі решти місць лишаються тими самими, і жодне місце не
+    посувається.
+    """
+    out: list[str] = []
+    for line in text.splitlines(keepends=True):
+        quote: str | None = None
+        blanking = False
+        previous = ""
+        for char in line:
+            if blanking:
+                out.append("\n" if char == "\n" else " ")
+                continue
+            if quote:
+                out.append(char)
+                if char == quote:
+                    quote = None
+            elif char in "'\"":
+                quote = char
+                out.append(char)
+            elif char == "#" and previous in ("", " ", "\t"):
+                # Коментар починається лише на початку слова: `$#` і `#` у
+                # лапках — це дані, а не коментар.
+                blanking = True
+                out.append("#")
+            else:
+                out.append(char)
+            previous = char
+    return "".join(out)
+
+
 def _shell_variable(text: str, field: Field) -> str:
     """Ім'я змінної, у якій поле їде далі, — узяте з передачі в запис.
 
@@ -427,19 +465,19 @@ def _shell_variable(text: str, field: Field) -> str:
 def shell_sites(relative: Path, text: str, field: Field) -> list[Site]:
     """Місця поля в shell-інструменті: читання з XML, передача в запис, правило."""
     sites: list[Site] = []
-    variable = _shell_variable(text, field)
-    offsets = _line_offsets(text)
+    code = _blank_comments(text)
+    variable = _shell_variable(code, field)
 
     pattern = re.compile(r'root\.get\(\s*"%s"\s*,\s*"0"\s*\)' % re.escape(field.name))
-    for match in pattern.finditer(text):
-        line = text.count("\n", 0, match.start()) + 1
+    for match in pattern.finditer(code):
+        line = code.count("\n", 0, match.start()) + 1
         sites.append(Site(field, "читання з артефакту", relative, line,
                           match.start(), match.end(), match.group(0),
                           '"%s"' % field.shell_zero))
 
     transport = re.compile(r'"%s=\$[A-Za-z_][A-Za-z0-9_]*"' % re.escape(field.name))
-    for match in transport.finditer(text):
-        line = text.count("\n", 0, match.start()) + 1
+    for match in transport.finditer(code):
+        line = code.count("\n", 0, match.start()) + 1
         sites.append(Site(field, "передача в запис", relative, line,
                           match.start(), match.end(), match.group(0),
                           '"%s=%s"' % (field.name, field.shell_zero)))
@@ -452,11 +490,11 @@ def shell_sites(relative: Path, text: str, field: Field) -> list[Site]:
         # саме, але написаний явно, щоб мутант лишався синтаксично цілим).
         quoted = re.compile(r'"\$\{?%s\}?"' % re.escape(variable))
         bare = re.compile(r"\$\{?%s\}?" % re.escape(variable))
-        for match in re.finditer(r"^.*\[\[.*$", text, re.MULTILINE):
+        for match in re.finditer(r"^.*\[\[.*$", code, re.MULTILINE):
             for reference in quoted.finditer(match.group(0)):
                 start = match.start() + reference.start()
                 sites.append(Site(field, "правило вердикту", relative,
-                                  text.count("\n", 0, start) + 1, start,
+                                  code.count("\n", 0, start) + 1, start,
                                   match.start() + reference.end(), reference.group(0),
                                   '"%s"' % field.shell_zero))
             stripped = quoted.sub("", match.group(0))
@@ -464,7 +502,7 @@ def shell_sites(relative: Path, text: str, field: Field) -> list[Site]:
                 start = match.start() + reference.start()
                 zero = field.shell_zero or '""'
                 sites.append(Site(field, "правило вердикту", relative,
-                                  text.count("\n", 0, start) + 1, start,
+                                  code.count("\n", 0, start) + 1, start,
                                   match.start() + reference.end(), reference.group(0),
                                   zero))
     return sites

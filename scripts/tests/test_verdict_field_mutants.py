@@ -58,7 +58,7 @@ SHELL = (
     'read -r tests failures errors skipped <<< "$counts"\n'
     "if [[ -z $tests ]]; then\n"
     "  outcome=no-verdict\n"
-    'elif [[ $failures -gt 0 || $errors -gt 0 ]]; then\n'
+    'elif [[ $failures -gt 0 || $errors -gt 0 ]]; then  # errors=$errors тут вирішує\n'
     "  outcome=killed\n"
     'elif [[ $skipped == "$tests" ]]; then\n'
     "  outcome=no-verdict\n"
@@ -195,12 +195,22 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(["$tests", '"$tests"'], [site.original for site in tests])
         self.assertEqual(["0", '"0"'], [site.replacement for site in tests])
 
-    def test_a_mention_in_a_detail_string_is_not_a_site(self):
+    def test_a_mention_in_prose_is_not_a_site(self):
+        """Місце — це код, а не проза: ні рядок `detail`, ні коментар праворуч."""
         found = v.shell_sites(Path("mutate.sh"), SHELL, self.errors())
-        detail_line = SHELL.splitlines().index('detail="the class failed (errors=$errors)"') + 1
+        lines = SHELL.splitlines()
+        detail_line = lines.index('detail="the class failed (errors=$errors)"') + 1
 
         self.assertNotIn(detail_line, [site.line for site in found])
         self.assertNotIn("errors=$errors)", [site.original for site in found])
+        # Коментар праворуч від правила: рядок із `[[` є, а місця в коментарі —
+        # немає. Без цього мутант правив би коментар, тобто був би еквівалентний
+        # і виживав би завжди — відмова за причини, якої немає.
+        rule_line = next(index for index, line in enumerate(lines, 1)
+                         if line.startswith("elif [[ $failures"))
+        self.assertIn("errors=$errors тут вирішує", lines[rule_line - 1])
+        self.assertEqual([rule_line], [site.line for site in found
+                                       if site.kind == "правило вердикту"])
 
     def test_the_shell_variable_is_read_from_the_transport_or_from_read(self):
         # Хеш їде під іншим іменем (`artifact_sha`), ніж поле: здогад про
@@ -673,10 +683,15 @@ class SensitivityTest(unittest.TestCase):
         ),
         (
             "згадка в рядку detail — не місце",
-            'for match in re.finditer(r"^.*\\[\\[.*$", text, re.MULTILINE)',
-            'for match in re.finditer(r"^.*$", text, re.MULTILINE)',
-            "test_verdict_field_mutants.DiscoveryTest"
-            ".test_a_mention_in_a_detail_string_is_not_a_site",
+            'for match in re.finditer(r"^.*\\[\\[.*$", code, re.MULTILINE)',
+            'for match in re.finditer(r"^.*$", code, re.MULTILINE)',
+            "test_verdict_field_mutants.DiscoveryTest.test_a_mention_in_prose_is_not_a_site",
+        ),
+        (
+            "згадка в коментарі — не місце",
+            "    code = _blank_comments(text)",
+            "    code = text  # mutated",
+            "test_verdict_field_mutants.DiscoveryTest.test_a_mention_in_prose_is_not_a_site",
         ),
         (
             "мета-тест набору — не свідок поля",

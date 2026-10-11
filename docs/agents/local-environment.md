@@ -164,9 +164,9 @@ module, a red suite *without* a mutation, a run that never finished, a missing t
 part, a mutant that does not parse) is `2`.
 `python3 scripts/verdict_field_mutants.py --list` names the places and the zero it
 would write. Its named limits: the JVM producer is Gradle and is not in the tree,
-so that half is pinned through the XML read; a mention of the field inside a
-`detail` string is not a place; and `skipped` decides a verdict but never travels
-into the record at all.
+so that half is pinned through the XML read; a mention of the field in prose (a
+`detail` string, a comment) is not a place; and `skipped` decides a verdict but
+never travels into the record at all.
 
 ### Before a merge
 

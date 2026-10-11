@@ -92,11 +92,13 @@ Run it like any other diff — no wrapper, because no Gradle call is involved:
 scripts/test-changed.sh --changed-file web/src/ui/adaptiveLayout.ts
 ```
 
-A web-only diff takes **no build slot**: the slot lives in the partition loop
-that calls `scripts/test-all.sh`, and a web diff selects no partition. A diff
-that touches `web/` and Android paths together does both, and the web steps run
-first — a red one stops the run before the first Gradle task — so only that mix
-queues for the slot.
+A web-only diff runs no Gradle at all, so there is nothing to serialise and the
+slot never enters the picture: the slot is the `flock` inside `.worktrees/gt`,
+and neither `scripts/test-changed.sh` nor `scripts/test-all.sh` takes it — the
+wrapper is what takes it (see "The build slot" above). A diff that touches
+`web/` and Android paths together does both, and it needs the wrapper exactly
+like any other Gradle diff: the web steps run first, and a red one stops the run
+before the first Gradle task.
 
 The check needs a Node toolchain, and `npm ci` installs what
 `web/package-lock.json` pins (it refuses a lockfile that disagrees with
@@ -131,18 +133,26 @@ native worker probes" step in `.github/workflows/ci.yml`). A native SDK 35 run
 that quietly used the SDK 36 runtime would fail that step, not just a test.
 
 Locally these are the heaviest legs in the matrix — four workers at 2 GB each,
-on the machine whose OOM note is above — and a full local pass over them is not
-how they get answered here. The last attempts are recorded: on 2026-09-05 the
-SDK 36 cohort stalled on a worker that answered neither jstack nor anything
-else and was killed (exit 137, 6m27s), and in another run it hit a
-two-minute-per-task timeout before finishing; SDK 35 and the default cohort
-passed, each in its own run
-(`docs/audits/2026-09-05-545-overview-covers.md:43`,
-`docs/audits/2026-09-05-546-book-detail.md:35`). Neither audit established the
-cause, and both hand the full check to CI. So a lane runs the partitions its
-diff touched, through the wrapper, and names them; the three native cohorts are
-answered by CI, and "the full set was not run locally" is the honest sentence
-for a PR body, not a shortcut.
+on the machine whose OOM note is above — and `AGENTS.md` holds here as
+everywhere else: run the partitions a diff touched, through the wrapper, and
+name them. What the record adds is how they behave. A full local pass with the
+standard JVM config has not finished: on 2026-09-05 the SDK 36 cohort stopped on
+a worker that answered neither jstack nor anything else and was killed (exit
+137, 6m27s), Robolectric-only and Compose hit the same worker hang, and
+Robolectric's temp-dir cleanup failed with `DirectoryNotEmptyException`
+(`docs/audits/2026-09-05-545-overview-covers.md:43`); two other runs reached
+the two-minute-per-task timeout before SDK 36 finished, and the groups after it
+never started
+(`docs/audits/2026-09-05-546-book-detail.md:35`,
+`docs/audits/2026-09-05-547-settings.md:41`). The cohorts' tests themselves did
+pass in pieces once the JVM was tamed — `-XX:TieredStopAtLevel=1`, `-Xint` for
+the last Room scenarios — but that run calls itself a check of the whole set in
+parts, not a continuous green run with the standard JVM configuration
+(`docs/audits/2026-09-05-551-installed-candidate.md:70`). So the local answer
+for a native cohort is the same as for any other partition, and when the SDK 36
+leg is in the diff, "the full set was not run locally" is the honest sentence
+for a PR body — with CI as the exhaustive gate, not a substitute for the run
+your diff asked for.
 
 ## The lint baseline
 
@@ -197,10 +207,12 @@ how many keep a stale line number.
 ## Wide windows on a phone
 
 Not every width question needs a tablet: a density override makes the window
-report a different number of dp, and the layout follows. Two lines are in play
-— 600 dp for the rail and the wide panes, and 840 dp for the player pane
-(`app/src/main/java/com/slukhayka/audiobooks/ui/adaptive/WindowLayout.kt`,
-`PlayerPaneMinWidthDp`). `scripts/wide-window.sh <dp>` does the whole recipe:
+report a different number of dp, and the layout follows. Two lines are in play,
+and the code owns both numbers
+(`app/src/main/java/com/slukhayka/audiobooks/ui/adaptive/WindowLayout.kt`):
+`ExpandedMinWidthDp` — 600 dp today — for the rail and the wide panes, and
+`PlayerPaneMinWidthDp` — 840 dp today — for the player pane, the second line
+#1205 drew. `scripts/wide-window.sh <dp>` does the whole recipe:
 
 ```sh
 scripts/wide-window.sh 840

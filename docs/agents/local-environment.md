@@ -97,6 +97,13 @@ source's size and whole-second mtime, so a same-size mutation applied in the sam
 second as the previous compile would be read from the stale cache — the suite
 would stay green and the record would call a live mutation a survivor.
 
+A run that executed nothing is never a survivor, in either half: a target that
+declares no tests, and a suite whose every test was skipped, both end as no verdict
+(`3`). Gradle's XML and the runner's carry `skipped` for exactly this, and
+`skipped == tests` is the check (it also covers `tests=0`). A mutation recorded as
+`survived` by a run that ran no test would be the one answer this tool must never
+invent.
+
 Ask which the last run was instead of guessing:
 
 ```sh
@@ -110,7 +117,14 @@ recorded one), `no-artifact` (nothing is on disk) or `unknown` (this worktree ha
 no record log at all). `summary` says the same in a sentence, `artifactRunId`
 names the run that wrote the XML, and `headMatches` says whether HEAD still is
 the commit the record was made at. Verdicts are decided in that order: with
-neither an XML nor a log, the answer is `no-artifact`, not `unknown`.
+neither an XML nor a log, the answer is `no-artifact`, not `unknown`. Records are
+matched by the target key alone, so a JVM class whose fully qualified name spelled
+a Python target's key would be answered as that target's artifact — the two
+spellings make that implausible, not impossible.
+
+The record's `task` for a Python target is the target as `python3 -m unittest`
+loads it. Run from `scripts/tests`, where the module is importable; from the
+repository root the same command is a `ModuleNotFoundError`.
 
 Four honest limits. The records cover mutations that ran through this script — a
 hand-edited tree is invisible to it. `--class` reaches JVM test sources under

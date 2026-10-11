@@ -1679,13 +1679,17 @@ span.bookrow-body {
   --layout-max-width: calc(3 * var(--list-column-min) + 2 * var(--list-column-gap) + 2 * var(--layout-gutter));
 }
 
-/* Lists whose entries are one card or one BookRow each become columns — the
-   auto-fill idiom the «Серії» index already uses (#585 `.index-grid`), now at
-   the column width above. Огляд's work lists are deliberately not in this
-   group: a Work with several narrations adds a SECOND row (the picker,
-   `UnifiedWorkRow`), and a grid would set that picker down beside another
-   Work's row — those lists keep one column at the full width instead. */
-.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))),
+/* A list becomes columns only while EVERY entry in it is exactly one BookRow,
+   and that is read off the list itself (`:has()`), not off the screen: a Work
+   with several narrations adds a SECOND row (the picker, `UnifiedWorkRow` in
+   Catalog.tsx), and a grid would set that picker down beside another Work's
+   row. So an Огляд list whose works each have one narration does become
+   columns, and the same screen keeps one column as soon as one work carries
+   the picker. Empty lists are out too (`:not(:empty)`): the feed branch
+   renders one when every Work is hidden, and an empty list must not draw a
+   closing hairline above nothing. The auto-fill idiom is the «Серії» index's
+   (#585 `.index-grid`), at the column width above. */
+.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))):not(:empty),
 .app[data-layout='expanded'] .surface .narrations,
 .app[data-layout='expanded'] .surface .chapters,
 .app[data-layout='expanded'] .surface .collection-list {
@@ -1697,18 +1701,20 @@ span.bookrow-body {
    columns its rows touch, and the grid's own top edge draws the one closing
    line every column shares — the line `.bookrow:first-child` draws alone
    while there is a single column. */
-.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))) {
+.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))):not(:empty) {
   row-gap: 0;
   border-top: 1px solid var(--line);
 }
 
-.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))) > .bookrow:first-child {
+.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))):not(:empty) > .bookrow:first-child {
   border-top: none;
 }
 
 /* With the width to show a shelf whole, a rail would hide exactly the cards
-   the window has room for: the rails wrap instead. The scroll-snap left on
-   `.shelf-rail` is inert once nothing scrolls. */
+   the window has room for, so the rails wrap instead. This is the one place
+   #1207 reaches past «width and grid»: the owner confirmed it on 2026-10-11,
+   so it is a decision, not a side effect. The scroll-snap left on `.shelf-rail`
+   is inert once nothing scrolls. */
 .app[data-layout='expanded'] .surface .shelf-rail,
 .app[data-layout='expanded'] .surface .poster-row,
 .app[data-layout='expanded'] .surface .collection-rail-row {

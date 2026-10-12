@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.recommend
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * The background embedding pass (#482): given a catalogue and the Room-backed
  * [RoomEmbeddingCache], returns the id → vector map, computing ONLY the books
@@ -7,7 +9,7 @@ package com.slukhayka.audiobooks.data.recommend
  * derived data; the per-book hash means an unchanged book is never computed
  * twice even when the ephemeral union churns.
  *
- * Failure-safe by contract (spec-19 T2): it never throws. A book whose
+ * Ordinary failures are contained (spec-19 T2); embedder cancellation propagates. A book whose
  * embedding fails is skipped (its missing vector drops it from the ranking,
  * never fabricates a score), and a cache write that fails leaves the
  * in-memory result usable. The caller picks the dispatcher.
@@ -18,7 +20,7 @@ class CatalogEmbeddingService(
     /**
      * The vectors for [catalog]: fresh cache hits serve without the embedder;
      * only new/changed books are computed — at most [limit] per pass, so a
-     * cold 10k pool warms gradually instead of in one storm. Never throws.
+     * cold 10k pool warms gradually instead of in one storm. Embedder cancellation propagates.
      */
     suspend fun vectorsFor(
         catalog: List<RecommendationEngine.Candidate>,
@@ -42,6 +44,8 @@ class CatalogEmbeddingService(
                 if (!valid) continue
                 computed[candidate.id] = vector
                 if (context != null) persist[candidate.id] = candidate.text to vector
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 // One broken embed (or a throwing embedder in tests) must not
                 // take the whole row down — the candidate simply misses.

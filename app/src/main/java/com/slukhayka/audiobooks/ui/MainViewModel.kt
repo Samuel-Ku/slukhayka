@@ -223,7 +223,10 @@ internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel @JvmOverloads constructor(
+    application: Application,
+    private val recommendationBackendLoader: com.slukhayka.audiobooks.data.recommend.RecommendationBackendLoader? = null
+) : AndroidViewModel(application) {
 
     // Playback stack is application-scoped (see App.kt) so background playback
     // survives the Activity/ViewModel being destroyed by the system.
@@ -4176,6 +4179,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var context: com.slukhayka.audiobooks.data.recommend.EmbeddingContext? = null
             var vectors: Map<String, FloatArray> = emptyMap()
             var attempted: Map<String, Set<String>> = emptyMap()
+            var cancelled = false
             try {
                 val works = recommendationWorks.value
                 val library = libraryBooks.value
@@ -4215,6 +4219,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             computed[id] = vector
                             persistSignals[id] = text to vector
                         }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
                     } catch (e: Exception) {
                         // A failing signal simply misses — the row degrades.
                     }
@@ -4222,6 +4228,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cachedSignals.forEach { (id, vector) -> computed.putIfAbsent(id, vector) }
                 if (persistSignals.isNotEmpty()) embeddingCache.save(persistSignals, capturedContext)
                 vectors = computed
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                cancelled = true
+                throw cancellation
             } finally {
                 try {
                     capturedBackend?.let(::releaseRecommendationBackend)
@@ -4230,7 +4239,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         embeddingPassGate.finish(ticket) {
                             embeddingPass.value = RuntimeEmbeddingPass(
                                 snapshot = com.slukhayka.audiobooks.data.recommend.EmbeddingPassSnapshot(
-                                    context, vectors, attempted, ready = true
+                                    context, vectors, attempted, ready = !cancelled
                                 ),
                                 backendStatus = backendStatus
                             )
@@ -4326,7 +4335,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** File/native initialization runs on IO; the loader owns bounded fallback outcomes. */
     private fun loadRecommendationBackend(): com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend =
-        com.slukhayka.audiobooks.data.recommend.RecommendationBackendLoader(
+        recommendationBackendLoader?.load() ?: com.slukhayka.audiobooks.data.recommend.RecommendationBackendLoader(
             installedFactory = {
                 val model = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MODEL_NAME)
                     .takeIf { it.length() >= com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MIN_MODEL_BYTES }

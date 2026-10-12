@@ -51,6 +51,59 @@ changes, no test results. `pgrep -af 'gradlew --offline'` says whose run holds
 the slot, and the waiting lane's own command line names the worktree it belongs
 to.
 
+### The measured ceiling
+
+The one-run rule is not caution, it is arithmetic. On 2026-10-12 this machine
+(i5-7300HQ, 4 cores / 4 threads, 16 GB) ran one identical build — the two tasks
+`:app:validateTestPartitions :app:testPureJvm` narrowed to
+`com.slukhayka.audiobooks.data.achievements.AchievementEngineTest` through
+`-Ptest.selectedClasses` — in detached worktrees off `origin/main` (`d46bf54b`):
+
+```sh
+git worktree add --detach <dir> origin/main
+GRADLE_USER_HOME=<per-run dir> GRADLE_RO_DEP_CACHE=$HOME/.gradle/caches \
+  TMPDIR=<dir on disk, not tmpfs> SLUKHAYKA_GRADLE_ARGS_FILE=<args-file> \
+  scripts/test-all.sh
+# <args-file>: :app:validateTestPartitions / :app:testPureJvm / -Ptest.selectedClasses=<FQCN>
+```
+
+Those runs deliberately did **not** go through the slot above: no `flock`, no
+`--offline`, and each run had its own writable `GRADLE_USER_HOME` over a shared
+read-only dependency cache. That is what the experiment measured — what happens
+*without* the slot. Every run was `--no-daemon` (as `test-all.sh` always is),
+and `TMPDIR` was pointed at a directory on disk because `$HOME` is read-only
+here and tmpfs competes with the build for the same memory.
+
+Memory was sampled once a second: `MemAvailable` from `/proc/meminfo`, the sum
+of `Used` in `/proc/swaps`, and the summed resident size of the JVM processes —
+the first runs picked those out by command line, the later ones by an `exe` that
+resolves to `*/java`; the difference is a few megabytes of wrapper processes.
+Each row is the extreme its own run reached inside its own wall-clock window
+(`end − start`, rounded down); the warm row reads 62 s where Gradle itself
+printed `1m 01s`.
+
+| Runs | Wall | Peak JVM RSS (sum) | MemAvailable min | swap used max |
+|---|---|---|---|---|
+| 1 cold (full compile) | 662 s | 4.74 GB | 2.66 GB | 0.18 GB |
+| 1 warm, nothing changed | 62 s | not sampled | — | — |
+| 1 incremental (one file edited) | 213 s | 3.61 GB | 3.86 GB | 0.68 GB |
+| 2 warm, concurrent | 123 s | 1.99 GB | 5.99 GB | 1.93 GB |
+| 3 incremental, concurrent | **killed at 613 s** | 8.10 GB | 1.13 GB | 3.91 GB |
+
+Two warm, compile-free builds fit, and the second buys nothing: 123 s side by
+side against 124 s one after another (2 × 62 s). Three do not fit at all —
+memory fell monotonically (5.3 → 4.0 → 3.0 → 2.1 → 1.1 GB), swap grew to
+3.91 GB, `load average` reached 23.5 on four threads, and an external watchdog
+killed the runs at 613 s rather than leave the machine wedged. The slot itself
+only serialises; guarding a single run is #1273. One incremental run over the
+same work takes 213 s.
+
+So the slot serialises builds because a third one has nowhere to live, and
+because four threads shared by three Gradle JVMs plus in-process Kotlin
+compilation spend their time switching. What stays parallel is what does not
+build. The cloud alternatives considered and closed on their own evidence —
+not on this table — are recorded in ADR-0062.
+
 ## Mutations
 
 A mutation run leaves the same artifacts as a real one: the same

@@ -272,6 +272,16 @@ class CliTest(unittest.TestCase):
         report = ip.format_report("origin/main", 1, verdicts)
         self.assertIn("origin/main", report)
         self.assertIn("шляхів перевірено: 2", report)
+        self.assertIn("є в origin/main: 1", report)
+        self.assertIn("відмов: 1", report)
+
+    def test_report_counts_a_new_path_as_new_not_as_present(self):
+        # Інакше підсумок казав би «є в origin/main: 3» про шлях, якого там
+        # немає, — а це та сама неправда про `main`, яку ґард і ловить.
+        _, verdicts, _ = judge_body("`NEW:docs/agents/premise.md` і `AGENTS.md`", {"AGENTS.md"})
+        report = ip.format_report("origin/main", 0, verdicts)
+        self.assertIn("є в origin/main: 1", report)
+        self.assertIn("позначено `NEW:`: 1", report)
 
 
 class LiveRepositoryTest(unittest.TestCase):

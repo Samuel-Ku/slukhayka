@@ -345,12 +345,16 @@ def format_report(ref: str, code: int, verdicts: list[Verdict]) -> str:
     for verdict in verdicts:
         where = f"рядок {verdict.candidate.line_no}: " if verdict.candidate.line_no else ""
         lines.append(f"  [{verdict.code}] {where}{verdict.candidate.display()} — {verdict.detail}")
-    counts = {c: sum(1 for v in verdicts if v.code == c) for c in (0, 1, 2)}
-    lines.append("")
-    if any(v.candidate.path for v in verdicts):
+    counted = [v for v in verdicts if v.candidate.path]
+    if counted:
+        exists = sum(1 for v in counted if v.code == 0 and not v.candidate.marked_new)
+        marked = sum(1 for v in counted if v.code == 0 and v.candidate.marked_new)
+        refused = sum(1 for v in counted if v.code == 1)
+        unknown = sum(1 for v in counted if v.code == 2)
+        lines.append("")
         lines.append(
-            f"шляхів перевірено: {len(verdicts)} — є в {ref}: {counts[0]}, "
-            f"відмов: {counts[1]}, невідомість: {counts[2]}"
+            f"шляхів перевірено: {len(counted)} — є в {ref}: {exists}, "
+            f"позначено `{NEW_MARKER}`: {marked}, відмов: {refused}, невідомість: {unknown}"
         )
     return "\n".join(lines)
 

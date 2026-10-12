@@ -501,8 +501,41 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
         report.blocked.append("FAIL  %s" % error)
         return report
 
-    with tempfile.TemporaryDirectory(prefix=TEMP_PREFIX, dir=str(base)) as tmp:
-        baseline = _roots(root, Path(tmp))
+    def tree() -> Path | None:
+        """Тимчасове дерево прогону: створене, позначене власником, із копією.
+
+        Маркер тут — не косметика (#1271). Механізм сам прибирає теки СВОГО
+        префікса без маркера після пільгового часу, тож непозначена тека — це
+        тека, яку сусідній прогін має право прибрати. Прогін, довший за пільгу
+        (два модулі-свідки по 240 с таймауту — це вже 960 с), утратив би своє
+        дерево посеред роботи. Сам себе механізм маркером і захищає: у
+        `verdict_field_mutants.py` ту саму роль грає `Runner`.
+
+        Невдача створення чи копіювання (диск, права, ліміти) — невідомість
+        (код 2), як і в механізмі полів, а не трейсбек: контракт механізму
+        обіцяє відмову з причиною.
+        """
+        try:
+            directory = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX, dir=str(base)))
+        except OSError as error:
+            report.blocked.append("FAIL  %s: тимчасового дерева не створити: %s"
+                                  % (script, error))
+            return None
+        tmp_budget.mark(directory)
+        try:
+            _roots(root, directory)
+        except (OSError, tmp_budget.BudgetError) as error:
+            report.blocked.append("FAIL  %s: тимчасового дерева не зібрати: %s"
+                                  % (script, error))
+            shutil.rmtree(directory, ignore_errors=True)
+            return None
+        return directory
+
+    baseline_tree = tree()
+    if baseline_tree is None:
+        return report
+    try:
+        baseline = baseline_tree / "root"
         for module in modules:
             status, output = _run_module(baseline, module, tests_dir)
             if status is None:
@@ -522,12 +555,17 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
             verdict = Verdict(shape)
             mutant_text = mutate(text, shape)
             for module in modules:
-                with tempfile.TemporaryDirectory(prefix=TEMP_PREFIX, dir=str(base)) as tmp:
-                    work = _roots(root, Path(tmp))
+                mutant_tree = tree()
+                if mutant_tree is None:
+                    return report
+                try:
+                    work = mutant_tree / "root"
                     (work / script.relative_to(root)).write_text(mutant_text, encoding="utf-8")
                     started = time.monotonic()
                     status, output = _run_module(work, module, tests_dir)
                     verdict.seconds = max(verdict.seconds, time.monotonic() - started)
+                finally:
+                    shutil.rmtree(mutant_tree, ignore_errors=True)
                 if status is None:
                     # Невідомість, не відмова: «мутанта не вбито» і «прогін не
                     # завершився» — різні речі, і код виходу в них різний.
@@ -549,6 +587,8 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
                        ", ".join(module.name for module in modules))
                 )
             report.verdicts.append(verdict)
+    finally:
+        shutil.rmtree(baseline_tree, ignore_errors=True)
     return report
 
 

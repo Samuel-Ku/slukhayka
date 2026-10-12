@@ -356,6 +356,65 @@ class TempBudgetTest(unittest.TestCase):
         self.assertIn(str(stale), err.getvalue())
         self.assertIn(str(elsewhere), err.getvalue(), "перенесення мусить бути назване вголос")
 
+    def test_a_live_shape_tree_carries_its_owner_so_no_neighbour_can_sweep_it(self):
+        """Живе дерево мусить мати маркер — інакше сусід прибирає його за часом.
+
+        Механізм сам прибирає теки СВОГО префікса без маркера після пільгового
+        часу. Якби він же їх і не позначав, це правило вбивало б його власні
+        прогони: два модулі-свідки по 240 с таймауту — це вже 960 с, більше за
+        пільгу. Тому перевірка структурна (маркер є, sweep його не чіпає), а не
+        «за 901 с»: чекати чверть години, щоб побачити діру, — не перевірка.
+        """
+        elsewhere = Path(self._tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        seen = []
+
+        def inspect(work, module, tests_dir):
+            tree = Path(work).parent
+            intruder = elsewhere / "slukhayka-shape-intruder"
+            intruder.mkdir()
+            (intruder / "payload").write_bytes(b"p" * 64)
+            os.utime(intruder, (1, 1))          # стара тека без маркера — сміття
+            freed = esm.tmp_budget.sweep_stale(elsewhere, esm.tmp_budget.OWN_PREFIXES)
+            seen.append((
+                (tree / esm.tmp_budget.OWNER_MARKER).is_file(),
+                esm.tmp_budget.stale(tree),
+                tree.is_dir(),
+                [path.name for path, _size in freed],
+            ))
+            return 0, ""
+
+        with mock.patch.object(esm, "_run_module", inspect), mock.patch.dict(
+            os.environ, {esm.tmp_budget.RELOCATE_VARIABLE: str(elsewhere)}
+        ):
+            report = esm.check(self.gate, TESTS_DIR, self.root)
+
+        self.assertEqual([], report.blocked)
+        self.assertTrue(seen, "свідок мусить бачити дерево прогону в польоті")
+        for marker, is_stale, alive, freed in seen:
+            with self.subTest(tree=seen.index((marker, is_stale, alive, freed))):
+                self.assertTrue(marker, "тека прогону мусить мати owner.pid")
+                self.assertFalse(is_stale, "жива тека не може вважатися застарілою")
+                self.assertTrue(alive, "sweep сусіда не має права прибрати живу теку")
+                self.assertEqual(["slukhayka-shape-intruder"], freed,
+                                 "прибиратися мусить лише те, що без власника")
+
+    def test_a_tree_that_cannot_be_created_is_unknown_not_a_traceback(self):
+        """Диск, права, ліміти: невдача з тимчасовою текою — код 2, як і в полях."""
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(esm.tempfile, "mkdtemp",
+                               side_effect=OSError("no space left")), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            report = esm.check(self.gate, TESTS_DIR, self.root)
+            status = esm.main(["--root", str(self.root)])
+
+        self.assertEqual([], report.verdicts)
+        self.assertEqual(1, len(report.blocked))
+        self.assertIn("не створити", report.blocked[0])
+        self.assertIn("no space left", report.blocked[0])
+        self.assertEqual(2, status, out.getvalue())
+        self.assertIn("FAIL", err.getvalue())
+
     def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
         """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
 

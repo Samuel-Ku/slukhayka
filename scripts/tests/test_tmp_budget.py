@@ -19,6 +19,7 @@
 import contextlib
 import io
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -89,15 +90,36 @@ class CopySetTest(unittest.TestCase):
             tb.tree_bytes(self.root / "scripts", ("__pycache__", "*.pyc")),
         )
 
-    def test_a_symlinked_directory_is_not_walked_into(self):
-        """Інакше міра копії рахувала б чуже дерево цілком."""
+    def test_a_symlinked_directory_is_counted_like_copytree_copies_it(self):
+        """Міра й копіювання не мають права розійтися: на мірі стоїть відмова.
+
+        `copytree` без `symlinks=True` у симлінк-ТЕКУ заходить і копіює вміст, а
+        міра, яка цього не робить, нарахувала б 10 Б там, де копіювання пише
+        100 010 Б (огляд #1275) — тобто охороняла б не той обсяг.
+        """
         (self.root / "scripts").mkdir()
         (self.root / "app").mkdir()
-        (self.root / "app" / "huge.bin").write_bytes(b"y" * 10000)
+        (self.root / "app" / "payload.bin").write_bytes(b"y" * 100000)
         (self.root / "scripts" / "app").symlink_to(self.root / "app",
                                                    target_is_directory=True)
 
-        self.assertEqual(0, tb.tree_bytes(self.root / "scripts"))
+        measured = tb.tree_bytes(self.root / "scripts")
+        copied = self.root / "copy"
+        shutil.copytree(self.root / "scripts", copied)
+        written = sum(entry.stat().st_size
+                      for entry in copied.rglob("*") if entry.is_file())
+
+        self.assertEqual(100000, measured)
+        self.assertEqual(written, measured)
+
+    def test_a_symlink_loop_does_not_hang_or_double_count(self):
+        """Цикл симлінків міра не розкручує: `copytree` на ньому падає, міра — ні."""
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts" / "tool.py").write_text("x" * 100, encoding="utf-8")
+        (self.root / "scripts" / "loop").symlink_to(self.root / "scripts",
+                                                    target_is_directory=True)
+
+        self.assertEqual(100, tb.tree_bytes(self.root / "scripts"))
 
     def test_the_requirement_is_the_copy_times_the_headroom_plus_the_floor(self):
         self.assertEqual(tb.requirement(0), tb.SCRATCH_FLOOR_BYTES)

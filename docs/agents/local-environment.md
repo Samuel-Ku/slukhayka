@@ -174,7 +174,9 @@ Both gates build a copy of the tree for every mutant, so the temp filesystem is
 their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
 every other top-level entry is a symlink: measured, 1.2 MiB per tree against
 74.7 MiB for a full copy (0.03–0.14 s against 0.40–1.04 s, depending on machine
-load) — 45 MiB for a whole gate instead of 2.8 GiB. `scripts/tmp_budget.py` measures the copy before the first one, adds
+load) — 2.8 GiB for a whole gate instead of 45 MiB, and the peak is 5.3 MiB once
+each tree is released right after its run (it was 46.9 MiB).
+`scripts/tmp_budget.py` measures the copy before the first one, adds
 headroom for the workers and a floor for the witnesses' own scratch, and refuses
 with `2` and both numbers ("needs X, has Y") rather than filling the filesystem:
 an exhausted `/tmp` does not fail that one run, it fails *every* process start in

@@ -15,6 +15,7 @@
     python3 scripts/issue_premise.py --body-file .scratch/1264.md   # чернетка
     python3 scripts/issue_premise.py --body-file -                   # з stdin
     python3 scripts/issue_premise.py --issue 1261                    # уже заведений
+    python3 scripts/issue_premise.py --scan 200                      # переміряти шум
 
 Форма позначки — `NEW:` **усередині** того самого інтервалу в бектиках, перед
 шляхом::

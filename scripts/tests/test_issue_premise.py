@@ -1,5 +1,6 @@
 import contextlib
 import io
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # і тест, який тримався б за нього, просто **не біг би там** — тобто не
 # охороняв би нічого. `HEAD` є завжди; інваріант від цього не слабшає, бо він і
 # мусить перевіряти те дерево, у якому біжить.
+TOP_LEVEL_ENTRIES = (
+    ".env.example", ".github", ".gitignore", "AGENTS.md", "AUTHORS.md", "CONTEXT.md",
+    "CONTRIBUTING.md", "LICENSE", "README.md", "RELEASE-BRANCH.md", "app", "assets",
+    "build.gradle.kts", "docs", "firestore.rules", "gradle", "gradle.properties",
+    "gradlew", "gradlew.bat", "metadata.json", "opencode.json", "renovate.json",
+    "scripts", "settings.gradle.kts", "sources.json", "web",
+)
+
 TOP_LEVEL_IN_TREE = frozenset(
     subprocess.run(
         ["git", "ls-tree", "--name-only", "HEAD"],
@@ -223,13 +232,29 @@ class ExtractionTest(unittest.TestCase):
         # 83 шляхи в 72 тікетах), і цей тест не дає повернути голову, яка
         # затьмарює реальну теку.
         #
-        # Дерево береться з `HEAD` — того чекаута, у якому тест біжить. У CI
-        # `origin/main` немає, і тест, який тримався б за нього, там просто не
-        # біг би (скіп) — тобто не охороняв би нічого. Скіпу тут немає.
-        if not TOP_LEVEL_IN_TREE:
-            self.fail("git ls-tree HEAD дав порожньо — інваріант не перевірено, і це не «зелено»")
-        shadowing = ip.BRANCH_HEADS & TOP_LEVEL_IN_TREE
+        # Герметично: репозиторій будується тут, із тими самими верхніми
+        # записами, що в справжньому дереві. Читати справжнє дерево не можна:
+        # `verdict_field_mutants` ганяє цей модуль свідком у копії **без
+        # `.git`**, і тест, який там падав, робив червоним набір-свідок — а
+        # червоний свідок БЕЗ мутації механізм читає як «зеленого мутанта тут
+        # не відрізнити від зламаного набору» і відмовляє на всьому прогоні.
+        # Саме так цей тест і поклав `test_verdict_field_mutants`.
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-shadow-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(base, {name: "x\n" for name in TOP_LEVEL_ENTRIES})
+        shadowing = ip.BRANCH_HEADS & ip._top_level_entries("origin/main", repo)
         self.assertEqual(shadowing, frozenset())
+
+    def test_the_real_repository_is_free_of_shadowing(self):
+        # Другий бік того самого: у **справжньому** дереві інваріант теж мусить
+        # триматися. Тут дерево читається з `HEAD` — того чекаута, у якому тест
+        # біжить; у CI `HEAD` є завжди, тож скіпу немає. Порожній `ls-tree`
+        # означає, що це копія без git (свідок у `verdict_field_mutants`) —
+        # тоді інваріант не перевіряється, і це названо вголос, а не видано за
+        # зелене.
+        if not TOP_LEVEL_IN_TREE:
+            self.skipTest("копія без .git — справжнє дерево тут не читається")
+        self.assertEqual(ip.BRANCH_HEADS & TOP_LEVEL_IN_TREE, frozenset())
 
     def test_measure_head_exists_because_the_docs_cite_it(self):
         # Доки посилаються на `--measure-head` як на джерело чисел. Команда,

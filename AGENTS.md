@@ -23,6 +23,13 @@ writing any of them.
 
 Issues and PRDs live in GitHub Issues. See `docs/agents/issue-tracker.md`.
 
+A ticket is filed from the state of `main`, not from the working copy: a path a
+ticket names is either in `origin/main` or marked `NEW:` as something that
+ticket will create. `scripts/issue_premise.py` decides that with `git`, so an
+uncommitted change on someone else's machine cannot pass for the repository —
+#1261 was filed that way and had to be closed. See the same document,
+"Премиса тікета мусить існувати в `main`".
+
 ### Work coordination
 
 Before starting or delegating issue work, read `docs/agents/work-coordination.md`

@@ -356,17 +356,35 @@ class MergePrTest(unittest.TestCase):
         self.git("worktree", "add", "-q", "-b", branch, str(linked), "main")
         return linked
 
-    def run_script(self, *args, env_extra=None):
-        """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
-        environment = os.environ.copy()
-        environment.pop("MERGE_PR_LABEL", None)
-        environment.update({
+    def environment(self, extra=None) -> dict:
+        """Оточення гейта і підставного gh — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        експортована функція (`BASH_FUNC_cat%%`, `BASH_FUNC_printf%%`), яка
+        затіняє команду ВСЕРЕДИНІ підставного gh: він тоді не віддає фікстуру й
+        виходить із кодом 3 — при незмінних файлах фікстури. Саме так фікстура
+        #1260 і почервоніла в CI, хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Імена тут — лише свої: `FAKE_GH_*` читає
+        підставний gh, `MERGE_PR_*` — вхід самого гейта.
+        """
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
             "MERGE_PR_GH": str(self.gh),
             "MERGE_PR_REPO": str(self.repo),
             "FAKE_GH_DIR": str(self.fixtures),
             "FAKE_GH_LOG": str(self.log),
-        })
-        environment.update(env_extra or {})
+        }
+        environment.update(extra or {})
+        return environment
+
+    def run_script(self, *args, env_extra=None):
+        """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
+        environment = self.environment(env_extra)
+        environment.pop("MERGE_PR_LABEL", None)
         return subprocess.run(
             ["bash", str(MERGE_PR), *args],
             check=False, capture_output=True, text=True,

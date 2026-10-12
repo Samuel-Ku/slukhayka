@@ -113,7 +113,7 @@ python3 scripts/issue_premise.py --issue 1261                      # уже за
 python3 scripts/issue_premise.py --scan 200
 ```
 
-На 200 останніх тікетах (ref `origin/main` = `b59725f1`, 2026-10-12): **96** —
+На 200 останніх тікетах (ref `origin/main` = `d46bf54b`, 2026-10-12): **96** —
 «премиса є», **89** — невідомість «шляхів у бектиках немає», **7** —
 неоднозначне ім'я (`mutate.sh` ×3 — у дереві є ще дві фікстурні копії;
 `ui/components`, `ui/adaptive`, `data/ingest`+`data/source`,

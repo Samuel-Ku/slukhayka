@@ -166,7 +166,7 @@ KNOWN_REF_HEADS = frozenset({"origin", "upstream", "HEAD", "refs", "remotes", "t
 BRANCH_HEADS = frozenset(
     {
         "feat", "feature", "fix", "hotfix", "bugfix", "chore", "refactor", "perf",
-        "build", "ci", "revert", "release", "backup", "wip",
+        "test", "tests", "build", "ci", "revert", "release", "backup", "wip",
         "dependabot", "renovate", "spec",
     }
 )

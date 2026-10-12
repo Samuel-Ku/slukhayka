@@ -12,6 +12,16 @@ import issue_premise as ip  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Записи верхнього рівня `main` — з дерева, не зі списку в тесті. Порожня
+# множина означає, що чекаут не має `origin/main`: тест про затінення тоді
+# пропускається голосно (див. його доккоментар), а не проходить тихо.
+TOP_LEVEL_IN_MAIN = frozenset(
+    subprocess.run(
+        ["git", "ls-tree", "--name-only", "origin/main"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    ).stdout.split()
+)
+
 
 def build_repo(base: Path, files: dict[str, str], gitignore: str = "") -> Path:
     """Репозиторій зі **своїм** `origin/main` — у `/tmp`, не в чекауті.
@@ -117,6 +127,8 @@ def judge_body(body, paths, ref="origin/main"):
         ip, "main_has_path", tree
     ), mock.patch.object(ip, "main_matches_suffix", tree.suffixes), mock.patch.object(
         ip, "_top_level_entries", tree.top_level
+    ), mock.patch.object(
+        ip, "_is_ignored", lambda path, repo=None: False
     ):
         code, verdicts = ip.check_body(body, ref)
     return code, verdicts, tree
@@ -181,15 +193,49 @@ class ExtractionTest(unittest.TestCase):
         self.assertFalse(ip._is_branch_name("docs/voice.md"))
         self.assertFalse(ip._is_branch_name("docs/adr"))
 
-    def test_test_directories_are_not_mistaken_for_branches(self):
-        # Та сама ціна для голів `test`/`tests` (огляд PR #1268): у дереві 931
-        # шлях під такими теками, і голова зробила б їх невидимими.
+    def test_paths_under_scripts_and_app_never_depend_on_branch_heads(self):
+        # `_is_branch_name` дивиться лише на `segments[0]`: голови цих шляхів —
+        # `scripts` і `app`, тож від списку голів вони не залежали ніколи
+        # (огляд PR #1268 поправив саме це моє хибне обґрунтування).
         self.assertEqual(
             [c.path for c in ip.candidates("`scripts/tests/test_x.py` і `app/src/test/java/A.kt`")],
             ["scripts/tests/test_x.py", "app/src/test/java/A.kt"],
         )
-        self.assertFalse(ip._is_branch_name("tests/x"))
-        self.assertFalse(ip._is_branch_name("test/x"))
+
+    def test_test_head_is_a_branch_not_a_path(self):
+        # `test/…` — реальна голова гілок цього репозиторію
+        # (`refs/heads/test/issue-703-hidden-boundaries`). Прибирання `test` зі
+        # списку коштувало б хибної відмови, і це піниться **вердиктом**, а не
+        # самою лише `_is_branch_name`: саме так зміну можна зламати непомітно.
+        self.assertTrue(ip._is_branch_name("test/issue-703-hidden-boundaries"))
+        self.assertTrue(ip._is_branch_name("tests/wave-1/step-2"))
+        code, verdicts, _ = judge_body(
+            "гілка `test/issue-703-hidden-boundaries`, крок `tests/wave-1/step-2`", set()
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual({v.code for v in verdicts}, {2})
+
+    def test_no_branch_head_shadows_a_real_top_level_entry(self):
+        # Справжній інваріант списку: голова, яка є записом верхнього рівня
+        # `main`, проковтнула б усі шляхи під собою. `docs` прибрано саме
+        # тому (вимір: 83 шляхи в 72 тікетах), і цей тест не дає повернути
+        # голову, яка затьмарює реальну теку.
+        #
+        # Це єдиний тест модуля, який питає **чекаут**: інваріант — про
+        # справжнє дерево `main`, і підставне його не доводить. Без
+        # `origin/main` він пропускається **голосно**, а не проходить тихо.
+        if not TOP_LEVEL_IN_MAIN:
+            self.skipTest("origin/main не читається в цьому чекауті — інваріант не перевірено")
+        shadowing = ip.BRANCH_HEADS & TOP_LEVEL_IN_MAIN
+        self.assertEqual(shadowing, frozenset())
+
+    def test_branch_head_with_a_path_like_tail_is_not_a_branch(self):
+        # `docs/voice.md` — файл: крапка в останньому сегменті знімає назву
+        # гілки навіть якби голова була в списку. Саме тому ціна голови
+        # `docs` — не про такі шляхи, а про теки (`docs/adr`, `docs/agents`).
+        self.assertFalse(ip._is_branch_name("docs/voice.md"))
+        with mock.patch.object(ip, "BRANCH_HEADS", ip.BRANCH_HEADS | {"docs"}):
+            self.assertTrue(ip._is_branch_name("docs/adr"))
 
     def test_device_paths_are_not_paths(self):
         # `filesDir/local_imports` — тека в застосунку, не в репозиторії
@@ -553,6 +599,24 @@ class RealGitTest(unittest.TestCase):
         # Той самий шлях у тілі, але ref-и різні: вердикт дає дерево ref-а.
         code, _ = ip.check_body("читай `AGENTS.md`", "origin/main", self.repo)
         self.assertEqual(code, 0)
+
+    def test_prose_decision_goes_through_real_git(self):
+        # Найважливіший пін: саме цей ланцюг упав у CI PR #1268 —
+        # `_is_prose_fragment` питає дерево ref-а, і на порожньому дереві
+        # `docs/agents` читався як проза. Тут дерево справжнє, тож `try/catch`
+        # (проза) і тека (не проза) розходяться **вердиктом**, а не моком.
+        prose, prose_verdicts = ip.check_body("код `try/catch`", "origin/main", self.repo)
+        self.assertEqual(prose, 0)
+        self.assertIn("проза", prose_verdicts[0].detail)
+
+        missing, missing_verdicts = ip.check_body("тека `docs/nope`", "origin/main", self.repo)
+        self.assertEqual(missing, 1)
+        self.assertIn("премиси немає", missing_verdicts[0].detail)
+
+        # А `docs/agents` — тека в дереві ref-а, і вона не проза.
+        tracked, tracked_verdicts = ip.check_body("тека `docs/agents`", "origin/main", self.repo)
+        self.assertEqual(tracked, 0)
+        self.assertEqual(tracked_verdicts[0].code, 0)
 
     def test_missing_ref_is_unknown_not_a_pass(self):
         code, verdicts = ip.check_body("читай `AGENTS.md`", "origin/nonexistent", self.repo)

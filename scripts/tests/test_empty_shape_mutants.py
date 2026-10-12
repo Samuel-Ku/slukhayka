@@ -267,6 +267,119 @@ class FailClosedTest(unittest.TestCase):
         self.assertIn("не пінить жоден тест", refused.stderr)
 
 
+class TempBudgetTest(unittest.TestCase):
+    """Тимчасові дерева (#1271): спершу відмова, потім копіювання.
+
+    Кожен тест ловить не лише повідомлення, а й те, що копіювання **не
+    почалося**: заповнена ФС валить не цей прогін, а кожен запуск процесу в
+    середовищі — `bash` не стартує навіть на `true`, `ripgrep` не запускається, і
+    робота виглядає як «зламалися інструменти», а не як вичерпана квота.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = FIXTURES / "pinned"
+        self.gate = self.root / "scripts" / "gate.sh"
+
+    def no_copy(self):
+        return mock.patch.object(
+            esm.shutil, "copytree",
+            side_effect=AssertionError("копіювання почалося попри відмову"),
+        )
+
+    def test_no_room_is_refused_before_the_copy_with_both_numbers(self):
+        needed = esm.tmp_budget.mib(esm.tmp_budget.requirement(esm.copy_bytes(self.root)))
+
+        with self.no_copy(), mock.patch.object(
+            esm.tmp_budget, "disk_free_bytes", return_value=1024
+        ):
+            report = esm.check(self.gate, TESTS_DIR, self.root)
+
+        self.assertEqual([], report.verdicts)
+        self.assertEqual(1, len(report.blocked))
+        self.assertIn(needed, report.blocked[0])          # скільки треба
+        self.assertIn("0.0 MiB", report.blocked[0])       # скільки є
+        self.assertIn("Копіювання не почато", report.blocked[0])
+        self.assertIn(esm.tmp_budget.RELOCATE_VARIABLE, report.blocked[0])
+
+    def test_the_cli_refuses_with_code_two_not_a_traceback(self):
+        out, err = io.StringIO(), io.StringIO()
+        with self.no_copy(), mock.patch.object(
+            esm.tmp_budget, "disk_free_bytes", return_value=1024
+        ), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = esm.main(["--root", str(self.root)])
+
+        self.assertEqual(2, status, out.getvalue())
+        self.assertIn("FAIL", err.getvalue())
+        self.assertIn("треба", err.getvalue())
+        self.assertNotIn("не пінить", err.getvalue(), "це відмова середовища, а не форма")
+
+    def test_a_small_ram_tmpfs_is_refused_loudly(self):
+        """Маленький tmpfs у RAM — відмова, а не тихе перенаправлення."""
+        with self.no_copy(), mock.patch.object(
+            esm.tmp_budget, "ram_backed", return_value=True
+        ), mock.patch.object(
+            esm.tmp_budget, "filesystem_total_bytes", return_value=64 * 1048576
+        ):
+            report = esm.check(self.gate, TESTS_DIR, self.root)
+
+        message = report.blocked[0]
+        self.assertIn("tmpfs", message)
+        self.assertIn("64.0 MiB", message)
+        self.assertIn("TMPDIR", message)
+        self.assertIn(esm.tmp_budget.RELOCATE_VARIABLE, message)
+
+    def test_stale_trees_of_previous_crashes_are_reclaimed_loudly(self):
+        """Після `EDQUOT` лишається недороблене дерево, і воно добиває наступний прогін."""
+        elsewhere = Path(self._tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        stale = elsewhere / "slukhayka-shape-stale"
+        stale.mkdir()
+        (stale / "payload").write_bytes(b"p" * 2048)
+        os.utime(stale, (1, 1))
+        live = elsewhere / "slukhayka-shape-live"
+        live.mkdir()
+        (live / esm.tmp_budget.OWNER_MARKER).write_text("%d\n" % os.getpid(),
+                                                        encoding="utf-8")
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ,
+                             {esm.tmp_budget.RELOCATE_VARIABLE: str(elsewhere)}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = esm.main(["--root", str(self.root)])
+
+        self.assertEqual(0, status, err.getvalue())
+        self.assertFalse(stale.exists(), "застаріле дерево мусить бути прибране")
+        self.assertTrue(live.exists(), "дерево живого прогону чіпати не можна")
+        self.assertIn("прибрано застаріле тимчасове дерево", err.getvalue())
+        self.assertIn(str(stale), err.getvalue())
+        self.assertIn(str(elsewhere), err.getvalue(), "перенесення мусить бути назване вголос")
+
+    def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
+        """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
+
+        Виміряно на цьому дереві: повна копія — 74.9 MiB і 0.40 с на дерево,
+        копія `scripts/` — 1.2 MiB і 0.03 с. Тест тримає саме відношення й те,
+        що симлінки не стали копіями.
+        """
+        (Path(self._tmp.name) / "tree").mkdir()
+        work = esm._roots(REPO_ROOT, Path(self._tmp.name) / "tree")
+
+        copied = esm.copy_bytes(REPO_ROOT)
+        naive = sum(esm.tmp_budget.tree_bytes(entry) for entry in REPO_ROOT.iterdir()
+                    if entry.name not in esm.SKIP_DIRS | {esm.COPY_ENTRY})
+        self.assertLess(copied, 8 * 1048576, "копіювати `scripts/` цілком — це межа")
+        self.assertGreater(naive, 10 * copied, "решта дерева мусить лишатися симлінками")
+        self.assertFalse((work / esm.COPY_ENTRY).is_symlink(), "`scripts/` — справжня копія")
+        for entry in REPO_ROOT.iterdir():
+            if entry.name in esm.SKIP_DIRS | {esm.COPY_ENTRY}:
+                continue
+            with self.subTest(entry=entry.name):
+                self.assertTrue((work / entry.name).is_symlink(),
+                                "незмінна частина дерева не копіюється")
+
+
 class RepositoryTest(unittest.TestCase):
     def assert_merge_pr_shapes_are_killed(self, printed: str):
         """Кожна форма merge-pr.sh мусить бути названа вбитою.

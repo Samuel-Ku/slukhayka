@@ -170,6 +170,23 @@ travels into the record at all; and a field with no verdict-rule place at all is
 unknown (`2`), not a pass — moving the decision onto another variable would leave
 every remaining mutant alive.
 
+Both gates build a copy of the tree for every mutant, so the temp filesystem is
+their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
+every other top-level entry is a symlink: measured, 1.2 MiB per tree against
+74.7 MiB for a full copy (0.03–0.14 s against 0.40–1.04 s, depending on machine
+load) — 45 MiB for a whole gate instead of 2.8 GiB. `scripts/tmp_budget.py` measures the copy before the first one, adds
+headroom for the workers and a floor for the witnesses' own scratch, and refuses
+with `2` and both numbers ("needs X, has Y") rather than filling the filesystem:
+an exhausted `/tmp` does not fail that one run, it fails *every* process start in
+the session — `bash` will not run even `true`, and `ripgrep` does not start, so the
+work looks like broken tools rather than a spent quota. The same module reclaims
+temp trees left by earlier crashes (loudly, naming each one and the bytes it
+returned) and refuses a temp directory on a small RAM-backed tmpfs — `TMPDIR` on a
+tmpfs below 2 GiB needs `TMPDIR` or `SLUKHAYKA_MUTANTS_TMPDIR` pointed at a disk
+path, and an explicit move is announced on every run. There is no switch to turn
+any of it off, and the check lives in exactly one place per gate so that removing
+it reddens a test.
+
 ### Before a merge
 
 1. `../gt scripts/test-changed.sh` — the real run over the changed paths.

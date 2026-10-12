@@ -1,0 +1,376 @@
+#!/usr/bin/env python3
+"""Тимчасове дерево мутацій: місце перевіряється ДО копіювання, а не після (#1271).
+
+Механізми мутацій (`verdict_field_mutants.py`, `empty_shape_mutants.py`) будують
+на кожен мутант копію дерева в тимчасовій теці. Коли тимчасової ФС бракує, вони
+не просто падають самі: вони заповнюють ФС, а її вичерпання валить **кожен**
+запуск процесу в середовищі — `bash` не стартує навіть на `true`, `ripgrep` не
+запускається, і робота виглядає як «зламалися інструменти», а не як вичерпана
+квота. Саме так це вбило три сесії за одну ціль.
+
+Тому правило тут одне: **краще відмовити, ніж убити середовище**. Перевірка
+стоїть ПЕРЕД копіюванням, відмова голосна (код 2 у механізмів) і називає числа —
+скільки треба й скільки є. Заповнити ФС і впасти на `ENOSPC` посередині — те, що
+цей модуль прибирає: після такого падіння лишається недороблене дерево, воно
+добиває наступний прогін, і так по колу.
+
+Три речі, які модуль робить, крім самої перевірки:
+
+ - **застарілі дерева** попередніх падінь прибираються на старті. Теку без
+   маркера власника (`owner.pid`) вважають застарілою лише після пільгового часу
+   (`STALE_GRACE_SECONDS`): свіжу теку міг створити сусідній прогін, який ще не
+   встиг покласти маркер. Теку з живим PID не чіпають ніколи — це прогін у
+   польоті. Прибирання голосне: називає теку й повернуті нею байти;
+ - **маленький tmpfs у RAM** — окрема відмова, а не тихе перенаправлення.
+   Вичерпати RAM-ФС означає покласти всю сесію, тож маленький tmpfs механізм не
+   використовує взагалі: він називає розмір, потребу й те, куди вказати `TMPDIR`.
+   Явне перенесення (`SLUKHAYKA_MUTANTS_TMPDIR`) дозволене, але воно голосне й
+   не вимикає жодної перевірки — це не вимикач, а адреса;
+ - **підлога на scratch свідків**: копія дерева — не єдина річ, яку пише прогін
+   (свідки ведуть власні тимчасові файли), тож потреба рахується як копія ×
+   запас + підлога, а не як «рівно копія».
+
+Межі, названі прямо:
+
+ - запас і підлога — це числа, а не вимірювання кожного свідка: `COPY_HEADROOM`
+   покриває 4 воркери і те, що між перевіркою та записом місце встигне
+   зменшитися, `SCRATCH_FLOOR_BYTES` — власний scratch свідків. Занижені вони
+   можуть лише проґавити відмову, завищені — відмовити там, де місце є; друге
+   обрано навмисно;
+ - тип ФС читається з `/proc/mounts` (Linux). Якщо таблиці немає, ФС уважається
+   не-RAM-овою, і працює лише перевірка місця — сказати «це tmpfs» без таблиці
+   не можна, а вгадувати тут означало б відмовляти навмання;
+ - вимір копії — це сума розмірів файлів (`os.stat`, тобто симлінк рахується як
+   його ціль: `copytree` без `symlinks=True` робить саме так). Симлінк-теки в
+   копію не розгортаються; на сьогодні в копійованому піддереві симлінків немає
+   взагалі, і це пінить тест;
+ - прибирання судить теку без маркера за ЧАСОМ життя (пільгові 15 хвилин — це
+   5–10 прогонів механізму). Обидва механізми маркер пишуть, тож правило
+   стосується лише тек, створених іншою версією інструмента; живий прогін такої
+   версії, що триває понад пільговий час, може втратити своє дерево й упасти
+   голосно. Це обрано навмисно: тихо лишати сміття, яке добиває наступний прогін,
+   гірше за гучне падіння одного прогону.
+
+Вимикача немає: жодного `--skip`, жодної змінної, яка дозволяє. `TMPDIR` і
+`SLUKHAYKA_MUTANTS_TMPDIR` лише називають місце — перевірки в ньому ті самі.
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import os
+import shutil
+import stat
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+# Теки, які належать механізмам мутацій. Прибираються лише вони: тека іншого
+# інструмента (`slukhayka-mutation.*` — scratch живого `mutate.sh`) може бути
+# зайнята просто зараз, і видаляти її означало б зламати чужий прогін.
+OWN_PREFIXES = ("slukhayka-field-", "slukhayka-shape-")
+
+# Маркер власника: у теці лежить PID процесу, який її створив. Без нього
+# «застаріле» доводилося б угадувати за часом — а свіжу теку сусіднього прогону
+# вимір за часом якраз і вбив би.
+OWNER_MARKER = "owner.pid"
+
+# Явне перенесення тимчасових дерев. Не вимикач: усі перевірки лишаються, і
+# кожен прогін каже вголос, куди саме пішли дерева.
+RELOCATE_VARIABLE = "SLUKHAYKA_MUTANTS_TMPDIR"
+
+# Скільки копій дерева мусить уміститися. Воркерів типово 4; вісім — це запас на
+# те, що між перевіркою й записом місце встигне зменшитися (сусідній прогін,
+# Gradle, інший агент у тій самій сесії).
+COPY_HEADROOM = 8
+
+# Підлога на власний scratch свідків: `mutate.sh` пише туди pycache, логи,
+# аргументи Gradle, а вкладений прогін механізму — ще й свої дерева.
+SCRATCH_FLOOR_BYTES = 64 * 1024 * 1024
+
+# Маленький tmpfs у RAM механізм не використовує взагалі: його вичерпання валить
+# не прогін, а середовище. 2 GiB — межа, нижче якої RAM-ФС уважається малою (на
+# цій машині типовий `/tmp` — 7.8 GiB, і він проходить).
+RAM_TMPFS_MIN_BYTES = 2 * 1024 ** 3
+
+# Скільки чекати, перш ніж уважати теку без маркера застарілою. Свіжа тека без
+# маркера — це, найімовірніше, сусідній прогін за мілісекунду до запису маркера.
+STALE_GRACE_SECONDS = 900
+
+# Файлові системи, які живуть у RAM.
+RAM_FILESYSTEMS = ("tmpfs", "ramfs")
+
+
+class BudgetError(Exception):
+    """Місця немає або місце небезпечне. Відмова (код 2), а не «спробуємо»."""
+
+
+def mib(value: int) -> str:
+    return "%.1f MiB" % (value / 1048576)
+
+
+def announce(message: str) -> None:
+    """Голосно — у stderr: це не вердикт, а те, що механізм вирішив сам."""
+    print("УВАГА: %s" % message, file=sys.stderr)
+
+
+# --------------------------------------------------------------------------
+# Файлова система
+# --------------------------------------------------------------------------
+
+
+def mount_table(text: str | None = None) -> str:
+    """`/proc/mounts` як текст. Порожній рядок — таблиці немає (не Linux)."""
+    if text is not None:
+        return text
+    try:
+        return Path("/proc/mounts").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def mount_of(path: Path, table: str | None = None) -> tuple[str, str]:
+    """Точка монтування й тип ФС для шляху: найдовший збіг, як робить ядро."""
+    resolved = str(Path(path).resolve())
+    best = ("", "")
+    for line in mount_table(table).splitlines():
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        point = fields[1].replace("\\040", " ")
+        if resolved == point or resolved.startswith(point.rstrip("/") + "/"):
+            if len(point) >= len(best[0]):
+                best = (point, fields[2])
+    return best
+
+
+def statvfs(path: Path) -> os.statvfs_result:
+    return os.statvfs(str(path))
+
+
+def disk_free_bytes(path: Path, stats: os.statvfs_result | None = None) -> int:
+    """Скільки байтів ФС віддасть цьому користувачу (f_bavail, не f_bfree)."""
+    stats = statvfs(path) if stats is None else stats
+    return stats.f_bavail * stats.f_frsize
+
+
+def filesystem_total_bytes(path: Path, stats: os.statvfs_result | None = None) -> int:
+    stats = statvfs(path) if stats is None else stats
+    return stats.f_blocks * stats.f_frsize
+
+
+def ram_backed(path: Path, table: str | None = None) -> bool:
+    return mount_of(path, table)[1] in RAM_FILESYSTEMS
+
+
+# --------------------------------------------------------------------------
+# Обсяг копії
+# --------------------------------------------------------------------------
+
+
+def _ignored(name: str, ignore) -> bool:
+    return any(fnmatch.fnmatch(name, pattern) for pattern in ignore)
+
+
+def tree_bytes(directory: Path, ignore=()) -> int:
+    """Байти, які займе копія цього піддерева.
+
+    Симлінк-теки не розгортаються (`copytree` без `symlinks=True` теж не
+    розгортає їх у цикл, але й не копіює вміст як теку), а симлінк-файл
+    рахується як його ціль — саме це `copytree` і копіює.
+    """
+    total = 0
+    for base, directories, files in os.walk(directory, followlinks=False):
+        directories[:] = [name for name in directories
+                          if not _ignored(name, ignore)
+                          and not os.path.islink(os.path.join(base, name))]
+        for name in files:
+            if _ignored(name, ignore):
+                continue
+            try:
+                info = os.stat(os.path.join(base, name))
+            except OSError:
+                continue
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+    return total
+
+
+def requirement(copy_bytes: int) -> int:
+    """Скільки місця механізм вимагає на ФС, щоб почати копіювати."""
+    return copy_bytes * COPY_HEADROOM + SCRATCH_FLOOR_BYTES
+
+
+# --------------------------------------------------------------------------
+# Відмови
+# --------------------------------------------------------------------------
+
+
+def ensure_room(directory: Path, copy_bytes: int, free: int | None = None) -> None:
+    """Вільне місце ПЕРЕД копіюванням — з числами в причині відмови."""
+    needed = requirement(copy_bytes)
+    available = disk_free_bytes(directory) if free is None else free
+    if available >= needed:
+        return
+    raise BudgetError(
+        "тимчасовій ФС бракує місця для копії дерева: треба %s (копія %s × %d "
+        "+ підлога на scratch свідків %s), вільно %s у %s.\n"
+        "      Копіювання не почато: заповнена ФС валить не цей прогін, а кожен "
+        "запуск процесу в середовищі (bash, ripgrep).\n"
+        "      Далі: звільни місце або вкажи TMPDIR (чи %s) на теку із запасом."
+        % (mib(needed), mib(copy_bytes), COPY_HEADROOM, mib(SCRATCH_FLOOR_BYTES),
+           mib(available), directory, RELOCATE_VARIABLE)
+    )
+
+
+def refuse_small_ram_tmpfs(directory: Path, copy_bytes: int,
+                           table: str | None = None,
+                           total: int | None = None) -> None:
+    """Маленький tmpfs у RAM — відмова, а не тихе перенаправлення."""
+    if not ram_backed(directory, table):
+        return
+    size = filesystem_total_bytes(directory) if total is None else total
+    if size >= RAM_TMPFS_MIN_BYTES:
+        return
+    needed = requirement(copy_bytes)
+    raise BudgetError(
+        "тимчасова тека %s лежить на tmpfs у RAM розміром %s — це менше за %s, "
+        "нижче якої RAM-ФС уважається малою.\n"
+        "      Вичерпати RAM-ФС означає покласти всю сесію: `bash` перестає "
+        "стартувати навіть на `true`, і робота виглядає як «зламалися інструменти».\n"
+        "      Далі: вкажи TMPDIR на дискову теку (напр. TMPDIR=$HOME/.dsh-tmp) "
+        "або %s=<тека на диску> — механізм скаже вголос, куди пішли дерева "
+        "(треба йому %s)."
+        % (directory, mib(size), mib(RAM_TMPFS_MIN_BYTES), RELOCATE_VARIABLE, mib(needed))
+    )
+
+
+def guard(directory: Path, copy_bytes: int, free: int | None = None,
+          table: str | None = None, total: int | None = None) -> None:
+    """Обидві відмови в одному місці — саме це кличе кожне копіювання."""
+    refuse_small_ram_tmpfs(directory, copy_bytes, table, total)
+    ensure_room(directory, copy_bytes, free)
+
+
+# --------------------------------------------------------------------------
+# Застарілі дерева
+# --------------------------------------------------------------------------
+
+
+def process_alive(pid: int) -> bool:
+    """Чи живий процес. Невідомість — «живий»: чужу теку не чіпають."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def owner_pid(directory: Path) -> int | None:
+    try:
+        return int((directory / OWNER_MARKER).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def mark(directory: Path) -> Path:
+    """Позначити теку власником, щоб сусідній прогін не вважав її застарілою."""
+    (directory / OWNER_MARKER).write_text("%d\n" % os.getpid(), encoding="utf-8")
+    return directory
+
+
+def stale(directory: Path, *, grace: int = STALE_GRACE_SECONDS,
+          now: float | None = None, alive=process_alive) -> bool:
+    """Чи можна прибирати цю теку: мертвий власник або стара тека без маркера."""
+    pid = owner_pid(directory)
+    if pid is not None:
+        return not alive(pid)
+    try:
+        changed = directory.stat().st_mtime
+    except OSError:
+        return False
+    return ((time.time() if now is None else now) - changed) > grace
+
+
+def sweep_stale(directory: Path, prefixes=OWN_PREFIXES, *, grace: int = STALE_GRACE_SECONDS,
+                now: float | None = None, alive=process_alive, remove=shutil.rmtree):
+    """Прибирає застарілі дерева СВОЇХ префіксів. Повертає (шлях, байти)."""
+    freed: list[tuple[Path, int]] = []
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError:
+        return freed
+    for entry in entries:
+        if not any(entry.name.startswith(prefix) for prefix in prefixes):
+            continue
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        if not stale(entry, grace=grace, now=now, alive=alive):
+            continue
+        size = tree_bytes(entry)
+        try:
+            remove(entry)
+        except OSError as error:
+            announce("застаріле тимчасове дерево %s прибрати не вдалося (%s) — "
+                     "місце лишається зайнятим" % (entry, error))
+            continue
+        freed.append((entry, size))
+    return freed
+
+
+# --------------------------------------------------------------------------
+# Тимчасовий корінь
+# --------------------------------------------------------------------------
+
+
+def temp_root(base: Path | None = None, *, relocate: str | None = None) -> Path:
+    """Де живуть тимчасові дерева: `TMPDIR`, або явне перенесення — голосно.
+
+    `TMPDIR` читається з оточення, а не з `tempfile.gettempdir()`: останній
+    кешує перший відповідь, а ще мовчки падає на `/tmp`, коли `TMPDIR` зламаний.
+    Зламаний `TMPDIR` — це відмова, а не привід вибрати інше місце за оператора.
+    """
+    base = Path(os.environ.get("TMPDIR") or tempfile.gettempdir()) if base is None else Path(base)
+    relocate = os.environ.get(RELOCATE_VARIABLE) if relocate is None else relocate
+    if not relocate:
+        return base
+    target = Path(relocate)
+    if not target.is_dir():
+        raise BudgetError(
+            "%s=%s — не тека: перенесення мусить називати наявну теку, бо мовчазне "
+            "створення шляху з друкарською помилкою сховало б помилку."
+            % (RELOCATE_VARIABLE, relocate)
+        )
+    if target != base:
+        announce("тимчасові дерева підуть у %s (%s), а не в TMPDIR=%s — це явне "
+                 "перенесення; перевірки місця в ньому ті самі."
+                 % (target, RELOCATE_VARIABLE, base))
+    return target
+
+
+def claim(directory: Path, prefix: str) -> Path:
+    """Нова тека з маркером власника: сусідній прогін її не прибере."""
+    created = Path(tempfile.mkdtemp(prefix=prefix, dir=str(directory)))
+    return mark(created)
+
+
+def prepare(prefixes=OWN_PREFIXES, copy_bytes: int | None = None,
+            base: Path | None = None, *, relocate: str | None = None) -> Path:
+    """Тимчасовий корінь, готовий до копіювання: спершу прибрати, потім міряти.
+
+    Саме в цьому порядку: прибирання повертає місце, і перевірка місця мусить
+    бачити вже повернуте, інакше механізм відмовляв би там, де сам же щойно
+    звільнив достатньо.
+    """
+    base = temp_root(base, relocate=relocate)
+    if not base.is_dir():
+        raise BudgetError("тимчасового кореня %s немає — копіювати дерево нема куди." % base)
+    for path, size in sweep_stale(base, prefixes):
+        announce("прибрано застаріле тимчасове дерево %s (%s) — лишилося після падіння "
+                 "й добивало б наступний прогін." % (path, mib(size)))
+    if copy_bytes is not None:
+        guard(base, copy_bytes)
+    return base

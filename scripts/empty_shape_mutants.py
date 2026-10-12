@@ -61,6 +61,16 @@
    Маркер глибини (`SLUKHAYKA_EMPTY_SHAPE_DEPTH`) ставить сам механізм і може
    лише ВІДМОВИТИ: гейт, який можна вимкнути, — це побажання, а не механізм.
 
+Ціна й тимчасові дерева (#1271). Копіюється лише `scripts/`, решта top-level
+записів — симлінки: виміряно 1.2 MiB на дерево проти 74.7 MiB у повної копії
+дерева (0.03–0.14 с проти 0.40–1.04 с — час залежить від завантаження машини).
+Дерева будуються на скрипт (1–2) і звільняються одразу після прогону. Місце
+перевіряється ДО першої копії (`tmp_budget.prepare`): він міряє копію, додає запас на воркери й підлогу на scratch свідків і відмовляє
+кодом 2 із числами («треба X, вільно Y») замість того, щоб заповнити ФС —
+заповнена ФС валить не цей прогін, а кожен запуск процесу в середовищі. Маленький
+tmpfs у RAM — окрема відмова, застарілі дерева попередніх падінь прибираються на
+старті, а явне перенесення (`SLUKHAYKA_MUTANTS_TMPDIR`) голосне.
+
 Виклик: scripts/empty_shape_mutants.py [--list] [--script <шлях>]... [--root <шлях>]
 Коди виходу: 0 — усі порожні форми піняться; 1 — є непінені; 2 — перевірити не
 вдалося.
@@ -79,8 +89,20 @@ import tempfile
 import time
 from pathlib import Path
 
+import tmp_budget
+
 ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = Path("scripts/tests")
+
+# Піддерево, яке копіюється в тимчасове дерево, і те, що в копію не йде. Обидві
+# константи читають і копіювання, і вимір копії: розійтися їм нема чого, інакше
+# бюджет міряв би не той обсяг, який `_roots` справді пише (#1271).
+COPY_ENTRY = "scripts"
+COPY_IGNORE = ("__pycache__", "*.pyc")
+
+# Префікс тимчасових дерев механізму: за ним застарілі дерева попередніх падінь
+# відрізняються від тек інших інструментів.
+TEMP_PREFIX = "slukhayka-shape-"
 
 # Теки, куди механізм не дивиться: або не код репозиторію, або кеші з копіями
 # тих самих скриптів (`.worktrees/`), які дали б той самий мутант удруге.
@@ -390,6 +412,11 @@ def paired_modules(script: Path, tests_dir: Path) -> list[Path]:
     return modules
 
 
+def copy_bytes(root: Path) -> int:
+    """Байти, які займе одна копія дерева: рівно те, що пише `_roots`."""
+    return tmp_budget.tree_bytes(root / COPY_ENTRY, COPY_IGNORE)
+
+
 def _roots(root: Path, tmp: Path) -> Path:
     """Копія дерева, де `scripts/` справжня, а решта — посилання.
 
@@ -399,12 +426,12 @@ def _roots(root: Path, tmp: Path) -> Path:
     work = tmp / "root"
     work.mkdir()
     shutil.copytree(
-        root / "scripts",
-        work / "scripts",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        root / COPY_ENTRY,
+        work / COPY_ENTRY,
+        ignore=shutil.ignore_patterns(*COPY_IGNORE),
     )
     for entry in root.iterdir():
-        if entry.name in {"scripts"} | SKIP_DIRS:
+        if entry.name in {COPY_ENTRY} | SKIP_DIRS:
             continue
         (work / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
     return work
@@ -461,7 +488,20 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
         )
         return report
 
-    with tempfile.TemporaryDirectory(prefix="slukhayka-shape-") as tmp:
+    try:
+        # Місце міряється ТУТ, ДО першої копії — і це ЄДИНЕ місце перевірки
+        # (#1271). Заповнена ФС валить не цей прогін, а кожен запуск процесу в
+        # середовищі, тож відмова з числами — те, що потрібно, а не `ENOSPC`
+        # посередині. Другого такого виклику немає навмисно: перевірку, розмазану
+        # по двох місцях, зняття одного з них не червонить, і мутація-свідок
+        # перестає щось тримати. Одного виміру досить і за побудовою: на скрипт
+        # тут припадає 1–2 дерева, тож запас `COPY_HEADROOM` покриває їх усі.
+        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES, copy_bytes(root))
+    except tmp_budget.BudgetError as error:
+        report.blocked.append("FAIL  %s" % error)
+        return report
+
+    with tempfile.TemporaryDirectory(prefix=TEMP_PREFIX, dir=str(base)) as tmp:
         baseline = _roots(root, Path(tmp))
         for module in modules:
             status, output = _run_module(baseline, module, tests_dir)
@@ -482,7 +522,7 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
             verdict = Verdict(shape)
             mutant_text = mutate(text, shape)
             for module in modules:
-                with tempfile.TemporaryDirectory(prefix="slukhayka-shape-") as tmp:
+                with tempfile.TemporaryDirectory(prefix=TEMP_PREFIX, dir=str(base)) as tmp:
                     work = _roots(root, Path(tmp))
                     (work / script.relative_to(root)).write_text(mutant_text, encoding="utf-8")
                     started = time.monotonic()

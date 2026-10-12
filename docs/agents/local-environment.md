@@ -54,34 +54,48 @@ to.
 ### The measured ceiling
 
 The one-run rule is not caution, it is arithmetic. On 2026-10-12 this machine
-(i5-7300HQ, 4 cores / 4 threads, 16 GB, base `d46bf54b`) ran one identical
-build — `:app:validateTestPartitions :app:testPureJvm` with a single selected
-class — in isolated worktrees, each with its own writable `GRADLE_USER_HOME`
-over a shared **read-only** dependency cache, every run `--no-daemon`:
+(i5-7300HQ, 4 cores / 4 threads, 16 GB) ran one identical build — the two tasks
+`:app:validateTestPartitions :app:testPureJvm` narrowed to
+`com.slukhayka.audiobooks.data.achievements.AchievementEngineTest` through
+`-Ptest.selectedClasses` — in detached worktrees off `origin/main` (`d46bf54b`):
 
-| Runs | Wall | Peak JVM RSS (sum) | MemAvailable min | zram max |
+```sh
+git worktree add --detach <dir> origin/main
+SLUKHAYKA_GRADLE_ARGS_FILE=<args-file> scripts/test-all.sh
+# <args-file>: :app:validateTestPartitions / :app:testPureJvm / -Ptest.selectedClasses=<FQCN>
+```
+
+Those runs deliberately did **not** go through the slot above: no `flock`, no
+`--offline`, and each run had its own writable `GRADLE_USER_HOME` over a shared
+read-only dependency cache (`GRADLE_RO_DEP_CACHE=$HOME/.gradle/caches`). That
+is what the experiment measured — what happens *without* the slot. Every run
+was `--no-daemon` (as `test-all.sh` always is) and kept its temporary files off
+tmpfs, because `$HOME` is read-only here.
+
+Memory was sampled once a second: `MemAvailable` from `/proc/meminfo`, the sum
+of `Used` in `/proc/swaps`, and the summed RSS of every process whose
+`/proc/<pid>/exe` resolves to `*/java`. Each row is the extreme its own run
+reached inside its own wall-clock window.
+
+| Runs | Wall | Peak JVM RSS (sum) | MemAvailable min | swap used max |
 |---|---|---|---|---|
-| 1 cold (full compile) | 11m 01s | 4.9 GB | 2.7 GB | 181 MB |
-| 1 warm, nothing changed | 1m 01s | — | — | — |
-| 1 incremental (one file edited) | 3m 33s | 3.7 GB | 4.3 GB | 699 MB |
-| 2 warm, concurrent | 2m 03s | 2.0 GB | 6.1 GB | 2.0 GB |
-| 3 incremental, concurrent | **killed at 10m 14s** | 8.3 GB | 1.1 GB | 4.0 GB |
+| 1 cold (full compile) | 662 s | 4.74 GB | 2.66 GB | 0.18 GB |
+| 1 warm, nothing changed | 61 s | not sampled | — | — |
+| 1 incremental (one file edited) | 213 s | 3.61 GB | 3.86 GB | 0.68 GB |
+| 2 warm, concurrent | 123 s | 1.99 GB | 5.99 GB | 1.93 GB |
+| 3 incremental, concurrent | **killed at 613 s** | 8.10 GB | 1.13 GB | 3.91 GB |
 
-Three concurrent runs finished none of them. Memory fell monotonically
-(5.3 → 4.0 → 3.0 → 2.1 → 1.1 GB), zram grew to 4 GB, `load average` reached
-23.5 on four threads, and the runs had to be killed to keep the machine
-usable. One incremental run over the same work takes 3m 33s, so three at once
-were not slower by a factor — they were not going to finish at all.
+Two builds fit, and the second buys nothing: two warm runs side by side took
+123 s against 2 × 61 s one after another. Three do not fit at all — memory fell
+monotonically (5.3 → 4.0 → 3.0 → 2.1 → 1.1 GB), swap grew to 3.91 GB,
+`load average` reached 23.5 on four threads, and the runs were killed at
+613 s rather than left to wedge the machine. One of them alone takes 213 s.
 
-Two things follow. First, the slot serialises builds because two of them do not
-fit; a queue is the answer, not a nuisance. Second, the bottleneck is CPU as
-much as RAM: even with memory to spare, four threads shared by three Gradle
-JVMs plus in-process Kotlin compilation spend their time switching.
-
-Parallel work therefore belongs in what does not build — editing, review,
-reading, issue triage. A lane that must build waits for the slot like every
-other lane. The same measurement is the reason the cloud alternatives in
-ADR-0062 are closed: this is a property of the machine, not of the tooling.
+So the slot serialises builds because a third one has nowhere to live, and
+because four threads shared by three Gradle JVMs plus in-process Kotlin
+compilation spend their time switching. What stays parallel is what does not
+build. The cloud alternatives considered and closed on their own evidence —
+not on this table — are recorded in ADR-0062.
 
 ## Mutations
 

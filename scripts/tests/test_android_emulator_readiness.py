@@ -63,7 +63,11 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
         читає підставний adb, решта — вхід самого скрипта.
         """
         return {
-            "PATH": f"{self.root}:/usr/bin:/bin",
+            # Тека підставного adb називається через САМ інструмент, а не через
+            # `self.root`: свідок мусить діставати програму власним тілом, а не
+            # позиченим `setUp` (#1265, п'яте коло). Значення те саме — adb
+            # лежить у корені, — але тепер видно, ЩО кожен тест туди кладе.
+            "PATH": f"{self.fake_adb.parent}:/usr/bin:/bin",
             "HOME": str(self.root),
             "LC_ALL": "C",
             "FAKE_ADB_STATE": str(self.state),

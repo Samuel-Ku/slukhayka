@@ -24,29 +24,54 @@
     `python3 -m unittest`, `ci.yml:643-655`). Це названа межа, не мовчазний
     пропуск.
 
-УРОК ЧОТИРЬОХ КІЛ ОГЛЯДУ. Кожне коло знаходило новий **неперевірений
+УРОК П'ЯТИ КІЛ ОГЛЯДУ. Кожне коло знаходило новий **неперевірений
 перемикач** у реєстрі: маркер модуля (програма проходила чужим маркером),
 `runs=False` (справжній підставний оголошувався «текстом-даними» й випадав із
 пінів), `witness` (свідка можна підмінити сусідом або стороннім тестом),
-`own_poison` (виключення з прогонів підрядком в імені). Спільне в них одне:
-**запис міг щось оголосити, і ніщо не перевіряло, що оголошене — правда**.
-Тому полів-перемикачів тут більше немає:
+`own_poison` (виключення з прогонів підрядком в імені), і, нарешті, сама
+**множина** свідків: доки зі списку зникали однакові імена, новий запис, чиє
+виведення сідало на вже пінований свідок, не змінював нічого — підставний
+інструмент, який успадковує оточення, додавався й «покривався» тестом, який
+його ніколи не запускає. Спільне в них одне: **запис міг щось оголосити, і ніщо
+не перевіряло, що оголошене — правда**. Тому полів-перемикачів тут більше немає:
 
   * **свідка не оголошують — його виводять** з місця програми: свідок — тест,
     який дістає місце, де програму створено (`Fixture.build`, `self.adb`,
     константа модуля). Спершу — тест, що сам його створює (власник), далі тести
     того самого класу, далі будь-який тест модуля; підмінити нічого, бо поля
-    немає;
+    немає. І дістає він його **власним тілом**, а не позиченим `setUp`: `setUp`
+    спільний на весь клас, тож програму, яку він створив, «дістає» будь-який
+    тест класу, нічого не роблячи. Чотири підставні названі тілом тесту саме
+    тому — двоє з них довелося для цього переписати на `self.fake_adb.parent` і
+    `self.java.parent.parent`. Виняток один: програму, **покладену у файл** у
+    `setUp` (`self.adb.write_text(<текст>)`), тест дістає через хелпер
+    (`environment`), і `setUp` лишається останньою спробою. Програма,
+    **присвоєна** в `setUp` (`self.slow_tool = <текст>`), свідка так не дістає:
+    якщо її не назве тест, її не запускає ніщо — це відмова, а не «клас її
+    запускає» (M14 рецензента);
+  * **виведення піниться ПО КОЖНІЙ програмі**, а не множиною імен: `at → свідок`
+    видно в канарейці, і програма без свідка стоїть у ній теж — з `None`;
   * **виключити нікого не можна**: у прогонах оточення бере участь кожен запис, а
-    фікстурні інструменти ганяються своїми свідками
-    (`fixtures/*/*/scripts/tests/test_*.py`) у копії дерева;
+    фікстурний інструмент ганяє свідок, який НАЗИВАЄ його файл
+    (`fixtures/*/*/scripts/tests/test_*.py`) у копії дерева. Модуль, який імені
+    не називає, інструмента не запускає — той самий прийом, що `paired_modules`
+    у `scripts/empty_shape_mutants.py`, і помиляється він у бік ВІДМОВИ;
+  * **форма або піниться, або межа названа — і це видно із самого запису**:
+    `real` не може бути гаслом, бо `shape_pin` і `real` ходять парою (пін ⟺
+    названий справжній інструмент), кожне ім'я в `real` мусить існувати в дереві
+    або в `PATH`, а фікстурний інструмент піниться завжди: його справжній
+    лежить у цьому ж дереві. `real=()` — єдине, чим запис каже «живого
+    порівняння тут бути не може», і саме тому список таких записів піниться:
+    перевести запис із піна на межу можна лише разом із цією правкою;
   * `test_the_registry_has_no_declared_switches` пінить сам НАБІР полів: нове
     поле-оглядач червонить тест, і його доведеться обґрунтувати тут.
 
 Покриття перевіряється СТРУКТУРНО, з трьох боків.
 
   * `fixtures/` — по файлах: жоден файл-інструмент не лишається без запису (і
-    жоден запис не вказує на неіснуючий файл);
+    жоден запис не вказує на неіснуючий файл), а кожен файл мусить мати тест,
+    який НАЗИВАЄ його ім'я. Сама лише наявність `test_*.py` поруч свідком не
+    була: новий файл із записом і прозою проходив зеленим (M10b);
   * `scripts/tests/**/*.py` — по AST: кожен ЛІТЕРАЛ, значення якого ПОЧИНАЄТЬСЯ
     шебангом, є вбудованою програмою, і кожна мусить бути названа ЗА СВОЇМ
     МІСЦЕМ (`Program.at`), а не «хоч якимсь маркером модуля». Прив'язка до місця
@@ -74,7 +99,13 @@
   * підставного інструмента у `test_mutate_python.py` немає — і це перевірено, а
     не обіцяно: скан (разом із канарейкою) не бачить там жодної програми.
     Фікстура пише СУБʼЄКТ під тестом і цільовий набір — те, що справжній
-    `mutation_python_runner.py` і мусить виконати; це не імперсонація.
+    `mutation_python_runner.py` і мусить виконати; це не імперсонація;
+  * `real=()` — це слово автора: «живого порівняння цього підставного з
+    оригіналом у цій джобі бути не може» (`gh` без `GH_TOKEN`, `adb` без
+    пристрою, Gradle без прогону збірки, `npm` без мережі). Механічно
+    перевіряється не сама неможливість, а те, що запис не сходить із піна на
+    межу мовчки: перелік записів без піна піниться, і кожен із них мусить мати
+    названу межу.
 
 Дві фікстури (`verdict_field`, `empty_shape`) отруюють оточення і самі, своїми
 `EnvironmentTest`; тут вони в реєстрі, і їхні свідки теж ганяються — у копії
@@ -160,15 +191,20 @@ class StandIn:
     Полів-перемикачів немає навмисно: `witness` виводиться з місця програми,
     виключити запис із прогонів нічим. Усе, що тут оголошено, перевіряється —
     набір полів пінить `RegistryTest.test_the_registry_has_no_declared_switches`.
+
+    `real` і `shape_pin` ходять парою: пін без названого справжнього інструмента
+    — гасло, а названий інструмент без піна — обіцянка, якої ніхто не тримає.
     """
 
     name: str
     where: tuple[str, ...]      # файли (відносно кореня репозиторію)
     prefix: str = ""            # власний префікс змінних, які він читає
     reads: tuple[str, ...] = ()  # названі входи справжнього інструмента
-    real: str | None = None     # справжній інструмент у репозиторії, якщо є
+    real: tuple[str, ...] = ()  # справжні інструменти, З ЯКИМИ ЗВІРЯЮТЬ форму:
+                                # шлях у дереві або ім'я в PATH. Порожньо —
+                                # звіряти нема з чим, і тоді межа обов'язкова
     shape_pin: str | None = None  # module.Class.test — пін на форму
-    boundary: str = ""          # чому піна немає — названа межа
+    boundary: str = ""          # чому живого піна немає — названа межа
     programs: tuple[Program, ...] = ()  # вбудовані програми цього запису
 
 
@@ -179,7 +215,7 @@ CASES = (
             "scripts/tests/fixtures/verdict_field/pinned/scripts/mutation_trace.py",
             "scripts/tests/fixtures/verdict_field/unpinned/scripts/mutation_trace.py",
         ),
-        real="scripts/mutation_trace.py",
+        real=("scripts/mutation_trace.py",),
         shape_pin=("test_verdict_field_mutants.HistoricalStateTest"
                    ".test_the_fixture_cli_is_shaped_like_the_real_one"),
     ),
@@ -190,11 +226,14 @@ CASES = (
             "scripts/tests/fixtures/verdict_field/unpinned/scripts/mutate.sh",
         ),
         prefix="VERDICT_FIXTURE_",
-        real="scripts/mutate.sh",
+        real=("scripts/mutate.sh",),
+        shape_pin=("test_verdict_field_mutants.HistoricalStateTest"
+                   ".test_the_fixture_verdict_rule_is_the_real_one"),
         boundary=("фікстура вдає ЛАНКУ інструмента (артефакт → лічильники → "
                   "вердикт → запис), а не його CLI: у неї нуль argv, у "
                   "справжнього `scripts/mutate.sh` на нуль argv — usage. Форму "
-                  "саме цієї ланки пінить запис (schema/kind/outcome), а не argv."),
+                  "саме цієї ланки пінить ПРАВИЛО вердикту — тим самим рядком, "
+                  "що й у справжнього інструмента, — а не argv."),
     ),
     StandIn(
         name="підставний gate.sh фікстури empty_shape",
@@ -202,7 +241,7 @@ CASES = (
             "scripts/tests/fixtures/empty_shape/pinned/scripts/gate.sh",
             "scripts/tests/fixtures/empty_shape/unpinned/scripts/gate.sh",
         ),
-        real="scripts/merge-pr.sh",
+        real=("scripts/merge-pr.sh",),
         shape_pin=("test_empty_shape_mutants.HistoricalStateTest"
                    ".test_the_fixture_gate_is_shaped_like_the_real_one"),
     ),
@@ -210,12 +249,13 @@ CASES = (
         name="підставний gradlew і jdk фікстури test_mutate",
         where=("scripts/tests/test_mutate.py",),
         prefix="MUTATE_TEST_",
-        real="./gradlew, scripts/mutate.sh",
         boundary=("живий пін проти Gradle — це прогін збірки; джоба `script-tests` "
                   "робить лише `python3 -m unittest` (`ci.yml:643-655`), і ця "
                   "робота забороняє Gradle. Форму виклику пінять тести: журнал "
                   "інвокацій мусить мати `:app:testPureJvm` і "
-                  "`-Ptest.selectedClasses=<FQCN>`."),
+                  "`-Ptest.selectedClasses=<FQCN>`. `real` порожній навмисно: "
+                  "підставні вдають `./gradlew` і `java`, а звіряти форму з ними "
+                  "тут нема чим."),
         programs=(
             Program("GRADLEW", "MUTATE_TEST_GRADLE_LOG"),
             Program("Fixture.build: java", "openjdk version"),
@@ -226,7 +266,8 @@ CASES = (
         where=("scripts/tests/test_merge_pr.py",),
         prefix="FAKE_GH_",
         boundary=("живий пін проти `gh` вимагає авторизації (`GH_TOKEN`), якої "
-                  "джоба `script-tests` не передає (`ci.yml:643-655`). "
+                  "джоба `script-tests` не передає (`ci.yml:643-655`), тож "
+                  "`real` порожній: звіряти нема з чим. "
                   "Підставний падає кодом 3 на незнайомій формі, тож дрейф форми "
                   "виклику не мовчить."),
         programs=(Program("FAKE_GH", "FAKE_GH_DIR"),),
@@ -234,7 +275,7 @@ CASES = (
     StandIn(
         name="підставний старий git фікстури test_merge_pr",
         where=("scripts/tests/test_merge_pr.py",),
-        real="git",
+        real=("git",),
         shape_pin=("test_merge_pr.GitStandInShapeTest"
                    ".test_a_stub_refuses_an_option_the_real_git_has"),
         boundary=("argv у нього — не свій, а справжнього git: обгортка прозора "
@@ -246,7 +287,7 @@ CASES = (
     StandIn(
         name="підставний зламаний git фікстури test_merge_pr",
         where=("scripts/tests/test_merge_pr.py",),
-        real="git",
+        real=("git",),
         shape_pin=("test_merge_pr.GitStandInShapeTest"
                    ".test_the_patch_comparison_stub_refuses_a_real_git_revision_option"),
         boundary=("та сама прозора обгортка; ламає рівно `--cherry-mark`, який "
@@ -258,8 +299,8 @@ CASES = (
         where=("scripts/tests/test_review_pass.py",),
         prefix="FAKE_GH_",
         boundary=("той самий зовнішній `gh`, що й у test_merge_pr: без `GH_TOKEN` "
-                  "живого піна немає. Підставний падає кодом 3 на незнайомій "
-                  "формі."),
+                  "живого піна немає, `real` порожній. Підставний падає кодом 3 "
+                  "на незнайомій формі."),
         programs=(Program("FAKE_GH", "FAKE_GH_DIR"),),
     ),
     StandIn(
@@ -267,7 +308,8 @@ CASES = (
         where=("scripts/tests/test_wide_window.py",),
         prefix="FAKE_ADB_",
         boundary=("живий пін проти `adb` вимагає пристрою або емулятора; джоба "
-                  "`script-tests` його не піднімає (`ci.yml:643-655`). "
+                  "`script-tests` його не піднімає (`ci.yml:643-655`), тож `real` "
+                  "порожній. "
                   "Підставний падає кодом 2 на незнайоме слово, тож форма виклику "
                   "не може розійтися мовчки."),
         programs=(Program("DeviceRunTest.setUp: self.adb", "FAKE_ADB_LOG"),),
@@ -276,8 +318,8 @@ CASES = (
         name="підставний adb фікстури test_android_emulator_readiness",
         where=("scripts/tests/test_android_emulator_readiness.py",),
         prefix="FAKE_ADB_",
-        boundary=("той самий зовнішній `adb`; підставний падає на незнайоме "
-                  "слово, тож форма виклику не може розійтися мовчки."),
+        boundary=("той самий зовнішній `adb`; `real` порожній, підставний падає на "
+                  "незнайоме слово, тож форма виклику не може розійтися мовчки."),
         programs=(Program("AndroidEmulatorReadinessTest.setUp: self.fake_adb",
                           "FAKE_ADB_STATE"),),
     ),
@@ -286,9 +328,9 @@ CASES = (
         where=("scripts/tests/test_test_wrappers.py",),
         prefix="WRAPPER_TEST_",
         reads=("JAVA_HOME", "TMPDIR"),
-        real="./gradlew, JDK 21",
         boundary=("живий пін проти Gradle і JDK — це прогін збірки; джоба "
-                  "`script-tests` його не робить (`ci.yml:643-655`). Журнал "
+                  "`script-tests` його не робить (`ci.yml:643-655`), тож `real` "
+                  "порожній. Журнал "
                   "інвокацій пінить форму (шість партицій і "
                   "`-Ptest.selectedClasses=`), а `SLUKHAYKA_JAVA_HOME` — те, що "
                   "читає справжній wrapper. `JAVA_HOME` і `TMPDIR` — входи "
@@ -309,8 +351,8 @@ CASES = (
         name="підставні gradlew, npm і npx фікстури test_test_wrappers",
         where=("scripts/tests/test_test_wrappers.py",),
         prefix="WRAPPER_TEST_",
-        real="./gradlew, npm, npx",
-        boundary=("Gradle і npm — зовнішні; журнал пінить точні три команди "
+        boundary=("Gradle і npm — зовнішні, `real` порожній; журнал пінить точні "
+                  "три команди "
                   "веб-перевірки (`npm ci`, `tsc --noEmit`, `vitest run`)."),
         programs=(
             Program("ChangedTestWrapperWebCheckTest.setUp: self.java", "21.0.8"),
@@ -328,7 +370,8 @@ CASES = (
                   "`empty_shape_mutants.shapes()`: жоден тест його не запускає. "
                   "Названий тут, бо він виглядає як програма (шебанг), і мовчазне "
                   "виключення було б дірою в покритті; `HEAD_REF` — змінна "
-                  "прикладу, не читання оточення."),
+                  "прикладу, не читання оточення, і справжнього інструмента, з "
+                  "яким звіряти форму, теж немає: `real` порожній."),
         programs=(Program("SAMPLE", "detached HEAD"),),
     ),
 )
@@ -519,8 +562,14 @@ def _body_references(function: ast.AST) -> tuple[set, set]:
     return refs, calls
 
 
+@functools.lru_cache(maxsize=None)
 def module_index(module: Path) -> tuple[dict[str, Scope], dict[str, tuple[str, ...]]]:
-    """Скоупи модуля (за ключем `Клас.метод`) і його класи з базами."""
+    """Скоупи модуля (за ключем `Клас.метод`) і його класи з базами.
+
+    Кеш навмисний: один і той самий модуль питають раз на програму, а програм
+    шістнадцять — розбір `test_merge_pr.py` зайвих десять разів коштував би
+    часу джоби, нічого не додаючи.
+    """
     source = module.read_text(encoding="utf-8")
     tree = ast.parse(source)
     parents = {child: parent for parent in ast.walk(tree)
@@ -560,12 +609,22 @@ def _resolve(scope: Scope, name: str, scopes: dict[str, Scope]) -> str | None:
 
 
 def _reachable(key: str, scopes: dict[str, Scope],
-               classes: dict[str, tuple[str, ...]], with_setup: bool) -> set:
-    """Посилання, досяжні з тесту: його тіло, виклики — і, за потреби, `setUp`."""
+               classes: dict[str, tuple[str, ...]],
+               through_setup: bool = False) -> set:
+    """Посилання, досяжні з ВЛАСНОГО тіла тесту: його рядки й те, що він кличе.
+
+    `setUp` додається лише за `through_setup`, і лише як остання спроба: він
+    спільний на весь клас, тож програму, яку він створив, «дістає» будь-який
+    тест класу, нічого не роблячи (п'яте коло огляду, мутація з `self.slow_tool`).
+    `setUp` шукається і в базових класах: `MutationRunTest` успадковує свій
+    `setUp` від `MutateFixtureTest`, і фікстура народжується саме там.
+    """
     queue = [key]
-    if with_setup and key in scopes:
+    if through_setup and key in scopes:
         cls = scopes[key].cls
-        while cls:
+        seen_classes: set = set()
+        while cls and cls not in seen_classes:
+            seen_classes.add(cls)
             if f"{cls}.setUp" in scopes:
                 queue.append(f"{cls}.setUp")
             bases = classes.get(cls, ())
@@ -585,6 +644,39 @@ def _reachable(key: str, scopes: dict[str, Scope],
     return refs
 
 
+def _assigned_in_setup(module: Path, at: str) -> bool:
+    """Чи створено програму ПРИСВОЄННЯМ у `setUp` — а не покладено у файл.
+
+    `self.adb.write_text(<текст>)` кладе підставного туди, звідки його бере
+    інструмент (теку на `PATH`, `SLUKHAYKA_*`), і тест дістає його через хелпер.
+    `self.slow_tool = <текст>` не кладе його нікуди: програма живе в атрибуті, і
+    якщо жоден тест її не назве, її не запускає ніщо — а `setUp` «покривав» би її
+    іменем першого-ліпшого тесту класу (M14 рецензента).
+
+    Присвоєння обриває `_location` на собі, тож місце такої програми — сама лише
+    ціль (`self.slow_tool`), і саме за нею її тут і знаходять.
+    """
+    source = module.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree)
+               for child in ast.iter_child_nodes(parent)}
+    for node in ast.walk(tree):
+        if _program_text(node) is None:
+            continue
+        if _location(node, parents, source) != at:
+            continue
+        assignment = parents.get(node)
+        if not isinstance(assignment, ast.Assign):
+            return False
+        current: ast.AST = assignment
+        while current in parents:
+            current = parents[current]
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return current.name == "setUp"
+        return False
+    return False
+
+
 def _in_class(key: str, cls: str, scopes: dict[str, Scope],
               classes: dict[str, tuple[str, ...]]) -> bool:
     current = scopes[key].cls
@@ -598,12 +690,15 @@ def _in_class(key: str, cls: str, scopes: dict[str, Scope],
     return False
 
 
+@functools.lru_cache(maxsize=None)
 def witness_for(module: Path, at: str) -> str | None:
     """Свідок виводиться з місця програми — оголосити його ніде.
 
     Порядок: тест-власник (той, у тілі якого програму створено), далі тести того
-    самого класу, далі будь-який тест модуля; у кожній групі — спершу той, чиє
-    ВЛАСНЕ тіло дістає програму, потім той, кому для цього потрібен `setUp`.
+    самого класу, далі будь-який тест модуля. Якір мусить бути у ВЛАСНОМУ тілі
+    свідка (нехай і через викликаний хелпер); `setUp` доглядається останнім і
+    лише для програми, покладеної у файл. Присвоєння в `setUp` (`self.x = <текст>`)
+    свідка через `setUp` не дістає: тест мусить назвати таку програму сам.
     """
     scopes, classes = module_index(module)
     prefix, separator, anchor = at.partition(": ")
@@ -617,27 +712,56 @@ def witness_for(module: Path, at: str) -> str | None:
     owner = prefix.partition(".")[0] if prefix else ""
     candidates = [key for key in tests if not owner or _in_class(key, owner, scopes, classes)]
     for group in (candidates, tests):
-        for with_setup in (False, True):
-            for key in group:
-                if anchor in _reachable(key, scopes, classes, with_setup):
-                    return key
+        for key in group:
+            if anchor in _reachable(key, scopes, classes):
+                return key
+    if _assigned_in_setup(module, at):
+        return None
+    for group in (candidates, tests):
+        for key in group:
+            if anchor in _reachable(key, scopes, classes, through_setup=True):
+                return key
     return None
 
 
-def derived_targets() -> list[str]:
-    """`module.Class.test` — по свідку на кожну вбудовану програму."""
-    targets = []
+@functools.lru_cache(maxsize=None)
+def program_witnesses() -> list[tuple[str, str, str | None]]:
+    """`(модуль, at, свідок)` — ПО ОДНОМУ запису на кожну програму.
+
+    Саме список програм, а не множина імен свідків: два записи з тим самим
+    свідком — це два рядки тут. Множина імен ховала новий запис, чиє виведення
+    сідало на вже пінований свідок (п'яте коло огляду: підставний інструмент
+    додавався й «покривався» тестом, який його ніколи не запускає). Програма без
+    свідка стоїть тут із `None` — це відмова, а не пропуск.
+    """
+    found = []
     for case in CASES:
         module = REPO_ROOT / case.where[0]
         for program in case.programs:
-            witness = witness_for(module, program.at)
-            if witness is not None:
-                targets.append(f"{module.stem}.{witness}")
-    return sorted(set(targets))
+            found.append((str(module.relative_to(REPO_ROOT)), program.at,
+                          witness_for(module, program.at)))
+    return sorted(found)
 
 
-def fixture_witnesses() -> list[tuple[Path, str]]:
-    """(корінь варіанта фікстури, ім'я модуля-свідка) для файлів-інструментів."""
+def derived_targets() -> list[str]:
+    """`module.Class.test` — прогони, які мусять бути зелені в обох оточеннях."""
+    targets = set()
+    for module, _at, witness in program_witnesses():
+        if witness is not None:
+            targets.add(f"{Path(module).stem}.{witness}")
+    return sorted(targets)
+
+
+@functools.lru_cache(maxsize=None)
+def fixture_witnesses() -> list[tuple[Path, str, tuple[str, ...]]]:
+    """`(варіант фікстури, файл, модуль-свідок)` — по запису на КОЖЕН файл.
+
+    Свідок мусить НАЗИВАТИ файл: модуль, який імені не називає, інструмента не
+    запускає і свідком бути не може — той самий прийом, що `paired_modules` у
+    `scripts/empty_shape_mutants.py`. Файл без такого модуля лишається тут із
+    порожнім свідком: це відмова, а не тихий пропуск (мутація M10b: новий
+    `extra_tool.sh` без жодного тесту, який його згадує).
+    """
     found = set()
     for case in CASES:
         for where in case.where:
@@ -645,10 +769,11 @@ def fixture_witnesses() -> list[tuple[Path, str]]:
             if "fixtures" not in path.parts:
                 continue
             tests = REPO_ROOT / path.parent / "tests"
-            if not tests.is_dir():
-                continue
-            for witness in tests.glob("test_*.py"):
-                found.add((tests.parent.parent, witness.name))
+            naming = tuple(sorted(
+                witness.name for witness in tests.glob("test_*.py")
+                if path.name in witness.read_text(encoding="utf-8")
+            )) if tests.is_dir() else ()
+            found.add((tests.parent.parent, path.name, naming))
     return sorted(found)
 
 
@@ -661,10 +786,11 @@ class RegistryTest(unittest.TestCase):
     def test_the_registry_has_no_declared_switches(self):
         """Набір полів — рівно ті, чию правду щось перевіряє.
 
-        Чотири кола огляду поспіль знаходили новий неперевірений перемикач:
-        маркер модуля, `runs=False`, `witness`, `own_poison`. Тут їх немає:
-        `witness` виводиться з місця програми, виключити запис нічим. Нове поле
-        червонить цей тест, і його доведеться обґрунтувати.
+        П'ять кіл огляду поспіль знаходили новий неперевірений перемикач: маркер
+        модуля, `runs=False`, `witness`, `own_poison`, значення `shape_pin`/
+        `boundary`/`real`. Тут їх немає: `witness` виводиться з місця програми,
+        `real` і `shape_pin` ходять парою, а виключити запис із прогонів нічим.
+        Нове поле червонить цей тест, і його доведеться обґрунтувати.
         """
         self.assertEqual(
             {"name", "where", "prefix", "reads", "real", "shape_pin", "boundary",
@@ -795,24 +921,46 @@ class RegistryTest(unittest.TestCase):
         """Свідка не оголошують — його виводять, і він мусить знайтися.
 
         Якщо жоден тест не дістає місця програми, пінити її оточення нічим: це
-        відмова, а не тихе «нічого не ганяли».
+        відмова, а не тихе «нічого не ганяли». Перевірка йде ПО ПРОГРАМАХ, а не
+        по множині імен: два записи з тим самим свідком — це два рядки, і новий
+        запис, чиє виведення сідає на вже пінований свідок, видно тут.
         """
-        for case in CASES:
-            module = REPO_ROOT / case.where[0]
-            for program in case.programs:
-                with self.subTest(stand_in=case.name, program=program.at):
-                    self.assertTrue(witness_for(module, program.at),
-                                    "жоден тест не дістає %s — свідка немає" % program.at)
+        found = program_witnesses()
 
-        self.assertTrue(fixture_witnesses(), "фікстурні інструменти без свідків")
+        self.assertEqual(sum(len(case.programs) for case in CASES), len(found))
+        self.assertEqual(len(found), len({(module, at) for module, at, _ in found}),
+                         "кожна програма мусить стояти у виведенні рівно раз")
+        for module, at, witness in found:
+            with self.subTest(module=module, program=at):
+                self.assertTrue(witness, "жоден тест не дістає %s — свідка немає" % at)
+
+    def test_every_fixture_instrument_has_a_witness_that_names_it(self):
+        """Фікстурний інструмент ганяє тест, який НАЗИВАЄ його файл.
+
+        «Поруч лежить якийсь `test_*.py`» — не свідок: файл під `fixtures/`, якого
+        не згадує жоден тест, лишався б зеленим, а підставний інструмент —
+        неперевіреним (M10b). Модуль, який імені не називає, інструмента не
+        запускає — той самий прийом, що `paired_modules` у
+        `scripts/empty_shape_mutants.py`.
+        """
+        for root, name, modules in fixture_witnesses():
+            with self.subTest(fixture=str(root.relative_to(REPO_ROOT)), file=name):
+                self.assertTrue(modules, "%s нічим не піниться: жоден тест поруч не "
+                                         "називає його файл" % name)
 
     def test_the_derived_witness_is_the_test_that_uses_the_program(self):
-        """Канарейка: свідок — САМЕ той тест, який програму й запускає.
+        """Канарейка: `at → свідок` — ПО КОЖНІЙ програмі, а не множиною імен.
 
         Це пін на виведення, а не на оголошення: якщо воно почне вибирати
         сусідній тест (клас помилки, за який реєстр лаявся чотири кола), буде
         видно тут. Два підставні git — найгостріший випадок: їхні тексти схожі,
         і саме їх найлегше переплутати.
+
+        Множина імен (те, що тут було) ховала новий запис, чиє виведення сідало
+        на вже пінований свідок: підставний інструмент, який успадковує
+        оточення, додавався й «покривався» тестом, який його ніколи не запускає
+        (M14 рецензента). Рядок на програму — щонайменше один рядок на кожну
+        програму, і жоден новий запис не проходить повз цей список.
         """
         merge_pr = REPO_ROOT / "scripts" / "tests" / "test_merge_pr.py"
 
@@ -824,6 +972,58 @@ class RegistryTest(unittest.TestCase):
                          witness_for(REPO_ROOT / "scripts" / "tests" / "test_test_wrappers.py",
                                      "FullSuiteWrapperTest"
                                      ".test_cleans_temp_when_interrupted: self.fake_gradle"))
+        self.assertEqual(
+            [("scripts/tests/test_android_emulator_readiness.py",
+              "AndroidEmulatorReadinessTest.setUp: self.fake_adb",
+              "AndroidEmulatorReadinessTest"
+              ".test_waits_until_android_package_service_is_usable"),
+             ("scripts/tests/test_empty_shape_mutants.py", "SAMPLE",
+              "ScannerTest.test_reads_arms_with_offsets_and_keeps_the_source_intact"),
+             ("scripts/tests/test_merge_pr.py", "FAKE_BROKEN_GIT",
+              "MergePrTest.test_fails_closed_when_the_patch_comparison_fails"),
+             ("scripts/tests/test_merge_pr.py", "FAKE_GH",
+              "MergePrTest.test_refuses_a_failing_check"),
+             ("scripts/tests/test_merge_pr.py", "FAKE_OLD_GIT",
+              "MergePrTest.test_fails_closed_when_the_working_copy_scan_fails"),
+             ("scripts/tests/test_mutate.py", "Fixture.build: java",
+              "MutationRunTest.test_runs_the_named_class_and_records_a_caught_mutation"),
+             ("scripts/tests/test_mutate.py", "GRADLEW",
+              "MutationRunTest.test_runs_the_named_class_and_records_a_caught_mutation"),
+             ("scripts/tests/test_review_pass.py", "FAKE_GH",
+              "ReviewPassTest.test_reissues_the_verdict_on_a_pr_that_already_has_the_label"),
+             ("scripts/tests/test_test_wrappers.py",
+              "ChangedTestWrapperWebCheckTest.setUp: self.java",
+              "ChangedTestWrapperWebCheckTest"
+              ".test_web_path_runs_the_web_check_and_no_android_partition"),
+             ("scripts/tests/test_test_wrappers.py",
+              "ChangedTestWrapperWebCheckTest.write_gradle: self.gradle",
+              "ChangedTestWrapperWebCheckTest"
+              ".test_web_path_runs_the_web_check_and_no_android_partition"),
+             ("scripts/tests/test_test_wrappers.py",
+              "ChangedTestWrapperWebCheckTest.write_web_command: target",
+              "ChangedTestWrapperWebCheckTest"
+              ".test_web_path_runs_the_web_check_and_no_android_partition"),
+             ("scripts/tests/test_test_wrappers.py",
+              "FullSuiteWrapperTest.setUp: self.java",
+              "FullSuiteWrapperTest"
+              ".test_rejects_a_non_21_override_with_an_actionable_error"),
+             ("scripts/tests/test_test_wrappers.py",
+              "FullSuiteWrapperTest.test_cleans_temp_when_interrupted: self.fake_gradle",
+              "FullSuiteWrapperTest.test_cleans_temp_when_interrupted"),
+             ("scripts/tests/test_test_wrappers.py",
+              "FullSuiteWrapperTest"
+              ".test_rejects_a_non_21_override_with_an_actionable_error: self.java",
+              "FullSuiteWrapperTest"
+              ".test_rejects_a_non_21_override_with_an_actionable_error"),
+             ("scripts/tests/test_test_wrappers.py",
+              "FullSuiteWrapperTest.write_gradle: self.fake_gradle",
+              "FullSuiteWrapperTest.test_uses_jdk_21_and_a_fresh_temp_then_cleans_it"),
+             ("scripts/tests/test_wide_window.py",
+              "DeviceRunTest.setUp: self.adb",
+              "DeviceRunTest"
+              ".test_derives_the_density_from_the_device_and_reports_the_width")],
+            program_witnesses(),
+        )
         self.assertEqual(
             ["test_android_emulator_readiness.AndroidEmulatorReadinessTest"
              ".test_waits_until_android_package_service_is_usable",
@@ -852,24 +1052,43 @@ class RegistryTest(unittest.TestCase):
         )
 
     def test_the_fixture_witnesses_are_the_fixtures_own_tests(self):
-        """Свідок фікстурного інструмента — тест самої фікстури, а не чийсь інший."""
+        """Свідок фікстурного інструмента — тест самої фікстури, і він НАЗИВАЄ файл."""
         self.assertEqual(
-            [("scripts/tests/fixtures/empty_shape/pinned", "test_gate.py"),
-             ("scripts/tests/fixtures/empty_shape/unpinned", "test_gate.py"),
-             ("scripts/tests/fixtures/verdict_field/pinned", "test_gate.py"),
-             ("scripts/tests/fixtures/verdict_field/unpinned", "test_gate.py")],
-            [(str(root.relative_to(REPO_ROOT)), name)
-             for root, name in fixture_witnesses()],
+            [("scripts/tests/fixtures/empty_shape/pinned", "gate.sh", ("test_gate.py",)),
+             ("scripts/tests/fixtures/empty_shape/unpinned", "gate.sh", ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/pinned", "mutate.sh", ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/pinned", "mutation_trace.py",
+              ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/unpinned", "mutate.sh",
+              ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/unpinned", "mutation_trace.py",
+              ("test_gate.py",))],
+            [(str(root.relative_to(REPO_ROOT)), name, modules)
+             for root, name, modules in fixture_witnesses()],
         )
 
-    def test_every_stand_in_has_a_shape_pin_or_a_named_boundary(self):
-        """Форма або піниться, або межа названа — мовчазного пропуску немає."""
+    def test_a_shape_pin_and_a_named_real_tool_come_together(self):
+        """Пін і названий справжній інструмент ходять парою — в обидва боки.
+
+        `shape_pin` без `real` — гасло: пінити форму нема з чим. Названий
+        інструмент без піна — обіцянка, якої ніхто не тримає, і саме нею
+        (проза замість піна) запис тихо сходив із крючка (M5b/M5c). Тому
+        `real` — це РІВНО те, з чим запис звіряє форму піном.
+
+        Фікстурний інструмент не може піти межею взагалі: його справжній лежить
+        у цьому ж дереві, тож порівняння можливе завжди (M10b: новий
+        `extra_tool.sh` із прозою замість піна).
+        """
         for case in CASES:
             with self.subTest(stand_in=case.name):
+                fixture = any("fixtures" in Path(where).parts for where in case.where)
                 if case.shape_pin is None:
+                    self.assertEqual((), case.real,
+                                     "інструмент названо — мусить бути пін, а не межа")
+                    self.assertFalse(fixture, "фікстурний інструмент мусить мати пін")
                     self.assertTrue(case.boundary, "немає ні піна, ні межі")
                     continue
-                self.assertTrue(case.real, "пін на форму без справжнього інструмента")
+                self.assertTrue(case.real, "пін на форму без названого інструмента")
                 target = self.resolve(case.shape_pin)
                 self.assertTrue(callable(target), case.shape_pin)
                 # Пін мусить жити там, де підставного видно: інакше він пінить інше.
@@ -877,6 +1096,44 @@ class RegistryTest(unittest.TestCase):
                             else anchor_of(case.programs[0].at))
                 module = Path(sys.modules[target.__module__].__file__)
                 self.assertIn(identity, module.read_text(encoding="utf-8"))
+
+    def test_every_named_real_tool_exists(self):
+        """`real` — не гасло: кожне ім'я мусить існувати в дереві або в `PATH`.
+
+        Інакше `real="totally/fake/tool"` проходило б зеленим (M5a): пін
+        «звіряв» би форму з тим, чого немає, і саме це реєстр і обіцяє
+        перевіряти.
+        """
+        for case in CASES:
+            for tool in case.real:
+                with self.subTest(stand_in=case.name, tool=tool):
+                    if "/" in tool:
+                        self.assertTrue((REPO_ROOT / tool).is_file(),
+                                        "%s немає в дереві" % tool)
+                    else:
+                        self.assertTrue(shutil.which(tool),
+                                        "%s немає в PATH" % tool)
+
+    def test_the_records_that_go_by_a_named_boundary_are_pinned(self):
+        """Хто піниться, а хто йде межею, видно ПО КОЖНОМУ запису.
+
+        `real=()` — єдине, чим запис каже «живого порівняння тут бути не
+        може» (`gh` без `GH_TOKEN`, `adb` без пристрою, Gradle без прогону
+        збірки, `npm` без мережі). Механічно перевірити саму неможливість не
+        можна, тож піниться перелік: перевести запис із піна на межу можна лише
+        разом із цією правкою, а не мовчки.
+        """
+        self.assertEqual(
+            ["підставний gradlew і jdk фікстури test_mutate",
+             "підставний gh фікстури test_merge_pr",
+             "підставний gh фікстури test_review_pass",
+             "підставний adb фікстури test_wide_window",
+             "підставний adb фікстури test_android_emulator_readiness",
+             "підставні gradlew і java фікстури test_test_wrappers",
+             "підставні gradlew, npm і npx фікстури test_test_wrappers",
+             "SAMPLE у test_empty_shape_mutants — вхідний текст, не інструмент"],
+            [case.name for case in CASES if case.shape_pin is None],
+        )
 
     def test_every_registered_name_is_unique(self):
         names = [case.name for case in CASES]
@@ -904,7 +1161,11 @@ class EnvironmentTest(unittest.TestCase):
                 cwd=str(TESTS_DIR), check=False, capture_output=True, text=True,
                 env=environment, timeout=NESTED_TIMEOUT_SECONDS,
             ))
-        for root, witness in fixture_witnesses():
+        # Файлів у варіанті більше, ніж модулів: свідка ганяємо один раз на
+        # (варіант, модуль), а не на кожен файл, який він називає.
+        for root, witness in sorted({(root, module)
+                                     for root, _name, modules in fixture_witnesses()
+                                     for module in modules}):
             results.append(self.run_fixture_witness(root, witness, environment))
         return results
 

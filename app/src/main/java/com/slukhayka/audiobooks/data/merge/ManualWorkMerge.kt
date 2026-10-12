@@ -10,7 +10,7 @@ import java.util.Collections
 import kotlinx.coroutines.flow.first
 
 /**
- * The initial read-only preview of two Works' library narrations (#968).
+ * The initial read-only preview of two Works' library and catalog narrations (#968).
  * Materializes their separate listening state without approving or applying
  * a merge. A preview is not an approved transaction plan.
  */
@@ -21,9 +21,9 @@ class ManualWorkMerge(private val dao: AudiobookDao) {
         val participants = listOf(a, b).map { workId ->
             val work = requireNotNull(dao.getWorkById(workId)) { "Work is unavailable: $workId" }
             val bookIds = entries.filter { it.workId == workId }.map { it.id }.toSet()
-            val narrations = editions.filter { it.workId in bookIds }.map { edition ->
+            val narrations = editions.filter { it.workId == workId || it.workId in bookIds }.map { edition ->
                 ManualWorkMergeEditionPreview(
-                    bookId = edition.workId,
+                    bookId = edition.workId.takeIf { it in bookIds },
                     edition = edition,
                     chapters = immutableList(dao.getChaptersListForEdition(edition.id)),
                     progress = dao.getPlaybackProgressSyncByEdition(edition.id),
@@ -44,7 +44,7 @@ data class ManualWorkMergeParticipant(
 )
 
 data class ManualWorkMergeEditionPreview(
-    val bookId: String,
+    val bookId: String?,
     val edition: EditionEntity,
     val chapters: List<ChapterEntity>,
     val progress: PlaybackProgressEntity?,

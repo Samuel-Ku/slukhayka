@@ -12,12 +12,14 @@ import issue_premise as ip  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Записи верхнього рівня `main` — з дерева, не зі списку в тесті. Порожня
-# множина означає, що чекаут не має `origin/main`: тест про затінення тоді
-# пропускається голосно (див. його доккоментар), а не проходить тихо.
-TOP_LEVEL_IN_MAIN = frozenset(
+# Записи верхнього рівня — з дерева **того чекаута, у якому біжить тест**, а не
+# з `origin/main`. Причина: у CI `origin/main` немає (раннер фетчить merge-ref),
+# і тест, який тримався б за нього, просто **не біг би там** — тобто не
+# охороняв би нічого. `HEAD` є завжди; інваріант від цього не слабшає, бо він і
+# мусить перевіряти те дерево, у якому біжить.
+TOP_LEVEL_IN_TREE = frozenset(
     subprocess.run(
-        ["git", "ls-tree", "--name-only", "origin/main"],
+        ["git", "ls-tree", "--name-only", "HEAD"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=False,
     ).stdout.split()
 )
@@ -216,18 +218,56 @@ class ExtractionTest(unittest.TestCase):
         self.assertEqual({v.code for v in verdicts}, {2})
 
     def test_no_branch_head_shadows_a_real_top_level_entry(self):
-        # Справжній інваріант списку: голова, яка є записом верхнього рівня
-        # `main`, проковтнула б усі шляхи під собою. `docs` прибрано саме
-        # тому (вимір: 83 шляхи в 72 тікетах), і цей тест не дає повернути
-        # голову, яка затьмарює реальну теку.
+        # Справжній інваріант списку: голова, яка є записом верхнього рівня,
+        # проковтнула б усі шляхи під собою. `docs` прибрано саме тому (вимір:
+        # 83 шляхи в 72 тікетах), і цей тест не дає повернути голову, яка
+        # затьмарює реальну теку.
         #
-        # Це єдиний тест модуля, який питає **чекаут**: інваріант — про
-        # справжнє дерево `main`, і підставне його не доводить. Без
-        # `origin/main` він пропускається **голосно**, а не проходить тихо.
-        if not TOP_LEVEL_IN_MAIN:
-            self.skipTest("origin/main не читається в цьому чекауті — інваріант не перевірено")
-        shadowing = ip.BRANCH_HEADS & TOP_LEVEL_IN_MAIN
+        # Дерево береться з `HEAD` — того чекаута, у якому тест біжить. У CI
+        # `origin/main` немає, і тест, який тримався б за нього, там просто не
+        # біг би (скіп) — тобто не охороняв би нічого. Скіпу тут немає.
+        if not TOP_LEVEL_IN_TREE:
+            self.fail("git ls-tree HEAD дав порожньо — інваріант не перевірено, і це не «зелено»")
+        shadowing = ip.BRANCH_HEADS & TOP_LEVEL_IN_TREE
         self.assertEqual(shadowing, frozenset())
+
+    def test_measure_head_exists_because_the_docs_cite_it(self):
+        # Доки посилаються на `--measure-head` як на джерело чисел. Команда,
+        # названа в документі, мусить існувати: одного разу вона вже була
+        # вигадана (огляд PR #1268), і це найдорожчий різновид неправди —
+        # твердження, яке неможливо виконати.
+        parser_help = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"), "--help"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertIn("--measure-head", parser_help.stdout)
+
+    def test_measure_head_counts_paths_with_that_head(self):
+        # Сам вимір — без `gh`: підставлений список issue і підставлені тіла.
+        # Голова `docs` у тілах є, верхньої теки немає — саме те, що вирішує,
+        # чи прибирати голову зі списку.
+        bodies = {
+            "1": "читай `docs/voice.md` і `docs/adr`",
+            "2": "читай `docs/plans/x.md`, `app/src/main/A.kt`",
+            "3": "читай `scripts/mutate.sh`",
+        }
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["gh", "issue"] and args[2] == "list":
+                return subprocess.CompletedProcess(args, 0, "1\n2\n3\n", "")
+            number = args[3] if len(args) > 3 else ""
+            return subprocess.CompletedProcess(args, 0, bodies.get(number, ""), "")
+
+        with mock.patch.object(ip, "_top_level_entries", lambda ref, repo: frozenset({"app"})), \
+                mock.patch.object(ip.subprocess, "run", fake_run):
+            printed = io.StringIO()
+            with contextlib.redirect_stdout(printed):
+                code = ip.measure_head("docs", 3, "origin/main")
+        self.assertEqual(code, 0)
+        output = printed.getvalue()
+        self.assertIn("шляхів у тілах: 3", output)
+        self.assertIn("тікетів: 2", output)
+        self.assertIn("верхня тека `docs` у дереві: немає", output)
 
     def test_branch_head_with_a_path_like_tail_is_not_a_branch(self):
         # `docs/voice.md` — файл: крапка в останньому сегменті знімає назву

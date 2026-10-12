@@ -97,11 +97,14 @@
 * Проза зі слешем ловиться **неповно**: `try/catch` (#1081) — так, а
   `works.title/author/seriesTitle` (#822) — ні, бо крапка в першому сегменті
   робить його невідрізненним від `ui/adaptive/WindowLayout.kt`.
-* Гілки розпізнаються за головою зі списку (`feat`, `fix`, `release`,
-  `spec-53`, `backup`, `chore`, …). Гілка з голови поза списком (`my-branch/x`)
-  лишиться кандидатом і дасть відмову. `docs`, `doc`, `test` і `tests` у списку
-  немає навмисно: це справжні теки репозиторію (`docs/voice.md`,
-  `scripts/tests/test_x.py`), і такі голови зробили б їх невидимими.
+* Гілки розпізнаються за головою зі списку (`feat`, `fix`, `release`, `spec`,
+  `backup`, `chore`, …); хвіст-число відкидається, тож `spec-53/wave-1` — та
+  сама голова `spec`. Гілка з голови поза списком (`my-branch/x`)
+  лишиться кандидатом і дасть відмову. Голова, яка є ще й записом верхнього
+  рівня `main`, у списку стояти не може — вона проковтнула б усі шляхи під
+  собою. Саме тому `docs` і `doc` прибрано (вимір: `--measure-head docs` → 83
+  шляхи в 72 тікетах), а `test` і `tests` лишаються (`--measure-head test` → 0,
+  і `test/…` — реальна голова гілок репозиторію).
 * Односегментне ім'я може зійтися з **текою** за хвостом: `main/` дає «є в
   `main`: `app/src/main`» (#982), хоч тікет мав на увазі не теку. Напрямок
   хибний у безпечний бік (пропуск, не відмова), і полагодження вимагає
@@ -158,11 +161,21 @@ KNOWN_REF_HEADS = frozenset({"origin", "upstream", "HEAD", "refs", "remotes", "t
 # не файл, і вимагати її в `main` означало б валити тікети за назву смуги роботи
 # (знахідка огляду PR #1268: 6 тікетів у вікні 200).
 #
-# `docs`, `doc`, `test` і `tests` тут НЕ стоять навмисно, хоч гілки з такими
-# головами в репозиторії є: `docs/voice.md`, `docs/adr`,
-# `scripts/tests/test_x.py`, `app/src/test/java/…` — справжні шляхи, і ці
-# голови зробили б їх невидимими для ґарда. `docs` помітив власний тест;
-# `test`/`tests` — огляд PR #1268 (931 шлях у дереві під такими теками).
+# Голова, яка є ще й справжнім записом верхнього рівня `main`, тут стояти не
+# може: вона проковтнула б усі шляхи під собою. Такі голови прибираються **за
+# виміром**, і вимір — це команда:
+#
+#   python3 scripts/issue_premise.py --measure-head docs   # 83 шляхи, 72 тікети
+#   python3 scripts/issue_premise.py --measure-head test   # 0 шляхів
+#
+# `docs` і `doc` прибрано саме тому. `test` і `tests` **лишаються**: вимір дає
+# 0, а `test/…` — реальна голова гілок цього репозиторію
+# (`refs/heads/test/issue-703-hidden-boundaries`); прибирання коштувало б
+# хибної відмови на `tests/wave-1/step-2` (перевірено: код 1 замість 2).
+#
+# `_is_branch_name` дивиться лише на `segments[0]`, тож `scripts/tests/test_x.py`
+# і `app/src/test/java/A.kt` від цього списку не залежать ніколи — їхні голови
+# `scripts` і `app`.
 BRANCH_HEADS = frozenset(
     {
         "feat", "feature", "fix", "hotfix", "bugfix", "chore", "refactor", "perf",
@@ -699,6 +712,42 @@ def read_body(args: argparse.Namespace) -> str:
     return Path(args.body_file).read_text(encoding="utf-8")
 
 
+def measure_head(head: str, limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
+    """Скільки шляхів у тілах тікетів мають таку голову — і чи є верхня тека.
+
+    Числа в коментарі до `BRANCH_HEADS` («docs — 83 шляхи») не мусять бути
+    твердженням: та сама команда дає ті самі числа.
+
+        python3 scripts/issue_premise.py --measure-head docs
+
+    Голова, яка є записом верхнього рівня `main`, у `BRANCH_HEADS` стояти не
+    може: вона проковтнула б усі шляхи під собою. Саме цей вимір і вирішує,
+    які голови прибрати, а які лишити.
+    """
+    top_level = _top_level_entries(ref, repo)
+    listed = subprocess.run(
+        ["gh", "issue", "list", "--state", "all", "--limit", str(limit), "--json", "number", "--jq", ".[].number"],
+        capture_output=True, text=True, check=False,
+    )
+    if listed.returncode != 0:
+        print(f"issue_premise: не вдалося перелічити issue: {listed.stderr.strip()}", file=sys.stderr)
+        return 2
+    paths, tickets = 0, set()
+    for number in listed.stdout.split():
+        body = subprocess.run(
+            ["gh", "issue", "view", number, "--json", "body", "--jq", ".body"],
+            capture_output=True, text=True, check=False,
+        ).stdout
+        for candidate in _named_paths(body):
+            if candidate.path.split("/")[0] == head:
+                paths += 1
+                tickets.add(number)
+    print(f"issue_premise: голова `{head}` на {limit} тікетах (ref {ref})")
+    print(f"  шляхів у тілах: {paths}, тікетів: {len(tickets)}")
+    print(f"  верхня тека `{head}` у дереві: {'є' if head in top_level else 'немає'}")
+    return 0
+
+
 def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
     """Шум на останніх тікетах репозиторію — числом, яке можна відтворити.
 
@@ -765,6 +814,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="N",
         help="переміряти шум на N останніх тікетах (той самий вимір, що в шапці механізму)",
     )
+    source.add_argument(
+        "--measure-head",
+        metavar="HEAD",
+        help="скільки шляхів у тілах тікетів мають таку голову (вимір для BRANCH_HEADS)",
+    )
+    parser.add_argument(
+        "--scan-limit", type=int, default=200, help="скільки тікетів брати для --measure-head"
+    )
     parser.add_argument(
         "--ref",
         default=MAIN_REF,
@@ -779,6 +836,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", action="store_true", help="друкувати лише підсумок і відмови")
     args = parser.parse_args(argv)
 
+    if args.measure_head is not None:
+        return measure_head(args.measure_head, args.scan_limit, args.ref, args.repo)
     if args.scan is not None:
         return scan(args.scan, args.ref, args.repo)
 

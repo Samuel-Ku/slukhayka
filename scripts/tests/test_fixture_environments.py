@@ -17,21 +17,39 @@
   * **оточення**: свідок мусить лишитися зеленим і з порожнім оточенням
     (фікстура не читає зі спадку нічого), і з отруєним (затьмарені команди не
     доходять до інструмента). Обидва прогони — вкладені процеси `unittest`, тож
-    перевіряється фікстура, а не те, що конкретний тест випадково зелений;
+    перевіряється фікстура, а не те, що конкретний тест випадково зелений.
+    Виключити фікстуру з цих прогонів НІЧИМ не можна: поля-вимикача в реєстрі
+    немає навмисно, бо «позначив текстом-даними і пройшов» — це та сама діра;
   * **форма**: якщо фікстура вдає інструмент, який у репозиторії Є, пін на форму
     мусить існувати й бути названим тут. Якщо інструмент зовнішній (`gh`, `adb`,
-    Gradle), пінити нема проти чого: у джобі `script-tests` немає ні мережі, ні
-    авторизації — і це названа межа, а не мовчазний пропуск.
+    Gradle), то живий пін вимагав би того, чого джоба `script-tests` не має:
+    `GH_TOKEN`, пристрою, прогону збірки (у джобі — лише checkout і
+    `python3 -m unittest`, `ci.yml:643-655`). Це названа межа, не мовчазний
+    пропуск.
 
 Перелік не тримається на чесному слові автора: покриття перевіряється
 СТРУКТУРНО, з двох боків.
 
   * `fixtures/` сканується по файлах: жоден файл-інструмент там не лишається без
     запису (і жоден запис не вказує на неіснуючий файл);
-  * тести скануються по AST: кожен ЛІТЕРАЛ, що починається шебангом, — це
-    вбудована програма, і кожна мусить бути названа маркером у реєстрі. Саме
-    цього не бачив скан `fixtures/`: підставні `FAKE_OLD_GIT`, `FAKE_BROKEN_GIT`,
-    `FAKE_GH`, `adb` і `gradlew` живуть у тілі тестів, а не у файлах.
+  * `scripts/tests/**/*.py` сканується по AST: кожен ЛІТЕРАЛ, значення якого
+    ПОЧИНАЄТЬСЯ шебангом, — це вбудована програма, і кожна мусить бути названа
+    ЗА СВОЇМ МІСЦЕМ (`Program.at`), а не «хоч якимсь маркером модуля». Прив'язка
+    до місця, а не до тексту, навмисна: найімовірніший спосіб написати третього
+    підставного `git` — скопіювати сусіднього, і копія з тим самим текстом
+    мусить бути ВИДНА як окрема програма. Маркер лишається як перевірка, що
+    запис не збрехав про вміст.
+
+Межі сканера названі прямо:
+
+  * скан читає ЗНАЧЕННЯ літерала. Програма, зібрана так, що значення не
+    починається шебангом (`textwrap.dedent('''\n#!/…''')`, продовження рядка
+    `'''\⏎#!/…'''`), для нього невидима — і це єдина відома сліпа пляма форми;
+  * докстрінг, що ПОЧИНАЄТЬСЯ шебангом, навпаки потрапляє в скан: це хибне
+    спрацювання в безпечний бік (зайвий запис, а не пропущений);
+  * скан обмежений `scripts/tests/**/*.py`. Програма поза цим деревом (у
+    `app/**`, `web/**`, у хелпері поза тестами) не покрита жодним із двох сканів
+    — це межа предмета (фікстури тестів), а не обіцянка «бачимо все».
 
 Дві фікстури (`verdict_field`, `empty_shape`) отруюють оточення самі, своїм
 `EnvironmentTest`; тут вони в реєстрі, щоб перелік був повним, а їхній пін
@@ -73,8 +91,21 @@ HOSTILE = {
 STRIPPED = {"PATH": "/usr/bin:/bin"}
 
 # Шебанг — це шлях до інтерпретатора (`#!/usr/bin/env bash`), а не сама лише
-# позначка: інакше сканер ловив би власний рядок `"#!"` у цьому модулі.
+# позначка: інакше скан ловив би власний рядок `"#!"` у цьому модулі.
 SHEBANG = re.compile(r"^#!\S*/")
+
+
+@dataclasses.dataclass(frozen=True)
+class Program:
+    """Вбудована програма: де вона лежить і який рядок її називає.
+
+    `at` — місце, а не текст: `GRADLEW`, `Fixture.build: java`,
+    `DeviceRunTest.setUp: self.adb`. Дві копії того самого тексту — дві різні
+    програми, і кожна мусить мати свій `at`.
+    """
+
+    at: str
+    marker: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -88,9 +119,8 @@ class StandIn:
     real: str | None = None     # справжній інструмент у репозиторії, якщо є
     shape_pin: str | None = None  # module.Class.test — пін на форму
     boundary: str = ""          # чому піна немає — названа межа
-    markers: tuple[str, ...] = ()  # рядки, якими названо вбудовану програму
+    programs: tuple[Program, ...] = ()  # вбудовані програми цього запису
     own_poison: bool = False    # фікстура отруює оточення своїм тестом
-    runs: bool = True           # False — це текст-дані, а не підставний інструмент
 
 
 CASES = (
@@ -143,12 +173,15 @@ CASES = (
                  ".test_runs_the_named_class_and_records_a_caught_mutation"),
         prefix="MUTATE_TEST_",
         real="./gradlew, scripts/mutate.sh",
-        boundary=("Gradle — зовнішній для джоби `script-tests` інструмент, а "
-                  "`./gradlew` без дистрибутива не запускається (і заборонений "
-                  "у цій роботі). Форму виклику пінять тести: журнал інвокацій "
-                  "мусить мати `:app:testPureJvm` і "
+        boundary=("живий пін проти Gradle — це прогін збірки; джоба `script-tests` "
+                  "робить лише `python3 -m unittest` (`ci.yml:643-655`), і ця "
+                  "робота забороняє Gradle. Форму виклику пінять тести: журнал "
+                  "інвокацій мусить мати `:app:testPureJvm` і "
                   "`-Ptest.selectedClasses=<FQCN>`."),
-        markers=("MUTATE_TEST_GRADLE_LOG", "openjdk version"),
+        programs=(
+            Program("GRADLEW", "MUTATE_TEST_GRADLE_LOG"),
+            Program("Fixture.build: java", "openjdk version"),
+        ),
     ),
     StandIn(
         name="підставний тест-субʼєкт фікстури test_mutate_python",
@@ -168,12 +201,11 @@ CASES = (
         witness=("test_merge_pr.MergePrTest"
                  ".test_merges_with_squash_and_never_deletes_the_branch"),
         prefix="FAKE_GH_",
-        boundary=("`gh` — зовнішній CLI: у джобі `script-tests` немає ні мережі, ні "
-                  "авторизації (`GH_TOKEN`), тож живий пін проти нього "
-                  "неможливий, навіть якщо бінарник є в образі раннера. "
+        boundary=("живий пін проти `gh` вимагає авторизації (`GH_TOKEN`), якої "
+                  "джоба `script-tests` не передає (`ci.yml:643-655`). "
                   "Підставний падає кодом 3 на незнайомій формі, тож дрейф форми "
                   "виклику не мовчить."),
-        markers=("FAKE_GH_DIR",),
+        programs=(Program("FAKE_GH", "FAKE_GH_DIR"),),
     ),
     StandIn(
         name="підставний старий git фікстури test_merge_pr",
@@ -187,7 +219,7 @@ CASES = (
                   "(`exec git \"$@\"`), відмова — рівно на `--path-format`, який "
                   "справжній git знає. Прозорість і справжність опціону пінить "
                   "`GitStandInShapeTest` проти встановленого git."),
-        markers=("unknown option",),
+        programs=(Program("FAKE_OLD_GIT", "unknown option"),),
     ),
     StandIn(
         name="підставний зламаний git фікстури test_merge_pr",
@@ -199,7 +231,7 @@ CASES = (
                    ".test_the_patch_comparison_stub_refuses_a_real_git_revision_option"),
         boundary=("та сама прозора обгортка; ламає рівно `--cherry-mark`, який "
                   "справжній git знає."),
-        markers=("unable to read tree",),
+        programs=(Program("FAKE_BROKEN_GIT", "unable to read tree"),),
     ),
     StandIn(
         name="підставний gh фікстури test_review_pass",
@@ -207,10 +239,10 @@ CASES = (
         witness=("test_review_pass.ReviewPassTest"
                  ".test_reissues_the_verdict_on_a_pr_that_already_has_the_label"),
         prefix="FAKE_GH_",
-        boundary=("той самий зовнішній `gh`, що й у test_merge_pr: без мережі й "
-                  "авторизації живого піна немає. Підставний падає кодом 3 на "
-                  "незнайомій формі."),
-        markers=("FAKE_GH_DIR",),
+        boundary=("той самий зовнішній `gh`, що й у test_merge_pr: без `GH_TOKEN` "
+                  "живого піна немає. Підставний падає кодом 3 на незнайомій "
+                  "формі."),
+        programs=(Program("FAKE_GH", "FAKE_GH_DIR"),),
     ),
     StandIn(
         name="підставний adb фікстури test_wide_window",
@@ -218,10 +250,11 @@ CASES = (
         witness=("test_wide_window.DeviceRunTest"
                  ".test_derives_the_density_from_the_device_and_reports_the_width"),
         prefix="FAKE_ADB_",
-        boundary=("`adb` — зовнішній CLI, у джобі його немає (пристрій не "
-                  "потрібен). Підставний падає кодом 2 на незнайоме слово, тож "
-                  "форма виклику не може розійтися мовчки."),
-        markers=("FAKE_ADB_LOG",),
+        boundary=("живий пін проти `adb` вимагає пристрою або емулятора; джоба "
+                  "`script-tests` його не піднімає (`ci.yml:643-655`). "
+                  "Підставний падає кодом 2 на незнайоме слово, тож форма виклику "
+                  "не може розійтися мовчки."),
+        programs=(Program("DeviceRunTest.setUp: self.adb", "FAKE_ADB_LOG"),),
     ),
     StandIn(
         name="підставний adb фікстури test_android_emulator_readiness",
@@ -231,7 +264,8 @@ CASES = (
         prefix="FAKE_ADB_",
         boundary=("той самий зовнішній `adb`; підставний падає на незнайоме "
                   "слово, тож форма виклику не може розійтися мовчки."),
-        markers=("FAKE_ADB_STATE",),
+        programs=(Program("AndroidEmulatorReadinessTest.setUp: self.fake_adb",
+                          "FAKE_ADB_STATE"),),
     ),
     StandIn(
         name="підставні gradlew і java фікстури test_test_wrappers",
@@ -240,10 +274,22 @@ CASES = (
                  ".test_uses_jdk_21_and_a_fresh_temp_then_cleans_it"),
         prefix="WRAPPER_TEST_",
         real="./gradlew, JDK 21",
-        boundary=("Gradle і JDK — зовнішні для джоби; журнал інвокацій пінить "
-                  "форму (шість партицій і `-Ptest.selectedClasses=`), а "
-                  "`SLUKHAYKA_JAVA_HOME` — те, що читає справжній wrapper."),
-        markers=("openjdk version", "WRAPPER_TEST_LOG", "kill -TERM"),
+        boundary=("живий пін проти Gradle і JDK — це прогін збірки; джоба "
+                  "`script-tests` його не робить (`ci.yml:643-655`). Журнал "
+                  "інвокацій пінить форму (шість партицій і "
+                  "`-Ptest.selectedClasses=`), а `SLUKHAYKA_JAVA_HOME` — те, що "
+                  "читає справжній wrapper."),
+        programs=(
+            Program("FullSuiteWrapperTest.setUp: self.java", "21.0.8"),
+            Program("FullSuiteWrapperTest.write_gradle: self.fake_gradle",
+                    "WRAPPER_TEST_LOG"),
+            Program("FullSuiteWrapperTest"
+                    ".test_rejects_a_non_21_override_with_an_actionable_error: self.java",
+                    "17.0.12"),
+            Program("FullSuiteWrapperTest"
+                    ".test_cleans_temp_when_interrupted: self.fake_gradle",
+                    "kill -TERM"),
+        ),
     ),
     StandIn(
         name="підставні gradlew, npm і npx фікстури test_test_wrappers",
@@ -254,46 +300,103 @@ CASES = (
         real="./gradlew, npm, npx",
         boundary=("Gradle і npm — зовнішні; журнал пінить точні три команди "
                   "веб-перевірки (`npm ci`, `tsc --noEmit`, `vitest run`)."),
-        markers=("cwd=%s", "gradle %s"),
+        programs=(
+            Program("ChangedTestWrapperWebCheckTest.setUp: self.java", "21.0.8"),
+            Program("ChangedTestWrapperWebCheckTest.write_web_command: target",
+                    "cwd=%s"),
+            Program("ChangedTestWrapperWebCheckTest.write_gradle: self.gradle",
+                    "gradle %s"),
+        ),
     ),
     StandIn(
-        name="текст-дані SAMPLE у test_empty_shape_mutants",
+        name="SAMPLE у test_empty_shape_mutants — вхідний текст, не інструмент",
         where=("scripts/tests/test_empty_shape_mutants.py",),
         witness=("test_empty_shape_mutants.ScannerTest"
                  ".test_only_an_empty_pattern_beside_a_named_one_is_a_shape"),
         boundary=("це не підставний інструмент, а вхідний текст для "
                   "`empty_shape_mutants.shapes()`: жоден тест його не запускає. "
                   "Названий тут, бо він виглядає як програма (шебанг), і мовчазне "
-                  "виключення було б дірою в покритті."),
-        markers=("detached HEAD",),
-        runs=False,
+                  "виключення було б дірою в покритті: поля-вимикача в реєстрі "
+                  "немає навмисно."),
+        programs=(Program("SAMPLE", "detached HEAD"),),
     ),
 )
 
 
-def embedded_programs(module: Path) -> list[str]:
-    """Тексти вбудованих програм модуля: літерали, що ПОЧИНАЮТЬСЯ шебангом.
+def _program_text(node: ast.AST) -> str | None:
+    """Текст програми, якщо літерал нею є: значення ПОЧИНАЄТЬСЯ шебангом."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value if SHEBANG.match(node.value) else None
+    if isinstance(node, ast.JoinedStr) and node.values:
+        first = node.values[0]
+        if (isinstance(first, ast.Constant) and isinstance(first.value, str)
+                and SHEBANG.match(first.value)):
+            return "".join(
+                part.value
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+                else "\x00"
+                for part in node.values
+            )
+    return None
+
+
+def _location(node: ast.AST, parents: dict, source: str) -> str:
+    """Місце програми: `Клас.метод: ціль` або ім'я константи.
+
+    Саме місце, а не текст, робить копію сусіда окремою програмою: копія з тим
+    самим текстом дістає свій `at` і без запису лишається неназваною.
+    """
+    scopes: list[str] = []
+    target = ""
+    current = node
+    while current in parents:
+        current = parents[current]
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            scopes.append(current.name)
+        if not target and isinstance(current, ast.Assign):
+            target = ast.get_source_segment(source, current.targets[0]) or ""
+            break
+        if not target and isinstance(current, ast.Call):
+            function = current.func
+            if isinstance(function, ast.Attribute):
+                target = ast.get_source_segment(source, function.value) or ""
+    prefix = ".".join(reversed(scopes))
+    return f"{prefix}: {target}" if prefix else target
+
+
+def embedded_programs(module: Path) -> dict[str, str]:
+    """Вбудовані програми модуля: `at` → текст.
 
     AST, а не пошук рядка: склеєні літерали (`"a" "b" f"c"`) видно цілком, а
-    шебанг у докстрінгу чи коментарі сюди не потрапляє. Частини склеєного
-    літерала відкидаються — лишається найбільший відрізок.
+    частини склеєного літерала не рахуються двічі. Значення, а не текст
+    вихідника: `"#!"` у коді програмою не стає.
     """
     source = module.read_text(encoding="utf-8")
-    segments = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Constant) and not isinstance(node.value, str):
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree)
+               for child in ast.iter_child_nodes(parent)}
+    found: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(parents.get(node), ast.JoinedStr):
             continue
-        if not isinstance(node, (ast.Constant, ast.JoinedStr)):
+        text = _program_text(node)
+        if text is None:
             continue
-        segment = ast.get_source_segment(source, node)
-        if segment and SHEBANG.match(segment.lstrip("rbfu\"'")):
-            segments.add(segment)
-
-    found: list[str] = []
-    for segment in sorted(segments, key=len, reverse=True):
-        if not any(segment in bigger for bigger in found):
-            found.append(segment)
+        key = _location(node, parents, source)
+        unique, index = key, 2
+        while unique in found:
+            unique, index = f"{key}#{index}", index + 1
+        found[unique] = text
     return found
+
+
+def all_embedded_programs() -> dict[str, dict[str, str]]:
+    """Усі вбудовані програми під `scripts/tests`, за модулями."""
+    return {
+        str(module.relative_to(REPO_ROOT)): programs
+        for module in sorted(TESTS_DIR.rglob("*.py"))
+        if (programs := embedded_programs(module))
+    }
 
 
 class RegistryTest(unittest.TestCase):
@@ -328,39 +431,50 @@ class RegistryTest(unittest.TestCase):
                 with self.subTest(stand_in=case.name, path=where):
                     self.assertTrue((REPO_ROOT / where).is_file(), where)
 
-    def test_every_embedded_program_is_claimed(self):
-        """Кожна вбудована програма названа в реєстрі — і навпаки.
+    def test_every_embedded_program_is_claimed_at_its_own_place(self):
+        """Кожна вбудована програма названа ЗА СВОЇМ МІСЦЕМ — і навпаки.
 
-        Правило структурне, а не «сьогодні цих двох випадково пінить сусід»:
-        програму знаходить AST, тож наступний підставний інструмент, доданий у
-        будь-який тест, з'явиться тут сам — і без маркера в реєстрі тест
-        почервоніє. Саме цієї половини не бачив скан `fixtures/`: підставні
-        `FAKE_OLD_GIT`, `FAKE_BROKEN_GIT`, `FAKE_GH`, `adb` і `gradlew` живуть у
-        тілі тестів.
+        Прив'язка до місця (`Program.at`), а не до маркера модуля: копія сусіда з
+        тим самим текстом (найімовірніший спосіб написати третього підставного
+        `git`) дістає власний `at` і без запису червонить цей тест. Маркер
+        перевіряється окремо — він мусить лежати в ТІЙ програмі, яку запис називає.
         """
-        embedded = {
-            str(module.relative_to(REPO_ROOT)): embedded_programs(module)
-            for module in sorted(TESTS_DIR.glob("test_*.py"))
-        }
-        embedded = {path: programs for path, programs in embedded.items() if programs}
-
-        self.assertTrue(embedded, "вбудованих програм не знайдено — сканер зламався")
-        for path, programs in embedded.items():
+        for path, programs in all_embedded_programs().items():
             with self.subTest(module=path):
-                markers = [marker for case in CASES if case.where == (path,)
-                           for marker in case.markers]
+                claimed: dict[str, str] = {}
+                for case in CASES:
+                    if case.where != (path,):
+                        continue
+                    for program in case.programs:
+                        self.assertIn(program.at, programs,
+                                      "запис вказує на програму, якої немає")
+                        self.assertNotIn(program.at, claimed,
+                                         "програму названо двічі")
+                        self.assertIn(program.marker, programs[program.at],
+                                      "маркер не лежить у своїй програмі")
+                        claimed[program.at] = case.name
 
-                self.assertTrue(markers, "програми є, а реєстр їх не називає")
-                for marker in markers:
-                    self.assertTrue(
-                        any(marker in program for program in programs),
-                        "маркер %r не належить жодній програмі модуля" % marker,
-                    )
-                for program in programs:
-                    self.assertTrue(
-                        any(marker in program for marker in markers),
-                        "програма не названа в реєстрі:\n%s" % program[:200],
-                    )
+                self.assertEqual(
+                    sorted(programs), sorted(claimed),
+                    "є програми без запису в реєстрі: %s"
+                    % (sorted(set(programs) - set(claimed)),),
+                )
+
+    def test_the_scan_finds_the_programs_it_is_supposed_to(self):
+        """Скан не порожній і бачить відомі місця — інакше він «зелений» ні на чому."""
+        found = all_embedded_programs()
+
+        self.assertEqual(
+            ["scripts/tests/test_android_emulator_readiness.py",
+             "scripts/tests/test_empty_shape_mutants.py",
+             "scripts/tests/test_merge_pr.py",
+             "scripts/tests/test_mutate.py",
+             "scripts/tests/test_review_pass.py",
+             "scripts/tests/test_test_wrappers.py",
+             "scripts/tests/test_wide_window.py"],
+            sorted(found),
+        )
+        self.assertIn("FAKE_OLD_GIT", found["scripts/tests/test_merge_pr.py"])
 
     def test_every_registered_witness_exists(self):
         for case in CASES:
@@ -401,7 +515,7 @@ class EnvironmentTest(unittest.TestCase):
     """Кожен свідок мусить бути зелений і без спадку, і під отрутою."""
 
     def run_witnesses(self, environment: dict) -> subprocess.CompletedProcess:
-        targets = [case.witness for case in CASES if case.runs and not case.own_poison]
+        targets = [case.witness for case in CASES if not case.own_poison]
 
         return subprocess.run(
             [sys.executable, "-m", "unittest", *targets],

@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import xml.etree.ElementTree as ET
@@ -873,6 +874,8 @@ class PythonSensitivityTest(unittest.TestCase):
             "test_mutate_python.PythonMutationRunTest.test_runs_one_python_class_and_records_a_caught_mutation",
         ),
     )
+    # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
+    EXPECTED_CASES = 12
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -934,25 +937,54 @@ class PythonSensitivityTest(unittest.TestCase):
         послідовний блок. Це швидкість, а не вимикач: кожен випадок усе одно
         перевіряється, і жодна перевірка не зникає.
         """
+        # Оголошене число тут — ДРУГЕ джерело правди, і саме тому воно потрібне
+        # (#1266, огляд). `CASES` — це джерело ітерації: перевірка «скільки
+        # зібрано» проти нього ж не тримає нічого, бо `CASES = ()` дає порожній
+        # `outcomes` і зелений набір — «Ran 1 test ... OK» на наборі, який не
+        # виконав жодного випадку. Це та сама діра, яку лікує ця серія: свідок,
+        # зелений тому, що не виконався. Число поруч робить червоними і порожній
+        # перелік, і зрізаний, і воно навмисно вимагає правки разом із `CASES`:
+        # зникнення випадку мусить бути видимим, а не тихим.
+        self.assertEqual(self.EXPECTED_CASES, len(self.CASES),
+                         "оголошених випадків чутливості мусить бути рівно стільки")
+
+        in_flight = 0
+        observed = 0
+        lock = threading.Lock()
+
         def judge(index, case):
-            name, edited, needle, replacement, target = case
+            nonlocal in_flight, observed
+            with lock:
+                in_flight += 1
+                observed = max(observed, in_flight)
             try:
-                mutant = self.mutant(needle, replacement, edited, index)
-                # The nested run has to work at all, or "it failed" means nothing.
-                intact = self.run_one_test(target, None)
-                mutated = self.run_one_test(target, mutant)
-            except Exception as error:  # noqa: BLE001 — звітується під subTest
-                return name, None, None, error
-            return name, intact, mutated, None
+                name, edited, needle, replacement, target = case
+                try:
+                    mutant = self.mutant(needle, replacement, edited, index)
+                    # The nested run has to work at all, or "it failed" means nothing.
+                    intact = self.run_one_test(target, None)
+                    mutated = self.run_one_test(target, mutant)
+                except Exception as error:  # noqa: BLE001 — звітується під subTest
+                    return name, None, None, error
+                return name, intact, mutated, None
+            finally:
+                with lock:
+                    in_flight -= 1
 
         with ThreadPoolExecutor(max_workers=SENSITIVITY_JOBS) as pool:
             outcomes = list(pool.map(lambda pair: judge(*pair), enumerate(self.CASES)))
 
         # Одночасність не мусить тихо з'їсти випадок: скільки оголошено, стільки
-        # й перевірено. Черга цього не потребувала — `for` по `CASES` видно, —
-        # а пул потребує: зрізаний `CASES` лишив би набір зеленим.
+        # й перевірено.
         self.assertEqual(len(self.CASES), len(outcomes),
                          "кожен оголошений випадок мусить бути перевірений")
+        if SENSITIVITY_JOBS > 1:
+            # І випадки мусять іти одночасно, а не чергою: повернення `for`
+            # лишило б набір зеленим, тож черга піниться тим, скільки випадків
+            # побувало в польоті разом. На одному ядрі пінити нічого — пул там
+            # і буде один.
+            self.assertGreater(observed, 1,
+                               "випадки мусять іти одночасно, а не чергою")
 
         for name, intact, mutated, error in outcomes:
             with self.subTest(mutation=name):

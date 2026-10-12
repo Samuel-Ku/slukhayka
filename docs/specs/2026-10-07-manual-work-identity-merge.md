@@ -568,3 +568,47 @@ CI попереднього HEAD `0f4395be` доводить тільки поп
 Конкретні title/author/серія/обкладинка пари й відповідь «ці люди одна
 person» обираються в runtime preview. Це дані слухача, а не нові архітектурні
 питання для кожного виконавця. До трьох рішень вище #968 лишається відкритим.
+
+
+## Типізований read-only preview v1
+
+`ManualWorkMerge(dao).prepareManualWorkMerge(a, b)` матеріалізує snapshot
+через один concrete suspend `@Transaction` read door DAO. Participants,
+counts, conflicts і fingerprint проєктуються лише з цього snapshot. Це
+не підтвердження canonical Work, не Apply/Undo й не дозвіл на запис.
+
+Чотири закриті типізовані групи охоплюють наявні 45 таблиць: library,
+catalog, personal і retained. Audiobook-проєкція містить лише 14 persisted
+полів, без mutable `@Ignore` UI даних; BLOB захищений копіюванням, списки
+не змінюються через повернуту модель. Edition збирається за прямим Work
+anchor і підтвердженими library associations, а також за зворотними
+Source/Chapter/Listening State/Readthrough посиланнями. Два можливих
+власники, неоднозначний namespace, відсутній parent чи unreadable
+source-scoped документ дають conflict evidence. Вони не обирають власника
+мовчки. Shared словник не приєднує всі сторонні Works. Provider Source id
+не дорівнює локальному Source row id.
+
+Fingerprint `manual-work-merge-v1:` — SHA-256 закритого typed-content
+потоку Room54. Header: `ManualWorkMergeSnapshot\0v1\0Room54\0`, кількість
+і UTF8-сортовані requested root IDs. Таблиці йдуть в ASCII порядку;
+кожна scope relation має row count, навіть нуль. Rows сортуються за повним
+PK; FTS без PK є multiset п'яти persisted strings, з дублікатами.
+Persisted поля йдуть у порядку Room54 schema. Null має окрему `N;` рамку,
+рядок — UTF8 byte length і точні bytes; Int/Long/Boolean мають різні
+типові рамки; Float записується як promoted binary64 bits, BLOB — byte
+length і SHA-256 точних bytes. Raw JSON, provenance, timestamps і
+opaque legacy keys не нормалізуються. Execution clock у потік не входить.
+
+Дев'ять retained-global carriers — listening_stats, playback_sessions,
+achievements, achievement_facts, achievement_counters, person_bookmarks,
+hidden_reviewers, friendship_states, social_blocks — повертаються з raw
+rows/counts, але мають лише `excluded;` marker у fingerprint. Їм не
+вигадується Work association. Зміна глобального лічильника не робить
+pair snapshot іншим; зміна linked Bookmark payload робить.
+
+Це логічний typed Room preview. Він не доводить exact довільні фізичні
+SQLite storage classes, REAL precision за межами Entity Float, FTS rowid,
+shadow/trigger data або byte-exact physical Undo before-images. Journal,
+redirects, activity/file/permission gates, guarded commit і writer-race
+acceptance залишаються окремими частинами контракту. Цей опис не приймає
+actual runtime чи весь #968.

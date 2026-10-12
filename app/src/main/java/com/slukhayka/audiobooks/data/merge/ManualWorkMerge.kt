@@ -6,37 +6,69 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
-import java.util.Collections
-import kotlinx.coroutines.flow.first
 
 /**
- * The initial read-only preview of two Works' library and catalog narrations (#968).
- * Materializes their separate listening state without approving or applying
- * a merge. A preview is not an approved transaction plan.
+ * Read-only typed preview of two Works and their dependency closure (#968).
+ * Every projection comes from one DAO-owned Room transaction. It approves
+ * no canonical identity and is not an apply/Undo or physical before-image plan.
  */
 class ManualWorkMerge(private val dao: AudiobookDao) {
     suspend fun prepareManualWorkMerge(a: String, b: String): ManualWorkMergePreview {
-        val entries = dao.observeLibraryEntries().first()
-        val editions = dao.observeEditions().first()
-        val participants = listOf(a, b).map { workId ->
-            val work = requireNotNull(dao.getWorkById(workId)) { "Work is unavailable: $workId" }
-            val bookIds = entries.filter { it.workId == workId }.map { it.id }.toSet()
-            val narrations = editions.filter { it.workId == workId || it.workId in bookIds }.map { edition ->
+        require(a != b) { "Two distinct Work identities are required" }
+        val snapshot = dao.readManualWorkMergeRows(listOf(a, b))
+        val participants = listOf(a, b).mapNotNull { workId ->
+            val work = snapshot.library.works.firstOrNull { it.id == workId } ?: return@mapNotNull null
+            val entryIds = snapshot.library.entries.filter { it.workId == workId }.map { it.id }.toSet()
+            val narrations = snapshot.library.editions.filter { edition ->
+                edition.workId == workId || edition.workId in entryIds ||
+                    associatedBookIds(snapshot, edition.id).any { it in entryIds }
+            }.sortedWith { first, second ->
+                second.addedAt.compareTo(first.addedAt).takeIf { it != 0 }
+                    ?: compareMergeUtf8(first.id, second.id)
+            }.map { edition ->
+                val actualEntryIds = snapshot.library.entries.map { it.id }.toSet()
+                val associations = buildSet {
+                    if (edition.workId in actualEntryIds) add(edition.workId)
+                    addAll(associatedBookIds(snapshot, edition.id).filter { it in actualEntryIds })
+                }
                 ManualWorkMergeEditionPreview(
-                    bookId = edition.workId.takeIf { it in bookIds },
+                    bookId = associations.singleOrNull()?.takeIf { it in entryIds },
                     edition = edition,
-                    chapters = immutableList(dao.getChaptersListForEdition(edition.id)),
-                    progress = dao.getPlaybackProgressSyncByEdition(edition.id),
-                    bookmarks = immutableList(dao.getBookmarksForEdition(edition.id).first()),
+                    chapters = immutableMergeList(snapshot.library.chapters.filter { it.editionId == edition.id }
+                        .sortedWith { first, second -> first.chapterIndex.compareTo(second.chapterIndex)
+                            .takeIf { it != 0 } ?: compareMergeUtf8(first.id, second.id) }),
+                    progress = snapshot.library.progress.firstOrNull { it.editionId == edition.id },
+                    bookmarks = immutableMergeList(snapshot.library.bookmarks.filter { it.editionId == edition.id }
+                        .sortedWith(compareBy<BookmarkEntity> { it.timestampSeconds }.thenBy { it.id })),
                 )
             }
-            ManualWorkMergeParticipant(work, immutableList(narrations))
+            ManualWorkMergeParticipant(work, immutableMergeList(narrations))
         }
-        return ManualWorkMergePreview(immutableList(participants))
+        return ManualWorkMergePreview(
+            participants = immutableMergeList(participants),
+            snapshot = snapshot,
+            counts = ManualWorkMergeCounts.from(snapshot),
+            fingerprint = ManualWorkMergeFingerprint.of(snapshot),
+            conflicts = snapshot.conflicts,
+        )
+    }
+
+    private fun associatedBookIds(snapshot: ManualWorkMergeSnapshot, editionId: String): Set<String> = buildSet {
+        snapshot.library.sources.filter { it.editionId == editionId }.forEach { add(it.bookId) }
+        snapshot.library.chapters.filter { it.editionId == editionId }.forEach { add(it.bookId) }
+        snapshot.library.progress.filter { it.editionId == editionId }.forEach { add(it.bookId) }
+        snapshot.library.bookmarks.filter { it.editionId == editionId }.forEach { add(it.bookId) }
+        snapshot.library.readthroughs.filter { it.editionId == editionId }.forEach { add(it.libraryEntryId) }
     }
 }
 
-data class ManualWorkMergePreview(val participants: List<ManualWorkMergeParticipant>)
+data class ManualWorkMergePreview(
+    val participants: List<ManualWorkMergeParticipant>,
+    val snapshot: ManualWorkMergeSnapshot,
+    val counts: ManualWorkMergeCounts,
+    val fingerprint: String,
+    val conflicts: List<ManualWorkMergeConflict>,
+)
 
 data class ManualWorkMergeParticipant(
     val work: WorkEntity,
@@ -50,6 +82,3 @@ data class ManualWorkMergeEditionPreview(
     val progress: PlaybackProgressEntity?,
     val bookmarks: List<BookmarkEntity>,
 )
-
-private fun <T> immutableList(items: List<T>): List<T> =
-    Collections.unmodifiableList(items.toList())

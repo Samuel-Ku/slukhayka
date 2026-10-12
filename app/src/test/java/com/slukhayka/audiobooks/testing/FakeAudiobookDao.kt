@@ -1809,4 +1809,151 @@ class FakeAudiobookDao(
             submissionStates[sourceId] = existing.copy(state = state, reason = reason, updatedAt = updatedAt)
         }
     }
+
+    // Manual Work merge snapshots need real Room transaction/SQL semantics.
+    override suspend fun readManualWorkMergeRows(
+        workIds: List<String>
+    ): com.slukhayka.audiobooks.data.merge.ManualWorkMergeSnapshot = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeWorks(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.WorkEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeWorksForKeys(keys: List<String>):
+        List<com.slukhayka.audiobooks.data.db.WorkEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeEntries(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeEntriesByIds(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeBooks(bookIds: List<String>):
+        List<com.slukhayka.audiobooks.data.merge.ManualWorkMergeBookRow> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeEditions(anchors: List<String>, editionIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.EditionEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeSources(bookIds: List<String>, editionIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.SourceEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeTracks(sourceIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.SourceTrackEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeChapters(bookIds: List<String>, editionIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.ChapterEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeProgress(bookIds: List<String>, editionIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.PlaybackProgressEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeBookmarks(bookIds: List<String>, editionIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.BookmarkEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeSettings(bookIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.EditionSettingsEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeReadthroughs(workIds: List<String>, bookIds: List<String>, editionIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeEvents(bookIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.PlaybackEventEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeFailures(bookIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.PlaybackFailureEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeSubmissions(bookIds: List<String>, sourceIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeWorkSources(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.WorkSourceEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeSeriesMembers(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.SeriesMemberEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeFacetSeries(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeSeries(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.SeriesEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeUniverses(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.UniverseEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeWorkFacets(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.WorkFacetEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeGenreStates(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.GenreAssertionStateEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeGenreAssertions(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.GenreAssertionEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeWorkGenres(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.WorkGenreEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeGenres(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.GenreFacetEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeEditionFacets(workIds: List<String>, editionIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.EditionFacetEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeAuthors(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.AuthorFacetEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeAuthorAliases(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.AuthorAliasEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeFtsRows(workIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.WorkSearchFtsEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergePopularity(keys: List<String>):
+        List<com.slukhayka.audiobooks.data.db.PopularityAssertionEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeCorrections(keys: List<String>):
+        List<com.slukhayka.audiobooks.data.db.CorrectionEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeTombstones(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.TombstoneEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergePreferences(workIds: List<String>, keys: List<String>):
+        List<com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeCollectionItems(bookIds: List<String>):
+        List<com.slukhayka.audiobooks.data.db.ListenerCollectionItemEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeCollections(ids: List<String>):
+        List<com.slukhayka.audiobooks.data.db.ListenerCollectionEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeFeedSnapshots():
+        List<com.slukhayka.audiobooks.data.db.FeedSnapshotEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeStats():
+        List<com.slukhayka.audiobooks.data.db.ListeningStatEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeSessions():
+        List<com.slukhayka.audiobooks.data.db.PlaybackSessionEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeAchievements():
+        List<com.slukhayka.audiobooks.data.db.AchievementEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeAchievementFacts():
+        List<com.slukhayka.audiobooks.data.db.AchievementFactEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeAchievementCounters():
+        List<com.slukhayka.audiobooks.data.db.AchievementCounterEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergePersonBookmarks():
+        List<com.slukhayka.audiobooks.data.db.PersonBookmarkEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeHiddenReviewers():
+        List<com.slukhayka.audiobooks.data.db.HiddenReviewerEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeFriendships():
+        List<com.slukhayka.audiobooks.data.db.FriendshipStateEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun manualMergeSocialBlocks():
+        List<com.slukhayka.audiobooks.data.db.BlockEntity> = unsupportedManualMergeSnapshot()
+
+    private fun unsupportedManualMergeSnapshot(): Nothing = throw UnsupportedOperationException(
+        "Manual Work merge snapshots require real Room; FakeAudiobookDao does not implement transactional storage reads"
+    )
 }

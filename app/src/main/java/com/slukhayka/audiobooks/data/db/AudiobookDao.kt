@@ -2,6 +2,9 @@ package com.slukhayka.audiobooks.data.db
 
 import androidx.paging.PagingSource
 import androidx.room.*
+import com.slukhayka.audiobooks.data.merge.ManualWorkMergeBookRow
+import com.slukhayka.audiobooks.data.merge.ManualWorkMergeSnapshot
+import com.slukhayka.audiobooks.data.merge.ManualWorkMergeSnapshotReader
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
 import com.slukhayka.audiobooks.data.source.SourceRegistry
@@ -2068,4 +2071,148 @@ interface AudiobookDao {
         "UPDATE submission_states SET state = :state, reason = :reason, updatedAt = :updatedAt WHERE sourceId = :sourceId"
     )
     suspend fun updateSubmissionState(sourceId: String, state: String, reason: String?, updatedAt: Long)
+
+    /** One read transaction for identity evidence, raw carriers and their absence boundaries. */
+    @Transaction
+    suspend fun readManualWorkMergeRows(workIds: List<String>): ManualWorkMergeSnapshot =
+        ManualWorkMergeSnapshotReader.read(this, workIds)
+
+    // Raw one-shot storage queries of the closed manual-merge snapshot. They do not mutate rows.
+    @Query("SELECT * FROM works WHERE id IN (:ids)")
+    suspend fun manualMergeWorks(ids: List<String>): List<WorkEntity>
+
+    @Query("SELECT * FROM works WHERE mergeKey IN (:keys)")
+    suspend fun manualMergeWorksForKeys(keys: List<String>): List<WorkEntity>
+
+    @Query("SELECT * FROM library_entries WHERE workId IN (:workIds)")
+    suspend fun manualMergeEntries(workIds: List<String>): List<LibraryEntryEntity>
+
+    @Query("SELECT * FROM library_entries WHERE id IN (:ids)")
+    suspend fun manualMergeEntriesByIds(ids: List<String>): List<LibraryEntryEntity>
+
+    @Query("SELECT id, title, author, narrator, description, coverDrawableRes, coverImageUrl, genre, sourceUrl, isDownloaded, totalDurationSeconds, totalChapters, rating, sourceTreeUri FROM audiobooks WHERE id IN (:bookIds)")
+    suspend fun manualMergeBooks(bookIds: List<String>): List<ManualWorkMergeBookRow>
+
+    @Query("SELECT * FROM editions WHERE workId IN (:anchors) OR id IN (:editionIds)")
+    suspend fun manualMergeEditions(anchors: List<String>, editionIds: List<String>): List<EditionEntity>
+
+    @Query("SELECT * FROM sources WHERE bookId IN (:bookIds) OR editionId IN (:editionIds)")
+    suspend fun manualMergeSources(bookIds: List<String>, editionIds: List<String>): List<SourceEntity>
+
+    @Query("SELECT * FROM source_tracks WHERE sourceId IN (:sourceIds)")
+    suspend fun manualMergeTracks(sourceIds: List<String>): List<SourceTrackEntity>
+
+    @Query("SELECT * FROM chapters WHERE bookId IN (:bookIds) OR editionId IN (:editionIds)")
+    suspend fun manualMergeChapters(bookIds: List<String>, editionIds: List<String>): List<ChapterEntity>
+
+    @Query("SELECT * FROM playback_progress WHERE bookId IN (:bookIds) OR editionId IN (:editionIds)")
+    suspend fun manualMergeProgress(bookIds: List<String>, editionIds: List<String>): List<PlaybackProgressEntity>
+
+    @Query("SELECT * FROM bookmarks WHERE bookId IN (:bookIds) OR editionId IN (:editionIds)")
+    suspend fun manualMergeBookmarks(bookIds: List<String>, editionIds: List<String>): List<BookmarkEntity>
+
+    @Query("SELECT * FROM edition_settings WHERE bookId IN (:bookIds)")
+    suspend fun manualMergeSettings(bookIds: List<String>): List<EditionSettingsEntity>
+
+    @Query("SELECT * FROM readthroughs WHERE workId IN (:workIds) OR libraryEntryId IN (:bookIds) OR editionId IN (:editionIds)")
+    suspend fun manualMergeReadthroughs(workIds: List<String>, bookIds: List<String>, editionIds: List<String>): List<ReadthroughEntity>
+
+    @Query("SELECT * FROM playback_events WHERE bookId IN (:bookIds)")
+    suspend fun manualMergeEvents(bookIds: List<String>): List<PlaybackEventEntity>
+
+    @Query("SELECT * FROM playback_failures WHERE bookId IN (:bookIds)")
+    suspend fun manualMergeFailures(bookIds: List<String>): List<PlaybackFailureEntity>
+
+    @Query("SELECT * FROM submission_states WHERE bookId IN (:bookIds) OR sourceId IN (:sourceIds)")
+    suspend fun manualMergeSubmissions(bookIds: List<String>, sourceIds: List<String>): List<SubmissionStateEntity>
+
+    @Query("SELECT * FROM work_sources WHERE workId IN (:workIds)")
+    suspend fun manualMergeWorkSources(workIds: List<String>): List<WorkSourceEntity>
+
+    @Query("SELECT * FROM series_members WHERE workId IN (:workIds)")
+    suspend fun manualMergeSeriesMembers(workIds: List<String>): List<SeriesMemberEntity>
+
+    @Query("SELECT * FROM work_facet_series WHERE workId IN (:workIds)")
+    suspend fun manualMergeFacetSeries(workIds: List<String>): List<WorkFacetSeriesEntity>
+
+    @Query("SELECT * FROM series WHERE id IN (:ids)")
+    suspend fun manualMergeSeries(ids: List<String>): List<SeriesEntity>
+
+    @Query("SELECT * FROM universes WHERE id IN (:ids)")
+    suspend fun manualMergeUniverses(ids: List<String>): List<UniverseEntity>
+
+    @Query("SELECT * FROM work_facets WHERE workId IN (:workIds)")
+    suspend fun manualMergeWorkFacets(workIds: List<String>): List<WorkFacetEntity>
+
+    @Query("SELECT * FROM genre_assertion_states WHERE workId IN (:workIds)")
+    suspend fun manualMergeGenreStates(workIds: List<String>): List<GenreAssertionStateEntity>
+
+    @Query("SELECT * FROM genre_assertions WHERE workId IN (:workIds)")
+    suspend fun manualMergeGenreAssertions(workIds: List<String>): List<GenreAssertionEntity>
+
+    @Query("SELECT * FROM work_genres WHERE workId IN (:workIds)")
+    suspend fun manualMergeWorkGenres(workIds: List<String>): List<WorkGenreEntity>
+
+    @Query("SELECT * FROM genre_facets WHERE id IN (:ids)")
+    suspend fun manualMergeGenres(ids: List<String>): List<GenreFacetEntity>
+
+    @Query("SELECT * FROM edition_facets WHERE workId IN (:workIds) OR editionId IN (:editionIds)")
+    suspend fun manualMergeEditionFacets(workIds: List<String>, editionIds: List<String>): List<EditionFacetEntity>
+
+    @Query("SELECT * FROM author_facets WHERE id IN (:ids)")
+    suspend fun manualMergeAuthors(ids: List<String>): List<AuthorFacetEntity>
+
+    @Query("SELECT * FROM author_aliases WHERE authorId IN (:ids)")
+    suspend fun manualMergeAuthorAliases(ids: List<String>): List<AuthorAliasEntity>
+
+    @Query("SELECT workId, title, author, series, narrator FROM works_fts WHERE workId IN (:workIds)")
+    suspend fun manualMergeFtsRows(workIds: List<String>): List<WorkSearchFtsEntity>
+
+    @Query("SELECT * FROM popularity_assertions WHERE mergeKey IN (:keys)")
+    suspend fun manualMergePopularity(keys: List<String>): List<PopularityAssertionEntity>
+
+    @Query("SELECT * FROM corrections WHERE mergeKey IN (:keys) OR value IN (:keys) OR kind = 'MERGE' OR mergeKey LIKE 'local-folder:%'")
+    suspend fun manualMergeCorrections(keys: List<String>): List<CorrectionEntity>
+
+    @Query("SELECT * FROM tombstones WHERE bookId IN (:ids)")
+    suspend fun manualMergeTombstones(ids: List<String>): List<TombstoneEntity>
+
+    @Query("SELECT * FROM recommendation_preferences WHERE sourceWorkId IN (:workIds) OR (kind != 'HIDE_AUTHOR' AND targetKey IN (:keys))")
+    suspend fun manualMergePreferences(workIds: List<String>, keys: List<String>): List<RecommendationPreferenceEntity>
+
+    @Query("SELECT * FROM listener_collection_items WHERE bookId IN (:bookIds)")
+    suspend fun manualMergeCollectionItems(bookIds: List<String>): List<ListenerCollectionItemEntity>
+
+    @Query("SELECT * FROM listener_collections WHERE id IN (:ids)")
+    suspend fun manualMergeCollections(ids: List<String>): List<ListenerCollectionEntity>
+
+    @Query("SELECT * FROM feed_snapshots")
+    suspend fun manualMergeFeedSnapshots(): List<FeedSnapshotEntity>
+
+    @Query("SELECT * FROM listening_stats")
+    suspend fun manualMergeStats(): List<ListeningStatEntity>
+
+    @Query("SELECT * FROM playback_sessions")
+    suspend fun manualMergeSessions(): List<PlaybackSessionEntity>
+
+    @Query("SELECT * FROM achievements")
+    suspend fun manualMergeAchievements(): List<AchievementEntity>
+
+    @Query("SELECT * FROM achievement_facts")
+    suspend fun manualMergeAchievementFacts(): List<AchievementFactEntity>
+
+    @Query("SELECT * FROM achievement_counters")
+    suspend fun manualMergeAchievementCounters(): List<AchievementCounterEntity>
+
+    @Query("SELECT * FROM person_bookmarks")
+    suspend fun manualMergePersonBookmarks(): List<PersonBookmarkEntity>
+
+    @Query("SELECT * FROM hidden_reviewers")
+    suspend fun manualMergeHiddenReviewers(): List<HiddenReviewerEntity>
+
+    @Query("SELECT * FROM friendship_states")
+    suspend fun manualMergeFriendships(): List<FriendshipStateEntity>
+
+    @Query("SELECT * FROM social_blocks")
+    suspend fun manualMergeSocialBlocks(): List<BlockEntity>
 }

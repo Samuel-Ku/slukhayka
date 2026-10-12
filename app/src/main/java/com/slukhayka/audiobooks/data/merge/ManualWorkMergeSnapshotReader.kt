@@ -97,6 +97,8 @@ internal object ManualWorkMergeSnapshotReader {
         val pairEndpointIds = corrections.filter { it.kind == CorrectionKind.NEVER_MATCH }
             .flatMap { listOf(it.mergeKey, it.value) }.filter { it.isNotBlank() }.distinct()
         val endpointEntries = dao.manualMergeEntriesByIds(pairEndpointIds)
+        // Retain each real Entry endpoint's legacy Book as identity evidence only.
+        val endpointBooks = dao.manualMergeBooks(endpointEntries.map { it.id })
         entries = (entries + endpointEntries).distinctBy { it.id }
         works = (works + dao.manualMergeWorks(pairEndpointIds + endpointEntries.map { it.workId }) +
             dao.manualMergeWorksForKeys(pairEndpointIds)).distinctBy { it.id }
@@ -116,7 +118,7 @@ internal object ManualWorkMergeSnapshotReader {
             feedInScope(row, identityIds, knownUrls, knownProviders, issues)
         }
         val library = ManualWorkMergeLibraryRows(
-            works, entries, books, editions, sources, tracks, chapters, progress, bookmarks,
+            works, entries, (books + endpointBooks).distinctBy { it.id }, editions, sources, tracks, chapters, progress, bookmarks,
             settings, readthroughs, events, failures, submissions,
         )
         val catalog = ManualWorkMergeCatalogRows(

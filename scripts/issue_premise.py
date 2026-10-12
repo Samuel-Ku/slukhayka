@@ -99,8 +99,13 @@
   робить його невідрізненним від `ui/adaptive/WindowLayout.kt`.
 * Гілки розпізнаються за головою зі списку (`feat`, `fix`, `release`,
   `spec-53`, `backup`, `chore`, …). Гілка з голови поза списком (`my-branch/x`)
-  лишиться кандидатом і дасть відмову. `docs` у списку немає навмисно: це
-  справжня тека репозиторію.
+  лишиться кандидатом і дасть відмову. `docs`, `doc`, `test` і `tests` у списку
+  немає навмисно: це справжні теки репозиторію (`docs/voice.md`,
+  `scripts/tests/test_x.py`), і такі голови зробили б їх невидимими.
+* Односегментне ім'я може зійтися з **текою** за хвостом: `main/` дає «є в
+  `main`: `app/src/main`» (#982), хоч тікет мав на увазі не теку. Напрямок
+  хибний у безпечний бік (пропуск, не відмова), і полагодження вимагає
+  розрізняти блоб і дерево у вердикті — винесено окремим тікетом.
 * Винятки з відбору кандидатів (рядки-команди `gh …`, Gradle-цілі
   `:app:lintDebug`, git-ref-и `origin/main`, назви гілок, стан усередині
   `.git/`, шляхи пристрою `filesDir/…`, еліпсис `...`, скорочення
@@ -153,13 +158,15 @@ KNOWN_REF_HEADS = frozenset({"origin", "upstream", "HEAD", "refs", "remotes", "t
 # не файл, і вимагати її в `main` означало б валити тікети за назву смуги роботи
 # (знахідка огляду PR #1268: 6 тікетів у вікні 200).
 #
-# `docs` і `doc` тут НЕ стоять навмисно, хоч гілки `docs/…` у репозиторії є:
-# `docs/voice.md` і `docs/adr` — справжні шляхи, і голова `docs` зробила б їх
-# невидимими для ґарда (ціна помічена власним тестом, не оглядом).
+# `docs`, `doc`, `test` і `tests` тут НЕ стоять навмисно, хоч гілки з такими
+# головами в репозиторії є: `docs/voice.md`, `docs/adr`,
+# `scripts/tests/test_x.py`, `app/src/test/java/…` — справжні шляхи, і ці
+# голови зробили б їх невидимими для ґарда. `docs` помітив власний тест;
+# `test`/`tests` — огляд PR #1268 (931 шлях у дереві під такими теками).
 BRANCH_HEADS = frozenset(
     {
         "feat", "feature", "fix", "hotfix", "bugfix", "chore", "refactor", "perf",
-        "test", "tests", "build", "ci", "revert", "release", "backup", "wip",
+        "build", "ci", "revert", "release", "backup", "wip",
         "dependabot", "renovate", "spec",
     }
 )
@@ -258,7 +265,7 @@ def _is_shorthand(span: str) -> bool:
     return bool(head) and bool(tail) and "." not in tail and not re.search(r"[A-Za-z_]", tail)
 
 
-def _is_ignored(path: str) -> bool:
+def _is_ignored(path: str, repo: Path) -> bool:
     """Чи шлях ігнорує сам репозиторій (`.mutations`, `build`, `.scratch`).
 
     Такі каталоги живуть лише на машині й у `main` їх немає **навмисно** —
@@ -271,25 +278,33 @@ def _is_ignored(path: str) -> bool:
     """
     if not path:
         return False
-    code, _, _ = git_output(["check-ignore", "--no-index", "-q", "--", path])
-    return code == 0
+    # Питаємо і з хвостовим слешем: `.gitignore` пише `.mutations/` — правило
+    # саме для теки, і на голому імені `git check-ignore` його не бачить.
+    for probe in (path, path.rstrip("/") + "/"):
+        code, _, _ = git_output(["check-ignore", "--no-index", "-q", "--", probe], repo)
+        if code == 0:
+            return True
+    return False
 
 
-_TOP_LEVEL: frozenset[str] | None = None
+_TOP_LEVEL: dict[tuple[Path, str], frozenset[str]] = {}
 
 
-def _top_level_entries() -> frozenset[str]:
-    """Записи верхнього рівня `main` — з дерева, а не зі списку в коді.
+def _top_level_entries(ref: str, repo: Path) -> frozenset[str]:
+    """Записи верхнього рівня **того самого** ref-а, про який вердикт.
 
-    Список у коді розійшовся б із репозиторієм; тут питання до того самого
-    ref-а, про який ухвалюється вердикт. Кешується: це один процес `git` на
-    прогін, і лише коли в тілі знайшовся хоч один кандидат.
+    Не `MAIN_REF`, а саме `ref`: `--ref` існує, і ґард, який судить одне
+    дерево, а прозу відрізняє за іншим, розійшовся б сам із собою (знахідка
+    огляду PR #1268). Це ж і робило тест залежним від чекауту: у CI `origin/main`
+    не існує, дерево порожнє, і `docs/agents` читався як проза.
+
+    Кешується на (repo, ref): один процес `git` на прогін.
     """
-    global _TOP_LEVEL
-    if _TOP_LEVEL is None:
-        code, out, _ = git_output(["ls-tree", "--name-only", MAIN_REF])
-        _TOP_LEVEL = frozenset(out.splitlines()) if code == 0 else frozenset()
-    return _TOP_LEVEL
+    key = (repo, ref)
+    if key not in _TOP_LEVEL:
+        code, out, _ = git_output(["ls-tree", "--name-only", ref], repo)
+        _TOP_LEVEL[key] = frozenset(out.splitlines()) if code == 0 else frozenset()
+    return _TOP_LEVEL[key]
 
 
 def _is_git_ref(span: str) -> bool:
@@ -337,7 +352,7 @@ def _is_branch_name(span: str) -> bool:
     return True
 
 
-def _is_prose_fragment(span: str) -> bool:
+def _is_prose_fragment(span: str, ref: str, repo: Path) -> bool:
     """Чи це проза чи код зі слешем, а не шлях: `try/catch`.
 
     Питається **після** того, як дерево не дало нічого: два сегменти без
@@ -355,7 +370,7 @@ def _is_prose_fragment(span: str) -> bool:
         return False
     if any("." in segment for segment in segments):
         return False
-    return segments[0] not in _top_level_entries()
+    return segments[0] not in _top_level_entries(ref, repo)
 
 
 def _is_device_path(span: str) -> bool:
@@ -456,7 +471,7 @@ def _named_paths(body: str) -> list[Candidate]:
     return found
 
 
-def candidates(body: str) -> list[Candidate]:
+def candidates(body: str, repo: Path = REPO_ROOT) -> list[Candidate]:
     """Шляхи, названі в тілі issue, у порядку появи.
 
     Винятки, які не є премисою про наявний файл: рядки-команди, Gradle-цілі,
@@ -471,14 +486,22 @@ def candidates(body: str) -> list[Candidate]:
     return [
         candidate
         for candidate in _named_paths(body)
-        if candidate.marked_new or not _is_ignored(candidate.path)
+        if candidate.marked_new or not _is_ignored(candidate.path, repo)
     ]
 
 
-def git_output(args: list[str]) -> tuple[int, str, str]:
+def git_output(args: list[str], repo: Path = REPO_ROOT) -> tuple[int, str, str]:
+    """`git` у названому репозиторії.
+
+    `repo` — не дрібниця: у CI чекаут не має `origin/main` (раннер фетчить
+    merge-ref), тож ґард, який завжди дивився б у `REPO_ROOT`, там не бачив би
+    нічого, а тест — залежав би від того, що завантажив раннер. Те саме
+    дозволяє тестам підняти **свій** репозиторій у `/tmp` зі своїм `origin/main`
+    і перевіряти справжній git, а не підставку.
+    """
     proc = subprocess.run(
         ["git", *args],
-        cwd=REPO_ROOT,
+        cwd=str(repo),
         capture_output=True,
         text=True,
         check=False,
@@ -486,21 +509,21 @@ def git_output(args: list[str]) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def resolve_main_ref(ref: str) -> tuple[bool, str]:
+def resolve_main_ref(ref: str, repo: Path = REPO_ROOT) -> tuple[bool, str]:
     """Чи читається ref. Невідомість, а не мовчазний відкат на HEAD."""
-    code, out, err = git_output(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
+    code, out, err = git_output(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], repo)
     if code != 0:
         return False, (err.strip() or f"{ref} не читається")
     return True, out.strip()
 
 
-def main_has_path(ref: str, path: str) -> bool:
+def main_has_path(ref: str, path: str, repo: Path = REPO_ROOT) -> bool:
     """Чи є в дереві ref запис із такою назвою — файл або каталог."""
-    code, _, _ = git_output(["cat-file", "-e", f"{ref}:{path}"])
+    code, _, _ = git_output(["cat-file", "-e", f"{ref}:{path}"], repo)
     return code == 0
 
 
-def main_matches_suffix(ref: str, suffix: str) -> list[str]:
+def main_matches_suffix(ref: str, suffix: str, repo: Path = REPO_ROOT) -> list[str]:
     """Шляхи в дереві ref, що закінчуються на `suffix` на межі сегмента.
 
     Потрібне для короткої форми: тіло issue пише `ci.yml`, а файл лежить у
@@ -514,13 +537,13 @@ def main_matches_suffix(ref: str, suffix: str) -> list[str]:
     `app/src/test/java/…/ui/components`, `web/src/ui/components`). Каталог — така
     сама премиса, як файл. Знахідка огляду PR #1268.
     """
-    code, out, _ = git_output(["ls-tree", "-r", "-t", "--name-only", ref])
+    code, out, _ = git_output(["ls-tree", "-r", "-t", "--name-only", ref], repo)
     if code != 0:
         return []
     return sorted(line for line in out.splitlines() if line == suffix or line.endswith("/" + suffix))
 
 
-def infer_extension(ref: str, path: str) -> list[str]:
+def infer_extension(ref: str, path: str, repo: Path = REPO_ROOT) -> list[str]:
     """Шлях без розширення, який насправді є файлом із розширенням.
 
     `web/README` у тілі — це `web/README.md` у дереві. Дописуються лише
@@ -535,11 +558,11 @@ def infer_extension(ref: str, path: str) -> list[str]:
     """
     found: set[str] = set()
     for extension in DOC_EXTENSIONS:
-        found.update(main_matches_suffix(ref, path + extension))
+        found.update(main_matches_suffix(ref, path + extension, repo))
     return sorted(found)
 
 
-def judge(candidate: Candidate, ref: str) -> Verdict:
+def judge(candidate: Candidate, ref: str, repo: Path = REPO_ROOT) -> Verdict:
     """Вердикт про один шлях: повний шлях, потім коротка форма.
 
     Порядок саме такий, і він не косметичний: спершу питається точний шлях
@@ -549,7 +572,7 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
     входження короткої форми — той самий файл; кілька — невідомість, бо вибір
     між ними був би здогадом.
     """
-    if main_has_path(ref, candidate.path):
+    if main_has_path(ref, candidate.path, repo):
         # Точний шлях — найсильніший доказ, і він не залежить від того, чи є в
         # дереві ще щось із таким хвостом.
         if candidate.marked_new:
@@ -560,13 +583,13 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
             )
         return Verdict(candidate, 0, f"є в {ref}")
 
-    matches = main_matches_suffix(ref, candidate.path)
+    matches = main_matches_suffix(ref, candidate.path, repo)
     if not matches and not Path(candidate.path).suffix:
         # Посилання без розширення на наявний файл: тіло пише `web/README`, а
         # файл — `web/README.md`. Дописуємо лише відомі розширення й лише коли
         # без них не знайшлося нічого: інакше `web/prototype` (тека, якої в
         # `main` немає навмисно) став би «є» через вигаданий `web/prototype.md`.
-        matches = infer_extension(ref, candidate.path)
+        matches = infer_extension(ref, candidate.path, repo)
     if candidate.marked_new:
         if matches:
             return Verdict(
@@ -584,7 +607,7 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
             f"ім'я неоднозначне в {ref} ({len(matches)} входжень: "
             f"{', '.join(matches[:4])}{'…' if len(matches) > 4 else ''}) — назви повний шлях",
         )
-    if _is_prose_fragment(candidate.path):
+    if _is_prose_fragment(candidate.path, ref, repo):
         # Дерево не дало нічого, і формою це не шлях — проза зі слешем.
         return Verdict(candidate, 0, "шляхом не є (проза чи код зі слешем) — не перевіряється")
     if _is_attachment_name(candidate.path):
@@ -599,8 +622,8 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
     )
 
 
-def check_body(body: str, ref: str) -> tuple[int, list[Verdict]]:
-    ok, detail = resolve_main_ref(ref)
+def check_body(body: str, ref: str, repo: Path = REPO_ROOT) -> tuple[int, list[Verdict]]:
+    ok, detail = resolve_main_ref(ref, repo)
     if not ok:
         # Порада залежить від ref-а: `git fetch origin main` лікує лише
         # віддалений ref. Для локального (`HEAD`, `main`) вона була б шумом.
@@ -617,7 +640,7 @@ def check_body(body: str, ref: str) -> tuple[int, list[Verdict]]:
                 "вердикт про невідомий ref був би здогадом",
             )
         ]
-    found = candidates(body)
+    found = candidates(body, repo)
     if not found:
         return 2, [
             Verdict(
@@ -627,7 +650,7 @@ def check_body(body: str, ref: str) -> tuple[int, list[Verdict]]:
                 "це невідомість, а не зелене світло",
             )
         ]
-    verdicts = [judge(candidate, ref) for candidate in found]
+    verdicts = [judge(candidate, ref, repo) for candidate in found]
     worst = max((v.code for v in verdicts), default=0)
     return worst, verdicts
 
@@ -676,7 +699,7 @@ def read_body(args: argparse.Namespace) -> str:
     return Path(args.body_file).read_text(encoding="utf-8")
 
 
-def scan(limit: int, ref: str) -> int:
+def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
     """Шум на останніх тікетах репозиторію — числом, яке можна відтворити.
 
     Числа в шапці й у `docs/agents/issue-tracker.md` не мусять бути
@@ -684,7 +707,7 @@ def scan(limit: int, ref: str) -> int:
     `origin/main` дає ті самі числа, і друкує ревізію, щоб було видно, про
     який стан ішлося.
     """
-    ok, revision = resolve_main_ref(ref)
+    ok, revision = resolve_main_ref(ref, repo)
     if not ok:
         print(f"issue_premise: ref `{ref}` не читається — переміряти нічого", file=sys.stderr)
         return 2
@@ -704,7 +727,7 @@ def scan(limit: int, ref: str) -> int:
             ["gh", "issue", "view", number, "--json", "body", "--jq", ".body"],
             capture_output=True, text=True, check=False,
         ).stdout
-        code, verdicts = check_body(body, ref)
+        code, verdicts = check_body(body, ref, repo)
         bad = [v.candidate.path for v in verdicts if v.code == 1]
         if bad:
             refused[number] = bad
@@ -747,14 +770,20 @@ def main(argv: list[str] | None = None) -> int:
         default=MAIN_REF,
         help=f"ref, стан якого вважається станом main (типово {MAIN_REF})",
     )
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        default=REPO_ROOT,
+        help=f"репозиторій, у якому питається git (типово корінь цього скрипта)",
+    )
     parser.add_argument("--quiet", action="store_true", help="друкувати лише підсумок і відмови")
     args = parser.parse_args(argv)
 
     if args.scan is not None:
-        return scan(args.scan, args.ref)
+        return scan(args.scan, args.ref, args.repo)
 
     body = read_body(args)
-    code, verdicts = check_body(body, args.ref)
+    code, verdicts = check_body(body, args.ref, args.repo)
     if args.quiet:
         for verdict in verdicts:
             if verdict.code != 0:

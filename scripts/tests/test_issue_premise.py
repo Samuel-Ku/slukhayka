@@ -2,6 +2,7 @@ import contextlib
 import io
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,6 +11,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import issue_premise as ip  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def build_repo(base: Path, files: dict[str, str], gitignore: str = "") -> Path:
+    """Репозиторій зі **своїм** `origin/main` — у `/tmp`, не в чекауті.
+
+    Той самий прийом, що в `test_mutate.py` і `test_review_pass.py`: тест, який
+    питає git, мусить мати власний git-стан, а не позичати його в машини, де
+    біжить. `origin/main` створюється як **віддалений** ref (push у bare
+    `origin`), бо саме на нього дивиться ґард.
+    """
+    base.mkdir(parents=True, exist_ok=True)
+    remote, repo = base / "origin.git", base / "repo"
+    run = lambda *args, cwd: subprocess.run(  # noqa: E731
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
+    )
+    subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    run("config", "user.email", "test@example.com", cwd=repo)
+    run("config", "user.name", "Test", cwd=repo)
+    for relative, content in files.items():
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    if gitignore:
+        (repo / ".gitignore").write_text(gitignore, encoding="utf-8")
+    run("add", "-A", cwd=repo)
+    run("commit", "-q", "-m", "base", cwd=repo)
+    run("remote", "add", "origin", str(remote), cwd=repo)
+    run("push", "-q", "origin", "HEAD:refs/heads/main", cwd=repo)
+    run("fetch", "-q", "origin", "main", cwd=repo)
+    return repo
 
 # Тіло тікета #1261 — справжній приклад класу, який ловить ґард. Текст той
 # самий, що в тілі issue; у тесті він лежить фікстурою, бо тест мусить бігти
@@ -57,29 +89,35 @@ class FakeTree:
     def __init__(self, paths):
         self.paths = set(paths)
         self.calls = []
+        self.top = frozenset(p.split("/")[0] for p in self.paths)
 
-    def __call__(self, ref, path):
+    def __call__(self, ref, path, repo=None):
         self.calls.append(path)
         return path in self.paths
 
-    def suffixes(self, ref, suffix):
+    def suffixes(self, ref, suffix, repo=None):
         self.calls.append(f"suffix:{suffix}")
         return sorted(p for p in self.paths if p == suffix or p.endswith("/" + suffix))
+
+    def top_level(self, ref, repo):
+        self.calls.append(f"top:{ref}")
+        return self.top
 
 
 def judge_body(body, paths, ref="origin/main"):
     """Вердикт по тілу, де дерево `main` підставне, а не взяте з машини.
 
-    Патчиться й `resolve_main_ref`: у копії дерева без `.git` (саме такі копії
-    робить `scripts/verdict_field_mutants.py`) справжній ref не читається, і
-    тест, який тримався б за нього, був би зелений лише на повному чекауті —
-    тобто залежав би від того самого стану робочої копії, з якого народився
-    #1261.
+    Патчиться й `_top_level_entries`: у CI `origin/main` не існує (раннер
+    фетчить merge-ref), тож справжній виклик повернув би порожню множину — і
+    `docs/agents` прочитався б як проза. Саме це й упало в CI PR #1268:
+    локально тест був зелений, бо на машині `origin/main` є.
     """
     tree = FakeTree(paths)
     with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "0" * 40)), mock.patch.object(
         ip, "main_has_path", tree
-    ), mock.patch.object(ip, "main_matches_suffix", tree.suffixes):
+    ), mock.patch.object(ip, "main_matches_suffix", tree.suffixes), mock.patch.object(
+        ip, "_top_level_entries", tree.top_level
+    ):
         code, verdicts = ip.check_body(body, ref)
     return code, verdicts, tree
 
@@ -143,6 +181,16 @@ class ExtractionTest(unittest.TestCase):
         self.assertFalse(ip._is_branch_name("docs/voice.md"))
         self.assertFalse(ip._is_branch_name("docs/adr"))
 
+    def test_test_directories_are_not_mistaken_for_branches(self):
+        # Та сама ціна для голів `test`/`tests` (огляд PR #1268): у дереві 931
+        # шлях під такими теками, і голова зробила б їх невидимими.
+        self.assertEqual(
+            [c.path for c in ip.candidates("`scripts/tests/test_x.py` і `app/src/test/java/A.kt`")],
+            ["scripts/tests/test_x.py", "app/src/test/java/A.kt"],
+        )
+        self.assertFalse(ip._is_branch_name("tests/x"))
+        self.assertFalse(ip._is_branch_name("test/x"))
+
     def test_device_paths_are_not_paths(self):
         # `filesDir/local_imports` — тека в застосунку, не в репозиторії
         # (#1163, #1185).
@@ -182,7 +230,7 @@ class ExtractionTest(unittest.TestCase):
     def test_ignored_paths_are_dropped(self):
         # `.mutations` у `main` немає **навмисно** — такі каталоги живе лише на
         # машині, і «немає в main» про них не є відмовою.
-        with mock.patch.object(ip, "_is_ignored", lambda path: path in {".mutations", "build"}):
+        with mock.patch.object(ip, "_is_ignored", lambda path, repo=None: path in {".mutations", "build"}):
             self.assertEqual(ip.candidates("стан у `.mutations` і в `build`"), [])
 
     def test_ignore_lookup_is_asked_only_about_surviving_paths(self):
@@ -190,7 +238,7 @@ class ExtractionTest(unittest.TestCase):
         # бектиках означало б платити за прозу.
         asked = []
 
-        def fake_ignored(path):
+        def fake_ignored(path, repo=None):
             asked.append(path)
             return False
 
@@ -199,26 +247,26 @@ class ExtractionTest(unittest.TestCase):
         self.assertEqual(asked, ["AGENTS.md"])
 
     def test_new_marked_path_skips_the_ignore_lookup(self):
-        with mock.patch.object(ip, "_is_ignored", lambda path: True):
+        with mock.patch.object(ip, "_is_ignored", lambda path, repo=None: True):
             self.assertEqual([c.path for c in ip.candidates("`NEW:docs/x.md`")], ["docs/x.md"])
 
     def test_ignore_question_goes_to_the_repository_gitignore(self):
         calls = []
 
-        def fake_git(args):
+        def fake_git(args, repo=None):
             calls.append(args)
             return 0, "", ""
 
         with mock.patch.object(ip, "git_output", fake_git):
-            self.assertTrue(ip._is_ignored(".mutations"))
+            self.assertTrue(ip._is_ignored(".mutations", REPO_ROOT))
         self.assertEqual(calls[0][:4], ["check-ignore", "--no-index", "-q", "--"])
         self.assertEqual(calls[0][4], ".mutations")
 
     def test_ignore_failure_means_not_ignored(self):
         # Запобіжник від шуму не мусить сам ставати відмовою: помилка git
         # означає «не ігнорується», і шлях перевіряється як усі.
-        with mock.patch.object(ip, "git_output", lambda args: (128, "", "boom")):
-            self.assertFalse(ip._is_ignored(".mutations"))
+        with mock.patch.object(ip, "git_output", lambda args, repo=None: (128, "", "boom")):
+            self.assertFalse(ip._is_ignored(".mutations", REPO_ROOT))
 
     def test_prose_fragments_are_not_paths(self):
         body = "`detached HEAD`, `head-name`, `case`-arms, `\"errors\": \"0\"`, `|`"
@@ -387,7 +435,7 @@ class MainRefTest(unittest.TestCase):
     def test_suffix_lookup_uses_ls_tree_of_the_ref(self):
         calls = []
 
-        def fake_git(args):
+        def fake_git(args, repo=None):
             calls.append(args)
             return 0, "a/b/ci.yml\nc/ci.yml\n", ""
 
@@ -446,44 +494,75 @@ class CliTest(unittest.TestCase):
         self.assertIn("позначено `NEW:`: 1", report)
 
 
-class LiveRepositoryTest(unittest.TestCase):
-    """Єдине місце, яке питає справжній git: форма `git cat-file -e <ref>:<path>`.
+class RealGitTest(unittest.TestCase):
+    """Справжній `git` — але у **своєму** репозиторії, не в чекауті.
 
-    Дерево підставне в решті тестів, і саме тому тут перевіряється, що ґард
-    читає стан `main` з git, а не з робочої копії: `HEAD` гілки може містити
-    незакомічені зміни, `origin/main` — ні.
-
-    Межа цього класу названа прямо: у копії дерева без `.git` (такі робить
-    `scripts/verdict_field_mutants.py`, і в них `origin/main` не читається)
-    тести **пропускаються**, а не проходять. Пропущений тест у тому механізмі
-    виглядає зеленим — це його власна межа, і саме тому решта модуля
-    герметична: дерево `main` там підставне, і жоден тест не залежить від
-    того, що лежить у робочій копії.
+    Це відповідь на падіння CI PR #1268: тест, який питав `origin/main`
+    репозиторію, у якому біжить, залежав від того, що завантажив раннер
+    (`actions/checkout` фетчить merge-ref, і `origin/main` там немає — тож
+    дерево порожнє, і тека читалася як проза). Тут репозиторій піднімається
+    сам, зі своїм `origin/main`, тож перевіряється справжній git-шлях
+    (`cat-file`, `ls-tree`, `check-ignore`), а не підставка — і жодного
+    питання до стану чекауту.
     """
 
     @classmethod
     def setUpClass(cls):
-        ok, _ = ip.resolve_main_ref("origin/main")
-        if not ok:
-            raise unittest.SkipTest("origin/main не читається в цьому дереві")
+        cls._tmp = tempfile.TemporaryDirectory(prefix="issue-premise-git-")
+        cls.addClassCleanup(cls._tmp.cleanup)
+        cls.repo = build_repo(
+            Path(cls._tmp.name),
+            {
+                "AGENTS.md": "# Agent instructions\n",
+                "docs/voice.md": "voice\n",
+                "docs/agents/issue-tracker.md": "tracker\n",
+                "ui/components/PlayerPane.kt": "package ui.components\n",
+            },
+            ".mutations/\n/build\n",
+        )
 
-    def test_main_ref_is_readable_in_this_worktree(self):
-        ok, revision = ip.resolve_main_ref("origin/main")
+    def test_ref_reads_as_a_commit(self):
+        ok, revision = ip.resolve_main_ref("origin/main", self.repo)
         self.assertTrue(ok)
         self.assertRegex(revision, r"^[0-9a-f]{40}$")
 
+    def test_file_in_main_is_found(self):
+        self.assertTrue(ip.main_has_path("origin/main", "AGENTS.md", self.repo))
+
     def test_untracked_file_in_the_worktree_is_invisible_to_main(self):
         # Головна межа ґарда: він дивиться в дерево `origin/main`, а не в
-        # робочу копію. Цей тест щойно створено й у `main` його немає.
-        self.assertTrue((REPO_ROOT / "scripts" / "tests" / "test_issue_premise.py").exists())
-        self.assertFalse(ip.main_has_path("origin/main", "scripts/tests/test_issue_premise.py"))
+        # робочу копію. Цей файл є в дереві й не є в ref-і.
+        (self.repo / "UNCOMMITTED.md").write_text("ще не в main\n", encoding="utf-8")
+        self.assertTrue((self.repo / "UNCOMMITTED.md").exists())
+        self.assertFalse(ip.main_has_path("origin/main", "UNCOMMITTED.md", self.repo))
 
     def test_unborn_path_in_main_is_not_found(self):
-        self.assertFalse(ip.main_has_path("origin/main", "CODING_STANDARDS.md"))
-        self.assertTrue(ip.main_has_path("origin/main", "AGENTS.md"))
+        self.assertFalse(ip.main_has_path("origin/main", "CODING_STANDARDS.md", self.repo))
+        self.assertTrue(ip.main_has_path("origin/main", "AGENTS.md", self.repo))
+
+    def test_suffix_lookup_sees_directories_through_real_git(self):
+        # `-t` на справжньому дереві: тека є лише деревом, не блобом.
+        matches = ip.main_matches_suffix("origin/main", "ui/components", self.repo)
+        self.assertEqual(matches, ["ui/components"])
+
+    def test_ignored_path_goes_through_the_repository_gitignore(self):
+        self.assertTrue(ip._is_ignored(".mutations", self.repo))
+        self.assertFalse(ip._is_ignored("AGENTS.md", self.repo))
+
+    def test_body_is_judged_against_the_repos_own_ref(self):
+        # Той самий шлях у тілі, але ref-и різні: вердикт дає дерево ref-а.
+        code, _ = ip.check_body("читай `AGENTS.md`", "origin/main", self.repo)
+        self.assertEqual(code, 0)
+
+    def test_missing_ref_is_unknown_not_a_pass(self):
+        code, verdicts = ip.check_body("читай `AGENTS.md`", "origin/nonexistent", self.repo)
+        self.assertEqual(code, 2)
+        self.assertIn("не читається", verdicts[0].detail)
 
     def test_git_output_reports_failure_for_a_missing_path(self):
-        code, _, _ = ip.git_output(["cat-file", "-e", "origin/main:definitely/not/here.md"])
+        code, _, _ = ip.git_output(
+            ["cat-file", "-e", "origin/main:definitely/not/here.md"], self.repo
+        )
         self.assertNotEqual(code, 0)
 
 

@@ -62,9 +62,9 @@ class FakeTree:
         self.calls.append(path)
         return path in self.paths
 
-    def basenames(self, ref, name):
-        self.calls.append(f"basename:{name}")
-        return sorted(p for p in self.paths if p.rsplit("/", 1)[-1] == name)
+    def suffixes(self, ref, suffix):
+        self.calls.append(f"suffix:{suffix}")
+        return sorted(p for p in self.paths if p == suffix or p.endswith("/" + suffix))
 
 
 def judge_body(body, paths, ref="origin/main"):
@@ -79,7 +79,7 @@ def judge_body(body, paths, ref="origin/main"):
     tree = FakeTree(paths)
     with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "0" * 40)), mock.patch.object(
         ip, "main_has_path", tree
-    ), mock.patch.object(ip, "main_matches_basename", tree.basenames):
+    ), mock.patch.object(ip, "main_matches_suffix", tree.suffixes):
         code, verdicts = ip.check_body(body, ref)
     return code, verdicts, tree
 
@@ -109,6 +109,60 @@ class ExtractionTest(unittest.TestCase):
     def test_git_refs_are_not_paths(self):
         body = "база `origin/main`, гілка `refs/heads/main`, `upstream/main`"
         self.assertEqual(ip.candidates(body), [])
+
+    def test_git_internals_are_not_paths(self):
+        # Стан операції, а не вміст репозиторію: у `main` їх немає й бути не
+        # мусить, тож премисою про наявний файл вони не є (#1247).
+        body = "`rebase-merge`, `rebase-apply`, `.git/rebase-merge`, `MERGE_HEAD`"
+        self.assertEqual(ip.candidates(body), [])
+
+    def test_slash_shorthand_is_not_a_path(self):
+        # `errorLine1/2` — пара імен, не каталог (#1222). Друга половина без
+        # літер і без крапки; `values-en/pl` так не виглядає і лишається
+        # кандидатом.
+        self.assertEqual(ip.candidates("поля `errorLine1/2`"), [])
+        self.assertEqual(ip.candidates("каталог `values-en/pl`")[0].path, "values-en/pl")
+
+    def test_ignored_paths_are_dropped(self):
+        # `.mutations` у `main` немає **навмисно** — такі каталоги живе лише на
+        # машині, і «немає в main» про них не є відмовою.
+        with mock.patch.object(ip, "_is_ignored", lambda path: path in {".mutations", "build"}):
+            self.assertEqual(ip.candidates("стан у `.mutations` і в `build`"), [])
+
+    def test_ignore_lookup_is_asked_only_about_surviving_paths(self):
+        # `git check-ignore` — процес; платити за нього на кожен інтервал у
+        # бектиках означало б платити за прозу.
+        asked = []
+
+        def fake_ignored(path):
+            asked.append(path)
+            return False
+
+        with mock.patch.object(ip, "_is_ignored", fake_ignored):
+            ip.candidates("`detached HEAD`, `gh issue view 1`, `AGENTS.md`")
+        self.assertEqual(asked, ["AGENTS.md"])
+
+    def test_new_marked_path_skips_the_ignore_lookup(self):
+        with mock.patch.object(ip, "_is_ignored", lambda path: True):
+            self.assertEqual([c.path for c in ip.candidates("`NEW:docs/x.md`")], ["docs/x.md"])
+
+    def test_ignore_question_goes_to_the_repository_gitignore(self):
+        calls = []
+
+        def fake_git(args):
+            calls.append(args)
+            return 0, "", ""
+
+        with mock.patch.object(ip, "git_output", fake_git):
+            self.assertTrue(ip._is_ignored(".mutations"))
+        self.assertEqual(calls[0][:4], ["check-ignore", "--no-index", "-q", "--"])
+        self.assertEqual(calls[0][4], ".mutations")
+
+    def test_ignore_failure_means_not_ignored(self):
+        # Запобіжник від шуму не мусить сам ставати відмовою: помилка git
+        # означає «не ігнорується», і шлях перевіряється як усі.
+        with mock.patch.object(ip, "git_output", lambda args: (128, "", "boom")):
+            self.assertFalse(ip._is_ignored(".mutations"))
 
     def test_prose_fragments_are_not_paths(self):
         body = "`detached HEAD`, `head-name`, `case`-arms, `\"errors\": \"0\"`, `|`"
@@ -151,7 +205,30 @@ class JudgeTest(unittest.TestCase):
         code, verdicts, tree = judge_body("не чіпати `ci.yml`", {".github/workflows/ci.yml"})
         self.assertEqual(code, 0)
         self.assertIn(".github/workflows/ci.yml", verdicts[0].detail)
-        self.assertIn("basename:ci.yml", tree.calls)
+        self.assertIn("suffix:ci.yml", tree.calls)
+
+    def test_suffix_shorthand_resolves_to_the_one_file_in_main(self):
+        # Тікет #1223 назвав файл як `ui/adaptive/WindowLayout.kt`, а в дереві
+        # він лежить під `app/src/main/java/com/slukhayka/audiobooks/`. Хвіст
+        # на межі сегмента — та сама коротка форма, що `ci.yml`.
+        code, verdicts, _ = judge_body(
+            "число живе в `ui/adaptive/WindowLayout.kt`",
+            {"app/src/main/java/com/slukhayka/audiobooks/ui/adaptive/WindowLayout.kt"},
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("app/src/main/java/", verdicts[0].detail)
+
+    def test_suffix_shorthand_does_not_match_across_segments(self):
+        # `adaptive/WindowLayout.kt` — хвіст на межі сегмента; `aptive/…` — ні.
+        code, _, _ = judge_body("`aptive/WindowLayout.kt`", {"ui/adaptive/WindowLayout.kt"})
+        self.assertEqual(code, 1)
+
+    def test_exact_path_wins_over_a_suffix_match(self):
+        code, verdicts, _ = judge_body(
+            "`docs/voice.md`", {"docs/voice.md", "vendor/docs/voice.md"}
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(verdicts[0].detail, "є в origin/main")
 
     def test_marked_new_path_that_main_lacks_passes(self):
         code, verdicts, _ = judge_body("`NEW:docs/agents/premise.md`", {"AGENTS.md"})
@@ -168,7 +245,7 @@ class JudgeTest(unittest.TestCase):
     def test_bare_name_that_main_lacks_is_refused(self):
         code, verdicts, _ = judge_body("читай `CODING_STANDARDS.md`", {"docs/other.md"})
         self.assertEqual(code, 1)
-        self.assertIn("ні за повним шляхом, ні за базовим іменем", verdicts[0].detail)
+        self.assertIn("ні за повним шляхом, ні за хвостом", verdicts[0].detail)
 
     def test_ambiguous_bare_name_is_unknown_not_refusal(self):
         code, verdicts, _ = judge_body(
@@ -236,7 +313,7 @@ class MainRefTest(unittest.TestCase):
         parser = ip.argparse.ArgumentParser()
         self.assertEqual(ip.MAIN_REF, "origin/main")
 
-    def test_basename_lookup_uses_ls_tree_of_the_ref(self):
+    def test_suffix_lookup_uses_ls_tree_of_the_ref(self):
         calls = []
 
         def fake_git(args):
@@ -244,7 +321,7 @@ class MainRefTest(unittest.TestCase):
             return 0, "a/b/ci.yml\nc/ci.yml\n", ""
 
         with mock.patch.object(ip, "git_output", fake_git):
-            matches = ip.main_matches_basename("origin/main", "ci.yml")
+            matches = ip.main_matches_suffix("origin/main", "ci.yml")
         self.assertEqual(matches, ["a/b/ci.yml", "c/ci.yml"])
         self.assertEqual(calls[0][:3], ["ls-tree", "-r", "--name-only"])
         self.assertEqual(calls[0][3], "origin/main")

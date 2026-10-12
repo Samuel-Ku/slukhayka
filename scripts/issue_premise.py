@@ -38,10 +38,20 @@
   неможливе, бо невиконаний шлях без позначки — відмова.
 
 Пошук шляху, коли повного шляху немає: `ci.yml` замість
-`.github/workflows/ci.yml` — звичайна річ у тілах issue, і валити її означало б
-шум. Тому ім'я без слеша шукається за базовим іменем у дереві `main`: одне
-входження — проходить (це той самий файл), кілька — невідомість (код 2) з
-підказкою назвати повний шлях.
+`.github/workflows/ci.yml`, `ui/adaptive/WindowLayout.kt` замість повного шляху
+під `app/src/main/java/…` — звичайна річ у тілах issue, і валити її означало б
+шум. Тому хвіст шукається в дереві `main` на межі сегмента: одне входження —
+проходить (це той самий файл), кілька — невідомість (код 2) з підказкою назвати
+повний шлях. Точний шлях питається першим і короткої форми не потребує.
+
+Шум міряний, а не обіцяний. На 30 останніх тікетах репозиторію: 11 —
+«премиса є», 2 — відмова (обидві на `CODING_STANDARDS.md`: #1261, з якого
+народився цей ґард, і #1264, який цитує його як контрприклад), 14 —
+невідомість «шляхів у бектиках немає» (тікети про символи коду: `head-name`,
+`detached HEAD`), 3 — невідомість «хвіст неоднозначний» (усі три — голий
+`mutate.sh`, бо в дереві є ще дві фікстурні копії під
+`scripts/tests/fixtures/verdict_field/`). Хибних відмов на реальній історії
+після хвостового пошуку не лишилося; та, що була (#1223), і дала цю форму.
 
 Межі, названі прямо:
 
@@ -54,10 +64,18 @@
   ґард не робить мережевих запитів і не підтягує ref потай.
 * Пропущений шлях у бектиках невидимий: шлях без бектиків, у посиланні
   Markdown чи в коментарі до issue — не перевіряється. Це межа **вибору
-  премиси**, а не перевірки: що автор назвав шляхом, те й перевірено.
+  премиси**, а не перевірки: що автор назвав шляхом, те й перевірено. Саме
+  тому тікет без жодного шляху в бектиках — невідомість (код 2), а не зелене
+  світло: «нічого не перевірено» не дорівнює «все гаразд».
+* Цитата чужого хибного твердження теж дає відмову: ґард не читає контекст і
+  не відрізняє «шлях є» від «шляху немає, і це і є проблема». Ліки названі й
+  дешеві — прибрати бектики зі згадки-контрприкладу або позначити її `NEW:`.
+  Це свідомий вибір: читати контекст означало б гадати, а здогад у ґарді
+  дорожчий за рідкісну хибну відмову.
 * Винятки з відбору кандидатів (рядки-команди `gh …`, Gradle-цілі
-  `:app:lintDebug`) названі в `candidates()` і покриті тестами — щоб ґард не
-  падав на тексті, який шляхом не є.
+  `:app:lintDebug`, git-ref-и `origin/main`, стан усередині `.git/`,
+  скорочення `errorLine1/2`, глоби, ігноровані репозиторієм каталоги) названі
+  в коді й покриті тестами — щоб ґард не падав на тексті, який шляхом не є.
 
 Вихідні коди: 0 — кожен шлях або є в `main`, або позначений `NEW:` і його там
 немає; 1 — премиси немає (шлях без позначки, якого в `main` немає, або `NEW:`
@@ -153,6 +171,43 @@ def _is_command_span(span: str) -> bool:
     return tokens[0].startswith("-") or GRADLE_TASK_RE.match(tokens[0]) is not None
 
 
+def _is_git_internal(span: str) -> bool:
+    """Шлях усередині `.git/` — стан операції, не вміст репозиторію.
+
+    `rebase-merge`, `rebase-apply`, `MERGE_HEAD` там живуть лише під час
+    операції; у дереві `main` їх немає й бути не мусить, тож премисою про
+    наявний файл вони не є.
+    """
+    return span == ".git" or span.startswith(".git/")
+
+
+def _is_shorthand(span: str) -> bool:
+    """Скорочення двох імен через слеш: `errorLine1/2`, `values-en/pl`.
+
+    Останній сегмент без крапки й не слово — це не каталог, а друга половина
+    пари. Валити його означало б падати на прозі.
+    """
+    head, _, tail = span.rpartition("/")
+    return bool(head) and bool(tail) and "." not in tail and not re.search(r"[A-Za-z_]", tail)
+
+
+def _is_ignored(path: str) -> bool:
+    """Чи шлях ігнорує сам репозиторій (`.mutations`, `build`, `.scratch`).
+
+    Такі каталоги живуть лише на машині й у `main` їх немає **навмисно** —
+    тож «немає в `main`» про них не є відмовою. Питаємо `.gitignore` самого
+    репозиторію (`git check-ignore --no-index`), а не власний список: список
+    розійшовся б із файлом, який ігнорування й задає. `--no-index` потрібен,
+    бо шляхи бувають і вже видалені; на помилку git відповідаємо «не
+    ігнорується» — це лише запобіжник від шуму, і мовчазна відмова тут
+    дорожча за хибний шум.
+    """
+    if not path:
+        return False
+    code, _, _ = git_output(["check-ignore", "--no-index", "-q", "--", path])
+    return code == 0
+
+
 def _is_git_ref(span: str) -> bool:
     """Чи це git-ref, а не файл: перший сегмент — відома голова ref-а.
 
@@ -180,7 +235,7 @@ def _is_path_like(span: str) -> bool:
         return False
     if GRADLE_TASK_RE.match(span):
         return False
-    if _is_git_ref(span):
+    if _is_git_ref(span) or _is_git_internal(span) or _is_shorthand(span):
         return False
     if "/" in span:
         return True
@@ -188,14 +243,8 @@ def _is_path_like(span: str) -> bool:
     return Path(span).suffix.lower() in PATH_EXTENSIONS
 
 
-def candidates(body: str) -> list[Candidate]:
-    """Шляхи, названі в тілі issue, у порядку появи.
-
-    Винятки, які не є премисою про наявний файл: рядки-команди, Gradle-цілі,
-    глоби каталогів із зірочкою в останньому сегменті (вони не називають
-    конкретного файлу) — усе це покрито тестами, щоб ґард не падав на тексті,
-    який шляхом не є.
-    """
+def _named_paths(body: str) -> list[Candidate]:
+    """Кандидати без звернення до `.gitignore` — та перевірка коштує процес."""
     found: list[Candidate] = []
     seen: set[str] = set()
     for span, line_no in extract_spans(body):
@@ -223,6 +272,25 @@ def candidates(body: str) -> list[Candidate]:
     return found
 
 
+def candidates(body: str) -> list[Candidate]:
+    """Шляхи, названі в тілі issue, у порядку появи.
+
+    Винятки, які не є премисою про наявний файл: рядки-команди, Gradle-цілі,
+    git-ref-и, стан усередині `.git/`, скорочення двох імен через слеш, глоби
+    й те, що ігнорує сам репозиторій (`.mutations`, `build`, `.scratch`) —
+    усе це покрито тестами, щоб ґард не падав на тексті, який шляхом не є.
+
+    `.gitignore` питається останнім і лише про шляхи, які вже пройшли решту
+    відбору: `git check-ignore` — це процес, і платити за нього на кожен
+    інтервал у бектиках означало б платити за прозу.
+    """
+    return [
+        candidate
+        for candidate in _named_paths(body)
+        if candidate.marked_new or not _is_ignored(candidate.path)
+    ]
+
+
 def git_output(args: list[str]) -> tuple[int, str, str]:
     proc = subprocess.run(
         ["git", *args],
@@ -248,40 +316,42 @@ def main_has_path(ref: str, path: str) -> bool:
     return code == 0
 
 
-def main_matches_basename(ref: str, name: str) -> list[str]:
-    """Шляхи в дереві ref, чий базовий імені дорівнює `name`.
+def main_matches_suffix(ref: str, suffix: str) -> list[str]:
+    """Шляхи в дереві ref, що закінчуються на `suffix` на межі сегмента.
 
     Потрібне для короткої форми: тіло issue пише `ci.yml`, а файл лежить у
-    `.github/workflows/ci.yml`. Одне входження — це той самий файл; кілька —
-    невідомість, бо вибір між ними був би здогадом.
+    `.github/workflows/ci.yml`; пише `ui/adaptive/WindowLayout.kt`, а файл — під
+    `app/src/main/java/com/slukhayka/audiobooks/`. Одне входження — це той самий
+    файл; кілька — невідомість, бо вибір між ними був би здогадом.
     """
     code, out, _ = git_output(["ls-tree", "-r", "--name-only", ref])
     if code != 0:
         return []
-    return sorted(line for line in out.splitlines() if line.rsplit("/", 1)[-1] == name)
+    return sorted(line for line in out.splitlines() if line == suffix or line.endswith("/" + suffix))
 
 
 def judge(candidate: Candidate, ref: str) -> Verdict:
-    if "/" in candidate.path:
-        exists = main_has_path(ref, candidate.path)
-        if candidate.marked_new:
-            if exists:
-                return Verdict(
-                    candidate,
-                    1,
-                    f"позначений `{NEW_MARKER}`, але в {ref} уже є — позначку зняти",
-                )
-            return Verdict(candidate, 0, f"немає в {ref} — позначка `{NEW_MARKER}` доречна")
-        if exists:
-            return Verdict(candidate, 0, f"є в {ref}")
-        return Verdict(
-            candidate,
-            1,
-            f"немає в {ref} — премиси немає; якщо тікет його створює, познач "
-            f"`{NEW_MARKER}{candidate.path}`",
-        )
+    """Вердикт про один шлях: повний шлях, потім коротка форма.
 
-    matches = main_matches_basename(ref, candidate.path)
+    Порядок саме такий, і він не косметичний: спершу питається точний шлях
+    (`git cat-file -e`), і лише коли його в `main` немає — коротка форма
+    (`ui/adaptive/WindowLayout.kt` замість повного шляху під
+    `app/src/main/java/…`, `ci.yml` замість `.github/workflows/ci.yml`). Одне
+    входження короткої форми — той самий файл; кілька — невідомість, бо вибір
+    між ними був би здогадом.
+    """
+    if main_has_path(ref, candidate.path):
+        # Точний шлях — найсильніший доказ, і він не залежить від того, чи є в
+        # дереві ще щось із таким хвостом.
+        if candidate.marked_new:
+            return Verdict(
+                candidate,
+                1,
+                f"позначений `{NEW_MARKER}`, але в {ref} уже є — позначку зняти",
+            )
+        return Verdict(candidate, 0, f"є в {ref}")
+
+    matches = main_matches_suffix(ref, candidate.path)
     if candidate.marked_new:
         if matches:
             return Verdict(
@@ -302,7 +372,7 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
     return Verdict(
         candidate,
         1,
-        f"немає в {ref} ні за повним шляхом, ні за базовим іменем — премиси немає; "
+        f"немає в {ref} ні за повним шляхом, ні за хвостом — премиси немає; "
         f"якщо тікет його створює, познач `{NEW_MARKER}{candidate.path}`",
     )
 

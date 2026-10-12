@@ -39,19 +39,35 @@
 
 Пошук шляху, коли повного шляху немає: `ci.yml` замість
 `.github/workflows/ci.yml`, `ui/adaptive/WindowLayout.kt` замість повного шляху
-під `app/src/main/java/…` — звичайна річ у тілах issue, і валити її означало б
-шум. Тому хвіст шукається в дереві `main` на межі сегмента: одне входження —
-проходить (це той самий файл), кілька — невідомість (код 2) з підказкою назвати
-повний шлях. Точний шлях питається першим і короткої форми не потребує.
+під `app/src/main/java/…`, `web/README` замість `web/README.md` — звичайна річ у
+тілах issue, і валити її означало б шум. Тому хвіст шукається в дереві `main`
+на межі сегмента, **разом із деревами** (`ls-tree -r -t`: без `-t` каталог,
+який у `main` є, не знаходився ніколи). Одне входження — проходить (це той
+самий файл), кілька — невідомість (код 2) з підказкою назвати повний шлях.
+Точний шлях питається першим і короткої форми не потребує.
 
-Шум міряний, а не обіцяний. На 30 останніх тікетах репозиторію: 11 —
-«премиса є», 2 — відмова (обидві на `CODING_STANDARDS.md`: #1261, з якого
-народився цей ґард, і #1264, який цитує його як контрприклад), 14 —
-невідомість «шляхів у бектиках немає» (тікети про символи коду: `head-name`,
-`detached HEAD`), 3 — невідомість «хвіст неоднозначний» (усі три — голий
-`mutate.sh`, бо в дереві є ще дві фікстурні копії під
-`scripts/tests/fixtures/verdict_field/`). Хибних відмов на реальній історії
-після хвостового пошуку не лишилося; та, що була (#1223), і дала цю форму.
+Шум міряний, а не обіцяний, і число відтворюється командою з розділу «Як
+переміряти» в `docs/agents/issue-tracker.md`. На **200 останніх тікетах**
+репозиторію (стан `origin/main` = `b59725f1`, 2026-10-12): **96** — «премиса
+є», **89** — невідомість «шляхів у бектиках немає» (тікети про символи коду),
+**7** — невідомість «ім'я неоднозначне» (`mutate.sh` ×3 — у дереві є ще дві
+фікстурні копії; `ui/components`, `ui/adaptive`, `data/ingest`+`data/source`,
+`AndroidManifest.xml` ×2), **8** — відмова, і серед них:
+
+* **#1185** і **#828** — справжня ціль ґарда: тікети посилаються на ADR і план
+  (`docs/adr/0061-…`, `docs/plans/2026-10-07-…`, `docs/adr/0042-…`), яких у
+  `main` немає — вони живуть лише в **незамердженому** PR. Це той самий клас,
+  що #1261, і саме він і є доказом, що ґард ловить клас, а не випадок;
+* **#784** — `docs/licensing.md` у списку «оновлено», хоч файлу в `main` немає;
+* **#1261** — тікет, з якого цей ґард народився;
+* **#816** — `web/prototype`, про який тікет **сам пише**, що в `main` він не
+  йде: відмова чесна, і ліки — бектики або `NEW:`;
+* **#962**, **#1029**, **#822** — голе ім'я локального звіту
+  (`REPORT-continuation.md`), ім'я фікстури в чужому тесті
+  (`2851-temna-materiia.html`) і проза з крапкою (`works.title/author/seriesTitle`).
+
+Тобто після правок за оглядом PR #1268 хибних відмов на цьому вікні лишилося
+**три** з десяти (#962, #1029, #822), і кожна названа з причиною.
 
 Межі, названі прямо:
 
@@ -72,10 +88,24 @@
   дешеві — прибрати бектики зі згадки-контрприкладу або позначити її `NEW:`.
   Це свідомий вибір: читати контекст означало б гадати, а здогад у ґарді
   дорожчий за рідкісну хибну відмову.
+* Голе ім'я в **форматі вкладення** (`live-book-2f-screencap.png`,
+  `18-person.png`) шляхом репозиторію не вважається: доказ лежить поруч із
+  тікетом, а не в дереві. Голе ім'я з розширенням документа чи коду
+  (`REPORT-continuation.md`, `2851-temna-materiia.html`) — вважається, і дає
+  відмову: відрізнити локальний звіт від файлу репозиторію формою неможливо.
+* Проза зі слешем ловиться **неповно**: `try/catch` (#1081) — так, а
+  `works.title/author/seriesTitle` (#822) — ні, бо крапка в першому сегменті
+  робить його невідрізненним від `ui/adaptive/WindowLayout.kt`.
+* Гілки розпізнаються за головою зі списку (`feat`, `fix`, `release`,
+  `spec-53`, `backup`, `chore`, …). Гілка з голови поза списком (`my-branch/x`)
+  лишиться кандидатом і дасть відмову. `docs` у списку немає навмисно: це
+  справжня тека репозиторію.
 * Винятки з відбору кандидатів (рядки-команди `gh …`, Gradle-цілі
-  `:app:lintDebug`, git-ref-и `origin/main`, стан усередині `.git/`,
-  скорочення `errorLine1/2`, глоби, ігноровані репозиторієм каталоги) названі
-  в коді й покриті тестами — щоб ґард не падав на тексті, який шляхом не є.
+  `:app:lintDebug`, git-ref-и `origin/main`, назви гілок, стан усередині
+  `.git/`, шляхи пристрою `filesDir/…`, еліпсис `...`, скорочення
+  `errorLine1/2`, саме розширення `.png`, глоби, ігноровані репозиторієм
+  каталоги) названі в коді й покриті тестами — щоб ґард не падав на тексті,
+  який шляхом не є.
 
 Вихідні коди: 0 — кожен шлях або є в `main`, або позначений `NEW:` і його там
 немає; 1 — премиси немає (шлях без позначки, якого в `main` немає, або `NEW:`
@@ -109,11 +139,34 @@ PATH_RE = re.compile(rf"^{SEGMENT_RE}(/{SEGMENT_RE})*/?$")
 # двокрапки; відрізняється від `app/lint-baseline.xml` відсутністю слеша й
 # наявністю двокрапки.
 GRADLE_TASK_RE = re.compile(r"^:?[A-Za-z][\w.\-]*(:[A-Za-z][\w.\-]*)+$")
-# Git-ref: `origin/main`, `release/1.3.9`, `HEAD`. Формально це `шлях` для
-# PATH_RE, але файлу з такою назвою в дереві не буває й бути не мусить — тож
-# це не премиса про наявність файлу, і ґард на ньому не падає.
+# Сегмент версії в назві гілки: `v1.3.9`, `1.6-milestone`. Єдине місце, де
+# крапка не робить із назви шлях.
+VERSION_SEGMENT_RE = re.compile(r"v?\d+(\.\d+)*(-[A-Za-z0-9._-]+)?")
+# Git-ref: `origin/main`, `HEAD`. Формально це `шлях` для PATH_RE, але файлу з
+# такою назвою в дереві не буває й бути не мусить — тож це не премиса про
+# наявність файлу, і ґард на ньому не падає.
 GIT_REF_RE = re.compile(r"^(?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]+$")
 KNOWN_REF_HEADS = frozenset({"origin", "upstream", "HEAD", "refs", "remotes", "tags"})
+# Голови назв гілок цього репозиторію: `feat/ui-polish`, `fix/purge-4read-legacy`,
+# `release/v1.3.9`, `backup/large-screens-900-prerebase`, `spec-53/wave-1`. Гілка —
+# не файл, і вимагати її в `main` означало б валити тікети за назву смуги роботи
+# (знахідка огляду PR #1268: 6 тікетів у вікні 200).
+#
+# `docs` і `doc` тут НЕ стоять навмисно, хоч гілки `docs/…` у репозиторії є:
+# `docs/voice.md` і `docs/adr` — справжні шляхи, і голова `docs` зробила б їх
+# невидимими для ґарда (ціна помічена власним тестом, не оглядом).
+BRANCH_HEADS = frozenset(
+    {
+        "feat", "feature", "fix", "hotfix", "bugfix", "chore", "refactor", "perf",
+        "test", "tests", "build", "ci", "revert", "release", "backup", "wip",
+        "dependabot", "renovate", "spec",
+    }
+)
+# Корені шляхів пристрою: `filesDir/local_imports` — тека в застосунку, не в
+# репозиторії. Премисою про наявний файл у `main` вона не є.
+DEVICE_ROOTS = frozenset(
+    {"filesDir", "cacheDir", "externalCacheDir", "noBackupFilesDir", "dataDir", "getFilesDir"}
+)
 
 # Розширення, за якими шлях упізнається без слеша (`ci.yml`, `mutate.sh`,
 # `AGENTS.md`) і зі слешем у короткій формі (`docs/voice.md`).
@@ -125,6 +178,19 @@ PATH_EXTENSIONS = frozenset(
         ".svg", ".csv", ".lock", ".cfg", ".ini", ".pro", ".gitignore",
     }
 )
+
+# Формати вкладення: `.png`, `.jpg`, `.mp4`. Голе ім'я з таким розширенням —
+# це скріншот чи звіт на машині автора, а не шлях репозиторію: #991 пише
+# «Скріншоти (файли існують): `live-book-2f-screencap.png`», і файли справді
+# існують — у теці на пристрої, не в `main`. Виміряно: 6 із 11 відмов у вікні
+# 200 тікетів були такими іменами (огляд PR #1268).
+ATTACHMENT_EXTENSIONS = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".mp4", ".mov", ".webm", ".pdf", ".zip"}
+)
+
+# Розширення, якими дописується посилання без розширення (`web/README` →
+# `web/README.md`). Лише документи: дописати `.kt` означало б угадувати код.
+DOC_EXTENSIONS = (".md", ".txt", ".html")
 
 
 @dataclass(frozen=True)
@@ -208,6 +274,23 @@ def _is_ignored(path: str) -> bool:
     return code == 0
 
 
+_TOP_LEVEL: frozenset[str] | None = None
+
+
+def _top_level_entries() -> frozenset[str]:
+    """Записи верхнього рівня `main` — з дерева, а не зі списку в коді.
+
+    Список у коді розійшовся б із репозиторієм; тут питання до того самого
+    ref-а, про який ухвалюється вердикт. Кешується: це один процес `git` на
+    прогін, і лише коли в тілі знайшовся хоч один кандидат.
+    """
+    global _TOP_LEVEL
+    if _TOP_LEVEL is None:
+        code, out, _ = git_output(["ls-tree", "--name-only", MAIN_REF])
+        _TOP_LEVEL = frozenset(out.splitlines()) if code == 0 else frozenset()
+    return _TOP_LEVEL
+
+
 def _is_git_ref(span: str) -> bool:
     """Чи це git-ref, а не файл: перший сегмент — відома голова ref-а.
 
@@ -220,6 +303,98 @@ def _is_git_ref(span: str) -> bool:
         return False
     head = span.split("/", 1)[0]
     return head in KNOWN_REF_HEADS
+
+
+def _is_branch_name(span: str) -> bool:
+    """Чи це назва гілки, а не файл: `feat/ui-polish`, `release/v1.3.9`.
+
+    Гілка не мусить існувати в `main` — і не мусить існувати взагалі, поки її
+    не створили; тому питати про неї дерево безглуздо, а валити тікет за назву
+    смуги роботи — хибна відмова. Розпізнається за головою з відомого списку
+    (той самий прийом, що `_is_git_ref`), з відкиданням хвоста-числа: `spec-53`
+    — та сама голова `spec`, що й `spec/x`.
+
+    Сегмент версії (`v1.3.9`) — єдиний, де крапка не робить із назви шлях;
+    у решті сегментів крапка означає файл (`try/catch` — проза, але
+    `web/README` — шлях, і він не гілка).
+
+    Межа: гілка з голови поза списком (`my-branch/x`) лишається кандидатом і
+    дасть відмову. Список — не «будь-яке слово до слеша», бо тоді `docs/adr` і
+    `app/src` теж перестали б перевірятися, а це вже вміст репозиторію.
+    """
+    if "/" not in span or not GIT_REF_RE.match(span):
+        return False
+    segments = span.split("/")
+    head = re.sub(r"-\d+$", "", segments[0])
+    if head not in BRANCH_HEADS:
+        return False
+    for segment in segments[1:]:
+        if VERSION_SEGMENT_RE.fullmatch(segment):
+            continue
+        if "." in segment:
+            return False
+    return True
+
+
+def _is_prose_fragment(span: str) -> bool:
+    """Чи це проза чи код зі слешем, а не шлях: `try/catch`.
+
+    Питається **після** того, як дерево не дало нічого: два сегменти без
+    крапки, чия голова не є записом верхнього рівня `main` (`try`, `values-en`),
+    — це проза, а не шлях. Порядок не косметичний: спитати раніше означало б
+    відкинути й `ui/components` — справжню теку в дереві (знахідка огляду
+    PR #1268), бо `ui` теж не верхній рівень.
+
+    Це свідомо **неповний** відбір прози, і межа названа: `try/catch` ловиться,
+    а `works.title/author/seriesTitle` (крапка в першому сегменті, #822) — ні,
+    бо відрізнити його формою від `ui/adaptive/WindowLayout.kt` неможливо.
+    """
+    segments = span.split("/")
+    if len(segments) != 2:
+        return False
+    if any("." in segment for segment in segments):
+        return False
+    return segments[0] not in _top_level_entries()
+
+
+def _is_device_path(span: str) -> bool:
+    """Чи це шлях на пристрої: `filesDir/local_imports`, `cacheDir/x`.
+
+    Тека в застосунку, не в репозиторії — премисою про наявний файл у `main`
+    вона не є.
+    """
+    return span.split("/", 1)[0] in DEVICE_ROOTS
+
+
+def _has_ellipsis_segment(span: str) -> bool:
+    """Чи є в шляху сегмент-еліпсис: `app/src/androidTest/...`.
+
+    `...` — це «і далі», а не ім'я каталогу.
+    """
+    return any(set(segment) == {"."} for segment in span.split("/"))
+
+
+def _is_bare_extension(span: str) -> bool:
+    """Чи це саме розширення, а не ім'я файлу: `.png`, `.html`.
+
+    Ім'я вкладення чи формат у прозі; файлу з назвою `.png` у дереві немає й
+    бути не мусить.
+    """
+    return span.startswith(".") and span.count(".") == 1 and "/" not in span
+
+
+def _is_attachment_name(span: str) -> bool:
+    """Чи це голе ім'я вкладення: `live-book-2f-screencap.png`, `18-person.png`.
+
+    Без слеша й у форматі вкладення — скріншот, звіт чи відео на машині автора.
+    Шляхом репозиторію таке ім'я не є: у `main` його може не бути **навмисно**,
+    і вимагати його означало б валити тікет за доказ, який лежить поруч із
+    тікетом, а не в дереві.
+
+    Лише голе ім'я: `docs/screens/x.png` — це вже названий шлях, і він
+    перевіряється як усі.
+    """
+    return "/" not in span and Path(span).suffix.lower() in ATTACHMENT_EXTENSIONS
 
 
 def _is_path_like(span: str) -> bool:
@@ -235,7 +410,15 @@ def _is_path_like(span: str) -> bool:
         return False
     if GRADLE_TASK_RE.match(span):
         return False
-    if _is_git_ref(span) or _is_git_internal(span) or _is_shorthand(span):
+    if (
+        _is_git_ref(span)
+        or _is_branch_name(span)
+        or _is_git_internal(span)
+        or _is_shorthand(span)
+        or _is_device_path(span)
+        or _has_ellipsis_segment(span)
+        or _is_bare_extension(span)
+    ):
         return False
     if "/" in span:
         return True
@@ -323,11 +506,36 @@ def main_matches_suffix(ref: str, suffix: str) -> list[str]:
     `.github/workflows/ci.yml`; пише `ui/adaptive/WindowLayout.kt`, а файл — під
     `app/src/main/java/com/slukhayka/audiobooks/`. Одне входження — це той самий
     файл; кілька — невідомість, бо вибір між ними був би здогадом.
+
+    `-t` обов'язковий: без нього `ls-tree` віддає лише блоби, і каталог, який у
+    `main` **є**, не знаходився ніколи — `ui/components` давав 0 збігів, хоч у
+    дереві є (`app/src/main/java/com/slukhayka/audiobooks/ui/components`,
+    `app/src/test/java/…/ui/components`, `web/src/ui/components`). Каталог — така
+    сама премиса, як файл. Знахідка огляду PR #1268.
     """
-    code, out, _ = git_output(["ls-tree", "-r", "--name-only", ref])
+    code, out, _ = git_output(["ls-tree", "-r", "-t", "--name-only", ref])
     if code != 0:
         return []
     return sorted(line for line in out.splitlines() if line == suffix or line.endswith("/" + suffix))
+
+
+def infer_extension(ref: str, path: str) -> list[str]:
+    """Шлях без розширення, який насправді є файлом із розширенням.
+
+    `web/README` у тілі — це `web/README.md` у дереві. Дописуються лише
+    розширення, якими цей репозиторій справді користується (документи й
+    README), і лише коли точного шляху й хвоста не знайшлося: інакше
+    `web/prototype` — тека, якої в `main` немає **навмисно** (тікет #816 так і
+    пише) — став би «є» через вигаданий `web/prototype.md`, і ґард перестав би
+    бачити те, що мусить бачити.
+
+    Повертає ті самі кандидати, що `main_matches_suffix`: одне входження
+    проходить, кілька — невідомість.
+    """
+    found: set[str] = set()
+    for extension in DOC_EXTENSIONS:
+        found.update(main_matches_suffix(ref, path + extension))
+    return sorted(found)
 
 
 def judge(candidate: Candidate, ref: str) -> Verdict:
@@ -352,6 +560,12 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
         return Verdict(candidate, 0, f"є в {ref}")
 
     matches = main_matches_suffix(ref, candidate.path)
+    if not matches and not Path(candidate.path).suffix:
+        # Посилання без розширення на наявний файл: тіло пише `web/README`, а
+        # файл — `web/README.md`. Дописуємо лише відомі розширення й лише коли
+        # без них не знайшлося нічого: інакше `web/prototype` (тека, якої в
+        # `main` немає навмисно) став би «є» через вигаданий `web/prototype.md`.
+        matches = infer_extension(ref, candidate.path)
     if candidate.marked_new:
         if matches:
             return Verdict(
@@ -369,6 +583,13 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
             f"ім'я неоднозначне в {ref} ({len(matches)} входжень: "
             f"{', '.join(matches[:4])}{'…' if len(matches) > 4 else ''}) — назви повний шлях",
         )
+    if _is_prose_fragment(candidate.path):
+        # Дерево не дало нічого, і формою це не шлях — проза зі слешем.
+        return Verdict(candidate, 0, "шляхом не є (проза чи код зі слешем) — не перевіряється")
+    if _is_attachment_name(candidate.path):
+        # Дерево не дало нічого, і це голе ім'я вкладення — доказ лежить поруч
+        # із тікетом, а не в дереві.
+        return Verdict(candidate, 0, "шляхом репозиторію не є (ім'я вкладення) — не перевіряється")
     return Verdict(
         candidate,
         1,
@@ -380,11 +601,18 @@ def judge(candidate: Candidate, ref: str) -> Verdict:
 def check_body(body: str, ref: str) -> tuple[int, list[Verdict]]:
     ok, detail = resolve_main_ref(ref)
     if not ok:
+        # Порада залежить від ref-а: `git fetch origin main` лікує лише
+        # віддалений ref. Для локального (`HEAD`, `main`) вона була б шумом.
+        hint = (
+            "зроби `git fetch origin main`"
+            if "/" in ref and ref.split("/", 1)[0] in KNOWN_REF_HEADS
+            else f"перевір, чи існує ref `{ref}`"
+        )
         return 2, [
             Verdict(
                 Candidate(path=ref, line_no=0, marked_new=False),
                 2,
-                f"{ref} не читається ({detail}) — зроби `git fetch origin main`; "
+                f"ref `{ref}` не читається ({detail}) — {hint}; "
                 "вердикт про невідомий ref був би здогадом",
             )
         ]
@@ -447,6 +675,58 @@ def read_body(args: argparse.Namespace) -> str:
     return Path(args.body_file).read_text(encoding="utf-8")
 
 
+def scan(limit: int, ref: str) -> int:
+    """Шум на останніх тікетах репозиторію — числом, яке можна відтворити.
+
+    Числа в шапці й у `docs/agents/issue-tracker.md` не мусять бути
+    твердженням, якому вірять на слово: та сама команда на тому самому
+    `origin/main` дає ті самі числа, і друкує ревізію, щоб було видно, про
+    який стан ішлося.
+    """
+    ok, revision = resolve_main_ref(ref)
+    if not ok:
+        print(f"issue_premise: ref `{ref}` не читається — переміряти нічого", file=sys.stderr)
+        return 2
+    listed = subprocess.run(
+        ["gh", "issue", "list", "--state", "all", "--limit", str(limit), "--json", "number", "--jq", ".[].number"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listed.returncode != 0:
+        print(f"issue_premise: не вдалося перелічити issue: {listed.stderr.strip()}", file=sys.stderr)
+        return 2
+
+    premise, no_paths, ambiguous, refused = 0, 0, {}, {}
+    for number in listed.stdout.split():
+        body = subprocess.run(
+            ["gh", "issue", "view", number, "--json", "body", "--jq", ".body"],
+            capture_output=True, text=True, check=False,
+        ).stdout
+        code, verdicts = check_body(body, ref)
+        bad = [v.candidate.path for v in verdicts if v.code == 1]
+        if bad:
+            refused[number] = bad
+        elif code == 0 and any(v.candidate.path for v in verdicts):
+            premise += 1
+        elif all(not v.candidate.path for v in verdicts):
+            no_paths += 1
+        else:
+            ambiguous[number] = [v.candidate.path for v in verdicts if v.code == 2]
+
+    total = len(listed.stdout.split())
+    print(f"issue_premise: шум на {total} тікетах, ref {ref} ({revision[:8]})")
+    print(f"  ПРЕМИСА Є: {premise}")
+    print(f"  НЕВІДОМІСТЬ (шляхів у бектиках немає): {no_paths}")
+    print(f"  НЕВІДОМІСТЬ (ім'я неоднозначне): {len(ambiguous)}")
+    for number, paths in sorted(ambiguous.items()):
+        print(f"    #{number}: {', '.join(paths)}")
+    print(f"  ВІДМОВА: {len(refused)} тікетів, {sum(len(v) for v in refused.values())} шляхів")
+    for number, paths in sorted(refused.items()):
+        print(f"    #{number}: {', '.join(paths)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="issue_premise.py",
@@ -455,6 +735,12 @@ def main(argv: list[str] | None = None) -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--body-file", help="файл із тілом issue, або `-` для stdin")
     source.add_argument("--issue", type=int, help="номер issue: тіло читається через `gh issue view`")
+    source.add_argument(
+        "--scan",
+        type=int,
+        metavar="N",
+        help="переміряти шум на N останніх тікетах (той самий вимір, що в шапці механізму)",
+    )
     parser.add_argument(
         "--ref",
         default=MAIN_REF,
@@ -462,6 +748,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--quiet", action="store_true", help="друкувати лише підсумок і відмови")
     args = parser.parse_args(argv)
+
+    if args.scan is not None:
+        return scan(args.scan, args.ref)
 
     body = read_body(args)
     code, verdicts = check_body(body, args.ref)

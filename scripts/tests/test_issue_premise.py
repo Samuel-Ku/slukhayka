@@ -123,6 +123,62 @@ class ExtractionTest(unittest.TestCase):
         self.assertEqual(ip.candidates("поля `errorLine1/2`"), [])
         self.assertEqual(ip.candidates("каталог `values-en/pl`")[0].path, "values-en/pl")
 
+    def test_branch_names_are_not_paths(self):
+        # Справжні назви гілок із тіла #1106. Гілка не мусить бути в `main` —
+        # валити за неї означало б валити тікет за назву смуги роботи.
+        body = (
+            "`release/v1.3.9`, `release/v1.3.10`, `spec-53/wave-1`, "
+            "`fix/purge-4read-legacy`, `chore/device-verification`, "
+            "`backup/large-screens-900-prerebase`, `feat/ui-polish`"
+        )
+        self.assertEqual(ip.candidates(body), [])
+
+    def test_docs_paths_are_not_mistaken_for_branches(self):
+        # Ціна голови `docs` у списку гілок: `docs/voice.md` і `docs/adr` —
+        # справжні шляхи. Перевірка саме на них, а не на формі гілки.
+        self.assertEqual(
+            [c.path for c in ip.candidates("`docs/voice.md` і `docs/adr`")],
+            ["docs/voice.md", "docs/adr"],
+        )
+        self.assertFalse(ip._is_branch_name("docs/voice.md"))
+        self.assertFalse(ip._is_branch_name("docs/adr"))
+
+    def test_device_paths_are_not_paths(self):
+        # `filesDir/local_imports` — тека в застосунку, не в репозиторії
+        # (#1163, #1185).
+        body = "тека `filesDir/local_imports`, кеш `cacheDir/x`"
+        self.assertEqual(ip.candidates(body), [])
+
+    def test_ellipsis_segment_is_not_a_path(self):
+        # `app/src/androidTest/...` — «і далі», а не каталог (#764).
+        self.assertEqual(ip.candidates("теки `app/src/androidTest/...`"), [])
+
+    def test_bare_extension_is_not_a_path(self):
+        # `.png` і `.html` — формат вкладення, не ім'я файлу (#991, #1029).
+        self.assertEqual(ip.candidates("вкладення `.png` і `.html`"), [])
+
+    def test_attachment_names_are_not_refused(self):
+        # Справжні імена вкладень із #991 і #962: файли існують на машині, у
+        # `main` їх немає навмисно. Голе ім'я вкладення — не премиса про дерево.
+        code, verdicts, _ = judge_body(
+            "скріншоти `live-book-2f-screencap.png`, `crop-2f-live-pill.png`, `18-person.png`",
+            {"AGENTS.md"},
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual({v.code for v in verdicts}, {0})
+        self.assertIn("вкладення", verdicts[0].detail)
+
+    def test_named_path_with_attachment_extension_is_still_checked(self):
+        # Лише голе ім'я: названий шлях перевіряється як усі.
+        code, _, _ = judge_body("`docs/screens/x.png`", {"AGENTS.md"})
+        self.assertEqual(code, 1)
+
+    def test_attachment_name_present_in_main_still_passes(self):
+        # Якщо таке ім'я в дереві **є**, воно проходить як звичайний шлях.
+        code, verdicts, _ = judge_body("`icon.png`", {"app/src/main/res/icon.png"})
+        self.assertEqual(code, 0)
+        self.assertIn("icon.png", verdicts[0].detail)
+
     def test_ignored_paths_are_dropped(self):
         # `.mutations` у `main` немає **навмисно** — такі каталоги живе лише на
         # машині, і «немає в main» про них не є відмовою.
@@ -309,6 +365,21 @@ class MainRefTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("git fetch origin main", verdicts[0].detail)
 
+    def test_unreadable_local_ref_does_not_advise_fetching(self):
+        # `git fetch origin main` лікує лише віддалений ref; для локального це
+        # був би шум (NIT огляду PR #1268).
+        with mock.patch.object(ip, "resolve_main_ref", return_value=(False, "not found")):
+            code, verdicts = ip.check_body("`AGENTS.md`", "my-local-ref")
+        self.assertEqual(code, 2)
+        self.assertIn("`my-local-ref` не читається", verdicts[0].detail)
+        self.assertNotIn("git fetch", verdicts[0].detail)
+
+    def test_scan_refuses_to_measure_an_unreadable_ref(self):
+        # Числа шуму — не твердження: `--scan` міряє той самий ref, про який
+        # ухвалює вердикт, і не міряє нічого, якщо ref не читається.
+        with mock.patch.object(ip, "resolve_main_ref", return_value=(False, "not found")):
+            self.assertEqual(ip.scan(5, "origin/main"), 2)
+
     def test_default_ref_is_origin_main(self):
         parser = ip.argparse.ArgumentParser()
         self.assertEqual(ip.MAIN_REF, "origin/main")
@@ -323,8 +394,22 @@ class MainRefTest(unittest.TestCase):
         with mock.patch.object(ip, "git_output", fake_git):
             matches = ip.main_matches_suffix("origin/main", "ci.yml")
         self.assertEqual(matches, ["a/b/ci.yml", "c/ci.yml"])
-        self.assertEqual(calls[0][:3], ["ls-tree", "-r", "--name-only"])
-        self.assertEqual(calls[0][3], "origin/main")
+        # `-t` обов'язковий: без нього каталог у `main` не знаходився ніколи
+        # (знахідка огляду PR #1268).
+        self.assertEqual(calls[0][:4], ["ls-tree", "-r", "-t", "--name-only"])
+        self.assertEqual(calls[0][4], "origin/main")
+
+    def test_suffix_lookup_sees_directories_not_only_blobs(self):
+        # Справжній приклад: `ui/components` у дереві є, але лише як теки.
+        code, verdicts, _ = judge_body(
+            "`ui/components` і `ui/adaptive`",
+            {
+                "app/src/main/java/com/slukhayka/audiobooks/ui/components",
+                "app/src/main/java/com/slukhayka/audiobooks/ui/adaptive",
+            },
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual({v.code for v in verdicts}, {0})
 
 
 class CliTest(unittest.TestCase):

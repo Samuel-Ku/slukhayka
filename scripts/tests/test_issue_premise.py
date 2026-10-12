@@ -1,5 +1,6 @@
 import contextlib
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -96,6 +97,18 @@ VALID_PREMISE_BODY = """## What to build
 ## Blocked by
 
 - None (can start immediately).
+"""
+
+
+# Підставний `gh` для сторожа, який ВИКЛИКАЄ команду з документа: без мережі й
+# без автентифікації. `gh issue list` віддає номери, `gh issue view <n>` — те
+# саме тіло, у якому названо шлях із головою `docs`.
+GH_STUB = """#!/bin/sh
+case "$1 $2" in
+  "issue list") printf '1\\n2\\n' ;;
+  "issue view") printf 'читай `docs/voice.md`\\n' ;;
+  *) exit 1 ;;
+esac
 """
 
 
@@ -261,11 +274,40 @@ class ExtractionTest(unittest.TestCase):
         # названа в документі, мусить існувати: одного разу вона вже була
         # вигадана (огляд PR #1268), і це найдорожчий різновид неправди —
         # твердження, яке неможливо виконати.
-        parser_help = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"), "--help"],
-            capture_output=True, text=True, check=False,
+        #
+        # Сторож ВИКЛИКАЄ команду, а не читає `--help`. Підрядок
+        # `--measure-head` у help — свідок непрямий: він лишався там із help
+        # опції `--scan-limit` («скільки тікетів брати для `--measure-head`»),
+        # тож вирізаний блок `source.add_argument("--measure-head", …)` тест не
+        # ловив — зелений на зламаному дереві. `argparse` на невідомому прапорці
+        # дає рівно 2 і друкує підказку в stderr; саме це тут і перевіряється
+        # самою командою.
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-measure-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(
+            base, {"AGENTS.md": "# Agent instructions\n", "docs/voice.md": "voice\n"}
         )
-        self.assertIn("--measure-head", parser_help.stdout)
+        stub = base / "bin"
+        stub.mkdir()
+        gh = stub / "gh"
+        gh.write_text(GH_STUB, encoding="utf-8")
+        gh.chmod(0o755)
+        environment = dict(
+            os.environ, PATH=os.pathsep.join([str(stub), os.environ.get("PATH", "")])
+        )
+
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--measure-head", "docs", "--scan-limit", "2",
+                "--ref", "origin/main", "--repo", str(repo),
+            ],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("голова `docs`", proc.stdout)
+        self.assertIn("шляхів у тілах: 2", proc.stdout)
+        self.assertIn("верхня тека `docs` у дереві: є", proc.stdout)
 
     def test_measure_head_counts_paths_with_that_head(self):
         # Сам вимір — без `gh`: підставлений список issue і підставлені тіла.
@@ -274,7 +316,14 @@ class ExtractionTest(unittest.TestCase):
         bodies = {
             "1": "читай `docs/voice.md` і `docs/adr`",
             "2": "читай `docs/plans/x.md`, `app/src/main/A.kt`",
-            "3": "читай `scripts/mutate.sh`",
+            # Третє тіло лише мусить мати голову, відмінну від `docs`. Воно НЕ
+            # називає скрипт мутацій — файл, з якого складається інструмент
+            # вердикту: та згадка робила цей модуль свідком для його сайтів у
+            # `verdict_field_mutants` — марним (модуль того скрипта не запускає,
+            # тож мутанта не ловить) і дорогим (зайвий прогін на кожен сайт).
+            # Свідків шукають саме за іменем файлу, тож імені тут бути не
+            # повинно. Знахідка огляду PR #1268.
+            "3": "читай `AGENTS.md`",
         }
 
         def fake_run(args, **kwargs):
@@ -283,7 +332,8 @@ class ExtractionTest(unittest.TestCase):
             number = args[3] if len(args) > 3 else ""
             return subprocess.CompletedProcess(args, 0, bodies.get(number, ""), "")
 
-        with mock.patch.object(ip, "_top_level_entries", lambda ref, repo: frozenset({"app"})), \
+        with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "0" * 40)), \
+                mock.patch.object(ip, "_top_level_entries", lambda ref, repo: frozenset({"app"})), \
                 mock.patch.object(ip.subprocess, "run", fake_run):
             printed = io.StringIO()
             with contextlib.redirect_stdout(printed):
@@ -687,6 +737,29 @@ class RealGitTest(unittest.TestCase):
         code, verdicts = ip.check_body("читай `AGENTS.md`", "origin/nonexistent", self.repo)
         self.assertEqual(code, 2)
         self.assertIn("не читається", verdicts[0].detail)
+
+    def test_measure_head_refuses_to_measure_an_unreadable_ref(self):
+        # На нечитабельному ref-і дерево порожнє, і команда надрукувала б
+        # «верхня тека `docs` у дереві: немає» — твердження про дерево, якого
+        # ніхто не бачив. У CI `origin/main` немає, і це рівно той випадок.
+        #
+        # `gh` тут заборонений: якщо охорона ref-а зникне, тест мусить упасти
+        # сам, а не випадково вгадати код 2 через невдалий мережевий виклик.
+        # `git` лишається справжнім — саме він і каже, що ref не читається.
+        real_run = subprocess.run
+
+        def git_only(args, *rest, **kwargs):
+            if list(args)[:1] != ["git"]:
+                raise AssertionError(f"gh на нечитабельному ref-і кликати нічого: {args}")
+            return real_run(args, *rest, **kwargs)
+
+        printed, errors = io.StringIO(), io.StringIO()
+        with mock.patch.object(ip.subprocess, "run", git_only), \
+                contextlib.redirect_stdout(printed), contextlib.redirect_stderr(errors):
+            code = ip.measure_head("docs", 200, "origin/nonexistent", self.repo)
+        self.assertEqual(code, 2)
+        self.assertIn("не читається", errors.getvalue())
+        self.assertNotIn("у дереві", printed.getvalue())
 
     def test_git_output_reports_failure_for_a_missing_path(self):
         code, _, _ = ip.git_output(

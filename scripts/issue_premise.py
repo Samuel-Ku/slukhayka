@@ -723,7 +723,17 @@ def measure_head(head: str, limit: int, ref: str, repo: Path = REPO_ROOT) -> int
     Голова, яка є записом верхнього рівня `main`, у `BRANCH_HEADS` стояти не
     може: вона проковтнула б усі шляхи під собою. Саме цей вимір і вирішує,
     які голови прибрати, а які лишити.
+
+    Нечитабельний ref — код 2, а не «верхня тека: немає»: на невідомому ref-і
+    `_top_level_entries` віддає порожню множину, і «немає» тоді було б
+    твердженням про дерево, якого ніхто не бачив. У CI `origin/main` немає, тож
+    це не теорія. `--scan` уже відмовляється міряти такий ref — вимір робить
+    те саме.
     """
+    ok, _ = resolve_main_ref(ref, repo)
+    if not ok:
+        print(f"issue_premise: ref `{ref}` не читається — міряти нічого", file=sys.stderr)
+        return 2
     top_level = _top_level_entries(ref, repo)
     listed = subprocess.run(
         ["gh", "issue", "list", "--state", "all", "--limit", str(limit), "--json", "number", "--jq", ".[].number"],
@@ -819,8 +829,13 @@ def main(argv: list[str] | None = None) -> int:
         metavar="HEAD",
         help="скільки шляхів у тілах тікетів мають таку голову (вимір для BRANCH_HEADS)",
     )
+    # Help цієї опції НЕ називає `--measure-head`, і це не косметика: сама лише
+    # згадка робила сторожа «команда з документа існує» фальшивим — вирізавши
+    # блок `source.add_argument("--measure-head", …)`, той сторож лишався
+    # зеленим, бо підрядок у help усе ще був (огляд PR #1268). Назва опції живе
+    # там, де її оголошено, і ніде більше.
     parser.add_argument(
-        "--scan-limit", type=int, default=200, help="скільки тікетів брати для --measure-head"
+        "--scan-limit", type=int, default=200, help="скільки тікетів брати у вимірі голів"
     )
     parser.add_argument(
         "--ref",

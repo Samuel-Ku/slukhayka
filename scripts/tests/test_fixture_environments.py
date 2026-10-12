@@ -11,7 +11,7 @@
      `mutation_trace.py`: позиційний аргумент ПЕРЕД опцією замість підкоманди) —
      і це бачив лише CPython 3.12.3, тобто лише джоба.
 
-Обидва рази локальна зелень цього не бачила. Тому тут — реєстр усіх фікстур
+Обидва рази локальна зелень цього не бачила. Тому тут — реєстр фікстур
 репозиторію, які запускають підставний інструмент, і дві перевірки на кожну:
 
   * **оточення**: свідок мусить лишитися зеленим і з порожнім оточенням
@@ -20,17 +20,29 @@
     перевіряється фікстура, а не те, що конкретний тест випадково зелений;
   * **форма**: якщо фікстура вдає інструмент, який у репозиторії Є, пін на форму
     мусить існувати й бути названим тут. Якщо інструмент зовнішній (`gh`, `adb`,
-    Gradle), пінити нема проти чого: у джобі `script-tests` його немає — і це
-    названа межа, а не мовчазний пропуск.
+    Gradle), пінити нема проти чого: у джобі `script-tests` немає ні мережі, ні
+    авторизації — і це названа межа, а не мовчазний пропуск.
+
+Перелік не тримається на чесному слові автора: покриття перевіряється
+СТРУКТУРНО, з двох боків.
+
+  * `fixtures/` сканується по файлах: жоден файл-інструмент там не лишається без
+    запису (і жоден запис не вказує на неіснуючий файл);
+  * тести скануються по AST: кожен ЛІТЕРАЛ, що починається шебангом, — це
+    вбудована програма, і кожна мусить бути названа маркером у реєстрі. Саме
+    цього не бачив скан `fixtures/`: підставні `FAKE_OLD_GIT`, `FAKE_BROKEN_GIT`,
+    `FAKE_GH`, `adb` і `gradlew` живуть у тілі тестів, а не у файлах.
 
 Дві фікстури (`verdict_field`, `empty_shape`) отруюють оточення самі, своїм
 `EnvironmentTest`; тут вони в реєстрі, щоб перелік був повним, а їхній пін
 перевіряється на існування, а не ганяється вдруге.
 """
 
+import ast
 import dataclasses
 import importlib
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -60,19 +72,25 @@ HOSTILE = {
 # Оточення без спадку взагалі: лише те, без чого не стартує жоден процес.
 STRIPPED = {"PATH": "/usr/bin:/bin"}
 
+# Шебанг — це шлях до інтерпретатора (`#!/usr/bin/env bash`), а не сама лише
+# позначка: інакше сканер ловив би власний рядок `"#!"` у цьому модулі.
+SHEBANG = re.compile(r"^#!\S*/")
+
 
 @dataclasses.dataclass(frozen=True)
 class StandIn:
     """Один підставний інструмент: чим він є, чим піниться і де межа."""
 
     name: str
-    where: tuple[str, ...]      # файли фікстури (відносно кореня репозиторію)
+    where: tuple[str, ...]      # файли (відносно кореня репозиторію)
     witness: str                # module.Class.test, який його проводжує
-    prefix: str                 # власний префікс змінних, які він читає
+    prefix: str = "(жодної)"    # власний префікс змінних, які він читає
     real: str | None = None     # справжній інструмент у репозиторії, якщо є
-    shape_pin: str | None = None  # module.Class.test — пін на форму CLI
+    shape_pin: str | None = None  # module.Class.test — пін на форму
     boundary: str = ""          # чому піна немає — названа межа
+    markers: tuple[str, ...] = ()  # рядки, якими названо вбудовану програму
     own_poison: bool = False    # фікстура отруює оточення своїм тестом
+    runs: bool = True           # False — це текст-дані, а не підставний інструмент
 
 
 CASES = (
@@ -84,7 +102,6 @@ CASES = (
         ),
         witness=("test_verdict_field_mutants.EnvironmentTest"
                  ".test_a_poisoned_inherited_environment_does_not_reach_the_tool"),
-        prefix="(жодної)",
         real="scripts/mutation_trace.py",
         shape_pin=("test_verdict_field_mutants.HistoricalStateTest"
                    ".test_the_fixture_cli_is_shaped_like_the_real_one"),
@@ -114,7 +131,6 @@ CASES = (
         ),
         witness=("test_empty_shape_mutants.EnvironmentTest"
                  ".test_a_poisoned_inherited_environment_does_not_reach_the_gate"),
-        prefix="(жодної)",
         real="scripts/merge-pr.sh",
         shape_pin=("test_empty_shape_mutants.HistoricalStateTest"
                    ".test_the_fixture_gate_is_shaped_like_the_real_one"),
@@ -132,6 +148,7 @@ CASES = (
                   "у цій роботі). Форму виклику пінять тести: журнал інвокацій "
                   "мусить мати `:app:testPureJvm` і "
                   "`-Ptest.selectedClasses=<FQCN>`."),
+        markers=("MUTATE_TEST_GRADLE_LOG", "openjdk version"),
     ),
     StandIn(
         name="підставний тест-субʼєкт фікстури test_mutate_python",
@@ -140,10 +157,10 @@ CASES = (
                  ".test_runs_one_python_class_and_records_a_caught_mutation"),
         prefix="MUTATE_PYTHON_FIXTURE_",
         real="scripts/mutation_python_runner.py",
-        boundary=("підставний тут — unittest-модуль, а не CLI: його форма — це "
-                  "`python3 -m unittest <модуль>.<клас>`, і саме її пінить поле "
-                  "`task` запису в тесті-свідку. Окремий argv-пін не має проти "
-                  "чого стояти."),
+        boundary=("підставний тут — unittest-модуль, а не CLI: він не програма з "
+                  "шебангом, і його форма — це `python3 -m unittest "
+                  "<модуль>.<клас>`, яку пінить поле `task` запису в "
+                  "тесті-свідку. Окремий argv-пін не має проти чого стояти."),
     ),
     StandIn(
         name="підставний gh фікстури test_merge_pr",
@@ -151,11 +168,38 @@ CASES = (
         witness=("test_merge_pr.MergePrTest"
                  ".test_merges_with_squash_and_never_deletes_the_branch"),
         prefix="FAKE_GH_",
-        real=None,
-        boundary=("`gh` — зовнішній CLI; у джобі `script-tests` його немає "
-                  "(і не мусить бути: тести не ходять у мережу). Пін проти "
-                  "живого `gh` тут неможливий; підставний падає кодом 3 на "
-                  "незнайому форму, тож дрейф форми виклику не мовчить."),
+        boundary=("`gh` — зовнішній CLI: у джобі `script-tests` немає ні мережі, ні "
+                  "авторизації (`GH_TOKEN`), тож живий пін проти нього "
+                  "неможливий, навіть якщо бінарник є в образі раннера. "
+                  "Підставний падає кодом 3 на незнайомій формі, тож дрейф форми "
+                  "виклику не мовчить."),
+        markers=("FAKE_GH_DIR",),
+    ),
+    StandIn(
+        name="підставний старий git фікстури test_merge_pr",
+        where=("scripts/tests/test_merge_pr.py",),
+        witness=("test_merge_pr.MergePrTest"
+                 ".test_fails_closed_when_the_working_copy_scan_fails"),
+        real="git",
+        shape_pin=("test_merge_pr.GitStandInShapeTest"
+                   ".test_a_stub_refuses_an_option_the_real_git_has"),
+        boundary=("argv у нього — не свій, а справжнього git: обгортка прозора "
+                  "(`exec git \"$@\"`), відмова — рівно на `--path-format`, який "
+                  "справжній git знає. Прозорість і справжність опціону пінить "
+                  "`GitStandInShapeTest` проти встановленого git."),
+        markers=("unknown option",),
+    ),
+    StandIn(
+        name="підставний зламаний git фікстури test_merge_pr",
+        where=("scripts/tests/test_merge_pr.py",),
+        witness=("test_merge_pr.MergePrTest"
+                 ".test_fails_closed_when_the_patch_comparison_fails"),
+        real="git",
+        shape_pin=("test_merge_pr.GitStandInShapeTest"
+                   ".test_the_patch_comparison_stub_refuses_a_real_git_revision_option"),
+        boundary=("та сама прозора обгортка; ламає рівно `--cherry-mark`, який "
+                  "справжній git знає."),
+        markers=("unable to read tree",),
     ),
     StandIn(
         name="підставний gh фікстури test_review_pass",
@@ -163,9 +207,10 @@ CASES = (
         witness=("test_review_pass.ReviewPassTest"
                  ".test_reissues_the_verdict_on_a_pr_that_already_has_the_label"),
         prefix="FAKE_GH_",
-        real=None,
-        boundary=("той самий зовнішній `gh`, що й у test_merge_pr; підставний "
-                  "падає кодом 3 на незнайому форму."),
+        boundary=("той самий зовнішній `gh`, що й у test_merge_pr: без мережі й "
+                  "авторизації живого піна немає. Підставний падає кодом 3 на "
+                  "незнайомій формі."),
+        markers=("FAKE_GH_DIR",),
     ),
     StandIn(
         name="підставний adb фікстури test_wide_window",
@@ -173,10 +218,10 @@ CASES = (
         witness=("test_wide_window.DeviceRunTest"
                  ".test_derives_the_density_from_the_device_and_reports_the_width"),
         prefix="FAKE_ADB_",
-        real=None,
         boundary=("`adb` — зовнішній CLI, у джобі його немає (пристрій не "
                   "потрібен). Підставний падає кодом 2 на незнайоме слово, тож "
                   "форма виклику не може розійтися мовчки."),
+        markers=("FAKE_ADB_LOG",),
     ),
     StandIn(
         name="підставний adb фікстури test_android_emulator_readiness",
@@ -184,9 +229,9 @@ CASES = (
         witness=("test_android_emulator_readiness.AndroidEmulatorReadinessTest"
                  ".test_waits_until_android_package_service_is_usable"),
         prefix="FAKE_ADB_",
-        real=None,
         boundary=("той самий зовнішній `adb`; підставний падає на незнайоме "
                   "слово, тож форма виклику не може розійтися мовчки."),
+        markers=("FAKE_ADB_STATE",),
     ),
     StandIn(
         name="підставні gradlew і java фікстури test_test_wrappers",
@@ -198,6 +243,7 @@ CASES = (
         boundary=("Gradle і JDK — зовнішні для джоби; журнал інвокацій пінить "
                   "форму (шість партицій і `-Ptest.selectedClasses=`), а "
                   "`SLUKHAYKA_JAVA_HOME` — те, що читає справжній wrapper."),
+        markers=("openjdk version", "WRAPPER_TEST_LOG", "kill -TERM"),
     ),
     StandIn(
         name="підставні gradlew, npm і npx фікстури test_test_wrappers",
@@ -208,21 +254,63 @@ CASES = (
         real="./gradlew, npm, npx",
         boundary=("Gradle і npm — зовнішні; журнал пінить точні три команди "
                   "веб-перевірки (`npm ci`, `tsc --noEmit`, `vitest run`)."),
+        markers=("cwd=%s", "gradle %s"),
+    ),
+    StandIn(
+        name="текст-дані SAMPLE у test_empty_shape_mutants",
+        where=("scripts/tests/test_empty_shape_mutants.py",),
+        witness=("test_empty_shape_mutants.ScannerTest"
+                 ".test_only_an_empty_pattern_beside_a_named_one_is_a_shape"),
+        boundary=("це не підставний інструмент, а вхідний текст для "
+                  "`empty_shape_mutants.shapes()`: жоден тест його не запускає. "
+                  "Названий тут, бо він виглядає як програма (шебанг), і мовчазне "
+                  "виключення було б дірою в покритті."),
+        markers=("detached HEAD",),
+        runs=False,
     ),
 )
 
 
+def embedded_programs(module: Path) -> list[str]:
+    """Тексти вбудованих програм модуля: літерали, що ПОЧИНАЮТЬСЯ шебангом.
+
+    AST, а не пошук рядка: склеєні літерали (`"a" "b" f"c"`) видно цілком, а
+    шебанг у докстрінгу чи коментарі сюди не потрапляє. Частини склеєного
+    літерала відкидаються — лишається найбільший відрізок.
+    """
+    source = module.read_text(encoding="utf-8")
+    segments = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Constant) and not isinstance(node.value, str):
+            continue
+        if not isinstance(node, (ast.Constant, ast.JoinedStr)):
+            continue
+        segment = ast.get_source_segment(source, node)
+        if segment and SHEBANG.match(segment.lstrip("rbfu\"'")):
+            segments.add(segment)
+
+    found: list[str] = []
+    for segment in sorted(segments, key=len, reverse=True):
+        if not any(segment in bigger for bigger in found):
+            found.append(segment)
+    return found
+
+
 class RegistryTest(unittest.TestCase):
-    """Перелік мусить бути повним, а кожен пін — існувати."""
+    """Перелік мусить бути повним з обох боків — і кожен пін існувати."""
 
     def test_the_registry_names_every_tool_under_the_fixtures(self):
         """Жоден файл-інструмент у `fixtures/` не лишається поза реєстром.
 
         Підставні інструменти фікстур — це все, що лежить під `fixtures/` і не
-        є свідком (`tests/`). Новий такий файл мусить бути названий тут, інакше
-        він не має ні піна на оточення, ні піна на форму.
+        є свідком (`tests/`). Рівність у два боки: і зайвий файл у дереві без
+        запису, і запис на файл, якого немає, — червоні.
         """
-        declared = {Path(where) for case in CASES for where in case.where}
+        declared = {
+            Path(where)
+            for case in CASES for where in case.where
+            if where.startswith("scripts/tests/fixtures/")
+        }
         found = {
             path.relative_to(REPO_ROOT)
             for path in FIXTURES.rglob("*")
@@ -231,7 +319,48 @@ class RegistryTest(unittest.TestCase):
         }
 
         self.assertTrue(found, "під fixtures/ мусять бути підставні інструменти")
-        self.assertEqual(sorted(found - declared), [], "ці інструменти не в реєстрі")
+        self.assertEqual(sorted(found), sorted(declared))
+
+    def test_every_registered_path_exists(self):
+        """Запис на неіснуючий файл — це не «менше роботи», а діра в покритті."""
+        for case in CASES:
+            for where in case.where:
+                with self.subTest(stand_in=case.name, path=where):
+                    self.assertTrue((REPO_ROOT / where).is_file(), where)
+
+    def test_every_embedded_program_is_claimed(self):
+        """Кожна вбудована програма названа в реєстрі — і навпаки.
+
+        Правило структурне, а не «сьогодні цих двох випадково пінить сусід»:
+        програму знаходить AST, тож наступний підставний інструмент, доданий у
+        будь-який тест, з'явиться тут сам — і без маркера в реєстрі тест
+        почервоніє. Саме цієї половини не бачив скан `fixtures/`: підставні
+        `FAKE_OLD_GIT`, `FAKE_BROKEN_GIT`, `FAKE_GH`, `adb` і `gradlew` живуть у
+        тілі тестів.
+        """
+        embedded = {
+            str(module.relative_to(REPO_ROOT)): embedded_programs(module)
+            for module in sorted(TESTS_DIR.glob("test_*.py"))
+        }
+        embedded = {path: programs for path, programs in embedded.items() if programs}
+
+        self.assertTrue(embedded, "вбудованих програм не знайдено — сканер зламався")
+        for path, programs in embedded.items():
+            with self.subTest(module=path):
+                markers = [marker for case in CASES if case.where == (path,)
+                           for marker in case.markers]
+
+                self.assertTrue(markers, "програми є, а реєстр їх не називає")
+                for marker in markers:
+                    self.assertTrue(
+                        any(marker in program for program in programs),
+                        "маркер %r не належить жодній програмі модуля" % marker,
+                    )
+                for program in programs:
+                    self.assertTrue(
+                        any(marker in program for marker in markers),
+                        "програма не названа в реєстрі:\n%s" % program[:200],
+                    )
 
     def test_every_registered_witness_exists(self):
         for case in CASES:
@@ -272,7 +401,7 @@ class EnvironmentTest(unittest.TestCase):
     """Кожен свідок мусить бути зелений і без спадку, і під отрутою."""
 
     def run_witnesses(self, environment: dict) -> subprocess.CompletedProcess:
-        targets = [case.witness for case in CASES if not case.own_poison]
+        targets = [case.witness for case in CASES if case.runs and not case.own_poison]
 
         return subprocess.run(
             [sys.executable, "-m", "unittest", *targets],

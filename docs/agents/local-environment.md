@@ -51,6 +51,38 @@ changes, no test results. `pgrep -af 'gradlew --offline'` says whose run holds
 the slot, and the waiting lane's own command line names the worktree it belongs
 to.
 
+### The measured ceiling
+
+The one-run rule is not caution, it is arithmetic. On 2026-10-12 this machine
+(i5-7300HQ, 4 cores / 4 threads, 16 GB, base `d46bf54b`) ran one identical
+build — `:app:validateTestPartitions :app:testPureJvm` with a single selected
+class — in isolated worktrees, each with its own writable `GRADLE_USER_HOME`
+over a shared **read-only** dependency cache, every run `--no-daemon`:
+
+| Runs | Wall | Peak JVM RSS (sum) | MemAvailable min | zram max |
+|---|---|---|---|---|
+| 1 cold (full compile) | 11m 01s | 4.9 GB | 2.7 GB | 181 MB |
+| 1 warm, nothing changed | 1m 01s | — | — | — |
+| 1 incremental (one file edited) | 3m 33s | 3.7 GB | 4.3 GB | 699 MB |
+| 2 warm, concurrent | 2m 03s | 2.0 GB | 6.1 GB | 2.0 GB |
+| 3 incremental, concurrent | **killed at 10m 14s** | 8.3 GB | 1.1 GB | 4.0 GB |
+
+Three concurrent runs finished none of them. Memory fell monotonically
+(5.3 → 4.0 → 3.0 → 2.1 → 1.1 GB), zram grew to 4 GB, `load average` reached
+23.5 on four threads, and the runs had to be killed to keep the machine
+usable. One incremental run over the same work takes 3m 33s, so three at once
+were not slower by a factor — they were not going to finish at all.
+
+Two things follow. First, the slot serialises builds because two of them do not
+fit; a queue is the answer, not a nuisance. Second, the bottleneck is CPU as
+much as RAM: even with memory to spare, four threads shared by three Gradle
+JVMs plus in-process Kotlin compilation spend their time switching.
+
+Parallel work therefore belongs in what does not build — editing, review,
+reading, issue triage. A lane that must build waits for the slot like every
+other lane. The same measurement is the reason the cloud alternatives in
+ADR-0062 are closed: this is a property of the machine, not of the tooling.
+
 ## Mutations
 
 A mutation run leaves the same artifacts as a real one: the same

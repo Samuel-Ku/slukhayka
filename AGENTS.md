@@ -41,7 +41,10 @@ See `docs/agents/domain.md`.
 ## The merge gate
 
 `scripts/merge-pr.sh` — green checks and a fresh `review:pass`, or no merge
-(squash only, never deletes the branch); call it instead of `gh pr merge`. See
+(squash only, never deletes the branch); call it instead of `gh pr merge`. The
+verdict is re-issued with `scripts/review-pass.sh <PR>`, not `gh pr edit
+--add-label`: on a PR that already has the label the latter is a silent no-op,
+so the verdict keeps its old timestamp and the gate refuses (#1259). See
 `docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
 
 ## Testing and verification

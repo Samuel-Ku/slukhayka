@@ -135,20 +135,40 @@ Node and `npm ci`, which a unittest runner has no reason to bring. A patch that
 edits `scripts/mutate.sh` itself edits the file the running shell is still
 reading, so that promise is pinned by a copy-mutant in
 `scripts/tests/test_mutate*.py` (`SLUKHAYKA_MUTATE_SCRIPT`) rather than by a run
-through the tool. And nothing invents mutations or finds survivors: `survived`
-means only that the target ran green under the mutation, so which mutation to
-write stays the author's judgement — the script automates the bookkeeping, not
-the thinking.
+through the tool. And no mutation is invented and no survivor is found for you:
+`survived` means only that the target ran green under the mutation, so which
+mutation to write stays the author's judgement — the script automates the
+bookkeeping, not the thinking.
 
-One exception, and it is a gate rather than a record: the empty shape of a `case`
-decision (`"" | "detached HEAD"` — `#1254`, where a test pinned the literal
-instead of the condition). `scripts/empty_shape_mutants.py` writes that one
-mutation itself, runs the `scripts/tests` modules that name the script, and
+Two exceptions, and they are gates rather than records. The first is the empty
+shape of a `case` decision (`"" | "detached HEAD"` — `#1254`, where a test pinned
+the literal instead of the condition). `scripts/empty_shape_mutants.py` writes that
+one mutation itself, runs the `scripts/tests` modules that name the script, and
 refuses when the witness suite stays green — i.e. when no test produces the empty
 shape at all. It runs inside the `script-tests` job, has no switch to turn it off,
 and covers only `case` arms: a literal alternative such as `-h|--help` is not
 pinned by it. `python3 scripts/empty_shape_mutants.py --list` names the shapes it
 would mutate.
+
+The second such gate is about the fields a verdict is made of (`#1260`): `errors`
+was pinned by no test on either half — a mutation zeroing it left 20/20 green in
+Python, and the stand-in `gradlew` wrote `errors=0` always in the JVM half.
+`scripts/verdict_field_mutants.py` finds every place a deciding field (`tests`,
+`failures`, `errors`, `skipped`, `artifactSha256`) enters the chain — the JUnit
+attribute the producer writes, the read out of the XML, the transport into the
+record, the record's own field, a read of that field, the same field in a `status`
+answer, and the comparison that makes the verdict — builds a mutant that leaves the
+field its zero at each one, and runs the witness tests. A green suite means that place holds nothing (`1`, naming the
+field, the place and the witness); an unknown (a field with no place, no witness
+module, a red suite *without* a mutation, a run that never finished, a missing tool
+part, a mutant that does not parse) is `2`.
+`python3 scripts/verdict_field_mutants.py --list` names the places and the zero it
+would write. Its named limits: the JVM producer is Gradle and is not in the tree,
+so that half is pinned through the XML read; a mention of the field in prose (a
+`detail` string, a comment) is not a place; `skipped` decides a verdict but never
+travels into the record at all; and a field with no verdict-rule place at all is an
+unknown (`2`), not a pass — moving the decision onto another variable would leave
+every remaining mutant alive.
 
 ### Before a merge
 

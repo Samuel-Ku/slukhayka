@@ -781,7 +781,19 @@ class Runner:
         self.tests_dir = tests_dir
         self._baselines: dict[tuple, str] = {}
         self._lock = threading.Lock()
+        # Замок на КЛЮЧ, а не на весь базовий прогін (#1266). Під спільним
+        # замком перший-ліпший базовий прогін спиняв решту потоків на свої
+        # секунди: виміряно 35 % простою пулу на 4 ядрах, а після правки — 16 %.
+        # Ключі незалежні (кожен прогін іде у власній копії дерева), тож чекати
+        # один одного їм нема чого; той самий ключ, як і раніше, рахується один
+        # раз — за це відповідає замок самого ключа.
+        self._baseline_locks: dict[tuple, threading.Lock] = {}
         self._temporary = tempfile.TemporaryDirectory(prefix="slukhayka-field-")
+
+    def _baseline_lock(self, key: tuple) -> threading.Lock:
+        """Замок цього ключа. Словник замків — під `self._lock`."""
+        with self._lock:
+            return self._baseline_locks.setdefault(key, threading.Lock())
 
     def cleanup(self) -> None:
         self._temporary.cleanup()
@@ -793,24 +805,26 @@ class Runner:
         набір під мутантом доводить щось лише тоді, коли без мутанта він зелений.
         """
         key = (module.name, tuple(targets))
-        with self._lock:
-            if key in self._baselines:
-                return self._baselines[key]
+        with self._baseline_lock(key):
+            with self._lock:
+                if key in self._baselines:
+                    return self._baselines[key]
             tmp = Path(tempfile.mkdtemp(dir=self._temporary.name))
             work = _roots(self.root, tmp)
             status, output = _run(work, self.tests_dir, targets)
             state, why = verdict_of_run(status, output)
             if state == "unknown":
-                self._baselines[key] = "набір-свідок %s не дав вердикту: %s" % (module.name, why)
+                value = "набір-свідок %s не дав вердикту: %s" % (module.name, why)
             elif state == "red":
-                self._baselines[key] = (
+                value = (
                     "набір-свідок %s червоний БЕЗ мутації — зеленого мутанта тут не "
                     "відрізнити від зламаного набору:\n%s" % (module.name, output)
                 )
             else:
-                self._baselines[key] = ""
-        with self._lock:
-            return self._baselines[key]
+                value = ""
+            with self._lock:
+                self._baselines[key] = value
+            return value
 
     def mutant(self, site: Site, module: Path, targets: list[str],
                seconds: list[float]) -> tuple[bool, str, str]:

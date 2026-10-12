@@ -26,11 +26,21 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TEST_MUTATE = REPO_ROOT / "scripts" / "tests" / "test_mutate.py"
+TEST_MUTATE_PYTHON = REPO_ROOT / "scripts" / "tests" / "test_mutate_python.py"
+
+# Скільки випадків чутливості гнати одночасно (#1266). Кожен — окремий
+# підпроцес зі своєю копією механізму, тож черга тут не потрібна: вона лишала
+# ядра просто. Це швидкість, а не вимикач — кожен випадок усе одно виконується.
+SENSITIVITY_JOBS = min(4, os.cpu_count() or 1)
+
 # Механізм під тестом. Чутливість підсовує сюди КОПІЮ з однією знятою
 # перевіркою, тож «набір падає на мутації» доводиться прогоном, а не тим, що
 # мутація існує.
@@ -665,6 +675,49 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(4, len(report.killed))
 
 
+class MechanismCostTest(unittest.TestCase):
+    """Ціна механізму (#1266): базові прогони різних ключів не стоять у черзі.
+
+    Це властивість про ЧАС, а не про те, що перевіряється, тож вона піниться без
+    секундоміра — зустріччю двох базових прогонів у бар'єрі. Спільний замок на
+    весь прогін коштував 35 % простою пулу на 4 ядрах: поки один ключ рахувався,
+    решта потоків чекали, і 38 прогонів механізму йшли ~44 с замість ~36 с.
+    """
+
+    def test_baselines_of_different_keys_do_not_wait_for_each_other(self):
+        runner = v.Runner(REPO_ROOT, TESTS_DIR)
+        self.addCleanup(runner.cleanup)
+        together = threading.Barrier(2, timeout=5)
+        met = []
+
+        def fake_run(work, tests_dir, targets):
+            try:
+                together.wait()
+            except threading.BrokenBarrierError:
+                # Спільний замок: другий прогін до `_run` не доходить, поки
+                # перший не скінчиться, — і бар'єр розсипається за таймаутом.
+                return 0, ""
+            met.append(targets)
+            return 0, ""
+
+        keys = (
+            (TEST_MUTATE, ["test_mutate.MutationRunTest.test_one"]),
+            (TEST_MUTATE_PYTHON, ["test_mutate_python.PythonMutationRunTest.test_two"]),
+        )
+
+        with mock.patch.object(v, "_run", fake_run):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(runner.baseline, module, targets)
+                           for module, targets in keys]
+                for future in futures:
+                    self.assertEqual("", future.result(), "зелений базовий прогін — зелений")
+
+        self.assertEqual(
+            sorted(targets for _module, targets in keys), sorted(met),
+            "базові прогони РІЗНИХ ключів мусять іти одночасно, а не чергою",
+        )
+
+
 class PlanTest(unittest.TestCase):
     """Типовий виклик мусить покривати всі поля, а не те, що зручно."""
 
@@ -891,6 +944,8 @@ class SensitivityTest(unittest.TestCase):
             "test_verdict_field_mutants.DiscoveryTest.test_the_xml_attribute_is_a_site",
         ),
     )
+    # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
+    EXPECTED_CASES = 22
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -923,15 +978,68 @@ class SensitivityTest(unittest.TestCase):
         return directory
 
     def test_the_suite_dies_when_a_check_of_the_mechanism_is_mutated(self):
-        for index, (name, needle, replacement, target) in enumerate(self.CASES):
-            with self.subTest(mutation=name):
-                mutant = self.mutant(needle, replacement, index)
+        """Випадки незалежні, тож ідуть одночасно (#1266).
 
-                intact = self.run_one_test(target, None)
+        У кожного свій каталог мутанта й свій підпроцес — спільного в них лише
+        те, що вони читають той самий механізм. Черга лишала ядра просто: 12 с із
+        136 с джоби `script-tests` — один послідовний блок. Це швидкість, а не
+        вимикач: кожен випадок усе одно перевіряється, і жодна перевірка не
+        зникає.
+        """
+        # Оголошене число тут — ДРУГЕ джерело правди, і саме тому воно потрібне
+        # (#1266, огляд). `CASES` — це джерело ітерації: перевірка «скільки
+        # зібрано» проти нього ж не тримає нічого, бо `CASES = ()` дає порожній
+        # `outcomes` і зелений набір — «Ran 1 test ... OK» на наборі, який не
+        # виконав жодного випадку. Це та сама діра, яку лікує ця серія: свідок,
+        # зелений тому, що не виконався. Число поруч робить червоними і порожній
+        # перелік, і зрізаний, і воно навмисно вимагає правки разом із `CASES`:
+        # зникнення випадку мусить бути видимим, а не тихим.
+        self.assertEqual(self.EXPECTED_CASES, len(self.CASES),
+                         "оголошених випадків чутливості мусить бути рівно стільки")
+
+        in_flight = 0
+        observed = 0
+        lock = threading.Lock()
+
+        def judge(index, case):
+            nonlocal in_flight, observed
+            with lock:
+                in_flight += 1
+                observed = max(observed, in_flight)
+            try:
+                name, needle, replacement, target = case
+                try:
+                    mutant = self.mutant(needle, replacement, index)
+                    intact = self.run_one_test(target, None)
+                    mutated = self.run_one_test(target, mutant)
+                except Exception as error:  # noqa: BLE001 — звітується під subTest
+                    return name, None, None, error
+                return name, intact, mutated, None
+            finally:
+                with lock:
+                    in_flight -= 1
+
+        with ThreadPoolExecutor(max_workers=SENSITIVITY_JOBS) as pool:
+            outcomes = list(pool.map(lambda pair: judge(*pair), enumerate(self.CASES)))
+
+        # Одночасність не мусить тихо з'їсти випадок: скільки оголошено, стільки
+        # й перевірено.
+        self.assertEqual(len(self.CASES), len(outcomes),
+                         "кожен оголошений випадок мусить бути перевірений")
+        if SENSITIVITY_JOBS > 1:
+            # І випадки мусять іти одночасно, а не чергою: повернення `for`
+            # лишило б набір зеленим, тож черга піниться тим, скільки випадків
+            # побувало в польоті разом. На одному ядрі пінити нічого — пул там
+            # і буде один.
+            self.assertGreater(observed, 1,
+                               "випадки мусять іти одночасно, а не чергою")
+
+        for name, intact, mutated, error in outcomes:
+            with self.subTest(mutation=name):
+                self.assertIsNone(error, error)
                 self.assertEqual(0, intact.returncode, intact.stderr)
                 self.assertIn("Ran 1 test", intact.stderr)
 
-                mutated = self.run_one_test(target, mutant)
                 self.assertNotEqual(
                     0,
                     mutated.returncode,

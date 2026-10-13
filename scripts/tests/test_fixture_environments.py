@@ -70,6 +70,17 @@ dotted-ресивер. Бо «згадує» і «запускає» — це т
 кожного зареєстрованого підставного і що новий запис узагалі потрапив у список —
 він розширюється руками (межа названа біля `ENVIRONMENT_TARGETS`).
 
+СКІП-СЛІПОТА (#1270, знахідка огляду #1267). Прогін, який нічого не виконав,
+виходить із НУЛЕМ: `@unittest.skip` на названому прогоні лишав `EnvironmentTest`
+зеленим, а `unittest discover` із набором, якого немає, теж зелений. Ґард, який
+дивився лише на код виходу, був сліпий до «нічого не сталося» — рівно та хвороба,
+проти якої він написаний, і в коді вона не була названа. Тому прогін іде через
+`NESTED_RUN`, який віддає ЛІЧИЛЬНИКИ САМОГО прогону (`testsRun`, `skipped`), і
+вердикт ухвалюється тим самим правилом, що в `scripts/mutate.sh`: «виконав нуль
+тестів» і «пропустив усі» — не зелень, а відмова. Лічильники, а не рядок звіту:
+«OK (skipped=1)» — це підрядок, а `testsRun` — структура, і саме на підрядку
+зламався сторож `--measure-head`, з якого ця серія почалася.
+
 Покриття перевіряється СТРУКТУРНО, з трьох боків.
 
   * `fixtures/` — по файлах: жоден файл-інструмент не лишається без запису (і
@@ -137,6 +148,7 @@ import dataclasses
 import functools
 import importlib
 import io
+import json
 import os
 import re
 import shutil
@@ -153,6 +165,30 @@ FIXTURES = TESTS_DIR / "fixtures"
 
 # Скільки чекати на вкладений прогін. Таймаут — це провал, не «зелено».
 NESTED_TIMEOUT_SECONDS = 600
+
+# Прогін названого тесту РАЗОМ ІЗ ЛІЧИЛЬНИКАМИ (#1270): код виходу сам по собі
+# сліпий до скіпа — `unittest` виходить із нулем, коли тест пропущено, тож ґард,
+# який дивився лише на код, був зелений на прогоні, що не виконав нічого.
+# Лічильники — з САМОГО прогону (`result.testsRun`, `result.skipped`), одним
+# рядком JSON: рядок звіту «OK (skipped=1)» був би підрядком, а це структура.
+# Це не програма-підставний інструмент: шебанга в неї немає, і скани реєстру
+# (шебанг у літералі, читання змінних) її не бачать — межа названа в докстрінзі
+# модуля, «програма БЕЗ шебанга невидима ВСІМ трьом сканам».
+NESTED_RUN = '''
+import json
+import sys
+import unittest
+
+result = unittest.TextTestRunner(stream=sys.stderr, verbosity=1).run(
+    unittest.TestLoader().loadTestsFromNames(sys.argv[1:])
+)
+print(json.dumps({
+    "tests": result.testsRun,
+    "skipped": len(result.skipped) + len(result.expectedFailures),
+    "skippedIds": [test.id() for test, _reason in result.skipped],
+}))
+raise SystemExit(0 if result.wasSuccessful() else 1)
+'''
 
 # Отрута — рівно те, що приносить раннер: затьмарені команди, чужий `BASH_ENV`,
 # `CDPATH` і `PYTHONPATH`. `BASH_FUNC_*` діє на bash-процеси, і саме тому ламає
@@ -357,6 +393,8 @@ ENVIRONMENT_TARGETS = (
     ".test_waits_until_android_package_service_is_usable",
     "test_empty_shape_mutants.ScannerTest"
     ".test_reads_arms_with_offsets_and_keeps_the_source_intact",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_a_named_run_that_is_skipped_is_not_green",
     "test_issue_premise.ExtractionTest"
     ".test_measure_head_exists_because_the_docs_cite_it",
     "test_merge_pr.MergePrTest.test_fails_closed_when_the_patch_comparison_fails",
@@ -700,6 +738,8 @@ class RegistryTest(unittest.TestCase):
              ".test_waits_until_android_package_service_is_usable",
              "test_empty_shape_mutants.ScannerTest"
              ".test_reads_arms_with_offsets_and_keeps_the_source_intact",
+             "test_fixture_environments.EnvironmentTest"
+             ".test_a_named_run_that_is_skipped_is_not_green",
              "test_issue_premise.ExtractionTest"
              ".test_measure_head_exists_because_the_docs_cite_it",
              "test_merge_pr.MergePrTest"
@@ -758,42 +798,131 @@ class RegistryTest(unittest.TestCase):
         return value
 
 
+@dataclasses.dataclass(frozen=True)
+class NestedRun:
+    """Один вкладений прогін: код виходу і лічильники з нього самого."""
+
+    name: str
+    status: int
+    tests: int | None
+    skipped: int | None
+    output: str
+    skipped_ids: tuple[str, ...] = ()
+
+    @property
+    def green(self) -> bool:
+        """Зелений — це «виконав свої тести й не впав». Код виходу тут — не все.
+
+        `@unittest.skip` лишає код нулем, тож «зелений» за кодом і «зелений» за
+        прогоном — різні речі, і саме на цій різниці ґард і був сліпий (#1270,
+        знахідка огляду #1267).
+        """
+        return self.status == 0 and bool(self.tests) and self.skipped == 0
+
+    def describe(self) -> str:
+        if self.tests is None:
+            return "%s: лічильників немає (код %d)" % (self.name, self.status)
+        if self.skipped_ids:
+            # Хто саме не виконався — з лічильників прогону, без жодного зайвого
+            # процесу: «пропущено 1» без імені змушувало б шукати винного руками.
+            return ("%s: tests=%d, skipped=%d (%s) — не виконався"
+                    % (self.name, self.tests, self.skipped, ", ".join(self.skipped_ids)))
+        return "%s: tests=%d, skipped=%d (код %d)" % (self.name, self.tests, self.skipped,
+                                                      self.status)
+
+
 class EnvironmentTest(unittest.TestCase):
     """Кожен названий прогін мусить бути зелений і без спадку, і під отрутою."""
 
-    def run_environments(self, environment: dict) -> list[subprocess.CompletedProcess]:
-        results = []
-        if ENVIRONMENT_TARGETS:
-            results.append(subprocess.run(
-                [sys.executable, "-m", "unittest", *ENVIRONMENT_TARGETS],
-                cwd=str(TESTS_DIR), check=False, capture_output=True, text=True,
-                env=environment, timeout=NESTED_TIMEOUT_SECONDS,
-            ))
+    def run_named(self, name: str, targets: tuple[str, ...], environment: dict,
+                  cwd: Path) -> NestedRun:
+        """Названі цілі в каталозі `cwd` — зі своїм оточенням, із лічильниками."""
+        result = subprocess.run(
+            [sys.executable, "-c", NESTED_RUN, *targets],
+            cwd=str(cwd), check=False, capture_output=True, text=True,
+            env=environment, timeout=NESTED_TIMEOUT_SECONDS,
+        )
+        counts: dict = {}
+        lines = [line for line in result.stdout.strip().splitlines() if line.strip()]
+        if lines:
+            try:
+                parsed = json.loads(lines[-1])
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                counts = parsed
+        tests, skipped = counts.get("tests"), counts.get("skipped")
+        if not isinstance(tests, int) or not isinstance(skipped, int):
+            # Немає лічильників — немає й вердикту: «не виконався» і «виконався
+            # зелено» мусять лишатися різними відповідями.
+            tests = skipped = None
+        skipped_ids = counts.get("skippedIds")
+        return NestedRun(
+            name, result.returncode, tests, skipped, result.stderr[-3000:],
+            tuple(skipped_ids) if isinstance(skipped_ids, list) else (),
+        )
+
+    def run_environments(self, environment: dict) -> list[NestedRun]:
+        """Названі прогони одним процесом — лічильники беруться з нього самого.
+
+        Один процес на всі цілі — те, чим цей ґард був і до #1270: ціна
+        лічильників не в тому, щоб гнати кожну ціль окремо.
+        """
+        runs = [self.run_named("названі прогони", ENVIRONMENT_TARGETS, environment, TESTS_DIR)]
         # Файлів у варіанті більше, ніж модулів: модуль ганяємо один раз на
         # (варіант, модуль), а не на кожен файл, який він називає.
         for root, module in sorted({(root, module)
                                     for root, _name, modules in fixture_naming_tests()
                                     for module in modules}):
-            results.append(self.run_fixture_test(root, module, environment))
-        return results
+            runs.append(self.run_fixture(root, module, environment))
+        return runs
 
-    def run_fixture_test(self, root: Path, module: str,
-                         environment: dict) -> subprocess.CompletedProcess:
+    def run_fixture(self, root: Path, module: str, environment: dict) -> NestedRun:
         """Тест фікстури — у КОПІЇ дерева: фікстура пише артефакти поруч із собою."""
         with tempfile.TemporaryDirectory(prefix="fixture-environment-") as temporary:
             work = Path(temporary) / "root"
             shutil.copytree(root / "scripts", work / "scripts")
-            return subprocess.run(
-                [sys.executable, "-m", "unittest", "discover",
-                 "-s", "scripts/tests", "-p", module],
-                cwd=str(work), check=False, capture_output=True, text=True,
-                env=environment, timeout=NESTED_TIMEOUT_SECONDS,
-            )
+            return self.run_named("%s/%s" % (root.name, module), (module[:-3],),
+                                  environment, work / "scripts" / "tests")
 
-    def assertRunsGreen(self, results: list[subprocess.CompletedProcess]) -> None:
-        self.assertTrue(results, "жодного прогону не зроблено")
-        for result in results:
-            self.assertEqual(0, result.returncode, result.stderr[-3000:])
+    def assertRunsGreen(self, runs: list[NestedRun]) -> None:
+        failures = [run for run in runs if not run.green]
+        self.assertTrue(runs, "жодного прогону не зроблено")
+        self.assertEqual(
+            [], [run.describe() for run in failures],
+            "названі прогони мусять бути зелені Й ВИКОНАНІ: код виходу нуль при "
+            "пропущеному тесті — не зелень (#1270)\n"
+            + "\n".join(run.output for run in failures),
+        )
+
+    def test_a_named_run_that_is_skipped_is_not_green(self):
+        """Прогін, який нічого не виконав, — не зелений (скіп-сліпота, #1270).
+
+        `@unittest.skip` лишає код виходу нулем, і ґард, який дивився лише на код,
+        був зелений на прогоні, що не виконав нічого, — знахідка огляду #1267.
+        Прогін тут справжній: підпроцес у копії фікстури, зі скіпом, дописаним у
+        копію. Саме тому це дешевий свідок правила: гнати заради нього всі названі
+        прогони означало б платити секундами CI за те, що вже видно з одного.
+        """
+        fixture = FIXTURES / "verdict_field" / "pinned"
+        with tempfile.TemporaryDirectory(prefix="skipped-run-") as temporary:
+            work = Path(temporary) / "root"
+            shutil.copytree(fixture / "scripts", work / "scripts")
+            module = work / "scripts" / "tests" / "test_gate.py"
+            module.write_text(
+                module.read_text(encoding="utf-8").replace(
+                    "class GateTest(unittest.TestCase):",
+                    '@unittest.skip("мутація: прогін більше не виконується")\n'
+                    "class GateTest(unittest.TestCase):",
+                ),
+                encoding="utf-8",
+            )
+            run = self.run_named("скіпнутий прогін", ("test_gate",), dict(STRIPPED),
+                                 work / "scripts" / "tests")
+
+        self.assertFalse(run.green, run.describe())
+        with self.assertRaises(AssertionError):
+            self.assertRunsGreen([run])
 
     def test_a_stripped_environment_is_enough_for_every_named_run(self):
         """Порожнє оточення: підставний не читає зі спадку нічого.

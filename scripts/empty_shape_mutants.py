@@ -62,8 +62,9 @@
    лише ВІДМОВИТИ: гейт, який можна вимкнути, — це побажання, а не механізм.
 
 Ціна й тимчасові дерева (#1271). Копіюється лише `scripts/`, решта top-level
-записів — симлінки: виміряно 1.2 MiB на дерево проти 74.7 MiB у повної копії
-дерева (0.03–0.14 с проти 0.40–1.04 с — час залежить від завантаження машини).
+записів — симлінки: виміряно 1.4 MiB на дерево проти 76.2 MiB у повної копії
+дерева (0.01 с проти 0.32 с) — на дереві `d6c35cdf`, і число росте разом із
+деревом: піниться ВІДНОШЕННЯ, а не число.
 Дерева будуються на скрипт (1–2) і звільняються одразу після прогону. Місце
 перевіряється ДО першої копії (`tmp_budget.prepare`): він міряє копію, додає запас
 на воркери й підлогу на scratch свідків і відмовляє кодом 2 із числами («треба X,
@@ -97,8 +98,8 @@ TESTS_DIR = Path("scripts/tests")
 # Піддерево, яке копіюється в тимчасове дерево, і те, що в копію не йде. Обидві
 # константи читають і копіювання, і вимір копії: розійтися їм нема чого, інакше
 # бюджет міряв би не той обсяг, який `_roots` справді пише (#1271).
-COPY_ENTRY = "scripts"
-COPY_IGNORE = ("__pycache__", "*.pyc")
+COPY_ENTRY = tmp_budget.LINK_COPY_ENTRY
+COPY_IGNORE = tmp_budget.LINK_COPY_IGNORE
 
 # Префікс тимчасових дерев механізму: за ним застарілі дерева попередніх падінь
 # відрізняються від тек інших інструментів.
@@ -106,10 +107,7 @@ TEMP_PREFIX = "slukhayka-shape-"
 
 # Теки, куди механізм не дивиться: або не код репозиторію, або кеші з копіями
 # тих самих скриптів (`.worktrees/`), які дали б той самий мутант удруге.
-SKIP_DIRS = {
-    ".git", ".gradle", ".gradle-home", ".kotlin", ".mutations", ".robolectric-jars",
-    ".scratch", ".worktrees", "build", "node_modules",
-}
+SKIP_DIRS = tmp_budget.LINK_SKIP_DIRS
 
 # Фікстури тестів — не скрипти репозиторію, а дані для цих самих тестів.
 # `scripts/tests/fixtures/empty_shape/unpinned` навмисно НЕ піниться: це стан
@@ -420,21 +418,13 @@ def copy_bytes(root: Path) -> int:
 def _roots(root: Path, tmp: Path) -> Path:
     """Копія дерева, де `scripts/` справжня, а решта — посилання.
 
-    Мутант живе лише в копії, тож дерево репозиторію не змінюється. Каталоги з
-    кешами й `.git` не переносяться: свідку потрібні тести, а не історія.
+    Саме копіювання — у `tmp_budget.link_tree`: та сама функція будує копію для
+    всіх трьох механізмів мутацій (#1270). Тут лишаються самі константи — вони
+    факти про ЦЕЙ механізм, і їх пінять його власні тести.
     """
-    work = tmp / "root"
-    work.mkdir()
-    shutil.copytree(
-        root / COPY_ENTRY,
-        work / COPY_ENTRY,
-        ignore=shutil.ignore_patterns(*COPY_IGNORE),
+    return tmp_budget.link_tree(
+        root, tmp, copy_entry=COPY_ENTRY, ignore=COPY_IGNORE, skip_dirs=SKIP_DIRS
     )
-    for entry in root.iterdir():
-        if entry.name in {COPY_ENTRY} | SKIP_DIRS:
-            continue
-        (work / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
-    return work
 
 
 def _run_module(work: Path, module: Path, tests_dir: Path) -> tuple[int | None, str]:

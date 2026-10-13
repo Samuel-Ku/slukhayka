@@ -284,12 +284,40 @@ travels into the record at all; and a field with no verdict-rule place at all is
 unknown (`2`), not a pass — moving the decision onto another variable would leave
 every remaining mutant alive.
 
-Both gates build a copy of the tree for every mutant, so the temp filesystem is
+The third such gate is about the guards themselves (`#1270`). The seventh case of
+"a check that does not check" was the guard written against that very class:
+`test_measure_head_exists_because_the_docs_cite_it` held a substring of *someone
+else's* help text (`--scan-limit … for --measure-head`), so cutting the option
+left `--help` still containing the substring and the guard green on a broken tree.
+`scripts/guard_witnesses.py` keeps a registry of `guard + mutation` pairs
+(`GUARDS`, data in the diff, not a sentence in a PR description): for each entry it
+builds a copy of the tree, applies the mutation, runs the named test through the
+same runner `mutate.sh` uses, and requires it to go red. Green under its own
+mutation is a refusal (`1`, naming the guard); an unknown — the mutation no longer
+applies, the mutant does not parse, the baseline is red or executed no test at all,
+the guard does not resolve, the mechanism is inside itself — is `2`. A mutation may
+not edit the lines of the guard's *own* test method: "break yourself to prove you
+are seen" is not a witness (its helpers may be mutated — that is how a rule inside
+a helper gets pinned). It runs inside the `script-tests` job and has no switch.
+
+Its named limit, and the limit is in the code: **enrolling a new guard is manual.**
+No static rule tells "looks like a guard" from "is a guard" — this repository has
+already paid for that attempt in `test_fixture_environments`, six review rounds of
+AST inference — so **old guards are not enrolled retroactively**, and the mechanism
+does not pretend otherwise: it says how many it covers and prints that on every
+green run. In practice the review of a new guard narrows to one question: **where
+is its entry?** `python3 scripts/guard_witnesses.py --list` names every entry,
+`--guard <target>` runs one.
+
+The gates build a copy of the tree for every mutant, so the temp filesystem is
 their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
-every other top-level entry is a symlink: one tree costs 1.2 MiB against 74.7 MiB
-if everything were copied (0.03–0.14 s against 0.40–1.04 s, depending on machine
-load). The field gate builds 38 trees, so that is 38 × 1.2 MiB = 45.6 MiB against
-38 × 74.7 MiB = 2.8 GiB. At most `--jobs` trees are alive at once, because each is
+every other top-level entry is a symlink: one tree costs 1.4 MiB against 76.2 MiB
+if everything were copied, and 0.01 s against 0.32 s (measured with
+`tmp_budget.tree_bytes` on the tree `d6c35cdf`; the number grows with the tree, so
+what is pinned is the *ratio* —
+"the full copy is more than ten times the cheap one" — not the number). The field
+gate builds 38 trees, so that is 38 × 1.4 MiB = 53.2 MiB against
+38 × 76.2 MiB = 2.8 GiB. At most `--jobs` trees are alive at once, because each is
 released right after its run: the measured peak is 5.3 MiB, against 46.9 MiB
 before the change, when all 38 trees lived to the end of the run.
 `scripts/tmp_budget.py` measures the copy
@@ -317,6 +345,10 @@ lives in exactly one place per gate so that removing it reddens a test.
    have to work out whether it is a mutation's. Rollback restores sources; it does
    not delete the artifact, and `status` is what keeps that leftover from reading
    as a run of HEAD.
+4. A new guard (a test that makes a claim about the repository rather than about a
+   function) also gets an entry in `scripts/guard_witnesses.py` — its target and
+   the mutation that must redden it. `python3 scripts/guard_witnesses.py --guard
+   <target>` runs just that entry; CI replays every enrolled one on each push.
 
 The merge step is described under "CI" below.
 

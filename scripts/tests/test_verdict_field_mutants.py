@@ -307,6 +307,46 @@ class WitnessTest(unittest.TestCase):
                 self.assertFalse([target for target in targets if meta in target])
                 self.assertTrue(any("RunTest" in target for target in targets))
 
+    def test_a_program_run_by_name_is_a_suite_run_too(self):
+        """`-c <програма>`, що вантажить тести за іменами, — та сама ознака (#1270).
+
+        Ґард оточення перестав писати `-m unittest` у виклику, коли почав брати
+        лічильники з самого прогону, і клас-мета-тест раптом став свідком поля:
+        підрядок `unittest` у виклику — це ФОРМА, а чи ганяє клас набір, видно з
+        того, ЩО робить програма. Коштувало це десяти секунд прогону на кожне
+        місце `mutate.sh` — тобто п'ятдесяти секунд джоби.
+        """
+        source = (
+            "import subprocess\n"
+            "import sys\n"
+            "import unittest\n"
+            "\n"
+            "RUNNER = '''\n"
+            "import sys\n"
+            "import unittest\n"
+            "suite = unittest.TestLoader().loadTestsFromNames(sys.argv[1:])\n"
+            "'''\n"
+            "\n"
+            "\n"
+            "class MetaTest(unittest.TestCase):\n"
+            "    def test_runs_the_suite_by_program(self):\n"
+            "        subprocess.run([sys.executable, '-c', RUNNER, 'test_x'], check=False)\n"
+            "\n"
+            "\n"
+            "class RealTest(unittest.TestCase):\n"
+            "    def test_named_field(self):\n"
+            "        record = {'errors': 1}\n"
+            "        self.assertEqual(1, record['errors'])\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="witness-by-program-") as temporary:
+            module = Path(temporary) / "test_meta_by_program.py"
+            module.write_text(source, encoding="utf-8")
+
+            targets = v.test_targets(module)
+
+        self.assertEqual(["test_meta_by_program.RealTest.test_named_field"], targets,
+                         "мета-тест програмою `-c` не свідок, а справжній тест — свідок")
+
     def test_the_two_phases_are_narrow_then_full(self):
         module = REPO_ROOT / "scripts" / "tests" / "test_mutate.py"
 
@@ -518,6 +558,34 @@ class FailClosedTest(unittest.TestCase):
         self.assertEqual([], report.verdicts)
         self.assertTrue(report.blocked, "невдача копіювання мусить бути названа")
         self.assertIn("перевірити не вдалося", report.blocked[0])
+
+    def test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier(self):
+        """Збій маркера — відмова (код 2) і жодної теки-носія без власника (#1270).
+
+        Маркер — та сама невдача, що й тимчасова тека: ENOSPC/EDQUOT/EROFS.
+        Механізм мусить назвати її відмовою, а не трейсбеком, і не лишити по собі
+        теку, яку наступний прогін прибере за часом як сміття: сміття, проти якого
+        механізм і заведений, він же й створив би. У порожній формі цю гілку пінить
+        `test_empty_shape_mutants.TempBudgetTest`
+        `.test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier`; у
+        полях її не пінив ніхто (огляд #1275) — знятий `try/except OSError` навколо
+        `Runner` лишався б непоміченим, а без прибирання теки-носія сусідній прогін
+        прибрав би її аж за пільговий час.
+        """
+        elsewhere = Path(self._tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+
+        with mock.patch.object(v.tmp_budget, "mark",
+                               side_effect=OSError("no space left")), \
+                mock.patch.dict(os.environ,
+                                {v.tmp_budget.RELOCATE_VARIABLE: str(elsewhere)}):
+            status, out, err = self.run_main(self.root(), "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("не створити", err)
+        self.assertIn("no space left", err)
+        self.assertEqual([], sorted(path.name for path in elsewhere.iterdir()),
+                         "невдалий маркер не має лишати теку-носій без власника")
 
     def test_a_tool_without_a_witness_is_refused(self):
         root = self.root()
@@ -769,9 +837,9 @@ class TempBudgetTest(unittest.TestCase):
     def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
         """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
 
-        Виміряно на цьому дереві: повна копія — 74.7 MiB і 0.40 с на кожне з 38
-        дерев, тобто 38 × 74.7 MiB = 2.8 GiB на гейт; копія `scripts/` — 1.2 MiB і
-        0.03 с. Тест тримає саме відношення й те, що симлінки не стали копіями.
+        Виміряно на дереві `d6c35cdf`: повна копія — 76.2 MiB і 0.32 с на кожне з 38
+        дерев, тобто 38 × 76.2 MiB = 2.8 GiB на гейт; копія `scripts/` — 1.4 MiB і
+        0.01 с. Тест тримає саме відношення й те, що симлінки не стали копіями.
         """
         (self.root / "tree").mkdir()
         work = v._roots(REPO_ROOT, self.root / "tree")
@@ -1000,8 +1068,8 @@ class SensitivityTest(unittest.TestCase):
         ),
         (
             "мутант живе лише в копії дерева",
-            '    work = tmp / "root"\n    work.mkdir()',
-            '    work = root\n    return work  # mutated',
+            "            work = _roots(self.root, tmp)\n            target_file = work / site.path",
+            "            work = self.root  # mutated\n            target_file = work / site.path",
             "test_verdict_field_mutants.FailClosedTest.test_the_tree_is_not_touched",
         ),
         (
@@ -1073,10 +1141,17 @@ class SensitivityTest(unittest.TestCase):
         ),
         (
             "мета-тест набору — не свідок поля",
-            "if not is_test_class(name) or runs_the_suite(node):",
+            "if not is_test_class(name) or runs_the_suite(node, programs):",
             "if not is_test_class(name):  # mutated",
             "test_verdict_field_mutants.WitnessTest"
             ".test_a_class_that_runs_the_suite_is_not_a_witness",
+        ),
+        (
+            "клас, що ганяє набір програмою `-c`, — теж не свідок поля",
+            '    return any("loadTestsFromNames" in text for text in literals)',
+            "    return False  # mutated",
+            "test_verdict_field_mutants.WitnessTest"
+            ".test_a_program_run_by_name_is_a_suite_run_too",
         ),
         (
             "місце міряється ДО першої копії, а не після",
@@ -1102,7 +1177,7 @@ class SensitivityTest(unittest.TestCase):
         ),
     )
     # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
-    EXPECTED_CASES = 24
+    EXPECTED_CASES = 25
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

@@ -113,6 +113,12 @@ that does not check"». Спільне в усіх: **число в доку, я
     бектики, побачить око оглядача, а не regex — і це названа межа, не діра,
     яку тут замовчують. Команди ж механізм читає САМЕ з код-спанів — там вони й
     живуть;
+  * **опція належить команді за ПОРЯДКОМ у рядку, і це межа.** Опція, що стоїть
+    перед своїм скриптом, опиняється в попередньої команди (або ні в кого), а
+    опція, перенесена на наступний рядок, не бачиться зовсім; команда у файлі
+    поза `SCANNED` не перевіряється. Розділити «ця опція не того скрипта» і «ця
+    опція взагалі не команди» структурно нема чим — рядок не знає, де кінчається
+    одна команда й починається друга;
   * **опція команди в shell-скрипті піниться слабше, ніж у Python.** Для `.sh` і
     `.mjs` «оголошена» означає «згадана у файлі»: скрипт без argparse не має
     реєстру опцій, і вигадана опція, згадана в його ж `usage`, пройшла б. Це
@@ -196,6 +202,12 @@ FIGURES = (
     ("scripts/guard_witnesses.py",
      "не стає галасливим",
      ("count", "guards")),
+    # Скільки випадків у серії — там, де документ це стверджує: число мусить мати
+    # ту саму форму, яку механізм ловить, інакше дев'ятий випадок у `CASES`
+    # почервонить два рядки, а цей мовчатиме.
+    ("docs/agents/local-environment.md",
+     "series has",
+     ("count", "cases")),
     # Числа, якими відкинуто варіант (а), живуть у доку, який їх наводить:
     # у файлі самого реєстру якір не міг би траплятися рівно раз.
     ("docs/agents/local-environment.md",
@@ -406,14 +418,16 @@ def patterns() -> tuple[tuple[str, re.Pattern], ...]:
         shapes.append((
             "count",
             re.compile(
-                r"(?<![\w#.])(?P<word>%s|\d+)\s+(?P<noun>%s)\b" % (cardinals, counts),
+                # `**вісім** записів`: наголос між числом і іменником — не розрив.
+                r"(?<![\w#.])(?P<word>%s|\d+)[*_]{0,2}\s+(?P<noun>%s)\b"
+                % (cardinals, counts),
                 re.IGNORECASE,
             ),
         ))
         shapes.append((
             "beyond",
             re.compile(
-                r"(?<![\w#.])(?P<word>%s)\s+(?P<noun>%s)\b" % (beyond, counts),
+                r"(?<![\w#.])(?P<word>%s)[*_]{0,2}\s+(?P<noun>%s)\b" % (beyond, counts),
                 re.IGNORECASE,
             ),
         ))
@@ -479,14 +493,6 @@ def line_with_anchor(text: str, anchor: str, where: str) -> tuple[int, str]:
 BARE = re.compile(r"(?<![\w#.])\d+(?![\w])")
 
 
-def line_hits(root: Path, relative: str, line_number: int) -> list[tuple]:
-    """Числа одного рядка файлу."""
-    path = root / relative
-    if not path.is_file():
-        raise NumberError("немає файлу: %s" % relative)
-    return [one for one in hits(path.read_text(encoding="utf-8")) if one[0] == line_number]
-
-
 def figure_hits(line: str, source: tuple) -> list[tuple]:
     """Числа рядка, які може мати на увазі ЦЕЙ запис.
 
@@ -549,8 +555,31 @@ def derived_note(source: tuple, line: str) -> str:
 # Згадка скрипта з дерева: `scripts/x.py`, `scripts/tests/test_y.py`. Префікс
 # (`python3 `, `bash `, `../gt `) не має значення; має — що шлях починається з
 # `scripts/`, а не з `root/scripts/` (це вже не команда, а змінна в коді).
-CITED = re.compile(r"(?<![\w./-])(scripts/[\w./-]+\.(?:py|sh|mjs))")
+# Друга половина — опція; патерн один, і ним користуються і перевірка, і
+# `cited_scripts`, щоб «що згадано» й «що перевірено» не розійшлися.
+CITED = re.compile(
+    r"(?<![\w./-])(scripts/[\w./-]+\.(?:py|sh|mjs))|(?<![\w-])(--[a-z][\w-]*)"
+)
 OPTION = re.compile(r"(?<![\w-])(--[a-z][\w-]*)")
+
+
+def cited_scripts(root: Path, scanned) -> set[str]:
+    """Скрипти, згадані в код-спанах сканованих файлів.
+
+    Потрібні й перевірці (кожен мусить існувати), і тестам: підставлене дерево
+    копіює РІВНО те, що механізм читає, — інакше кожна цитата читалася б як
+    «команди немає в дереві».
+    """
+    found: set[str] = set()
+    for relative in scanned:
+        path = root / relative
+        if not path.is_file():
+            continue
+        for span in code_spans(path.read_text(encoding="utf-8")):
+            for match in CITED.finditer(span):
+                if match.group(1):
+                    found.add(match.group(1))
+    return found
 
 
 def code_spans(text: str) -> list[str]:
@@ -607,10 +636,7 @@ def command_findings(root: Path, scanned) -> tuple[list[str], list[str]]:
         for span in code_spans(path.read_text(encoding="utf-8")):
             for line in span.splitlines():
                 current: str | None = None
-                for match in re.finditer(
-                    r"(?<![\w./-])(scripts/[\w./-]+\.(?:py|sh|mjs))|(?<![\w-])(--[a-z][\w-]*)",
-                    line,
-                ):
+                for match in CITED.finditer(line):
                     if match.group(1):
                         current = match.group(1)
                         continue

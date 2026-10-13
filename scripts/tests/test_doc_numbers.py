@@ -58,6 +58,7 @@ EXPECTED_FIGURES = (
     ("scripts/guard_witnesses.py", "випадок класу"),
     ("scripts/empty_shape_mutants.py", "випадок за дві цілі"),
     ("scripts/guard_witnesses.py", "не стає галасливим"),
+    ("docs/agents/local-environment.md", "series has"),
     ("docs/agents/local-environment.md", "figures of"),
     ("docs/agents/local-environment.md", "sit on a line"),
 )
@@ -101,11 +102,11 @@ class FixtureMixin(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="doc-numbers-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        shutil.copytree(REPO_ROOT / "scripts", self.root / "scripts",
-                        ignore=shutil.ignore_patterns("__pycache__"))
-        for relative in FIXTURE_FILES:
-            if relative.startswith("scripts/"):
-                continue
+        # Копіюється РІВНО те, що механізм читає: скановані файли й скрипти, на
+        # які вони посилаються. Копіювати все `scripts/` — це та сама ціна, що
+        # й повний реєстр, а кожен тест тут платить її за себе.
+        wanted = set(FIXTURE_FILES) | d.cited_scripts(REPO_ROOT, d.SCANNED)
+        for relative in sorted(wanted):
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO_ROOT / relative, target)

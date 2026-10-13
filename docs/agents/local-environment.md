@@ -441,8 +441,8 @@ the pins held *where* the width comes from and did not hold *which* layout follo
 the `#1270` body puts `#1239` third. They are one case under two keys: `#1239` is
 the web layout probe (`scripts/web-layout-probe.mjs`), not a case of the class,
 and both lists put `#1254` **fifth**, which can only be true if the case they put
-third is the same one. So `CASES` keys it `#1218` and names both references; the count
-of cases is **eight**, and reading the two lists as nine counts one case twice.
+third is the same one. So `CASES` keys it `#1218` and names both references, and the
+series has **eight** cases; reading the two lists as nine counts one case twice.
 And the same header charged ``шість записів`` for a `GUARDS` that held
 **seven** — and eight the moment this change enrolled its own guard. The case
 ordinal had no ground truth anywhere in the tree, which is why nothing could

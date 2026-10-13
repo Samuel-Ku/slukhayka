@@ -135,24 +135,34 @@ The thresholds are defaults taken from the numbers above, not constants:
   zram does not drain by itself, so an absolute ceiling would eventually stop
   every later run forever, and "free some memory" would not clear it.
 
-Those are the code's defaults, and the wrapper on this machine picks a floor from
-what it is about to run rather than one number for everything:
+Those are the code's defaults. The wrapper on this machine picks a floor from the
+command instead, because the two kinds of work want different room:
 
-- `--floor-mb 3500` for a Gradle build — `gradlew`, `test-all.sh`,
-  `test-changed.sh`, `mutate.sh --class`. The measured peaks are 3.61 and
-  4.74 GB, so a build starting below 3500 MB free will swap: better refused at
-  once than stopped mid-flight after minutes of zram pressure.
-- `--floor-mb 1500` for everything else, `mutate.sh --python` included.
-  `MemAvailable` sampled every 5 s for 100 s sat between 1.93 and 2.10 GB free,
-  so the flat 2000 MB default turned ordinary slot work away whenever memory
-  dipped — and light work does not need a build's room.
+- `--floor-mb 1500` for light work — a scripted run, `mutate.sh status`,
+  `mutate.sh --python`. `MemAvailable` sampled every 5 s for 100 s sat between
+  1.93 and 2.10 GB free, and the flat 2000 MB default — a wedge line, as the code
+  defines it — refused work that needs no build's room twice in a row.
+- `--floor-mb 3500` for anything that starts Gradle: `gradlew`, `test-all.sh`,
+  `test-changed.sh`, `pre-release.sh`, and `mutate.sh --class`. This is a policy
+  choice, not a derived constant. The only sizing evidence is #1272's peak JVM
+  RSS — 3.61 GB incremental, 4.74 GB cold — and 3500 sits under the smaller one;
+  where swap actually begins against starting headroom was never measured, and
+  the code still documents the floor as a wedge line, not a swap line. The choice
+  says: a build with less room than its smallest measured peak is not worth
+  starting.
 
-End to end through the wired wrapper on 2026-10-13: a refusal returned `3` naming
-the real number, a real `./gradlew --version` ran to `0` in about a second while
-the wrapper still passed a flat floor, and a supervised run whose reading fell
-returned `4` with its process gone. That
-last check ran against a fake memory file, because this machine has no honest way
-to fall that low on request. The guard is not free: a ten-run bench of an empty
+The rule keys on the command rather than on the task, so `gradlew --version` is
+refused like any other Gradle call — the wrapper cannot know how heavy a task
+will be.
+
+End to end through the wired wrapper on 2026-10-13, under the flat floor of the
+time: a refusal returned `3` naming the real number, a real `./gradlew --version`
+ran to `0` in about a second, and a supervised run whose reading fell returned `4`
+with its process gone. That last check ran against a fake memory file, because
+this machine has no honest way to fall that low on request. Under the matcher,
+light paths still run — `mutate.sh status` exits `0` — while `gradlew`,
+`bash scripts/test-all.sh` and `scripts/pre-release.sh` are each refused with
+`3500 MB` in the message. The guard is not free: a ten-run bench of an empty
 command through the slot lands in single milliseconds without it and around
 0.1 s with it — two benches on this machine agreed on the order of magnitude, not
 on the digits, so treat it as ~0.1 s against builds measured in minutes.
@@ -179,15 +189,18 @@ The wrapper itself is machine-local and this repository does not carry it, so
 the wiring is a change to that file, not to this one:
 
 ```sh
+# .worktrees/gt, abbreviated: the executable copy is that file, not this snippet.
 root=$(git rev-parse --show-toplevel)
 if [ -x "$root/scripts/build-slot-guard.py" ]; then
   floor=1500                        # light work; the machine idles at 1.9-2.1 GB
   case "${1:-}" in
-    gradlew|*/gradlew|*/test-all.sh|*/test-changed.sh) floor=3500 ;;   # peaks 3.61-4.74 GB
-    */mutate.sh)
-      floor=3500
-      for arg in "$@"; do [ "$arg" = "--python" ] && floor=1500; done ;;
+    mutate.sh|*/mutate.sh) for arg in "$@"; do [ "$arg" = "--class" ] && floor=3500; done ;;
   esac
+  for arg in "$@"; do               # a heavy path can hide behind `bash` too
+    case "$arg" in
+      gradlew|*/gradlew|test-all.sh|*/test-all.sh|test-changed.sh|*/test-changed.sh|pre-release.sh|*/pre-release.sh) floor=3500 ;;
+    esac
+  done
   exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" --floor-mb "$floor" -- "$@"
 fi
 exec flock -w 7200 <slot-file> "$@"

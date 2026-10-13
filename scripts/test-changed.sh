@@ -27,15 +27,33 @@ done
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-changed-tests.XXXXXX") || exit 2
 cleanup() {
-  rm -rf -- "$scratch"
+  # A cleanup that cannot remove the directory says so instead of passing in
+  # silence: the boundary is that the cleanup is no stronger than `rm`, so a
+  # read-only parent or a permission problem leaves the directory behind. The
+  # exit code is untouched either way — on the exec path the process becomes the
+  # full suite, and an EXIT trap does not overwrite the status of the script.
+  rm -rf -- "$scratch" ||
+    printf '%s\n' "test-changed.sh: cannot remove $scratch" >&2
 }
 trap cleanup EXIT HUP INT TERM
+
+# Both fallbacks to the full suite `exec` it, and `exec` REPLACES this process:
+# a replaced process runs no EXIT trap, so the trap above would never fire on
+# that path and every fallback left one empty `slukhayka-changed-tests.*`
+# directory in $TMPDIR behind (17 had piled up by #1280). `exec` stays because
+# it hands the full suite's exit code through untouched — which means the
+# cleanup has to run BEFORE it, at EVERY `exec` site. `rm -rf` is idempotent, so
+# running it twice on an interrupted run is not a problem.
+run_full_suite() {
+  cleanup
+  exec "$repo_root/scripts/test-all.sh"
+}
 
 if [[ ${#changed_files[@]} -eq 0 ]]; then
   cd "$repo_root" || exit 2
   if ! git rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; then
     printf '%s\n' "Base ref '$base_ref' is unavailable; running the full suite." >&2
-    exec "$repo_root/scripts/test-all.sh"
+    run_full_suite
   fi
   git diff --name-only "$base_ref" -- > "$scratch/changed-files"
   git ls-files --others --exclude-standard >> "$scratch/changed-files"
@@ -53,7 +71,7 @@ selection=$(python3 "${selector_arguments[@]}") || exit $?
 if [[ $(python3 -c 'import json,sys; print("yes" if json.loads(sys.argv[1])["fullSuite"] else "no")' "$selection") == yes ]]; then
   reason=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["reason"])' "$selection")
   printf '%s\n' "Changed-test selection fell back to the full suite: $reason"
-  exec "$repo_root/scripts/test-all.sh"
+  run_full_suite
 fi
 
 python3 -c '

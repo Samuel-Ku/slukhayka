@@ -1,3 +1,4 @@
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -272,6 +273,180 @@ class ChangedTestWrapperWebCheckTest(unittest.TestCase):
             [f"npm ci cwd={REPO_ROOT / 'web'}"],
             self.log.read_text(encoding="utf-8").splitlines(),
         )
+
+
+class ChangedTestWrapperScratchTest(unittest.TestCase):
+    """`test-changed.sh` мусить прибрати свою теку за БУДЬ-ЯКОГО кінця (#1280).
+
+    `exec` замінює процес, а замінений процес не виконує EXIT-пастку: доки
+    прибирання стояло лише в пастці, кожен відкат на повний набір лишав по собі
+    порожню теку `slukhayka-changed-tests.*` у `$TMPDIR`. Порожня тека сама по
+    собі нешкідлива; шкідливий tmpfs: `/tmp` тримає їх у RAM, і вичерпання цієї
+    ФС уже тричі зупиняло роботу. Тому тут три кінці одного прогону — код 0,
+    падіння і TERM, — і жоден не сміє лишити теку.
+
+    Межа сторожа названа тут, а не в звіті: він бачить лише те, що створено під
+    тим `$TMPDIR`, який він сам і дає. Тека, лишена деінде (наприклад, у
+    жорстко прописаному `/tmp`), лишилася б для нього невидимою — як і те, чий
+    обробник її зніс.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        # Свій `TMPDIR`: тека прогону мусить бути видна тесту, а не ділитися з
+        # рештою набору (той, хто лишив теку в спільному `/tmp`, лишає її в CI).
+        self.tmp = self.root / "tmpdir"
+        self.tmp.mkdir()
+        self.java_home = self.root / "jdk-21"
+        self.java_home.joinpath("bin").mkdir(parents=True)
+        self.java = self.java_home / "bin/java"
+        self.java.write_text(
+            "#!/usr/bin/env bash\necho 'openjdk version \"21.0.8\"' >&2\n",
+            encoding="utf-8",
+        )
+        self.java.chmod(self.java.stat().st_mode | stat.S_IXUSR)
+        self.gradle = self.root / "gradlew"
+        self.log = self.root / "invocations.log"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def write_gradle(self, exit_status: int = 0, signal_the_group: bool = False) -> None:
+        """Підставний `gradlew`: пише виклик у журнал і кінчається тим, що просять.
+
+        `signal_the_group` — той самий TERM, що його дістає справжній прогін,
+        зупинений ззовні: `kill -TERM 0` б'є по всьому гурту процесів, тож його
+        бачить і сам wrapper, а не лише `gradlew`.
+        """
+        signal = "kill -TERM 0\n" if signal_the_group else ""
+        self.gradle.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' \"$*\" >> \"$WRAPPER_TEST_LOG\"\n"
+            f"{signal}"
+            f"exit {exit_status}\n",
+            encoding="utf-8",
+        )
+        self.gradle.chmod(self.gradle.stat().st_mode | stat.S_IXUSR)
+
+    def environment(self) -> dict:
+        """Своє оточення, а не успадковане (#1265) — і свій `TMPDIR`."""
+        return {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
+            "TMPDIR": str(self.tmp),
+            "SLUKHAYKA_JAVA_HOME": str(self.java_home),
+            "SLUKHAYKA_GRADLEW": str(self.gradle),
+            "WRAPPER_TEST_LOG": str(self.log),
+        }
+
+    def run_changed(self, *arguments: str, session: bool = False, environment: dict = None):
+        return subprocess.run(
+            ["bash", str(TEST_CHANGED), *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=self.environment() if environment is None else environment,
+            # Свій сеанс потрібен лише тому прогону, який сам собі шле TERM:
+            # `kill -TERM 0` б'є по гурту процесів, і без нового сеансу він
+            # дістав би й сам набір тестів.
+            start_new_session=session,
+            timeout=60,
+        )
+
+    def leftovers(self):
+        return sorted(one.name for one in self.tmp.glob("slukhayka-changed-tests.*"))
+
+    def invocations(self) -> list:
+        if not self.log.exists():
+            return []
+        return self.log.read_text(encoding="utf-8").splitlines()
+
+    def test_no_scratch_directory_survives_a_run(self):
+        """Сторож: тека прогону зникає і на коді 0, і на падінні, і на сигналі.
+
+        Ноги названі за МІСЦЕМ, а не лише за кінцем: `exec` у `test-changed.sh`
+        стоїть у ДВОХ місцях — невідома база й відкат селектора на повний набір,
+        — і сторож мусить пройти кожне. Одна нога лишала друге місце непіненим:
+        воно поверталося до голого `exec`, і сторож був зелений (знахідка огляду
+        PR #1297). Друге місце — щоденне: `strings.xml` селектор не відображає.
+
+        Кожна нога доводить, що прогін СПРАВДІ відбувся (лог підставного
+        `gradlew` виріс): нога, яку задовольняє ранній вихід, не перевіряє нічого.
+        Інший клас теч — тека, лишена після SIGKILL-ескалації
+        (`build-slot-guard.py`), — цим сторожем не міряється взагалі: він не
+        проходить крізь `exec`.
+        """
+        self.write_gradle()
+
+        unavailable = self.run_changed("--base", "refs/heads/does-not-exist")
+        self.assertEqual(0, unavailable.returncode, unavailable.stderr)
+        self.assertIn("unavailable; running the full suite", unavailable.stderr)
+        self.assertTrue(self.invocations(), "прогін не виконався — сторож нічого не доводить")
+        self.assertEqual([], self.leftovers(), "тека лишилася після першого exec-місця")
+
+        self.write_gradle(exit_status=17)
+
+        failed = self.run_changed("--base", "refs/heads/does-not-exist")
+        # `exec` навмисний: код повного набору доходить до викликача незміненим.
+        self.assertEqual(17, failed.returncode, failed.stderr)
+        self.assertEqual([], self.leftovers(), "тека лишилася після невдалого прогону")
+
+        # Друге місце `exec`: шлях, який не відображається на партицію, віддає
+        # прогін повному набору — і прибирає теку так само. Лог тут такий самий
+        # обов'язковий, як у першій нозі: `printf …; exit 0` замість прогону
+        # лишав би цю ногу пустою, а модуль — зеленим (знахідка огляду #1297).
+        self.write_gradle()
+        before = len(self.invocations())
+
+        fell_back = self.run_changed(
+            "--changed-file", "app/src/main/res/values/strings.xml"
+        )
+        self.assertEqual(0, fell_back.returncode, fell_back.stderr)
+        self.assertIn("fell back to the full suite", fell_back.stdout)
+        self.assertGreater(len(self.invocations()), before,
+                           "прогін не дійшов до підставного gradlew — нога відкату "
+                           "нічого не перевірила")
+        self.assertEqual([], self.leftovers(), "тека лишилася після відкату селектора")
+
+        # Сигнал: TERM дістається всьому гурту прогону, тож його бачить і сам
+        # wrapper. Код 143 (128+15) пінить, що прогін скінчився САМЕ сигналом, а
+        # не раннім виходом; лог пінить, що він до сигналу встиг дійти до
+        # підставного `gradlew`. Що саме прибирає теку — пастка на TERM чи на
+        # EXIT — ззовні не видно, і сторож на цьому не стоїть: його межа — тека.
+        self.write_gradle(signal_the_group=True)
+        before = len(self.invocations())
+
+        signalled = self.run_changed(
+            "--changed-file",
+            "app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt",
+            session=True,
+        )
+        self.assertEqual(143, signalled.returncode, signalled.stderr)
+        self.assertGreater(len(self.invocations()), before,
+                           "прогін не дійшов до підставного gradlew — сигнал нічого "
+                           "не перевірив")
+        self.assertEqual([], self.leftovers(), "тека лишилася після сигналу")
+
+        # Межа прибирання, яке САМЕ не може прибрати теку: `rm`, що завжди
+        # повертає 1 (ім'я з оточення — той самий прийом, що `BASH_FUNC_*` у
+        # фікстурах оточення). Сторож пінить усі три частини межі: попередження
+        # видно, код повного набору не зіпсовано прибиранням, і тека лишається —
+        # прибирання не сильніше за `rm`. Це остання нога: вона свідомо лишає
+        # теку, і наступна нога впала б на ній.
+        self.write_gradle(exit_status=17)
+        broken_rm = self.environment()
+        broken_rm["BASH_FUNC_rm%%"] = "() { return 1; }"
+
+        unremovable = self.run_changed(
+            "--base", "refs/heads/does-not-exist", environment=broken_rm
+        )
+        self.assertEqual(17, unremovable.returncode, unremovable.stderr)
+        self.assertIn("cannot remove", unremovable.stderr)
+        self.assertEqual(1, len(self.leftovers()),
+                         "тека мусить лишитися: прибирання не сильніше за rm")
+        shutil.rmtree(self.tmp / self.leftovers()[0])
 
 
 if __name__ == "__main__":

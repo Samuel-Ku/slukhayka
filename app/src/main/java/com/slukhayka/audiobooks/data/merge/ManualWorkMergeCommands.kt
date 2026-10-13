@@ -23,11 +23,20 @@ class ManualWorkMergeCommandPreview internal constructor(
     internal val version: String,
 )
 
+/** Original participant Work IDs selected by the listener for known metadata fields. */
+data class ManualWorkMergeMetadataChoices(
+    val seriesTitleFromWorkId: String? = null,
+    val seriesUrlFromWorkId: String? = null,
+    val seriesIndexFromWorkId: String? = null,
+    val coverFromWorkId: String? = null,
+)
+
 data class ManualWorkMergeApprovedPlan(
     val prepared: ManualWorkMergeCommandPreview,
     val operationId: String,
     val canonicalTitle: String,
     val canonicalAuthor: String,
+    val metadataChoices: ManualWorkMergeMetadataChoices = ManualWorkMergeMetadataChoices(),
 )
 
 sealed interface ManualWorkMergeApplyResult {
@@ -115,25 +124,34 @@ class ManualWorkMergeCommands(
                 val selected = knownTimes.minByOrNull { it.cells[8].number } ?: rootRows.first()
                 val enrichedCells = selected.cells.toMutableList()
                 val optionalColumns = listOf("seriesTitle", "seriesUrl", "seriesIndex", "coverImageUrl")
+                val choices = metadataChoiceIds(plan.metadataChoices)
                 for ((offset, column) in optionalColumns.withIndex()) {
                     val index = offset + 4
-                    val known = mutableListOf<ManualWorkMergeJournal.Cell>()
+                    val known = linkedMapOf<String, ManualWorkMergeJournal.Cell>()
                     for (row in rootRows) {
                         val value = row.cells[index]
+                        val workId = journal.text(row, "id", before.encoding)
                         when {
                             value.type == "null" -> Unit
                             column == "seriesIndex" -> {
                                 if (value.type != "integer" || value.number !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
                                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Work metadata storage needs a decision")
                                 }
-                                known += value
+                                known[workId] = value
                             }
                             value.type != "text" -> return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Work metadata storage needs a decision")
-                            journal.text(row, column, before.encoding).isNotBlank() -> known += value
+                            journal.text(row, column, before.encoding).isNotBlank() -> known[workId] = value
                         }
                     }
-                    val value = known.firstOrNull() ?: continue
-                    if (known.any { !journal.sameCell(value, it) }) {
+                    val chosenWorkId = choices[offset]
+                    val value = if (chosenWorkId == null) {
+                        known.values.firstOrNull() ?: continue
+                    } else {
+                        known[chosenWorkId] ?: return@withTransaction ManualWorkMergeApplyResult.NeedsDecision(
+                            "Metadata choice must select a known original Work value",
+                        )
+                    }
+                    if (chosenWorkId == null && known.values.any { !journal.sameCell(value, it) }) {
                         return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Optional Work metadata needs a decision")
                     }
                     // Keep the original SQL value; before-images retain each donor's fields.
@@ -198,6 +216,12 @@ class ManualWorkMergeCommands(
                     .put("preserved", JSONArray(protected.map { JSONArray(listOf(it.bookId, it.editionId)) }))
                     .put("canonicalTitle", plan.canonicalTitle)
                     .put("canonicalAuthor", plan.canonicalAuthor)
+                    .put("approvalVersion", if (metadataChoiceIds(plan.metadataChoices).all { it == null }) 1 else 2)
+                    .put("metadataChoices", JSONObject()
+                        .put("seriesTitleFromWorkId", plan.metadataChoices.seriesTitleFromWorkId ?: JSONObject.NULL)
+                        .put("seriesUrlFromWorkId", plan.metadataChoices.seriesUrlFromWorkId ?: JSONObject.NULL)
+                        .put("seriesIndexFromWorkId", plan.metadataChoices.seriesIndexFromWorkId ?: JSONObject.NULL)
+                        .put("coverFromWorkId", plan.metadataChoices.coverFromWorkId ?: JSONObject.NULL))
                 identity.insertOperation(WorkMergeOperationEntity(
                     operationId = plan.operationId, state = WorkMergeOperationState.APPLIED.name,
                     canonicalWorkId = canonical, participantWorkIds = JSONArray(roots).toString(),
@@ -347,10 +371,28 @@ class ManualWorkMergeCommands(
 
     private fun bytesDigest(bytes: ByteArray): String = hex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
-    private fun approval(plan: ManualWorkMergeApprovedPlan, before: ByteArray): String = digest(listOf(
-        "ManualWorkMergeApproval/v1", plan.operationId, plan.prepared.version,
-        plan.canonicalTitle, plan.canonicalAuthor, hex(MessageDigest.getInstance("SHA-256").digest(before)),
-    ))
+    private fun metadataChoiceIds(choices: ManualWorkMergeMetadataChoices): List<String?> = listOf(
+        choices.seriesTitleFromWorkId, choices.seriesUrlFromWorkId,
+        choices.seriesIndexFromWorkId, choices.coverFromWorkId,
+    )
+
+    private fun approval(plan: ManualWorkMergeApprovedPlan, before: ByteArray): String {
+        val identity = listOf(
+            plan.operationId, plan.prepared.version, plan.canonicalTitle, plan.canonicalAuthor,
+            hex(MessageDigest.getInstance("SHA-256").digest(before)),
+        )
+        val choices = metadataChoiceIds(plan.metadataChoices)
+        // Existing operations with no choices retain their exact v1 approval identity.
+        if (choices.all { it == null }) return digest(listOf("ManualWorkMergeApproval/v1") + identity)
+        return digest(buildList {
+            add("ManualWorkMergeApproval/v2")
+            addAll(identity)
+            for (workId in choices) {
+                add(if (workId == null) "absent" else "present")
+                if (workId != null) add(workId)
+            }
+        })
+    }
 
     private fun digest(values: List<String>): String {
         val buffer = ByteArrayOutputStream()

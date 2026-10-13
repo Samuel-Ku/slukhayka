@@ -357,35 +357,63 @@ class ChangedTestWrapperScratchTest(unittest.TestCase):
     def leftovers(self):
         return sorted(one.name for one in self.tmp.glob("slukhayka-changed-tests.*"))
 
+    def invocations(self) -> list:
+        if not self.log.exists():
+            return []
+        return self.log.read_text(encoding="utf-8").splitlines()
+
     def test_no_scratch_directory_survives_a_run(self):
-        """Сторож: тека прогону зникає і на коді 0, і на падінні, і на сигналі."""
+        """Сторож: тека прогону зникає і на коді 0, і на падінні, і на сигналі.
+
+        Ноги названі за МІСЦЕМ, а не лише за кінцем: `exec` у `test-changed.sh`
+        стоїть у ДВОХ місцях — невідома база й відкат селектора на повний набір,
+        — і сторож мусить пройти кожне. Одна нога лишала друге місце непіненим:
+        воно поверталося до голого `exec`, і сторож був зелений (знахідка огляду
+        PR #1297). Друге місце — щоденне: `strings.xml` селектор не відображає.
+        """
         self.write_gradle()
 
-        green = self.run_changed("--base", "refs/heads/does-not-exist")
-        self.assertEqual(0, green.returncode, green.stderr)
-        self.assertTrue(self.log.exists(), "прогін не виконався — сторож нічого не доводить")
-        self.assertEqual([], self.leftovers(), "тека лишилася після успішного прогону")
+        unavailable = self.run_changed("--base", "refs/heads/does-not-exist")
+        self.assertEqual(0, unavailable.returncode, unavailable.stderr)
+        self.assertIn("unavailable; running the full suite", unavailable.stderr)
+        self.assertTrue(self.invocations(), "прогін не виконався — сторож нічого не доводить")
+        self.assertEqual([], self.leftovers(), "тека лишилася після першого exec-місця")
 
         self.write_gradle(exit_status=17)
 
-        red = self.run_changed("--base", "refs/heads/does-not-exist")
+        failed = self.run_changed("--base", "refs/heads/does-not-exist")
         # `exec` навмисний: код повного набору доходить до викликача незміненим.
-        self.assertEqual(17, red.returncode, red.stderr)
+        self.assertEqual(17, failed.returncode, failed.stderr)
         self.assertEqual([], self.leftovers(), "тека лишилася після невдалого прогону")
 
+        # Друге місце `exec`: шлях, який не відображається на партицію, віддає
+        # прогін повному набору — і прибирає теку так само.
+        self.write_gradle()
+
+        fell_back = self.run_changed(
+            "--changed-file", "app/src/main/res/values/strings.xml"
+        )
+        self.assertEqual(0, fell_back.returncode, fell_back.stderr)
+        self.assertIn("fell back to the full suite", fell_back.stdout)
+        self.assertEqual([], self.leftovers(), "тека лишилася після відкату селектора")
+
         # Сигнал: TERM дістається всьому гурту прогону, тож його бачить і сам
-        # wrapper, і прогін скінчився сигналом, а не роботою (код 143 — це
-        # 128+15). Що саме прибирає теку — пастка на TERM чи на EXIT — ззовні не
-        # видно, і сторож на цьому не стоїть: його межа — тека, а не те, чий
-        # обробник її зніс.
+        # wrapper. Код 143 (128+15) пінить, що прогін скінчився САМЕ сигналом, а
+        # не раннім виходом; лог пінить, що він до сигналу встиг дійти до
+        # підставного `gradlew`. Що саме прибирає теку — пастка на TERM чи на
+        # EXIT — ззовні не видно, і сторож на цьому не стоїть: його межа — тека.
         self.write_gradle(signal_the_group=True)
+        before = len(self.invocations())
 
         signalled = self.run_changed(
             "--changed-file",
             "app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt",
             session=True,
         )
-        self.assertNotEqual(0, signalled.returncode, signalled.stderr)
+        self.assertEqual(143, signalled.returncode, signalled.stderr)
+        self.assertGreater(len(self.invocations()), before,
+                           "прогін не дійшов до підставного gradlew — сигнал нічого "
+                           "не перевірив")
         self.assertEqual([], self.leftovers(), "тека лишилася після сигналу")
 
 

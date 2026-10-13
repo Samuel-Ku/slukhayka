@@ -27,7 +27,13 @@ done
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-changed-tests.XXXXXX") || exit 2
 cleanup() {
-  rm -rf -- "$scratch"
+  # A cleanup that cannot remove the directory says so instead of passing in
+  # silence: the boundary is that the cleanup is no stronger than `rm`, so a
+  # read-only parent or a permission problem leaves the directory behind. The
+  # exit code is untouched either way — on the exec path the process becomes the
+  # full suite, and an EXIT trap does not overwrite the status of the script.
+  rm -rf -- "$scratch" ||
+    printf '%s\n' "test-changed.sh: cannot remove $scratch" >&2
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -36,8 +42,8 @@ trap cleanup EXIT HUP INT TERM
 # that path and every fallback left one empty `slukhayka-changed-tests.*`
 # directory in $TMPDIR behind (17 had piled up by #1280). `exec` stays because
 # it hands the full suite's exit code through untouched — which means the
-# cleanup has to run BEFORE it. `rm -rf` is idempotent, so running it twice on
-# an interrupted run is not a problem.
+# cleanup has to run BEFORE it, at EVERY `exec` site. `rm -rf` is idempotent, so
+# running it twice on an interrupted run is not a problem.
 run_full_suite() {
   cleanup
   exec "$repo_root/scripts/test-all.sh"

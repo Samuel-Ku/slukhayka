@@ -110,13 +110,36 @@ class ManualWorkMergeCommands(
                 val beforeBytes = journal.encode(before)
                 val rootRows = before.rows.getValue("works")
                 check(rootRows.size == 2)
-                if ((4..7).any { index -> !journal.sameCell(rootRows[0].cells[index], rootRows[1].cells[index]) }) {
-                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Optional Work metadata needs a decision")
-                }
                 rootRows.forEach { check(it.cells[8].type == "integer") }
                 val knownTimes = rootRows.filter { it.cells[8].number > 0 }
                 val selected = knownTimes.minByOrNull { it.cells[8].number } ?: rootRows.first()
-                val canonicalRow = journal.withText(selected, mapOf(
+                val enrichedCells = selected.cells.toMutableList()
+                val optionalColumns = listOf("seriesTitle", "seriesUrl", "seriesIndex", "coverImageUrl")
+                for ((offset, column) in optionalColumns.withIndex()) {
+                    val index = offset + 4
+                    val known = mutableListOf<ManualWorkMergeJournal.Cell>()
+                    for (row in rootRows) {
+                        val value = row.cells[index]
+                        when {
+                            value.type == "null" -> Unit
+                            column == "seriesIndex" -> {
+                                if (value.type != "integer" || value.number !in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
+                                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Work metadata storage needs a decision")
+                                }
+                                known += value
+                            }
+                            value.type != "text" -> return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Work metadata storage needs a decision")
+                            journal.text(row, column, before.encoding).isNotBlank() -> known += value
+                        }
+                    }
+                    val value = known.firstOrNull() ?: continue
+                    if (known.any { !journal.sameCell(value, it) }) {
+                        return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Optional Work metadata needs a decision")
+                    }
+                    // Keep the original SQL value; before-images retain each donor's fields.
+                    enrichedCells[index] = value
+                }
+                val canonicalRow = journal.withText(selected.copy(cells = enrichedCells), mapOf(
                     "id" to canonical, "mergeKey" to canonical,
                     "title" to plan.canonicalTitle, "author" to plan.canonicalAuthor,
                 ), before.encoding)

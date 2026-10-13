@@ -675,6 +675,147 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(4, len(report.killed))
 
 
+class TempBudgetTest(unittest.TestCase):
+    """Тимчасові дерева (#1271): спершу відмова, потім копіювання.
+
+    Механізм будує копію дерева на кожен мутант. Коли тимчасової ФС бракує, він
+    мусить відмовити (код 2, з числами) ДО копіювання, а не заповнити ФС: її
+    вичерпання валить кожен запуск процесу в середовищі — `bash` не стартує навіть
+    на `true`, `ripgrep` не запускається, і робота виглядає як «зламалися
+    інструменти», а не як вичерпана квота. Тому кожен тест тут ловить не лише
+    повідомлення, а й те, що копіювання **не почалося**.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def pinned(self) -> Path:
+        root = self.root / "root"
+        shutil.copytree(FIXTURES / "pinned" / "scripts", root / "scripts")
+        return root
+
+    def run_main(self, root: Path, *arguments: str):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = v.main(["--root", str(root), *arguments])
+        return status, out.getvalue(), err.getvalue()
+
+    def no_copy(self):
+        return mock.patch.object(
+            v.shutil, "copytree",
+            side_effect=AssertionError("копіювання почалося попри відмову"),
+        )
+
+    def test_no_room_is_refused_before_the_copy_with_both_numbers(self):
+        root = self.pinned()
+        needed = v.tmp_budget.mib(v.tmp_budget.requirement(v.copy_bytes(root)))
+
+        with self.no_copy(), mock.patch.object(
+            v.tmp_budget, "disk_free_bytes", return_value=1024
+        ):
+            status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("FAIL", err)
+        self.assertIn(needed, err)          # скільки треба
+        self.assertIn("0.0 MiB", err)       # скільки є
+        self.assertIn("Копіювання не почато", err)
+        self.assertIn(v.tmp_budget.RELOCATE_VARIABLE, err)
+        self.assertNotIn("не пінить", err, "це відмова середовища, а не живий мутант")
+
+    def test_a_small_ram_tmpfs_is_refused_loudly(self):
+        """Маленький tmpfs у RAM — відмова, а не тихе перенаправлення."""
+        root = self.pinned()
+
+        with self.no_copy(), mock.patch.object(
+            v.tmp_budget, "ram_backed", return_value=True
+        ), mock.patch.object(
+            v.tmp_budget, "filesystem_total_bytes", return_value=64 * 1048576
+        ):
+            status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("tmpfs", err)
+        self.assertIn("64.0 MiB", err)
+        self.assertIn("TMPDIR", err)
+        self.assertIn(v.tmp_budget.RELOCATE_VARIABLE, err)
+
+    def test_stale_trees_of_previous_crashes_are_reclaimed_loudly(self):
+        """Після `EDQUOT` лишається недороблене дерево, і воно добиває наступний прогін."""
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        stale = elsewhere / "slukhayka-field-stale"
+        stale.mkdir()
+        (stale / "payload").write_bytes(b"p" * 4096)
+        os.utime(stale, (1, 1))
+        live = elsewhere / "slukhayka-field-live"
+        live.mkdir()
+        (live / v.tmp_budget.OWNER_MARKER).write_text("%d\n" % os.getpid(), encoding="utf-8")
+
+        with mock.patch.dict(os.environ, {v.tmp_budget.RELOCATE_VARIABLE: str(elsewhere)}):
+            status, out, err = self.run_main(self.pinned(), "--field", "errors")
+
+        self.assertEqual(0, status, err)
+        self.assertFalse(stale.exists(), "застаріле дерево мусить бути прибране")
+        self.assertTrue(live.exists(), "дерево живого прогону чіпати не можна")
+        self.assertIn("прибрано застаріле тимчасове дерево", err)
+        self.assertIn(str(stale), err)
+        self.assertIn(str(elsewhere), err, "перенесення мусить бути назване вголос")
+        self.assertEqual([], list(elsewhere.glob("slukhayka-field-*/root")),
+                         "дерева прогону мусять бути прибрані разом із коренем")
+
+    def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
+        """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
+
+        Виміряно на цьому дереві: повна копія — 74.7 MiB і 0.40 с на кожне з 38
+        дерев, тобто 38 × 74.7 MiB = 2.8 GiB на гейт; копія `scripts/` — 1.2 MiB і
+        0.03 с. Тест тримає саме відношення й те, що симлінки не стали копіями.
+        """
+        (self.root / "tree").mkdir()
+        work = v._roots(REPO_ROOT, self.root / "tree")
+
+        copied = v.copy_bytes(REPO_ROOT)
+        naive = sum(v.tmp_budget.tree_bytes(entry)
+                    for entry in REPO_ROOT.iterdir()
+                    if entry.name not in v.SKIP_DIRS | {v.COPY_ENTRY})
+        self.assertLess(copied, 8 * 1048576, "копіювати `scripts/` цілком — це межа")
+        self.assertGreater(naive, 10 * copied, "решта дерева мусить лишатися симлінками")
+        self.assertFalse((work / v.COPY_ENTRY).is_symlink(), "`scripts/` — справжня копія")
+        for entry in REPO_ROOT.iterdir():
+            if entry.name in v.SKIP_DIRS | {v.COPY_ENTRY}:
+                continue
+            with self.subTest(entry=entry.name):
+                self.assertTrue((work / entry.name).is_symlink(),
+                                "незмінна частина дерева не копіюється")
+
+    def test_a_run_releases_its_tree_instead_of_keeping_every_one(self):
+        """Пік — це `--jobs` дерев, а не всі 38: інакше 38 копій живуть до кінця прогону.
+
+        Корінь тут — фікстура, а не репозиторій: твердження про звільнення дерева
+        від кореня не залежить, а випадок чутливості жене цей тест двічі.
+        """
+        root = FIXTURES / "pinned"
+        runner = v.Runner(root, TESTS_DIR)
+        self.addCleanup(runner.cleanup)
+        module = root / "scripts" / "tests" / "test_gate.py"
+        targets = ["test_gate.GateTest.test_a_witness_that_raises"]
+        site = v.plan(root, TESTS_DIR, only=["errors"])[0][0]
+
+        with mock.patch.object(v, "_run", return_value=(0, "")):
+            baseline = runner.baseline(module, targets)
+            runner.mutant(site, module, targets, [])
+
+        self.assertEqual("", baseline)
+        self.assertEqual(
+            [v.tmp_budget.OWNER_MARKER],
+            sorted(path.name for path in runner._temporary.iterdir()),
+            "дерево прогону мусить бути звільнене одразу після нього, лишається "
+            "тільки маркер власника",
+        )
+
+
 class MechanismCostTest(unittest.TestCase):
     """Ціна механізму (#1266): базові прогони різних ключів не стоять у черзі.
 
@@ -938,6 +1079,22 @@ class SensitivityTest(unittest.TestCase):
             ".test_a_class_that_runs_the_suite_is_not_a_witness",
         ),
         (
+            "місце міряється ДО першої копії, а не після",
+            "        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES, copy_bytes(root))",
+            "        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES)  # mutated",
+            "test_verdict_field_mutants.TempBudgetTest"
+            ".test_no_room_is_refused_before_the_copy_with_both_numbers",
+        ),
+        (
+            "дерево прогону звільняється одразу після нього",
+            "        finally:\n            shutil.rmtree(tmp, ignore_errors=True)\n"
+            "        state, why = verdict_of_run(status, output)",
+            "        finally:\n            pass  # mutated\n"
+            "        state, why = verdict_of_run(status, output)",
+            "test_verdict_field_mutants.TempBudgetTest"
+            ".test_a_run_releases_its_tree_instead_of_keeping_every_one",
+        ),
+        (
             "атрибут JUnit-артефакту — окремий вид місця",
             "        and parent.args[0].value == ARTIFACT_ELEMENT",
             '        and parent.args[0].value == "not-a-testsuite"  # mutated',
@@ -945,7 +1102,7 @@ class SensitivityTest(unittest.TestCase):
         ),
     )
     # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
-    EXPECTED_CASES = 22
+    EXPECTED_CASES = 24
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

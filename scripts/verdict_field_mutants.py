@@ -132,6 +132,20 @@
 `scripts/tests/fixtures/verdict_field/{unpinned,pinned}`: у неї байт-у-байт той
 самий інструмент, різниця лише в наборі-свідку.
 
+Ціна й тимчасові дерева (#1271). Копіюється лише `scripts/`, решта top-level
+записів — симлінки: виміряно 1.2 MiB на дерево проти 74.7 MiB у повної копії
+дерева (0.03–0.14 с проти 0.40–1.04 с — час залежить від завантаження машини).
+На гейт дерева будуються 38 разів, тож разом це 38 × 1.2 MiB = 45.6 MiB проти
+38 × 74.7 MiB = 2.8 GiB, якби копіювалося все. Дерево звільняється одразу після
+свого прогону, тож пік — це `--jobs` дерев, а не всі 38: виміряно 46.9 MiB піку,
+поки всі 38 жили до кінця прогону, і 5.3 MiB після правки (той самий гейт, той
+самий метод). Місце перевіряється ДО першої копії (`tmp_budget.prepare`): він
+міряє копію, додає запас на воркери й підлогу на scratch свідків і відмовляє
+кодом 2 із числами («треба X, вільно Y») замість того, щоб заповнити ФС —
+заповнена ФС валить не цей прогін, а кожен запуск процесу в середовищі. Маленький
+tmpfs у RAM — окрема відмова, застарілі дерева попередніх падінь прибираються на
+старті, а явне перенесення (`SLUKHAYKA_MUTANTS_TMPDIR`) голосне.
+
 Виклик: scripts/verdict_field_mutants.py [--list] [--field <поле>]... [--jobs N] [--root <шлях>]
 Коди виходу: 0 — усі місця всіх полів убиті мутантом; 1 — є живі мутанти
 (поле нічого не тримає); 2 — перевірити не вдалося (невідомість).
@@ -153,8 +167,20 @@ import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
 
+import tmp_budget
+
 ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = Path("scripts/tests")
+
+# Піддерево, яке копіюється в тимчасове дерево, і те, що в копію не йде. Обидві
+# константи читають і копіювання, і вимір копії: розійтися їм нема чого, інакше
+# бюджет міряв би не те, що пише `_roots` (#1271).
+COPY_ENTRY = "scripts"
+COPY_IGNORE = ("__pycache__", "*.pyc")
+
+# Префікс тимчасових дерев механізму: за ним застарілі дерева попередніх падінь
+# відрізняються від чужих тек.
+TEMP_PREFIX = "slukhayka-field-"
 
 # Теки, куди механізм не дивиться: або не код репозиторію, або кеші з копіями
 # того самого коду, які дали б той самий мутант удруге.
@@ -701,6 +727,15 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
 # --------------------------------------------------------------------------
 
 
+def copy_bytes(root: Path) -> int:
+    """Байти, які займе одна копія дерева: рівно те, що пише `_roots`.
+
+    Міряється те саме піддерево з тими самими винятками, що й копіюється:
+    інакше бюджет охороняв би не той обсяг, який механізм справді пише.
+    """
+    return tmp_budget.tree_bytes(root / COPY_ENTRY, COPY_IGNORE)
+
+
 def _roots(root: Path, tmp: Path) -> Path:
     """Копія дерева, де `scripts/` справжня, а решта — посилання.
 
@@ -710,12 +745,12 @@ def _roots(root: Path, tmp: Path) -> Path:
     work = tmp / "root"
     work.mkdir()
     shutil.copytree(
-        root / "scripts",
-        work / "scripts",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        root / COPY_ENTRY,
+        work / COPY_ENTRY,
+        ignore=shutil.ignore_patterns(*COPY_IGNORE),
     )
     for entry in root.iterdir():
-        if entry.name in {"scripts"} | SKIP_DIRS:
+        if entry.name in {COPY_ENTRY} | SKIP_DIRS:
             continue
         (work / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
     return work
@@ -788,7 +823,24 @@ class Runner:
         # один одного їм нема чого; той самий ключ, як і раніше, рахується один
         # раз — за це відповідає замок самого ключа.
         self._baseline_locks: dict[tuple, threading.Lock] = {}
-        self._temporary = tempfile.TemporaryDirectory(prefix="slukhayka-field-")
+        # Тимчасові дерева живуть у спільному корені, який сам себе позначає
+        # власником (#1271): сусідній прогін бачить маркер і не приймає живий
+        # корінь за застарілий, а корінь без живого власника — прибирає.
+        #
+        # Місце міряється ТУТ, ДО першої копії — і це ЄДИНЕ місце перевірки.
+        # Заповнена ФС валить не цей прогін, а кожен запуск процесу в середовищі
+        # (`bash` не стартує навіть на `true`), тож відмова з числами — те, що
+        # потрібно, а не `ENOSPC` посередині. Другого такого виклику немає
+        # навмисно: перевірку, розмазану по двох місцях, зняття одного з них не
+        # червонить, і мутація-свідок перестає щось тримати. Одного виміру досить
+        # і за побудовою: пік прогону — `--jobs` дерев (`COPY_HEADROOM` = 8), а
+        # не всі 38, тож запас покриває весь прогін, а не лише першу копію.
+        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES, copy_bytes(root))
+        # Тека-носій створюється й позначається одним викликом — та сама форма,
+        # що в порожній формі (#1271, огляд #1275): маркер окремим рядком легко
+        # лишити поза `try`, і збій його запису дав би трейсбек і теку без
+        # власника. Прибирання — явне, у `cleanup` (тут воно в `finally`).
+        self._temporary = tmp_budget.claim(base, TEMP_PREFIX)
 
     def _baseline_lock(self, key: tuple) -> threading.Lock:
         """Замок цього ключа. Словник замків — під `self._lock`."""
@@ -796,7 +848,7 @@ class Runner:
             return self._baseline_locks.setdefault(key, threading.Lock())
 
     def cleanup(self) -> None:
-        self._temporary.cleanup()
+        shutil.rmtree(self._temporary, ignore_errors=True)
 
     def baseline(self, module: Path, targets: list[str]) -> str:
         """Зелений прогін БЕЗ мутації, або причина, чому його немає.
@@ -809,9 +861,14 @@ class Runner:
             with self._lock:
                 if key in self._baselines:
                     return self._baselines[key]
-            tmp = Path(tempfile.mkdtemp(dir=self._temporary.name))
-            work = _roots(self.root, tmp)
-            status, output = _run(work, self.tests_dir, targets)
+            tmp = Path(tempfile.mkdtemp(dir=str(self._temporary)))
+            try:
+                work = _roots(self.root, tmp)
+                status, output = _run(work, self.tests_dir, targets)
+            finally:
+                # Дерево звільняється одразу (#1271): інакше всі 38 копій живуть
+                # до кінця прогону, і пік тимчасової ФС — це 38 дерев, а не `--jobs`.
+                shutil.rmtree(tmp, ignore_errors=True)
             state, why = verdict_of_run(status, output)
             if state == "unknown":
                 value = "набір-свідок %s не дав вердикту: %s" % (module.name, why)
@@ -829,17 +886,20 @@ class Runner:
     def mutant(self, site: Site, module: Path, targets: list[str],
                seconds: list[float]) -> tuple[bool, str, str]:
         """Прогін мутанта. Повертає (червоний, вивід, причина-невідомості)."""
-        tmp = Path(tempfile.mkdtemp(dir=self._temporary.name))
-        work = _roots(self.root, tmp)
-        target_file = work / site.path
-        started = time.monotonic()
+        tmp = Path(tempfile.mkdtemp(dir=str(self._temporary)))
         try:
-            target_file.write_text(mutate(target_file.read_text(encoding="utf-8"), site),
-                                   encoding="utf-8")
-        except OSError as error:
-            return False, "", "мутанта не записати: %s" % error
-        status, output = _run(work, self.tests_dir, targets)
-        seconds.append(time.monotonic() - started)
+            work = _roots(self.root, tmp)
+            target_file = work / site.path
+            started = time.monotonic()
+            try:
+                target_file.write_text(mutate(target_file.read_text(encoding="utf-8"), site),
+                                       encoding="utf-8")
+            except OSError as error:
+                return False, "", "мутанта не записати: %s" % error
+            status, output = _run(work, self.tests_dir, targets)
+            seconds.append(time.monotonic() - started)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
         state, why = verdict_of_run(status, output)
         if state == "unknown":
             return False, output, why
@@ -994,6 +1054,11 @@ def check(root: Path, tests_dir: Path = TESTS_DIR, only: list[str] | None = None
 
     try:
         runner = Runner(root, tests_dir)
+    except tmp_budget.BudgetError as error:
+        # Бюджет тимчасових дерев (#1271): відмова ДО копіювання, з числами —
+        # «треба X, вільно Y». Це код 2, а не «заповнимо ФС і подивимось».
+        report.blocked.append("FAIL  %s" % error)
+        return report
     except OSError as error:
         report.blocked.append("FAIL  тимчасового каталогу для мутантів не створити: %s" % error)
         return report

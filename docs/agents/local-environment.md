@@ -334,7 +334,7 @@ travels into the record at all; and a field with no verdict-rule place at all is
 unknown (`2`), not a pass — moving the decision onto another variable would leave
 every remaining mutant alive.
 
-The third such gate is about the guards themselves (`#1270`). The seventh case of
+The third such gate is about the guards themselves (`#1270`). The eighth case of
 "a check that does not check" was the guard written against that very class:
 `test_measure_head_exists_because_the_docs_cite_it` held a substring of *someone
 else's* help text (`--scan-limit … for --measure-head`), so cutting the option
@@ -411,6 +411,68 @@ prose in the comments beside `RECORDS` is prose, checked by nothing. Its guard i
 enrolled in `guard_witnesses.py` with the live example: the mutation **adds** a field
 to a record, and the pin has to go red.
 
+The fifth gate is about the numbers themselves (`#1277`). Seven numbers in the
+docs turned out to be checked by nothing, and every one of them was found by an
+independent review, not the author: false alarms on the real history ("3 of 10",
+not "none left"); "931 paths in the tree" (858/881/0/970 — none of them 931); a
+**command that did not exist** (`--measure-head`; `git log --all -S` had one
+occurrence — the doc line itself); "no network" (`ubuntu-latest` has egress; the
+load-bearing half was a missing `GH_TOKEN`); "326 tests" (327); "74.7 MiB"
+(76.2, corrected in `#1270`); and `The seventh case of "a check that does not
+check"` itself — the line the third gate describes, whose number this mechanism's
+first run showed to be a different one. `scripts/doc_numbers.py` draws the line the repo can actually
+hold: **a number that claims something about the tree today must be derived from
+a record in the tree, or it does not exist.** `FIGURES` names (file, anchor,
+source), where the source is `("count", registry)` or `("position", series,
+key)`; the line the anchor names must carry exactly one number of that source,
+and it must be one of the spellings the record derives. `SCANNED` lists the files
+the mechanism *searches*: a number of a listed shape in them that no entry claims
+is a refusal, so a new number cannot pass silently — it is derived, or it is
+gone.
+
+What it found on its own first run is the evidence, not the idea. This document
+called that case `The seventh case of`, while the series gives `#1270` the
+**eighth** place; the mechanism that named the class opened with `Дев'ятий
+випадок` and ``до цього вісім разів`` over a list of **seven** issues — both
+numbers off by one against the two enumerations that exist. `CONTRIBUTING.md`
+(the list of five, written at the time) puts the review finding **#1218** third —
+the pins held *where* the width comes from and did not hold *which* layout follows
+— and adds that the layout is measured by another instrument, the probe `#1239`;
+the `#1270` body puts `#1239` third. They are one case under two keys: `#1239` is
+the web layout probe (`scripts/web-layout-probe.mjs`), not a case of the class,
+and both lists put `#1254` **fifth**, which can only be true if the case they put
+third is the same one. So `CASES` keys it `#1218` and names both references, and the
+series has **eight** cases; reading the two lists as nine counts one case twice.
+And the same header charged ``шість записів`` for a `GUARDS` that held
+**seven** — and eight the moment this change enrolled its own guard. The case
+ordinal had no ground truth anywhere in the tree, which is why nothing could
+derive it: `CASES` puts the eight in data, and `python3 scripts/doc_numbers.py
+--list` prints each one with the place it holds. So the ordinal was not
+"corrected" to another prose number — it got a command; and the three prose
+numbers that disagreed with the record (this file's, and the header's two) died.
+If the series really has a ninth, that is a one-line edit to `CASES`, and the
+mechanism will name every number that moves.
+
+Its named limits are in its docstring, and the first one is the price of the
+whole idea: **the mechanism sees only the shapes and files it lists.** A scan
+that demanded a command beside *every* number would drown — `python3
+scripts/doc_numbers.py --audit` counts 154 figures of "number + unit" across
+`docs/agents/*.md` and `scripts/**/*.py`, and 148 of them sit on a line with no
+date, most being records of the past (the seconds and gigabytes of one build on
+one machine on 2026-10-12) that no command reproduces at HEAD. So
+bytes and seconds are outside `SCANNED`; where such a number must stay, what is
+pinned is the **relation** that survives the drift, by the test that measures it
+(`#1270`: `naive > 10 × copied`, not "76.2 MiB"). Enrolling a figure is manual,
+like enrolling a guard, and the mechanism says how many it covers rather than
+how many it should. `python3 scripts/doc_numbers.py` is the check (0 — every
+enrolled number derives, every cited command exists and declares its options, and
+nothing is unclaimed; 1 — a finding; 2 — an unknown:
+a missing file, an anchor that is not alone, a line that no longer carries its
+number, a line that does not name its own key, a key that left the series, a
+number past the spelling table), and its guards are enrolled in
+`guard_witnesses.py` with live mutations: cut a place out of `CASES`, or fabricate
+an option in a cited command, and the run reddens.
+
 The gates build a copy of the tree for every mutant, so the temp filesystem is
 their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
 every other top-level entry is a symlink: one tree costs 1.4 MiB against 76.2 MiB
@@ -451,6 +513,14 @@ lives in exactly one place per gate so that removing it reddens a test.
    function) also gets an entry in `scripts/guard_witnesses.py` — its target and
    the mutation that must redden it. `python3 scripts/guard_witnesses.py --guard
    <target>` runs just that entry; CI replays every enrolled one on each push.
+5. A new number in a file `scripts/doc_numbers.py` scans (a count of a registry, a
+   place in a series) also gets an entry there — the record it is derived from, and
+   the line it sits on. A number that arrives with a command makes that command
+   part of the claim: every `scripts/…` it cites must exist and declare its
+   options, so a citation cannot be invented and stay green.
+   `python3 scripts/doc_numbers.py --list` names every enrolled number with what it
+   must be, so a claim about the tree carries the command that reproduces it
+   rather than a reader's trust.
 
 The merge step is described under "CI" below.
 

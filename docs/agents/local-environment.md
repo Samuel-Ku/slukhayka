@@ -455,9 +455,10 @@ you go looking for a regression that is not there.
 `web/**` is the one tree that never needs the JDK. For it,
 `scripts/test-changed.sh` runs exactly the three steps of the `web` job in
 `.github/workflows/ci.yml`, in `web/`: `npm ci`, `npx tsc --noEmit`,
-`npx vitest run`. The selector names the steps
-(`scripts/test_partitions.py`, `WEB_CHECK_STEPS`) and
-`scripts/tests/test_test_wrappers.py` pins that the wrapper executes those
+`npx vitest run`. The selector does not declare those steps: it reads the command
+out of `scripts/test-changed.sh` itself (`scripts/test_partitions.py`,
+`web_check_steps()`), so the record cannot drift from the executor that runs it,
+and `scripts/tests/test_test_wrappers.py` pins that the wrapper executes those
 three and stops at the first failure.
 
 Run it like any other diff — no wrapper, because no Gradle call is involved:

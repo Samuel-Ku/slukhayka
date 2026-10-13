@@ -52,9 +52,10 @@ WEB_CHECK = "web"
 # nothing checked. Adding or dropping a step in the wrapper would have left this
 # tuple naming a check that no longer exists, and `select`'s `reason` would have
 # costed it wrong. The executor is the source, so the executor is read: the
-# `web` arm of the wrapper's check loop. A tree whose wrapper has no such arm is
-# a refusal (2), not a guess — `web_check_steps` is called only when a web path
-# is actually selected, so the copied trees the fixtures build never need it.
+# command the wrapper runs for the web check — `(cd "$repo_root/web" && …) ||
+# exit`. A tree whose wrapper has no such command is a refusal (2), not a guess —
+# `web_check_steps` is called only when a web path is actually selected, so the
+# copied trees the fixtures build never need it.
 #
 # What is NOT verified here: the wrapper's own note says its steps mirror the
 # `web` job in `.github/workflows/ci.yml`. That mirror is a claim about a second
@@ -63,8 +64,11 @@ WEB_CHECK = "web"
 #
 # A named limit of the derivation: swapping the read back for a literal that
 # happens to name the same steps changes no behaviour today, so nothing reddens.
-# What does redden is the read BREAKING — an arm regex that never matches turns
-# the selector into a refusal (2), and `test_test_partitions` fails on it.
+# What does redden is the read BREAKING — a regex that never matches turns the
+# selector into a refusal (2), and `test_test_partitions` fails on it. And what
+# is read is the command's BODY, not the arm's own label: renaming `web)` to
+# `web-check)` leaves this selector green while the wrapper itself would refuse
+# the unknown check — `test_test_wrappers.py` catches that one, this does not.
 WEB_CHECK_SCRIPT = Path("scripts/test-changed.sh")
 WEB_CHECK_ARM = re.compile(
     r'\(cd\s+"\$repo_root/web"\s*&&\s*(?P<steps>.+?)\)\s*\|\|\s*exit', re.DOTALL

@@ -281,6 +281,56 @@ class SectionTest(TreeTest):
         self.assertIn(NAMED_ONLY_IN_THE_REPORT, report.findings[0].detail)
         self.assertIn("БЕЗ СВІДКА", report.findings[0].detail)
 
+    def test_a_boundary_appended_to_a_bullet_or_written_as_prose_is_not_seen(self):
+        """Межа в ХВОСТІ пункту або прозою-абзацом — невидима: це названа межа.
+
+        Механізм читає ПУНКТИ, а не прозу: він бачить пункт за його ПОЧАТКОМ
+        (якір), а текст, дописаний у хвіст пункту чи покладений абзацом у
+        покритий розділ, для нього не існує. Закрити це можна було б лише
+        читанням прози — тобто тим, чого механізм не робить і не обіцяє.
+        Обидві форми названі в шапці й показані тут, а не замовчані (знахідка
+        огляду PR #1296: доки їх не названо, вони були тихою дірою).
+        """
+        self.edit("scripts/declared_fields.py",
+                  "    оглядачеві, куди дивитися, і саме тому вона коментар, "
+                  "а не поле запису;\n",
+                  "    оглядачеві, куди дивитися, і саме тому вона коментар, "
+                  "а не поле запису. %s;\n" % NAMED_ONLY_IN_THE_REPORT)
+
+        appended = self.coverage()
+        self.assertEqual([], appended.blocked, appended.blocked)
+        self.assertEqual([], [finding.detail for finding in appended.findings],
+                         "межа в хвості пункту мусить бути невидима — це названа межа")
+
+        self.edit("scripts/declared_fields.py",
+                  "\nКоди виходу: 0 — набір полів",
+                  "\nМежі, названі прозою-абзацом:\n\n  %s.\n\nКоди виходу: 0 — набір полів"
+                  % NAMED_ONLY_IN_THE_REPORT)
+
+        prose = self.coverage()
+        self.assertEqual([], prose.blocked, prose.blocked)
+        self.assertEqual([], [finding.detail for finding in prose.findings],
+                         "межа прозою-абзацом мусить бути невидима — це названа межа")
+
+    def test_a_bullet_that_only_mentions_a_claim_is_refused(self):
+        """Пункт, який лише ЗГАДУЄ якір, — не пункт тієї межі: якір мусить бути початком.
+
+        Інакше чужий текст перед якорем у пункті (цитата, «див. також», хвіст)
+        сходив би за запис, і межа жила б у чужому пункті, а її власний пункт
+        лишався б без господаря.
+        """
+        self.edit("scripts/declared_fields.py",
+                  "  * пін ловить ПОЯВУ поля, а не його правду",
+                  "  * Див. також: пін ловить ПОЯВУ поля, а не його правду")
+
+        report = self.coverage()
+
+        self.assertEqual([], report.blocked, report.blocked)
+        mentioned = [finding.detail for finding in report.findings
+                     if "ЗГАДАНА" in finding.detail]
+        self.assertEqual(1, len(mentioned), [finding.detail for finding in report.findings])
+        self.assertIn("#1276-appearance", mentioned[0])
+
     def test_a_boundary_outside_the_covered_section_is_not_seen(self):
         """Межа ПОЗА покритим розділом — невидима: це ціна, показана прогоном.
 
@@ -472,6 +522,10 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, len(vacuous.findings), vacuous.findings)
         self.assertIn("T", vacuous.findings[0].detail)
         self.assertIn("не тримається прогоном", vacuous.findings[0].detail)
+        # І благополуччя про ВІДКИНУТУ межу не друкують: OK-рядок — лише для
+        # вбитих вердиктів (`guard_witnesses.Report.killed`). Без цього піна
+        # механізм брехав про власну відмову на stdout (знахідка огляду #1296).
+        self.assertEqual([], vacuous.shown, vacuous.shown)
 
     def test_a_mutation_that_no_longer_applies_is_an_unknown(self):
         """Закриття, якого більше нема де застосувати, — невідомість (код 2)."""

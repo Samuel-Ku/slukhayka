@@ -361,7 +361,8 @@ class TempBudgetTest(unittest.TestCase):
 
         Механізм сам прибирає теки СВОГО префікса без маркера після пільгового
         часу. Якби він же їх і не позначав, це правило вбивало б його власні
-        прогони: два модулі-свідки по 240 с таймауту — це вже 960 с, більше за
+        прогони: дерево базового прогону живе крізь базовий і мутантний прогони
+        двох модулів-свідків по 240 с таймауту — це 4 × 240 с = 960 с, більше за
         пільгу. Тому перевірка структурна (маркер є, sweep його не чіпає), а не
         «за 901 с»: чекати чверть години, щоб побачити діру, — не перевірка.
         """
@@ -399,10 +400,36 @@ class TempBudgetTest(unittest.TestCase):
                 self.assertEqual(["slukhayka-shape-intruder"], freed,
                                  "прибиратися мусить лише те, що без власника")
 
+    def test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier(self):
+        """Маркер — та сама невдача з тимчасовою текою: ENOSPC/EDQUOT/EROFS.
+
+        Збій запису маркера не сміє давати ні трейсбека (код 1), ні теки-носія без
+        власника: теку без маркера наступний прогін прибирає за часом — тобто
+        механізм сам створив би те сміття, проти якого заведений (огляд #1275).
+        """
+        elsewhere = Path(self._tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(esm.tmp_budget, "mark",
+                               side_effect=OSError("no space left")), \
+                mock.patch.dict(os.environ,
+                                {esm.tmp_budget.RELOCATE_VARIABLE: str(elsewhere)}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            report = esm.check(self.gate, TESTS_DIR, self.root)
+            status = esm.main(["--root", str(self.root)])
+
+        self.assertEqual([], report.verdicts)
+        self.assertEqual(1, len(report.blocked))
+        self.assertIn("не завести", report.blocked[0])
+        self.assertIn("no space left", report.blocked[0])
+        self.assertEqual([], sorted(path.name for path in elsewhere.iterdir()),
+                         "невдалий маркер не має лишати теку-носій без власника")
+        self.assertEqual(2, status, out.getvalue())
+
     def test_a_tree_that_cannot_be_created_is_unknown_not_a_traceback(self):
         """Диск, права, ліміти: невдача з тимчасовою текою — код 2, як і в полях."""
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(esm.tempfile, "mkdtemp",
+        with mock.patch.object(esm.tmp_budget.tempfile, "mkdtemp",
                                side_effect=OSError("no space left")), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             report = esm.check(self.gate, TESTS_DIR, self.root)
@@ -410,7 +437,7 @@ class TempBudgetTest(unittest.TestCase):
 
         self.assertEqual([], report.verdicts)
         self.assertEqual(1, len(report.blocked))
-        self.assertIn("не створити", report.blocked[0])
+        self.assertIn("не завести", report.blocked[0])
         self.assertIn("no space left", report.blocked[0])
         self.assertEqual(2, status, out.getvalue())
         self.assertIn("FAIL", err.getvalue())
@@ -418,7 +445,7 @@ class TempBudgetTest(unittest.TestCase):
     def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
         """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
 
-        Виміряно на цьому дереві: повна копія — 74.9 MiB і 0.40 с на дерево,
+        Виміряно на цьому дереві: повна копія — 74.7 MiB і 0.40 с на дерево,
         копія `scripts/` — 1.2 MiB і 0.03 с. Тест тримає саме відношення й те,
         що симлінки не стали копіями.
         """

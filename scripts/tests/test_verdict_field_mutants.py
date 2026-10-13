@@ -743,9 +743,9 @@ class TempBudgetTest(unittest.TestCase):
     def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
         """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
 
-        Виміряно на цьому дереві: повна копія — 74.9 MiB і 0.40 с на кожне з 38
-        дерев, тобто 2.8 GiB на гейт; копія `scripts/` — 1.2 MiB і 0.03 с. Тест
-        тримає саме відношення й те, що симлінки не стали копіями.
+        Виміряно на цьому дереві: повна копія — 74.7 MiB і 0.40 с на кожне з 38
+        дерев, тобто 38 × 74.7 MiB = 2.8 GiB на гейт; копія `scripts/` — 1.2 MiB і
+        0.03 с. Тест тримає саме відношення й те, що симлінки не стали копіями.
         """
         (self.root / "tree").mkdir()
         work = v._roots(REPO_ROOT, self.root / "tree")
@@ -765,7 +765,7 @@ class TempBudgetTest(unittest.TestCase):
                                 "незмінна частина дерева не копіюється")
 
     def test_a_run_releases_its_tree_instead_of_keeping_every_one(self):
-        """Пік — це `--jobs` дерев, а не всі: інакше 38 копій живуть до кінця прогону.
+        """Пік — це `--jobs` дерев, а не всі 38: інакше 38 копій живуть до кінця прогону.
 
         Корінь тут — фікстура, а не репозиторій: твердження про звільнення дерева
         від кореня не залежить, а випадок чутливості жене цей тест двічі.
@@ -784,7 +784,7 @@ class TempBudgetTest(unittest.TestCase):
         self.assertEqual("", baseline)
         self.assertEqual(
             [v.tmp_budget.OWNER_MARKER],
-            sorted(path.name for path in Path(runner._temporary.name).iterdir()),
+            sorted(path.name for path in runner._temporary.iterdir()),
             "дерево прогону мусить бути звільнене одразу після нього, лишається "
             "тільки маркер власника",
         )

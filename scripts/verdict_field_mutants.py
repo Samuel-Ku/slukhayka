@@ -134,10 +134,11 @@
 
 Ціна й тимчасові дерева (#1271). Копіюється лише `scripts/`, решта top-level
 записів — симлінки: виміряно 1.2 MiB на дерево проти 74.7 MiB у повної копії
-дерева (0.03–0.14 с проти 0.40–1.04 с — час залежить від завантаження машини),
-тобто 45 MiB на гейт замість 2.8 GiB — а без симлінків було б саме 2.8 GiB.
-Дерево звільняється одразу після свого прогону, тож пік — це `--jobs` дерев, а не
-всі 38: виміряно 46.9 MiB піку до правки і 5.3 MiB після неї (той самий гейт, той
+дерева (0.03–0.14 с проти 0.40–1.04 с — час залежить від завантаження машини).
+На гейт дерева будуються 38 разів, тож разом це 38 × 1.2 MiB = 45.6 MiB проти
+38 × 74.7 MiB = 2.8 GiB, якби копіювалося все. Дерево звільняється одразу після
+свого прогону, тож пік — це `--jobs` дерев, а не всі 38: виміряно 46.9 MiB піку,
+поки всі 38 жили до кінця прогону, і 5.3 MiB після правки (той самий гейт, той
 самий метод). Місце перевіряється ДО першої копії (`tmp_budget.prepare`): він
 міряє копію, додає запас на воркери й підлогу на scratch свідків і відмовляє
 кодом 2 із числами («треба X, вільно Y») замість того, щоб заповнити ФС —
@@ -835,8 +836,11 @@ class Runner:
         # і за побудовою: пік прогону — `--jobs` дерев (`COPY_HEADROOM` = 8), а
         # не всі 38, тож запас покриває весь прогін, а не лише першу копію.
         base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES, copy_bytes(root))
-        self._temporary = tempfile.TemporaryDirectory(prefix=TEMP_PREFIX, dir=str(base))
-        tmp_budget.mark(Path(self._temporary.name))
+        # Тека-носій створюється й позначається одним викликом — та сама форма,
+        # що в порожній формі (#1271, огляд #1275): маркер окремим рядком легко
+        # лишити поза `try`, і збій його запису дав би трейсбек і теку без
+        # власника. Прибирання — явне, у `cleanup` (тут воно в `finally`).
+        self._temporary = tmp_budget.claim(base, TEMP_PREFIX)
 
     def _baseline_lock(self, key: tuple) -> threading.Lock:
         """Замок цього ключа. Словник замків — під `self._lock`."""
@@ -844,7 +848,7 @@ class Runner:
             return self._baseline_locks.setdefault(key, threading.Lock())
 
     def cleanup(self) -> None:
-        self._temporary.cleanup()
+        shutil.rmtree(self._temporary, ignore_errors=True)
 
     def baseline(self, module: Path, targets: list[str]) -> str:
         """Зелений прогін БЕЗ мутації, або причина, чому його немає.
@@ -857,7 +861,7 @@ class Runner:
             with self._lock:
                 if key in self._baselines:
                     return self._baselines[key]
-            tmp = Path(tempfile.mkdtemp(dir=self._temporary.name))
+            tmp = Path(tempfile.mkdtemp(dir=str(self._temporary)))
             try:
                 work = _roots(self.root, tmp)
                 status, output = _run(work, self.tests_dir, targets)
@@ -882,7 +886,7 @@ class Runner:
     def mutant(self, site: Site, module: Path, targets: list[str],
                seconds: list[float]) -> tuple[bool, str, str]:
         """Прогін мутанта. Повертає (червоний, вивід, причина-невідомості)."""
-        tmp = Path(tempfile.mkdtemp(dir=self._temporary.name))
+        tmp = Path(tempfile.mkdtemp(dir=str(self._temporary)))
         try:
             work = _roots(self.root, tmp)
             target_file = work / site.path

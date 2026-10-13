@@ -112,8 +112,32 @@ class CopySetTest(unittest.TestCase):
         self.assertEqual(100000, measured)
         self.assertEqual(written, measured)
 
+    def test_a_twice_linked_directory_is_counted_twice(self):
+        """Повтор — не цикл: `copytree` копіює обидва симлінки, тож і міра рахує двічі.
+
+        Глобальна множина відвіданих inode глушила б другий симлінк і давала
+        недооцінку вдвічі (огляд #1275 міряв 100 500 Б там, де копіювання пише
+        201 000 Б) — тобто помилку в небезпечний бік. Ланцюг предків ловить
+        лише справжній цикл.
+        """
+        (self.root / "scripts").mkdir()
+        (self.root / "shared").mkdir()
+        (self.root / "shared" / "payload.bin").write_bytes(b"y" * 100000)
+        for name in ("first", "second"):
+            (self.root / "scripts" / name).symlink_to(self.root / "shared",
+                                                      target_is_directory=True)
+
+        measured = tb.tree_bytes(self.root / "scripts")
+        copied = self.root / "copy"
+        shutil.copytree(self.root / "scripts", copied)
+        written = sum(entry.stat().st_size
+                      for entry in copied.rglob("*") if entry.is_file())
+
+        self.assertEqual(200000, measured)
+        self.assertEqual(written, measured)
+
     def test_a_symlink_loop_does_not_hang_or_double_count(self):
-        """Цикл симлінків міра не розкручує: `copytree` на ньому падає, міра — ні."""
+        """Справжній цикл спиняє ланцюг предків: `copytree` на ньому падає, міра — ні."""
         (self.root / "scripts").mkdir()
         (self.root / "scripts" / "tool.py").write_text("x" * 100, encoding="utf-8")
         (self.root / "scripts" / "loop").symlink_to(self.root / "scripts",
@@ -333,6 +357,20 @@ class TempRootTest(unittest.TestCase):
         self.assertTrue(created.name.startswith("slukhayka-field-"))
         self.assertEqual(os.getpid(), tb.owner_pid(created))
         self.assertFalse(tb.stale(created))
+
+    def test_a_marker_that_cannot_be_written_leaves_no_carrier(self):
+        """Маркер — частина «завести»: тека без нього для сусіда не власність, а сміття.
+
+        `ENOSPC`/`EDQUOT`/`EROFS` трапляються саме на записі маркера (огляд #1275),
+        і тека-носій без маркера — це рівно те, що наступний прогін прибирає за
+        часом. Хелпер, який її лишає, сам робив би те, проти чого заведений.
+        """
+        with mock.patch.object(tb, "mark", side_effect=OSError("no space left")):
+            with self.assertRaises(OSError):
+                tb.claim(self.root, "slukhayka-field-")
+
+        self.assertEqual([], sorted(path.name for path in self.root.iterdir()),
+                         "невдалий маркер не має лишати теку-носій без власника")
 
 
 class ProcessTest(unittest.TestCase):

@@ -391,6 +391,16 @@ CASES = (
         ),
     ),
     StandIn(
+        name="підставні gradlew і java фікстури test-changed.sh у test_test_wrappers",
+        where=("scripts/tests/test_test_wrappers.py",),
+        prefix="WRAPPER_TEST_",
+        programs=(
+            Program("ChangedTestWrapperScratchTest.setUp: self.java", "21.0.8"),
+            Program("ChangedTestWrapperScratchTest.write_gradle: self.gradle",
+                    "WRAPPER_TEST_LOG"),
+        ),
+    ),
+    StandIn(
         name="SAMPLE у test_empty_shape_mutants — вхідний текст, не інструмент",
         where=("scripts/tests/test_empty_shape_mutants.py",),
         reads=("HEAD_REF",),
@@ -426,6 +436,8 @@ ENVIRONMENT_TARGETS = (
     ".test_runs_the_named_class_and_records_a_caught_mutation",
     "test_review_pass.ReviewPassTest"
     ".test_reissues_the_verdict_on_a_pr_that_already_has_the_label",
+    "test_test_wrappers.ChangedTestWrapperScratchTest"
+    ".test_no_scratch_directory_survives_a_run",
     "test_test_wrappers.ChangedTestWrapperWebCheckTest"
     ".test_web_path_runs_the_web_check_and_no_android_partition",
     "test_test_wrappers.FullSuiteWrapperTest.test_cleans_temp_when_interrupted",
@@ -773,6 +785,8 @@ class RegistryTest(unittest.TestCase):
              ".test_runs_the_named_class_and_records_a_caught_mutation",
              "test_review_pass.ReviewPassTest"
              ".test_reissues_the_verdict_on_a_pr_that_already_has_the_label",
+             "test_test_wrappers.ChangedTestWrapperScratchTest"
+             ".test_no_scratch_directory_survives_a_run",
              "test_test_wrappers.ChangedTestWrapperWebCheckTest"
              ".test_web_path_runs_the_web_check_and_no_android_partition",
              "test_test_wrappers.FullSuiteWrapperTest"

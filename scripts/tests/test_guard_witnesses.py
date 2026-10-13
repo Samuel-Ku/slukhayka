@@ -56,6 +56,8 @@ GUARD_TESTS = (
     "test_guard_witnesses.RefusalTest"
     ".test_a_mutation_that_no_longer_applies_is_an_unknown",
     "test_issue_premise.ExtractionTest.test_measure_head_exists_because_the_docs_cite_it",
+    "test_test_wrappers.ChangedTestWrapperScratchTest"
+    ".test_no_scratch_directory_survives_a_run",
     "test_verdict_field_mutants.FailClosedTest"
     ".test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier",
     "test_witness_derivation.DerivationTest"

@@ -434,32 +434,44 @@ What it found on its own first run is the evidence, not the idea. This document
 called that case `The seventh case of`, while the series gives `#1270` the
 **eighth** place; the mechanism that named the class opened with `Дев'ятий
 випадок` and ``до цього вісім разів`` over a list of **seven** issues — both
-numbers off by one against the only enumeration that exists (the `#1270` body
-plus `empty_shape_mutants.py`, which calls the `#1254` case the fifth); and the
-same header charged ``шість записів`` for a `GUARDS` that held **seven** — and
-eight the moment this change enrolled its own guard. The case ordinal had no
-ground truth anywhere in the tree, which is why nothing could derive it: `CASES`
-puts the eight in data, and `python3 scripts/doc_numbers.py --list` prints each
-one with the place it holds. So the ordinal was not "corrected" to another prose
-number — it got a command; and the three prose numbers that disagreed with the
-record (this file's, and the header's two) died.
+numbers off by one against the two enumerations that exist. `CONTRIBUTING.md`
+(the list of five, written at the time) puts the review finding **#1218** third —
+the pins held *where* the width comes from and did not hold *which* layout follows
+— and adds that the layout is measured by another instrument, the probe `#1239`;
+the `#1270` body puts `#1239` third. They are one case under two keys: `#1239` is
+the web layout probe (`scripts/web-layout-probe.mjs`), not a case of the class,
+and both lists put `#1254` **fifth**, which can only be true if the case they put
+third is the same one. So `CASES` keys it `#1218` and names both references; the count
+of cases is **eight**, and reading the two lists as nine counts one case twice.
+And the same header charged ``шість записів`` for a `GUARDS` that held
+**seven** — and eight the moment this change enrolled its own guard. The case
+ordinal had no ground truth anywhere in the tree, which is why nothing could
+derive it: `CASES` puts the eight in data, and `python3 scripts/doc_numbers.py
+--list` prints each one with the place it holds. So the ordinal was not
+"corrected" to another prose number — it got a command; and the three prose
+numbers that disagreed with the record (this file's, and the header's two) died.
+If the series really has a ninth, that is a one-line edit to `CASES`, and the
+mechanism will name every number that moves.
 
 Its named limits are in its docstring, and the first one is the price of the
 whole idea: **the mechanism sees only the shapes and files it lists.** A scan
-that demanded a command beside *every* number would drown — `docs/agents/*.md`
-and `scripts/*.py` alone hold 126 "number + unit" figures, 120 of them with no
-date on the line, and most are records of the past (the seconds and gigabytes of
-one build on one machine on 2026-10-12) that no command reproduces at HEAD. So
+that demanded a command beside *every* number would drown — `python3
+scripts/doc_numbers.py --audit` counts 154 figures of "number + unit" across
+`docs/agents/*.md` and `scripts/**/*.py`, and 148 of them sit on a line with no
+date, most being records of the past (the seconds and gigabytes of one build on
+one machine on 2026-10-12) that no command reproduces at HEAD. So
 bytes and seconds are outside `SCANNED`; where such a number must stay, what is
 pinned is the **relation** that survives the drift, by the test that measures it
 (`#1270`: `naive > 10 × copied`, not "76.2 MiB"). Enrolling a figure is manual,
 like enrolling a guard, and the mechanism says how many it covers rather than
 how many it should. `python3 scripts/doc_numbers.py` is the check (0 — every
-enrolled number derives and nothing is unclaimed; 1 — a finding; 2 — an unknown:
+enrolled number derives, every cited command exists and declares its options, and
+nothing is unclaimed; 1 — a finding; 2 — an unknown:
 a missing file, an anchor that is not alone, a line that no longer carries its
-number, a key that left the series), and its guard is enrolled in
-`guard_witnesses.py` with the live mutation: cut a place out of `CASES`, and the
-line that cites it loses its source.
+number, a line that does not name its own key, a key that left the series, a
+number past the spelling table), and its guards are enrolled in
+`guard_witnesses.py` with live mutations: cut a place out of `CASES`, or fabricate
+an option in a cited command, and the run reddens.
 
 The gates build a copy of the tree for every mutant, so the temp filesystem is
 their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
@@ -503,9 +515,12 @@ lives in exactly one place per gate so that removing it reddens a test.
    <target>` runs just that entry; CI replays every enrolled one on each push.
 5. A new number in a file `scripts/doc_numbers.py` scans (a count of a registry, a
    place in a series) also gets an entry there — the record it is derived from, and
-   the line it sits on. `python3 scripts/doc_numbers.py --list` names every
-   enrolled number with what it must be, so a claim about the tree carries the
-   command that reproduces it rather than a reader's trust.
+   the line it sits on. A number that arrives with a command makes that command
+   part of the claim: every `scripts/…` it cites must exist and declare its
+   options, so a citation cannot be invented and stay green.
+   `python3 scripts/doc_numbers.py --list` names every enrolled number with what it
+   must be, so a claim about the tree carries the command that reproduces it
+   rather than a reader's trust.
 
 The merge step is described under "CI" below.
 

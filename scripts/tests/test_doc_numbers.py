@@ -10,7 +10,9 @@
     це видно як правку тесту);
   * `FindingTest` — підставлене дерево: число, яке розходиться з записом,
     незараховане число в сканованому файлі й число в доку, якого ніхто не
-    виводить, мусять бути знахідками з іменами — а не тихою згодою;
+    виводить, мусять бути знахідками з іменами — а не тихою згодою; окремо
+    `CommandTest` — те саме про команди: вигадана опція і скрипт, якого немає,
+    мусять червонити, а справжня команда з двома скриптами в рядку — ні;
   * `RefusalTest` — невідомість коштує відмову (код 2): зник якір, якір не
     один, рядок більше не несе числа, ключа немає в серії, файлу немає;
   * `BoundaryTest` — межа названа МАШИННО: число у формі, якої немає в
@@ -41,13 +43,14 @@ sys.path.insert(0, str(MECHANISM.parent))
 
 import doc_numbers as d  # noqa: E402
 
-# Друге джерело правди: серія, записана тут буквально. Вісім місць — це перелік
-# із тіла #1270 (`#1233`, `#1231`, `#1239`, `#1246`, `#1254`, `#1257`, `#1265`)
-# плюс сам сторож; `empty_shape_mutants.py` називає випадок `#1254` п'ятим, і це
-# те саме місце. Зникнення місця з `CASES` — не тиха згода, а правка цього
-# рядка.
+# Друге джерело правди: серія, записана тут буквально. Два переліки в дереві —
+# `CONTRIBUTING.md` (п'ять випадків, третій — знахідка огляду `#1218`) і тіло
+# #1270 (сім issue, третій — `#1239`) — називають один випадок по-різному:
+# `#1239` це щуп розкладки, і обидва переліки ставлять `#1254` п'ятим, що
+# можливо лише тоді, коли третій член — той самий випадок. Тому вісім місць, і
+# зникнення будь-якого з них — не тиха згода, а правка цього рядка.
 EXPECTED_CASES = (
-    "#1233", "#1231", "#1239", "#1246", "#1254", "#1257", "#1265", "#1270",
+    "#1233", "#1231", "#1218", "#1246", "#1254", "#1257", "#1265", "#1270",
 )
 
 EXPECTED_FIGURES = (
@@ -55,6 +58,8 @@ EXPECTED_FIGURES = (
     ("scripts/guard_witnesses.py", "випадок класу"),
     ("scripts/empty_shape_mutants.py", "випадок за дві цілі"),
     ("scripts/guard_witnesses.py", "не стає галасливим"),
+    ("docs/agents/local-environment.md", "figures of"),
+    ("docs/agents/local-environment.md", "sit on a line"),
 )
 
 EXPECTED_SCANNED = (
@@ -65,9 +70,20 @@ EXPECTED_SCANNED = (
     "scripts/declared_fields.py",
 )
 
-# Файли, з яких складається підставлене дерево: механізм читає їх як текст, і
-# жоден не імпортується (крім `guard_witnesses.py`, який дає `GUARDS`).
+# Файли, з яких складається підставлене дерево. Механізм читає їх як текст і
+# розв'язує ЗГАДАНІ в них команди, тож копіюється все `scripts/` — інакше кожна
+# цитата читалася б як «команди немає в дереві» (це і є перша версія фікстури,
+# яка на цьому й спіткнулася).
 FIXTURE_FILES = tuple(sorted(set(EXPECTED_SCANNED)))
+
+
+def count_word():
+    """Скільки записів у `GUARDS` — українським словом, як пише шапка.
+
+    Число росте з кожним новим сторожем, і тест не має його знати: хардкод
+    ламався б на кожному записі, а не на тому, що тест перевіряє.
+    """
+    return d.CARDINALS[len(d.record("guards")) - 1][1]
 
 
 def run(argv):
@@ -85,7 +101,11 @@ class FixtureMixin(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="doc-numbers-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        shutil.copytree(REPO_ROOT / "scripts", self.root / "scripts",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         for relative in FIXTURE_FILES:
+            if relative.startswith("scripts/"):
+                continue
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO_ROOT / relative, target)
@@ -133,12 +153,23 @@ class RepositoryTest(unittest.TestCase):
             with self.subTest(anchor=anchor):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
                 number, _ = d.line_with_anchor(text, anchor, relative)
-                on_line = [
-                    one for one in d.line_hits(REPO_ROOT, relative, number)
-                    if d.key_of(one[3]) == d.key_of(source)
-                ]
+                line = text.splitlines()[number - 1]
+                on_line = d.figure_hits(line, source)
                 self.assertEqual(1, len(on_line),
                                  "рядок мусить нести рівно одне число джерела")
+
+    def test_the_cited_commands_all_exist(self):
+        """Сторож командної половини: жодна згадана команда не вигадана."""
+        findings, unknowns = d.command_findings(REPO_ROOT, d.SCANNED)
+        self.assertEqual([], unknowns, "невідомість — не «команда є»")
+        self.assertEqual([], findings, "кожна згадана команда мусить існувати")
+
+    def test_the_audit_mode_prints_the_enrolled_numbers(self):
+        code, out, err = run(["--audit"])
+        self.assertEqual(0, code, err)
+        units, undated = d.audit_counts()
+        self.assertIn(str(units), out)
+        self.assertIn(str(undated), out)
 
     def test_the_listing_names_every_enrolled_number(self):
         code, out, err = run(["--list"])
@@ -164,11 +195,11 @@ class FindingTest(FixtureMixin):
 
     def test_a_count_that_disagrees_with_the_registry_is_a_finding(self):
         self.edit("scripts/guard_witnesses.py",
-                  "разом вісім записів", "разом шість записів")
+                  "разом %s записів" % count_word(), "разом шість записів")
         code, out, _ = self.check()
         self.assertEqual(1, code)
         self.assertIn("рядок каже «шість»", out)
-        self.assertIn("«eight»", out)
+        self.assertIn(str(len(d.record("guards"))), out)
 
     def test_a_number_nobody_derives_is_a_finding(self):
         """Число на рядку, якого немає в реєстрі, проходить повз нього?"""
@@ -236,6 +267,95 @@ class RefusalTest(FixtureMixin):
         self.assertIn("немає файлу: scripts/declared_fields.py", err)
 
 
+class CommandTest(FixtureMixin):
+    """Число має команду — і команда мусить існувати (клас `--measure-head`)."""
+
+    def test_a_fabricated_option_is_a_finding(self):
+        """Живий приклад цього PR: `--check`, якого в скрипті немає."""
+        self.edit("scripts/guard_witnesses.py",
+                  "(`python3 scripts/guard_witnesses.py`)",
+                  "(`python3 scripts/guard_witnesses.py --check`)")
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("вигадана команда", out)
+        self.assertIn("не оголошує --check", out)
+
+    def test_a_cited_script_that_does_not_exist_is_a_finding(self):
+        self.edit("docs/agents/local-environment.md",
+                  "scripts/doc_numbers.py --list",
+                  "scripts/no-such-thing.py --list")
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("команда, якої немає в дереві", out)
+        self.assertIn("scripts/no-such-thing.py", out)
+
+    def test_options_belong_to_the_command_before_them(self):
+        """Рядок із двома скриптами — одна команда: опція належить тій, що перед нею."""
+        code, _, err = self.check()
+        self.assertEqual(0, code, err)
+
+    def test_an_option_with_no_command_before_it_is_not_checked(self):
+        self.edit("scripts/verdict_field_mutants.py",
+                  "Клас, який тут ловиться",
+                  "Опція `--not-of-anyone` сама по собі. Клас, який тут ловиться")
+        code, _, err = self.check()
+        self.assertEqual(0, code, err)
+
+
+class NumberShapeTest(FixtureMixin):
+    """Діри, названі оглядом PR #1295: кожна мусить бути червона."""
+
+    def test_a_position_line_that_names_another_key_is_an_unknown(self):
+        self.edit("docs/agents/local-environment.md",
+                  "(`#1270`). The eighth case of", "(`#1233`). The eighth case of")
+        code, _, err = self.check()
+        self.assertEqual(2, code)
+        self.assertIn("називає інший ключ (#1233)", err)
+
+    def test_a_position_line_that_names_no_key_is_an_unknown(self):
+        self.edit("docs/agents/local-environment.md",
+                  "(`#1270`). The eighth case of", ". The eighth case of")
+        code, _, err = self.check()
+        self.assertEqual(2, code)
+        self.assertIn("не називає ключа серії", err)
+
+    def test_a_line_with_two_numbers_of_the_same_source_is_an_unknown(self):
+        """Шапка обіцяє «рівно одне число» — і CLI мусить це тримати, не лише тест."""
+        self.edit("docs/agents/local-environment.md",
+                  "(`#1270`). The eighth case of",
+                  "(`#1270`). The eighth case of, and the eighth case of again")
+        code, _, err = self.check()
+        self.assertEqual(2, code)
+        self.assertIn("а мусить рівно одне", err)
+
+    def test_the_control_line_names_its_own_key(self):
+        """`empty_shape_mutants.py:5` — той самий ключ, і це видно як зелений."""
+        code, _, err = self.check()
+        self.assertEqual(0, code, err)
+
+    def test_a_control_line_that_names_another_key_is_an_unknown(self):
+        self.edit("scripts/empty_shape_mutants.py",
+                  "за дві цілі. У PR #1254", "за дві цілі. У PR #1233")
+        code, _, err = self.check()
+        self.assertEqual(2, code)
+        self.assertIn("називає інший ключ (#1233)", err)
+
+    def test_an_ordinal_written_in_digits_is_accepted(self):
+        """«The 8th case of» — те саме число, і воно мусить проходити."""
+        self.edit("docs/agents/local-environment.md",
+                  "The eighth case of", "The 8th case of")
+        code, _, err = self.check()
+        self.assertEqual(0, code, err)
+
+    def test_a_number_word_past_the_table_is_an_unknown(self):
+        """Обіцянка «число поза таблицею — невідомість» мусить бути кодом."""
+        self.edit("scripts/declared_fields.py",
+                  "Кожне оголошене поле", "Тринадцять записів. Кожне оголошене поле")
+        code, _, err = self.check()
+        self.assertEqual(2, code)
+        self.assertIn("поза таблицею написань", err)
+
+
 class BoundaryTest(FixtureMixin):
     """Межа названа машинно: чого механізм НЕ бачить, тест це стверджує."""
 
@@ -266,7 +386,8 @@ class BoundaryTest(FixtureMixin):
     def test_a_count_in_the_singular_is_not_a_count(self):
         """«один запис» — вказівний зворот; форма кількості його не ловить."""
         self.edit("scripts/guard_witnesses.py",
-                  "разом вісім записів", "разом вісім записів, і один запис окремо")
+                  "разом %s записів" % count_word(),
+                  "разом %s записів, і один запис окремо" % count_word())
         code, _, err = self.check()
         self.assertEqual(0, code, err)
 

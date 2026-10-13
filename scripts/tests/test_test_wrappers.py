@@ -226,9 +226,8 @@ class ChangedTestWrapperWebCheckTest(unittest.TestCase):
             "HOME": str(self.root),
             "LC_ALL": "C",
             # Дім JDK виводиться з самого підставного `java`, а не з окремого
-            # `self.java_home`: свідок мусить діставати програму власним тілом, а
-            # не позиченим `setUp` (#1265, п'яте коло). Значення те саме —
-            # `java` лежить у `<дім>/bin`, — і тепер видно, ЩО туди кладеться.
+            # `self.java_home`: значення те саме — `java` лежить у `<дім>/bin`,
+            # — і видно, ЩО туди кладеться.
             "SLUKHAYKA_JAVA_HOME": str(self.java.parent.parent),
             "SLUKHAYKA_GRADLEW": str(self.gradle),
             "WRAPPER_TEST_LOG": str(self.log),

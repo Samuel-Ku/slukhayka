@@ -161,11 +161,9 @@ fi
 exec flock -w 7200 <slot-file> "$@"
 ```
 
-On this machine the line is in place: since 2026-10-13 (after `d6c35cdf`) the
-wrapper calls the guard from the worktree it was invoked in, so a lane that
-builds through the slot is watched. A branch that predates the guard keeps
-working through the plain `exec flock` below — that fall-through is the point of
-the snippet, not a leftover.
+On this machine the wrapper is wired to it: a lane whose worktree carries
+`scripts/build-slot-guard.py` builds under the guard, and a lane that predates
+it keeps working through the plain `exec flock` in the snippet above.
 
 ## Mutations
 

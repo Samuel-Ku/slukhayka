@@ -365,12 +365,14 @@ than assumed. `scripts/tests/test_witness_derivation.py` runs one file twice
 against a stand-in whose branch is unnamed (so the tool refuses): without an
 external switch the test is green, because it never ran the tool; with the switch
 it is red, because it ran the tool and saw the refusal. The source is
-byte-identical between the two runs, so **no function of the text can be right
-about both** — the truth is a fact of the run, not of the code, and whoever sees
-it is already running the test rather than deriving it. The same module keeps the
-six rounds' trail as a regression: five shapes that a criterion "the test mentions
-the stand-in" accepts, and not one of them runs the tool. That trail is evidence,
-not the proof — a ninth shape would not change the answer, and the module says so.
+byte-identical between the two runs, so **no total function of the text can be
+right about both** — the truth is a fact of the run, not of the code. A function
+allowed to answer *unknown* does survive both runs; what it buys is exactly what
+the named list already is, because it has to answer *unknown* where the automation
+was wanted — on the witness — and derive nothing. The same module keeps the six
+rounds' trail as a regression: five shapes that a criterion "the test mentions the
+stand-in" accepts, and not one of them runs the tool. That trail is evidence, not
+the proof — a ninth shape would not change the answer, and the module says so.
 
 The price of naming is in the code next to the guard it costs:
 `EnvironmentTest.test_the_guard_sees_only_the_runs_it_is_named` puts an
@@ -383,6 +385,29 @@ environment. So a new stand-in is covered only when someone names its run, and
 nothing reddens when they forget; the registry catches the unregistered — a file
 or an embedded program with no record — and cannot catch the unnamed. That is the
 whole price, and it is a run, not a paragraph.
+
+The fourth gate is about the records themselves (`#1276`). One target produced
+**six** switches of a single form: a registry entry could *declare* something about
+itself — a marker, a mode, a witness, an exemption, a shape — and nothing checked
+that the declaration was true. The cure, proven three times, is not a seventh check
+but removing the ability to declare: `runs=False` went by deleting the field,
+`witness` by deleting it together with its inference, `shape_pin` because the pin
+proved it *names* rather than *compares*. The same rule now applies to every field —
+derive it, or delete it. `verdict_field_mutants.Field.decides` is gone: it declared
+what the field decides, and nothing read it. And `test_partitions` no longer declares
+the web check's steps as a literal — it reads the command out of
+`scripts/test-changed.sh`, the script that runs it, so the record can no longer drift
+from the executor in silence.
+
+What is left is the pin on the field **set**: `scripts/declared_fields.py` holds the
+list of declaration records in the verification machinery (`RECORDS`), and a new
+field in any of them reddens `test_declared_fields` until its author names who holds
+it or removes it. The mechanism does not ask what a field means, and does not pretend
+to. Its named limit lives in its docstring, and it is the same limit as the guards':
+a new *record* is not noticed on its own — the list is extended by hand — and the
+prose in the comments beside `RECORDS` is prose, checked by nothing. Its guard is
+enrolled in `guard_witnesses.py` with the live example: the mutation **adds** a field
+to a record, and the pin has to go red.
 
 The gates build a copy of the tree for every mutant, so the temp filesystem is
 their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
@@ -457,9 +482,10 @@ you go looking for a regression that is not there.
 `web/**` is the one tree that never needs the JDK. For it,
 `scripts/test-changed.sh` runs exactly the three steps of the `web` job in
 `.github/workflows/ci.yml`, in `web/`: `npm ci`, `npx tsc --noEmit`,
-`npx vitest run`. The selector names the steps
-(`scripts/test_partitions.py`, `WEB_CHECK_STEPS`) and
-`scripts/tests/test_test_wrappers.py` pins that the wrapper executes those
+`npx vitest run`. The selector does not declare those steps: it reads the command
+out of `scripts/test-changed.sh` itself (`scripts/test_partitions.py`,
+`web_check_steps()`), so the record cannot drift from the executor that runs it,
+and `scripts/tests/test_test_wrappers.py` pins that the wrapper executes those
 three and stops at the first failure.
 
 Run it like any other diff — no wrapper, because no Gradle call is involved:

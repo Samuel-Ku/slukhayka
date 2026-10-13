@@ -231,10 +231,17 @@ class FieldError(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class Field:
-    """Поле вердикту: чим воно вирішує і як виглядає його нуль."""
+    """Поле вердикту: як воно зветься і як виглядає його нуль.
+
+    Поля `decides` тут немає навмисно (#1276). Воно оголошувало, ЧИМ поле
+    вирішує вердикт, і не читав його ніхто: ні механізм, ні жоден тест — запис
+    ніс прозу, яку не перевіряло ніщо, а `--list` і відмови друкують місця
+    (`site.describe()`), а не цю прозу. Проза про те, чим поле вирішує, живе в
+    шапці модуля («Чому саме ці поля»), де вона й читається; поле, яке лише
+    виглядало захистом, прибрано, а не підперто сьомою перевіркою.
+    """
 
     name: str
-    decides: str
     python_zero: str
     shell_zero: str
 
@@ -242,32 +249,26 @@ class Field:
 FIELDS = (
     Field(
         name="tests",
-        decides="без нього немає вердикту взагалі, і skipped == tests не з чим порівняти",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="failures",
-        decides="failures > 0 — мутацію вбито",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="errors",
-        decides="errors > 0 — мутацію вбито; без нього свідок, що падає error'ом, "
-                "читається як no-verdict",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="skipped",
-        decides="skipped == tests — не виконалося нічого, тож вердикту немає",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="artifactSha256",
-        decides="status називає XML на диску артефактом мутації лише за цим хешем",
         # Хеша немає — це порожнеча, а не «нульовий хеш»: саме так поле несе
         # себе, коли артефакт не цього прогону.
         python_zero="None",

@@ -41,6 +41,8 @@ import guard_witnesses as w  # noqa: E402
 # воно потрібне: `GUARDS = ()` дав би зелений набір, який нічого не перевірив.
 # Зникнення запису мусить бути видимим, а не тихим.
 GUARD_TESTS = (
+    "test_declared_fields.RepositoryTest"
+    ".test_every_record_declares_exactly_the_listed_fields",
     "test_fixture_environments.EnvironmentTest"
     ".test_a_named_run_that_is_skipped_is_not_green",
     "test_fixture_environments.EnvironmentTest"

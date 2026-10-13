@@ -1,7 +1,8 @@
 # #968 — ручне злиття роздвоєної ідентичності твору
 
-Статус: пропозиція для рішення власника. Етап D1 виконано як специфікацію;
-production-дані та схема не змінені. Початкова база перевірки — `main`
+Статус: контракт погоджено власником 2026-10-11 у #968. D1 завершено;
+D2 реалізує read-only preview. Apply/Undo, redirects, writer gates та UI
+ще відкриті. Початкова база перевірки — `main`
 `43a726e02f9292a723f742ebbf0ecb47853a9115`, Room v52, 43 сутності.
 Поточна звірка — `main` `6961dd80a5a50cbca82ab7f299b1bc4d8e768832`,
 Room v54, 45 таблиць після #1180. Матриця й майбутні перевірки нижче
@@ -612,3 +613,36 @@ shadow/trigger data або byte-exact physical Undo before-images. Journal,
 redirects, activity/file/permission gates, guarded commit і writer-race
 acceptance залишаються окремими частинами контракту. Цей опис не приймає
 actual runtime чи весь #968.
+
+
+## SQLite storage fingerprint v1
+
+Preview додатково повертає `storageFingerprint` із префіксом
+`manual-work-merge-storage-v1:`. Старий typed fingerprint, constructor,
+`copy`, component functions та рівність preview не змінюються. Обидва
+відбитки обчислюються з однієї Room-транзакції після визначення повного
+scope; додатковий відбиток не створює нового запису чи учасника.
+
+Читач перевіряє, що `PRAGMA user_version` повертає 54, та фактичне
+кодування SQLite.
+Для 36 включених таблиць він читає всі 225 експортованих колонок за
+закритими Room54 descriptors. Кожне значення має власну storage class:
+NULL, INTEGER, REAL, TEXT або BLOB. INTEGER зберігає signed int64, REAL —
+точні binary64 bits; TEXT читається як bytes у кодуванні бази, BLOB —
+як незмінні bytes. Тип, довжина й вміст входять до SHA-256 рамки. Це
+дозволяє відрізнити два збережені REAL, які Room звужує до одного Float.
+Невідома схема, кодування або непідтверджений ключ зупиняють читання;
+переходу на typed fingerprint після помилки немає.
+
+Звичайні таблиці читаються за точними scope PK. FTS читається за тими
+самими requested roots як multiset усіх raw rows: порядок не впливає,
+дублікати зберігають кількість. Дев’ять retained-global carriers вище
+лишаються виключеними з відбитка. Hidden FTS rowid, shadow tables, WAL
+і фізичні сторінки SQLite до цього контракту не входять.
+
+Це read-only detector зміни вмісту, а не recoverable before-image. Він
+не зберігає payload для Undo й не доводить повне фізичне відновлення.
+Окремий реальний Room SDK36 тест через public `prepareManualWorkMerge`
+підтвердив різні відбитки для SQL REAL `0.1` та `0.10000000000000002`
+за однакового typed Float і незмінних інших записів. Повні before-images,
+writer races, Apply/Undo та UI ще потребують реалізації й приймання.

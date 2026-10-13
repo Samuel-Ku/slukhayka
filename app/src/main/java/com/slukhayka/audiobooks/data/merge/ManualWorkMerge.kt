@@ -68,7 +68,10 @@ data class ManualWorkMergePreview(
     val counts: ManualWorkMergeCounts,
     val fingerprint: String,
     val conflicts: List<ManualWorkMergeConflict>,
-)
+) {
+    /** Stored SQLite values of the same transaction and scoped exported columns. */
+    val storageFingerprint: String get() = snapshot.storageFingerprint
+}
 
 data class ManualWorkMergeParticipant(
     val work: WorkEntity,

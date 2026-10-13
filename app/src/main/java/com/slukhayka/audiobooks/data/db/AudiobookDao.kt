@@ -2077,6 +2077,14 @@ interface AudiobookDao {
     suspend fun readManualWorkMergeRows(workIds: List<String>): ManualWorkMergeSnapshot =
         ManualWorkMergeSnapshotReader.read(this, workIds)
 
+    /**
+     * Cursor door for the fixed manual-merge storage descriptors only. The reader
+     * constructs bound SELECTs and consumes/closes each cursor inside the above
+     * transaction; no caller SQL or physical before-images escape the preview.
+     */
+    @RawQuery
+    fun manualMergeStorageCursor(query: androidx.sqlite.db.SupportSQLiteQuery): android.database.Cursor
+
     // Raw one-shot storage queries of the closed manual-merge snapshot. They do not mutate rows.
     @Query("SELECT * FROM works WHERE id IN (:ids)")
     suspend fun manualMergeWorks(ids: List<String>): List<WorkEntity>

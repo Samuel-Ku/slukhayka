@@ -132,7 +132,9 @@ internal object ManualWorkMergeSnapshotReader {
             dao.manualMergeHiddenReviewers(), dao.manualMergeFriendships(), dao.manualMergeSocialBlocks(),
         )
         validate(roots, library, catalog, personal, issues)
-        return ManualWorkMergeSnapshot(roots, library, catalog, personal, retained, issues.distinct())
+        // Read the exact final row scope while the DAO's transaction is still open.
+        val storageFingerprint = ManualWorkMergeStorageFingerprint.of(dao, roots, library, catalog, personal)
+        return ManualWorkMergeSnapshot(roots, library, catalog, personal, retained, issues.distinct(), storageFingerprint)
     }
 
     private fun correctionInScope(

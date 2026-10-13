@@ -11,6 +11,7 @@ class ManualWorkMergeSnapshot internal constructor(
     val personal: ManualWorkMergePersonalRows,
     val retained: ManualWorkMergeRetainedRows,
     conflicts: List<ManualWorkMergeConflict>,
+    internal val storageFingerprint: String,
 ) {
     val rootWorkIds: List<String> = immutableMergeList(rootWorkIds)
     val conflicts: List<ManualWorkMergeConflict> = immutableMergeList(conflicts)

@@ -1815,6 +1815,10 @@ class FakeAudiobookDao(
         workIds: List<String>
     ): com.slukhayka.audiobooks.data.merge.ManualWorkMergeSnapshot = unsupportedManualMergeSnapshot()
 
+    override fun manualMergeStorageCursor(
+        query: androidx.sqlite.db.SupportSQLiteQuery
+    ): android.database.Cursor = unsupportedManualMergeSnapshot()
+
     override suspend fun manualMergeWorks(ids: List<String>):
         List<com.slukhayka.audiobooks.data.db.WorkEntity> = unsupportedManualMergeSnapshot()
 

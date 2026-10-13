@@ -138,12 +138,14 @@ The thresholds are defaults taken from the numbers above, not constants:
 Those are the code's defaults. The wrapper on this machine picks a floor from the
 command instead, because the two kinds of work want different room:
 
-- `--floor-mb 1500` for light work — a scripted run, `mutate.sh status`,
-  `mutate.sh --python`. `MemAvailable` sampled every 5 s for 100 s sat between
-  1.93 and 2.10 GB free, and the flat 2000 MB default — a wedge line, as the code
-  defines it — refused work that needs no build's room twice in a row.
+- `--floor-mb 1500` for light work — a scripted run, `mutate.sh status` (with or
+  without `--class`, since status never starts Gradle), and a `--python` mutation
+  run. `MemAvailable` sampled every 5 s for 100 s sat between 1.93 and 2.10 GB
+  free, and the flat 2000 MB default — a wedge line, as the code defines it —
+  refused work that needs no build's room twice in a row.
 - `--floor-mb 3500` for anything that starts Gradle: `gradlew`, `test-all.sh`,
-  `test-changed.sh`, `pre-release.sh`, and `mutate.sh --class`. This is a policy
+  `test-changed.sh`, `pre-release.sh`, and a mutation run carrying both `--patch`
+  and `--class`. This is a policy
   choice, not a derived constant. The only sizing evidence is #1272's peak JVM
   RSS — 3.61 GB incremental, 4.74 GB cold — and 3500 sits under the smaller one;
   where swap actually begins against starting headroom was never measured, and
@@ -151,8 +153,9 @@ command instead, because the two kinds of work want different room:
   says: a build with less room than its smallest measured peak is not worth
   starting.
 
-The rule keys on the command rather than on the task, so `gradlew --version` is
-refused like any other Gradle call — the wrapper cannot know how heavy a task
+The rule keys on the command rather than on the task: `gradlew --version` is
+refused like any other Gradle call, and a command that merely names a build script
+among its arguments is refused too — the wrapper cannot know how heavy the run
 will be.
 
 End to end through the wired wrapper on 2026-10-13, under the flat floor of the
@@ -160,9 +163,9 @@ time: a refusal returned `3` naming the real number, a real `./gradlew --version
 ran to `0` in about a second, and a supervised run whose reading fell returned `4`
 with its process gone. That last check ran against a fake memory file, because
 this machine has no honest way to fall that low on request. Under the matcher,
-light paths still run — `mutate.sh status` exits `0` — while `gradlew`,
-`bash scripts/test-all.sh` and `scripts/pre-release.sh` are each refused with
-`3500 MB` in the message. The guard is not free: a ten-run bench of an empty
+light paths still run — `mutate.sh status --class …` exits `0` — while `gradlew`,
+`bash scripts/test-all.sh`, `scripts/pre-release.sh` and a `--patch … --class`
+mutation run are each refused with `3500 MB` in the message. The guard is not free: a ten-run bench of an empty
 command through the slot lands in single milliseconds without it and around
 0.1 s with it — two benches on this machine agreed on the order of magnitude, not
 on the digits, so treat it as ~0.1 s against builds measured in minutes.
@@ -193,14 +196,15 @@ the wiring is a change to that file, not to this one:
 root=$(git rev-parse --show-toplevel)
 if [ -x "$root/scripts/build-slot-guard.py" ]; then
   floor=1500                        # light work; the machine idles at 1.9-2.1 GB
-  case "${1:-}" in
-    mutate.sh|*/mutate.sh) for arg in "$@"; do [ "$arg" = "--class" ] && floor=3500; done ;;
-  esac
+  patch=no; klass=no
   for arg in "$@"; do               # a heavy path can hide behind `bash` too
     case "$arg" in
       gradlew|*/gradlew|test-all.sh|*/test-all.sh|test-changed.sh|*/test-changed.sh|pre-release.sh|*/pre-release.sh) floor=3500 ;;
+      --patch) patch=yes ;;
+      --class) klass=yes ;;
     esac
   done
+  [ "$patch" = yes ] && [ "$klass" = yes ] && floor=3500   # mutate.sh run mode
   exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" --floor-mb "$floor" -- "$@"
 fi
 exec flock -w 7200 <slot-file> "$@"

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Тимчасове дерево мутацій: місце перевіряється ДО копіювання, а не після (#1271).
 
-Механізми мутацій (`verdict_field_mutants.py`, `empty_shape_mutants.py`) будують
-на кожен мутант копію дерева в тимчасовій теці. Коли тимчасової ФС бракує, вони
+Механізми мутацій (`verdict_field_mutants.py`, `empty_shape_mutants.py`,
+`guard_witnesses.py`) будують на кожен мутант копію дерева в тимчасовій теці. Коли
+тимчасової ФС бракує, вони
 не просто падають самі: вони заповнюють ФС, а її вичерпання валить **кожен**
 запуск процесу в середовищі — `bash` не стартує навіть на `true`, `ripgrep` не
 запускається, і робота виглядає як «зламалися інструменти», а не як вичерпана
@@ -75,7 +76,7 @@ from pathlib import Path
 # Теки, які належать механізмам мутацій. Прибираються лише вони: тека іншого
 # інструмента (`slukhayka-mutation.*` — scratch живого `mutate.sh`) може бути
 # зайнята просто зараз, і видаляти її означало б зламати чужий прогін.
-OWN_PREFIXES = ("slukhayka-field-", "slukhayka-shape-")
+OWN_PREFIXES = ("slukhayka-field-", "slukhayka-shape-", "slukhayka-guard-")
 
 # Маркер власника: у теці лежить PID процесу, який її створив. Без нього
 # «застаріле» доводилося б угадувати за часом — а свіжу теку сусіднього прогону
@@ -90,6 +91,18 @@ RELOCATE_VARIABLE = "SLUKHAYKA_MUTANTS_TMPDIR"
 # те, що між перевіркою й записом місце встигне зменшитися (сусідній прогін,
 # Gradle, інший агент у тій самій сесії).
 COPY_HEADROOM = 8
+
+# Що саме пише `link_tree`: піддерево, з якого складається інструмент, і те, що в
+# копію не йде — кеші байт-коду та теки, які не є кодом репозиторію (`.git`,
+# кеші Gradle, `build`, чужі worktree з копіями того самого коду). Це типові
+# значення ОДНІЄЇ функції копіювання: механізми, у яких набір інший, передають
+# свій явно, а не тримають другу редакцію копіювання.
+LINK_COPY_ENTRY = "scripts"
+LINK_COPY_IGNORE = ("__pycache__", "*.pyc")
+LINK_SKIP_DIRS = frozenset({
+    ".git", ".gradle", ".gradle-home", ".kotlin", ".mutations", ".robolectric-jars",
+    ".scratch", ".worktrees", "build", "node_modules",
+})
 
 # Підлога на власний scratch свідків: `mutate.sh` пише туди pycache, логи,
 # аргументи Gradle, а вкладений прогін механізму — ще й свої дерева.
@@ -225,6 +238,40 @@ def tree_bytes(directory: Path, ignore=()) -> int:
 def requirement(copy_bytes: int) -> int:
     """Скільки місця механізм вимагає на ФС, щоб почати копіювати."""
     return copy_bytes * COPY_HEADROOM + SCRATCH_FLOOR_BYTES
+
+
+def link_tree(root: Path, tmp: Path, *, copy_entry: str = LINK_COPY_ENTRY,
+              ignore: tuple[str, ...] = LINK_COPY_IGNORE,
+              skip_dirs: frozenset[str] | set[str] = LINK_SKIP_DIRS) -> Path:
+    """Копія дерева, де `copy_entry` справжня, а решта top-level записів — симлінки.
+
+    Мутант живе лише в копії, тож дерево репозиторію не змінюється, а свідок
+    бачить той самий корінь (`__file__` у копії). Повна копія коштує десятки MiB
+    і секунди на кожного мутанта — звідси важіль: копіюється лише піддерево, з
+    якого складається інструмент (`scripts/`), а незмінна частина дерева
+    (`.git`, кеші Gradle, `build`, чужі worktree) лишається посиланням.
+
+    Це ЄДИНЕ місце, де будується така копія (#1270): `verdict_field_mutants`,
+    `empty_shape_mutants` і `guard_witnesses` звуть його, а не тримають кожен
+    свою редакцію — копія, яка розійшлася з виміром `tree_bytes`, охороняла б не
+    той обсяг, а копія, яка розійшлася з копією, — не той корінь.
+
+    `copy_entry` і `skip_dirs` лишаються параметрами: набір тек, у які механізм не
+    дивиться, — це факт про конкретний механізм (і його пінять його власні
+    тести), а не про копіювання.
+    """
+    work = tmp / "root"
+    work.mkdir()
+    shutil.copytree(
+        root / copy_entry,
+        work / copy_entry,
+        ignore=shutil.ignore_patterns(*ignore),
+    )
+    for entry in root.iterdir():
+        if entry.name in {copy_entry} | set(skip_dirs):
+            continue
+        (work / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+    return work
 
 
 # --------------------------------------------------------------------------

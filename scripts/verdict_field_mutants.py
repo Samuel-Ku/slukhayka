@@ -133,10 +133,11 @@
 самий інструмент, різниця лише в наборі-свідку.
 
 Ціна й тимчасові дерева (#1271). Копіюється лише `scripts/`, решта top-level
-записів — симлінки: виміряно 1.2 MiB на дерево проти 74.7 MiB у повної копії
-дерева (0.03–0.14 с проти 0.40–1.04 с — час залежить від завантаження машини).
-На гейт дерева будуються 38 разів, тож разом це 38 × 1.2 MiB = 45.6 MiB проти
-38 × 74.7 MiB = 2.8 GiB, якби копіювалося все. Дерево звільняється одразу після
+записів — симлінки: виміряно 1.4 MiB на дерево проти 76.2 MiB у повної копії
+дерева (0.01 с проти 0.32 с) — на дереві `d6c35cdf`, і число росте разом із
+деревом: піниться ВІДНОШЕННЯ, а не число.
+На гейт дерева будуються 38 разів, тож разом це 38 × 1.4 MiB = 53.2 MiB проти
+38 × 76.2 MiB = 2.8 GiB, якби копіювалося все. Дерево звільняється одразу після
 свого прогону, тож пік — це `--jobs` дерев, а не всі 38: виміряно 46.9 MiB піку,
 поки всі 38 жили до кінця прогону, і 5.3 MiB після правки (той самий гейт, той
 самий метод). Місце перевіряється ДО першої копії (`tmp_budget.prepare`): він
@@ -174,9 +175,11 @@ TESTS_DIR = Path("scripts/tests")
 
 # Піддерево, яке копіюється в тимчасове дерево, і те, що в копію не йде. Обидві
 # константи читають і копіювання, і вимір копії: розійтися їм нема чого, інакше
-# бюджет міряв би не те, що пише `_roots` (#1271).
-COPY_ENTRY = "scripts"
-COPY_IGNORE = ("__pycache__", "*.pyc")
+# бюджет міряв би не те, що пише `_roots` (#1271). Джерело в них одне —
+# `tmp_budget`, де живе саме копіювання (#1270): друга редакція набору розійшлася
+# б із першою, і жоден тест цього не побачив би.
+COPY_ENTRY = tmp_budget.LINK_COPY_ENTRY
+COPY_IGNORE = tmp_budget.LINK_COPY_IGNORE
 
 # Префікс тимчасових дерев механізму: за ним застарілі дерева попередніх падінь
 # відрізняються від чужих тек.
@@ -184,10 +187,7 @@ TEMP_PREFIX = "slukhayka-field-"
 
 # Теки, куди механізм не дивиться: або не код репозиторію, або кеші з копіями
 # того самого коду, які дали б той самий мутант удруге.
-SKIP_DIRS = {
-    ".git", ".gradle", ".gradle-home", ".kotlin", ".mutations", ".robolectric-jars",
-    ".scratch", ".worktrees", "build", "node_modules",
-}
+SKIP_DIRS = tmp_budget.LINK_SKIP_DIRS
 
 # Скільки мутантів гнати одночасно. Це швидкість, а не вимикач: кожен мутант
 # усе одно буде перевірений — черга лише коротшає.
@@ -651,22 +651,70 @@ def _mentions(node: ast.AST, field: str) -> bool:
     return False
 
 
-def runs_the_suite(node: ast.ClassDef) -> bool:
-    """Чи цей клас ганяє набір у собі (через `sys.executable -m unittest`).
+def module_programs(tree: ast.Module) -> dict[str, str]:
+    """Сталі рядки модуля: `PROGRAM = '''…'''` — програми, які клас ГАНЯЄ.
+
+    Без них форма виклику не читається: `subprocess.run([sys.executable, "-c",
+    PROGRAM, …])` називає програму ІМЕНЕМ, а не текстом, і «ганяє набір» видно
+    лише з того, що в програмі написано (#1270).
+    """
+    programs: dict[str, str] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            programs[node.targets[0].id] = node.value.value
+    return programs
+
+
+def runs_tests_by_name(call: ast.Call, programs: dict[str, str]) -> bool:
+    """Чи цей виклик передає `-c` програму, яка вантажить тести ЗА ІМЕНАМИ.
+
+    Це та сама поведінка, що `-m unittest <ціль>`: клас, який кличе таку
+    програму, ганяє набір, а не перевіряє інструмент. Ознака береться з ОБʼЄКТА
+    виклику (аргумент-стала чи стала модуля), а не з підрядка в тексті класу:
+    згадка в прозі — не запуск, і саме на цьому вже горів реєстр фікстур.
+    """
+    literals = [
+        part.value for part in ast.walk(call)
+        if isinstance(part, ast.Constant) and isinstance(part.value, str)
+    ]
+    literals += [
+        programs[part.id] for part in ast.walk(call)
+        if isinstance(part, ast.Name) and part.id in programs
+    ]
+    return any("loadTestsFromNames" in text for text in literals)
+
+
+def runs_the_suite(node: ast.ClassDef, programs: dict[str, str] | None = None) -> bool:
+    """Чи цей клас ганяє набір у собі (`sys.executable` + unittest).
 
     Такий клас — свідок НАБОРУ, а не інструмента: він сам підсовує інструментові
     копії й вимагає, щоб укладена в нього мутація почервонила названий тест.
     Порахувати його свідком поля означало б визнати вбитим будь-якого мутанта:
     він вимагає, щоб `intact`-прогін був зелений, а `intact` тут — той самий
     мутант. Мета-тест, який ловить «щось змінилося», не є свідком того, ЩО саме.
+
+    Дві форми — одна поведінка: `-m unittest` (ім'я видно у виклику) і `-c
+    <програма>`, яка вантажить тести за іменами (#1270). Друга форму зробив
+    ґард оточення, коли почав брати лічильники з прогону: сам лише підрядок
+    `unittest` у виклику перестав його впізнавати, і клас-мета-тест раптом став
+    свідком поля — на кожне місце `mutate.sh` по десять секунд прогону.
     """
+    programs = programs or {}
     for child in ast.walk(node):
         if not (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)):
             continue
         if child.func.attr not in {"run", "Popen", "check_output", "check_call"}:
             continue
         spelled = ast.unparse(child)
-        if "sys.executable" in spelled and "unittest" in spelled:
+        if "sys.executable" not in spelled:
+            continue
+        if "unittest" in spelled or runs_tests_by_name(child, programs):
             return True
     return False
 
@@ -688,6 +736,7 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
     # `unittest.TestCase`. Спільна фікстура на кшталт `MutateFixtureTest` — теж
     # предок, тож прямий пошук `TestCase` у базах не побачив би жодного тесту.
     classes = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+    programs = module_programs(tree)
 
     def is_test_class(name: str, seen: frozenset = frozenset()) -> bool:
         if name in seen or name not in classes:
@@ -702,7 +751,7 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
 
     targets = []
     for name, node in classes.items():
-        if not is_test_class(name) or runs_the_suite(node):
+        if not is_test_class(name) or runs_the_suite(node, programs):
             continue
         for item in node.body:
             if not isinstance(item, ast.FunctionDef) or not item.name.startswith("test"):
@@ -739,21 +788,15 @@ def copy_bytes(root: Path) -> int:
 def _roots(root: Path, tmp: Path) -> Path:
     """Копія дерева, де `scripts/` справжня, а решта — посилання.
 
-    Мутант живе лише в копії, тож дерево репозиторію не змінюється. Каталоги з
-    кешами й `.git` не переносяться: свідку потрібні тести, а не історія.
+    Саме копіювання (і те, чому воно таке) — у `tmp_budget.link_tree`: та сама
+    функція будує копію для всіх трьох механізмів мутацій (#1270), тож копія не
+    може розійтися з виміром `copy_bytes` і з копією сусіднього механізму. Тут
+    лишаються самі константи — вони факти про ЦЕЙ механізм, і їх пінять його
+    власні тести.
     """
-    work = tmp / "root"
-    work.mkdir()
-    shutil.copytree(
-        root / COPY_ENTRY,
-        work / COPY_ENTRY,
-        ignore=shutil.ignore_patterns(*COPY_IGNORE),
+    return tmp_budget.link_tree(
+        root, tmp, copy_entry=COPY_ENTRY, ignore=COPY_IGNORE, skip_dirs=SKIP_DIRS
     )
-    for entry in root.iterdir():
-        if entry.name in {COPY_ENTRY} | SKIP_DIRS:
-            continue
-        (work / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
-    return work
 
 
 def _run(work: Path, tests_dir: Path, targets: list[str]) -> tuple[int | None, str]:

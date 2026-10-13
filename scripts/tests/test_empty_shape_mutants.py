@@ -500,9 +500,9 @@ class TempBudgetTest(unittest.TestCase):
     def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
         """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
 
-        Виміряно на цьому дереві: повна копія — 74.7 MiB і 0.40 с на дерево,
-        копія `scripts/` — 1.2 MiB і 0.03 с. Тест тримає саме відношення й те,
-        що симлінки не стали копіями.
+        Виміряно на дереві `d6c35cdf`: повна копія — 76.2 MiB і 0.32 с на дерево,
+        копія `scripts/` — 1.4 MiB і 0.01 с; число росте разом із деревом, тож
+        тест тримає ВІДНОШЕННЯ й те, що симлінки не стали копіями.
         """
         (Path(self._tmp.name) / "tree").mkdir()
         work = esm._roots(REPO_ROOT, Path(self._tmp.name) / "tree")

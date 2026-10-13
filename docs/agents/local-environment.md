@@ -359,6 +359,31 @@ green run. In practice the review of a new guard narrows to one question: **wher
 is its entry?** `python3 scripts/guard_witnesses.py --list` names every entry,
 `--guard <target>` runs one.
 
+`#1279` asked the question those six rounds left open — can that witness be
+**derived from the AST** rather than named? — and the answer is no, proven rather
+than assumed. `scripts/tests/test_witness_derivation.py` runs one file twice
+against a stand-in whose branch is unnamed (so the tool refuses): without an
+external switch the test is green, because it never ran the tool; with the switch
+it is red, because it ran the tool and saw the refusal. The source is
+byte-identical between the two runs, so **no function of the text can be right
+about both** — the truth is a fact of the run, not of the code, and whoever sees
+it is already running the test rather than deriving it. The same module keeps the
+six rounds' trail as a regression: five shapes that a criterion "the test mentions
+the stand-in" accepts, and not one of them runs the tool. That trail is evidence,
+not the proof — a ninth shape would not change the answer, and the module says so.
+
+The price of naming is in the code next to the guard it costs:
+`EnvironmentTest.test_the_guard_sees_only_the_runs_it_is_named` puts an
+inheriting stand-in in a copy of the `empty_shape` fixture and runs it three
+ways. Named and stripped, the run is green. Named and poisoned, it is red with
+`AssertionError: 0 != 1` — the poison reached the stand-in, which is what the
+guard exists to catch. Unnamed and poisoned, it is green *because the run never
+happens*: a test outside `ENVIRONMENT_TARGETS` is not executed under either
+environment. So a new stand-in is covered only when someone names its run, and
+nothing reddens when they forget; the registry catches the unregistered — a file
+or an embedded program with no record — and cannot catch the unnamed. That is the
+whole price, and it is a run, not a paragraph.
+
 The gates build a copy of the tree for every mutant, so the temp filesystem is
 their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
 every other top-level entry is a symlink: one tree costs 1.4 MiB against 76.2 MiB

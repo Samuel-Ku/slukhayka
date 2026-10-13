@@ -56,6 +56,8 @@ GUARD_TESTS = (
     "test_guard_witnesses.RefusalTest"
     ".test_a_mutation_that_no_longer_applies_is_an_unknown",
     "test_issue_premise.ExtractionTest.test_measure_head_exists_because_the_docs_cite_it",
+    "test_issue_premise.TreeEvidenceTest"
+    ".test_a_bare_name_that_matches_only_a_tree_is_ambiguous",
     "test_named_boundaries.SectionTest"
     ".test_a_boundary_named_in_code_without_a_witness_is_refused",
     "test_named_boundaries.SectionTest"

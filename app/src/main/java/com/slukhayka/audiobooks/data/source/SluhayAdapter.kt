@@ -93,6 +93,8 @@ class SluhayAdapter(
     /** Spec-13 T4: discovery is session-bound — the feed pipeline shows a CTA, never dead data. */
     override val sessionBound: Boolean = true
 
+    override val supportsSearch: Boolean = false
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     /** Poster links of THIS site (host-scoped by the origin). */

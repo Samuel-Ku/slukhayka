@@ -47,6 +47,8 @@ class AudiobookCoUaAdapter(
      * honest refusal the seam contract allows; unified search covers the
      * source through the other sources' results and the catalogue union.
      */
+    override val supportsSearch: Boolean = false
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {

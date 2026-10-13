@@ -1,8 +1,10 @@
 package com.slukhayka.audiobooks.data.collective
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -104,6 +106,44 @@ class CollectiveBlockSyncTest {
         assertEquals(0, applied)
         assertEquals(listOf("Локальна"), local.active(key)!!.cards.map { it.title })
         assertEquals(CollectiveBlockCursor(5L, "d5"), cursorStore.load())
+    }
+
+    @Test
+    fun `cancelled local admission keeps the newer page available for the next sync`() = runBlocking {
+        val committed = InMemoryCollectiveFeedBlockStore()
+        committed.activate(block(100L, "Локальна"))
+        val cancellation = CancellationException("Local admission cancelled before commit")
+        var cancelAdmission = true
+        val local = object : CollectiveFeedBlockStore by committed {
+            override suspend fun activateIfNewer(block: CollectiveFeedBlock): Boolean {
+                if (cancelAdmission) throw cancellation
+                return committed.activateIfNewer(block)
+            }
+        }
+        val remoteCursor = CollectiveBlockCursor(200L, "newer-page")
+        val store = object : CollectiveBlockStore {
+            override suspend fun getBlocksPage(after: CollectiveBlockCursor?, limit: Int): CollectiveBlockPage =
+                if (after == remoteCursor) CollectiveBlockPage(emptyList(), null)
+                else CollectiveBlockPage(listOf(block(200L, "Нова")), remoteCursor)
+        }
+        val sync = CollectiveBlockSync(store, local, InMemoryCollectiveBlockSyncCursorStore())
+
+        val propagated = try {
+            sync.syncOnce()
+            null
+        } catch (error: CancellationException) {
+            error
+        }
+        assertTrue(
+            "Cancelled admission must stop sync before acknowledging the page",
+            propagated === cancellation || propagated?.cause === cancellation
+        )
+        assertEquals("Local admission cancelled before commit", propagated?.message)
+        assertEquals(listOf("Локальна"), local.active(key)!!.cards.map { it.title })
+
+        cancelAdmission = false
+        assertEquals(1, sync.syncOnce())
+        assertEquals(listOf("Нова"), local.active(key)!!.cards.map { it.title })
     }
 
     @Test

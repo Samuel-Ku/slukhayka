@@ -311,10 +311,26 @@ class MainActivityAccessibilityTest {
             timeoutMillis = NAV_TIMEOUT_MS
         )
         composeTestRule.onNodeWithTag("tab_library").performClick()
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("library_book_item_$fixtureBookId"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
+        try {
+            composeTestRule.waitUntilExactlyOneExists(
+                hasTestTag("library_book_item_$fixtureBookId"),
+                timeoutMillis = NAV_TIMEOUT_MS
+            )
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            // Keep the original failure; its report also needs the tree that
+            // distinguishes a missing card from duplicate matching nodes.
+            runCatching {
+                val configuration = composeTestRule.activity.resources.configuration
+                val merged = composeTestRule.onRoot().printToString()
+                val unmerged = composeTestRule.onRoot(useUnmergedTree = true).printToString()
+                failure.addSuppressed(AssertionError(
+                    "Library card timeout: window=${configuration.screenWidthDp}x" +
+                        "${configuration.screenHeightDp} dp; " +
+                        "merged tree:\n$merged\nunmerged tree:\n$unmerged"
+                ))
+            }.onFailure { diagnosticFailure -> failure.addSuppressed(diagnosticFailure) }
+            throw failure
+        }
         // #766 B — attach the tree to the failure: the report is the ONE
         // channel the harness already retrieves.
         composeTestRule.onRoot().tryPerformAccessibilityChecks()

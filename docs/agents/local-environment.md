@@ -135,16 +135,22 @@ The thresholds are defaults taken from the numbers above, not constants:
   zram does not drain by itself, so an absolute ceiling would eventually stop
   every later run forever, and "free some memory" would not clear it.
 
-Those are the code's defaults. The wrapper on this machine passes
-`--floor-mb 1500` instead, because `MemAvailable` sampled every 5 s for 100 s sat
-between 1.93 and 2.10 GB free: a 2000 MB floor sat exactly on the machine's
-normal level and turned ordinary slot work away whenever memory dipped. A heavy
-build swaps at either value — what keeps it off the machine is the critical line,
-not the floor.
+Those are the code's defaults, and the wrapper on this machine picks a floor from
+what it is about to run rather than one number for everything:
 
-End to end through the wired wrapper on 2026-10-13: a real `./gradlew --version`
-returned `0` in about a second, a refusal returned `3` naming the real number,
-and a supervised run whose reading fell returned `4` with its process gone. That
+- `--floor-mb 3500` for a Gradle build — `gradlew`, `test-all.sh`,
+  `test-changed.sh`, `mutate.sh --class`. The measured peaks are 3.61 and
+  4.74 GB, so a build starting below 3500 MB free will swap: better refused at
+  once than stopped mid-flight after minutes of zram pressure.
+- `--floor-mb 1500` for everything else, `mutate.sh --python` included.
+  `MemAvailable` sampled every 5 s for 100 s sat between 1.93 and 2.10 GB free,
+  so the flat 2000 MB default turned ordinary slot work away whenever memory
+  dipped — and light work does not need a build's room.
+
+End to end through the wired wrapper on 2026-10-13: a refusal returned `3` naming
+the real number, a real `./gradlew --version` ran to `0` in about a second while
+the wrapper still passed a flat floor, and a supervised run whose reading fell
+returned `4` with its process gone. That
 last check ran against a fake memory file, because this machine has no honest way
 to fall that low on request. The guard is not free: a ten-run bench of an empty
 command through the slot lands in single milliseconds without it and around
@@ -161,7 +167,8 @@ build may own: a Gradle daemon outlives the group, which is one more reason
 already going under, not one about to; it stops the run, it does not predict.
 And the heavy build has not run under the guard here: the case the guard exists
 for needs 3.61–4.74 GB, while this machine has sat at 1.9–2.1 GB since the
-wiring, so what is proven end to end is light commands and the stop path.
+wiring, so the command-aware floor now refuses it outright, and what is proven
+end to end is light commands and the stop path.
 
 Both branches are pinned by `scripts/tests/test_build_slot_guard.py` against
 fake memory files — refusal, stop, SIGTERM escalation, swap growth and the
@@ -174,7 +181,14 @@ the wiring is a change to that file, not to this one:
 ```sh
 root=$(git rev-parse --show-toplevel)
 if [ -x "$root/scripts/build-slot-guard.py" ]; then
-  exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" --floor-mb 1500 -- "$@"
+  floor=1500                        # light work; the machine idles at 1.9-2.1 GB
+  case "${1:-}" in
+    gradlew|*/gradlew|*/test-all.sh|*/test-changed.sh) floor=3500 ;;   # peaks 3.61-4.74 GB
+    */mutate.sh)
+      floor=3500
+      for arg in "$@"; do [ "$arg" = "--python" ] && floor=1500; done ;;
+  esac
+  exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" --floor-mb "$floor" -- "$@"
 fi
 exec flock -w 7200 <slot-file> "$@"
 ```

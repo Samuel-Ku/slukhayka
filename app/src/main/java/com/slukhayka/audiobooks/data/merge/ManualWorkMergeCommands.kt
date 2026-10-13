@@ -98,8 +98,16 @@ class ManualWorkMergeCommands(
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Additional carrier policies are not implemented")
                 }
                 val sql = database.openHelper.writableDatabase
-                sql.query(SimpleSQLiteQuery("SELECT id FROM works WHERE id = ? OR mergeKey = ?", arrayOf(canonical, canonical))).use {
-                    if (it.moveToFirst()) return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Canonical identity already exists")
+                val existingCanonical = sql.query(SimpleSQLiteQuery(
+                    "SELECT id, mergeKey FROM works WHERE id = ? OR mergeKey = ?", arrayOf(canonical, canonical),
+                )).use {
+                    if (!it.moveToFirst()) false else {
+                        if (it.getString(0) != canonical || it.getString(1) != canonical ||
+                            canonical !in roots || it.moveToNext()) {
+                            return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Canonical identity needs a participant decision")
+                        }
+                        true
+                    }
                 }
                 val oldKeys = (roots + preview.participants.map { it.work.mergeKey }).filter { it.isNotBlank() }.distinct()
                 if (readAliases((oldKeys + canonical).distinct(), (roots + canonical).distinct()).isNotEmpty()) {
@@ -108,7 +116,7 @@ class ManualWorkMergeCommands(
                 val aliases = preview.participants.flatMap { participant -> listOf(
                     WorkIdentityRedirectRow("WORK_ID", participant.work.id, canonical, plan.operationId),
                     WorkIdentityRedirectRow("MERGE_KEY", participant.work.mergeKey, canonical, plan.operationId),
-                ) }.filter { it.oldKey.isNotBlank() }.distinctBy { it.namespace to it.oldKey }
+                ) }.filter { it.oldKey.isNotBlank() && it.oldKey != canonical }.distinctBy { it.namespace to it.oldKey }
                 for (alias in aliases) if (identity.redirectByAlias(alias.namespace, alias.oldKey) != null) {
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("An old identity already has an alias")
                 }
@@ -122,7 +130,11 @@ class ManualWorkMergeCommands(
                 rootRows.forEach { check(it.cells[8].type == "integer") }
                 val knownTimes = rootRows.filter { it.cells[8].number > 0 }
                 val selected = knownTimes.minByOrNull { it.cells[8].number } ?: rootRows.first()
-                val enrichedCells = selected.cells.toMutableList()
+                val canonicalBase = if (existingCanonical) rootRows.single {
+                    journal.text(it, "id", before.encoding) == canonical
+                } else selected
+                val enrichedCells = canonicalBase.cells.toMutableList()
+                if (knownTimes.isNotEmpty()) enrichedCells[8] = selected.cells[8]
                 val optionalColumns = listOf("seriesTitle", "seriesUrl", "seriesIndex", "coverImageUrl")
                 val choices = metadataChoiceIds(plan.metadataChoices)
                 for ((offset, column) in optionalColumns.withIndex()) {
@@ -157,7 +169,7 @@ class ManualWorkMergeCommands(
                     // Keep the original SQL value; before-images retain each donor's fields.
                     enrichedCells[index] = value
                 }
-                val canonicalRow = journal.withText(selected.copy(cells = enrichedCells), mapOf(
+                val canonicalRow = journal.withText(canonicalBase.copy(cells = enrichedCells), mapOf(
                     "id" to canonical, "mergeKey" to canonical,
                     "title" to plan.canonicalTitle, "author" to plan.canonicalAuthor,
                 ), before.encoding)
@@ -192,7 +204,8 @@ class ManualWorkMergeCommands(
                     PreservedWorkMergeParticipant(plan.operationId, checkNotNull(edition.bookId), edition.edition.id, true)
                 } }.distinctBy { it.bookId to it.editionId }
                 context.ensureActive()
-                journal.insert(canonicalRow)
+                if (existingCanonical) check(journal.updateById(canonicalRow, canonical) == 1)
+                else journal.insert(canonicalRow)
                 for (row in before.rows.getValue("library_entries")) {
                     val id = journal.text(row, "id", before.encoding)
                     check(journal.updateById(journal.withText(row, mapOf("workId" to canonical), before.encoding), id) == 1)
@@ -202,7 +215,7 @@ class ManualWorkMergeCommands(
                 for (row in claims) journal.insert(row)
                 for (root in roots) {
                     execute("DELETE FROM works_fts WHERE workId = ?", root)
-                    check(execute("DELETE FROM works WHERE id = ?", root) == 1)
+                    if (root != canonical) check(execute("DELETE FROM works WHERE id = ?", root) == 1)
                 }
                 database.audiobookDao().refreshWorkSearchIndex(canonical)
                 identity.insertRedirects(aliases)
@@ -274,6 +287,17 @@ class ManualWorkMergeCommands(
                 }
                 val before = journal.decode(operation.beforeImages)
                 val after = journal.decode(operation.afterImages)
+                val beforeWorks = before.rows.getValue("works")
+                val beforeWorkIds = beforeWorks.map { journal.text(it, "id", before.encoding) }
+                if (beforeWorks.size != roots.size || beforeWorkIds.toSet() != roots.toSet()) {
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal Work identities disagree with participants")
+                }
+                val originalCanonical = beforeWorks.firstOrNull {
+                    journal.text(it, "id", before.encoding) == operation.canonicalWorkId
+                }
+                if (originalCanonical != null && journal.text(originalCanonical, "mergeKey", before.encoding) != operation.canonicalWorkId) {
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Original canonical identity changed")
+                }
                 val books = before.rows.getValue("library_entries").map { journal.text(it, "id", before.encoding) }
                 if (books.toSet() != protected.map { it.bookId }.toSet()) return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal and protection disagree")
                 val scope = (roots + operation.canonicalWorkId).distinct()
@@ -285,7 +309,7 @@ class ManualWorkMergeCommands(
                 val expectedAliases = before.rows.getValue("works").flatMap { row -> listOf(
                     WorkIdentityRedirectRow("WORK_ID", journal.text(row, "id", before.encoding), operation.canonicalWorkId, operationId),
                     WorkIdentityRedirectRow("MERGE_KEY", journal.text(row, "mergeKey", before.encoding), operation.canonicalWorkId, operationId),
-                ) }.filter { it.oldKey.isNotBlank() }.distinctBy { it.namespace to it.oldKey }
+                ) }.filter { it.oldKey.isNotBlank() && it.oldKey != operation.canonicalWorkId }.distinctBy { it.namespace to it.oldKey }
                 val aliasKeys = (expectedAliases.map { it.oldKey } + operation.canonicalWorkId).distinct()
                 if (readAliases(aliasKeys, scope).toSet() != expectedAliases.toSet()) {
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("New alias dependencies prevent Undo")
@@ -294,7 +318,10 @@ class ManualWorkMergeCommands(
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Operation aliases changed")
                 }
                 context.ensureActive()
-                for (row in before.rows.getValue("works")) journal.insert(row)
+                if (originalCanonical != null) check(journal.updateById(originalCanonical, operation.canonicalWorkId) == 1)
+                for (row in beforeWorks) {
+                    if (journal.text(row, "id", before.encoding) != operation.canonicalWorkId) journal.insert(row)
+                }
                 for (row in before.rows.getValue("library_entries")) {
                     check(journal.updateById(row, journal.text(row, "id", before.encoding)) == 1)
                 }
@@ -304,7 +331,7 @@ class ManualWorkMergeCommands(
                 for (row in before.rows.getValue("work_sources")) journal.insert(row)
                 execute("DELETE FROM works_fts WHERE workId = ?", operation.canonicalWorkId)
                 for (row in before.rows.getValue("works_fts")) journal.insert(row)
-                check(execute("DELETE FROM works WHERE id = ?", operation.canonicalWorkId) == 1)
+                if (originalCanonical == null) check(execute("DELETE FROM works WHERE id = ?", operation.canonicalWorkId) == 1)
                 identity.deleteOperationRedirects(operationId)
                 check(identity.markUndone(operationId) == 1)
                 context.ensureActive()

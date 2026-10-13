@@ -161,9 +161,9 @@ fi
 exec flock -w 7200 <slot-file> "$@"
 ```
 
-Until that line lands, no lane is guarded: the guard is a tool waiting for its
-caller, and a branch that predates it keeps working through the plain
-`exec flock` below.
+On this machine the wrapper is wired to it: a lane whose worktree carries
+`scripts/build-slot-guard.py` builds under the guard, and a lane that predates
+it keeps working through the plain `exec flock` in the snippet above.
 
 ## Mutations
 

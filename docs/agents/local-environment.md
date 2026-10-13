@@ -113,7 +113,7 @@ looks like. `scripts/build-slot-guard.py` is the outside that now lives inside
 the repository:
 
 ```sh
-.worktrees/gt scripts/build-slot-guard.py -- ./gradlew --no-daemon :app:testPureJvm
+.worktrees/gt ./gradlew --no-daemon :app:testPureJvm
 ```
 
 It refuses to start when `MemAvailable` is below `--floor-mb` (exit `3`), and it
@@ -136,24 +136,32 @@ The thresholds are defaults taken from the numbers above, not constants:
   every later run forever, and "free some memory" would not clear it.
 
 Those are the code's defaults. The wrapper on this machine passes
-`--floor-mb 1500` instead: 20 samples over 100 s put the machine between 1.94 and
-2.10 GB free, so a 2000 MB floor turned ordinary slot work away whenever the
-machine sat at its usual level, while the state #1272 recorded (1.13 GB) is
-refused at either value. End to end through the wired wrapper on 2026-10-13: a
-real `./gradlew --version` returned `0` in 1.08 s, a refusal returned `3` naming
-the real number, and a supervised run whose reading fell returned `4` with its
-process gone. The guard is not free either — an empty command through the slot
-cost 5 ms without it and 111 ms with it, ten runs each.
+`--floor-mb 1500` instead, because `MemAvailable` sampled every 5 s for 100 s sat
+between 1.93 and 2.10 GB free: a 2000 MB floor sat exactly on the machine's
+normal level and turned ordinary slot work away whenever memory dipped. A heavy
+build swaps at either value — what keeps it off the machine is the critical line,
+not the floor.
+
+End to end through the wired wrapper on 2026-10-13: a real `./gradlew --version`
+returned `0` in about a second, a refusal returned `3` naming the real number,
+and a supervised run whose reading fell returned `4` with its process gone. That
+last check ran against a fake memory file, because this machine has no honest way
+to fall that low on request. The guard is not free: a ten-run bench of an empty
+command through the slot lands in single milliseconds without it and around
+0.1 s with it — two benches on this machine agreed on the order of magnitude, not
+on the digits, so treat it as ~0.1 s against builds measured in minutes.
 
 A code collision is worth naming: because the command's own exit code passes
 through untouched, a command that legitimately exits `3` or `4` cannot be told
 from a refusal or a stop by the code alone — the reason is on stderr.
 
-Two honest limits. The guard watches a process **group**, not every JVM a build
-may own: a Gradle daemon outlives the group, which is one more reason
-`test-all.sh` runs `--no-daemon`. And a one-second sampler reports a machine
-that is already going under, not one about to; it stops the run, it does not
-predict.
+Three honest limits. The guard watches a process **group**, not every JVM a
+build may own: a Gradle daemon outlives the group, which is one more reason
+`test-all.sh` runs `--no-daemon`. A one-second sampler reports a machine that is
+already going under, not one about to; it stops the run, it does not predict.
+And the heavy build has not run under the guard here: the case the guard exists
+for needs 3.61–4.74 GB, while this machine has sat at 1.9–2.1 GB since the
+wiring, so what is proven end to end is light commands and the stop path.
 
 Both branches are pinned by `scripts/tests/test_build_slot_guard.py` against
 fake memory files — refusal, stop, SIGTERM escalation, swap growth and the
@@ -166,7 +174,7 @@ the wiring is a change to that file, not to this one:
 ```sh
 root=$(git rev-parse --show-toplevel)
 if [ -x "$root/scripts/build-slot-guard.py" ]; then
-  exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" -- "$@"
+  exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" --floor-mb 1500 -- "$@"
 fi
 exec flock -w 7200 <slot-file> "$@"
 ```

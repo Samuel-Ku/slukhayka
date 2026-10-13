@@ -306,6 +306,24 @@ GUARDS = (
             ),
         ),
     ),
+    Guard(
+        test="test_declared_fields.RepositoryTest"
+             ".test_every_record_declares_exactly_the_listed_fields",
+        protects="набір полів запису-оголошення: НОВЕ оголошене поле мусить червонити пін, "
+                 "а не проходити тихо — саме на цьому впали шість перемикачів однієї форми "
+                 "(#1276)",
+        edits=(
+            # Живий приклад тікета: мутація ДОДАЄ полю-оголошенню нове поле. Поле з
+            # нулем у кінці, щоб мутант лишався датакласом, який будується, — інакше
+            # «червоний» означав би «не імпортується», а не «пін побачив поле».
+            Edit(
+                file="scripts/guard_witnesses.py",
+                find="    test: str\n    protects: str\n    edits: tuple[Edit, ...]\n",
+                replace="    test: str\n    protects: str\n    edits: tuple[Edit, ...]\n"
+                        '    owner: str = ""  # mutated\n',
+            ),
+        ),
+    ),
 )
 
 GUARDS_BY_TEST = {guard.test: guard for guard in GUARDS}

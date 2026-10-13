@@ -359,6 +359,29 @@ green run. In practice the review of a new guard narrows to one question: **wher
 is its entry?** `python3 scripts/guard_witnesses.py --list` names every entry,
 `--guard <target>` runs one.
 
+The fourth gate is about the records themselves (`#1276`). One target produced
+**six** switches of a single form: a registry entry could *declare* something about
+itself — a marker, a mode, a witness, an exemption, a shape — and nothing checked
+that the declaration was true. The cure, proven three times, is not a seventh check
+but removing the ability to declare: `runs=False` went by deleting the field,
+`witness` by deleting it together with its inference, `shape_pin` because the pin
+proved it *names* rather than *compares*. The same rule now applies to every field —
+derive it, or delete it. `verdict_field_mutants.Field.decides` is gone: it declared
+what the field decides, and nothing read it. And `test_partitions` no longer declares
+the web check's steps as a literal — it reads the command out of
+`scripts/test-changed.sh`, the script that runs it, so the record can no longer drift
+from the executor in silence.
+
+What is left is the pin on the field **set**: `scripts/declared_fields.py` holds the
+list of declaration records in the verification machinery (`RECORDS`), and a new
+field in any of them reddens `test_declared_fields` until its author names who holds
+it or removes it. The mechanism does not ask what a field means, and does not pretend
+to. Its named limit lives in its docstring, and it is the same limit as the guards':
+a new *record* is not noticed on its own — the list is extended by hand — and the
+prose in the comments beside `RECORDS` is prose, checked by nothing. Its guard is
+enrolled in `guard_witnesses.py` with the live example: the mutation **adds** a field
+to a record, and the pin has to go red.
+
 The gates build a copy of the tree for every mutant, so the temp filesystem is
 their budget as well as their workplace (`#1271`). Only `scripts/` is copied and
 every other top-level entry is a symlink: one tree costs 1.4 MiB against 76.2 MiB

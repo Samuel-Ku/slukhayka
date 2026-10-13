@@ -135,6 +135,16 @@ The thresholds are defaults taken from the numbers above, not constants:
   zram does not drain by itself, so an absolute ceiling would eventually stop
   every later run forever, and "free some memory" would not clear it.
 
+Those are the code's defaults. The wrapper on this machine passes
+`--floor-mb 1500` instead: 20 samples over 100 s put the machine between 1.94 and
+2.10 GB free, so a 2000 MB floor turned ordinary slot work away whenever the
+machine sat at its usual level, while the state #1272 recorded (1.13 GB) is
+refused at either value. End to end through the wired wrapper on 2026-10-13: a
+real `./gradlew --version` returned `0` in 1.08 s, a refusal returned `3` naming
+the real number, and a supervised run whose reading fell returned `4` with its
+process gone. The guard is not free either — an empty command through the slot
+cost 5 ms without it and 111 ms with it, ten runs each.
+
 A code collision is worth naming: because the command's own exit code passes
 through untouched, a command that legitimately exits `3` or `4` cannot be told
 from a refusal or a stop by the code alone — the reason is on stderr.

@@ -1,3 +1,4 @@
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -340,13 +341,13 @@ class ChangedTestWrapperScratchTest(unittest.TestCase):
             "WRAPPER_TEST_LOG": str(self.log),
         }
 
-    def run_changed(self, *arguments: str, session: bool = False):
+    def run_changed(self, *arguments: str, session: bool = False, environment: dict = None):
         return subprocess.run(
             ["bash", str(TEST_CHANGED), *arguments],
             check=False,
             capture_output=True,
             text=True,
-            env=self.environment(),
+            env=self.environment() if environment is None else environment,
             # Свій сеанс потрібен лише тому прогону, який сам собі шле TERM:
             # `kill -TERM 0` б'є по гурту процесів, і без нового сеансу він
             # дістав би й сам набір тестів.
@@ -370,6 +371,12 @@ class ChangedTestWrapperScratchTest(unittest.TestCase):
         — і сторож мусить пройти кожне. Одна нога лишала друге місце непіненим:
         воно поверталося до голого `exec`, і сторож був зелений (знахідка огляду
         PR #1297). Друге місце — щоденне: `strings.xml` селектор не відображає.
+
+        Кожна нога доводить, що прогін СПРАВДІ відбувся (лог підставного
+        `gradlew` виріс): нога, яку задовольняє ранній вихід, не перевіряє нічого.
+        Інший клас теч — тека, лишена після SIGKILL-ескалації
+        (`build-slot-guard.py`), — цим сторожем не міряється взагалі: він не
+        проходить крізь `exec`.
         """
         self.write_gradle()
 
@@ -387,14 +394,20 @@ class ChangedTestWrapperScratchTest(unittest.TestCase):
         self.assertEqual([], self.leftovers(), "тека лишилася після невдалого прогону")
 
         # Друге місце `exec`: шлях, який не відображається на партицію, віддає
-        # прогін повному набору — і прибирає теку так само.
+        # прогін повному набору — і прибирає теку так само. Лог тут такий самий
+        # обов'язковий, як у першій нозі: `printf …; exit 0` замість прогону
+        # лишав би цю ногу пустою, а модуль — зеленим (знахідка огляду #1297).
         self.write_gradle()
+        before = len(self.invocations())
 
         fell_back = self.run_changed(
             "--changed-file", "app/src/main/res/values/strings.xml"
         )
         self.assertEqual(0, fell_back.returncode, fell_back.stderr)
         self.assertIn("fell back to the full suite", fell_back.stdout)
+        self.assertGreater(len(self.invocations()), before,
+                           "прогін не дійшов до підставного gradlew — нога відкату "
+                           "нічого не перевірила")
         self.assertEqual([], self.leftovers(), "тека лишилася після відкату селектора")
 
         # Сигнал: TERM дістається всьому гурту прогону, тож його бачить і сам
@@ -415,6 +428,25 @@ class ChangedTestWrapperScratchTest(unittest.TestCase):
                            "прогін не дійшов до підставного gradlew — сигнал нічого "
                            "не перевірив")
         self.assertEqual([], self.leftovers(), "тека лишилася після сигналу")
+
+        # Межа прибирання, яке САМЕ не може прибрати теку: `rm`, що завжди
+        # повертає 1 (ім'я з оточення — той самий прийом, що `BASH_FUNC_*` у
+        # фікстурах оточення). Сторож пінить усі три частини межі: попередження
+        # видно, код повного набору не зіпсовано прибиранням, і тека лишається —
+        # прибирання не сильніше за `rm`. Це остання нога: вона свідомо лишає
+        # теку, і наступна нога впала б на ній.
+        self.write_gradle(exit_status=17)
+        broken_rm = self.environment()
+        broken_rm["BASH_FUNC_rm%%"] = "() { return 1; }"
+
+        unremovable = self.run_changed(
+            "--base", "refs/heads/does-not-exist", environment=broken_rm
+        )
+        self.assertEqual(17, unremovable.returncode, unremovable.stderr)
+        self.assertIn("cannot remove", unremovable.stderr)
+        self.assertEqual(1, len(self.leftovers()),
+                         "тека мусить лишитися: прибирання не сильніше за rm")
+        shutil.rmtree(self.tmp / self.leftovers()[0])
 
 
 if __name__ == "__main__":

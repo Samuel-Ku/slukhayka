@@ -161,9 +161,11 @@ fi
 exec flock -w 7200 <slot-file> "$@"
 ```
 
-Until that line lands, no lane is guarded: the guard is a tool waiting for its
-caller, and a branch that predates it keeps working through the plain
-`exec flock` below.
+On this machine the line is in place: since 2026-10-13 (after `d6c35cdf`) the
+wrapper calls the guard from the worktree it was invoked in, so a lane that
+builds through the slot is watched. A branch that predates the guard keeps
+working through the plain `exec flock` below — that fall-through is the point of
+the snippet, not a leftover.
 
 ## Mutations
 

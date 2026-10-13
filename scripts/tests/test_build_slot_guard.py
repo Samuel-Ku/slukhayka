@@ -12,6 +12,7 @@ MemAvailable і swap із файлів, які підставляє тест, т
 сторож, який нічого не сигналить, не має права проходити цей набір.
 """
 
+import collections
 import os
 import signal
 import subprocess
@@ -19,10 +20,13 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GUARD = REPO_ROOT / "scripts" / "build-slot-guard.py"
+
+GuardedCommand = collections.namedtuple("GuardedCommand", "argv marker pid_file")
 
 
 def meminfo_text(available_mb: int) -> str:
@@ -81,16 +85,17 @@ class BuildSlotGuardTest(unittest.TestCase):
             text=True,
         )
 
-    def sleeping_command(self, seconds: int = 30, ignore_term: bool = False):
-        """Команда, яка лишає по собі pid, маркер і живе довго."""
-        self.marker = self.root / "started"
-        self.child_pid = self.root / "pid"
+    def guarded_command(self, seconds: int = 30, ignore_term: bool = False) -> GuardedCommand:
+        """Команда, яка лишає по собі маркер і власний pid та живе довго."""
+        token = uuid.uuid4().hex[:8]
+        marker = self.root / f"started-{token}"
+        pid_file = self.root / f"pid-{token}"
         trap = 'trap "" TERM; ' if ignore_term else ""
         script = (
-            f"{trap}echo $$ > {self.child_pid}; : > {self.marker}; "
+            f"{trap}echo $$ > {pid_file}; : > {marker}; "
             f"while :; do sleep {seconds}; done"
         )
-        return ["sh", "-c", script]
+        return GuardedCommand(["sh", "-c", script], marker, pid_file)
 
     def wait_for(self, path: Path, timeout: float = 15.0) -> bool:
         deadline = time.monotonic() + timeout
@@ -145,8 +150,9 @@ class BuildSlotGuardTest(unittest.TestCase):
     def test_keeps_running_between_the_critical_line_and_the_start_floor(self):
         # 500 MB — нижче стартового порогу (1000), але вище критичної межі (200):
         # прогін, який уже почався, має право жити.
-        marker = self.root / "started"
-        pid_file = self.root / "pid"
+        token = uuid.uuid4().hex[:8]
+        marker = self.root / f"started-{token}"
+        pid_file = self.root / f"pid-{token}"
         command = ["sh", "-c", f"echo $$ > {pid_file}; : > {marker}; sleep 2"]
         runner = self.start_guard(
             command, floor_mb=1000, critical_mb=200, poll_seconds=0.1
@@ -159,31 +165,43 @@ class BuildSlotGuardTest(unittest.TestCase):
     # ── зупинка ──────────────────────────────────────────────────────────────
 
     def test_stops_and_kills_the_run_when_memory_falls(self):
+        guarded = self.guarded_command()
         runner = self.start_guard(
-            self.sleeping_command(),
-            floor_mb=1000,
-            critical_mb=400,
-            poll_seconds=0.1,
-            grace_seconds=2,
+            guarded.argv, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=2
         )
-        self.assertTrue(self.wait_for(self.marker), "команда не стартувала")
-        pid = self.read_pid(self.child_pid)
+        self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
+        pid = self.read_pid(guarded.pid_file)
         self.meminfo.write_text(meminfo_text(100), encoding="utf-8")
         stdout, stderr = runner.communicate(timeout=30)
         self.assertEqual(4, runner.returncode)
         self.assertIn("ЗУПИНЯЮ", stderr)
         self.assertTrue(self.wait_gone(pid), f"процес {pid} пережив сторожа")
 
-    def test_kills_a_group_member_that_ignores_sigterm(self):
+    def test_stop_costs_one_grace_not_two(self):
+        # Прямий нащадок стає зомбі одразу; якби цикл чекав на групу, не
+        # збираючи його, кожна зупинка коштувала б два grace і завжди доходила
+        # б до SIGKILL.
+        guarded = self.guarded_command()
         runner = self.start_guard(
-            self.sleeping_command(ignore_term=True),
-            floor_mb=1000,
-            critical_mb=400,
-            poll_seconds=0.1,
-            grace_seconds=0.5,
+            guarded.argv, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=1.0
         )
-        self.assertTrue(self.wait_for(self.marker), "команда не стартувала")
-        pid = self.read_pid(self.child_pid)
+        self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
+        pid = self.read_pid(guarded.pid_file)
+        self.meminfo.write_text(meminfo_text(100), encoding="utf-8")
+        started = time.monotonic()
+        stdout, stderr = runner.communicate(timeout=30)
+        elapsed = time.monotonic() - started
+        self.assertEqual(4, runner.returncode)
+        self.assertTrue(self.wait_gone(pid))
+        self.assertLess(elapsed, 1.8, f"зупинка коштувала два grace: {elapsed:.2f} с")
+
+    def test_kills_a_group_member_that_ignores_sigterm(self):
+        guarded = self.guarded_command(ignore_term=True)
+        runner = self.start_guard(
+            guarded.argv, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=0.5
+        )
+        self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
+        pid = self.read_pid(guarded.pid_file)
         self.meminfo.write_text(meminfo_text(100), encoding="utf-8")
         started = time.monotonic()
         stdout, stderr = runner.communicate(timeout=30)
@@ -192,18 +210,34 @@ class BuildSlotGuardTest(unittest.TestCase):
         self.assertTrue(self.wait_gone(pid), "SIGTERM було проігноровано, SIGKILL не прийшов")
         self.assertGreaterEqual(elapsed, 0.5 - 0.05, "ескалація мала почекати grace")
 
+    def test_second_signal_during_cleanup_does_not_abort_it(self):
+        guarded = self.guarded_command(ignore_term=True)
+        runner = self.start_guard(
+            guarded.argv, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=1.0
+        )
+        self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
+        pid = self.read_pid(guarded.pid_file)
+        self.meminfo.write_text(meminfo_text(100), encoding="utf-8")
+        time.sleep(0.5)  # сторож уже в SIGTERM-фазі прибирання
+        runner.send_signal(signal.SIGTERM)
+        runner.send_signal(signal.SIGTERM)
+        stdout, stderr = runner.communicate(timeout=30)
+        self.assertEqual(
+            4, runner.returncode, f"другий сигнал зірвав прибирання: rc={runner.returncode} {stderr}"
+        )
+        self.assertTrue(
+            self.wait_gone(pid), "прогін пережив сторожа — саме та форма, яку сторож мав прибрати"
+        )
+
     def test_kills_a_grandchild_in_the_run_group(self):
-        grandchild = self.root / "grandchild_pid"
-        self.marker = self.root / "started"
-        command = [
-            "sh",
-            "-c",
-            f"sleep 30 & echo $! > {grandchild}; : > {self.marker}; wait",
-        ]
+        token = uuid.uuid4().hex[:8]
+        marker = self.root / f"started-{token}"
+        grandchild = self.root / f"grandchild-{token}"
+        command = ["sh", "-c", f"sleep 30 & echo $! > {grandchild}; : > {marker}; wait"]
         runner = self.start_guard(
             command, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=2
         )
-        self.assertTrue(self.wait_for(self.marker), "команда не стартувала")
+        self.assertTrue(self.wait_for(marker), "команда не стартувала")
         self.assertTrue(self.wait_for(grandchild), "внук не стартував")
         pid = self.read_pid(grandchild)
         self.meminfo.write_text(meminfo_text(100), encoding="utf-8")
@@ -213,15 +247,16 @@ class BuildSlotGuardTest(unittest.TestCase):
 
     def test_stops_when_swap_grows_beyond_the_ceiling(self):
         self.swaps.write_text(swaps_text(5000), encoding="utf-8")
+        guarded = self.guarded_command()
         runner = self.start_guard(
-            self.sleeping_command(),
+            guarded.argv,
             floor_mb=1000,
             critical_mb=400,
             swap_growth_mb=2000,
             poll_seconds=0.1,
             grace_seconds=2,
         )
-        self.assertTrue(self.wait_for(self.marker), "команда не стартувала")
+        self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
         self.swaps.write_text(swaps_text(8000), encoding="utf-8")
         stdout, stderr = runner.communicate(timeout=30)
         self.assertEqual(4, runner.returncode)
@@ -237,18 +272,34 @@ class BuildSlotGuardTest(unittest.TestCase):
             swap_growth_mb=2000,
             poll_seconds=0.1,
         )
-        self.assertEqual(0, done.returncode, f"абсолютна стеля спинила б кожен прогін: {done.stderr}")
+        self.assertEqual(
+            0, done.returncode, f"абсолютна стеля спинила б кожен прогін: {done.stderr}"
+        )
+
+    def test_stop_message_does_not_round_over_the_line(self):
+        # 818790 kB = 799.6 MB: без десяткової воно читалося б як
+        # «800 MB < критичних 800 MB».
+        self.meminfo.write_text(meminfo_text(1000), encoding="utf-8")
+        guarded = self.guarded_command()
+        runner = self.start_guard(
+            guarded.argv, floor_mb=1000, critical_mb=800, poll_seconds=0.1, grace_seconds=2
+        )
+        self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
+        self.meminfo.write_text(
+            "MemTotal:       16000000 kB\nMemAvailable:   818790 kB\n", encoding="utf-8"
+        )
+        stdout, stderr = runner.communicate(timeout=30)
+        self.assertEqual(4, runner.returncode)
+        self.assertIn("799.6", stderr)
+        self.assertNotIn("800 MB < критичних 800 MB", stderr)
 
     def test_stops_the_run_when_the_guard_itself_is_terminated(self):
+        guarded = self.guarded_command()
         runner = self.start_guard(
-            self.sleeping_command(),
-            floor_mb=1000,
-            critical_mb=400,
-            poll_seconds=0.1,
-            grace_seconds=2,
+            guarded.argv, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=2
         )
-        self.assertTrue(self.wait_for(self.marker), "команда не стартувала")
-        pid = self.read_pid(self.child_pid)
+        self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
+        pid = self.read_pid(guarded.pid_file)
         runner.send_signal(signal.SIGTERM)
         stdout, stderr = runner.communicate(timeout=30)
         self.assertEqual(128 + signal.SIGTERM, runner.returncode)
@@ -260,14 +311,11 @@ class BuildSlotGuardTest(unittest.TestCase):
     def test_does_not_touch_a_process_outside_its_group(self):
         decoy = subprocess.Popen(["sleep", "20"], start_new_session=True)
         try:
+            guarded = self.guarded_command()
             runner = self.start_guard(
-                self.sleeping_command(),
-                floor_mb=1000,
-                critical_mb=400,
-                poll_seconds=0.1,
-                grace_seconds=2,
+                guarded.argv, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=2
             )
-            self.assertTrue(self.wait_for(self.marker), "команда не стартувала")
+            self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
             self.meminfo.write_text(meminfo_text(100), encoding="utf-8")
             stdout, stderr = runner.communicate(timeout=30)
             self.assertEqual(4, runner.returncode)

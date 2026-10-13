@@ -51,6 +51,7 @@ import time
 REFUSED = 3
 STOPPED = 4
 USAGE = 2
+CLEANUP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
 class Interrupted(Exception):
@@ -115,17 +116,20 @@ def breach_reason(
     Пам'ять порівнюється з --critical-mb, а не з --floor-mb: стартовий поріг
     означає «не починати на голодній машині», критична межа — «зупинити те, що
     вже почалося». Між ними прогін має право жити.
+
+    Числа друкуються з одним знаком після коми: інакше 799.6 MB округлилося б
+    до «800 MB < критичних 800 MB» — повідомлення, яке саме собі суперечить.
     """
     if current.free_mb is not None and current.free_mb < thresholds.critical_mb:
         return (
-            f"вільної пам'яті {current.free_mb:.0f} MB "
+            f"вільної пам'яті {current.free_mb:.1f} MB "
             f"< критичних {thresholds.critical_mb} MB"
         )
     if current.swap_mb is not None and swap_baseline_mb is not None:
         growth = current.swap_mb - swap_baseline_mb
         if growth > thresholds.swap_growth_mb:
             return (
-                f"swap виріс на {growth:.0f} MB за цей прогін "
+                f"swap виріс на {growth:.1f} MB за цей прогін "
                 f"(стеля {thresholds.swap_growth_mb} MB)"
             )
     return None
@@ -141,33 +145,53 @@ def group_alive(pgid: int) -> bool:
         return True
 
 
+def wait_group_gone(proc: subprocess.Popen, pgid: int, timeout: float) -> bool:
+    """Чекає, доки група спорожніє, збираючи власного зомбі.
+
+    `killpg(pgid, 0)` бачить зомбі як живу групу, а прямий нащадок стає зомбі
+    одразу після смерті — доки його не збере батько. Без `proc.poll()` цикл
+    ніколи не побачив би порожнечу, кожна зупинка коштувала б два `grace`, і
+    SIGKILL летів би навіть туди, де все вже стало.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        proc.poll()
+        if not group_alive(pgid):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
 def stop_group(proc: subprocess.Popen, grace_seconds: float) -> None:
     """Спершу ввічливо, потім остаточно — і лише власна група процесів.
 
     Чекаємо на спорожнення **групи**, а не на вихід прямого нащадка: інакше
     член групи, який знехтував SIGTERM, пережив би сторожа — а разом із ним і
     збірка, яку сторож мав спинити.
+
+    Другий сигнал під час прибирання не має його зривати: якби він знову
+    підняв `Interrupted`, ескалація до SIGKILL не відбулася б, і прогін
+    пережив би сторожа саме на цьому шляху. Тому на час прибирання сигнали
+    ігноруються, а потім повертаються.
     """
     pgid = proc.pid
+    previous = {signum: signal.signal(signum, signal.SIG_IGN) for signum in CLEANUP_SIGNALS}
     try:
-        os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    deadline = time.monotonic() + grace_seconds
-    while time.monotonic() < deadline and group_alive(pgid):
-        time.sleep(0.05)
-    if group_alive(pgid):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        if wait_group_gone(proc, pgid, grace_seconds):
+            return
         try:
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
-            pass
-        deadline = time.monotonic() + grace_seconds
-        while time.monotonic() < deadline and group_alive(pgid):
-            time.sleep(0.05)
-    try:
-        proc.wait(timeout=1)
-    except subprocess.TimeoutExpired:
-        pass
+            return
+        wait_group_gone(proc, pgid, grace_seconds)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -248,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     def on_signal(signum, _frame):
         raise Interrupted(signum)
 
-    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    for signum in CLEANUP_SIGNALS:
         signal.signal(signum, on_signal)
 
     started = time.monotonic()

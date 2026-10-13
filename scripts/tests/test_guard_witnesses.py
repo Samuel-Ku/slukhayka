@@ -43,6 +43,8 @@ import guard_witnesses as w  # noqa: E402
 GUARD_TESTS = (
     "test_declared_fields.RepositoryTest"
     ".test_every_record_declares_exactly_the_listed_fields",
+    "test_doc_numbers.RepositoryTest.test_every_number_derives_on_the_real_tree",
+    "test_doc_numbers.RepositoryTest.test_the_cited_commands_all_exist",
     "test_fixture_environments.EnvironmentTest"
     ".test_a_named_run_that_is_skipped_is_not_green",
     "test_fixture_environments.EnvironmentTest"

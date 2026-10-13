@@ -56,6 +56,13 @@ GUARD_TESTS = (
     "test_guard_witnesses.RefusalTest"
     ".test_a_mutation_that_no_longer_applies_is_an_unknown",
     "test_issue_premise.ExtractionTest.test_measure_head_exists_because_the_docs_cite_it",
+    "test_named_boundaries.SectionTest"
+    ".test_a_boundary_named_in_code_without_a_witness_is_refused",
+    "test_named_boundaries.SectionTest"
+    ".test_a_closing_mutation_that_edits_the_witness_module_is_refused",
+    "test_named_boundaries.SectionTest.test_a_record_without_a_mutation_is_refused",
+    "test_named_boundaries.RegistryTest"
+    ".test_the_unreadable_boundary_sections_are_the_named_ones",
     "test_verdict_field_mutants.FailClosedTest"
     ".test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier",
     "test_witness_derivation.DerivationTest"

@@ -74,13 +74,14 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом дванадцять записів, і
-кожен коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи
-йдуть паралельно (`--jobs`), і кожен друкує свій час під час прогону
-(`python3 scripts/guard_witnesses.py`), тож дорогий сторож видно, а не
-вгадується. Запис без мутації не заводиться — `GUARDS` і є переліком того, що
-гейт перевіряє; старі сторожа без запису не отримують ні тихої згоди, ні
-червоного — механізм просто каже, скількох покриває.
+Ціна реєстру, і саме тому він не стає галасливим: разом 16 записів, і кожен
+коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
+паралельно (`--jobs`), і кожен друкує свій час під час прогону
+(`python3 scripts/guard_witnesses.py`) — 0.5–1.7 с на запис на цій машині (вона
+спільна із сусідніми смугами, тож повний час коливається), тож дорогий сторож
+видно, а не вгадується. Запис без мутації не заводиться — `GUARDS` і є переліком
+того, що гейт перевіряє; старі сторожа без запису не отримують ні тихої згоди,
+ні червоного — механізм просто каже, скількох покриває.
 """
 
 from __future__ import annotations
@@ -393,6 +394,20 @@ GUARDS = (
         ),
     ),
     Guard(
+        test="test_named_boundaries.SectionTest"
+             ".test_a_boundary_named_in_code_without_a_witness_is_refused",
+        protects="межу, названу В КОДІ без свідка (#1278): пункт покритого розділу "
+                 "без запису мусить червонити механізм, а не лишатися прозою — саме "
+                 "так ловиться межа, названа лише в звіті",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="            if not owners:\n",
+                replace="            if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
         test="test_doc_numbers.RepositoryTest"
              ".test_every_number_derives_on_the_real_tree",
         protects="число в доку, яке щось стверджує про дерево: місце, зникле з серії, "
@@ -406,6 +421,49 @@ GUARDS = (
                 file="scripts/doc_numbers.py",
                 find='    ("#1257", "`errors`"),\n',
                 replace="",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_named_boundaries.SectionTest"
+             ".test_a_record_without_a_mutation_is_refused",
+        protects="межу без мутації, яка її підтверджує (#1278, варіант (в)): запис, "
+                 "який нічого не закриває, — обіцянка в реєстрі, і механізм мусить "
+                 "відмовити, а не прийняти її за свідчення",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="        if not entry.edits:\n",
+                replace="        if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_named_boundaries.SectionTest"
+             ".test_a_closing_mutation_that_edits_the_witness_module_is_refused",
+        protects="«зламай свідка, щоб довести, що межу видно» (#1278): закриття, "
+                 "яке править МОДУЛЬ СВІДКА, — не свідчення. Механізм мусить "
+                 "відмовити, а не прийняти його за закриття межі",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="            if edit.file == witness_module:\n",
+                replace="            if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_named_boundaries.RegistryTest"
+             ".test_the_unreadable_boundary_sections_are_the_named_ones",
+        protects="«чотири з одинадцяти» зі шапки меж (#1278): число, яке щось "
+                 "стверджує про дерево, мусить мати джерело. Мутація вчить "
+                 "механізм читати ще одну форму пункту — множина нерозібраних "
+                 "розділів змінюється, і пін мусить почервоніти",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="        if BULLET_RE.match(line):\n",
+                replace="        if BULLET_RE.match(line) or line.strip().startswith(\"- \"):\n",
             ),
         ),
     ),

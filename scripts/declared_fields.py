@@ -111,6 +111,26 @@ class DeclaredFieldError(Exception):
 #                `prefix`/`reads` — читання з оточення в два боки, `programs`/
 #                `at`/`marker` — прив'язка до місця й маркер у своїй програмі,
 #                `name` — унікальність.
+#
+#   named_boundaries.Section
+#     where, heading — розділ, пункти якого механізм меж бачить: обидва пінить
+#                `test_named_boundaries.RegistryTest.test_the_registry_is_the_named_set`
+#                (літеральний пін набору) і покриття, яке за цим розділом читає
+#                шапку; зниклий розділ — невідомість (код 2).
+#
+#   named_boundaries.Boundary
+#     id, claim  — id унікальний, а якір `claim` мусить траплятися в тексті РІВНО
+#                РАЗ і лежати в пункті покритого розділу: і те, і те пінить
+#                `test_named_boundaries.SectionTest` (зниклий якір — код 2,
+#                пункт без запису — знахідка);
+#     where      — файл, у якому межа названа: пінить покриття (якір поза
+#                пунктами покритих розділів — знахідка);
+#     witness    — ціль прогону: резолвиться (прогін каже, що цілі немає) і
+#                мусить бути зелена без мутації й червона під нею — те саме
+#                пінить `test_named_boundaries.RunTest`;
+#     edits      — закриття межі: непорожність пінить покриття («межа без
+#                мутації — обіцянка»), застосовність рівно раз і почервоніння —
+#                прогін того самого механізму (`named_boundaries.check`).
 RECORDS = (
     ("scripts/guard_witnesses.py", "Guard", ("test", "protects", "edits")),
     ("scripts/guard_witnesses.py", "Edit", ("file", "find", "replace")),
@@ -118,6 +138,9 @@ RECORDS = (
     ("scripts/tests/test_fixture_environments.py", "StandIn",
      ("name", "where", "prefix", "reads", "programs")),
     ("scripts/tests/test_fixture_environments.py", "Program", ("at", "marker")),
+    ("scripts/named_boundaries.py", "Section", ("where", "heading")),
+    ("scripts/named_boundaries.py", "Boundary",
+     ("id", "claim", "where", "witness", "edits")),
 )
 
 

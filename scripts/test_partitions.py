@@ -45,11 +45,54 @@ SHARED_FILES = {
 }
 WEB_CHECK_PREFIX = "web/"
 WEB_CHECK = "web"
-# The steps the web check runs. `select` names them so a caller routing the
-# payload to a runner knows what the check costs; `scripts/test-changed.sh`
-# executes exactly these, mirroring the `web` job in `.github/workflows/ci.yml`.
-WEB_CHECK_STEPS = ("npm ci", "npx tsc --noEmit", "npx vitest run")
-WEB_CHECK_DESCRIPTION = f"{WEB_CHECK} check ({', '.join(WEB_CHECK_STEPS)})"
+# The steps the web check runs, READ FROM THE SCRIPT THAT RUNS THEM (#1276).
+#
+# They used to be a literal here with a note that `scripts/test-changed.sh`
+# "executes exactly these" — a record declaring a fact about another file that
+# nothing checked. Adding or dropping a step in the wrapper would have left this
+# tuple naming a check that no longer exists, and `select`'s `reason` would have
+# costed it wrong. The executor is the source, so the executor is read: the
+# command the wrapper runs for the web check — `(cd "$repo_root/web" && …) ||
+# exit`. A tree whose wrapper has no such command is a refusal (2), not a guess —
+# `web_check_steps` is called only when a web path is actually selected, so the
+# copied trees the fixtures build never need it.
+#
+# What is NOT verified here: the wrapper's own note says its steps mirror the
+# `web` job in `.github/workflows/ci.yml`. That mirror is a claim about a second
+# executor, and nothing in this repository compares the two; the steps below are
+# the wrapper's, and only the wrapper's.
+#
+# A named limit of the derivation: swapping the read back for a literal that
+# happens to name the same steps changes no behaviour today, so nothing reddens.
+# What does redden is the read BREAKING — a regex that never matches turns the
+# selector into a refusal (2), and `test_test_partitions` fails on it. And what
+# is read is the command's BODY, not the arm's own label: renaming `web)` to
+# `web-check)` leaves this selector green while the wrapper itself would refuse
+# the unknown check — `test_test_wrappers.py` catches that one, this does not.
+WEB_CHECK_SCRIPT = Path("scripts/test-changed.sh")
+WEB_CHECK_ARM = re.compile(
+    r'\(cd\s+"\$repo_root/web"\s*&&\s*(?P<steps>.+?)\)\s*\|\|\s*exit', re.DOTALL
+)
+
+
+def web_check_steps(root: Path | None = None) -> tuple[str, ...]:
+    """The web check's steps, taken from the wrapper that executes them."""
+    script = (root or Path(__file__).resolve().parents[1]) / WEB_CHECK_SCRIPT
+    try:
+        text = script.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ValueError(f"cannot read the web check's executor: {error}")
+    match = WEB_CHECK_ARM.search(text)
+    if match is None:
+        raise ValueError(
+            f"{WEB_CHECK_SCRIPT} no longer runs the web check in a shape this "
+            "selector can read — the check's cost would be a guess"
+        )
+    return tuple(step.strip() for step in match.group("steps").split("&&"))
+
+
+def web_check_description(root: Path | None = None) -> str:
+    return f"{WEB_CHECK} check ({', '.join(web_check_steps(root))})"
 
 
 @dataclass(frozen=True)
@@ -254,9 +297,9 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
             selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
 
     if checks and not selected:
-        reason = f"changed paths map to the {WEB_CHECK_DESCRIPTION}"
+        reason = f"changed paths map to the {web_check_description()}"
     elif checks:
-        reason = f"matched changed logical modules and the {WEB_CHECK_DESCRIPTION}"
+        reason = f"matched changed logical modules and the {web_check_description()}"
     else:
         reason = "matched changed logical modules"
     result: dict[str, object] = {

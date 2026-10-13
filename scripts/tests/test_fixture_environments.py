@@ -43,13 +43,25 @@ dotted-ресивер. Бо «згадує» і «запускає» — це т
 розрізнити їх статично нема чим. Тому виведення прибрано **зовсім**, а прогони
 названо списком: разом із виведенням зникли і обіцянка, і діра.
 
+ЩО ТУТ БУЛО ПРИПУЩЕННЯМ, А СТАЛО ДОКАЗОМ (#1279). «Розрізнити статично нема чим»
+вище — не спостереження, а доведене твердження, і воно лежить у
+`test_witness_derivation`: один і той самий текст дає два різні вердикти (без
+зовнішнього перемикача тест зелений, з ним — червоний), тож ТОТАЛЬНОЇ функції
+від тексту, правильної на обох прогонах, немає; функція з «невідомо» мусить
+сказати «невідомо» на самому свідкові й тому нічого не додає до названого
+списку. Там же — слід шести кіл: п'ять форм, які критерій «тест згадує
+підставного» приймає, і жодна з них інструмента не запускає.
+
 ЧЕСНА МЕЖА, І ВОНА ТУТ, А НЕ ЛИШЕ В ЗВІТІ. **Автоматичного покриття нових
 підставних немає.** Підставний інструмент, який успадковує оточення, зелений,
 доки його не названо в `ENVIRONMENT_TARGETS` руками — список розширюється разом
 із прогоном, і ніщо не перевіряє, що названий тест справді запускає інструмент.
 Реєстр ловить **незареєстроване** — файл, програму, читання чужої змінної, — і не
 ловить «цей прогін справді ганяє цього підставного». Сам реєстр цього не
-замовчує: межа названа біля `ENVIRONMENT_TARGETS` і нижче, у «Межах».
+замовчує: межа названа біля `ENVIRONMENT_TARGETS` і нижче, у «Межах», а її ціна
+показана ПРОГОНОМ —
+`EnvironmentTest.test_the_guard_sees_only_the_runs_it_is_named`: успадкований
+підставний червоний під отрутою тоді й лише тоді, коли його прогін названо.
 
   * **оточення піниться на НАЗВАНОМУ наборі тестів** (`ENVIRONMENT_TARGETS`), а не
     на виведеному: список лежить у коді, піниться тестом нижче і резолвиться,
@@ -841,6 +853,40 @@ class NestedRun:
                                                       self.status)
 
 
+# Дерево для ціни без виведення (#1279): підставний `gate.sh` фікстури, який
+# УСПАДКОВУЄ оточення, — та сама форма, що впала в CI #1260. Програми без
+# шебанга, тож скани реєстру їх не бачать (межа названа в докстрінзі модуля).
+INHERITING_RUN = '''"""Прогін, який віддає підставному оточення, а не своє (#1260)."""
+
+import os
+import subprocess
+import unittest
+from pathlib import Path
+
+GATE = Path(__file__).resolve().parents[1] / "gate.sh"
+MARKER = Path(__file__).resolve().parents[2] / "marker"
+
+
+class InheritsTest(unittest.TestCase):
+    def test_agrees_when_the_branch_is_named(self):
+        result = subprocess.run(
+            ["bash", str(GATE), str(MARKER)], check=False, capture_output=True,
+            text=True, env=os.environ.copy(),
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+'''
+
+UNRELATED_RUN = '''"""Прогін, який підставного не запускає взагалі."""
+
+import unittest
+
+
+class UnrelatedTest(unittest.TestCase):
+    def test_adds(self):
+        self.assertEqual(4, 2 + 2)
+'''
+
+
 class EnvironmentTest(unittest.TestCase):
     """Кожен названий прогін мусить бути зелений і без спадку, і під отрутою."""
 
@@ -933,6 +979,56 @@ class EnvironmentTest(unittest.TestCase):
         self.assertFalse(run.green, run.describe())
         with self.assertRaises(AssertionError):
             self.assertRunsGreen([run])
+
+    def test_the_guard_sees_only_the_runs_it_is_named(self):
+        """ЦІНА БЕЗ ВИВЕДЕННЯ — прогоном, а не словом (#1279).
+
+        Виведення свідка з AST прибрано: ТОТАЛЬНОГО не існує, і це доведено
+        (`test_witness_derivation`: той самий AST дає і «запускає», і «не
+        запускає»; функція з «невідомо» мусила б сказати «невідомо» саме тут).
+        Лишився НАЗВАНИЙ список прогонів — і його ціна показана тут,
+        тим самим кодом, що й ґард (`run_named`, `HOSTILE`, `NestedRun`), на
+        дереві з підставним `gate.sh`, який успадковує оточення:
+
+          * прогін НАЗВАНО: порожнє оточення зелений, отруєне червоний — отрута
+            дійшла до успадкованого підставного, і сторож це бачить;
+          * той самий прогін НЕ названо: він не запускається взагалі, і вердикт
+            про дерево зелений — хоч підставний у ньому й успадковує оточення.
+
+        Друга половина — і є ціна: список розширюють руками, разом із прогоном, і
+        ніщо не червоніє, якщо цього не зробити. Автоматичного покриття нових
+        підставних немає — виведення його не давало (воно давало хибних свідків),
+        а реєстр ловить незареєстроване, не неназване.
+        """
+        fixture = FIXTURES / "empty_shape" / "pinned"
+        with tempfile.TemporaryDirectory(prefix="named-runs-only-") as temporary:
+            work = Path(temporary) / "root"
+            shutil.copytree(fixture / "scripts", work / "scripts")
+            tests = work / "scripts" / "tests"
+            (tests / "test_inherits.py").write_text(INHERITING_RUN, encoding="utf-8")
+            (tests / "test_unrelated.py").write_text(UNRELATED_RUN, encoding="utf-8")
+            marker = work / "marker"
+            marker.mkdir()
+            (marker / "head-name").write_text("release\n", encoding="utf-8")
+
+            stripped = self.run_named("названий, порожнє оточення", ("test_inherits",),
+                                      dict(STRIPPED), tests)
+            poisoned = self.run_named("названий, отруєне оточення", ("test_inherits",),
+                                      {**os.environ, **HOSTILE}, tests)
+            unnamed = self.run_named("неназваний, отруєне оточення", ("test_unrelated",),
+                                     {**os.environ, **HOSTILE}, tests)
+
+        self.assertEqual((1, 0), (stripped.tests, stripped.skipped), stripped.describe())
+        self.assertTrue(stripped.green,
+                        "порожнє оточення: підставний мусить спрацювати\n" + stripped.describe())
+        self.assertEqual((1, 0), (poisoned.tests, poisoned.skipped), poisoned.describe())
+        self.assertFalse(poisoned.green,
+                         "отрута мусить дійти до успадкованого підставного — це те, що "
+                         "сторож ловить, коли прогін НАЗВАНО\n" + poisoned.describe())
+        self.assertEqual((1, 0), (unnamed.tests, unnamed.skipped), unnamed.describe())
+        self.assertTrue(unnamed.green,
+                        "неназваний прогін не запускається — і сторож про нього нічого "
+                        "не каже: саме в цьому ціна\n" + unnamed.describe())
 
     def test_a_stripped_environment_is_enough_for_every_named_run(self):
         """Порожнє оточення: підставний не читає зі спадку нічого.

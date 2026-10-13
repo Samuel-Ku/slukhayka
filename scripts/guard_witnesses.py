@@ -307,6 +307,51 @@ GUARDS = (
         ),
     ),
     Guard(
+        test="test_witness_derivation.DerivationTest.test_the_same_ast_gives_two_truths",
+        protects="доказ, що ТОТАЛЬНОГО виведення немає (#1279): один текст мусить "
+                 "дати ДВІ правди. Прибраний рантайм-перемикач робить обидва "
+                 "прогони однаковими — і свідчення зникає",
+        edits=(
+            Edit(
+                file="scripts/tests/test_witness_derivation.py",
+                find="        if not SWITCH.exists():\n            return\n",
+                replace="        if False:  # mutated\n            return\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_witness_derivation.DerivationTest"
+             ".test_every_form_is_accepted_and_runs_nothing",
+        protects="слід шести кіл (#1279): п'ять форм прийнято свідками, і жодна не "
+                 "запускає інструмента. Чесний запуск, який перестав читати вердикт "
+                 "інструмента, робить доказ порожнім",
+        edits=(
+            Edit(
+                file="scripts/tests/test_witness_derivation.py",
+                find="            text=True, env=ENVIRONMENT,\n"
+                     "        )\n"
+                     "        self.assertEqual(0, result.returncode, result.stderr)\n",
+                replace="            text=True, env=ENVIRONMENT,\n"
+                        "        )\n"
+                        "        self.assertTrue(True)  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_the_guard_sees_only_the_runs_it_is_named",
+        protects="ціна без виведення (#1279): прогін поза названим списком не "
+                 "запускається взагалі. Прогін, який почав виконувати ВСЕ замість "
+                 "названого, стирає цю межу — і свідчення разом із нею",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="    unittest.TestLoader().loadTestsFromNames(sys.argv[1:])\n",
+                replace='    unittest.TestLoader().discover(".")  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
         test="test_declared_fields.RepositoryTest"
              ".test_every_record_declares_exactly_the_listed_fields",
         protects="набір полів запису-оголошення: НОВЕ оголошене поле мусить червонити пін, "

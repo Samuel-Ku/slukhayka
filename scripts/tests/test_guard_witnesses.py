@@ -45,6 +45,8 @@ GUARD_TESTS = (
     ".test_every_record_declares_exactly_the_listed_fields",
     "test_fixture_environments.EnvironmentTest"
     ".test_a_named_run_that_is_skipped_is_not_green",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_the_guard_sees_only_the_runs_it_is_named",
     "test_guard_witnesses.FindingTest"
     ".test_a_guard_that_stays_green_under_its_mutation_is_a_finding",
     "test_guard_witnesses.RefusalTest"
@@ -54,6 +56,9 @@ GUARD_TESTS = (
     "test_issue_premise.ExtractionTest.test_measure_head_exists_because_the_docs_cite_it",
     "test_verdict_field_mutants.FailClosedTest"
     ".test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier",
+    "test_witness_derivation.DerivationTest"
+    ".test_every_form_is_accepted_and_runs_nothing",
+    "test_witness_derivation.DerivationTest.test_the_same_ast_gives_two_truths",
 )
 EXPECTED_GUARDS = len(GUARD_TESTS)
 

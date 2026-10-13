@@ -318,16 +318,27 @@ class ReviewPassTest(unittest.TestCase):
             label_file.unlink(missing_ok=True)
 
     def environment(self, extra=None):
-        environment = os.environ.copy()
-        environment.pop("REVIEW_PASS_LABEL", None)
-        environment.pop("MERGE_PR_LABEL", None)
-        environment.update({
+        """Оточення скриптів і підставного gh — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        будь-що: `PYTHONPATH` з чужою текою, `PYTHONSTARTUP`, змінна, яку читає
+        підставний gh, — і він віддає не ту фікстуру при незмінних файлах. Саме
+        так фікстура #1260 і почервоніла в CI, хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Імена тут — лише свої: `FAKE_GH_*` читає
+        підставний gh, `REVIEW_PASS_*`/`MERGE_PR_*` — вхід самих скриптів.
+        """
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
             "REVIEW_PASS_GH": str(self.gh),
             "MERGE_PR_GH": str(self.gh),
             "FAKE_GH_DIR": str(self.fixtures),
             "FAKE_GH_LOG": str(self.log),
             "FAKE_GH_NOW": NOW,
-        })
+        }
         environment.update(extra or {})
         return environment
 

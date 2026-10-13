@@ -148,6 +148,61 @@ class HistoricalStateTest(unittest.TestCase):
         self.assertEqual([], report.findings)
         self.assertEqual(["test_gate.py"], report.killed[0].killed_by)
 
+    def test_the_fixture_gate_is_shaped_like_the_real_one(self):
+        """Форма рішення фікстури — та сама, що в справжнього гейта.
+
+        Очікування беруться з `scripts/merge-pr.sh` (той самий arm `"" |
+        "detached HEAD"`, #1254), а не з фікстури: якби справжній гейт перестав
+        вважати порожню форму безіменною, фікстура мусить поїхати за ним, а не
+        лишитися зеленою на формі, якої вже немає.
+        """
+        real = esm.shapes((REPO_ROOT / "scripts" / "merge-pr.sh").read_text(encoding="utf-8"))
+
+        self.assertEqual(1, len(real), "у merge-pr.sh мусить бути рівно одна порожня форма")
+        for name in ("pinned", "unpinned"):
+            with self.subTest(fixture=name):
+                fixture = esm.shapes(
+                    (FIXTURES / name / "scripts" / "gate.sh").read_text(encoding="utf-8")
+                )
+
+                self.assertEqual(1, len(fixture), "фікстура мусить мати ту саму форму")
+                self.assertEqual(real[0].named, fixture[0].named)
+
+
+class EnvironmentTest(unittest.TestCase):
+    """Фікстура не залежить від середовища, яке дісталося їй у спадок.
+
+    CI-раннер приносить у процес власні змінні, і серед них може бути будь-що:
+    експортована функція затіняє команду ВСЕРЕДИНІ підставного гейта
+    (`BASH_FUNC_printf%%` — і відмова вже не друкує «не названо»), `BASH_ENV`,
+    `CDPATH`, `PYTHONPATH` — решта способів зіпсувати прогін, не змінивши жодного
+    байта файлів фікстури.
+
+    Свідок фікстури задає оточення гейта сам (свіжим словником, як
+    `scripts/tests/test_mutate.py`), а цей тест пінить саме це: отруєне
+    успадковане оточення не мусить доходити до гейта.
+    """
+
+    HOSTILE = {
+        "BASH_FUNC_printf%%": "() { return 1; }",
+        "BASH_FUNC_cat%%": "() { return 1; }",
+        "BASH_FUNC_dirname%%": "() { return 1; }",
+        "BASH_FUNC_pwd%%": "() { return 1; }",
+        "BASH_ENV": "/nonexistent/rc",
+        "CDPATH": "/tmp",
+        "PYTHONPATH": "/nonexistent",
+    }
+
+    def test_a_poisoned_inherited_environment_does_not_reach_the_gate(self):
+        root = FIXTURES / "pinned"
+
+        with mock.patch.dict(os.environ, self.HOSTILE):
+            report = esm.check(root / "scripts" / "gate.sh", TESTS_DIR, root)
+
+        self.assertEqual([], report.blocked)
+        self.assertEqual([], report.findings)
+        self.assertEqual(1, len(report.killed))
+
 
 class FailClosedTest(unittest.TestCase):
     def fixture(self, witness: str) -> Path:

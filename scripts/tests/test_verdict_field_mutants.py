@@ -398,6 +398,32 @@ class HistoricalStateTest(unittest.TestCase):
                 self.assertIn("record", usage, usage)
                 self.assertNotIn("--log LOG record", usage, usage)
 
+    def test_the_fixture_verdict_rule_is_the_real_one(self):
+        """Ланка, яку вдає фікстура, — це насамперед ПРАВИЛО вердикту.
+
+        Запис реєстру каже, що фікстура вдає ланку (артефакт → лічильники →
+        вердикт → запис), а не CLI: у неї нуль argv, у справжнього
+        `scripts/mutate.sh` на нуль argv — usage. Ланка без правила — не ланка,
+        тож рішення мусить бути тим самим рядком, що в справжньому інструменті:
+        `errors`/`failures` убивають, усі скіпи — `no-verdict`. Розійдись
+        справжній інструмент із фікстурою — фікстура перевіряла б інше правило,
+        ніж те, що в репозиторії, і це саме та межа, яку реєстр називає піном.
+        """
+        real = (REPO_ROOT / "scripts" / "mutate.sh").read_text(encoding="utf-8")
+
+        for name in ("pinned", "unpinned"):
+            with self.subTest(fixture=name):
+                fixture = (FIXTURES / name / "scripts" / "mutate.sh").read_text(
+                    encoding="utf-8"
+                )
+                for rule in (
+                    "elif [[ $failures -gt 0 || $errors -gt 0 ]]; then",
+                    'elif [[ $skipped == "$tests" ]]; then',
+                ):
+                    self.assertIn(rule, real,
+                                  "правило вердикту зникло зі справжнього інструмента")
+                    self.assertIn(rule, fixture, rule)
+
     def test_the_two_fixtures_cover_both_real_halves_of_the_chain(self):
         """Чотири місця — це читання, правило, передача й поле запису."""
         report = self.report("pinned")

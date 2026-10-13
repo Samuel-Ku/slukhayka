@@ -292,9 +292,17 @@ class ExtractionTest(unittest.TestCase):
         gh = stub / "gh"
         gh.write_text(GH_STUB, encoding="utf-8")
         gh.chmod(0o755)
-        environment = dict(
-            os.environ, PATH=os.pathsep.join([str(stub), os.environ.get("PATH", "")])
-        )
+        # Оточення — своє, а не успадковане (#1265): раннер приносить експортовані
+        # функції (`BASH_FUNC_printf%%`), а `/bin/sh` підставного `gh` — це bash,
+        # який їх імпортує; підставний тоді не друкує списку, і ґард бачить
+        # «не вдалося перелічити issue» при незмінному файлі. Спадок `os.environ`
+        # тут був рівно цим; `PATH` підставного і `HOME` для `git` — усе, що
+        # потрібно самому `issue_premise.py`.
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
 
         proc = subprocess.run(
             [

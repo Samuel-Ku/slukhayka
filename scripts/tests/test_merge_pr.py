@@ -356,17 +356,35 @@ class MergePrTest(unittest.TestCase):
         self.git("worktree", "add", "-q", "-b", branch, str(linked), "main")
         return linked
 
-    def run_script(self, *args, env_extra=None):
-        """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
-        environment = os.environ.copy()
-        environment.pop("MERGE_PR_LABEL", None)
-        environment.update({
+    def environment(self, extra=None) -> dict:
+        """Оточення гейта і підставного gh — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        експортована функція (`BASH_FUNC_cat%%`, `BASH_FUNC_printf%%`), яка
+        затіняє команду ВСЕРЕДИНІ підставного gh: він тоді не віддає фікстуру й
+        виходить із кодом 3 — при незмінних файлах фікстури. Саме так фікстура
+        #1260 і почервоніла в CI, хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Імена тут — лише свої: `FAKE_GH_*` читає
+        підставний gh, `MERGE_PR_*` — вхід самого гейта.
+        """
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
             "MERGE_PR_GH": str(self.gh),
             "MERGE_PR_REPO": str(self.repo),
             "FAKE_GH_DIR": str(self.fixtures),
             "FAKE_GH_LOG": str(self.log),
-        })
-        environment.update(env_extra or {})
+        }
+        environment.update(extra or {})
+        return environment
+
+    def run_script(self, *args, env_extra=None):
+        """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
+        environment = self.environment(env_extra)
+        environment.pop("MERGE_PR_LABEL", None)
         return subprocess.run(
             ["bash", str(MERGE_PR), *args],
             check=False, capture_output=True, text=True,
@@ -967,6 +985,96 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(0, result.returncode)
         self.assertIn("usage: scripts/merge-pr.sh", result.stdout)
         self.assertEqual([], self.invocations())
+
+
+class GitStandInShapeTest(unittest.TestCase):
+    """Підставні `git` — прозорі обгортки, і це піниться проти справжнього git.
+
+    Обидва підставні вміють рівно те, що вміє справжній git (`exec git "$@"`), і
+    ламають рівно ОДИН його опціон: `FAKE_OLD_GIT` — `--path-format` (git < 2.31),
+    `FAKE_BROKEN_GIT` — `--cherry-mark`. Тож форма тут — не власний argv
+    підставного, а argv справжнього git: опціон, на якому підставний відмовляє,
+    мусить бути справжнім опціоном встановленого git, а решта argv — проходити
+    наскрізь. Інакше фікстура перевіряла б форму, якої в оригіналі немає.
+
+    Копія репозиторію — своя, тимчасова: механізми (`empty_shape_mutants.py`,
+    `verdict_field_mutants.py`) ганяють цей модуль у тимчасовому дереві, де
+    `REPO_ROOT` — не git-репозиторій, і провал там був би провалом не теста, а
+    місця запуску.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        self.stubs = {}
+        for name, program in (("old", FAKE_OLD_GIT), ("broken", FAKE_BROKEN_GIT)):
+            stub = self.root / name / "git"
+            stub.parent.mkdir(parents=True, exist_ok=True)
+            stub.write_text(program, encoding="utf-8")
+            stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+            self.stubs[name] = str(stub)
+
+        self.run_git("git", "init", "-q", "-b", "main")
+        (self.repo / "README.md").write_text("base\n", encoding="utf-8")
+        self.run_git("git", "add", "-A")
+        self.run_git("git", "commit", "-q", "-m", "chore: основа")
+
+    def environment(self) -> dict:
+        """Оточення git — своє, а не успадковане (#1265)."""
+        return {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Fixture",
+            "GIT_AUTHOR_EMAIL": "fixture@example.com",
+            "GIT_COMMITTER_NAME": "Fixture",
+            "GIT_COMMITTER_EMAIL": "fixture@example.com",
+        }
+
+    def run_git(self, executable: str, *arguments: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [executable, *arguments], cwd=str(self.repo), check=False,
+            capture_output=True, text=True, env=self.environment(),
+        )
+
+    def test_a_stub_refuses_an_option_the_real_git_has(self):
+        """Відмова підставного — на справжньому опціоні, а не на вигаданому."""
+        real = self.run_git("git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+
+        self.assertEqual(0, real.returncode, real.stderr)
+        self.assertEqual(129, self.run_git(self.stubs["old"], "rev-parse",
+                                           "--path-format=absolute",
+                                           "--git-common-dir").returncode)
+
+    def test_a_stub_is_transparent_for_the_rest_of_the_argv(self):
+        """Усе, крім названого опціону, проходить наскрізь — як у справжнього."""
+        for name, arguments in (
+            ("old", ("rev-parse", "--git-common-dir")),
+            ("broken", ("rev-parse", "--git-common-dir")),
+        ):
+            with self.subTest(stub=name):
+                real = self.run_git("git", *arguments)
+                stub = self.run_git(self.stubs[name], *arguments)
+
+                self.assertEqual(0, real.returncode, real.stderr)
+                self.assertEqual(0, stub.returncode, stub.stderr)
+                self.assertEqual(real.stdout, stub.stdout)
+
+    def test_the_patch_comparison_stub_refuses_a_real_git_revision_option(self):
+        real = self.run_git("git", "rev-list", "--cherry-mark", "--no-merges",
+                            "--max-count=1", "HEAD")
+
+        self.assertEqual(0, real.returncode, real.stderr)
+        self.assertEqual(
+            128,
+            self.run_git(self.stubs["broken"], "rev-list", "--cherry-mark",
+                         "--no-merges", "--max-count=1", "HEAD").returncode,
+        )
 
 
 if __name__ == "__main__":

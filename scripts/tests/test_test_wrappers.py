@@ -1,4 +1,3 @@
-import os
 import stat
 import subprocess
 import tempfile
@@ -39,25 +38,37 @@ class FullSuiteWrapperTest(unittest.TestCase):
         )
         self.fake_gradle.chmod(self.fake_gradle.stat().st_mode | stat.S_IXUSR)
 
-    def run_wrapper(self, *, java_home: Path | None = None):
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "PATH": "/usr/bin:/bin",
-                "SLUKHAYKA_GRADLEW": str(self.fake_gradle),
-                "WRAPPER_TEST_LOG": str(self.gradle_log),
-            }
-        )
+    def environment(self, *, java_home: Path | None = None) -> dict:
+        """Оточення підставних `gradlew` і `java` — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        експортована функція (`BASH_FUNC_printf%%`, `BASH_FUNC_cat%%`), яка
+        затіняє команду ВСЕРЕДИНІ підставного `gradlew`: він тоді не пише журнал
+        викликів, і тест бачить порожнечу — при незмінних файлах фікстури. Саме
+        так фікстура #1260 і почервоніла в CI, хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Імена тут — лише свої: `WRAPPER_TEST_LOG`
+        читає підставний інструмент, `SLUKHAYKA_*` — вхід самого wrapper'а.
+        """
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
+            "SLUKHAYKA_GRADLEW": str(self.fake_gradle),
+            "WRAPPER_TEST_LOG": str(self.gradle_log),
+        }
         if java_home is not None:
             environment["SLUKHAYKA_JAVA_HOME"] = str(java_home)
-        else:
-            environment.pop("SLUKHAYKA_JAVA_HOME", None)
+        return environment
+
+    def run_wrapper(self, *, java_home: Path | None = None):
         return subprocess.run(
             ["bash", str(TEST_ALL)],
             check=False,
             capture_output=True,
             text=True,
-            env=environment,
+            env=self.environment(java_home=java_home),
         )
 
     def test_uses_jdk_21_and_a_fresh_temp_then_cleans_it(self):
@@ -121,14 +132,6 @@ class FullSuiteWrapperTest(unittest.TestCase):
 
     def test_changed_wrapper_runs_only_the_selected_test_class(self):
         self.write_gradle()
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "SLUKHAYKA_JAVA_HOME": str(self.java_home),
-                "SLUKHAYKA_GRADLEW": str(self.fake_gradle),
-                "WRAPPER_TEST_LOG": str(self.gradle_log),
-            }
-        )
 
         result = subprocess.run(
             [
@@ -140,7 +143,7 @@ class FullSuiteWrapperTest(unittest.TestCase):
             check=False,
             capture_output=True,
             text=True,
-            env=environment,
+            env=self.environment(java_home=self.java_home),
         )
 
         self.assertEqual(0, result.returncode, result.stderr)
@@ -152,21 +155,13 @@ class FullSuiteWrapperTest(unittest.TestCase):
 
     def test_unavailable_base_falls_back_to_full_suite(self):
         self.write_gradle()
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "SLUKHAYKA_JAVA_HOME": str(self.java_home),
-                "SLUKHAYKA_GRADLEW": str(self.fake_gradle),
-                "WRAPPER_TEST_LOG": str(self.gradle_log),
-            }
-        )
 
         result = subprocess.run(
             ["bash", str(TEST_CHANGED), "--base", "refs/heads/does-not-exist"],
             check=False,
             capture_output=True,
             text=True,
-            env=environment,
+            env=self.environment(java_home=self.java_home),
         )
 
         self.assertEqual(0, result.returncode, result.stderr)
@@ -218,22 +213,33 @@ class ChangedTestWrapperWebCheckTest(unittest.TestCase):
         )
         self.gradle.chmod(self.gradle.stat().st_mode | stat.S_IXUSR)
 
+    def environment(self) -> dict:
+        """Оточення підставних `gradlew`, `npm` і `npx` — своє, а не успадковане.
+
+        Те саме, що в `FullSuiteWrapperTest.environment` (#1265): команда
+        всередині підставного інструмента не мусить залежати від того, що
+        раннер експортував у процес. Імена — лише свої: `WRAPPER_TEST_LOG` для
+        підставних інструментів, `SLUKHAYKA_*` — вхід wrapper'а.
+        """
+        return {
+            "PATH": f"{self.bin}:/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
+            # Дім JDK виводиться з самого підставного `java`, а не з окремого
+            # `self.java_home`: значення те саме — `java` лежить у `<дім>/bin`,
+            # — і видно, ЩО туди кладеться.
+            "SLUKHAYKA_JAVA_HOME": str(self.java.parent.parent),
+            "SLUKHAYKA_GRADLEW": str(self.gradle),
+            "WRAPPER_TEST_LOG": str(self.log),
+        }
+
     def run_changed(self, *arguments: str):
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "PATH": f"{self.bin}:/usr/bin:/bin",
-                "SLUKHAYKA_JAVA_HOME": str(self.java_home),
-                "SLUKHAYKA_GRADLEW": str(self.gradle),
-                "WRAPPER_TEST_LOG": str(self.log),
-            }
-        )
         return subprocess.run(
             ["bash", str(TEST_CHANGED), *arguments],
             check=False,
             capture_output=True,
             text=True,
-            env=environment,
+            env=self.environment(),
         )
 
     def test_web_path_runs_the_web_check_and_no_android_partition(self):

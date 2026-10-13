@@ -1,0 +1,817 @@
+"""Фікстура, яка вдає інструмент, не успадковує оточення раннера (#1265).
+
+Два падіння CI за минулу ціль мали один корінь: підставний інструмент усередині
+фікстури жив в оточенні, яке дісталося йому у спадок.
+
+  1. Раннер приносить експортовану bash-функцію (`BASH_FUNC_<ім'я>%%`), і вона
+     затіняє команду ВСЕРЕДИНІ інструмента — `dirname`, `cat`, `printf` — тож
+     інструмент виходить із кодом 2 при незмінному файлі. Саме так упав CI
+     #1260: `repo_root` підставного `mutate.sh` ставав `/`.
+  2. Фікстура вдавала CLI не тієї форми, що справжній інструмент (#1260,
+     `mutation_trace.py`: позиційний аргумент ПЕРЕД опцією замість підкоманди) —
+     і це бачив лише CPython 3.12.3, тобто лише джоба.
+
+Обидва рази локальна зелень цього не бачила. Тому тут — реєстр фікстур
+репозиторію, які запускають підставний інструмент, і дві речі, які він справді
+перевіряє:
+
+  * **оточення**: КОЖЕН названий прогін (`ENVIRONMENT_TARGETS`) мусить лишитися
+    зеленим і з порожнім оточенням (фікстура не читає зі спадку нічого), і з
+    отруєним (затьмарені команди не доходять до інструмента). Обидва прогони —
+    вкладені процеси `unittest`;
+  * **покриття**: жоден файл-інструмент під `fixtures/` і жодна вбудована
+    програма під `scripts/tests/` не лишаються без запису, запис указує на
+    існуюче місце, а фікстурний інструмент названий тестом, який лежить поруч.
+    Це перевірка НАЯВНОСТІ запису, а не запуску.
+
+Форми тут немає навмисно: реєстр не пінить, що фікстура вдає справжній
+інструмент тої самої форми. Була пара полів — названий справжній інструмент і пін
+на форму, — але пін доводив лише те, що він НАЗИВАЄ файл чи маркер: у власному
+тілі чи в коментарі, — а не те, що він форму ПОРІВНЮЄ. Поле, яке виглядає
+захистом, не бувши ним, — та сама хвороба, яку тут лікують, тож його прибрано
+разом із пінами. Форму пінять звичайні тести поруч
+(`test_verdict_field_mutants`, `test_empty_shape_mutants`), і реєстр цього не
+перевіряє і не обіцяє.
+
+УРОК ШЕСТИ КІЛ ОГЛЯДУ. Кожне коло знаходило новий **неперевірений перемикач** у
+реєстрі: запис міг щось оголосити — маркер, режим, свідка, виняток, — і ніщо не
+перевіряло, що оголошене правда. Прибрати самі перемикачі виявилося мало: доки
+«свідка» — тест, який мусить під двома оточеннями прогнати інструмент, —
+**виводили з AST**, кожне наступне коло знаходило нову форму, у якій виведений
+тест інструмента не запускає: присвоєння в хелпері, обгортка виклику,
+dotted-ресивер. Бо «згадує» і «запускає» — це те саме посилання в AST;
+розрізнити їх статично нема чим. Тому виведення прибрано **зовсім**, а прогони
+названо списком: разом із виведенням зникли і обіцянка, і діра.
+
+ЧЕСНА МЕЖА, І ВОНА ТУТ, А НЕ ЛИШЕ В ЗВІТІ. **Автоматичного покриття нових
+підставних немає.** Підставний інструмент, який успадковує оточення, зелений,
+доки його не названо в `ENVIRONMENT_TARGETS` руками — список розширюється разом
+із прогоном, і ніщо не перевіряє, що названий тест справді запускає інструмент.
+Реєстр ловить **незареєстроване** — файл, програму, читання чужої змінної, — і не
+ловить «цей прогін справді ганяє цього підставного». Сам реєстр цього не
+замовчує: межа названа біля `ENVIRONMENT_TARGETS` і нижче, у «Межах».
+
+  * **оточення піниться на НАЗВАНОМУ наборі тестів** (`ENVIRONMENT_TARGETS`), а не
+    на виведеному: список лежить у коді, піниться тестом нижче і резолвиться,
+    тож звузити його мовчки не можна, а розширити — руками, разом із прогоном.
+    Тепер чесно: реєстр ловить НЕЗАРЕЄСТРОВАНЕ, а чи справді запускає названий
+    тест — не ловить і не обіцяє;
+  * **фікстурний інструмент мусить бути НАЗВАНИЙ тестом, який лежить поруч**
+    (`fixtures/*/*/scripts/tests/test_*.py`), і ці модулі ганяються в копії дерева
+    в обох прогонах оточення. Це перевірка покриття, а не доказ запуску: новий
+    файл із записом і прозою без такого модуля червоний (M10b), але згадка в прозі
+    від запуску не відрізняється — і ця межа названа, а не замовчана;
+  * `test_the_registry_has_no_declared_switches` пінить сам НАБІР полів: нове
+    поле-оглядач червонить тест, і його доведеться обґрунтувати тут.
+
+Що `EnvironmentTest` справді доводить: КОЖЕН названий прогін зелений і з порожнім
+оточенням, і під отруєним; якщо підставний усередині нього успадкує оточення
+раннера — прогін червоний. Чого не доводить: що цей прогін справді ЗАПУСКАЄ
+кожного зареєстрованого підставного і що новий запис узагалі потрапив у список —
+він розширюється руками (межа названа біля `ENVIRONMENT_TARGETS`).
+
+Покриття перевіряється СТРУКТУРНО, з трьох боків.
+
+  * `fixtures/` — по файлах: жоден файл-інструмент не лишається без запису (і
+    жоден запис не вказує на неіснуючий файл), а кожен файл мусить мати тест,
+    який НАЗИВАЄ його ім'я. Сама лише наявність `test_*.py` поруч нею не
+    проходить: новий файл із записом і прозою був зеленим (M10b);
+  * `scripts/tests/**/*.py` — по AST: кожен ЛІТЕРАЛ, значення якого ПОЧИНАЄТЬСЯ
+    шебангом, є вбудованою програмою, і кожна мусить бути названа ЗА СВОЇМ
+    МІСЦЕМ (`Program.at`), а не «хоч якимсь маркером модуля». Прив'язка до місця
+    навмисна: найімовірніший спосіб написати третього підставного `git` —
+    скопіювати сусіднього, і копія мусить бути ВИДНА як окрема програма. Маркер
+    лишається перевіркою, що запис не збрехав про вміст;
+  * читання змінних — по тексту програми: усе, що підставний читає з оточення,
+    мусить мати власний префікс запису або бути названим у `reads` (входи
+    справжнього інструмента — `JAVA_HOME`, `TMPDIR`); змінні, які ставить сама
+    оболонка (`BASH_SOURCE`, `PWD`, `PPID`), спадком не бувають. Дозвіл без
+    використання — теж червоний: вигаданих дозволів не тримаємо.
+
+Межі названі прямо:
+
+  * прогони оточення — НАЗВАНИЙ список (`ENVIRONMENT_TARGETS`), а не виведений:
+    новий зареєстрований підставний не додається туди сам, і ніщо не перевіряє,
+    що названий тест справді його запускає. Покриття реєстру — про наявність
+    запису (файл, програма), а не про запуск;
+  * скан читає ЗНАЧЕННЯ літерала, тож літерал, у якому шебанг не з першого
+    символу (`textwrap.dedent('''\n#!/…''')`), для нього невидимий. Цю сліпу
+    пляму закриває окрема перевірка по ТОКЕНАХ: рядок із шебангом у рядковому
+    літералі, якого скан не побачив, — червоний. Лишається тільки програма,
+    зібрана з кількох шматків у рантаймі (`"#!" + "/bin/sh\n"`), — її не бачить
+    ні скан, ні токени;
+  * програма БЕЗ шебанга невидима ВСІМ трьом сканам (`_program_text`, перевірка
+    по токенах, `program_texts`): усі три ловлять літерали, чиє значення
+    ПОЧИНАЄТЬСЯ шебангом, а `"echo fake"`, який тест пише у файл і робить
+    виконуваним, для них — рядок-дані. Розширити скан до «схоже на програму»
+    означало б хибні спрацювання на кожному рядку-даних, а реєстр, який кричить
+    на все, не читають; тож межа названа, а не закрита (знахідка E п'ятого
+    кола): підставний інструмент мусить мати шебанг, як усі справжні
+    інструменти репозиторію;
+  * докстрінг, що ПОЧИНАЄТЬСЯ шебангом, навпаки потрапляє в скан: хибне
+    спрацювання в безпечний бік (зайвий запис, а не пропущений);
+  * скан обмежений `scripts/tests/**/*.py`. Програма поза цим деревом (у
+    `app/**`, `web/**`, у хелпері поза тестами) не покрита жодним зі сканів;
+  * підставного інструмента у `test_mutate_python.py` немає — і це перевірено, а
+    не обіцяно: скан (разом із піном на відомий набір модулів) не бачить там
+    жодної програми.
+    Фікстура пише СУБʼЄКТ під тестом і цільовий набір — те, що справжній
+    `mutation_python_runner.py` і мусить виконати; це не імперсонація;
+  * форми реєстр не перевіряє взагалі: чи вдає фікстура справжній інструмент тої
+    самої форми, вирішують тести поруч, а не запис. Пін на форму прибрано саме
+    тому — він доводив, що НАЗИВАЄ файл чи маркер, а не що ПОРІВНЮЄ форму, і
+    виглядав захистом, не бувши ним;
+  * підставний, який успадковує оточення, ловиться лише тоді, коли його ганяє
+    НАЗВАНИЙ прогін: реєстр не виводить прогони і не перевіряє, що названий тест
+    справді запускає інструмент. **Нові підставні автоматично не покриті** —
+    `ENVIRONMENT_TARGETS` розширюють руками, і ніщо не червоніє, якщо цього не
+    зробити.
+
+Дві фікстури (`verdict_field`, `empty_shape`) отруюють оточення і самі, своїми
+`EnvironmentTest`; тут вони в реєстрі, і їхні тести теж ганяються — у копії
+дерева, щоб не смітити в репозиторії.
+"""
+
+import ast
+import dataclasses
+import functools
+import importlib
+import io
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import tokenize
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TESTS_DIR = REPO_ROOT / "scripts" / "tests"
+FIXTURES = TESTS_DIR / "fixtures"
+
+# Скільки чекати на вкладений прогін. Таймаут — це провал, не «зелено».
+NESTED_TIMEOUT_SECONDS = 600
+
+# Отрута — рівно те, що приносить раннер: затьмарені команди, чужий `BASH_ENV`,
+# `CDPATH` і `PYTHONPATH`. `BASH_FUNC_*` діє на bash-процеси, і саме тому ламає
+# підставний інструмент, а не тест.
+HOSTILE = {
+    "BASH_FUNC_printf%%": "() { return 1; }",
+    "BASH_FUNC_cat%%": "() { return 1; }",
+    "BASH_FUNC_dirname%%": "() { return 1; }",
+    "BASH_FUNC_pwd%%": "() { return 1; }",
+    "BASH_FUNC_python3%%": "() { return 2; }",
+    "BASH_ENV": "/nonexistent/rc",
+    "CDPATH": "/tmp",
+    "PYTHONPATH": "/nonexistent",
+}
+
+# Оточення без спадку взагалі: лише те, без чого не стартує жоден процес.
+STRIPPED = {"PATH": "/usr/bin:/bin"}
+
+# Шебанг — це шлях до інтерпретатора (`#!/usr/bin/env bash`), а не сама лише
+# позначка: інакше скан ловив би власний рядок `"#!"` у цьому модулі. Межа, яку
+# цей регекс задає: програма БЕЗ шебанга для скану не програма (докстрінг
+# модуля, «Межі названі прямо»).
+SHEBANG = re.compile(r"^#!\S*/")
+
+# Читання змінних оточення: `$NAME`, `${NAME…}` у shell і `os.environ[…]`/
+# `os.environ.get(…)` у Python. Локальні змінні підставних — малими літерами,
+# тож фільтр «ім'я = верхній регістр» відсіює їх без окремого списку.
+SHELL_READ = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
+PYTHON_READ = re.compile(r"os\.environ(?:\.get)?[\[(]\s*[\"']([A-Za-z_][A-Za-z0-9_]*)[\"']")
+
+# Змінні, які ставить САМА оболонка (`BASH_SOURCE` у `mutate.sh` фікстури,
+# `PWD`/`PPID` у підставному gradlew). Спадком раннера вони не бувають — bash
+# переписує їх сам, — тож у правилі «читає лише своє» вони не рахуються.
+SHELL_PROVIDED = {
+    "BASH_SOURCE", "BASH_LINENO", "BASH_VERSION", "BASHPID", "EPOCHSECONDS",
+    "EPOCHREALTIME", "EUID", "FUNCNAME", "IFS", "LINENO", "OLDPWD", "PPID",
+    "PWD", "RANDOM", "SECONDS", "SHELLOPTS", "SHLVL", "UID",
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class Program:
+    """Вбудована програма: де вона лежить і який рядок її називає.
+
+    `at` — місце, а не текст: `GRADLEW`, `Fixture.build: java`,
+    `DeviceRunTest.setUp: self.adb`. Дві копії того самого тексту — дві різні
+    програми, і кожна мусить мати свій `at`.
+    """
+
+    at: str
+    marker: str
+
+
+@dataclasses.dataclass(frozen=True)
+class StandIn:
+    """Один підставний інструмент.
+
+    Полів-перемикачів немає навмисно: виключити запис із реєстру чи з прогонів
+    оточення нічим — прогін додається до НАЗВАНОГО списку руками, а не полем
+    запису. Кожне поле має механічну перевірку, і сам набір полів пінить
+    `RegistryTest.test_the_registry_has_no_declared_switches`.
+
+    Форми тут немає навмисно. Була пара полів — названий справжній інструмент і
+    пін на форму, — але пін доводив лише те, що він НАЗИВАЄ файл чи маркер: у
+    власному тілі чи в коментарі, — а не те, що він форму ПОРІВНЮЄ. Поле, яке
+    виглядає захистом, не бувши ним, — це та сама хвороба, яку тут лікують, тож
+    його прибрано разом із пінами. Форму фікстур пінять звичайні тести поруч
+    (`test_verdict_field_mutants`, `test_empty_shape_mutants`), і реєстр цього не
+    перевіряє і не обіцяє.
+    """
+
+    name: str
+    where: tuple[str, ...]      # файли (відносно кореня репозиторію)
+    prefix: str = ""            # власний префікс змінних, які він читає
+    reads: tuple[str, ...] = ()  # названі входи справжнього інструмента
+    programs: tuple[Program, ...] = ()  # вбудовані програми цього запису
+
+
+CASES = (
+    StandIn(
+        name="підставний recorder фікстури verdict_field",
+        where=(
+            "scripts/tests/fixtures/verdict_field/pinned/scripts/mutation_trace.py",
+            "scripts/tests/fixtures/verdict_field/unpinned/scripts/mutation_trace.py",
+        ),
+    ),
+    StandIn(
+        name="підставний mutate.sh фікстури verdict_field",
+        where=(
+            "scripts/tests/fixtures/verdict_field/pinned/scripts/mutate.sh",
+            "scripts/tests/fixtures/verdict_field/unpinned/scripts/mutate.sh",
+        ),
+        prefix="VERDICT_FIXTURE_",
+    ),
+    StandIn(
+        name="підставний gate.sh фікстури empty_shape",
+        where=(
+            "scripts/tests/fixtures/empty_shape/pinned/scripts/gate.sh",
+            "scripts/tests/fixtures/empty_shape/unpinned/scripts/gate.sh",
+        ),
+    ),
+    StandIn(
+        name="підставний gradlew і jdk фікстури test_mutate",
+        where=("scripts/tests/test_mutate.py",),
+        prefix="MUTATE_TEST_",
+        programs=(
+            Program("GRADLEW", "MUTATE_TEST_GRADLE_LOG"),
+            Program("Fixture.build: java", "openjdk version"),
+        ),
+    ),
+    StandIn(
+        name="підставний gh фікстури test_merge_pr",
+        where=("scripts/tests/test_merge_pr.py",),
+        prefix="FAKE_GH_",
+        programs=(Program("FAKE_GH", "FAKE_GH_DIR"),),
+    ),
+    StandIn(
+        name="підставний старий git фікстури test_merge_pr",
+        where=("scripts/tests/test_merge_pr.py",),
+        programs=(Program("FAKE_OLD_GIT", "--path-format"),),
+    ),
+    StandIn(
+        name="підставний зламаний git фікстури test_merge_pr",
+        where=("scripts/tests/test_merge_pr.py",),
+        programs=(Program("FAKE_BROKEN_GIT", "--cherry-mark"),),
+    ),
+    StandIn(
+        name="підставний gh фікстури test_review_pass",
+        where=("scripts/tests/test_review_pass.py",),
+        prefix="FAKE_GH_",
+        programs=(Program("FAKE_GH", "FAKE_GH_DIR"),),
+    ),
+    StandIn(
+        name="підставний gh фікстури test_issue_premise",
+        where=("scripts/tests/test_issue_premise.py",),
+        programs=(Program("GH_STUB", "issue list"),),
+    ),
+    StandIn(
+        name="підставний adb фікстури test_wide_window",
+        where=("scripts/tests/test_wide_window.py",),
+        prefix="FAKE_ADB_",
+        programs=(Program("DeviceRunTest.setUp: self.adb", "FAKE_ADB_LOG"),),
+    ),
+    StandIn(
+        name="підставний adb фікстури test_android_emulator_readiness",
+        where=("scripts/tests/test_android_emulator_readiness.py",),
+        prefix="FAKE_ADB_",
+        programs=(Program("AndroidEmulatorReadinessTest.setUp: self.fake_adb",
+                          "FAKE_ADB_STATE"),),
+    ),
+    StandIn(
+        name="підставні gradlew і java фікстури test_test_wrappers",
+        where=("scripts/tests/test_test_wrappers.py",),
+        prefix="WRAPPER_TEST_",
+        reads=("JAVA_HOME", "TMPDIR"),
+        programs=(
+            Program("FullSuiteWrapperTest.setUp: self.java", "21.0.8"),
+            Program("FullSuiteWrapperTest.write_gradle: self.fake_gradle",
+                    "WRAPPER_TEST_LOG"),
+            Program("FullSuiteWrapperTest"
+                    ".test_rejects_a_non_21_override_with_an_actionable_error: self.java",
+                    "17.0.12"),
+            Program("FullSuiteWrapperTest"
+                    ".test_cleans_temp_when_interrupted: self.fake_gradle",
+                    "kill -TERM"),
+        ),
+    ),
+    StandIn(
+        name="підставні gradlew, npm і npx фікстури test_test_wrappers",
+        where=("scripts/tests/test_test_wrappers.py",),
+        prefix="WRAPPER_TEST_",
+        programs=(
+            Program("ChangedTestWrapperWebCheckTest.setUp: self.java", "21.0.8"),
+            Program("ChangedTestWrapperWebCheckTest.write_web_command: target",
+                    "cwd=%s"),
+            Program("ChangedTestWrapperWebCheckTest.write_gradle: self.gradle",
+                    "gradle %s"),
+        ),
+    ),
+    StandIn(
+        name="SAMPLE у test_empty_shape_mutants — вхідний текст, не інструмент",
+        where=("scripts/tests/test_empty_shape_mutants.py",),
+        reads=("HEAD_REF",),
+        programs=(Program("SAMPLE", "detached HEAD"),),
+    ),
+)
+
+
+# Прогони оточення — НАЗВАНІ, а не виведені.
+#
+# ЧЕСНА МЕЖА: автоматичного покриття нових підставних НЕМАЄ. Новий підставний
+# інструмент, який успадковує оточення, буде зелений, доки його не назвуть тут
+# руками; ніщо не червоніє, якщо цього не зробити. І чи названий тест справді
+# ЗАПУСКАЄ інструмент, звідси теж не видно — видно лише, що він під двома
+# оточеннями зелений.
+#
+# Звузити список мовчки не можна: його пінить
+# `RegistryTest.test_the_environment_runs_are_the_named_set` і резолвить кожне
+# імʼя. Розширюють його разом із прогоном, а не полем запису.
+ENVIRONMENT_TARGETS = (
+    "test_android_emulator_readiness.AndroidEmulatorReadinessTest"
+    ".test_waits_until_android_package_service_is_usable",
+    "test_empty_shape_mutants.ScannerTest"
+    ".test_reads_arms_with_offsets_and_keeps_the_source_intact",
+    "test_issue_premise.ExtractionTest"
+    ".test_measure_head_exists_because_the_docs_cite_it",
+    "test_merge_pr.MergePrTest.test_fails_closed_when_the_patch_comparison_fails",
+    "test_merge_pr.MergePrTest.test_fails_closed_when_the_working_copy_scan_fails",
+    "test_merge_pr.MergePrTest.test_refuses_a_failing_check",
+    "test_mutate.MutationRunTest"
+    ".test_runs_the_named_class_and_records_a_caught_mutation",
+    "test_review_pass.ReviewPassTest"
+    ".test_reissues_the_verdict_on_a_pr_that_already_has_the_label",
+    "test_test_wrappers.ChangedTestWrapperWebCheckTest"
+    ".test_web_path_runs_the_web_check_and_no_android_partition",
+    "test_test_wrappers.FullSuiteWrapperTest.test_cleans_temp_when_interrupted",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_rejects_a_non_21_override_with_an_actionable_error",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_uses_jdk_21_and_a_fresh_temp_then_cleans_it",
+    "test_wide_window.DeviceRunTest"
+    ".test_derives_the_density_from_the_device_and_reports_the_width",
+)
+
+
+# --- пошук вбудованих програм -------------------------------------------------
+
+
+def _program_text(node: ast.AST) -> str | None:
+    """Текст програми, якщо літерал нею є: значення ПОЧИНАЄТЬСЯ шебангом."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value if SHEBANG.match(node.value) else None
+    if isinstance(node, ast.JoinedStr) and node.values:
+        first = node.values[0]
+        if (isinstance(first, ast.Constant) and isinstance(first.value, str)
+                and SHEBANG.match(first.value)):
+            return "".join(
+                part.value
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+                else "\x00"
+                for part in node.values
+            )
+    return None
+
+
+def _location(node: ast.AST, parents: dict, source: str) -> str:
+    """Місце програми: `Клас.метод: ціль` або ім'я константи.
+
+    Саме місце, а не текст, робить копію сусіда окремою програмою. Ціль береться
+    лише тоді, коли схожа на ім'я чи шлях (`self.adb`); інакше — «виклик», бо ключ
+    із ресивера-літерала (`"".join([...])` → `""`) не назвав би нічого.
+    """
+    scopes: list[str] = []
+    target = ""
+    current = node
+    while current in parents:
+        current = parents[current]
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            scopes.append(current.name)
+        if not target and isinstance(current, ast.Assign):
+            target = ast.get_source_segment(source, current.targets[0]) or ""
+            break
+        if not target and isinstance(current, ast.Call):
+            function = current.func
+            if isinstance(function, ast.Attribute):
+                candidate = ast.get_source_segment(source, function.value) or ""
+                target = (candidate if re.fullmatch(r"[A-Za-z_][\w.]*", candidate)
+                          else "виклик")
+    prefix = ".".join(reversed(scopes))
+    return f"{prefix}: {target}" if prefix else target
+
+
+def embedded_programs(module: Path) -> dict[str, str]:
+    """Вбудовані програми модуля: `at` → текст."""
+    source = module.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree)
+               for child in ast.iter_child_nodes(parent)}
+    found: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(parents.get(node), ast.JoinedStr):
+            continue
+        text = _program_text(node)
+        if text is None:
+            continue
+        key = _location(node, parents, source)
+        unique, index = key, 2
+        while unique in found:
+            unique, index = f"{key}#{index}", index + 1
+        found[unique] = text
+    return found
+
+
+@functools.lru_cache(maxsize=1)
+def all_embedded_programs() -> dict[str, dict[str, str]]:
+    """Усі вбудовані програми під `scripts/tests`, за модулями."""
+    return {
+        str(module.relative_to(REPO_ROOT)): programs
+        for module in sorted(TESTS_DIR.rglob("*.py"))
+        if (programs := embedded_programs(module))
+    }
+
+
+def literals_with_unseen_shebang(module: Path) -> list[int]:
+    """Рядки, де шебанг лежить у рядковому літералі, якого скан НЕ побачив.
+
+    Ловить саме ту сліпу пляму: літерал, у якому шебанг не з першого символу
+    (обгортка `textwrap.dedent`, лапки й новий рядок). Токенізатор знає, що це
+    саме літерал, а не коментар, — тож перевірка не залежить від того, як його
+    записано.
+    """
+    source = module.read_text(encoding="utf-8")
+    discovered: set = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, (ast.Constant, ast.JoinedStr)) and _program_text(node):
+            discovered.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+
+    hidden = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type != tokenize.STRING or token.start[0] in discovered:
+            continue
+        for offset, line in enumerate(token.string.splitlines()):
+            if SHEBANG.match(line.lstrip(" \t")):
+                hidden.append(token.start[0] + offset)
+                break
+    return hidden
+
+
+def program_texts(case: StandIn) -> dict[str, str]:
+    """Тексти програм запису: вбудовані — із літералів, фікстурні — з файлів.
+
+    Файли читаються лише під `fixtures/`: `where` вбудованого запису — це тестовий
+    модуль, і його код читає власні змінні (журнали, фікстурні перемикачі), які до
+    тексту підставної програми не належать.
+    """
+    embedded = all_embedded_programs()
+    texts = {program.at: embedded[case.where[0]][program.at]
+             for program in case.programs}
+    for where in case.where:
+        path = REPO_ROOT / where
+        if "fixtures" in Path(where).parts and path.is_file():
+            texts[where] = path.read_text(encoding="utf-8")
+    return texts
+
+
+def environment_reads(text: str) -> set[str]:
+    """Імена змінних оточення, які програма читає (`$NAME`, `os.environ[...]`)."""
+    names = set(SHELL_READ.findall(text)) | set(PYTHON_READ.findall(text))
+    return {name for name in names if name == name.upper()} - SHELL_PROVIDED
+
+
+@functools.lru_cache(maxsize=None)
+def fixture_naming_tests() -> list[tuple[Path, str, tuple[str, ...]]]:
+    """`(варіант фікстури, файл, модулі, які НАЗИВАЮТЬ його ім'я)` — на кожен файл.
+
+    Це перевірка покриття, а не доказ запуску: модуль мусить назвати файл (той
+    самий прийом, що `paired_modules` у `scripts/empty_shape_mutants.py`), бо
+    «поруч лежить якийсь `test_*.py`» нею не проходить — новий файл із записом і
+    прозою був зеленим (M10b). Чи цей модуль справді ЗАПУСКАЄ інструмент,
+    звідси не видно: згадка в прозі — теж згадка. Межа названа в докстрінзі
+    модуля; у прогонах оточення ці модулі ганяються в копії дерева, тож
+    непрацюючий модуль там просто нічого не перевірить.
+    """
+    found = set()
+    for case in CASES:
+        for where in case.where:
+            path = Path(where)
+            if "fixtures" not in path.parts:
+                continue
+            tests = REPO_ROOT / path.parent / "tests"
+            naming = tuple(sorted(
+                module.name for module in tests.glob("test_*.py")
+                if path.name in module.read_text(encoding="utf-8")
+            )) if tests.is_dir() else ()
+            found.add((tests.parent.parent, path.name, naming))
+    return sorted(found)
+
+
+# --- перевірки ----------------------------------------------------------------
+
+
+class RegistryTest(unittest.TestCase):
+    """Перелік мусить бути повним з усіх боків — і кожен запис указувати на місце."""
+
+    def test_the_registry_has_no_declared_switches(self):
+        """Набір полів — рівно ті, чию правду щось перевіряє.
+
+        Шість кіл огляду поспіль знаходили в реєстрі новий неперевірений
+        перемикач. Тут їх немає: виведення прогонів прибрано зовсім (вони —
+        НАЗВАНИЙ список, а не поле запису), а поле форми прибрано разом із
+        пінами, бо пін доводив лише «називає», не «порівнює». Нове поле
+        червонить цей тест, і його доведеться обґрунтувати.
+        """
+        self.assertEqual(
+            {"name", "where", "prefix", "reads", "programs"},
+            {field.name for field in dataclasses.fields(StandIn)},
+        )
+        self.assertEqual(
+            {"at", "marker"},
+            {field.name for field in dataclasses.fields(Program)},
+        )
+
+    def test_the_registry_names_every_tool_under_the_fixtures(self):
+        """Жоден файл-інструмент у `fixtures/` не лишається поза реєстром.
+
+        Рівність у два боки: і зайвий файл у дереві без запису, і запис на файл,
+        якого немає, — червоні.
+        """
+        declared = {
+            Path(where)
+            for case in CASES for where in case.where
+            if where.startswith("scripts/tests/fixtures/")
+        }
+        found = {
+            path.relative_to(REPO_ROOT)
+            for path in FIXTURES.rglob("*")
+            if path.is_file()
+            and "tests" not in path.relative_to(FIXTURES).parts
+        }
+
+        self.assertTrue(found, "під fixtures/ мусять бути підставні інструменти")
+        self.assertEqual(sorted(found), sorted(declared))
+
+    def test_every_registered_path_exists(self):
+        """Запис на неіснуючий файл — це не «менше роботи», а діра в покритті."""
+        for case in CASES:
+            for where in case.where:
+                with self.subTest(stand_in=case.name, path=where):
+                    self.assertTrue((REPO_ROOT / where).is_file(), where)
+
+    def test_every_embedded_program_is_claimed_at_its_own_place(self):
+        """Кожна вбудована програма названа ЗА СВОЇМ МІСЦЕМ — і навпаки.
+
+        Прив'язка до місця (`Program.at`), а не до маркера модуля: копія сусіда з
+        тим самим текстом (найімовірніший спосіб написати третього підставного
+        `git`) дістає власний `at` і без запису червонить цей тест. Маркер
+        перевіряється окремо — він мусить лежати в ТІЙ програмі, яку запис називає.
+        """
+        for path, programs in all_embedded_programs().items():
+            with self.subTest(module=path):
+                claimed: dict[str, str] = {}
+                for case in CASES:
+                    if case.where != (path,):
+                        continue
+                    for program in case.programs:
+                        self.assertIn(program.at, programs,
+                                      "запис вказує на програму, якої немає")
+                        self.assertNotIn(program.at, claimed, "програму названо двічі")
+                        self.assertIn(program.marker, programs[program.at],
+                                      "маркер не лежить у своїй програмі")
+                        claimed[program.at] = case.name
+
+                self.assertEqual(
+                    sorted(programs), sorted(claimed),
+                    "є програми без запису в реєстрі: %s"
+                    % (sorted(set(programs) - set(claimed)),),
+                )
+
+    def test_the_scan_finds_the_programs_it_is_supposed_to(self):
+        """Скан не порожній і бачить відомі місця — інакше він «зелений» ні на чому."""
+        found = all_embedded_programs()
+
+        self.assertEqual(
+            ["scripts/tests/test_android_emulator_readiness.py",
+             "scripts/tests/test_empty_shape_mutants.py",
+             "scripts/tests/test_issue_premise.py",
+             "scripts/tests/test_merge_pr.py",
+             "scripts/tests/test_mutate.py",
+             "scripts/tests/test_review_pass.py",
+             "scripts/tests/test_test_wrappers.py",
+             "scripts/tests/test_wide_window.py"],
+            sorted(found),
+        )
+        self.assertIn("FAKE_OLD_GIT", found["scripts/tests/test_merge_pr.py"])
+        # `test_mutate_python.py` тут НЕМАЄ: субʼєкт під тестом — не підставний
+        # інструмент, і це перевірено сканом, а не обіцяно докстрінгом.
+        self.assertNotIn("scripts/tests/test_mutate_python.py", found)
+
+    def test_no_literal_hides_a_shebang_the_scan_cannot_see(self):
+        """Сліпа пляма сканера закрита окремою перевіркою по токенах.
+
+        Скан читає значення літерала: `textwrap.dedent('''\\n#!/…''')` значенням
+        шебанга не має. Токенізатор бачить, що шебанг лежить у РЯДКОВОМУ
+        літералі, — і такий літерал мусить бути або названою програмою, або
+        червоним. Пін вище пінить відомий набір модулів; ця перевірка — саму межу.
+        """
+        for module in sorted(TESTS_DIR.rglob("*.py")):
+            with self.subTest(module=str(module.relative_to(REPO_ROOT))):
+                self.assertEqual(
+                    [], literals_with_unseen_shebang(module),
+                    "шебанг у літералі, якого скан не бачить",
+                )
+
+    def test_every_program_reads_only_its_own_prefixed_variables(self):
+        """Читання з оточення — або власний префікс, або названий вхід інструмента.
+
+        `reads` — дозвіл на КОНКРЕТНЕ ім'я, і він перевіряється у два боки: чуже
+        читання червоне, вигаданий дозвіл (названо, а не читається) — теж.
+        """
+        for case in CASES:
+            with self.subTest(stand_in=case.name):
+                texts = program_texts(case)
+                self.assertTrue(texts, "немає жодного тексту програми")
+                reads = set().union(*(environment_reads(text) for text in texts.values()))
+                allowed = {name for name in reads
+                           if case.prefix and name.startswith(case.prefix)}
+                allowed |= set(case.reads)
+
+                foreign = {where: sorted(environment_reads(text) - allowed)
+                           for where, text in texts.items()
+                           if environment_reads(text) - allowed}
+                self.assertEqual({}, foreign, "програма читає чужі змінні: %s" % foreign)
+                self.assertEqual(
+                    set(), set(case.reads) - reads,
+                    "дозвіл названо, а читання немає: %s"
+                    % sorted(set(case.reads) - reads),
+                )
+
+    def test_every_fixture_instrument_is_named_by_a_test(self):
+        """Фікстурний інструмент мусить бути названий тестом, що лежить поруч.
+
+        Це перевірка ПОКРИТТЯ, а не доказ запуску: «поруч лежить якийсь
+        `test_*.py`» нею не проходить (M10b: новий `extra_tool.sh` із записом і
+        прозою був зеленим), а чи названий модуль справді ЗАПУСКАЄ інструмент —
+        звідси не видно: згадка в прозі теж згадка. Межа названа в докстрінзі
+        модуля.
+        """
+        for root, name, modules in fixture_naming_tests():
+            with self.subTest(fixture=str(root.relative_to(REPO_ROOT)), file=name):
+                self.assertTrue(modules, "%s не названий: жоден тест поруч не "
+                                         "називає його файл" % name)
+
+    def test_the_environment_runs_are_the_named_set(self):
+        """Прогони оточення — РІВНО названий набір, і кожен із них існує.
+
+        Виведення прогонів з AST тут немає навмисно: шість кіл огляду поспіль
+        знаходили нову форму, у якій виведений тест інструмента не запускає —
+        присвоєння в хелпері, обгортка виклику, dotted-ресивер, — і кожна правка
+        закривала ФОРМУ, а не клас: «згадує» і «запускає» — це те саме посилання
+        в AST. Замість виведення — список, який видно: звузити його мовчки не
+        можна (він піниться тут), а розширити — руками, разом із прогоном.
+        """
+        self.assertEqual(
+            ["test_android_emulator_readiness.AndroidEmulatorReadinessTest"
+             ".test_waits_until_android_package_service_is_usable",
+             "test_empty_shape_mutants.ScannerTest"
+             ".test_reads_arms_with_offsets_and_keeps_the_source_intact",
+             "test_issue_premise.ExtractionTest"
+             ".test_measure_head_exists_because_the_docs_cite_it",
+             "test_merge_pr.MergePrTest"
+             ".test_fails_closed_when_the_patch_comparison_fails",
+             "test_merge_pr.MergePrTest"
+             ".test_fails_closed_when_the_working_copy_scan_fails",
+             "test_merge_pr.MergePrTest.test_refuses_a_failing_check",
+             "test_mutate.MutationRunTest"
+             ".test_runs_the_named_class_and_records_a_caught_mutation",
+             "test_review_pass.ReviewPassTest"
+             ".test_reissues_the_verdict_on_a_pr_that_already_has_the_label",
+             "test_test_wrappers.ChangedTestWrapperWebCheckTest"
+             ".test_web_path_runs_the_web_check_and_no_android_partition",
+             "test_test_wrappers.FullSuiteWrapperTest"
+             ".test_cleans_temp_when_interrupted",
+             "test_test_wrappers.FullSuiteWrapperTest"
+             ".test_rejects_a_non_21_override_with_an_actionable_error",
+             "test_test_wrappers.FullSuiteWrapperTest"
+             ".test_uses_jdk_21_and_a_fresh_temp_then_cleans_it",
+             "test_wide_window.DeviceRunTest"
+             ".test_derives_the_density_from_the_device_and_reports_the_width"],
+            list(ENVIRONMENT_TARGETS),
+        )
+        for target in ENVIRONMENT_TARGETS:
+            with self.subTest(target=target):
+                self.assertTrue(callable(self.resolve(target)),
+                                "%s не резолвиться — прогону немає" % target)
+
+    def test_the_fixture_naming_tests_are_the_fixtures_own(self):
+        """Файл фікстури називає тест самої фікстури, і саме він лежить поруч."""
+        self.assertEqual(
+            [("scripts/tests/fixtures/empty_shape/pinned", "gate.sh", ("test_gate.py",)),
+             ("scripts/tests/fixtures/empty_shape/unpinned", "gate.sh", ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/pinned", "mutate.sh", ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/pinned", "mutation_trace.py",
+              ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/unpinned", "mutate.sh",
+              ("test_gate.py",)),
+             ("scripts/tests/fixtures/verdict_field/unpinned", "mutation_trace.py",
+              ("test_gate.py",))],
+            [(str(root.relative_to(REPO_ROOT)), name, modules)
+             for root, name, modules in fixture_naming_tests()],
+        )
+
+    def test_every_registered_name_is_unique(self):
+        names = [case.name for case in CASES]
+
+        self.assertEqual(len(names), len(set(names)))
+
+    def resolve(self, target: str):
+        """`module.Class.test` → сам обʼєкт тесту (імпорт із `scripts/tests`)."""
+        module_name, _, path = target.partition(".")
+        value = importlib.import_module(module_name)
+        for part in path.split("."):
+            value = getattr(value, part)
+        return value
+
+
+class EnvironmentTest(unittest.TestCase):
+    """Кожен названий прогін мусить бути зелений і без спадку, і під отрутою."""
+
+    def run_environments(self, environment: dict) -> list[subprocess.CompletedProcess]:
+        results = []
+        if ENVIRONMENT_TARGETS:
+            results.append(subprocess.run(
+                [sys.executable, "-m", "unittest", *ENVIRONMENT_TARGETS],
+                cwd=str(TESTS_DIR), check=False, capture_output=True, text=True,
+                env=environment, timeout=NESTED_TIMEOUT_SECONDS,
+            ))
+        # Файлів у варіанті більше, ніж модулів: модуль ганяємо один раз на
+        # (варіант, модуль), а не на кожен файл, який він називає.
+        for root, module in sorted({(root, module)
+                                    for root, _name, modules in fixture_naming_tests()
+                                    for module in modules}):
+            results.append(self.run_fixture_test(root, module, environment))
+        return results
+
+    def run_fixture_test(self, root: Path, module: str,
+                         environment: dict) -> subprocess.CompletedProcess:
+        """Тест фікстури — у КОПІЇ дерева: фікстура пише артефакти поруч із собою."""
+        with tempfile.TemporaryDirectory(prefix="fixture-environment-") as temporary:
+            work = Path(temporary) / "root"
+            shutil.copytree(root / "scripts", work / "scripts")
+            return subprocess.run(
+                [sys.executable, "-m", "unittest", "discover",
+                 "-s", "scripts/tests", "-p", module],
+                cwd=str(work), check=False, capture_output=True, text=True,
+                env=environment, timeout=NESTED_TIMEOUT_SECONDS,
+            )
+
+    def assertRunsGreen(self, results: list[subprocess.CompletedProcess]) -> None:
+        self.assertTrue(results, "жодного прогону не зроблено")
+        for result in results:
+            self.assertEqual(0, result.returncode, result.stderr[-3000:])
+
+    def test_a_stripped_environment_is_enough_for_every_named_run(self):
+        """Порожнє оточення: підставний не читає зі спадку нічого.
+
+        Якщо названий прогін зеленіє лише тоді, коли йому дісталися змінні
+        раннера, — він читає спадок, і CI це побачить, а локальна зелень ні.
+        """
+        self.assertRunsGreen(self.run_environments(dict(STRIPPED)))
+
+    def test_a_poisoned_inherited_environment_does_not_reach_any_stand_in(self):
+        """Отруєне оточення: затьмарені команди не доходять до інструмента.
+
+        `BASH_FUNC_printf%%` і решта роблять підставний інструмент червоним, якщо
+        той успадковує оточення. Саме так упав CI #1260 — шість падінь із кодом
+        2 при незмінних файлах фікстури.
+        """
+        self.assertRunsGreen(self.run_environments({**os.environ, **HOSTILE}))
+
+
+if __name__ == "__main__":
+    unittest.main()

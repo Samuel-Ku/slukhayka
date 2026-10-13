@@ -71,11 +71,12 @@
 місця немає на копії).
 
 Ціна реєстру, і саме тому він не стає галасливим. Запис коштує ДВА прогони
-одного тесту (базовий і мутант) у копії дерева: шість записів разом — 1.4 с
-(записи йдуть паралельно, `--jobs`), і кожен друкує свій час, тож дорогий сторож
-видно, а не вгадується. Запис без мутації не заводиться — `GUARDS` і є переліком
-того, що гейт перевіряє; старі сторожа без запису не отримують ні тихої згоди,
-ні червоного — механізм просто каже, скількох покриває.
+одного тесту (базовий і мутант) у копії дерева, і кожен запис друкує свій час —
+0.5–1.7 с на запис на цій машині (вона спільна із сусідніми смугами, тож повний
+час коливається), а дорогий сторож видно, а не вгадується. Запис без мутації не
+заводиться — `GUARDS` і є переліком того, що гейт перевіряє; старі сторожа без
+запису не отримують ні тихої згоди, ні червоного — механізм просто каже,
+скількох покриває.
 """
 
 from __future__ import annotations
@@ -366,6 +367,48 @@ GUARDS = (
                 find="    test: str\n    protects: str\n    edits: tuple[Edit, ...]\n",
                 replace="    test: str\n    protects: str\n    edits: tuple[Edit, ...]\n"
                         '    owner: str = ""  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_named_boundaries.SectionTest"
+             ".test_a_boundary_named_in_code_without_a_witness_is_refused",
+        protects="межу, названу В КОДІ без свідка (#1278): пункт покритого розділу "
+                 "без запису мусить червонити механізм, а не лишатися прозою — саме "
+                 "так ловиться межа, названа лише в звіті",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="            if not owners:\n",
+                replace="            if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_named_boundaries.SectionTest"
+             ".test_a_record_without_a_mutation_is_refused",
+        protects="межу без мутації, яка її підтверджує (#1278, варіант (в)): запис, "
+                 "який нічого не закриває, — обіцянка в реєстрі, і механізм мусить "
+                 "відмовити, а не прийняти її за свідчення",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="        if not entry.edits:\n",
+                replace="        if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_named_boundaries.SectionTest"
+             ".test_a_closing_mutation_that_edits_the_witness_module_is_refused",
+        protects="«зламай свідка, щоб довести, що межу видно» (#1278): закриття, "
+                 "яке править МОДУЛЬ СВІДКА, — не свідчення. Механізм мусить "
+                 "відмовити, а не прийняти його за закриття межі",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="            if edit.file == witness_module:\n",
+                replace="            if False:  # mutated\n",
             ),
         ),
     ),

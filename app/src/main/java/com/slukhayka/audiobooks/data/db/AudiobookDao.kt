@@ -590,7 +590,12 @@ interface AudiobookDao {
     @Query("SELECT id FROM works WHERE mergeKey != '' AND id NOT IN (SELECT workId FROM works_fts)")
     suspend fun missingWorkSearchIds(): List<String>
 
-    @Query("SELECT narrator FROM editions WHERE workId = :workId AND narrator != '' LIMIT 1")
+    /** Library Editions keep their book anchor when Works are manually combined. */
+    @Query(
+        "SELECT narrator FROM editions WHERE narrator != '' AND " +
+            "(workId = :workId OR workId IN (SELECT id FROM library_entries WHERE workId = :workId)) " +
+            "ORDER BY CASE WHEN workId = :workId THEN 0 ELSE 1 END, id COLLATE BINARY LIMIT 1"
+    )
     suspend fun firstEditionNarrator(workId: String): String?
 
     @Query("SELECT narratorId FROM edition_facets WHERE workId = :workId AND narratorId IS NOT NULL AND narratorId != '' LIMIT 1")

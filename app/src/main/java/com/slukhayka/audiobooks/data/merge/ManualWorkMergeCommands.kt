@@ -120,21 +120,29 @@ class ManualWorkMergeCommands(
                     "id" to canonical, "mergeKey" to canonical,
                     "title" to plan.canonicalTitle, "author" to plan.canonicalAuthor,
                 ), before.encoding)
-                val claims = before.rows.getValue("work_sources").map { row ->
-                    val source = journal.text(row, "sourceId", before.encoding)
-                    val url = journal.text(row, "sourceUrl", before.encoding)
-                    val nextId = "$canonical|$source|${Integer.toHexString(url.hashCode())}"
-                    journal.withText(row, mapOf("id" to nextId, "workId" to canonical), before.encoding) to
-                        journal.text(row, "id", before.encoding)
+                val originalClaims = before.rows.getValue("work_sources")
+                val originalClaimIds = originalClaims.map { journal.text(it, "id", before.encoding) }.toSet()
+                val claimGroups = originalClaims.groupBy { row ->
+                    journal.text(row, "sourceId", before.encoding) to journal.text(row, "sourceUrl", before.encoding)
                 }
-                val newClaimIds = claims.map { journal.text(it.first, "id", before.encoding) }
+                val claims = mutableListOf<ManualWorkMergeJournal.Row>()
+                for ((pair, rows) in claimGroups) {
+                    if (rows.any { row -> (4..6).any { index -> !journal.sameCell(row.cells[index], rows.first().cells[index]) } }) {
+                        return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source claim metadata needs a decision")
+                    }
+                    rows.forEach { check(it.cells[7].type == "integer") }
+                    val selectedClaim = rows.minBy { it.cells[7].number }
+                    val nextId = "$canonical|${pair.first}|${Integer.toHexString(pair.second.hashCode())}"
+                    claims += journal.withText(selectedClaim, mapOf("id" to nextId, "workId" to canonical), before.encoding)
+                }
+                val newClaimIds = claims.map { journal.text(it, "id", before.encoding) }
+                // Equal URL hashes never prove that distinct source pairs are identical.
                 if (newClaimIds.distinct().size != newClaimIds.size) {
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source claim identities collide")
                 }
-                for ((row, previousId) in claims) {
-                    val nextId = journal.text(row, "id", before.encoding)
+                for (nextId in newClaimIds) {
                     sql.query(SimpleSQLiteQuery("SELECT id FROM work_sources WHERE id = ?", arrayOf(nextId))).use {
-                        if (it.moveToFirst() && nextId != previousId) {
+                        if (it.moveToFirst() && nextId !in originalClaimIds) {
                             return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Canonical source claim already exists")
                         }
                     }
@@ -148,7 +156,9 @@ class ManualWorkMergeCommands(
                     val id = journal.text(row, "id", before.encoding)
                     check(journal.updateById(journal.withText(row, mapOf("workId" to canonical), before.encoding), id) == 1)
                 }
-                for ((row, previousId) in claims) check(journal.updateById(row, previousId) == 1)
+                // The before-image retains every original claim, including deduplicated donors.
+                for (previousId in originalClaimIds) check(execute("DELETE FROM work_sources WHERE id = ?", previousId) == 1)
+                for (row in claims) journal.insert(row)
                 for (root in roots) {
                     execute("DELETE FROM works_fts WHERE workId = ?", root)
                     check(execute("DELETE FROM works WHERE id = ?", root) == 1)

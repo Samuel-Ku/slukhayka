@@ -11,7 +11,7 @@ import java.security.MessageDigest
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Room54 exported-column change detector, called only inside readManualWorkMergeRows.
+ * Room55 exported-column change detector, called only inside readManualWorkMergeRows.
  * Uses actual SQLite classes and binary64 values; this digest is not an Undo journal.
  * Retained globals and hidden SQLite/FTS storage internals are outside its contract.
  */
@@ -28,7 +28,9 @@ internal object ManualWorkMergeStorageFingerprint {
         val keyIndices: List<Int> = keys.map { columns.indexOf(it).also { index -> check(index >= 0) } }
     }
 
-    // Fixed Room54 exported column and key lists.
+    // Original 36 carrier layouts are unchanged by the three-table Room55 expansion.
+    // Commands must separately capture journal/redirect/protection decision evidence;
+    // that writer preparation is not implemented in the availability baseline.
     private val tables = listOf(
         Table(
             "audiobooks",
@@ -308,7 +310,7 @@ internal object ManualWorkMergeStorageFingerprint {
     ): String {
         val context = currentCoroutineContext()
         context.ensureActive()
-        requireRoom54(dao)
+        requireRoom55(dao)
         context.ensureActive()
         val encoding = textEncoding(dao)
         context.ensureActive()
@@ -350,7 +352,7 @@ internal object ManualWorkMergeStorageFingerprint {
             "works" to library.works.map { listOf(it.id) },
         )
         val out = Frames(context)
-        out.string("ManualWorkMergeStorage\u0000v1\u0000Room54")
+        out.string("ManualWorkMergeStorage\u0000v2\u0000Room55")
         out.string(encoding)
         val participants = roots.distinct().sortedWith(::compareMergeUtf8)
         out.tag('P'.code)
@@ -371,14 +373,14 @@ internal object ManualWorkMergeStorageFingerprint {
             out.long(rows.size.toLong())
             rows.sortedWith(::compareBytes).forEach(out::bytes)
         }
-        return "manual-work-merge-storage-v1:" + hex(out.finish())
+        return "manual-work-merge-storage-v2:" + hex(out.finish())
     }
 
-    private fun requireRoom54(dao: AudiobookDao) {
+    private fun requireRoom55(dao: AudiobookDao) {
         dao.manualMergeStorageCursor(SimpleSQLiteQuery("PRAGMA user_version")).use { cursor ->
             check(cursor.columnCount == 1 && cursor.moveToFirst()) { "Missing SQLite schema version" }
-            check(cursor.getType(0) == Cursor.FIELD_TYPE_INTEGER && cursor.getLong(0) == 54L) {
-                "Storage fingerprint requires Room54"
+            check(cursor.getType(0) == Cursor.FIELD_TYPE_INTEGER && cursor.getLong(0) == 55L) {
+                "Storage fingerprint requires Room55"
             }
             check(!cursor.moveToNext()) { "Ambiguous SQLite schema version" }
         }
@@ -470,7 +472,7 @@ internal object ManualWorkMergeStorageFingerprint {
     ): Pair<List<Any>, ByteArray> {
         val row = Frames(context)
         val key = MutableList<Any>(table.keyIndices.size) { "" }
-        row.string("ManualWorkMergeStorageRow\u0000v1\u0000Room54")
+        row.string("ManualWorkMergeStorageRow\u0000v2\u0000Room55")
         row.string(table.name)
         row.long(table.columns.size.toLong())
         for ((index, name) in table.columns.withIndex()) {

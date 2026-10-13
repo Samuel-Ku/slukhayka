@@ -45,7 +45,7 @@ class ManualWorkMergeStoragePrecisionRoomTest {
             fixture.assertPreview(first)
             fixture.assertStored(dao)
             assertTrue(first.fingerprint.matches(Regex("manual-work-merge-v1:[0-9a-f]{64}")))
-            assertTrue(first.storageFingerprint.matches(Regex("manual-work-merge-storage-v1:[0-9a-f]{64}")))
+            assertTrue(first.storageFingerprint.matches(Regex("manual-work-merge-storage-v2:[0-9a-f]{64}")))
 
             db.openHelper.writableDatabase.compileStatement(
                 "UPDATE audiobooks SET rating = 0.10000000000000002 WHERE id = 'storage-book-a'",
@@ -55,7 +55,7 @@ class ManualWorkMergeStoragePrecisionRoomTest {
             val second = merge.prepareManualWorkMerge("storage-work-a", "storage-work-b")
             fixture.assertPreview(second)
             fixture.assertStored(dao)
-            assertTrue(second.storageFingerprint.matches(Regex("manual-work-merge-storage-v1:[0-9a-f]{64}")))
+            assertTrue(second.storageFingerprint.matches(Regex("manual-work-merge-storage-v2:[0-9a-f]{64}")))
             assertEquals(first.fingerprint, second.fingerprint)
             assertEquals(first.snapshot.rootWorkIds, second.snapshot.rootWorkIds)
             assertEquals(first.participants, second.participants)

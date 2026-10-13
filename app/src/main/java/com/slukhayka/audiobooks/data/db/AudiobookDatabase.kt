@@ -62,14 +62,19 @@ import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
         ReadthroughEntity::class,
         FriendshipStateEntity::class,
         BlockEntity::class,
+        WorkMergeOperationEntity::class,
+        WorkIdentityRedirectRow::class,
+        PreservedWorkMergeParticipant::class,
     ],
-    version = 54,
+    version = 55,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
     abstract fun achievementDao(): AchievementDao
 
     abstract fun audiobookDao(): AudiobookDao
+
+    abstract fun workIdentityDao(): WorkIdentityDao
 
     abstract fun listenerCollectionsDao(): ListenerCollectionsDao
 
@@ -112,11 +117,24 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55
                     )
                     .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        /** #968: local recoverable journal, namespaced aliases and retained Edition protection. */
+        internal val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_merge_operations (operationId TEXT NOT NULL PRIMARY KEY, state TEXT NOT NULL, canonicalWorkId TEXT NOT NULL, participantWorkIds TEXT NOT NULL, approvedIdentity TEXT NOT NULL, payloadVersion INTEGER NOT NULL, beforeImages BLOB NOT NULL, afterImages BLOB NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_identity_redirects (namespace TEXT NOT NULL, oldKey TEXT NOT NULL, canonicalWorkId TEXT NOT NULL, operationId TEXT NOT NULL, PRIMARY KEY(namespace, oldKey))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_identity_redirects_operationId ON work_identity_redirects(operationId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_identity_redirects_canonicalWorkId ON work_identity_redirects(canonicalWorkId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_merge_preserved_participants (operationId TEXT NOT NULL, bookId TEXT NOT NULL, editionId TEXT NOT NULL, autoMergeExcluded INTEGER NOT NULL, PRIMARY KEY(operationId, bookId, editionId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_merge_preserved_participants_bookId ON work_merge_preserved_participants(bookId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_merge_preserved_participants_editionId ON work_merge_preserved_participants(editionId)")
             }
         }
 

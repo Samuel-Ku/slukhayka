@@ -1,8 +1,8 @@
 # #968 — ручне злиття роздвоєної ідентичності твору
 
 Статус: контракт погоджено власником 2026-10-11 у #968. D1 завершено;
-D2 реалізує read-only preview. Apply/Undo, redirects, writer gates та UI
-ще відкриті. Початкова база перевірки — `main`
+D2 має read-only preview та перший ізольований бібліотечний Apply → Undo.
+Повне покриття носіїв, writer/startup gates, resolver і UI ще відкриті. Початкова база перевірки — `main`
 `43a726e02f9292a723f742ebbf0ecb47853a9115`, Room v52, 43 сутності.
 Поточна звірка — `main` `6961dd80a5a50cbca82ab7f299b1bc4d8e768832`,
 Room v54, 45 таблиць після #1180. Матриця й майбутні перевірки нижче
@@ -615,18 +615,20 @@ acceptance залишаються окремими частинами контр
 actual runtime чи весь #968.
 
 
-## SQLite storage fingerprint v1
+## SQLite storage fingerprint: Room v54 і v55
 
-Preview додатково повертає `storageFingerprint` із префіксом
-`manual-work-merge-storage-v1:`. Старий typed fingerprint, constructor,
+Початковий read-only preview для Room v54 повертав `storageFingerprint`
+із префіксом `manual-work-merge-storage-v1:`. Поточний читач Room v55
+використовує рамку v2 та префікс `manual-work-merge-storage-v2:`.
+Старий typed fingerprint, constructor,
 `copy`, component functions та рівність preview не змінюються. Обидва
 відбитки обчислюються з однієї Room-транзакції після визначення повного
 scope; додатковий відбиток не створює нового запису чи учасника.
 
-Читач перевіряє, що `PRAGMA user_version` повертає 54, та фактичне
-кодування SQLite.
+Поточний читач перевіряє `PRAGMA user_version = 55` і фактичне кодування
+SQLite. Зміна рамки відокремлює цю версію від історичного читача v54.
 Для 36 включених таблиць він читає всі 225 експортованих колонок за
-закритими Room54 descriptors. Кожне значення має власну storage class:
+закритими descriptors старих таблиць: їхні layouts у Room v55 незмінні. Кожне значення має власну storage class:
 NULL, INTEGER, REAL, TEXT або BLOB. INTEGER зберігає signed int64, REAL —
 точні binary64 bits; TEXT читається як bytes у кодуванні бази, BLOB —
 як незмінні bytes. Тип, довжина й вміст входять до SHA-256 рамки. Це
@@ -644,5 +646,41 @@ NULL, INTEGER, REAL, TEXT або BLOB. INTEGER зберігає signed int64, RE
 не зберігає payload для Undo й не доводить повне фізичне відновлення.
 Окремий реальний Room SDK36 тест через public `prepareManualWorkMerge`
 підтвердив різні відбитки для SQL REAL `0.1` та `0.10000000000000002`
-за однакового typed Float і незмінних інших записів. Повні before-images,
-writer races, Apply/Undo та UI ще потребують реалізації й приймання.
+за однакового typed Float і незмінних інших записів. Повний journal для всіх носіїв, writer races, повне Apply/Undo та UI ще
+потребують реалізації й приймання. Перший бібліотечний сценарій описано нижче.
+
+## Перший бібліотечний Apply → Undo, Room v55
+
+Публічні `ManualWorkMergeCommands` працюють з тією самою Room-базою й
+`ManualWorkMergeGate`. Перший підтриманий сценарій створює новий канонічний
+Work з підтверджених title/author та переприв’язує два бібліотечні Entries.
+Edition, Source, Chapter, Track, progress і bookmarks зберігають власні ID.
+Новий канонічний Work або ключ не може вже мати aliases чи вхідні redirects.
+
+Схема 55 додає локальні журнал операції, типізовані redirects та індексовані
+рядки збережених participants. Старі 45 entity layouts незмінні. Журнал
+зберігає before/after values змінених `works`, `library_entries`,
+`work_sources` і `works_fts`: SQL storage class, INTEGER64, точний REAL
+binary64, початкові TEXT bytes у кодуванні бази, BLOB і NULL. FTS rows
+зберігаються як bag; hidden rowid і shadow pages не є контрактом відновлення.
+Кожен before/after payload обмежений 384 KiB і 10 000 рядків окремо;
+paged journal ще попереду.
+
+Apply перечитує версію preview та participant closure під gate в Room
+transaction до запису. Журнал, aliases, protection й стан APPLIED комітяться
+атомарно. Undo після повторного відкриття бази перевіряє payload checksums,
+точні after-images, dependency fingerprint та власні aliases; нова залежність
+дає NeedsDecision. Відновлення повертає donor parents перед children.
+Стан стає UNDONE, а durable autoMergeExcluded protection лишається.
+
+Незмінний реальний Room-тест пройшов Apply, закриття й повторне відкриття
+бази та Undo. Він перевірив дві окремі начитки, різні progress/bookmarks,
+aliases/protection/counts і точне значення Entry downloadProgress, яке
+округлюється typed Float. Початковий RED був явною відсутністю Apply
+в неповному baseline; це не регресія вже готового HEAD.
+
+Цей шлях ще не підключено до App чи UI. Наявний canonical Work, exact
+WorkSource duplicates, різні optional Work values, додаткові metadata
+carriers, локальні файли або активні downloads потребують наступних політик.
+Startup merger, імпорт, resolver й інші writer paths ще не використовують
+повну композицію gate/redirects. Перший тест не доводить ці властивості.

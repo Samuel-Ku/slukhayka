@@ -95,7 +95,8 @@ side against 124 s one after another (2 × 62 s). Three do not fit at all —
 memory fell monotonically (5.3 → 4.0 → 3.0 → 2.1 → 1.1 GB), swap grew to
 3.91 GB, `load average` reached 23.5 on four threads, and an external watchdog
 killed the runs at 613 s rather than leave the machine wedged. The slot itself
-only serialises; guarding a single run is #1273. One incremental run over the
+only serialises; the guard that stops a single run is
+`scripts/build-slot-guard.py`, described below. One incremental run over the
 same work takes 213 s.
 
 So the slot serialises builds because a third one has nowhere to live, and
@@ -115,29 +116,50 @@ the repository:
 .worktrees/gt scripts/build-slot-guard.py -- ./gradlew :app:testPureJvm
 ```
 
-It refuses to start when `MemAvailable` is below `--floor-mb` (exit `3`), and
-stops its own process tree — its own group only, never anyone else's — when
-free memory falls under `--critical-mb` or swap passes `--swap-ceiling-mb`
-(exit `4`). The command's own exit code passes through untouched; `128+N` means
-the command died from signal `N`. The floor sitting above the critical line is
-deliberate: a run that has already started may finish, one that has not started
-should not begin.
+It refuses to start when `MemAvailable` is below `--floor-mb` (exit `3`), and it
+stops the **process group it created for the run** — never anyone else's — when
+free memory falls under `--critical-mb` or swap grows past `--swap-growth-mb`
+during the run (exit `4`). The command's own exit code passes through untouched;
+`128+N` means the guard or the command died from signal `N`. The floor sitting
+above the critical line is deliberate: a run that has already started may
+finish, one that has not started should not begin.
+
+The thresholds are defaults taken from the numbers above, not constants:
+
+- `--floor-mb 2000` — a wedge line, not a comfort line. The measured peaks are
+  3.61 GB (incremental) and 4.74 GB (cold), so a run starting at 2 GB free will
+  still swap; what it should not do is take the machine with it. The state
+  #1272 recorded had 1.13 GB free, and that is refused.
+- `--critical-mb 800` — below this, the run is already the problem.
+- `--swap-growth-mb 2000` — **growth during this run, not the absolute figure**:
+  zram does not drain by itself, so an absolute ceiling would eventually stop
+  every later run forever, and "free some memory" would not clear it.
+
+Two honest limits. The guard watches a process **group**, not every JVM a build
+may own: a Gradle daemon outlives the group, which is one more reason
+`test-all.sh` runs `--no-daemon`. And a one-second sampler reports a machine
+that is already going under, not one about to; it stops the run, it does not
+predict.
 
 Both branches are pinned by `scripts/tests/test_build_slot_guard.py` against
-fake memory files, so a refusal and a stop are tested in seconds without
-exhausting anything real. The wrapper itself is machine-local, so the wiring
-stays one call in it — the guard is the one of the worktree the wrapper was
-invoked from:
+fake memory files — refusal, stop, SIGTERM escalation, swap growth and the
+untouched outsider — and every stop test also asserts that the run's processes
+are **gone**, so a guard that signals nothing cannot pass.
+
+The wrapper itself is machine-local and this repository does not carry it, so
+the wiring is a change to that file, not to this one:
 
 ```sh
 root=$(git rev-parse --show-toplevel)
 if [ -x "$root/scripts/build-slot-guard.py" ]; then
   exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" -- "$@"
 fi
+exec flock -w 7200 <slot-file> "$@"
 ```
 
-A lane whose branch predates the guard keeps working: the check falls through to
-the plain `exec flock` when the script is absent.
+Until that line lands, no lane is guarded: the guard is a tool waiting for its
+caller, and a branch that predates it keeps working through the plain
+`exec flock` below.
 
 ## Mutations
 

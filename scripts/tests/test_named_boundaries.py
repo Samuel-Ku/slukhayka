@@ -5,7 +5,7 @@
 другого боку, і кожна перевірка має прогоновий бік:
 
   * `RegistryTest` жене механізм на СПРАВЖНЬОМУ дереві — тим самим викликом, що
-    CI: шість меж реєстру мусять бути названі в коді, мати свідка й бути
+    CI: кожна межа реєстру мусить бути названа в коді, мати свідка й бути
     показані прогоном;
   * `BlindnessTest` — САМІ СВІДКИ: кожен показує, що механізм сліпий до форми,
     яку межа називає, і що форма справжня (для читання AST — рантайм бачить
@@ -34,10 +34,12 @@
   * зарахування нового розділу — руками (межа механізму, шапка).
 """
 
+import ast
 import contextlib
 import dataclasses
 import importlib.util
 import io
+import re
 import shutil
 import sys
 import tempfile
@@ -55,6 +57,17 @@ import named_boundaries as n  # noqa: E402
 # правка цього рядка, а не тиха згода.
 EXPECTED_SECTIONS = (("scripts/declared_fields.py",
                       "Межа названа тут, у коді, а не лише в звіті:"),)
+# Розділи меж, яких механізм НЕ читає (інша форма пункту), і скільки заголовків
+# меж у дереві взагалі: числа зі шапки, виведені цим тестом — новий заголовок
+# червонить його, і шапку правлять разом із ним.
+EXPECTED_UNREADABLE_SECTIONS = (
+    ("scripts/empty_shape_mutants.py", "Межі, названі прямо:"),
+    ("scripts/issue_premise.py", "Межі, названі прямо:"),
+    ("scripts/tmp_budget.py", "Межі, названі прямо:"),
+    ("scripts/verdict_field_mutants.py",
+     "Межі, названі прямо (кожну доведено тестом або виміром, а не обіцянкою):"),
+)
+EXPECTED_BOUNDARY_HEADINGS = 11
 EXPECTED_BOUNDARY_IDS = (
     "#1276-list",
     "#1276-run-built",
@@ -576,12 +589,12 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(len(EXPECTED_BOUNDARY_IDS), len(set(EXPECTED_BOUNDARY_IDS)))
 
     def test_every_named_boundary_is_carried_by_a_run(self):
-        """Справжнє дерево, той самий виклик, що CI: шість меж — шість прогонів.
+        """Справжнє дерево, той самий виклик, що CI: кожна межа — два прогони.
 
         Кожна межа мусить бути названа в коді (якір рівно один), мати свідка,
         який БЕЗ мутації зелений, а ПІД закриттям червоний. Це найдорожча
-        перевірка набору, і саме тому вона тут одна: дванадцять вкладених прогонів
-        у копіях дерева — ціна, названа в шапці механізму.
+        перевірка набору, і саме тому вона тут одна: вкладені прогони в копіях
+        дерева — ціна, названа в шапці механізму.
         """
         report = n.check(REPO_ROOT)
 
@@ -593,8 +606,8 @@ class RegistryTest(unittest.TestCase):
     def test_narrowing_runs_one_boundary_without_narrowing_the_coverage(self):
         """`--boundary` звужує ПРОГОНИ, а не покриття: решта пунктів — не «без свідка».
 
-        Знайдено живим прикладом: якщо покриття звузити разом із прогонами, п'ять
-        меж реєстру виглядають як «названі в коді без свідка», і вердикт стає
+        Знайдено живим прикладом: якщо покриття звузити разом із прогонами, решта
+        меж реєстру виглядає як «названа в коді без свідка», і вердикт стає
         знахідкою на рівному місці. Тому `check` бере покриття ПОВНИМ реєстром, а
         `run` — названим.
         """
@@ -609,6 +622,38 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(1, output.getvalue().count("#1276-"),
                          "звужений прогін мусить показати РІВНО одну межу:\n"
                          + output.getvalue())
+
+    def test_the_unreadable_boundary_sections_are_the_named_ones(self):
+        """«Чотири з десяти» зі шапки — число, яке пінить ЦЕЙ тест, а не проза.
+
+        Механізм читає лише пункти форми `  * `; розділ іншої форми він
+        відмовляється читати (код 2), і такий розділ у `SECTIONS` стояти не
+        може. Скільки їх у дереві — не дрібниця: це ціна зарахування нового
+        розділу. Тому тут — пін на множину й на кількість: новий заголовок у
+        дереві або переписаний розділ червонять тест, і число в шапці правлять
+        разом із ним, а не тихо.
+        """
+        headings = []
+        for path in sorted((REPO_ROOT / "scripts").rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.Module, ast.ClassDef,
+                                         ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for line in (ast.get_docstring(node, clean=False) or "").splitlines():
+                    stripped = line.strip()
+                    if re.match(r"^(Меж|МЕЖ|ЧЕСНА МЕЖ)", stripped) and stripped.endswith(":"):
+                        headings.append((str(path.relative_to(REPO_ROOT)), stripped))
+
+        unreadable = []
+        for where, heading in headings:
+            try:
+                n.section_bullets(REPO_ROOT, n.Section(where, heading))
+            except n.BoundaryError:
+                unreadable.append((where, heading))
+
+        self.assertEqual(EXPECTED_UNREADABLE_SECTIONS, tuple(unreadable))
+        self.assertEqual(EXPECTED_BOUNDARY_HEADINGS, len(headings))
 
     def test_the_boundaries_are_the_records_the_machinery_declares(self):
         """Записи межі-оголошення пінить `declared_fields` — і це видно тут.

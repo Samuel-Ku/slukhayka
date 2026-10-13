@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 15 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 16 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
 паралельно (`--jobs`), і кожен друкує свій час під час прогону
 (`python3 scripts/guard_witnesses.py`) — 0.5–1.7 с на запис на цій машині (вона
@@ -449,6 +449,21 @@ GUARDS = (
                 file="scripts/named_boundaries.py",
                 find="            if edit.file == witness_module:\n",
                 replace="            if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_named_boundaries.RegistryTest"
+             ".test_the_unreadable_boundary_sections_are_the_named_ones",
+        protects="«чотири з одинадцяти» зі шапки меж (#1278): число, яке щось "
+                 "стверджує про дерево, мусить мати джерело. Мутація вчить "
+                 "механізм читати ще одну форму пункту — множина нерозібраних "
+                 "розділів змінюється, і пін мусить почервоніти",
+        edits=(
+            Edit(
+                file="scripts/named_boundaries.py",
+                find="        if BULLET_RE.match(line):\n",
+                replace="        if BULLET_RE.match(line) or line.strip().startswith(\"- \"):\n",
             ),
         ),
     ),

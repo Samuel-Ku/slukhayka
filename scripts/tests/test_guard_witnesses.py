@@ -56,6 +56,15 @@ GUARD_TESTS = (
     "test_guard_witnesses.RefusalTest"
     ".test_a_mutation_that_no_longer_applies_is_an_unknown",
     "test_issue_premise.ExtractionTest.test_measure_head_exists_because_the_docs_cite_it",
+    "test_issue_premise.TreeEvidenceTest"
+    ".test_a_bare_name_that_matches_only_a_tree_is_ambiguous",
+    "test_named_boundaries.SectionTest"
+    ".test_a_boundary_named_in_code_without_a_witness_is_refused",
+    "test_named_boundaries.SectionTest"
+    ".test_a_closing_mutation_that_edits_the_witness_module_is_refused",
+    "test_named_boundaries.SectionTest.test_a_record_without_a_mutation_is_refused",
+    "test_named_boundaries.RegistryTest"
+    ".test_the_unreadable_boundary_sections_are_the_named_ones",
     "test_test_wrappers.ChangedTestWrapperScratchTest"
     ".test_no_scratch_directory_survives_a_run",
     "test_verdict_field_mutants.FailClosedTest"

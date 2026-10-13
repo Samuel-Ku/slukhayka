@@ -47,13 +47,20 @@ EXPECTED_RECORDS = (
     ("scripts/tests/test_fixture_environments.py", "StandIn",
      ("name", "where", "prefix", "reads", "programs")),
     ("scripts/tests/test_fixture_environments.py", "Program", ("at", "marker")),
+    ("scripts/named_boundaries.py", "Section", ("where", "heading")),
+    ("scripts/named_boundaries.py", "Boundary",
+     ("id", "claim", "where", "witness", "edits")),
 )
 
 # Файли, з яких складається підставлене дерево: механізм читає джерела AST,
-# тож копії досить — жоден із них не імпортується.
+# тож копії досить — жоден із них не імпортується. `named_boundaries.py` тут
+# тому, що його записи-оголошення перелічені вище: без цього файлу `check`
+# спинився б на «немає scripts/named_boundaries.py», і кожен тест нижче читав
+# би невідомість замість знахідки.
 RECORD_FILES = (
     "scripts/guard_witnesses.py",
     "scripts/verdict_field_mutants.py",
+    "scripts/named_boundaries.py",
     "scripts/tests/test_fixture_environments.py",
 )
 

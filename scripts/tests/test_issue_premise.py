@@ -82,6 +82,21 @@ ISSUE_1261_BODY = """## What to build
 - None (can start immediately).
 """
 
+# Тіло тікета #982 — справжній приклад межі, яку закриває #1281: тікет пише
+# «тега `tab_settings` у `main/` немає», а ґард знаходив у дереві **теку**
+# `app/src/main` (на довільній глибині) і казав «премиса є». Текст той самий, що
+# в тілі issue (перші два абзаци, де названо шлях); у тесті він фікстурою, бо
+# тест мусить бігти без мережі й без `gh`. Прогін по справжньому #982 — у звіті
+# тікета.
+ISSUE_982_BODY = """**Знайдено під час аудиту патерну очікування — але це НЕ гонка, а той самий клас, що #956 і #958: тест посилається на UI, якого вже немає.**
+
+`SearchReturnNavigationTest.kt:48` клікає `onNodeWithTag("tab_settings")`, **а тега `tab_settings` у `main/` немає від #860** (перевірено `grep`-ом). Тобто тест або **падає**, або **не запускається** взагалі.
+"""
+
+# Дерево, у якому #982 дав хибне «премиса є»: єдина коротка форма `main` —
+# **тека** `app/src/main` (перевірено: `git ls-tree -r -t origin/main`).
+TREE_OF_982 = {"app/src/main", "app/src/main/AndroidManifest.xml"}
+
 # Тікет, чия премиса в `main` є: `AGENTS.md`, `CONTRIBUTING.md`,
 # `docs/agents/work-coordination.md`, `docs/voice.md` — усі в main.
 VALID_PREMISE_BODY = """## What to build
@@ -113,17 +128,29 @@ esac
 
 
 class FakeTree:
-    """Дерево `origin/main` як множина шляхів.
+    """Дерево `origin/main` як множина шляхів — із ТИПОМ запису (#1281).
 
     Ґард судить стан `main`, тож тест підставляє саме дерево: без цього кожен
     тест залежав би від того, що лежить у робочій копії, — тобто від того
-    самого, з чого народився #1261.
+    самого, з чого народився #1261. Тип (`blob`/`tree`) — не подробиця: вердикт
+    про коротку форму залежить від нього, і підставка без типу підставляла б не
+    те дерево, яке дає `git ls-tree`.
     """
 
-    def __init__(self, paths):
+    def __init__(self, paths, trees=()):
         self.paths = set(paths)
+        self.trees = set(trees)
+        if not self.trees <= self.paths:
+            # Тека, якої немає в дереві, — фікстура про інше дерево: без цієї
+            # відмови тест тихо пінив би не те, що назвав.
+            raise AssertionError("тека, якої немає в дереві: %s" % (self.trees - self.paths))
         self.calls = []
         self.top = frozenset(p.split("/")[0] for p in self.paths)
+
+    def _kind(self, path):
+        # Тип мусить бути названий явно: мовчазний `blob` за замовчуванням
+        # зробив би з підставленої теки блоб і тихо вимкнув правило (#1281).
+        return ip.TREE if path in self.trees else ip.BLOB
 
     def __call__(self, ref, path, repo=None):
         self.calls.append(path)
@@ -131,22 +158,29 @@ class FakeTree:
 
     def suffixes(self, ref, suffix, repo=None):
         self.calls.append(f"suffix:{suffix}")
-        return sorted(p for p in self.paths if p == suffix or p.endswith("/" + suffix))
+        return sorted(
+            (ip.Match(p, self._kind(p)) for p in self.paths
+             if p == suffix or p.endswith("/" + suffix)),
+            key=lambda match: match.path,
+        )
 
     def top_level(self, ref, repo):
         self.calls.append(f"top:{ref}")
         return self.top
 
 
-def judge_body(body, paths, ref="origin/main"):
+def judge_body(body, paths, ref="origin/main", trees=()):
     """Вердикт по тілу, де дерево `main` підставне, а не взяте з машини.
+
+    `trees` — ті шляхи, які в дереві є **теками**, а не блобами: тип віддає
+    `git ls-tree`, і вердикт про коротку форму залежить саме від нього (#1281).
 
     Патчиться й `_top_level_entries`: у CI `origin/main` не існує (раннер
     фетчить merge-ref), тож справжній виклик повернув би порожню множину — і
     `docs/agents` прочитався б як проза. Саме це й упало в CI PR #1268:
     локально тест був зелений, бо на машині `origin/main` є.
     """
-    tree = FakeTree(paths)
+    tree = FakeTree(paths, trees)
     with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "0" * 40)), mock.patch.object(
         ip, "main_has_path", tree
     ), mock.patch.object(ip, "main_matches_suffix", tree.suffixes), mock.patch.object(
@@ -548,6 +582,99 @@ class JudgeTest(unittest.TestCase):
         self.assertIn("docs/agents", tree.calls)
 
 
+class TreeEvidenceTest(unittest.TestCase):
+    """#1281: коротка форма, що знайшла ТЕКУ, не доводить «той самий файл».
+
+    Твердження «одне входження = той самий файл» істинне для блоба й хибне для
+    дерева: односегментне ім'я без розширення (`main`, `tab_settings`) майже
+    завжди є тегом, символом чи ключем, а тека з таким ім'ям на довільній
+    глибині — збіг імені, не доказ. Правило вузьке навмисно: воно не чіпає ні
+    точний шлях, ні теку, знайдену за хвостом БАГАТОСЕГМЕНТНОГО імені.
+    """
+
+    def test_a_bare_name_that_matches_only_a_tree_is_ambiguous(self):
+        # Живий приклад тікета: #982 пише «тега `tab_settings` у `main/` немає»,
+        # а ґард знаходив `app/src/main` — теку на довільній глибині — і казав
+        # «премиса є». Хибний бік був безпечний (пропуск, не відмова), але
+        # твердження «це той самий файл» про теку хибне.
+        code, verdicts, tree = judge_body(
+            "тега `tab_settings` у `main/` немає",
+            {"app/src/main", "app/src/main/AndroidManifest.xml"},
+            trees={"app/src/main"},
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(verdicts[0].candidate.path, "main")
+        self.assertEqual(verdicts[0].code, 2)
+        self.assertIn("неоднозначне", verdicts[0].detail)
+        self.assertIn("app/src/main", verdicts[0].detail)
+        self.assertIn("suffix:main", tree.calls)
+
+    def test_the_982_body_is_ambiguous_where_it_used_to_say_the_premise_exists(self):
+        # Той самий вхід, що в шапці механізму: справжнє тіло #982 і дерево, у
+        # якому `main` — тека `app/src/main`. Прогін по справжньому #982 —
+        # `--issue 982` — дає той самий вердикт.
+        code, verdicts, _ = judge_body(ISSUE_982_BODY, TREE_OF_982, trees=TREE_OF_982)
+        self.assertEqual(code, 2)
+        self.assertEqual([v.candidate.path for v in verdicts], ["main"])
+        self.assertIn("неоднозначне", verdicts[0].detail)
+        self.assertIn("app/src/main", verdicts[0].detail)
+
+    def test_a_bare_name_that_matches_one_blob_still_passes(self):
+        # Те саме односегментне ім'я без розширення, але знайдений **блоб**:
+        # «одне входження = той самий файл» — саме те, що коротка форма й
+        # обіцяє, і правило про теку цього не відбирає.
+        code, verdicts, _ = judge_body("клич `setup-env/`", {"scripts/setup-env"})
+        self.assertEqual(code, 0)
+        self.assertIn("scripts/setup-env", verdicts[0].detail)
+
+    def test_a_multi_segment_tree_found_by_suffix_still_passes(self):
+        # Свідоме рішення огляду PR #1268 лишається: тека, знайдена за хвостом
+        # багатосегментного імені (`ui/components`), — премиса, а не
+        # неоднозначність. Звузити до неї правило й означало б зламати те, що
+        # вже працює.
+        code, verdicts, _ = judge_body(
+            "тека `ui/components` тут",
+            {"app/src/main/java/com/slukhayka/audiobooks/ui/components"},
+            trees={"app/src/main/java/com/slukhayka/audiobooks/ui/components"},
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(verdicts[0].code, 0)
+        self.assertIn("(тека)", verdicts[0].detail)
+
+    def test_an_exact_tree_path_is_still_the_premise(self):
+        # Точний шлях питається першим і короткої форми не потребує: тікет, який
+        # назвав теку повним шляхом, премису має — і вердикт це каже без
+        # здогадів. Межа правила проходить тут, і проходить явно.
+        code, verdicts, _ = judge_body(
+            "тека `main/` у корені", {"main", "main/app.kt"}, trees={"main"}
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(verdicts[0].detail, "є в origin/main")
+
+    def test_a_bare_name_marked_new_that_matches_a_tree_is_still_refused(self):
+        # Друге плече позначки не слабшає: `NEW:` на ім'я, яке вже є текою в
+        # `main`, лишається відмовою (код 1), а не стає невідомістю. Це межа
+        # правила, названа в коді: питається «чи є щось із таким ім'ям», а не
+        # «чи це той самий файл».
+        code, verdicts, _ = judge_body(
+            "`NEW:main/` створить теку", {"app/src/main"}, trees={"app/src/main"}
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("уже є", verdicts[0].detail)
+
+    def test_the_two_kinds_are_named_in_the_verdict(self):
+        # «Одне входження» для блоба й для теки — різні твердження, тож вердикт
+        # мусить називати, ЩО саме знайдено. Інакше оглядач не відрізнить
+        # премису-файл від премиси-теки, а саме на цьому спіткнувся #982.
+        blob_code, blob_verdicts, _ = judge_body("клич `ci.yml`", {".github/workflows/ci.yml"})
+        tree_code, tree_verdicts, _ = judge_body(
+            "клич `ui/components`", {"web/src/ui/components"}, trees={"web/src/ui/components"}
+        )
+        self.assertEqual((blob_code, tree_code), (0, 0))
+        self.assertNotIn("(тека)", blob_verdicts[0].detail)
+        self.assertIn("web/src/ui/components (тека)", tree_verdicts[0].detail)
+
+
 class RealIssueTest(unittest.TestCase):
     """Обидва прогони вимоги 1 — на справжньому тілі #1261 і на валідній премисі."""
 
@@ -606,21 +733,54 @@ class MainRefTest(unittest.TestCase):
 
         def fake_git(args, repo=None):
             calls.append(args)
-            return 0, "a/b/ci.yml\nc/ci.yml\n", ""
+            return 0, "100644 blob aaa\ta/b/ci.yml\n100644 blob bbb\tc/ci.yml\n", ""
 
         with mock.patch.object(ip, "git_output", fake_git):
             matches = ip.main_matches_suffix("origin/main", "ci.yml")
-        self.assertEqual(matches, ["a/b/ci.yml", "c/ci.yml"])
+        self.assertEqual(
+            [(match.path, match.kind) for match in matches],
+            [("a/b/ci.yml", "blob"), ("c/ci.yml", "blob")],
+        )
         # `-t` обов'язковий: без нього каталог у `main` не знаходився ніколи
-        # (знахідка огляду PR #1268).
-        self.assertEqual(calls[0][:4], ["ls-tree", "-r", "-t", "--name-only"])
-        self.assertEqual(calls[0][4], "origin/main")
+        # (знахідка огляду PR #1268). `--name-only` прибрано навмисно: він
+        # відкидає тип, а без типу вердикт не відрізняє блоб від дерева (#1281).
+        self.assertEqual(calls[0][:3], ["ls-tree", "-r", "-t"])
+        self.assertNotIn("--name-only", calls[0])
+        self.assertEqual(calls[0][3], "origin/main")
+
+    def test_the_suffix_lookup_reads_the_object_type(self):
+        # Тип береться з поля об'єкта (`<mode> <type> <sha>\t<path>`), а не
+        # вгадується з імені: тека `ci.yml` — теж тека, хоч і виглядає файлом.
+        def fake_git(args, repo=None):
+            return 0, ("100644 blob aaa\tsrc/ci.yml\n"
+                       "040000 tree bbb\tfixtures/ci.yml\n"), ""
+
+        with mock.patch.object(ip, "git_output", fake_git):
+            matches = ip.main_matches_suffix("origin/main", "ci.yml")
+        self.assertEqual(
+            [(match.path, match.kind) for match in matches],
+            [("fixtures/ci.yml", "tree"), ("src/ci.yml", "blob")],
+        )
+
+    def test_a_ls_tree_line_without_a_type_is_not_a_match(self):
+        # Незрозумілий рядок не сміє вдати блоб: «премиса є» з нього було б
+        # тихіше за відмову. Рядок, якого механізм не розібрав, не стає збігом
+        # — тож вердикт іде в бік відмови, а не в бік пропуску.
+        def fake_git(args, repo=None):
+            return 0, "a/b/ci.yml\n", ""
+
+        with mock.patch.object(ip, "git_output", fake_git):
+            self.assertEqual(ip.main_matches_suffix("origin/main", "ci.yml"), [])
 
     def test_suffix_lookup_sees_directories_not_only_blobs(self):
         # Справжній приклад: `ui/components` у дереві є, але лише як теки.
         code, verdicts, _ = judge_body(
             "`ui/components` і `ui/adaptive`",
             {
+                "app/src/main/java/com/slukhayka/audiobooks/ui/components",
+                "app/src/main/java/com/slukhayka/audiobooks/ui/adaptive",
+            },
+            trees={
                 "app/src/main/java/com/slukhayka/audiobooks/ui/components",
                 "app/src/main/java/com/slukhayka/audiobooks/ui/adaptive",
             },
@@ -712,7 +872,19 @@ class RealGitTest(unittest.TestCase):
     def test_suffix_lookup_sees_directories_through_real_git(self):
         # `-t` на справжньому дереві: тека є лише деревом, не блобом.
         matches = ip.main_matches_suffix("origin/main", "ui/components", self.repo)
-        self.assertEqual(matches, ["ui/components"])
+        self.assertEqual([(match.path, match.kind) for match in matches],
+                         [("ui/components", "tree")])
+
+    def test_a_bare_directory_name_is_ambiguous_through_real_git(self):
+        # Той самий ланцюг, що #982, але справжнім git: `components/` —
+        # односегментне ім'я без розширення, і єдина коротка форма — ТЕКА.
+        code, verdicts = ip.check_body(
+            "тега `x` у `components/` немає", "origin/main", self.repo
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(verdicts[0].candidate.path, "components")
+        self.assertIn("неоднозначне", verdicts[0].detail)
+        self.assertIn("ui/components", verdicts[0].detail)
 
     def test_ignored_path_goes_through_the_repository_gitignore(self):
         self.assertTrue(ip._is_ignored(".mutations", self.repo))

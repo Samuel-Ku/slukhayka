@@ -113,7 +113,7 @@ looks like. `scripts/build-slot-guard.py` is the outside that now lives inside
 the repository:
 
 ```sh
-.worktrees/gt scripts/build-slot-guard.py -- ./gradlew :app:testPureJvm
+.worktrees/gt scripts/build-slot-guard.py -- ./gradlew --no-daemon :app:testPureJvm
 ```
 
 It refuses to start when `MemAvailable` is below `--floor-mb` (exit `3`), and it
@@ -134,6 +134,10 @@ The thresholds are defaults taken from the numbers above, not constants:
 - `--swap-growth-mb 2000` — **growth during this run, not the absolute figure**:
   zram does not drain by itself, so an absolute ceiling would eventually stop
   every later run forever, and "free some memory" would not clear it.
+
+A code collision is worth naming: because the command's own exit code passes
+through untouched, a command that legitimately exits `3` or `4` cannot be told
+from a refusal or a stop by the code alone — the reason is on stderr.
 
 Two honest limits. The guard watches a process **group**, not every JVM a build
 may own: a Gradle daemon outlives the group, which is one more reason

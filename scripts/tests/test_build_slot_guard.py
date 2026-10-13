@@ -233,7 +233,7 @@ class BuildSlotGuardTest(unittest.TestCase):
         token = uuid.uuid4().hex[:8]
         marker = self.root / f"started-{token}"
         grandchild = self.root / f"grandchild-{token}"
-        command = ["sh", "-c", f"sleep 30 & echo $! > {grandchild}; : > {marker}; wait"]
+        command = ["sh", "-c", f"sleep 600 & echo $! > {grandchild}; : > {marker}; wait"]
         runner = self.start_guard(
             command, floor_mb=1000, critical_mb=400, poll_seconds=0.1, grace_seconds=2
         )
@@ -243,7 +243,7 @@ class BuildSlotGuardTest(unittest.TestCase):
         self.meminfo.write_text(meminfo_text(100), encoding="utf-8")
         stdout, stderr = runner.communicate(timeout=30)
         self.assertEqual(4, runner.returncode)
-        self.assertTrue(self.wait_gone(pid), "внук пережив зупинку групи")
+        self.assertTrue(self.wait_gone(pid, timeout=2), "внук пережив зупинку групи")
 
     def test_stops_when_swap_grows_beyond_the_ceiling(self):
         self.swaps.write_text(swaps_text(5000), encoding="utf-8")
@@ -257,10 +257,12 @@ class BuildSlotGuardTest(unittest.TestCase):
             grace_seconds=2,
         )
         self.assertTrue(self.wait_for(guarded.marker), "команда не стартувала")
+        pid = self.read_pid(guarded.pid_file)
         self.swaps.write_text(swaps_text(8000), encoding="utf-8")
         stdout, stderr = runner.communicate(timeout=30)
         self.assertEqual(4, runner.returncode)
         self.assertIn("swap виріс", stderr)
+        self.assertTrue(self.wait_gone(pid, timeout=2), "прогін пережив зупинку за swap")
 
     def test_does_not_stop_on_swap_that_was_already_high(self):
         # 5000 MB у swap — спадок попередніх прогонів; цей прогін його не чіпав.

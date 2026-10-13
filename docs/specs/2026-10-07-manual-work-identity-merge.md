@@ -679,8 +679,17 @@ aliases/protection/counts і точне значення Entry downloadProgress,
 округлюється typed Float. Початковий RED був явною відсутністю Apply
 в неповному baseline; це не регресія вже готового HEAD.
 
-Цей шлях ще не підключено до App чи UI. Наявний canonical Work, exact
-WorkSource duplicates, різні optional Work values, додаткові metadata
-carriers, локальні файли або активні downloads потребують наступних політик.
+Exact WorkSource-пари з однаковими streamOnly/cover/duration вже
+об’єднуються за sourceId/URL із min addedAt. Усі початкові claim rows
+лишаються в before-images: Undo відновлює обидва ID, поля й timestamps.
+Наратор індексу читається також з library Edition через Entry без зміни
+ідентичності Edition. Незмінний тест пройшов Apply → повторне відкриття
+Room → Undo з 22 → 19 → 22 scoped rows. Разом із початковим Apply/Undo
+та п’ятьма наявними тестами пошукового індексу пройшло 7 сценаріїв.
+
+Цей шлях ще не підключено до App чи UI. Наявний canonical Work,
+неоднакові WorkSource metadata, різні optional Work values, додаткові
+metadata carriers, локальні файли або активні downloads потребують
+наступних політик.
 Startup merger, імпорт, resolver й інші writer paths ще не використовують
 повну композицію gate/redirects. Перший тест не доводить ці властивості.

@@ -384,7 +384,9 @@ happens*: a test outside `ENVIRONMENT_TARGETS` is not executed under either
 environment. So a new stand-in is covered only when someone names its run, and
 nothing reddens when they forget; the registry catches the unregistered — a file
 or an embedded program with no record — and cannot catch the unnamed. That is the
-whole price, and it is a run, not a paragraph.
+whole price, and it is a run, not a paragraph. The compensation is a ticket of its
+own (`#1294`): break every registered stand-in in a copy of the tree and require
+every named run to go red — the link proven by execution, never read from the AST.
 
 The fourth gate is about the records themselves (`#1276`). One target produced
 **six** switches of a single form: a registry entry could *declare* something about

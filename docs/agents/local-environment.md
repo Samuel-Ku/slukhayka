@@ -104,6 +104,41 @@ compilation spend their time switching. What stays parallel is what does not
 build. The cloud alternatives considered and closed on their own evidence —
 not on this table — are recorded in ADR-0062.
 
+### The memory guard
+
+The slot serialises builds; it does not stop the one already running. A single
+Gradle run can still take the machine down, and the row above is what that
+looks like. `scripts/build-slot-guard.py` is the outside that now lives inside
+the repository:
+
+```sh
+.worktrees/gt scripts/build-slot-guard.py -- ./gradlew :app:testPureJvm
+```
+
+It refuses to start when `MemAvailable` is below `--floor-mb` (exit `3`), and
+stops its own process tree — its own group only, never anyone else's — when
+free memory falls under `--critical-mb` or swap passes `--swap-ceiling-mb`
+(exit `4`). The command's own exit code passes through untouched; `128+N` means
+the command died from signal `N`. The floor sitting above the critical line is
+deliberate: a run that has already started may finish, one that has not started
+should not begin.
+
+Both branches are pinned by `scripts/tests/test_build_slot_guard.py` against
+fake memory files, so a refusal and a stop are tested in seconds without
+exhausting anything real. The wrapper itself is machine-local, so the wiring
+stays one call in it — the guard is the one of the worktree the wrapper was
+invoked from:
+
+```sh
+root=$(git rev-parse --show-toplevel)
+if [ -x "$root/scripts/build-slot-guard.py" ]; then
+  exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" -- "$@"
+fi
+```
+
+A lane whose branch predates the guard keeps working: the check falls through to
+the plain `exec flock` when the script is absent.
+
 ## Mutations
 
 A mutation run leaves the same artifacts as a real one: the same

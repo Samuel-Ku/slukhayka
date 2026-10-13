@@ -135,21 +135,41 @@ The thresholds are defaults taken from the numbers above, not constants:
   zram does not drain by itself, so an absolute ceiling would eventually stop
   every later run forever, and "free some memory" would not clear it.
 
-Those are the code's defaults. The wrapper on this machine passes
-`--floor-mb 1500` instead, because `MemAvailable` sampled every 5 s for 100 s sat
-between 1.93 and 2.10 GB free: a 2000 MB floor sat exactly on the machine's
-normal level and turned ordinary slot work away whenever memory dipped. A heavy
-build swaps at either value — what keeps it off the machine is the critical line,
-not the floor.
+Those are the code's defaults. The wrapper on this machine picks a floor from the
+command instead, because the two kinds of work want different room:
 
-End to end through the wired wrapper on 2026-10-13: a real `./gradlew --version`
-returned `0` in about a second, a refusal returned `3` naming the real number,
-and a supervised run whose reading fell returned `4` with its process gone. That
-last check ran against a fake memory file, because this machine has no honest way
-to fall that low on request. The guard is not free: a ten-run bench of an empty
-command through the slot lands in single milliseconds without it and around
-0.1 s with it — two benches on this machine agreed on the order of magnitude, not
-on the digits, so treat it as ~0.1 s against builds measured in minutes.
+- `--floor-mb 1500` for light work — a scripted run, `mutate.sh status` (with or
+  without `--class`, since status never starts Gradle), and a `--python` mutation
+  run. `MemAvailable` sampled every 5 s for 100 s sat between 1.93 and 2.10 GB
+  free, and the flat 2000 MB default — a wedge line, as the code defines it —
+  refused work that needs no build's room twice in a row.
+- `--floor-mb 3500` for anything that starts Gradle: `gradlew`, `test-all.sh`,
+  `test-changed.sh`, `pre-release.sh`, and a mutation run carrying both `--patch`
+  and `--class`. This is a policy
+  choice, not a derived constant. The only sizing evidence is #1272's peak JVM
+  RSS — 3.61 GB incremental, 4.74 GB cold — and 3500 sits under the smaller one;
+  where swap actually begins against starting headroom was never measured, and
+  the code still documents the floor as a wedge line, not a swap line. The choice
+  says: a build with less room than its smallest measured peak is not worth
+  starting.
+
+The rule keys on the command rather than on the task: `gradlew --version` is
+refused like any other Gradle call, and a command that merely names a build script
+among its arguments is refused too — the wrapper cannot know how heavy the run
+will be.
+
+End to end through the wired wrapper on 2026-10-13, under the flat floor of the
+time: a refusal returned `3` naming the real number, a real `./gradlew --version`
+ran to `0` in about a second, and a supervised run whose reading fell returned `4`
+with its process gone. That last check ran against a fake memory file, because
+this machine has no honest way to fall that low on request. Under the matcher,
+light paths still run — `mutate.sh status --class …` exits `0` — while `gradlew`,
+`bash scripts/test-all.sh`, `scripts/pre-release.sh` and a `--patch … --class`
+mutation run are each refused with `3500 MB` in the message. The guard is not
+free: a ten-run bench of an empty command through the slot lands in single
+milliseconds without it and around 0.1 s with it — two benches on this machine
+agreed on the order of magnitude, not on the digits, so treat it as ~0.1 s
+against builds measured in minutes.
 
 A code collision is worth naming: because the command's own exit code passes
 through untouched, a command that legitimately exits `3` or `4` cannot be told
@@ -161,7 +181,8 @@ build may own: a Gradle daemon outlives the group, which is one more reason
 already going under, not one about to; it stops the run, it does not predict.
 And the heavy build has not run under the guard here: the case the guard exists
 for needs 3.61–4.74 GB, while this machine has sat at 1.9–2.1 GB since the
-wiring, so what is proven end to end is light commands and the stop path.
+wiring, so the command-aware floor now refuses it outright, and what is proven
+end to end is light commands and the stop path.
 
 Both branches are pinned by `scripts/tests/test_build_slot_guard.py` against
 fake memory files — refusal, stop, SIGTERM escalation, swap growth and the
@@ -172,9 +193,20 @@ The wrapper itself is machine-local and this repository does not carry it, so
 the wiring is a change to that file, not to this one:
 
 ```sh
+# .worktrees/gt, abbreviated: the executable copy is that file, not this snippet.
 root=$(git rev-parse --show-toplevel)
 if [ -x "$root/scripts/build-slot-guard.py" ]; then
-  exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" --floor-mb 1500 -- "$@"
+  floor=1500                        # light work; the machine idles at 1.9-2.1 GB
+  patch=no; klass=no
+  for arg in "$@"; do               # a heavy path can hide behind `bash` too
+    case "$arg" in
+      gradlew|*/gradlew|test-all.sh|*/test-all.sh|test-changed.sh|*/test-changed.sh|pre-release.sh|*/pre-release.sh) floor=3500 ;;
+      --patch) patch=yes ;;
+      --class) klass=yes ;;
+    esac
+  done
+  [ "$patch" = yes ] && [ "$klass" = yes ] && floor=3500   # mutate.sh run mode
+  exec flock -w 7200 <slot-file> "$root/scripts/build-slot-guard.py" --floor-mb "$floor" -- "$@"
 fi
 exec flock -w 7200 <slot-file> "$@"
 ```

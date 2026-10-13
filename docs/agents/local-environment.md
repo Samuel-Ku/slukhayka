@@ -165,10 +165,11 @@ with its process gone. That last check ran against a fake memory file, because
 this machine has no honest way to fall that low on request. Under the matcher,
 light paths still run — `mutate.sh status --class …` exits `0` — while `gradlew`,
 `bash scripts/test-all.sh`, `scripts/pre-release.sh` and a `--patch … --class`
-mutation run are each refused with `3500 MB` in the message. The guard is not free: a ten-run bench of an empty
-command through the slot lands in single milliseconds without it and around
-0.1 s with it — two benches on this machine agreed on the order of magnitude, not
-on the digits, so treat it as ~0.1 s against builds measured in minutes.
+mutation run are each refused with `3500 MB` in the message. The guard is not
+free: a ten-run bench of an empty command through the slot lands in single
+milliseconds without it and around 0.1 s with it — two benches on this machine
+agreed on the order of magnitude, not on the digits, so treat it as ~0.1 s
+against builds measured in minutes.
 
 A code collision is worth naming: because the command's own exit code passes
 through untouched, a command that legitimately exits `3` or `4` cannot be told

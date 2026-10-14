@@ -147,6 +147,45 @@
 tmpfs у RAM — окрема відмова, застарілі дерева попередніх падінь прибираються на
 старті, а явне перенесення (`SLUKHAYKA_MUTANTS_TMPDIR`) голосне.
 
+Зрізання того самого гейта (#1313). Прогін МУТАНТА спиняється на першій
+червоній цілі (`MUTANT_FLAGS`), а базовий прогін лишається повним. Це не
+послаблення: вердикт прогону — це код виходу, а не кількість червоних тестів,
+тож прапорець не може ні створити червоне, ні зняти його — він може лише
+ВКОРОТИТИ прогін. Базовий прогін прапорця не бере навмисно: його справа —
+довести, що зелені ВСІ цілі, і вкоротити його означало б доводити менше, ніж
+він обіцяє. Єдине, чим прапорець видимий, — скільком свідкам прогін устигає
+впасти; саме це пінить `test_verdict_field_mutants.FailfastTest`, і саме тому
+«швидше» тут не може тихо означати «інакше». Скільки це дає — вимір, а не
+обіцянка: на машині #1313 найдовша ціль `tests` вкоротилася з 4.7 до 0.7 с,
+`artifactSha256` — з 7.3 до 1.1 с, `failures` — з 14.7 до 9.8 с (там перша
+червона ціль стоїть десятою, і вкорочувати далі нема чого).
+
+Друге зрізання — порядок фаз (`witness_phases`): вузькі фази ВСІХ свідків ідуть
+перед повними будь-кого. Це перестановка, а не звуження — набір фаз той самий, і
+якщо жодна вузька не вб'є, повні біжать усі, як і раніше; змінюється лише те,
+який свідок назветься першим. Воно прибирає роботу, яка вже не могла нічого
+змінити: повна фаза модуля, що не вбиває, більше не біжить перед вузькою
+модуля, що вбиває.
+
+Третє зрізання — черга на замку ключа (`warm_baselines`). Базовий прогін
+робиться рівно один на ключ, але той, кому той самий ключ потрібен другим,
+СТОЇТЬ і чекає, — а це час ВОРКЕРА, не робота: поки сусіди чекають, ядер не
+використовує ніхто. Виміряно на цій машині: 41 с із 95 с роботи (43 %) були
+очікуванням, і паралелізм падав із 4 до 2.5 при вільних ядрах. Прогрів рахує
+базові прогони ПЕРШИХ фаз усіх сайтів однією хвилею — ключі в ній різні, тож
+вона не чекає сама на себе, і після неї ті самі прогони лежать у кеші. Вердикт
+не змінюється: ключі ті самі, кличе вона той самий `Runner.baseline`.
+
+Межа всіх трьох зрізань — паралелізм, і вона названа. Пул лишається `--jobs` (типово
+`DEFAULT_JOBS` — не більше чотирьох, не більше ядер); зрізання зменшує РОБОТУ,
+а не додає потоків, тож на одному ядрі воно дає той самий виграш у секундах,
+лише без ділення на ядра. Мутації незалежні за побудовою: кожна біжить у
+власній копії дерева, у власній теці під спільним носієм, і спільного стану
+між ними немає; `TMPDIR` той самий, що й був. Розібраний AST свідків
+(`test_targets`) кешується на процес: файли, які він читає, за прогін не
+змінюються — мутація живе лише в копії дерева, — а копія механізму біжить в
+окремому процесі й тому бере власний, порожній кеш.
+
 Виклик: scripts/verdict_field_mutants.py [--list] [--field <поле>]... [--jobs N] [--root <шлях>]
 Коди виходу: 0 — усі місця всіх полів убиті мутантом; 1 — є живі мутанти
 (поле нічого не тримає); 2 — перевірити не вдалося (невідомість).
@@ -157,6 +196,7 @@ from __future__ import annotations
 import argparse
 import ast
 import dataclasses
+import functools
 import os
 import re
 import shutil
@@ -199,6 +239,12 @@ DEFAULT_JOBS = min(4, os.cpu_count() or 1)
 # коротший таймаут може лише ПЕРЕТВОРИТИ вердикт у невідомість, тобто додати
 # відмов, а не дозволів.
 DEFAULT_RUN_TIMEOUT_SECONDS = 240
+
+# Прапорці прогону МУТАНТА (#1313). Вердикт прогону — це код виходу, тож
+# прапорець може лише ВКОРОТИТИ прогін, не створивши й не знявши червоне.
+# Базовий прогін його не бере: його справа — довести, що зелені ВСІ цілі.
+# Межа названа в шапці («Зрізання того самого гейта»).
+MUTANT_FLAGS = ("-f",)
 
 
 def run_timeout() -> int:
@@ -720,13 +766,16 @@ def runs_the_suite(node: ast.ClassDef, programs: dict[str, str] | None = None) -
     return False
 
 
-def test_targets(module: Path, field: str | None = None) -> list[str]:
-    """Тести модуля — усі або лише ті, що називають поле.
+@functools.lru_cache(maxsize=None)
+def _parsed_targets(module: Path, field: str | None = None) -> tuple[str, ...]:
+    """Розібраний перелік цілей — незмінний, тож і кешований (#1313).
 
-    Спільний список для обох фаз: вузька (лише ті, що називають поле) — швидкий
-    шлях до вбивства, повна (усі) — те, чим механізм закриває питання, коли
-    вузька не вбила. Звузити можна лише ВБИВСТВО, тож хибної відмови звуження
-    не робить. Мета-тести набору (`runs_the_suite`) не входять до жодної фази.
+    Той самий модуль розбирається на кожне місце й на кожну фазу — 143 рази на
+    повний виклик, — а вміст модуля за прогін не змінюється: мутація живе лише
+    в копії дерева. Кеш не спільний між процесами, тож копія механізму у своєму
+    процесі починає з порожнього, а тека-фікстура дає власний ключ (шлях входить
+    у нього). Порядок і вміст ті самі, що були до кеша: розбір — чиста функція
+    від (шлях, поле).
     """
     try:
         tree = ast.parse(module.read_text(encoding="utf-8"))
@@ -769,7 +818,21 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
                 if not any(_mentions(statement, field) for statement in body):
                     continue
             targets.append("%s.%s.%s" % (module.stem, name, item.name))
-    return sorted(targets)
+    return tuple(sorted(targets))
+
+
+def test_targets(module: Path, field: str | None = None) -> list[str]:
+    """Тести модуля — усі або лише ті, що називають поле.
+
+    Спільний список для обох фаз: вузька (лише ті, що називають поле) — швидкий
+    шлях до вбивства, повна (усі) — те, чим механізм закриває питання, коли
+    вузька не вбила. Звузити можна лише ВБИВСТВО, тож хибної відмови звуження
+    не робить. Мета-тести набору (`runs_the_suite`) не входять до жодної фази.
+
+    Назовні йде СВІЖИЙ список, а кешується незмінний кортеж: виклик не може
+    зіпсувати кеш сусідові, а розбір не повторюється (див. `_parsed_targets`).
+    """
+    return list(_parsed_targets(module, field))
 
 
 # --------------------------------------------------------------------------
@@ -800,18 +863,21 @@ def _roots(root: Path, tmp: Path) -> Path:
     )
 
 
-def _run(work: Path, tests_dir: Path, targets: list[str]) -> tuple[int | None, str]:
+def _run(work: Path, tests_dir: Path, targets: list[str],
+         flags: tuple[str, ...] = ()) -> tuple[int | None, str]:
     """Один прогін свідка в копії. `None` — прогін не завершився.
 
     Цілі вантажаться як `test_mutate.Class.test` з каталогу тестів — рівно те,
-    що робить джоба script-tests, коли `discover` знаходить модуль.
+    що робить джоба script-tests, коли `discover` знаходить модуль. `flags` —
+    прапорці `unittest`: базовий прогін іде без них (усі цілі мусять бути
+    зелені), мутант — із `MUTANT_FLAGS` (досить однієї червоної).
     """
     environment = os.environ.copy()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment[RECURSION_MARKER] = str(int(environment.get(RECURSION_MARKER) or 0) + 1)
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "unittest", *targets],
+            [sys.executable, "-m", "unittest", *flags, *targets],
             cwd=str(work / tests_dir), capture_output=True, text=True,
             env=environment, timeout=run_timeout(),
         )
@@ -940,7 +1006,9 @@ class Runner:
                                        encoding="utf-8")
             except OSError as error:
                 return False, "", "мутанта не записати: %s" % error
-            status, output = _run(work, self.tests_dir, targets)
+            # Мутант спиняється на першій червоній цілі (MUTANT_FLAGS): вердикт —
+            # це код виходу, і решта цілей додала б секунди, не правду.
+            status, output = _run(work, self.tests_dir, targets, MUTANT_FLAGS)
             seconds.append(time.monotonic() - started)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -955,6 +1023,12 @@ class Runner:
 # --------------------------------------------------------------------------
 
 
+# Імена фаз. Вони не лише проза у виводі: за ними `witness_phases` ставить
+# вузькі фази ВСІХ свідків перед повними будь-кого (#1313).
+NARROW_PHASE = "вузький набір"
+FULL_PHASE = "повний модуль"
+
+
 def phases_for(module: Path, field: str) -> list[tuple[str, list[str]]]:
     """Дві фази свідка: вузька (називає поле), потім повна (увесь модуль).
 
@@ -967,18 +1041,87 @@ def phases_for(module: Path, field: str) -> list[tuple[str, list[str]]]:
     full = test_targets(module)
     phases = []
     if narrow:
-        phases.append(("вузький набір", narrow))
+        phases.append((NARROW_PHASE, narrow))
     if full and full != narrow:
-        phases.append(("повний модуль", full))
+        phases.append((FULL_PHASE, full))
     return phases
+
+
+def witness_phases(modules: list[Path],
+                   field: str) -> list[tuple[Path, str, list[str]]]:
+    """Усі фази всіх свідків — і вузькі ВСІХ перед повними будь-кого (#1313).
+
+    Порядок усередині модуля лишається тим, що й був (`phases_for`: вузька, тоді
+    повна), і це пінить `WitnessTest.test_the_two_phases_are_narrow_then_full`.
+    Змінюється лише порядок МІЖ модулями, і вердикту він змінити не може: killed
+    — це «хоч одна фаза червона», а не «перша-ліпша». Нічого не скасовується:
+    якщо жодна вузька не вб'є, повні біжать усі, як і раніше, — просто пізніше.
+
+    Коштує це тим, що повна фаза модуля, який не вбиває, більше не біжить перед
+    вузькою модуля, який убиває. Виміряно на дереві #1313: 26 повних фаз
+    `test_fixture_environments.py` (~29 с) і повна `test_mutate.py` (~17 с) були
+    зелені — і стояли саме там, перед вузькою, яка вбивала.
+    """
+    narrow: list[tuple[Path, str, list[str]]] = []
+    full: list[tuple[Path, str, list[str]]] = []
+    for module in modules:
+        for phase, targets in phases_for(module, field):
+            if not targets:
+                continue
+            (narrow if phase == NARROW_PHASE else full).append((module, phase, targets))
+    return narrow + full
+
+
+def first_phase_baselines(sites: list[Site],
+                          witnesses: dict) -> dict[tuple, tuple[Path, list[str]]]:
+    """Базові прогони, які кожен сайт попросить ПЕРШИМИ: ключ → (модуль, цілі).
+
+    Сайт починає з першої фази свого першого свідка (`witness_phases`), і саме
+    цей базовий прогін він попросить раніше за всіх. Ключів тут рівно стільки,
+    скільки різних перших фаз, тож прогрів (`warm_baselines`) не рахує нічого
+    зайвого — він лише переносить ту саму роботу раніше й без черги.
+    """
+    keys: dict[tuple, tuple[Path, list[str]]] = {}
+    for site in sites:
+        phases = witness_phases(witnesses[site.path], site.field.name)
+        if not phases:
+            continue
+        module, _phase, targets = phases[0]
+        keys.setdefault((module.name, tuple(targets)), (module, targets))
+    return keys
+
+
+def warm_baselines(pool: ThreadPoolExecutor, runner: Runner, keys: dict) -> None:
+    """Прогріти базові прогони перших фаз ПАРАЛЕЛЬНО — до першої мутації (#1313).
+
+    Замок ключа робить базовий прогін рівно один на ключ, але той, кому той самий
+    ключ потрібен другим, СТОЇТЬ і чекає, — і це час ВОРКЕРА, а не робота: поки
+    сусіди чекають, ядер не використовує ніхто. Виміряно на дереві #1313:
+    очікування на замку — 41 с із 95 с роботи (43 %), і паралелізм падає з 4 до
+    2.5, хоч ядра вільні. Тут ключі РІЗНІ, тож хвиля не чекає сама на себе, а
+    після неї ті самі прогони лежать у кеші й черга не збирається.
+
+    Це не звуження і не зміна вердикту: ключі — ті самі, що попросив би
+    `judge_site`, і кличе тут той самий `Runner.baseline`. Провал базового прогону
+    хвилю не спиняє: його однаково назве `judge_site` — з тим самим ключем,
+    значенням із кеша й тим самим текстом.
+    """
+    futures = [pool.submit(runner.baseline, module, targets)
+               for module, targets in keys.values()]
+    for future in futures:
+        try:
+            future.result()
+        except (OSError, FieldError):
+            continue
 
 
 def judge_site(site: Site, tests_dir: Path, witnesses: dict, runner: Runner):
     """Один мутант: вердикт або рядок-невідомість.
 
-    Фази йдуть від дешевої до повної, і перше червоне вікно закриває питання:
-    мутант, який червонить хоч один тест, — убитий. Якщо не почервонив жоден,
-    поле тут не тримає нічого, і це відмова, а не «ну, майже».
+    Фази йдуть від дешевої до повної (`witness_phases`: вузькі всіх свідків перед
+    повними будь-кого), і перше червоне вікно закриває питання: мутант, який
+    червонить хоч один тест, — убитий. Якщо не почервонив жоден, поле тут не
+    тримає нічого, і це відмова, а не «ну, майже».
     """
     modules = witnesses[site.path]
     if not modules:
@@ -990,23 +1133,20 @@ def judge_site(site: Site, tests_dir: Path, witnesses: dict, runner: Runner):
     verdict = Verdict(site)
     seconds: list[float] = []
     done: set = set()
-    for module in modules:
-        for phase, targets in phases_for(module, site.field.name):
-            if not targets or (module.name, tuple(targets)) in done:
-                continue
-            done.add((module.name, tuple(targets)))
-            broken = runner.baseline(module, targets)
-            if broken:
-                return "FAIL  %s: %s" % (site.describe(), broken)
-            red, output, unreadable = runner.mutant(site, module, targets, seconds)
-            if unreadable:
-                return "FAIL  %s: %s" % (site.describe(), unreadable)
-            if red:
-                verdict.killed_by.extend(
-                    failing_tests(output, targets) or ["%s (%s)" % (module.name, phase)]
-                )
-                break
-        if verdict.killed_by:
+    for module, phase, targets in witness_phases(modules, site.field.name):
+        if (module.name, tuple(targets)) in done:
+            continue
+        done.add((module.name, tuple(targets)))
+        broken = runner.baseline(module, targets)
+        if broken:
+            return "FAIL  %s: %s" % (site.describe(), broken)
+        red, output, unreadable = runner.mutant(site, module, targets, seconds)
+        if unreadable:
+            return "FAIL  %s: %s" % (site.describe(), unreadable)
+        if red:
+            verdict.killed_by.extend(
+                failing_tests(output, targets) or ["%s (%s)" % (module.name, phase)]
+            )
             break
     verdict.seconds = max(seconds) if seconds else 0.0
     if not verdict.killed_by:
@@ -1108,6 +1248,12 @@ def check(root: Path, tests_dir: Path = TESTS_DIR, only: list[str] | None = None
         return report
     try:
         with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+            # Прогрів перших базових прогонів — ДО першої мутації: інакше сусіди
+            # стоять у черзі за тим самим ключем, і ядра простоюють (див.
+            # `warm_baselines`).
+            warm_baselines(pool, runner,
+                           first_phase_baselines(report.sites, witnesses))
+
             def judged(site: Site):
                 try:
                     return judge_site(site, tests_dir, witnesses, runner)

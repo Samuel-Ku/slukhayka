@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 39 записів (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 42 записів (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -889,6 +889,54 @@ GUARDS = (
                 file="scripts/tmp_budget.py",
                 find='        print("tmp_budget: %s" % error, file=sys.stderr)\n',
                 replace="        pass  # mutated: причина не названа\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_verdict_field_mutants.FailfastTest"
+             ".test_the_mutant_run_stops_at_the_first_red",
+        protects="прогін мутанта, який спиняється на першій червоній цілі (#1313): "
+                 "вердикт — це код виходу, тож прапорець може лише ВКОРОТИТИ прогін "
+                 "і не може змінити, убитий мутант чи ні. Єдине, чим він видимий, — "
+                 "скільком свідкам прогін устигає впасти. Знятий прапорець лишає "
+                 "вердикт тим самим, а прогін — повним: саме те число й червоніє",
+        edits=(
+            Edit(
+                file="scripts/verdict_field_mutants.py",
+                find='MUTANT_FLAGS = ("-f",)',
+                replace="MUTANT_FLAGS = ()  # mutated: прогін договорює всі цілі\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_verdict_field_mutants.WitnessTest"
+             ".test_the_narrow_phases_of_every_witness_come_before_the_full_ones",
+        protects="порядок фаз МІЖ свідками (#1313): вузькі всіх перед повними "
+                 "будь-кого. Це перестановка, а не звуження — набір фаз той самий, "
+                 "і якщо жодна вузька не вб'є, повні біжать усі. Повернутий порядок "
+                 "не міняє жодного вердикту й тому не червонить нічого іншого: без "
+                 "цієї перевірки зрізання тихо верталося б разом із секундами",
+        edits=(
+            Edit(
+                file="scripts/verdict_field_mutants.py",
+                find="    return narrow + full\n",
+                replace="    return full + narrow  # mutated: повні перед вузькими\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_verdict_field_mutants.WarmTest"
+             ".test_the_warmed_baselines_are_the_first_phases_of_every_site",
+        protects="прогрів базових прогонів (#1313): та сама робота, але без черги "
+                 "на замку ключа — виміряно 41 с із 95 с роботи (43 %), які воркери "
+                 "СТОЯЛИ, поки ядра простоювали. Прогріваються ПЕРШІ фази (дешеві); "
+                 "`phases[-1]` прогрів би повні набори модулів і повернув би "
+                 "секунди, нічого не поламавши видимо",
+        edits=(
+            Edit(
+                file="scripts/verdict_field_mutants.py",
+                find="        module, _phase, targets = phases[0]",
+                replace="        module, _phase, targets = phases[-1]  # mutated\n",
             ),
         ),
     ),

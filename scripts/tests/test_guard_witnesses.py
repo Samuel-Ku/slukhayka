@@ -110,6 +110,12 @@ GUARD_TESTS = (
     ".test_the_prefixes_the_scripts_claim_are_the_reaped_ones",
     "test_verdict_field_mutants.FailClosedTest"
     ".test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier",
+    "test_verdict_field_mutants.FailfastTest"
+    ".test_the_mutant_run_stops_at_the_first_red",
+    "test_verdict_field_mutants.WitnessTest"
+    ".test_the_narrow_phases_of_every_witness_come_before_the_full_ones",
+    "test_verdict_field_mutants.WarmTest"
+    ".test_the_warmed_baselines_are_the_first_phases_of_every_site",
     "test_witness_derivation.DerivationTest"
     ".test_every_form_is_accepted_and_runs_nothing",
     "test_witness_derivation.DerivationTest.test_the_same_ast_gives_two_truths",

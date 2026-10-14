@@ -69,6 +69,10 @@ GUARD_TESTS = (
     ".test_a_scratch_left_by_a_sigkilled_run_is_reaped_by_the_next_run",
     "test_test_wrappers.ChangedTestWrapperScratchTest"
     ".test_no_scratch_directory_survives_a_run",
+    "test_test_wrappers.ChangedTestWrapperScratchTest"
+    ".test_the_scratch_of_a_killed_run_names_that_run_as_its_owner",
+    "test_tmp_budget.ScratchTest"
+    ".test_an_old_scratch_without_a_marker_is_reaped_for_both_prefixes",
     "test_tmp_budget.ScratchTest"
     ".test_the_prefixes_the_scripts_claim_are_the_reaped_ones",
     "test_verdict_field_mutants.FailClosedTest"

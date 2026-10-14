@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 20 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 22 записи, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
 паралельно (`--jobs`), і кожен друкує свій час під час прогону
 (`python3 scripts/guard_witnesses.py`) — 0.5–1.7 с на запис на цій машині (вона
@@ -544,6 +544,23 @@ GUARDS = (
         ),
     ),
     Guard(
+        test="test_tmp_budget.ScratchTest"
+             ".test_an_old_scratch_without_a_marker_is_reaped_for_both_prefixes",
+        protects="сам ВИКЛИК `sweep_stale` у прибиральнику теки прогону: тека зникає "
+                 "лише тому, що прибиральник кличе справжній `sweep_stale`, а не тому, "
+                 "що тест підміняє прибирання (шов `sweep=` знято). Без виклику стара "
+                 "тека лишається на місці — і цей свідок мусить почервоніти, а не "
+                 "пройти повз прибирання, якого не було",
+        edits=(
+            Edit(
+                file="scripts/tmp_budget.py",
+                find="    freed = sweep_stale(scratch_root(base, relocate=relocate), "
+                     "(prefix,), grace=grace)\n",
+                replace="    freed = []  # mutated: sweep_stale not called\n",
+            ),
+        ),
+    ),
+    Guard(
         test="test_test_wrappers.ChangedTestWrapperScratchTest"
              ".test_a_scratch_left_by_a_sigkilled_run_is_reaped_by_the_next_run",
         protects="прибирання теки прогону на СТАРТІ наступного: EXIT-пастки SIGKILL "
@@ -557,6 +574,24 @@ GUARDS = (
                 find='scratch=$(python3 "$budget_module" claim --prefix '
                      'slukhayka-changed-tests. --owner-pid $$) ||',
                 replace='scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-changed-tests.XXXXXX") ||',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_test_wrappers.ChangedTestWrapperScratchTest"
+             ".test_the_scratch_of_a_killed_run_names_that_run_as_its_owner",
+        protects="маркер власника теки прогону: його мусить писати СКРИПТ-обгортка "
+                 "(`--owner-pid $$`), а не короткоживучий `python3`-хелпер (#1300). "
+                 "Маркер на хелпері робить живу теку «застарілою» за мілісекунди "
+                 "після створення, і сусідній прогін зніс би її посеред роботи — "
+                 "тобто маркер перестав би захищати того, кого заведений захищати",
+        edits=(
+            Edit(
+                file="scripts/test-changed.sh",
+                find='scratch=$(python3 "$budget_module" claim --prefix '
+                     'slukhayka-changed-tests. --owner-pid $$) ||',
+                replace='scratch=$(python3 "$budget_module" claim --prefix '
+                        'slukhayka-changed-tests.) ||',
             ),
         ),
     ),

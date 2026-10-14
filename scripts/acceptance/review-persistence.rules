@@ -1,0 +1,30 @@
+rules_version = '2';
+// Isolated demo-project fixture. Tests SDK persistence, not production security.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /book_reviews/{document} {
+      allow read: if true;
+      // Allow the full immutable original own review, not the future edited payload.
+      function isRejectedEditSeed() {
+        let data = request.resource.data;
+        return data.keys().hasAll(['workId', 'uid', 'authorName', 'rating', 'body', 'editionTag', 'createdAt'])
+          && data.keys().hasOnly(['workId', 'uid', 'authorName', 'rating', 'body', 'editionTag', 'createdAt'])
+          && data.uid == 'qa-rejected-edit'
+          && data.workId.matches('qa-[a-z0-9-]{1,60}-edit-rejection')
+          && document == data.workId + '_qa-rejected-edit'
+          && data.authorName == 'Тестовий читач'
+          && data.rating == 3
+          && data.body == 'Початковий відгук'
+          && data.editionTag == 'Тестове видання'
+          && data.createdAt == 100;
+      }
+      allow create: if request.resource.data.uid != 'qa-rejected'
+        && (request.resource.data.uid != 'qa-rejected-edit' || isRejectedEditSeed());
+      // The seed's first backend CREATE succeeds; this UID's later UPDATE fails.
+      allow update: if request.resource.data.uid != 'qa-rejected'
+        && request.resource.data.uid != 'qa-rejected-edit'
+        && resource.data.uid != 'qa-rejected-edit';
+      allow delete: if true;
+    }
+  }
+}

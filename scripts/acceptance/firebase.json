@@ -1,0 +1,8 @@
+{
+  "firestore": { "rules": "review-persistence.rules" },
+  "emulators": {
+    "firestore": { "host": "127.0.0.1", "port": 8089 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
+}

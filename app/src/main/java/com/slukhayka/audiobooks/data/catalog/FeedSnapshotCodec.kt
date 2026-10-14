@@ -36,7 +36,8 @@ object FeedSnapshotCodec {
                 "seriesIndex" to book.seriesIndex?.toString(),
                 "genre" to str(book.genre),
                 "totalDurationSeconds" to book.totalDurationSeconds.toString(),
-                "sourceId" to str(book.sourceId)
+                "sourceId" to str(book.sourceId),
+                "language" to str(book.language)
             )
         }
 
@@ -59,7 +60,8 @@ object FeedSnapshotCodec {
                 seriesIndex = (map["seriesIndex"] as? Double)?.toInt(),
                 genre = map["genre"] as? String ?: "",
                 totalDurationSeconds = (map["totalDurationSeconds"] as? Double)?.toLong() ?: 0L,
-                sourceId = sourceId
+                sourceId = sourceId,
+                language = map["language"] as? String ?: ""
             )
         }
     }

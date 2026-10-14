@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 /**
@@ -257,11 +259,19 @@ class FeedSnapshotRefresh(
             return FeedRefreshOutcome.Failure
         }
 
+        currentCoroutineContext().ensureActive()
         val observedAt = nowMillis()
-        memory[sourceFeedKey] = MemoryEntry(books, observedAt, parameters)
+        // Persistence is best effort, but cancellation must prevent publication.
         runCatching {
             writePersisted(PersistedFeedSnapshot(sourceId, feedKey, books, observedAt, parameters))
+        }.onFailure { failure ->
+            if (failure is CancellationException) throw failure
         }
+        currentCoroutineContext().ensureActive()
+        val newestAfterPersistence = latestGeneration[sourceFeedKey] ?: sessionGeneration
+        if (sessionGeneration < newestAfterPersistence) return FeedRefreshOutcome.Failure
+
+        memory[sourceFeedKey] = MemoryEntry(books, observedAt, parameters)
         return FeedRefreshOutcome.Data(books, observedAt)
     }
 }

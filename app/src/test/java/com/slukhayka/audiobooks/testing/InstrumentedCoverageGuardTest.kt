@@ -220,6 +220,9 @@ class InstrumentedCoverageGuardTest {
             "LiveBrowser" + "Recovery",
             "LiveCandidate" + "Playback",
             "LiveSource" + "Regression",
+            // #620 — explicit multi-process Firebase emulator acceptance, outside
+            // the UI CI leg; scripts/acceptance/review-persistence.py is its runner.
+            "ListenerReview" + "Persistence",
             // telegram/
             "TelegramLogin" + "Spike"
         ).map { it + "Test" }

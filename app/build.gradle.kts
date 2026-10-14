@@ -89,7 +89,11 @@ android {
     // Device tests run against their OWN database file (see the runner):
     // a test that wipes and reseeds the database for determinism must never
     // wipe the listener's library on a real phone.
-    testInstrumentationRunner = "com.slukhayka.audiobooks.IsolatedDatabaseTestRunner"
+    testInstrumentationRunner = if (providers.gradleProperty("acceptancePersistence").orNull == "true") {
+      "com.slukhayka.audiobooks.acceptance.PersistenceAcceptanceRunner"
+    } else {
+      "com.slukhayka.audiobooks.IsolatedDatabaseTestRunner"
+    }
   }
 
   signingConfigs {

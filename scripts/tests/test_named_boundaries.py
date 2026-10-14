@@ -67,7 +67,7 @@ EXPECTED_UNREADABLE_SECTIONS = (
     ("scripts/verdict_field_mutants.py",
      "Межі, названі прямо (кожну доведено тестом або виміром, а не обіцянкою):"),
 )
-EXPECTED_BOUNDARY_HEADINGS = 11
+EXPECTED_BOUNDARY_HEADINGS = 12
 EXPECTED_BOUNDARY_IDS = (
     "#1276-list",
     "#1276-run-built",
@@ -624,7 +624,7 @@ class RegistryTest(unittest.TestCase):
                          + output.getvalue())
 
     def test_the_unreadable_boundary_sections_are_the_named_ones(self):
-        """«Чотири з одинадцяти» зі шапки — число, яке пінить ЦЕЙ тест, а не проза.
+        """«Чотири з дванадцяти» зі шапки — число, яке пінить ЦЕЙ тест, а не проза.
 
         Механізм читає лише пункти форми `  * `; розділ іншої форми він
         відмовляється читати (код 2), і такий розділ у `SECTIONS` стояти не

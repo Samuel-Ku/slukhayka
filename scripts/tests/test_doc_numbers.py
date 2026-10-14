@@ -78,22 +78,27 @@ EXPECTED_SCANNED = (
 FIXTURE_FILES = tuple(sorted(set(EXPECTED_SCANNED)))
 
 
-def count_word():
-    """Скільки записів у `GUARDS` — як пише шапка: словом, поки слово є в таблиці.
+def count_phrase():
+    """«22 записи» — число й іменник РІВНО так, як їх пише шапка `guard_witnesses`.
 
-    Число росте з кожним новим сторожем, і тест не має його знати: хардкод
-    ламався б на кожному записі, а не на тому, що тест перевіряє. Таблиця
-    написань сягає дванадцяти — і це межа самого механізму, названа в його
-    шапці; після неї шапка пише число ЦИФРОЮ («16 записів»), бо цифрову форму
-    форма кількості приймає (`\\d+` у `patterns`). Тому тут те саме, що в шапці:
-    слово, поки воно є, далі — цифра. Хардкод тут ламався б на кожному записі,
-    а не на тому, що тест перевіряє (живий приклад: п'ятнадцятий сторож
-    `GUARDS` у #1278 вивів `count_word` за таблицю, і два тести впали IndexError).
+    Українська форма множини залежить від числа: 21 — «запис», 22–24 — «записи»,
+    далі — «записів». Механізм ловить ЛИШЕ форми множини (`NOUNS`), тож шапка
+    пише ту форму, яка граматична, а тест мусить брати ту саму — інакше він
+    ламався б на кожному новому сторожі (живий приклад: двадцять другий сторож
+    `GUARDS` у #1299 перевів шапку на «22 записи», і два тести, що знали форму
+    «записів», упали). Число тут не хардкодиться: його звіряє сам механізм
+    (`FIGURES`: `("count", "guards")`), а не цей рядок.
     """
-    count = len(d.record("guards"))
-    if count > len(d.CARDINALS):
-        return str(count)
-    return d.CARDINALS[count - 1][1]
+    words = {word for pair in d.CARDINALS for word in pair}
+    text = (REPO_ROOT / "scripts" / "guard_witnesses.py").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if "разом " not in line:
+            continue
+        phrase = line.split("разом ", 1)[1].split(",")[0].strip()
+        first = phrase.split(" ")[0]
+        if first.isdigit() or first in words:
+            return phrase
+    raise AssertionError("шапка `guard_witnesses` більше не пише числа записів")
 
 
 def run(argv):
@@ -205,7 +210,7 @@ class FindingTest(FixtureMixin):
 
     def test_a_count_that_disagrees_with_the_registry_is_a_finding(self):
         self.edit("scripts/guard_witnesses.py",
-                  "разом %s записів" % count_word(), "разом шість записів")
+                  "разом %s" % count_phrase(), "разом шість записів")
         code, out, _ = self.check()
         self.assertEqual(1, code)
         self.assertIn("рядок каже «шість»", out)
@@ -396,8 +401,8 @@ class BoundaryTest(FixtureMixin):
     def test_a_count_in_the_singular_is_not_a_count(self):
         """«один запис» — вказівний зворот; форма кількості його не ловить."""
         self.edit("scripts/guard_witnesses.py",
-                  "разом %s записів" % count_word(),
-                  "разом %s записів, і один запис окремо" % count_word())
+                  "разом %s" % count_phrase(),
+                  "разом %s, і один запис окремо" % count_phrase())
         code, _, err = self.check()
         self.assertEqual(0, code, err)
 

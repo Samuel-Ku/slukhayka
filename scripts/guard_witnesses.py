@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 23 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 29 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
 паралельно (`--jobs`), і кожен друкує свій час під час прогону
 (`python3 scripts/guard_witnesses.py`) — 0.5–1.7 с на запис на цій машині (вона
@@ -455,7 +455,7 @@ GUARDS = (
     Guard(
         test="test_named_boundaries.RegistryTest"
              ".test_the_unreadable_boundary_sections_are_the_named_ones",
-        protects="«чотири з одинадцяти» зі шапки меж (#1278): число, яке щось "
+        protects="«чотири з дванадцяти» зі шапки меж (#1278): число, яке щось "
                  "стверджує про дерево, мусить мати джерело. Мутація вчить "
                  "механізм читати ще одну форму пункту — множина нерозібраних "
                  "розділів змінюється, і пін мусить почервоніти",
@@ -544,6 +544,26 @@ GUARDS = (
         ),
     ),
     Guard(
+        test="test_ci_job_time.LimitTest"
+             ".test_a_changed_limit_moves_the_number_without_touching_the_mechanism",
+        protects="ліміт джоби, прочитаний із `ci.yml` (#1299): число, вписане в "
+                 "механізм, лишається незмінним, коли `timeout-minutes` у "
+                 "воркфлоу інший, — і документ разом із ним розходиться з "
+                 "деревом, а не червоніє",
+        edits=(
+            # Живий приклад тікета: «300» як константа механізму замість читання
+            # блоку. Підставлене дерево з `timeout-minutes: 9` дає 540 с, і
+            # мутант на цьому червоніє — саме тому число в доку виводиться.
+            Edit(
+                file="scripts/ci_job_time.py",
+                find='        minutes = int(job_field(job_block("\\n".join('
+                     'workflow_lines(root, workflow)), key),\n'
+                     '                                "timeout-minutes"))\n',
+                replace="        minutes = 5  # mutated: ліміт узято з механізму\n",
+            ),
+        ),
+    ),
+    Guard(
         test="test_tmp_budget.ScratchTest"
              ".test_an_old_scratch_without_a_marker_is_reaped_for_both_prefixes",
         protects="сам ВИКЛИК `sweep_stale` у прибиральнику теки прогону: тека зникає "
@@ -561,6 +581,20 @@ GUARDS = (
         ),
     ),
     Guard(
+        test="test_ci_job_time.MeasurementTest"
+             ".test_the_relation_floor_reddens_on_the_slowest_run",
+        protects="підлогу запасу (#1299): прогін на 200 с лишає відношення 1.5×, і "
+                 "це мусить бути знахідкою, а не «зелено з числом». Знята підлога "
+                 "лишає документ із названим відношенням без жодного свідка",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    if limit < HEADROOM_RATIO * slowest:\n",
+                replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
         test="test_test_wrappers.ChangedTestWrapperScratchTest"
              ".test_a_scratch_left_by_a_sigkilled_run_is_reaped_by_the_next_run",
         protects="прибирання теки прогону на СТАРТІ наступного: EXIT-пастки SIGKILL "
@@ -574,6 +608,19 @@ GUARDS = (
                 find='scratch=$(python3 "$budget_module" claim --prefix '
                      'slukhayka-changed-tests. --owner-pid $$) ||',
                 replace='scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-changed-tests.XXXXXX") ||',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero",
+        protects="невідомість як код 2 (#1299): без `gh` часу джоби взяти нема "
+                 "звідки, і «нуль» тут означав би «джоба триває нуль секунд» — "
+                 "клас, проти якого весь механізм і написаний",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    if unknowns:\n        return 2\n",
+                replace="    if unknowns:\n        return 0  # mutated\n",
             ),
         ),
     ),
@@ -596,6 +643,21 @@ GUARDS = (
         ),
     ),
     Guard(
+        test="test_ci_job_time.ClaimTest"
+             ".test_a_local_figure_without_a_named_load_is_a_finding",
+        protects="межу локального виміру (#1299): 159 с, виміряні на спільній "
+                 "машині під навантаженням 5.4, сходили за час джоби. Знята "
+                 "вимога позначки приймає будь-яке локальне число як час джоби — "
+                 "рівно те, за що заплатила серія",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="            if int(float(figure)) == limit or labelled_local(line):\n",
+                replace="            if True:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
         test="test_mutate.MutationRunTest"
              ".test_a_refused_run_still_reaps_the_scratch_a_sigkill_left",
         protects="прибирання на САМОМУ СТАРТІ, до перевірок: SIGKILL лишає теку "
@@ -609,6 +671,42 @@ GUARDS = (
                 find='python3 "$budget_module" sweep --prefix slukhayka-mutation. ||\n'
                      '  note "прибирання застарілих тек прогону не вдалося (причина вище)"\n',
                 replace=": # mutated — прибирання лишилося після перевірок\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.LocalRunTest"
+             ".test_the_local_mode_reports_a_local_measurement_and_not_the_job_time",
+        protects="рядок благополуччя ЛОКАЛЬНОГО режиму (#1299, огляд PR #1302): "
+                 "`--local` не питає `gh` і джоби не міряє, тож «час джоби "
+                 "міряно» в ньому — рядок, який суперечить позначці просто над "
+                 "ним. Механізм, який каже це на локальному вимірі, і є та "
+                 "плутанина, проти якої він написаний",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find='    if mode == "local":\n',
+                replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.ClaimTest"
+             ".test_a_word_that_merely_contains_the_mark_is_not_a_label",
+        protects="межу позначки як СЛОВА (#1299, огляд PR #1302): `download` і "
+                 "`upload` містять `load`, і рядок, який локальне число "
+                 "ЗАПЕРЕЧУЄ, сходив за позначений локальний вимір — тобто "
+                 "перевірка перевіряла не те, що обіцяє",
+        edits=(
+            # Підрядкове читання — рівно те, що було до правки.
+            Edit(
+                file="scripts/ci_job_time.py",
+                find='    return any(\n'
+                     '        re.search(r"(?<!\\w)%s(?!\\w)" % re.escape(mark), '
+                     'line, re.IGNORECASE)\n'
+                     '        for mark in marks\n'
+                     '    )\n',
+                replace="    return any(mark.lower() in line.lower() for mark in marks)\n",
             ),
         ),
     ),

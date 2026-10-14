@@ -67,8 +67,12 @@ GUARD_TESTS = (
     "test_guard_witnesses.RefusalTest"
     ".test_a_mutation_that_no_longer_applies_is_an_unknown",
     "test_issue_premise.ExtractionTest.test_measure_head_exists_because_the_docs_cite_it",
+    "test_issue_premise.BareTreeMeasureTest"
+    ".test_the_documented_command_counts_the_same_class_the_verdict_makes_ambiguous",
     "test_issue_premise.TreeEvidenceTest"
     ".test_a_bare_name_that_matches_only_a_tree_is_ambiguous",
+    "test_issue_premise.TreeEvidenceTest"
+    ".test_the_same_trailing_slash_is_premise_at_the_root_and_ambiguous_deep",
     "test_named_boundaries.SectionTest"
     ".test_a_boundary_named_in_code_without_a_witness_is_refused",
     "test_named_boundaries.SectionTest"

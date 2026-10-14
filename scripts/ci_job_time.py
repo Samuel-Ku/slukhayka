@@ -58,6 +58,18 @@
     секунда»; тому `CLAIMS` явний, як `FIGURES` і `GUARDS`, і питання огляду
     звужується до одного — «де його запис?». Незарахований рядок механізм не
     бачить, і цього не вдає;
+  * **локальне число механізм не ПЕРЕВІРЯЄ — він вимагає позначку.** Скільки
+    саме тривав той прогін і яким було навантаження тієї хвилини, з дерева не
+    видно: `--local` називає навантаження (більше з двох семплів — до й після
+    прогону) і памʼять, але брехню в позначці ловить око оглядача, не код.
+    Розділити «локальний вимір» і «число CI, підшите під локальне» за значенням
+    нема чим — тому в доку немає жодного замороженого числа CI: місце
+    виміряного числа — вивід механізму, а місце того, що не дрейфує, — ліміт і
+    відношення;
+  * **позначений рядок приймає БУДЬ-ЯКЕ число на собі** (правило лінійне:
+    рядок локальний — усі його секунди локальні). Це ціна того, що правило
+    читає рядок, а не думку автора; тому зараховані рядки й лежать у `CLAIMS`
+    поіменно, а не шукаються по корпусу;
   * **ліміт читається, а не правиться.** `ci.yml` механізм не чіпає: підняти
     `timeout-minutes` — рішення власника, а не ліки від червоного. Якщо ліміт
     змінити, числа в документах розійдуться з ним, і `--check-docs` це назве.
@@ -106,6 +118,10 @@ HEADROOM_RATIO = 2
 CLAIMS = (
     ("docs/agents/local-environment.md",
      "is capped by"),
+    ("docs/agents/local-environment.md",
+     "shared machine under load"),
+    ("docs/agents/local-environment.md",
+     "locally under load"),
     ("CONTRIBUTING.md",
      "ліміт тієї ж джоби"),
 )
@@ -166,6 +182,14 @@ def job_block(text: str, key: str = JOB_KEY) -> list[str]:
     return block
 
 
+def workflow_lines(root: Path = ROOT, workflow: str = WORKFLOW) -> list[str]:
+    """Рядки воркфлоу; немає файлу — невідомість (2), а не непійманий виняток."""
+    try:
+        return (root / workflow).read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise JobTimeError("немає %s — джобу не прочитати (%s)" % (workflow, error))
+
+
 def job_field(block: list[str], name: str) -> str:
     """Поле джоби, оголошене рівно на чотирьох пробілах (не крок і не матриця)."""
     pattern = re.compile(r"^    %s:\s*(\S.*?)\s*$" % re.escape(name))
@@ -180,11 +204,8 @@ def job_field(block: list[str], name: str) -> str:
 def limit_seconds(root: Path = ROOT, workflow: str = WORKFLOW,
                   key: str = JOB_KEY) -> int:
     """Ліміт джоби в секундах — із `timeout-minutes`, а не з константи тут."""
-    path = root / workflow
-    if not path.is_file():
-        raise JobTimeError("немає %s — ліміту не взяти" % workflow)
     try:
-        minutes = int(job_field(job_block(path.read_text(encoding="utf-8"), key),
+        minutes = int(job_field(job_block("\n".join(workflow_lines(root, workflow)), key),
                                 "timeout-minutes"))
     except ValueError:
         raise JobTimeError("timeout-minutes у блоці %s — не ціле число" % key)
@@ -195,7 +216,7 @@ def limit_seconds(root: Path = ROOT, workflow: str = WORKFLOW,
 
 def job_name(root: Path = ROOT, workflow: str = WORKFLOW, key: str = JOB_KEY) -> str:
     """Імʼя джоби, яким її називає API, — теж із блоку, а не з прози."""
-    return job_field(job_block((root / workflow).read_text(encoding="utf-8"), key), "name")
+    return job_field(job_block("\n".join(workflow_lines(root, workflow)), key), "name")
 
 
 def local_command(root: Path = ROOT, workflow: str = WORKFLOW,
@@ -205,7 +226,7 @@ def local_command(root: Path = ROOT, workflow: str = WORKFLOW,
     Кілька `run:` — невідомість: джоба з двома кроками міряється не однією
     командою, і взяти першу означало б міряти не те, що міряє CI.
     """
-    block = job_block((root / workflow).read_text(encoding="utf-8"), key)
+    block = job_block("\n".join(workflow_lines(root, workflow)), key)
     runs = [line.strip()[len("run:"):].strip() for line in block
             if re.match(r"^\s*run:\s*\S", line)]
     if len(runs) != 1:
@@ -443,7 +464,8 @@ def local_measurement(command: tuple[str, ...], runner=subprocess.run,
     if result.returncode != 0:
         raise JobTimeError(
             "локальний прогін вийшов із кодом %d — міряти час невдалого прогону "
-            "немає сенсу:\n%s" % (result.returncode, "\n".join(result.stderr.strip().splitlines()[-3:]))
+            "немає сенсу:\n%s"
+            % (result.returncode, "\n".join(result.stderr.strip().splitlines()[-3:]))
         )
     return now() - started
 
@@ -473,7 +495,7 @@ def measurement_lines(name: str, limit: int, runs: list[Measurement]) -> list[st
     median = times[len(times) // 2]
     spare, percent, ratio = headroom(limit, slowest)
     lines.append(
-        "  разом: %d прогонів, найповільніший %d с, медіана %d с, найшвидший %d с"
+        "  разом: %d · найповільніший %d с · медіана %d с · найшвидший %d с"
         % (len(runs), slowest, median, times[0])
     )
     lines.append(
@@ -558,17 +580,22 @@ def main(argv: list[str] | None = None) -> int:
 
     findings, unknowns = claim_findings(root, CLAIMS)
 
+    # Невідомість обох половин іде в ОДНЕ місце — епілог: код виходу ухвалюється
+    # рівно раз, і жодна гілка не може повернути «нуль» повз нього. Саме тому
+    # мутація «невідомість → 0» червенить сторожа, а не лишається невидимою.
     if arguments.local:
         try:
             command = local_command(root)
+            # Навантаження семплиться ДО і ПІСЛЯ прогону, і в позначку йде більше
+            # з двох: один семпл після прогону назвав би стан машини, коли робота
+            # вже скінчилася, — а мірявся саме час під нею.
+            load_before = machine_facts()[0]
             seconds = local_measurement(command)
             load, available, total = machine_facts()
         except JobTimeError as error:
-            print("НЕВІДОМО: %s" % error, file=sys.stderr)
-            for finding in findings:
-                print(finding)
-            return 2
-        print(local_label(seconds, load, available, total))
+            unknowns.append(str(error))
+        else:
+            print(local_label(seconds, max(load, load_before), available, total))
 
     elif not arguments.check_docs:
         try:
@@ -578,16 +605,14 @@ def main(argv: list[str] | None = None) -> int:
             runs = [measured(entry, name, repo)
                     for entry in completed_runs(repo, arguments.runs)]
         except JobTimeError as error:
-            print("НЕВІДОМО: %s" % error, file=sys.stderr)
-            for finding in findings:
-                print(finding)
-            return 2
-        print("джоба: %s (`%s` у %s)" % (name, JOB_KEY, WORKFLOW))
-        print("ліміт: %d с" % limit)
-        print("вікно: останні %d завершених прогонів" % arguments.runs)
-        for line in measurement_lines(name, limit, runs):
-            print(line)
-        findings.extend(verdict(runs, limit))
+            unknowns.append(str(error))
+        else:
+            print("джоба: %s (`%s` у %s)" % (name, JOB_KEY, WORKFLOW))
+            print("ліміт: %d с" % limit)
+            print("вікно: останні %d завершених прогонів" % arguments.runs)
+            for line in measurement_lines(name, limit, runs):
+                print(line)
+            findings.extend(verdict(runs, limit))
 
     for finding in findings:
         print(finding, file=sys.stderr)

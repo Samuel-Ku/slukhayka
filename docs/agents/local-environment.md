@@ -456,8 +456,8 @@ mechanism will name every number that moves.
 Its named limits are in its docstring, and the first one is the price of the
 whole idea: **the mechanism sees only the shapes and files it lists.** A scan
 that demanded a command beside *every* number would drown — `python3
-scripts/doc_numbers.py --audit` counts 155 figures of "number + unit" across
-`docs/agents/*.md` and `scripts/**/*.py`, and 149 of them sit on a line with no
+scripts/doc_numbers.py --audit` counts 178 figures of "number + unit" across
+`docs/agents/*.md` and `scripts/**/*.py`, and 172 of them sit on a line with no
 date, most being records of the past (the seconds and gigabytes of one build on
 one machine on 2026-10-12) that no command reproduces at HEAD. So
 bytes and seconds are outside `SCANNED`; where such a number must stay, what is
@@ -796,6 +796,30 @@ and the lineage/migration/base-sync guards. `gh pr checks <pr>` is the status;
 `web` and `script-tests` need no JDK and report their own checks; whether a red
 one blocks a merge is the repository's required-checks configuration, not the
 workflow file — both jobs say so in `ci.yml`.
+
+### The job's time is measured where its limit applies
+
+`script-tests` **is capped by** `timeout-minutes: 5` — **300 s**, and that number is
+read out of `ci.yml` rather than copied into prose: `python3
+scripts/ci_job_time.py --check-docs` refuses any seconds figure the docs claim
+about this job that is neither that limit nor a *labelled* local measurement.
+
+The job's own time cannot be a figure here at all, because it moves with every
+run; what lives here is the **relation** — the limit is more than twice the
+slowest of the last five runs. `python3 scripts/ci_job_time.py` prints each of
+those runs with its headroom and ratio and exits `1` when the floor stops
+holding. "The last five" is not "always": GitHub keeps a bounded history, so the
+mechanism asks the API for a window with slack, takes only *completed* runs, and
+`--runs N` moves it — the green line names the N it used.
+
+A local run of the same suite measures this machine, not the runner: it is
+**173.2 s locally on this shared machine under load 6.26** — which is what
+`python3 scripts/ci_job_time.py --local` prints, the number and the label
+together, because the two are one fact. The series that filed this ticket
+measured **159–239 s** locally under load 5.4 on this shared machine, and read
+it as the job's time; the mechanism now refuses that reading — an unlabelled
+local figure is a finding rather than a pass. It does not touch `ci.yml`:
+raising `timeout-minutes` is the owner's call, not a fix for a red number.
 
 Merging is not that loop: `scripts/merge-pr.sh <pr>` is the gate. It re-reads the
 checks and refuses without a fresh `review:pass` verdict on the PR — who sets

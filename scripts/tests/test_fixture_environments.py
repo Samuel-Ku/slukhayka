@@ -349,6 +349,12 @@ CASES = (
         programs=(Program("GH_STUB", "issue list"),),
     ),
     StandIn(
+        name="підставний gh фікстури test_ci_job_time",
+        where=("scripts/tests/test_ci_job_time.py",),
+        prefix="FAKE_GH_",
+        programs=(Program("Fixture.write_gh: self.gh", "FAKE_GH_FIXTURES"),),
+    ),
+    StandIn(
         name="підставний adb фікстури test_wide_window",
         where=("scripts/tests/test_wide_window.py",),
         prefix="FAKE_ADB_",
@@ -689,6 +695,7 @@ class RegistryTest(unittest.TestCase):
 
         self.assertEqual(
             ["scripts/tests/test_android_emulator_readiness.py",
+             "scripts/tests/test_ci_job_time.py",
              "scripts/tests/test_empty_shape_mutants.py",
              "scripts/tests/test_issue_premise.py",
              "scripts/tests/test_merge_pr.py",

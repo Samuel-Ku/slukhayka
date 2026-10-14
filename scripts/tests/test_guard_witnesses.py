@@ -112,6 +112,8 @@ GUARD_TESTS = (
     ".test_the_prefixes_the_scripts_claim_are_the_reaped_ones",
     "test_verdict_field_mutants.FailClosedTest"
     ".test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier",
+    "test_verdict_field_mutants.FailClosedTest"
+    ".test_an_unparsable_witness_module_is_unknown_not_a_traceback",
     "test_verdict_field_mutants.FailfastTest"
     ".test_the_mutant_run_stops_at_the_first_red",
     "test_verdict_field_mutants.WitnessTest"

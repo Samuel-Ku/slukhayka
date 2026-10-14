@@ -751,6 +751,30 @@ class FailClosedTest(unittest.TestCase):
         self.assertEqual(2, status, out)
         self.assertIn("не розібрано", err)
 
+    def test_an_unparsable_witness_module_is_unknown_not_a_traceback(self):
+        """Модуль-СВІДОК, якого не розібрано, — невідомість (2), не трейсбек.
+
+        `first_phase_baselines` читає свідків РАНІШЕ за першу мутацію, тож
+        `FieldError` звідти падає поза `judged`, який ловить рівно цей клас.
+        Обіцянка механізму — «невідомість — код 2, а не трейсбек» — мусить
+        триматися і тут: інакше той самий вхід дає інший код виходу й іншу
+        діагностику (знахідка огляду #1313). Свідок навмисно називає ОБИДВА
+        файли інструмента, щоб його було видно як свідка (текст читається навіть
+        коли модуль не парситься) і щоб упав саме розбір, а не «свідка немає».
+        """
+        root = self.root()
+        self.witness(
+            root,
+            '"""Свідок scripts/mutate.sh і scripts/mutation_trace.py — і зламаний."""\n'
+            "def broken(:\n",
+        )
+
+        status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("не розібрано", err)
+        self.assertNotIn("Traceback", err)
+
     def test_the_mechanism_refuses_to_run_inside_itself(self):
         root = self.root()
 

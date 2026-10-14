@@ -19,6 +19,7 @@
 import contextlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -255,22 +256,22 @@ class SweepTest(unittest.TestCase):
         self.assertEqual([(old, 300)], freed)
         self.assertFalse(old.exists())
 
-    def test_a_prefix_nobody_sweeps_is_never_touched(self):
-        """`slukhayka-tests.*` — тека прогону ПОВНОГО набору, і вона не наш суд.
+    def test_the_full_suite_run_dir_is_swept_like_the_others(self):
+        """`slukhayka-tests.*` — та сама тека прогону, і тепер того самого суду.
 
-        Ця межа названа в коді (`tmp_budget.SCRATCH_PREFIXES`) і має причину, а
-        не «так історично склалося»: `test-all.sh` не пише маркера власника, тож
-        прибирання за часом могло б знести теку прогону, довшого за пільгу, — а
-        повний набір і є найдовшим прогоном у дереві. Узяти його сюди можна лише
-        разом із маркером у самому `test-all.sh`.
+        До #1305 вона була «нічия»: `test-all.sh` не писав маркера власника, тож
+        прибирання за часом могло б знести теку прогону, довшого за пільгу, — і це
+        була НАЗВАНА межа, а не рішення. Тепер маркер пише і він, тож тека
+        судиться як усі: стара без маркера — зникає, з живим власником — ні.
         """
-        foreign = self.tree("slukhayka-tests-x", pid=4242)
-        os.utime(foreign, (1, 1))
+        stale = self.tree("slukhayka-tests.old", payload=120)
+        os.utime(stale, (1, 1))
+        live = self.tree("slukhayka-tests.live", pid=os.getpid())
 
-        freed = tb.sweep_stale(self.root, alive=lambda pid: False)
+        freed = tb.sweep_stale(self.root, grace=900)
 
-        self.assertEqual([], freed)
-        self.assertTrue(foreign.exists())
+        self.assertEqual([(stale, 120)], freed)
+        self.assertTrue(live.exists(), "теку живого прогону повного набору не чіпають")
 
     def test_a_tree_that_cannot_be_removed_is_named_not_fatal(self):
         stuck = self.tree("slukhayka-field-stuck", pid=4242)
@@ -423,11 +424,29 @@ class ScratchTest(unittest.TestCase):
         цієї правки, при зеленому наборі.
         """
         for script, prefix in (("mutate.sh", "slukhayka-mutation."),
-                               ("test-changed.sh", "slukhayka-changed-tests.")):
+                               ("test-changed.sh", "slukhayka-changed-tests."),
+                               ("test-all.sh", "slukhayka-tests.")):
             text = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
             self.assertIn("--prefix %s" % prefix, text)
             self.assertIn(prefix, tb.SCRATCH_PREFIXES)
-        self.assertIn("slukhayka-tests.", tb.SWEPT_BY_NOBODY_PREFIXES)
+
+    def test_no_run_dir_prefix_in_the_tree_is_left_outside_the_sweeper(self):
+        """Жодного префікса поза списком — саме так тека й лишалася нічиєю (#1305).
+
+        Скануються САМІ СКРИПТИ, а не константа: префікс, який скрипт створює
+        (`--prefix` або старий `mktemp -d`), але якого немає в списку, не прибирає
+        ніхто. Це мусить червонити тут, а не через тиждень у `/tmp`.
+        """
+        swept = set(tb.SCRATCH_PREFIXES) | set(tb.OWN_PREFIXES)
+        named = set()
+        for path in sorted((REPO_ROOT / "scripts").glob("*.sh")):
+            text = path.read_text(encoding="utf-8")
+            named |= set(re.findall(r"--prefix\s+(slukhayka-[a-z-]+\.)", text))
+            named |= set(re.findall(r"mktemp -d[^\n]*?(slukhayka-[a-z-]+\.)XXXXXX", text))
+
+        self.assertTrue(named, "жодного префікса не знайдено — сканер нічого не перевірив")
+        self.assertEqual(set(), named - swept,
+                         "префікс, якого не прибирає ніхто: %s" % sorted(named - swept))
 
     def test_claim_reaps_before_it_creates(self):
         """Спершу прибрати, тоді створити — інакше місце не повертається."""

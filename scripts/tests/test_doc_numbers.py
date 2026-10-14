@@ -7,7 +7,9 @@
   * `RepositoryTest` — на справжньому дереві: жодного числа, яке не
     виводиться, і жодної невідомості; серія, реєстр і перелік сканованих файлів
     — рівно ті, що названі (друге джерело правди: звузити їх мовчки не можна,
-    це видно як правку тесту);
+    це видно як правку тесту); і реєстр ВИМІРІВ (`("record", …)`, #1308): шапка
+    `issue_premise.py` та `docs/agents/issue-tracker.md` мусять дорівнювати
+    `PRICES`, а не лише одна одній;
   * `FindingTest` — підставлене дерево: число, яке розходиться з записом,
     незараховане число в сканованому файлі й число в доку, якого ніхто не
     виводить, мусять бути знахідками з іменами — а не тихою згодою; окремо
@@ -22,8 +24,10 @@
     діра, яку тут замовчують, а названа межа — «число, яке щось стверджує про
     дерево» відрізняє оглядач, не regex.
 
-Зарахований у `scripts/guard_witnesses.py` — ОДИН сторож цього файлу, пін на
-справжньому дереві (`test_every_number_derives_on_the_real_tree`); решта
+Зараховані в `scripts/guard_witnesses.py` сторожі цього файлу — піни на
+справжньому дереві (`test_every_number_derives_on_the_real_tree`,
+`test_the_cited_commands_all_exist` і новий
+`test_the_enrolled_prices_are_the_recorded_measurement`, #1308); решта
 перевіряють сам механізм і в реєстрі не стоять. Реєстр покриває НАЗВАНИХ, а не
 всіх, і не вдає іншого — питати «де запис?» треба про кожен сторож окремо.
 """
@@ -61,14 +65,31 @@ EXPECTED_FIGURES = (
     ("docs/agents/local-environment.md", "series has"),
     ("docs/agents/local-environment.md", "figures of"),
     ("docs/agents/local-environment.md", "sit on a line"),
+    ("CONTRIBUTING.md", "показав межу самого правила"),
+    ("CONTRIBUTING.md", "і другий машинний гейт"),
+    ("scripts/issue_premise.py", "«ціна правила про теку»"),
+    ("scripts/issue_premise.py", "«без крапки в імені»"),
+    ("scripts/issue_premise.py", "«разом із кореневими»"),
+    ("scripts/issue_premise.py", "«без крапки, разом із кореневими»"),
+    ("scripts/issue_premise.py", "«будь-який збіг-дерево»"),
+    ("scripts/issue_premise.py", "«без крапки, будь-який збіг-дерево»"),
+    ("docs/agents/issue-tracker.md", "«ціна правила про теку»"),
+    ("docs/agents/issue-tracker.md", "«без крапки в імені»"),
+    ("docs/agents/issue-tracker.md", "«разом із кореневими»"),
+    ("docs/agents/issue-tracker.md", "«без крапки, разом із кореневими»"),
+    ("docs/agents/issue-tracker.md", "«будь-який збіг-дерево»"),
+    ("docs/agents/issue-tracker.md", "«без крапки, будь-який збіг-дерево»"),
 )
 
 EXPECTED_SCANNED = (
+    "CONTRIBUTING.md",
     "docs/agents/local-environment.md",
+    "docs/agents/issue-tracker.md",
     "scripts/guard_witnesses.py",
     "scripts/empty_shape_mutants.py",
     "scripts/verdict_field_mutants.py",
     "scripts/declared_fields.py",
+    "scripts/issue_premise.py",
 )
 
 # Файли, з яких складається підставлене дерево. Механізм читає їх як текст і
@@ -163,6 +184,36 @@ class RepositoryTest(unittest.TestCase):
     def test_the_scanned_files_are_the_named_set(self):
         self.assertEqual(list(EXPECTED_SCANNED), list(d.SCANNED))
 
+    def test_the_enrolled_prices_are_the_recorded_measurement(self):
+        """Ціна правила про теку (#1308): шапка — проти реєстру, а не проти віри.
+
+        Сторож, який ловить «132 проти 133» у шапці `issue_premise.py` і в
+        `docs/agents/issue-tracker.md`: обидва файли в `SCANNED`, а кожне число —
+        в `FIGURES` джерелом `("record", "prices", ключ)`. Гейт читає РЕЄСТР
+        (`issue_premise.PRICES`), а не git: копія дерева без `.git`, у якій
+        біжить кожен сторож, і CI без `origin/main` дали б нуль (межа названа в
+        шапці `doc_numbers.py`). Тому тут перевіряється рівно те, що тримає
+        гейт: рядок мусить називати свій клас, нести рівно одне число — і це
+        число мусить бути тим, що записано в реєстрі.
+        """
+        enrolled = [
+            (relative, anchor, source)
+            for relative, anchor, source in d.FIGURES
+            if source[0] == "record"
+        ]
+        self.assertTrue(enrolled, "ціна в шапках мусить бути зарахована")
+        for relative, anchor, source in enrolled:
+            with self.subTest(file=relative, key=source[2]):
+                self.assertIn(source[2], anchor, "якір називає фразу класу")
+                text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                _, line = d.line_with_anchor(text, anchor, relative)
+                on_line = d.figure_hits(line, source)
+                self.assertEqual(1, len(on_line), "рядок несе рівно одне число")
+                self.assertEqual(
+                    str(d.derive(source)), d.normalise(on_line[0][1]),
+                    "шапка мусить дорівнювати реєстру, а не сусідньому рядку",
+                )
+
     def test_every_enrolled_line_carries_exactly_one_number(self):
         for relative, anchor, source in d.FIGURES:
             with self.subTest(anchor=anchor):
@@ -235,6 +286,59 @@ class FindingTest(FixtureMixin):
         self.assertEqual(1, code)
         self.assertIn("scripts/declared_fields.py:2", out)
         self.assertIn("«Сьомий випадок»", out)
+
+    def test_a_header_price_that_disagrees_with_the_record_is_a_finding(self):
+        """Живий приклад тікета #1308: `132` у шапці `issue_premise.py` став 133.
+
+        Мутація — рівно та, якою огляд PR #1306 довів щілину: до #1308 цей
+        рядок не бачив ніхто, і заміна проходила зеленим.
+        """
+        self.edit("scripts/issue_premise.py",
+                  "«будь-який збіг-дерево» — 132", "«будь-який збіг-дерево» — 133")
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("рядок каже «133»", out)
+        self.assertIn("132", out)
+
+    def test_the_same_price_in_the_tracker_is_a_finding_too(self):
+        """Другий файл тієї самої щілини: `docs/agents/issue-tracker.md`."""
+        self.edit("docs/agents/issue-tracker.md",
+                  "«без крапки, будь-який збіг-дерево» — 131",
+                  "«без крапки, будь-який збіг-дерево» — 130")
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("рядок каже «130»", out)
+        self.assertIn("131", out)
+
+    def test_a_case_word_in_the_premise_header_is_now_a_finding(self):
+        """Критерій #1308: файл у `SCANNED` — і число класу в ньому вже видно."""
+        self.edit("scripts/issue_premise.py",
+                  "Межі, названі прямо:", "Сьомий випадок класу тут.\nМежі, названі прямо:")
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("«Сьомий випадок»", out)
+        self.assertIn("числа немає в жодному записі дерева", out)
+
+    def test_a_contributing_case_number_that_moves_is_a_finding(self):
+        """Той самий клас у `CONTRIBUTING.md`: п'ятий випадок серії — це `#1254`."""
+        self.edit("CONTRIBUTING.md",
+                  "П'ятий випадок (`#1254`)", "Шостий випадок (`#1254`)")
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("рядок каже «Шостий»", out)
+        self.assertIn("#1254", out)
+
+    def test_a_quoted_wrong_number_is_invisible_only_as_a_citation(self):
+        """Історію помилки в `CONTRIBUTING.md` тримають бектики, не слово.
+
+        «Дев'ятий випадок» — цитата того, що шапка механізму казала **хибно**;
+        зняти бектики означає зробити з неї твердження, і тоді механізм мусить
+        її побачити.
+        """
+        self.edit("CONTRIBUTING.md", "`«Дев'ятий випадок»`", "«Дев'ятий випадок»")
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("«Дев'ятий випадок»", out)
 
 
 class RefusalTest(FixtureMixin):
@@ -370,6 +474,27 @@ class NumberShapeTest(FixtureMixin):
         self.assertEqual(2, code)
         self.assertIn("поза таблицею написань", err)
 
+    def test_a_record_line_that_does_not_name_its_key_is_an_unknown(self):
+        """Запис виміру: число класу під чужою фразою — невідомість, не згода."""
+        figures = tuple(d.FIGURES) + ((
+            "scripts/issue_premise.py",
+            "«ціна правила про теку»",
+            ("record", "prices", "без крапки в імені"),
+        ),)
+        _, unknowns = d.check(self.root, figures=figures)
+        self.assertTrue(
+            any("не називає ключа «без крапки в імені»" in one for one in unknowns),
+            unknowns,
+        )
+
+    def test_a_record_line_with_two_numbers_is_an_unknown(self):
+        """Шапка обіцяє «рівно одне число» — і для запису виміру теж."""
+        self.edit("docs/agents/issue-tracker.md",
+                  "«ціна правила про теку» — 75", "«ціна правила про теку» — 75 і 200")
+        code, _, err = self.check()
+        self.assertEqual(2, code)
+        self.assertIn("а мусить рівно одне", err)
+
 
 class BoundaryTest(FixtureMixin):
     """Межа названа машинно: чого механізм НЕ бачить, тест це стверджує."""
@@ -405,6 +530,35 @@ class BoundaryTest(FixtureMixin):
                   "разом %s, і один запис окремо" % count_phrase())
         code, _, err = self.check()
         self.assertEqual(0, code, err)
+
+    def test_a_gh_window_number_in_a_scanned_file_passes_silently(self):
+        """Межа названа машинно: чисел `--scan 200` гейт НЕ бачить — і не вдає.
+
+        `--scan 200` питає `gh` про рухоме вікно останніх тікетів; у гейта немає
+        ні `gh`, ні мережі, тож джерела в `derive` для цих чисел немає. Вони
+        лишаються прозою з названою командою і ревізією (межа — у шапці
+        `doc_numbers.py`), і тест це стверджує, а не замовчує: правка такого
+        числа в СКАНОВАНОМУ файлі проходить зеленим.
+        """
+        self.edit("docs/agents/issue-tracker.md", "91/90/10/9 на", "92/90/10/9 на")
+        code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_a_dead_command_quoted_as_a_lesson_keeps_the_mechanism_out_of_itself(self):
+        """Межа названа машинно: `doc_numbers.py` поза `SCANNED` — і чому.
+
+        Його шапка цитує вигадану опцію першої версії механізму — урок, а не
+        команда; командна половина читає саме код-спани, тож файл у `SCANNED`
+        почервонив би на власному прикладі. Тест кличе ту саму половину на
+        цьому файлі й вимагає побачити висновок — прогоном, а не прозою.
+        """
+        self.assertNotIn("scripts/doc_numbers.py", d.SCANNED)
+        findings, unknowns = d.command_findings(REPO_ROOT, ("scripts/doc_numbers.py",))
+        self.assertEqual([], unknowns)
+        self.assertTrue(
+            any("не оголошує --check" in one for one in findings),
+            "цитата вигаданої опції мусить бути видима — саме тому файл поза списком",
+        )
 
 
 if __name__ == "__main__":

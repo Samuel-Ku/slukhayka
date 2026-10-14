@@ -26,6 +26,12 @@ trace_log=$trace_dir/runs.jsonl
 selector=$repo_root/scripts/test_partitions.py
 trace_module=$repo_root/scripts/mutation_trace.py
 python_runner=$repo_root/scripts/mutation_python_runner.py
+# Свою теку прогону створює спільний прибиральник (`scripts/tmp_budget.py`), а не
+# `mktemp`: він же прибирає теку, лишену SIGKILL'ом попереднього прогону, і кладе
+# маркер власника, щоб сусідній прогін не зніс живу (#1300). Прибирання тут
+# лишається як було — у EXIT-пастці; SIGKILL її не виконує, і саме тому
+# прибиральник мусить бути на СТАРТІ, а не в кінці.
+budget_module=$repo_root/scripts/tmp_budget.py
 runner=$repo_root/scripts/test-all.sh
 # Every partition alias depends on AGP's single testDebugUnitTest task, so they
 # all write one JUnit directory (app/build.gradle.kts registers the aliases on it).
@@ -86,6 +92,16 @@ find survivors for you: "survived" says the target ran green under the mutation,
 and nothing about the rest of the suite. A patch that edits scripts/mutate.sh
 itself edits a file the running shell is still reading: pin those checks with the
 copy-mutant pattern in scripts/tests/test_mutate*.py instead.
+
+A SIGKILL cannot run the EXIT trap, so it leaves two things behind, and only one
+of them is cleaned up for you. The scratch directory is reaped at the START of the
+next run (scripts/tmp_budget.py sweep — the same sweeper the mutation mechanisms
+use; claim reaps again once the run gets that far), and that includes a run which
+then REFUSES — the dirty worktree a SIGKILL leaves behind is exactly what makes it
+refuse, so the directory cannot pile up in a tmpfs. The applied mutation is NOT
+reaped: it stays in the tree, and the next run refuses on a dirty worktree until
+you roll it back by hand (git checkout -- .). That is a boundary in this script,
+not an oversight.
 USAGE
 }
 
@@ -166,6 +182,19 @@ if [[ -n $python_arg && -n $test_class ]]; then
   refuse "--class and --python name different worlds; pass one"
 fi
 
+# Прибирання стоїть ПІСЛЯ розбору аргументів і після перевірки `sha256sum` (вона
+# ще вище), але ДО перевірок РЕЖИМУ ПРОГОНУ — патча, класу, партиції й брудного
+# дерева, — і це не про охайність.
+# SIGKILL лишає теку прогону, а якщо він упав до відкату (а він падає туди, поки
+# хтось у гурті переживає TERM), то ще й застосовану мутацію в дереві: наступний
+# прогін відмовляє саме на брудному дереві. Прибирання, яке стоїть після ЦИХ
+# перевірок, не виконалося б ніколи (#1300): відмова цього прогону не сміє бути
+# причиною, чому чужа тека лишається в tmpfs назавжди. `status` проходить тут
+# ТЕЖ (його `exec` — нижче), і це навмисно: прибирання не залежить від режиму.
+# `--help` виходить вище, у розборі аргументів, і не прибирає нічого.
+python3 "$budget_module" sweep --prefix slukhayka-mutation. ||
+  note "прибирання застарілих тек прогону не вдалося (причина вище)"
+
 # `--python` names one target the way the script-tests CI job discovers it:
 # scripts/tests/test_<name>.py for the whole file, …::<ClassName> for one class.
 # Both spellings reduce to the record's `class` key — the flat unittest module
@@ -239,8 +268,8 @@ if [[ -n $dirty ]]; then
   exit 2
 fi
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-mutation.XXXXXX") ||
-  refuse "cannot create a scratch directory"
+scratch=$(python3 "$budget_module" claim --prefix slukhayka-mutation. --owner-pid $$) ||
+  refuse "cannot create a scratch directory (the reason is above)"
 
 # One flag gates the rollback (set before the patch is applied, so a half-applied
 # patch is still covered), one gates the record (set only after the patch landed).

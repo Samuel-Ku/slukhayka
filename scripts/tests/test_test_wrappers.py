@@ -28,6 +28,11 @@ class FullSuiteWrapperTest(unittest.TestCase):
         self.java.chmod(self.java.stat().st_mode | stat.S_IXUSR)
         self.gradle_log = self.root / "gradle.log"
         self.fake_gradle = self.root / "gradlew"
+        # Свій `TMPDIR` — і свій, а не успадкований (#1265), і ПОЗА копією дерева:
+        # тека прогону тут — це `TMPDIR` для всього Gradle, і в спільному `/tmp`
+        # вона пережила б SIGKILL як чуже сміття (#1305).
+        self.tmp = self.root / "tmp"
+        self.tmp.mkdir()
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -59,6 +64,7 @@ class FullSuiteWrapperTest(unittest.TestCase):
             "PATH": "/usr/bin:/bin",
             "HOME": str(self.root),
             "LC_ALL": "C",
+            "TMPDIR": str(self.tmp),
             "SLUKHAYKA_GRADLEW": str(self.fake_gradle),
             "WRAPPER_TEST_LOG": str(self.gradle_log),
         }
@@ -66,14 +72,199 @@ class FullSuiteWrapperTest(unittest.TestCase):
             environment["SLUKHAYKA_JAVA_HOME"] = str(java_home)
         return environment
 
-    def run_wrapper(self, *, java_home: Path | None = None):
+    def run_wrapper(self, *, java_home: Path | None = None, gradle: Path | None = None):
+        environment = self.environment(java_home=java_home)
+        if gradle is not None:
+            environment["SLUKHAYKA_GRADLEW"] = str(gradle)
         return subprocess.run(
             ["bash", str(TEST_ALL)],
             check=False,
             capture_output=True,
             text=True,
-            env=self.environment(java_home=java_home),
+            env=environment,
         )
+
+    def write_fast_gradle(self) -> Path:
+        """Друга підставна збірка — ОКРЕМИМ файлом, і це не косметика.
+
+        Переписувати ту саму теку, яку зараз виконує живий прогін, не можна: bash
+        читає скрипт із диска по ходу виконання, тож переписаний файл міняє його
+        на ходу — живий прогін тоді «сам» закінчується, і його пастка прибирає
+        теку, яку сторож якраз тримає.
+        """
+        fast = self.root / "gradlew-fast"
+        fast.write_text(
+            "#!/usr/bin/env bash\n"
+            "# швидка підставна збірка: нею йдуть третій та останній прогони\n"
+            "printf '%s\\n' \"$JAVA_HOME\" \"$TMPDIR\" \"$$ $*\" >> \"$WRAPPER_TEST_LOG\"\n"
+            "test -d \"$TMPDIR\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fast.chmod(fast.stat().st_mode | stat.S_IXUSR)
+        return fast
+
+    def write_hanging_gradle(self) -> None:
+        """Підставна збірка, яка не закінчується: прогін мусить бути В ПОЛЬОТІ.
+
+        Тільки такий прогін можна вбити SIGKILL'ом у момент роботи — і саме так
+        виглядає повний набір, який знесла ескалація `build-slot-guard.py`: його
+        тека прогону — це `TMPDIR` для всього Gradle, тож лишена вона не порожня.
+        """
+        self.fake_gradle.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' \"$JAVA_HOME\" \"$TMPDIR\" \"$$ $*\" >> \"$WRAPPER_TEST_LOG\"\n"
+            "sleep 300\n",
+            encoding="utf-8",
+        )
+        self.fake_gradle.chmod(self.fake_gradle.stat().st_mode | stat.S_IXUSR)
+
+    def leftovers(self) -> list:
+        return sorted(one.name for one in self.tmp.glob("slukhayka-tests.*"))
+
+    def start_run(self):
+        """Прогін у власному сеансі: `kill -KILL` по гурту не дістане набір тестів."""
+        return subprocess.Popen(
+            ["bash", str(TEST_ALL)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=self.environment(java_home=self.java_home),
+            start_new_session=True,
+        )
+
+    def wait_for_new_dir(self, known: set, process) -> str:
+        """Чекає НОВУ теку (різницю множин, а не «останню зі списку»).
+
+        «Остання зі списку» повернула б ту саму теку вдруге, якби нове ім'я
+        сортувалося нижче, — і сторож про гонку двох прогонів порівнював би теку
+        саму з собою.
+        """
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            fresh = set(self.leftovers()) - known
+            if fresh:
+                return sorted(fresh)[-1]
+            if process.poll() is not None:
+                break
+            time.sleep(0.05)
+        self.fail("прогін не створив теку прогону — сторож нічого не доводив би")
+
+    def test_a_sigkilled_run_is_reaped_by_the_next_run(self):
+        """Сторож: тека повного набору зникає на СТАРТІ наступного прогону.
+
+        Пастка над SIGKILL не владна — це фізика, а не недогляд скрипта, — і до
+        #1305 теку повного набору не прибирав НІХТО: префікса не було в списку
+        прибиральника, бо `test-all.sh` не писав маркера. Тепер пише, і наступний
+        прогін прибирає залишок, назвавши теку й байти.
+
+        Межа: сторож бачить лише те, що створено під тим `$TMPDIR`, який він сам
+        дає; тека в жорстко прописаному `/tmp` лишилася б для нього невидимою.
+        """
+        self.write_hanging_gradle()
+        victim = self.start_run()
+        self.addCleanup(victim.kill)
+        left = self.wait_for_new_dir(set(), victim)
+        marker = self.tmp / left / "owner.pid"
+        self.assertTrue(marker.is_file(), "теку лишено разом із маркером власника")
+        self.assertEqual(str(victim.pid), marker.read_text(encoding="utf-8").strip(),
+                         "маркер мусить називати САМ прогін, а не хелпер, що створив теку")
+
+        os.killpg(os.getpgid(victim.pid), signal.SIGKILL)
+        _out, err = victim.communicate(timeout=60)
+        self.assertEqual([left], self.leftovers(),
+                         "SIGKILL мусить лишити теку: пастки він не виконує: %s" % err)
+
+        fast = self.write_fast_gradle()
+        again = self.run_wrapper(java_home=self.java_home, gradle=fast)
+
+        self.assertEqual(0, again.returncode, again.stderr)
+        self.assertIn("прибрано застарілу теку прогону", again.stderr)
+        self.assertIn(left, again.stderr)
+        self.assertEqual([], self.leftovers(),
+                         "залишок SIGKILL'а мусив зникнути на старті наступного прогону")
+
+    def test_two_live_runs_coexist_and_a_sweep_takes_neither(self):
+        """Гонка: живу теку не сміє зняти ніхто — і двох живих теж.
+
+        Прибирання судить теку за маркером власника; якби воно судило за часом,
+        довгий прогін повного набору втратив би свій `TMPDIR` посеред роботи.
+        Тут два СПРАВЖНІ живі прогони (підставна збірка висить), третій прогін
+        проходить повз них зі своїм прибиранням — і обидві теки лишаються; після
+        смерті обох наступний прогін прибирає обидві.
+        """
+        self.write_hanging_gradle()
+        first = self.start_run()
+        self.addCleanup(first.kill)
+        first_dir = self.wait_for_new_dir(set(), first)
+        second = self.start_run()
+        self.addCleanup(second.kill)
+        second_dir = self.wait_for_new_dir({first_dir}, second)
+        self.assertNotEqual(first_dir, second_dir, "два прогони мусять мати дві теки")
+
+        fast = self.write_fast_gradle()   # третій прогін: швидкий, зі своїм sweep
+        third = self.run_wrapper(java_home=self.java_home, gradle=fast)
+
+        self.assertEqual(0, third.returncode, third.stderr)
+        self.assertNotIn("прибрано застарілу теку прогону", third.stderr,
+                         "живу теку не сміє зняти жодне прибирання")
+        still_there = set(self.leftovers())
+        self.assertIn(first_dir, still_there, "живу теку не сміє зняти жодне прибирання")
+        self.assertIn(second_dir, still_there, "живу теку не сміє зняти жодне прибирання")
+
+        for process in (first, second):
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            process.communicate(timeout=60)
+
+        again = self.run_wrapper(java_home=self.java_home, gradle=fast)
+
+        self.assertEqual(0, again.returncode, again.stderr)
+        self.assertIn(first_dir, again.stderr)
+        self.assertIn(second_dir, again.stderr)
+        self.assertEqual([], self.leftovers(), "після смерті обох — обидві прибрані")
+
+    def test_a_stale_run_dir_that_cannot_be_removed_does_not_fail_the_run(self):
+        """Прибирання не сильніше за `rm`: зайнята тека лишається, прогін іде далі.
+
+        Межа названа прогоном, а не словом: теку, яку не вдалося зняти, прибирання
+        називає вголос, а робота не спиняється — інакше чужий залишок валив би
+        кожен наступний прогін.
+        """
+        stuck = self.tmp / "slukhayka-tests.stuck"
+        (stuck / "gradle-tmp").mkdir(parents=True)
+        os.utime(stuck, (1, 1))
+        stuck.chmod(0o500)          # без запису в теці: `rm` не забере її вміст
+
+        self.write_gradle()
+        result = self.run_wrapper(java_home=self.java_home)
+        stuck.chmod(0o700)          # повернути права, щоб фікстура прибралася
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("прибрати не вдалося", result.stderr)
+        self.assertIn("slukhayka-tests.stuck", result.stderr)
+        self.assertTrue(stuck.exists(), "тека лишається: прибирання не сильніше за rm")
+
+    def test_an_unavailable_tmpdir_refuses_with_a_named_reason(self):
+        """`TMPDIR`, якого немає, — відмова з ПРИЧИНОЮ, а не тихий код 2.
+
+        До #1305 тут стояв `mktemp -d … || exit 2`: причина не називалася взагалі.
+        Тепер причину друкує прибиральник — і прогін усе одно не стартує, бо теки
+        прогону нема куди створити (вона ж `TMPDIR` для всього Gradle).
+        """
+        self.write_gradle()
+        environment = self.environment(java_home=self.java_home)
+        environment["TMPDIR"] = str(self.root / "nope")
+
+        result = subprocess.run(
+            ["bash", str(TEST_ALL)], check=False, capture_output=True, text=True,
+            env=environment,
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("nope", result.stderr)
+        self.assertIn("tmp_budget:", result.stderr,
+                      "причину мусить назвати спільний прибиральник, а не тихий код 2")
+        self.assertFalse(self.gradle_log.exists(), "збірка не сміє стартувати без теки прогону")
 
     def test_uses_jdk_21_and_a_fresh_temp_then_cleans_it(self):
         self.write_gradle()

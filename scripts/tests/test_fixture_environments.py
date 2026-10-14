@@ -376,6 +376,15 @@ CASES = (
             Program("FullSuiteWrapperTest.setUp: self.java", "21.0.8"),
             Program("FullSuiteWrapperTest.write_gradle: self.fake_gradle",
                     "WRAPPER_TEST_LOG"),
+            # Підставна збірка, яка НЕ закінчується: нею прогін убивають SIGKILL'ом
+            # у польоті, і тека прогону лишається — так її й пінить сторож (#1305).
+            Program("FullSuiteWrapperTest.write_hanging_gradle: self.fake_gradle",
+                    "sleep 300"),
+            # Друга збірка — ОКРЕМИМ файлом: переписувати ту саму, яку зараз
+            # виконує живий прогін, не можна, і саме нею йдуть третій та
+            # останній прогони сторожів (#1305).
+            Program("FullSuiteWrapperTest.write_fast_gradle: fast",
+                    "швидка підставна збірка"),
             Program("FullSuiteWrapperTest"
                     ".test_rejects_a_non_21_override_with_an_actionable_error: self.java",
                     "17.0.12"),

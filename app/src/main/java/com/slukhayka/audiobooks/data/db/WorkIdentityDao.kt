@@ -6,6 +6,9 @@ import androidx.room.Query
 
 @Dao
 abstract class WorkIdentityDao {
+    @Query("SELECT * FROM works WHERE mergeKey = :mergeKey ORDER BY id LIMIT 2")
+    internal abstract suspend fun worksForMergeKey(mergeKey: String): List<WorkEntity>
+
     @Query("SELECT state FROM work_merge_operations WHERE operationId = :operationId")
     protected abstract suspend fun operationStateValue(operationId: String): String?
 

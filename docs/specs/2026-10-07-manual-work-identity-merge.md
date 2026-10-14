@@ -898,3 +898,32 @@ Undo → повторне відкриття → `mergeOnce`. Обидві ру�
 0 failures, errors і skips. Це перевірка публічного `mergeOnce`,
 а не запуску App coroutine. Active-job admission, writer races,
 resolver, каталог → імпорт і користувацький App/UI потік ще попереду.
+
+
+## Читання збережених Work aliases
+
+Публічний `WorkIdentityAccess.resolve` розрізняє WorkId та MergeKey.
+Після ручного Apply він читає redirect у заданому namespace, а його
+ціль — лише як WorkId. Читання виконується в одній Room транзакції,
+без створення чи зміни доменних записів. Кілька live Works для одного
+mergeKey, конфлікт live Work із redirect, відсутня ціль, цикл та
+перевищення 64 переходів повертають явний Refused замість нового Work.
+Порожній ключ також відхиляється. WorkId не підміняється MergeKey.
+
+Real-Room тест створює aliases через public Commands, закриває та
+повторно відкриває базу. Обидва старі WorkId й обидва старі MergeKey
+повертають повний canonical Work. Після кожного виклику збережено всі
+45 typed груп: 22 → 19 scoped rows після Apply й ті самі 19 після
+читання. Дві начитки, прогрес, закладки, Sources, чотири redirects та
+два permanent participant protections залишаються незмінними.
+До виправлення перший старий WorkId повертав Missing.
+
+Новий сценарій і попередні 21 регресійний тест пройшли цільовий
+SDK36 прогін: 22 tests, 0 failures, errors і skips. Це приймання
+чотирьох однокрокових donor aliases та незмінності бібліотечних даних.
+Multi-hop, cycles, dangling/conflicting graphs і межа 64 переходів
+цим прогоном не перевірені. Commands поки відхиляє наступне злиття
+Work з наявними aliases; його Apply/Undo політика ще потрібна.
+Каталог та імпорт цей модуль ще не використовують. Writer admission,
+active jobs, tombstones, callbacks після commit та App/UI залишаються
+наступними окремими кроками.

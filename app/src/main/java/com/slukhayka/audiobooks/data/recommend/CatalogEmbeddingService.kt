@@ -55,7 +55,9 @@ class CatalogEmbeddingService(
                 // take the whole row down — the candidate simply misses.
             }
         }
+        currentCoroutineContext().ensureActive()
         if (context != null) cache.save(persist, context)
+        currentCoroutineContext().ensureActive()
         return computed
     }
 }

@@ -31,12 +31,27 @@ data class ManualWorkMergeMetadataChoices(
     val coverFromWorkId: String? = null,
 )
 
+/** Original claim selectors for one exact sourceId/sourceUrl pair. */
+data class ManualWorkMergeSourceClaimMetadataChoice(
+    val sourceId: String,
+    val sourceUrl: String,
+    val streamOnlyFromClaimId: String? = null,
+    val coverFromClaimId: String? = null,
+    val durationFromClaimId: String? = null,
+)
+
+/** Original choices captured independently of subsequent edits to the caller collection. */
+class ManualWorkMergeSourceMetadataChoices(items: List<ManualWorkMergeSourceClaimMetadataChoice> = emptyList()) {
+    internal val items: List<ManualWorkMergeSourceClaimMetadataChoice> = immutableMergeList(items)
+}
+
 data class ManualWorkMergeApprovedPlan(
     val prepared: ManualWorkMergeCommandPreview,
     val operationId: String,
     val canonicalTitle: String,
     val canonicalAuthor: String,
     val metadataChoices: ManualWorkMergeMetadataChoices = ManualWorkMergeMetadataChoices(),
+    val sourceMetadataChoices: ManualWorkMergeSourceMetadataChoices = ManualWorkMergeSourceMetadataChoices(),
 )
 
 sealed interface ManualWorkMergeApplyResult {
@@ -71,8 +86,14 @@ class ManualWorkMergeCommands(
         currentCoroutineContext().ensureActive()
         if (plan.prepared.owner !== this) return ManualWorkMergeApplyResult.NeedsDecision("Preparation belongs to another command module")
         if (plan.operationId.isBlank() || plan.operationId.length > 256) return ManualWorkMergeApplyResult.NeedsDecision("Invalid operation identity")
+        if (!approvalTextIsWellFormed(plan)) return ManualWorkMergeApplyResult.NeedsDecision("Approval text is not valid Unicode")
         val canonical = MergeKey.keyFor(plan.canonicalTitle, plan.canonicalAuthor)
         if (canonical.isBlank() || canonical.length > 512) return ManualWorkMergeApplyResult.NeedsDecision("Canonical title and author are required")
+        val sourceChoices = plan.sourceMetadataChoices.items
+        if (sourceChoices.map { it.sourceId to it.sourceUrl }.distinct().size != sourceChoices.size ||
+            sourceChoices.any { sourceChoiceIds(it).all { claimId -> claimId == null } }) {
+            return ManualWorkMergeApplyResult.NeedsDecision("Source metadata choices must identify unique pairs and selected fields")
+        }
         val books = participantBooks(plan.prepared.preview)
         return gate.withIdleBooks(books) {
             database.withTransaction {
@@ -178,15 +199,55 @@ class ManualWorkMergeCommands(
                 val claimGroups = originalClaims.groupBy { row ->
                     journal.text(row, "sourceId", before.encoding) to journal.text(row, "sourceUrl", before.encoding)
                 }
+                val pairChoices = sourceChoices.associateBy { it.sourceId to it.sourceUrl }
+                if (pairChoices.keys.any { it !in claimGroups }) {
+                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source metadata choice must identify an original exact pair")
+                }
                 val claims = mutableListOf<ManualWorkMergeJournal.Row>()
                 for ((pair, rows) in claimGroups) {
-                    if (rows.any { row -> (4..6).any { index -> !journal.sameCell(row.cells[index], rows.first().cells[index]) } }) {
-                        return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source claim metadata needs a decision")
-                    }
                     rows.forEach { check(it.cells[7].type == "integer") }
                     val selectedClaim = rows.minBy { it.cells[7].number }
+                    val claimCells = selectedClaim.cells.toMutableList()
+                    val selectors = pairChoices[pair]?.let(::sourceChoiceIds) ?: listOf(null, null, null)
+                    for (index in 4..6) {
+                        val known = linkedMapOf<String, ManualWorkMergeJournal.Cell>()
+                        for (row in rows) {
+                            val value = row.cells[index]
+                            val claimId = journal.text(row, "id", before.encoding)
+                            when (index) {
+                                4 -> {
+                                    if (value.type != "integer" || value.number !in 0L..1L) {
+                                        return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source streamOnly storage needs a decision")
+                                    }
+                                    known[claimId] = value
+                                }
+                                5 -> when {
+                                    value.type == "null" -> Unit
+                                    value.type != "text" -> return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source cover storage needs a decision")
+                                    journal.text(row, "coverImageUrl", before.encoding).isNotBlank() -> known[claimId] = value
+                                }
+                                6 -> when {
+                                    value.type == "null" -> Unit
+                                    value.type != "integer" || value.number < 0 -> return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source duration storage needs a decision")
+                                    else -> known[claimId] = value
+                                }
+                            }
+                        }
+                        val chosenClaimId = selectors[index - 4]
+                        val value = if (chosenClaimId == null) {
+                            known.values.firstOrNull() ?: continue
+                        } else {
+                            known[chosenClaimId] ?: return@withTransaction ManualWorkMergeApplyResult.NeedsDecision(
+                                "Source metadata choice must select a known original value from its exact pair",
+                            )
+                        }
+                        if (chosenClaimId == null && known.values.any { !journal.sameCell(value, it) }) {
+                            return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Source claim metadata needs a decision")
+                        }
+                        claimCells[index] = value
+                    }
                     val nextId = "$canonical|${pair.first}|${Integer.toHexString(pair.second.hashCode())}"
-                    claims += journal.withText(selectedClaim, mapOf("id" to nextId, "workId" to canonical), before.encoding)
+                    claims += journal.withText(selectedClaim.copy(cells = claimCells), mapOf("id" to nextId, "workId" to canonical), before.encoding)
                 }
                 val newClaimIds = claims.map { journal.text(it, "id", before.encoding) }
                 // Equal URL hashes never prove that distinct source pairs are identical.
@@ -229,12 +290,18 @@ class ManualWorkMergeCommands(
                     .put("preserved", JSONArray(protected.map { JSONArray(listOf(it.bookId, it.editionId)) }))
                     .put("canonicalTitle", plan.canonicalTitle)
                     .put("canonicalAuthor", plan.canonicalAuthor)
-                    .put("approvalVersion", if (metadataChoiceIds(plan.metadataChoices).all { it == null }) 1 else 2)
+                    .put("approvalVersion", if (sourceChoices.isNotEmpty()) 3 else if (metadataChoiceIds(plan.metadataChoices).all { it == null }) 1 else 2)
                     .put("metadataChoices", JSONObject()
                         .put("seriesTitleFromWorkId", plan.metadataChoices.seriesTitleFromWorkId ?: JSONObject.NULL)
                         .put("seriesUrlFromWorkId", plan.metadataChoices.seriesUrlFromWorkId ?: JSONObject.NULL)
                         .put("seriesIndexFromWorkId", plan.metadataChoices.seriesIndexFromWorkId ?: JSONObject.NULL)
                         .put("coverFromWorkId", plan.metadataChoices.coverFromWorkId ?: JSONObject.NULL))
+                    .put("sourceMetadataChoices", JSONArray(sortedSourceChoices(plan.sourceMetadataChoices).map { choice ->
+                        JSONObject().put("sourceId", choice.sourceId).put("sourceUrl", choice.sourceUrl)
+                            .put("streamOnlyFromClaimId", choice.streamOnlyFromClaimId ?: JSONObject.NULL)
+                            .put("coverFromClaimId", choice.coverFromClaimId ?: JSONObject.NULL)
+                            .put("durationFromClaimId", choice.durationFromClaimId ?: JSONObject.NULL)
+                    }))
                 identity.insertOperation(WorkMergeOperationEntity(
                     operationId = plan.operationId, state = WorkMergeOperationState.APPLIED.name,
                     canonicalWorkId = canonical, participantWorkIds = JSONArray(roots).toString(),
@@ -403,7 +470,49 @@ class ManualWorkMergeCommands(
         choices.seriesIndexFromWorkId, choices.coverFromWorkId,
     )
 
+    private fun approvalTextIsWellFormed(plan: ManualWorkMergeApprovedPlan): Boolean = buildList {
+        add(plan.operationId)
+        add(plan.canonicalTitle)
+        add(plan.canonicalAuthor)
+        addAll(metadataChoiceIds(plan.metadataChoices).filterNotNull())
+        for (choice in plan.sourceMetadataChoices.items) {
+            add(choice.sourceId)
+            add(choice.sourceUrl)
+            addAll(sourceChoiceIds(choice).filterNotNull())
+        }
+    }.all { Charsets.UTF_8.newEncoder().canEncode(it) }
+
+    private fun sourceChoiceIds(choice: ManualWorkMergeSourceClaimMetadataChoice): List<String?> = listOf(
+        choice.streamOnlyFromClaimId, choice.coverFromClaimId, choice.durationFromClaimId,
+    )
+
+    private fun sortedSourceChoices(choices: ManualWorkMergeSourceMetadataChoices): List<ManualWorkMergeSourceClaimMetadataChoice> =
+        choices.items.sortedWith { first, second ->
+            val source = compareMergeUtf8(first.sourceId, second.sourceId)
+            if (source != 0) source else compareMergeUtf8(first.sourceUrl, second.sourceUrl)
+        }
+
     private fun approval(plan: ManualWorkMergeApprovedPlan, before: ByteArray): String {
+        val workApproval = workApproval(plan, before)
+        val choices = sortedSourceChoices(plan.sourceMetadataChoices)
+        // Source-free plans retain the byte-exact existing v1/v2 Work approval.
+        if (choices.isEmpty()) return workApproval
+        return digest(buildList {
+            add("ManualWorkMergeApproval/v3")
+            add(workApproval)
+            add(choices.size.toString())
+            for (choice in choices) {
+                add(choice.sourceId)
+                add(choice.sourceUrl)
+                for (claimId in sourceChoiceIds(choice)) {
+                    add(if (claimId == null) "absent" else "present")
+                    if (claimId != null) add(claimId)
+                }
+            }
+        })
+    }
+
+    private fun workApproval(plan: ManualWorkMergeApprovedPlan, before: ByteArray): String {
         val identity = listOf(
             plan.operationId, plan.prepared.version, plan.canonicalTitle, plan.canonicalAuthor,
             hex(MessageDigest.getInstance("SHA-256").digest(before)),

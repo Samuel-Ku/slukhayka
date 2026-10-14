@@ -41,6 +41,17 @@ import guard_witnesses as w  # noqa: E402
 # воно потрібне: `GUARDS = ()` дав би зелений набір, який нічого не перевірив.
 # Зникнення запису мусить бути видимим, а не тихим.
 GUARD_TESTS = (
+    "test_ci_job_time.ClaimTest"
+    ".test_a_local_figure_without_a_named_load_is_a_finding",
+    "test_ci_job_time.ClaimTest"
+    ".test_a_word_that_merely_contains_the_mark_is_not_a_label",
+    "test_ci_job_time.LocalRunTest"
+    ".test_the_local_mode_reports_a_local_measurement_and_not_the_job_time",
+    "test_ci_job_time.LimitTest"
+    ".test_a_changed_limit_moves_the_number_without_touching_the_mechanism",
+    "test_ci_job_time.MeasurementTest"
+    ".test_the_relation_floor_reddens_on_the_slowest_run",
+    "test_ci_job_time.RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero",
     "test_declared_fields.RepositoryTest"
     ".test_every_record_declares_exactly_the_listed_fields",
     "test_doc_numbers.RepositoryTest.test_every_number_derives_on_the_real_tree",

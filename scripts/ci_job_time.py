@@ -18,7 +18,8 @@
     константа тут: `timeout-minutes` читається з ТОГО САМОГО блоку `ci.yml`, і
     звідти ж беруться імʼя джоби та команда, яку вона виконує. Число, яке не
     виводиться (немає `gh`, немає прогонів `main`, джоби немає в прогоні, коду
-    виходу `gh` не розібрано, API віддав прогін не з `main`), — невідомість
+    виходу `gh` не розібрано, API віддав прогін не з `main`, прогін не несе
+    ревізії, жоден прогін вікна не будував це дерево), — невідомість
     (2), а не «нуль»;
   * **тримає числа доку**. `CLAIMS` — рядки в дереві, які щось кажуть про час
     цієї джоби. Кожне число-секунда на такому рядку мусить бути ЛИБО лімітом,
@@ -45,6 +46,18 @@
     пʼяти вистачає, щоб побачити розкид, і задосить мало, щоб зелений день не
     виглядав як зелений тиждень. «Останні N» — не «завжди», і `--list` друкує
     N разом із причиною;
+  * **вікно прив'язане до ДЕРЕВА, а не лише до `main`.** Прогони `main` — це
+    різні дерева: злиття змінює код, і час джоби разом із ним (#1313 зрізав
+    його вдвічі), тож «останні N» без ревізії подають час джоби ІНШОГО дерева —
+    й механізм не має способу це сказати. Кожен прогін несе `head_sha`, і в
+    підлогу входять лише ті, чия ревізія дорівнює ревізії цього дерева
+    (`git rev-parse HEAD`). Межа зміни видима: прогін про це дерево позначений,
+    а решта названі — «ІНШЕ дерево» — разом зі своєю ревізією, і їхні секунди в
+    підлогу не входять. Коли ж усі прогони вікна про це дерево, поведінка
+    незмінна: ті самі прогони, ті самі числа, той самий вердикт — гейт не стає
+    галасливим там, де межа не перетнута. Якщо жоден прогін вікна не будував це
+    дерево (або `gh` не дав `head_sha`), числа немає — це невідомість (2), а не
+    найновіше число з чужого дерева;
   * **джерело вікна — ОДНЕ: `main` (подія `push`), і це фільтр у ЗАПИТІ.**
     Підлога — твердження про `main`, тож міряються прогони `main`, а не «всі
     прогони воркфлоу» (#1307). Прогін чужого PR у вікно не входить тому, що
@@ -99,14 +112,15 @@
     `timeout-minutes` — рішення власника, а не ліки від червоного. Якщо ліміт
     змінити, числа в документах розійдуться з ним, і `--check-docs` це назве.
 
-Коди виходу: 0 — час джоби міряно на N прогонах `main`, відношення тримається, і
-кожне число в документах виводиться; 1 — знахідка (прогін дійшов до ліміту або
-перевищив його, відношення більше не тримається, число в доку не виводиться й
-не позначене); 2 — перевірити не вдалося (немає `gh` або він не відповів,
-немає завершених прогонів `main` у вікні, API віддав прогін не з `main`, джоби
-немає в прогоні, кілька джоб із тим імʼям, `ci.yml` не розібрано, немає
-`timeout-minutes`, немає `origin`, файлу немає, якір не один, рядок більше не
-несе числа, `/proc` не прочитано).
+Коди виходу: 0 — час джоби міряно на N прогонах `main`, які будували ЦЕ дерево,
+відношення тримається, і кожне число в документах виводиться; 1 — знахідка
+(прогін дійшов до ліміту або перевищив його, відношення більше не тримається,
+число в доку не виводиться й не позначене); 2 — перевірити не вдалося (немає
+`gh` або він не відповів, немає завершених прогонів `main` у вікні, API віддав
+прогін не з `main`, джоби немає в прогоні, кілька джоб із тим імʼям, `ci.yml` не
+розібрано, немає `timeout-minutes`, немає `origin`, немає `git` або `HEAD` не
+прочитано, API не дав `head_sha`, жоден прогін вікна не будував це дерево, файлу
+немає, якір не один, рядок більше не несе числа, `/proc` не прочитано).
 """
 
 from __future__ import annotations
@@ -141,6 +155,14 @@ FETCH_SLACK = 3
 # повідомляло б про порушення, якого на `main` немає.
 MAIN_BRANCH = "main"
 MAIN_EVENT = "push"
+
+# Ревізія дерева, до якої прив'язується вікно. Джерело — git, а не константа:
+# вікно міряє різні дерева (злиття міняє код, і час джоби разом із ним), тож
+# число про час джоби існує лише для того дерева, чия ревізія стоїть на прогоні
+# (`head_sha`). Скільки знаків ревізії показувати — це межа рядка звіту, не
+# джерела: порівнюється повна ревізія.
+REVISION_COMMAND = ("rev-parse", "HEAD")
+REVISION_LENGTH = 8
 
 # Відношення, яке тримає доку: ліміт мусить бути не меншим за це число, помножене
 # на найповільніший виміряний прогін `main`. Це ПІДЛОГА, не прогноз: раннер, який
@@ -191,15 +213,21 @@ class Measurement:
     `branch` і `event` несуться разом із числом навмисно: рядок звіту, який не
     називає джерело, не дає побачити, з чого зібране вікно, — а саме на цьому
     згоріла підлога, поки вікно мішало `main` із чужими PR (#1307).
+
+    `revision` несе те саме, тільки про дерево: джерело вікна — не лише гілка й
+    подія, а й те, ЯКИЙ код прогін будував. Число без ревізії не дає побачити,
+    що воно про ІНШЕ дерево, — і саме на цьому підлога подала час джоби чотири
+    правки тому за сьогоднішній (#1317).
     """
 
     def __init__(self, run_id: str, created_at: str, seconds: int,
-                 branch: str, event: str):
+                 branch: str, event: str, revision: str):
         self.run_id = run_id
         self.created_at = created_at
         self.seconds = seconds
         self.branch = branch
         self.event = event
+        self.revision = revision
 
 
 # --------------------------------------------------------------------------
@@ -316,6 +344,40 @@ def repository(root: Path = ROOT) -> str:
     return match.group(1)
 
 
+def tree_revision(root: Path = ROOT) -> str:
+    """Ревізія ЦЬОГО дерева — `git rev-parse HEAD` у його корені.
+
+    Джерело — git, а не константа: ревізія мусить рухатися разом із деревом, бо
+    саме нею вікно відрізняє прогони про сьогоднішній код від прогонів про
+    вчорашній. Немає `git`, немає репозиторію, `HEAD` не прочитано — невідомість
+    (2): без ревізії вікно не прив'язати, а число про інше дерево — це рівно те,
+    що цей механізм і виправляє.
+    """
+    git = shutil.which("git")
+    if git is None:
+        raise JobTimeError(
+            "немає `git` — ревізію дерева не взяти, а без неї вікно не прив'язати "
+            "до дерева"
+        )
+    result = subprocess.run(
+        [git, "-C", str(root), *REVISION_COMMAND],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        tail = result.stderr.strip().splitlines()
+        raise JobTimeError(
+            "`git %s` у %s не вдався: %s"
+            % (" ".join(REVISION_COMMAND), root, tail[-1] if tail else "без пояснення")
+        )
+    revision = result.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
+        raise JobTimeError(
+            "`git %s` віддав не ревізію: %r"
+            % (" ".join(REVISION_COMMAND), result.stdout.strip())
+        )
+    return revision
+
+
 def gh_api(endpoint: str, gh: str | None = None) -> dict:
     """Один виклик `gh api` — і чесна відмова, коли він не віддав JSON."""
     executable = gh or gh_executable()
@@ -387,9 +449,27 @@ def completed_runs(repo: str, window: int, gh: str | None = None) -> list[dict]:
     return done[:window]
 
 
+def run_revision(entry: dict, run_id: str) -> str:
+    """Ревізія, яку прогін будував, — або відмова: без неї вікно не прив'язати.
+
+    `gh` віддає `head_sha` на прогін; якщо поле зникло або порожнє, прив'язати
+    вікно до дерева нема чим, і час джоби з такого прогону не міряється. Це
+    невідомість (2), а не «приймемо прогін як є»: прийняти означало б мовчки
+    повернути стару поведінку — число без дерева.
+    """
+    revision = entry.get("head_sha")
+    if not isinstance(revision, str) or not revision.strip():
+        raise JobTimeError(
+            "прогін %s: API не дав `head_sha` — вікно до дерева не прив'язати, і "
+            "число джоби з нього не міряється" % run_id
+        )
+    return revision.strip()
+
+
 def measured(entry: dict, name: str, repo: str, gh: str | None = None) -> Measurement:
     """Час однієї джоби в одному прогоні: `completed_at − started_at`."""
     run_id = str(entry.get("id"))
+    revision = run_revision(entry, run_id)
     payload = gh_api("repos/%s/actions/runs/%s/jobs?per_page=100" % (repo, run_id), gh)
     jobs = payload.get("jobs")
     if not isinstance(jobs, list):
@@ -411,7 +491,37 @@ def measured(entry: dict, name: str, repo: str, gh: str | None = None) -> Measur
     if seconds < 0:
         raise JobTimeError("прогін %s: completed_at раніше за started_at" % run_id)
     return Measurement(run_id, str(entry.get("created_at") or ""), seconds,
-                       str(entry.get("head_branch") or "?"), str(entry.get("event") or "?"))
+                       str(entry.get("head_branch") or "?"), str(entry.get("event") or "?"),
+                       revision)
+
+
+def tree_window(runs: list[Measurement],
+                revision: str) -> tuple[list[Measurement], list[Measurement]]:
+    """Вікно, поділене межею зміни: (про ЦЕ дерево, про ІНШІ дерева).
+
+    Підлога — твердження про час джоби на ЦЬОМУ дереві, тож у неї входять лише
+    прогони, чия ревізія дорівнює ревізії дерева. Решта не відкидається тихо:
+    вони повертаються другим списком і друкуються НАЗВАНИМИ — «ІНШЕ дерево» —
+    разом зі своєю ревізією, бо саме їхнє число й сходило за сьогоднішнє
+    (#1317). Порожній перший список — невідомість (2): числа про це дерево
+    немає, а підставити найновіше число з іншого дерева — це та сама тиха
+    неправда, від якої механізм і написаний.
+
+    Чому межа не стоїть у САМОМУ запиті (як `branch=`/`event=` у #1307).
+    Прогони про інші дерева — не чуже джерело, а той самий `main`; механізм
+    мусить їх ПОКАЗАТИ, щоб межу було видно, тож відкинути їх у запиті означало
+    б зробити межу невидимою. Фільтр у запиті лишається для чужого джерела, а
+    межа зміни — тут, названа.
+    """
+    about = [run for run in runs if run.revision == revision]
+    if not about:
+        raise JobTimeError(
+            "жоден із %d прогонів вікна не будував це дерево (%s): у вікні — %s. "
+            "Числа про час джоби на цьому дереві немає"
+            % (len(runs), revision,
+               ", ".join(sorted({run.revision for run in runs})))
+        )
+    return about, [run for run in runs if run.revision != revision]
 
 
 # --------------------------------------------------------------------------
@@ -562,35 +672,79 @@ def headroom(limit: int, seconds: int) -> tuple[int, float, float]:
     return spare, spare * 100.0 / limit, (limit / seconds if seconds else float("inf"))
 
 
-def measurement_lines(name: str, limit: int, runs: list[Measurement]) -> list[str]:
-    """Рядок на прогін плюс підсумок: джерело, час, запас, відношення."""
+def measurement_lines(name: str, limit: int, runs: list[Measurement],
+                      about: list[Measurement], revision: str) -> list[str]:
+    """Рядок на прогін плюс підсумок — і межа зміни, коли вікно її перетинає.
+
+    У підсумок і в підлогу входять лише `about` — прогони, чия ревізія дорівнює
+    ревізії цього дерева. Решта друкуються названими, зі своєю ревізією й
+    секундами, і прямо сказано, що в підлогу вони не входять: саме їхнє число й
+    сходило за час джоби на цьому дереві (#1317).
+
+    Коли `about` — це все вікно (усі прогони будували це дерево), рядки й
+    підсумок ті самі, що були до прив'язки: гейт не стає галасливим там, де
+    межа не перетнута. Межа зміни тут — не прикраса рядка, а різниця між
+    числом про ЦЕ дерево і числом про інше.
+    """
+    mixed = len(about) != len(runs)
     lines = []
     for run in runs:
         spare, percent, ratio = headroom(limit, run.seconds)
-        lines.append(
-            "  #%s  %s  %s/%s  %d с · запас %d с (%.0f %%) · %.2f×"
-            % (run.run_id, run.created_at or "?", run.branch, run.event,
-               run.seconds, spare, percent, ratio)
-        )
-    times = sorted(run.seconds for run in runs)
+        if not mixed:
+            lines.append(
+                "  #%s  %s  %s/%s  %d с · запас %d с (%.0f %%) · %.2f×"
+                % (run.run_id, run.created_at or "?", run.branch, run.event,
+                   run.seconds, spare, percent, ratio)
+            )
+            continue
+        if run.revision == revision:
+            lines.append(
+                "  #%s  %s  %s/%s  %s ← це дерево  %d с · запас %d с (%.0f %%) · %.2f×"
+                % (run.run_id, run.created_at or "?", run.branch, run.event,
+                   run.revision[:REVISION_LENGTH], run.seconds, spare, percent, ratio)
+            )
+        else:
+            lines.append(
+                "  #%s  %s  %s/%s  %s ← ІНШЕ дерево, у підлогу не входять: %d с"
+                % (run.run_id, run.created_at or "?", run.branch, run.event,
+                   run.revision[:REVISION_LENGTH], run.seconds)
+            )
+    times = sorted(run.seconds for run in about)
     slowest = times[-1]
     median = times[len(times) // 2]
     spare, percent, ratio = headroom(limit, slowest)
+    if mixed:
+        lines.append(
+            "  межа зміни: %d з %d прогонів вікна будували ІНШЕ дерево — їхні "
+            "секунди не про це дерево і в підлогу не входять"
+            % (len(runs) - len(about), len(runs))
+        )
+        lines.append(
+            "  разом (про це дерево, %d): найповільніший %d с · медіана %d с · "
+            "найшвидший %d с" % (len(about), slowest, median, times[0])
+        )
+    else:
+        lines.append(
+            "  разом: %d · найповільніший %d с · медіана %d с · найшвидший %d с"
+            % (len(about), slowest, median, times[0])
+        )
     lines.append(
-        "  разом: %d · найповільніший %d с · медіана %d с · найшвидший %d с"
-        % (len(runs), slowest, median, times[0])
-    )
-    lines.append(
-        "  запас найповільнішого: %d с (%.0f %%), %.2f× — підлога %.1f× на "
-        "прогонах `%s` (подія `%s`) %s"
-        % (spare, percent, ratio, HEADROOM_RATIO, MAIN_BRANCH, MAIN_EVENT,
+        "  запас найповільнішого (про це дерево %s): %d с (%.0f %%), %.2f× — "
+        "підлога %.1f× на прогонах `%s` (подія `%s`) %s"
+        % (revision[:REVISION_LENGTH], spare, percent, ratio, HEADROOM_RATIO,
+           MAIN_BRANCH, MAIN_EVENT,
            "тримається" if ratio >= HEADROOM_RATIO else "БІЛЬШЕ НЕ ТРИМАЄТЬСЯ")
     )
     return lines
 
 
 def verdict(runs: list[Measurement], limit: int) -> list[str]:
-    """Що з виміряного — знахідка, а не зелень."""
+    """Що з виміряного — знахідка, а не зелень.
+
+    `runs` — лише прогони про ЦЕ дерево (`tree_window`): підлога — твердження
+    про сьогоднішній код, і число з іншого дерева її не рухає — ні в червоне
+    (вигадана регресія), ні в зелене (пропущена).
+    """
     findings = []
     for run in runs:
         if run.seconds >= limit:
@@ -603,7 +757,8 @@ def verdict(runs: list[Measurement], limit: int) -> list[str]:
     if limit < HEADROOM_RATIO * slowest:
         findings.append(
             "відношення, назване в документах, більше не тримається: ліміт %d с "
-            "менший за %.1f× від найповільнішого прогону `%s` (подія `%s`, %d с). "
+            "менший за %.1f× від найповільнішого прогону `%s` (подія `%s`) про це "
+            "дерево (%d с). "
             "Або число в доку переміряти, або ліміт підняти — і те, й те вирішує не "
             "механізм"
             % (limit, HEADROOM_RATIO, MAIN_BRANCH, MAIN_EVENT, slowest)
@@ -611,7 +766,7 @@ def verdict(runs: list[Measurement], limit: int) -> list[str]:
     return findings
 
 
-def success_line(mode: str, runs: int) -> str:
+def success_line(mode: str, runs: int, revision: str = "") -> str:
     """Рядок благополуччя — СВІЙ у кожного режиму, бо міряно різне.
 
     `--local` не питає `gh` і не міряє джобу. Рядок, який сказав би тут «час
@@ -626,8 +781,9 @@ def success_line(mode: str, runs: int) -> str:
         return ("OK    локальний вимір надруковано ПОЗНАЧЕНИМ (навантаження й "
                 "памʼять машини); ЧАС ДЖОБИ тут не міряно — його міряє "
                 "`python3 scripts/ci_job_time.py` на CI, через `gh api`")
-    return ("OK    час джоби міряно на %d прогонах `%s` (подія `%s`); зараховані "
-            "рядки виводяться" % (runs, MAIN_BRANCH, MAIN_EVENT))
+    return ("OK    час джоби міряно на прогонах `%s` (подія `%s`), які будували це "
+            "дерево (%s); виміряно %d; зараховані рядки виводяться"
+            % (MAIN_BRANCH, MAIN_EVENT, revision[:REVISION_LENGTH], runs))
 
 
 def listing(root: Path = ROOT, window: int = WINDOW) -> list[str]:
@@ -637,10 +793,15 @@ def listing(root: Path = ROOT, window: int = WINDOW) -> list[str]:
         "вікно: останні %d завершених прогонів `%s` (подія `%s`) — не «всі прогони "
         "воркфлоу» і не «завжди»: історія API обмежена, і `--runs` його рухає"
         % (window, MAIN_BRANCH, MAIN_EVENT),
+        "межа зміни: у підлогу входять лише прогони, чия ревізія (`head_sha`) "
+        "дорівнює ревізії цього дерева (`git %s`); решта друкуються названими — "
+        "«ІНШЕ дерево» — і в підлогу не входять"
+        % " ".join(REVISION_COMMAND),
     ]
     for what, value in (("імʼя", lambda: job_name(root)),
                         ("ліміт", lambda: "%d с" % limit_seconds(root)),
-                        ("команда", lambda: " ".join(local_command(root)))):
+                        ("команда", lambda: " ".join(local_command(root))),
+                        ("ревізія дерева", lambda: tree_revision(root))):
         try:
             lines.append("%s: %s" % (what, value()))
         except (JobTimeError, OSError) as error:
@@ -707,8 +868,12 @@ def main(argv: list[str] | None = None) -> int:
             repo = arguments.repo or repository(root)
             name = job_name(root)
             limit = limit_seconds(root)
+            # `gh` питається ПЕРЕД `git`: без `gh` часу джоби немає взагалі, і
+            # відмова мусить назвати саме його, а не похідну від нього причину.
             runs = [measured(entry, name, repo)
                     for entry in completed_runs(repo, arguments.runs)]
+            revision = tree_revision(root)
+            about, other = tree_window(runs, revision)
         except JobTimeError as error:
             unknowns.append(str(error))
         else:
@@ -716,9 +881,14 @@ def main(argv: list[str] | None = None) -> int:
             print("ліміт: %d с" % limit)
             print("вікно: останні %d завершених прогонів `%s` (подія `%s`)"
                   % (arguments.runs, MAIN_BRANCH, MAIN_EVENT))
-            for line in measurement_lines(name, limit, runs):
+            print("дерево: %s (`git %s`) — про це дерево %d з %d прогонів%s"
+                  % (revision[:REVISION_LENGTH], " ".join(REVISION_COMMAND),
+                     len(about), len(runs),
+                     "" if not other else ": %s"
+                     % ", ".join("#%s" % run.run_id for run in about)))
+            for line in measurement_lines(name, limit, runs, about, revision):
                 print(line)
-            findings.extend(verdict(runs, limit))
+            findings.extend(verdict(about, limit))
 
     for finding in findings:
         print(finding, file=sys.stderr)
@@ -728,10 +898,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if findings:
         return 1
-    print(success_line(
-        "docs" if arguments.check_docs else "local" if arguments.local else "ci",
-        arguments.runs,
-    ))
+    if arguments.check_docs or arguments.local:
+        print(success_line("docs" if arguments.check_docs else "local", arguments.runs))
+        return 0
+    # Рядок благополуччя називає, СКІЛЬКИ прогонів про це дерево й яке саме
+    # дерево: без цього «міряно на N прогонах» знову не відрізняло б сьогоднішнє
+    # дерево від учорашнього.
+    print(success_line("ci", len(about), revision))
     return 0
 
 

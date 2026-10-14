@@ -20,7 +20,7 @@ internal class ManualWorkMergeJournal(
 ) {
     internal data class Cell(val type: String, val number: Long = 0, val bytes: ByteArray = byteArrayOf())
     internal data class Row(val table: String, val cells: List<Cell>)
-    internal data class Image(val encoding: String, val rows: Map<String, List<Row>>)
+    internal data class Image(val encoding: String, val rows: Map<String, List<Row>>, val formatVersion: Int)
     private data class Table(val name: String, val columns: List<String>, val scopeColumn: String)
 
     private val sql get() = database.openHelper.writableDatabase
@@ -61,18 +61,20 @@ internal class ManualWorkMergeJournal(
             }
             result[table.name] = rows.sortedWith { first, second -> compareBytes(rowBytes(first), rowBytes(second)) }
         }
-        return Image(encoding, result)
+        return Image(encoding, result, if (result.getValue("readthroughs").isEmpty()) 1 else 2)
     }
 
     fun encode(image: Image): ByteArray {
         context.ensureActive()
         check(image.rows.values.sumOf { it.size } <= MAX_ROWS) { "Journal row bound" }
+        val tables = tablesForVersion(image.formatVersion)
+        check(image.formatVersion != 1 || image.rows.getValue("readthroughs").isEmpty()) { "Legacy journal cannot omit Readthroughs" }
         val buffer = ByteArrayOutputStream()
         DataOutputStream(buffer).use { stream ->
             stream.writeUTF("ManualWorkMergeRows")
-            stream.writeInt(VERSION)
+            stream.writeInt(image.formatVersion)
             stream.writeUTF(image.encoding)
-            for (table in TABLES) {
+            for (table in tables) {
                 stream.writeUTF(table.name)
                 val rows = image.rows.getValue(table.name)
                 check(rows.size <= MAX_ROWS)
@@ -92,12 +94,14 @@ internal class ManualWorkMergeJournal(
         context.ensureActive()
         require(bytes.size <= MAX_PAYLOAD_BYTES) { "Manual merge journal payload bound" }
         DataInputStream(ByteArrayInputStream(bytes)).use { stream ->
-            require(stream.readUTF() == "ManualWorkMergeRows" && stream.readInt() == VERSION) { "Unknown journal format" }
+            require(stream.readUTF() == "ManualWorkMergeRows") { "Unknown journal format" }
+            val formatVersion = stream.readInt()
+            val tables = tablesForVersion(formatVersion)
             val encoding = stream.readUTF()
             charset(encoding)
             val rows = linkedMapOf<String, List<Row>>()
             var total = 0
-            for (table in TABLES) {
+            for (table in tables) {
                 require(stream.readUTF() == table.name) { "Unknown journal table layout" }
                 val count = stream.readInt()
                 require(count in 0..MAX_ROWS && total + count <= MAX_ROWS) { "Journal row bound" }
@@ -108,7 +112,8 @@ internal class ManualWorkMergeJournal(
                 }
             }
             require(stream.read() == -1) { "Trailing journal payload" }
-            return Image(encoding, rows)
+            if (formatVersion == 1) rows["readthroughs"] = emptyList()
+            return Image(encoding, rows, formatVersion)
         }
     }
 
@@ -239,15 +244,26 @@ internal class ManualWorkMergeJournal(
     }
 
     companion object {
-        const val VERSION = 1
+        fun supportsVersion(version: Int): Boolean = version == 1 || version == 2
+
+        private fun tablesForVersion(version: Int): List<Table> = when (version) {
+            1 -> LEGACY_TABLES
+            2 -> TABLES
+            else -> error("Unknown journal format")
+        }
         // Bound each payload; larger operations need a paged journal before UI exposure.
         private const val MAX_PAYLOAD_BYTES = 384 * 1024
         private const val MAX_ROWS = 10_000
-        private val TABLES = listOf(
+        private val LEGACY_TABLES = listOf(
             Table("works", listOf("id", "mergeKey", "title", "author", "seriesTitle", "seriesUrl", "seriesIndex", "coverImageUrl", "addedAt"), "id"),
             Table("library_entries", listOf("id", "workId", "origin", "isFavorite", "createdAt", "downloadProgress", "downloadState"), "id"),
             Table("work_sources", listOf("id", "workId", "sourceId", "sourceUrl", "streamOnly", "coverImageUrl", "durationSeconds", "addedAt"), "workId"),
             Table("works_fts", listOf("workId", "title", "author", "series", "narrator"), "workId"),
+        )
+        private val TABLES = LEGACY_TABLES + Table(
+            "readthroughs",
+            listOf("id", "libraryEntryId", "workId", "format", "state", "startedAt", "finishedAt", "editionId", "unit", "unitValue", "journalJson"),
+            "workId",
         )
     }
 }

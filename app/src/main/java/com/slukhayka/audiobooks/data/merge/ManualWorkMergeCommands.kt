@@ -145,6 +145,12 @@ class ManualWorkMergeCommands(
                 val journal = ManualWorkMergeJournal(database, context)
                 val scope = (roots + canonical).distinct()
                 val before = journal.capture(scope, books)
+                val capturedPasses = before.rows.getValue("readthroughs")
+                if (capturedPasses.any { journal.text(it, "workId", before.encoding) !in roots } ||
+                    capturedPasses.map { journal.text(it, "id", before.encoding) }.toSet() !=
+                    preview.snapshot.library.readthroughs.map { it.id }.toSet()) {
+                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Readthrough ownership needs a participant decision")
+                }
                 val beforeBytes = journal.encode(before)
                 val rootRows = before.rows.getValue("works")
                 check(rootRows.size == 2)
@@ -271,6 +277,11 @@ class ManualWorkMergeCommands(
                     val id = journal.text(row, "id", before.encoding)
                     check(journal.updateById(journal.withText(row, mapOf("workId" to canonical), before.encoding), id) == 1)
                 }
+                // Preserve each pass and its opaque progress journal; only the Work identity moves.
+                for (row in before.rows.getValue("readthroughs")) {
+                    val id = journal.text(row, "id", before.encoding)
+                    check(journal.updateById(journal.withText(row, mapOf("workId" to canonical), before.encoding), id) == 1)
+                }
                 // The before-image retains every original claim, including deduplicated donors.
                 for (previousId in originalClaimIds) check(execute("DELETE FROM work_sources WHERE id = ?", previousId) == 1)
                 for (row in claims) journal.insert(row)
@@ -282,6 +293,7 @@ class ManualWorkMergeCommands(
                 identity.insertRedirects(aliases)
                 identity.insertPreservedParticipants(protected)
                 val after = journal.capture(scope, books)
+                check(after.formatVersion == before.formatVersion)
                 val afterBytes = journal.encode(after)
                 val afterFingerprint = database.audiobookDao().readManualWorkMergeRows(scope).storageFingerprint
                 val proof = JSONObject().put("format", 1).put("approval", approval(plan, beforeBytes))
@@ -305,7 +317,7 @@ class ManualWorkMergeCommands(
                 identity.insertOperation(WorkMergeOperationEntity(
                     operationId = plan.operationId, state = WorkMergeOperationState.APPLIED.name,
                     canonicalWorkId = canonical, participantWorkIds = JSONArray(roots).toString(),
-                    approvedIdentity = proof.toString(), payloadVersion = ManualWorkMergeJournal.VERSION,
+                    approvedIdentity = proof.toString(), payloadVersion = before.formatVersion,
                     beforeImages = beforeBytes, afterImages = afterBytes,
                 ))
                 context.ensureActive()
@@ -327,7 +339,7 @@ class ManualWorkMergeCommands(
                 val operation = identity.operationById(operationId)
                     ?: return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Operation disappeared")
                 if (operation.state == WorkMergeOperationState.UNDONE.name) return@withTransaction ManualWorkMergeUndoResult.Undone(operationId)
-                if (operation.payloadVersion != ManualWorkMergeJournal.VERSION || operation.state != WorkMergeOperationState.APPLIED.name) {
+                if (!ManualWorkMergeJournal.supportsVersion(operation.payloadVersion) || operation.state != WorkMergeOperationState.APPLIED.name) {
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Unknown journal format or operation state")
                 }
                 val rootsJson = JSONArray(operation.participantWorkIds)
@@ -354,6 +366,9 @@ class ManualWorkMergeCommands(
                 }
                 val before = journal.decode(operation.beforeImages)
                 val after = journal.decode(operation.afterImages)
+                if (before.formatVersion != operation.payloadVersion || after.formatVersion != operation.payloadVersion) {
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal payload versions disagree")
+                }
                 val beforeWorks = before.rows.getValue("works")
                 val beforeWorkIds = beforeWorks.map { journal.text(it, "id", before.encoding) }
                 if (beforeWorks.size != roots.size || beforeWorkIds.toSet() != roots.toSet()) {
@@ -392,6 +407,9 @@ class ManualWorkMergeCommands(
                 for (row in before.rows.getValue("library_entries")) {
                     check(journal.updateById(row, journal.text(row, "id", before.encoding)) == 1)
                 }
+                for (row in before.rows.getValue("readthroughs")) {
+                    check(journal.updateById(row, journal.text(row, "id", before.encoding)) == 1)
+                }
                 for (row in after.rows.getValue("work_sources")) {
                     check(execute("DELETE FROM work_sources WHERE id = ?", journal.text(row, "id", after.encoding)) == 1)
                 }
@@ -422,10 +440,27 @@ class ManualWorkMergeCommands(
             catalog.seriesMembers.isEmpty() && catalog.genreStates.isEmpty() && catalog.genreAssertions.isEmpty() &&
             catalog.workGenres.isEmpty() && catalog.popularity.isEmpty() && catalog.vectors.isEmpty() &&
             snapshot.personal.corrections.isEmpty() && snapshot.personal.preferences.isEmpty() &&
-            snapshot.personal.feedSnapshots.isEmpty() && snapshot.library.readthroughs.isEmpty() &&
+            snapshot.personal.feedSnapshots.isEmpty() && supportsReadthroughs(preview) &&
             snapshot.library.books.all { it.sourceTreeUri == null && !it.isDownloaded } &&
             snapshot.library.tracks.all { it.localFilePath == null && it.contentHash == null && !it.isDownloaded && remote(it.url) } &&
             snapshot.library.sources.all { remote(it.url) }
+    }
+
+    private fun supportsReadthroughs(preview: ManualWorkMergePreview): Boolean {
+        val entries = preview.snapshot.library.entries.associateBy { it.id }
+        val editions = preview.participants.flatMap { it.editions }.associateBy { it.edition.id }
+        val roots = preview.participants.map { it.work.id }.toSet()
+        return preview.snapshot.library.readthroughs.all { pass ->
+            val entry = entries[pass.libraryEntryId]
+            pass.workId in roots && entry?.workId == pass.workId && when (pass.format) {
+                "AUDIO" -> pass.editionId?.let { editionId ->
+                    val edition = editions[editionId]
+                    edition != null && edition.bookId == pass.libraryEntryId
+                } == true
+                "PAPER", "EBOOK" -> pass.editionId == null
+                else -> false
+            }
+        }
     }
 
     private fun remote(url: String): Boolean = url.startsWith("https://") || url.startsWith("http://")

@@ -927,3 +927,14 @@ Work з наявними aliases; його Apply/Undo політика ще по
 Каталог та імпорт цей модуль ще не використовують. Writer admission,
 active jobs, tombstones, callbacks після commit та App/UI залишаються
 наступними окремими кроками.
+
+
+### Ізоляція WorkId і MergeKey
+
+Однаковий opaque рядок може бути WorkId одного Work та MergeKey іншого. Resolver зберігає ці namespaces окремими. Відсутній WorkId повертає Missing з початковим input, навіть якщо такий самий рядок існує як MergeKey.
+
+Окремий SDK36 real-Room regression-сценарій після закриття та повторного відкриття бази перевіряє чотири результати: спільний рядок як WorkId повертає повний B, як MergeKey — повний A; другий рядок як WorkId відсутній, як MergeKey повертає повний B. Після кожного читання два повні Work записи незмінні, operationCount і redirectCount дорівнюють нулю. Через наявний public reader перевірено лише відсутність preservedParticipants для заданого operationId; глобальна порожнеча цієї таблиці не доведена.
+
+Це один regression-тест уже наявного resolver, без зміни production. Результат: 1 test, 0 failures/errors/skips. Попередні 22 успішні тести залишаються окремим історичним прийманням і в цьому прогоні не повторювалися.
+
+Відсутній MergeKey з можливим WorkId fallback, malformed inputs, multi-hop, графові відмови, writer admission і каталог/імпорт цим сценарієм не перевірені.

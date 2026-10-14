@@ -86,6 +86,8 @@ GUARD_TESTS = (
     "test_named_boundaries.SectionTest.test_a_record_without_a_mutation_is_refused",
     "test_mutate.MutationRunTest"
     ".test_a_refused_run_still_reaps_the_scratch_a_sigkill_left",
+    "test_suite_time.DecompositionTest"
+    ".test_the_module_with_the_slow_setup_is_the_top_consumer",
     "test_test_wrappers.FullSuiteWrapperTest"
     ".test_a_sigkilled_run_is_reaped_by_the_next_run",
     "test_test_wrappers.FullSuiteWrapperTest"

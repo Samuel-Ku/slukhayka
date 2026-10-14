@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 24 записи, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 26 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
 паралельно (`--jobs`), і кожен друкує свій час під час прогону
 (`python3 scripts/guard_witnesses.py`) — 0.5–1.7 с на запис на цій машині (вона
@@ -482,6 +482,45 @@ GUARDS = (
                 file="scripts/issue_premise.py",
                 find="        if matches[0].kind == TREE and _is_bare_name(candidate.path):\n",
                 replace="        if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.TreeEvidenceTest"
+             ".test_the_same_trailing_slash_is_premise_at_the_root_and_ambiguous_deep",
+        protects="асиметрію ВИВОДУ (#1301) як доведену ціну, а не недогляд: та сама "
+                 "форма (`docs/` у корені, `drawable/` вглиб) дає різний вердикт, "
+                 "бо дискримінатор — ТОЧНИЙ запис дерева, а не глибина. "
+                 "Розширення форми робить премисою й `main/` із #982 — тіло пише "
+                 "його з тим самим хвостовим слешем. Витятий `_is_bare_name` "
+                 "(розширення наосліп) повертає #982 у код 0 — те саме хибне «є», "
+                 "від якого його врятував #1281",
+        edits=(
+            # Розширення форми — рівно те, чим «прибирають» асиметрію: гола тека
+            # за єдиним збігом-деревом стає премисою. Тут воно й червоне: #982
+            # (`main/`) вертається в 0.
+            Edit(
+                file="scripts/issue_premise.py",
+                find='    return "/" not in path and not Path(path).suffix\n',
+                replace="    return False  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.BareTreeMeasureTest"
+             ".test_the_documented_command_counts_the_same_class_the_verdict_makes_ambiguous",
+        protects="ЧИСЛО, яким названа ціна асиметрії (#1301): "
+                 "`--measure-bare-trees` мусить рахувати рівно той клас, який "
+                 "`judge` переносить із 0 у 2 — односегментне ім'я без "
+                 "розширення, не кореневе, чия єдина коротка форма — дерево. "
+                 "Забути «не кореневе» — і в число входить `docs/`, який не "
+                 "платить: точний шлях знаходить його першим. Число стоїть у "
+                 "шапці механізму й у доку, тож хибне число тут — хибне там",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find="        if not _is_bare_name(name) or name in top_level:\n",
+                replace="        if not _is_bare_name(name):  # mutated\n",
             ),
         ),
     ),

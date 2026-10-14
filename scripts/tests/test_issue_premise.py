@@ -674,6 +674,100 @@ class TreeEvidenceTest(unittest.TestCase):
         self.assertNotIn("(тека)", blob_verdicts[0].detail)
         self.assertIn("web/src/ui/components (тека)", tree_verdicts[0].detail)
 
+    def test_the_same_trailing_slash_is_premise_at_the_root_and_ambiguous_deep(self):
+        # #1301: форма та сама — `docs/` і `drawable/` — а вердикт різний.
+        # Дискримінатор не глибина, а ТОЧНИЙ запис дерева: `docs` знаходить
+        # `main_has_path`, `drawable` — ні, і коротка форма лишає код 2. Звідси
+        # й доказ, що «прибрати асиметрію» формою неможливо: те саме розширення
+        # робить премисою й `main/` із #982, тіло якого пише його З ТИМ САМИМ
+        # хвостовим слешем.
+        root_code, root_verdicts, _ = judge_body(
+            "тека `docs/` у корені", {"docs", "docs/voice.md"}, trees={"docs"}
+        )
+        self.assertEqual(root_code, 0)
+        self.assertEqual(root_verdicts[0].detail, "є в origin/main")
+
+        deep_code, deep_verdicts, _ = judge_body(
+            "тека `drawable/` тут",
+            {"app/src/main/res/drawable", "app/src/main/res/drawable/img.jpg"},
+            trees={"app/src/main/res/drawable"},
+        )
+        self.assertEqual(deep_code, 2)
+        self.assertIn("app/src/main/res/drawable", deep_verdicts[0].detail)
+
+        self.assertIn("`main/`", ISSUE_982_BODY)
+        code, _, _ = judge_body(ISSUE_982_BODY, TREE_OF_982, trees=TREE_OF_982)
+        self.assertEqual(code, 2)
+
+        # Розширення, яке «прибирає» асиметрію, відкриває #982 назад: без
+        # правила про теку те саме тіло дає 0 — тобто хибну премису там, де
+        # тікет казав про тег, а не про теку.
+        with mock.patch.object(ip, "_is_bare_name", lambda _path: False):
+            widened, widened_verdicts, _ = judge_body(
+                ISSUE_982_BODY, TREE_OF_982, trees=TREE_OF_982
+            )
+        self.assertEqual(widened, 0)
+        self.assertIn("app/src/main", widened_verdicts[0].detail)
+
+
+class BareTreeMeasureTest(unittest.TestCase):
+    """Ціна правила про теку (#1301) — числом, яке виводить сам механізм.
+
+    Клас — не «теки взагалі», а рівно те, що `judge` переносить із 0 у 2:
+    односегментне ім'я без розширення, не кореневе, чия коротка форма дає рівно
+    один збіг, і це ДЕРЕВО. Тест жене документовану команду на ВЛАСНОМУ
+    репозиторії (у CI `origin/main` не існує — раннер фетчить merge-ref, тож
+    чекаут тут питати не можна) і звіряє її вивід із вердиктом `check_body`:
+    вимір і вердикт мусять міряти те саме правило, а не два схожі.
+    """
+
+    def test_the_documented_command_counts_the_same_class_the_verdict_makes_ambiguous(self):
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-bare-trees-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(
+            base,
+            {
+                "docs/voice.md": "voice\n",
+                "assets/drawable/img.jpg": "jpg\n",
+                "libs/twins/a.kt": "a\n",
+                "web/twins/b.kt": "b\n",
+                "scripts/marker": "блоб, не тека\n",
+                "notes.txt": "файл\n",
+            },
+        )
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--measure-bare-trees", "--ref", "origin/main", "--repo", str(repo),
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        printed = [
+            line.strip() for line in proc.stdout.splitlines() if line.startswith("    ")
+        ]
+        # Рівно те, що вердикт робить неоднозначним: глибока тека `drawable` —
+        # так; кореневе `docs` — ні (точний шлях знаходить його першим);
+        # `twins` — ні (два збіги, воно було неоднозначним і до правила);
+        # `marker` — ні (блоб, а не дерево); `notes.txt` — ні (розширення).
+        self.assertEqual(printed, ["drawable"])
+        self.assertIn("дерево: 1", proc.stdout)
+
+        for name in printed:
+            # Слеш обов'язковий: голе ім'я без розширення кандидатом не стає
+            # взагалі (`_is_path_like`), тож у тілі тікета така тека пишеться
+            # саме як `drawable/`.
+            code, verdicts = ip.check_body(f"тека `{name}/`", "origin/main", repo)
+            self.assertEqual(code, 2)
+            self.assertIn("неоднозначне", verdicts[0].detail)
+        # Кореневий кінець не платить — і це не «симетрія», а точний запис.
+        root_code, root_verdicts = ip.check_body("тека `docs/`", "origin/main", repo)
+        self.assertEqual(root_code, 0)
+        self.assertEqual(root_verdicts[0].detail, "є в origin/main")
+
+        with mock.patch.object(ip, "resolve_main_ref", return_value=(False, "nope")):
+            self.assertEqual(ip.measure_bare_trees("origin/main"), 2)
+
 
 class RealIssueTest(unittest.TestCase):
     """Обидва прогони вимоги 1 — на справжньому тілі #1261 і на валідній премисі."""

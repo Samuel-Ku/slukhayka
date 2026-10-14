@@ -1,7 +1,10 @@
+import os
 import shutil
+import signal
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -329,6 +332,21 @@ class ChangedTestWrapperScratchTest(unittest.TestCase):
         )
         self.gradle.chmod(self.gradle.stat().st_mode | stat.S_IXUSR)
 
+    def write_hanging_gradle(self) -> None:
+        """Підставна збірка, яка не закінчується: прогін мусить бути В ПОЛЬОТІ.
+
+        Тільки такий прогін можна вбити SIGKILL'ом «у момент роботи» — і саме
+        так виглядає прогін, який знесла ескалація `build-slot-guard.py` після
+        `--grace-seconds`, OOM чи перервана сесія.
+        """
+        self.gradle.write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' \"$*\" >> \"$WRAPPER_TEST_LOG\"\n"
+            "sleep 300\n",
+            encoding="utf-8",
+        )
+        self.gradle.chmod(self.gradle.stat().st_mode | stat.S_IXUSR)
+
     def environment(self) -> dict:
         """Своє оточення, а не успадковане (#1265) — і свій `TMPDIR`."""
         return {
@@ -447,6 +465,83 @@ class ChangedTestWrapperScratchTest(unittest.TestCase):
         self.assertEqual(1, len(self.leftovers()),
                          "тека мусить лишитися: прибирання не сильніше за rm")
         shutil.rmtree(self.tmp / self.leftovers()[0])
+
+    def kill_a_live_run(self, path: str):
+        """Прогін, убитий SIGKILL'ом У ПОЛЬОТІ: підставна збірка висить, гурт гине.
+
+        Повертає (ім'я лишеної теки, PID убитого прогону) — і самі ноги, без яких
+        сторож нічого не доводив би: прогін мусив дійти до підставної збірки (лог
+        виріс) і мусив лишити теку («зникло» інакше означало б «не було»).
+        """
+        self.write_hanging_gradle()
+        victim = subprocess.Popen(
+            ["bash", str(TEST_CHANGED), "--changed-file", path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=self.environment(),
+            # Свій сеанс: `kill -KILL` по гурту не сміє дістати сам набір тестів.
+            start_new_session=True,
+        )
+        self.addCleanup(victim.kill)
+        deadline = time.monotonic() + 60
+        while (not self.leftovers() or not self.invocations()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(self.leftovers(),
+                        "прогін не створив теку — сторож нічого не доводить")
+        self.assertTrue(self.invocations(),
+                        "прогін не дійшов до підставної збірки — вбивати нема чого")
+
+        os.killpg(os.getpgid(victim.pid), signal.SIGKILL)
+        _out, killed_stderr = victim.communicate(timeout=60)
+
+        left = self.leftovers()
+        self.assertEqual(1, len(left),
+                         "SIGKILL мусить лишити теку: EXIT-пастки він не виконує: %s"
+                         % killed_stderr)
+        return left[0], victim.pid
+
+    def test_a_scratch_left_by_a_sigkilled_run_is_reaped_by_the_next_run(self):
+        """Сторож: тека, лишена SIGKILL'ом, зникає на СТАРТІ наступного прогону.
+
+        Пастка над SIGKILL не владна — це фізика, а не недогляд скрипта, — тож
+        тека прогону лишалася назавжди (їх назбиралося 65 у `/tmp`). Прибрати її
+        може лише наступний прогін, і це тут відтворено СПРАВЖНІМ SIGKILL:
+        підставна збірка висить, прогін убивають `kill -KILL` по гурту (так
+        робить ескалація `build-slot-guard.py`, OOM і перервана сесія), тека
+        лишається — і наступний прогін мусить її прибрати, назвавши вголос.
+
+        Межа: сторож бачить лише те, що створено під тим `$TMPDIR`, який він сам
+        дає. Тека в жорстко прописаному `/tmp` лишилася б для нього невидимою, як
+        і в сусіднього сторожа цього класу; і він не міряє, скільки тек уже
+        лежить в історії, — він доводить, що залишок зникає.
+        """
+        path = "app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt"
+        left, _pid = self.kill_a_live_run(path)
+
+        self.write_gradle()
+        again = self.run_changed("--changed-file", path)
+
+        self.assertEqual(0, again.returncode, again.stderr)
+        self.assertIn("прибрано застарілу теку прогону", again.stderr)
+        self.assertIn(left, again.stderr)
+        self.assertEqual([], self.leftovers(),
+                         "залишок SIGKILL'а мусив зникнути на старті наступного прогону")
+
+    def test_the_scratch_of_a_killed_run_names_that_run_as_its_owner(self):
+        """Маркер називає ВБИТИЙ прогін, а не короткоживучий хелпер.
+
+        Це не дрібниця: `bash` створює теку через `python3 tmp_budget.py claim`,
+        і маркер на хелпері зробив би живу теку «застарілою» за мілісекунди
+        після створення — сусідній прогін зніс би її посеред роботи. Тому тут
+        піниться і сам маркер, і те, що він називає саме той PID, який убито.
+        """
+        path = "app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt"
+        left, pid = self.kill_a_live_run(path)
+
+        marker = self.tmp / left / "owner.pid"
+        self.assertTrue(marker.is_file(), "теку лишено разом із маркером власника")
+        self.assertEqual(str(pid), marker.read_text(encoding="utf-8").strip())
 
 
 if __name__ == "__main__":

@@ -3,6 +3,20 @@ set -u
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 selector="$repo_root/scripts/test_partitions.py"
+# Свою теку прогону створює спільний прибиральник (`scripts/tmp_budget.py`), а не
+# `mktemp`: він же прибирає теку, лишену SIGKILL'ом попереднього прогону, і кладе
+# маркер власника, щоб сусідній прогін не зніс живу (#1300). Прибирання в
+# `cleanup` лишається як було — SIGKILL його не виконує, і саме тому прибиральник
+# мусить бути на СТАРТІ прогону, а не в кінці.
+budget_module="$repo_root/scripts/tmp_budget.py"
+
+# Прибирання стоїть на САМОМУ СТАРТІ — до розбору аргументів: тека, лишена
+# SIGKILL'ом, мусить зникнути й тоді, коли цей прогін відмовить (криві
+# аргументи), — інакше відмова одного прогону лишала б чужу теку в tmpfs
+# назавжди (#1300). `claim` нижче прибирає ще раз (дешево) і створює свою.
+python3 "$budget_module" sweep --prefix slukhayka-changed-tests. ||
+  printf '%s\n' "test-changed.sh: прибирання застарілих тек прогону не вдалося (причина вище)" >&2
+
 base_ref=origin/main
 changed_files=()
 
@@ -25,7 +39,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-changed-tests.XXXXXX") || exit 2
+scratch=$(python3 "$budget_module" claim --prefix slukhayka-changed-tests. --owner-pid $$) ||
+  { printf '%s\n' "test-changed.sh: cannot create a scratch directory (the reason is above)" >&2; exit 2; }
 cleanup() {
   # A cleanup that cannot remove the directory says so instead of passing in
   # silence: the boundary is that the cleanup is no stronger than `rm`, so a

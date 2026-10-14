@@ -56,6 +56,12 @@ class Fixture:
     def __init__(self, root: Path, logs: Path, script_source: Path, trace_source: Path):
         self.root = root
         self.logs = logs
+        # Свій `TMPDIR` — ПОЗА копією дерева: тека прогону не сміє робити дерево
+        # брудним (тоді `mutate.sh` відмовив би сам собі), і вона не сміє ділити
+        # `$TMPDIR` із рештою набору — саме так теки прогону й течуть у спільний
+        # `/tmp`, де їх потім прибирає вже інший прогін (#1300).
+        self.tmp = logs / "tmp"
+        self.tmp.mkdir(parents=True, exist_ok=True)
         self.script = root / "scripts" / "mutate.sh"
         self.build(script_source, trace_source)
 
@@ -68,7 +74,9 @@ class Fixture:
         # keeps the JUnit XML out of `git status`.
         shutil.copy(REPO_ROOT / ".gitignore", self.root / ".gitignore")
         shutil.copy(REPO_ROOT / "app/.gitignore", self.root / "app/.gitignore")
-        for name in ("test_partitions.py", "test-all.sh"):
+        # `tmp_budget.py` — сусід скрипта, якого той кличе за техою прогону
+        # (#1300): копія дерева мусить мати все, що скрипт шукає поряд із собою.
+        for name in ("test_partitions.py", "test-all.sh", "tmp_budget.py"):
             shutil.copy(REPO_ROOT / "scripts" / name, self.root / "scripts" / name)
         shutil.copy(trace_source, self.root / "scripts" / "mutation_trace.py")
         shutil.copy(script_source, self.script)
@@ -110,6 +118,9 @@ class Fixture:
             "SLUKHAYKA_JAVA_HOME": str(self.jdk),
             "SLUKHAYKA_GRADLEW": str(self.root / "gradlew"),
             "MUTATE_TEST_GRADLE_LOG": str(self.logs / "gradle.log"),
+            # Свій `TMPDIR`, а не успадкований: інакше тека прогону лягає в
+            # спільний `/tmp` і лишається там після SIGKILL (#1300).
+            "TMPDIR": str(self.tmp),
         }
         environment.update(overrides)
         return environment
@@ -449,6 +460,30 @@ class MutationRunTest(MutateFixtureTest):
         self.assertEqual(dirty, self.fixture.read(SAMPLE))
         self.assertEqual("", self.fixture.gradle_invocations())
         self.assertEqual([], self.fixture.records())
+
+    def test_a_refused_run_still_reaps_the_scratch_a_sigkill_left(self):
+        """Відмова цього прогону не сміє лишати чужу теку в tmpfs назавжди.
+
+        SIGKILL лишає ДВІ речі: теку прогону і застосовану мутацію в дереві. Тож
+        наступний прогін відмовляє саме на брудному дереві — і якби прибирання
+        стояло після перевірок, воно не виконалося б ніколи (#1300). Сторож
+        ставить саме цей стан: брудне дерево (як після SIGKILL) і залишок у
+        `$TMPDIR`, який мусить зникнути, хоч прогін і відмовляє.
+        """
+        leftover = self.fixture.tmp / "slukhayka-mutation.SIGKILL"
+        leftover.mkdir()
+        (leftover / "gradle-arguments").write_text(":app:testPureJvm\n", encoding="utf-8")
+        os.utime(leftover, (1, 1))
+        self.fixture.write(SAMPLE, self.fixture.read(SAMPLE) + "\n// a working edit\n")
+
+        result = self.fixture.run_class(self.fixture.answer_patch)
+
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("dirty", result.stderr)
+        self.assertFalse(leftover.exists(),
+                         "тека, лишена SIGKILL'ом, мусила зникнути на старті прогону")
+        self.assertIn(leftover.name, result.stderr)
+        self.assertIn("прибрано застарілу теку прогону", result.stderr)
 
     def test_refuses_an_unknown_class(self):
         result = self.fixture.run_script(

@@ -20,6 +20,7 @@ import contextlib
 import io
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -254,9 +255,16 @@ class SweepTest(unittest.TestCase):
         self.assertEqual([(old, 300)], freed)
         self.assertFalse(old.exists())
 
-    def test_a_foreign_prefix_is_never_touched(self):
-        """`slukhayka-mutation.*` — scratch живого `mutate.sh`; його не наш суд."""
-        foreign = self.tree("slukhayka-mutation-x", pid=4242)
+    def test_a_prefix_nobody_sweeps_is_never_touched(self):
+        """`slukhayka-tests.*` — тека прогону ПОВНОГО набору, і вона не наш суд.
+
+        Ця межа названа в коді (`tmp_budget.SCRATCH_PREFIXES`) і має причину, а
+        не «так історично склалося»: `test-all.sh` не пише маркера власника, тож
+        прибирання за часом могло б знести теку прогону, довшого за пільгу, — а
+        повний набір і є найдовшим прогоном у дереві. Узяти його сюди можна лише
+        разом із маркером у самому `test-all.sh`.
+        """
+        foreign = self.tree("slukhayka-tests-x", pid=4242)
         os.utime(foreign, (1, 1))
 
         freed = tb.sweep_stale(self.root, alive=lambda pid: False)
@@ -288,6 +296,205 @@ class SweepTest(unittest.TestCase):
         freed = tb.sweep_stale(self.root, grace=900)
 
         self.assertEqual([broken], [path for path, _size in freed])
+
+
+class ScratchTest(unittest.TestCase):
+    """Тека прогону скрипта-обгортки: прибиральник на СТАРТІ наступного прогону.
+
+    Прибирання цієї теки живе в EXIT-пастці скрипта, а SIGKILL пастку не
+    виконує фізично (#1300) — теку не прибирає НІХТО, і вона лишається назавжди.
+    Тому прибирання переїхало на старт наступного прогону, і тут піняться всі
+    три стани, від яких залежить, чи тека зникне: мертвий власник (зникає
+    одразу, без пільги), живий власник (не чіпають НІКОЛИ — інакше прибиральник
+    убивав би живі прогони) і стара тека без маркера (зникає за часом — рівно
+    такі 95 тек `slukhayka-mutation.*` і 65 `slukhayka-changed-tests.*` лежали в
+    `/tmp` на момент #1300).
+
+    Межа, названа тут, а не в звіті: маркер пише той, хто в теці ПРАЦЮВАТИМЕ, а
+    не той, хто її створив. `bash` кличе короткоживучий
+    `python3 tmp_budget.py claim`, і маркер на хелпері зробив би живу теку
+    «застарілою» за мілісекунди після створення.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def scratch(self, name: str, *, pid: int | None = None, payload: int = 0) -> Path:
+        path = self.root / name
+        path.mkdir()
+        if pid is not None:
+            (path / tb.OWNER_MARKER).write_text("%d\n" % pid, encoding="utf-8")
+        (path / "payload").write_bytes(b"p" * payload)
+        return path
+
+    def test_an_old_scratch_without_a_marker_is_reaped_for_both_prefixes(self):
+        """Так виглядають теки, лишені SIGKILL'ом до цієї правки: маркера немає."""
+        stale = [self.scratch(prefix + "old", payload=90)
+                 for prefix in ("slukhayka-mutation.", "slukhayka-changed-tests.")]
+        for path in stale:
+            os.utime(path, (1, 1))
+
+        freed = []
+        for prefix in ("slukhayka-mutation.", "slukhayka-changed-tests."):
+            freed += tb.sweep_scratch(prefix, base=self.root)
+
+        self.assertEqual(sorted(stale), sorted(path for path, size in freed if size == 90))
+        self.assertEqual([], [path for path in stale if path.exists()])
+
+    def test_the_reaping_is_announced_with_the_bytes(self):
+        """Прибирання голосне: інакше «зникло» не відрізнити від «не було»."""
+        old = self.scratch("slukhayka-mutation.old", payload=512)
+        os.utime(old, (1, 1))
+
+        out = io.StringIO()
+        with contextlib.redirect_stderr(out):
+            tb.sweep_scratch("slukhayka-mutation.", base=self.root)
+
+        self.assertIn(str(old), out.getvalue())
+        self.assertIn(tb.mib(512), out.getvalue())
+
+    def test_a_sibling_prefix_is_not_our_business(self):
+        """`mutate.sh` не прибирає теку `test-changed.sh` — і навпаки."""
+        sibling = self.scratch("slukhayka-changed-tests.sibling")
+        os.utime(sibling, (1, 1))
+
+        freed = tb.sweep_scratch("slukhayka-mutation.", base=self.root)
+
+        self.assertEqual([], freed)
+        self.assertTrue(sibling.exists())
+
+    def test_the_marker_names_the_wrapper_and_not_the_helper(self):
+        """Маркер називає того, хто в теці працюватиме, — і мертвий знімається.
+
+        Власник тут — справжній живий процес (не цей тест), і вбивають його
+        справжнім SIGKILL: саме так виглядає прогін, який знесла ескалація
+        `build-slot-guard.py`. Живий власник захищає теку, мертвий знімає її
+        одразу — без пільги за часом, бо час тут нічого не значить.
+        """
+        holder = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+
+        scratch = tb.claim_scratch("slukhayka-mutation.", base=self.root, pid=holder.pid)
+
+        self.assertEqual(str(holder.pid), (scratch / tb.OWNER_MARKER).read_text().strip())
+        self.assertEqual([], tb.sweep_scratch("slukhayka-mutation.", base=self.root))
+        self.assertTrue(scratch.exists())
+
+        holder.kill()
+        holder.wait()
+
+        freed = tb.sweep_scratch("slukhayka-mutation.", base=self.root)
+
+        self.assertEqual([scratch], [path for path, _size in freed])
+        self.assertFalse(scratch.exists())
+
+    def test_a_fresh_scratch_without_a_marker_is_left_alone(self):
+        """Сусідній прогін за мілісекунду до запису маркера — не сміття."""
+        fresh = self.scratch("slukhayka-mutation.fresh")
+
+        freed = tb.sweep_scratch("slukhayka-mutation.", base=self.root, grace=900)
+
+        self.assertEqual([], freed)
+        self.assertTrue(fresh.exists())
+
+    def test_the_default_sweep_reaches_the_wrapper_scratch_too(self):
+        """Префікси в спільному списку — те, чому тека зникає і без свого скрипта.
+
+        Список тут буквально той, що в скриптах (`--prefix`): `mktemp` у них
+        більше не кличеться, і розходження між константою та скриптом мусить
+        червонити саме цей рядок, а не лишати теку в `/tmp`.
+        """
+        stale = [self.scratch(prefix + "old") for prefix in tb.SCRATCH_PREFIXES]
+        for path in stale:
+            os.utime(path, (1, 1))
+
+        freed = tb.sweep_stale(self.root, grace=900)
+
+        self.assertEqual(sorted(stale), sorted(path for path, _size in freed))
+
+    def test_the_prefixes_the_scripts_claim_are_the_reaped_ones(self):
+        """Константа й скрипти мусять називати ОДНІ префікси — інакше тека тече.
+
+        Це не «перевірка рядка»: префікс — це те, за чим прибиральник упізнає
+        залишок. Розійшлися — і тека прогону лишається назавжди, рівно як до
+        цієї правки, при зеленому наборі.
+        """
+        for script, prefix in (("mutate.sh", "slukhayka-mutation."),
+                               ("test-changed.sh", "slukhayka-changed-tests.")):
+            text = (REPO_ROOT / "scripts" / script).read_text(encoding="utf-8")
+            self.assertIn("--prefix %s" % prefix, text)
+            self.assertIn(prefix, tb.SCRATCH_PREFIXES)
+        self.assertIn("slukhayka-tests.", tb.SWEPT_BY_NOBODY_PREFIXES)
+
+    def test_claim_reaps_before_it_creates(self):
+        """Спершу прибрати, тоді створити — інакше місце не повертається."""
+        old = self.scratch("slukhayka-mutation.old")
+        os.utime(old, (1, 1))
+
+        out = io.StringIO()
+        with contextlib.redirect_stderr(out):
+            fresh = tb.claim_scratch("slukhayka-mutation.", base=self.root, pid=os.getpid())
+
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.is_dir())
+        self.assertIn(str(old), out.getvalue())
+
+    def test_a_missing_scratch_root_is_refused_with_the_path(self):
+        missing = self.root / "nope"
+
+        with self.assertRaises(tb.BudgetError) as caught:
+            tb.claim_scratch("slukhayka-mutation.", base=missing)
+
+        self.assertIn(str(missing), str(caught.exception))
+
+    def test_the_entry_point_creates_a_marked_scratch_and_names_it(self):
+        """Той самий вхід, яким користується `bash`, — і той самий маркер."""
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"TMPDIR": str(self.root)}), \
+                contextlib.redirect_stdout(out):
+            code = tb.main(["claim", "--prefix", "slukhayka-mutation.", "--owner-pid", "4242"])
+
+        self.assertEqual(0, code, out.getvalue())
+        created = Path(out.getvalue().strip())
+        self.assertTrue(created.is_dir())
+        self.assertEqual("4242", (created / tb.OWNER_MARKER).read_text().strip())
+
+    def test_the_entry_point_sweeps_without_creating_a_scratch(self):
+        """`sweep` — те, чим прогін прибирає на старті, до перевірок РЕЖИМУ ПРОГОНУ.
+
+        Різниця з `claim` не косметична: тека, лишена SIGKILL'ом, мусить зникнути
+        й тоді, коли прогін відмовить (брудне дерево — саме той стан, у якому
+        лишає `mutate.sh`). Тому `sweep` не створює нічого: тека, яку він створив
+        би, лишилася б по собі на шляху відмови.
+        """
+        old = self.scratch("slukhayka-mutation.old", payload=64)
+        os.utime(old, (1, 1))
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"TMPDIR": str(self.root)}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = tb.main(["sweep", "--prefix", "slukhayka-mutation."])
+
+        self.assertEqual(0, code, err.getvalue())
+        self.assertEqual("", out.getvalue(),
+                         "sweep не сміє писати в stdout: там канал запису `mutate.sh`")
+        self.assertFalse(old.exists())
+        self.assertEqual([], sorted(self.root.iterdir()),
+                         "sweep не сміє лишати по собі теку: він кличеться й на відмові")
+        self.assertIn(str(old), err.getvalue())
+
+    def test_the_entry_point_refuses_loudly_when_there_is_nowhere_to_create(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"TMPDIR": str(self.root / "nope")}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = tb.main(["claim", "--prefix", "slukhayka-mutation."])
+
+        self.assertEqual(2, code)
+        self.assertEqual("", out.getvalue())
+        self.assertIn(str(self.root / "nope"), err.getvalue())
 
 
 class TempRootTest(unittest.TestCase):

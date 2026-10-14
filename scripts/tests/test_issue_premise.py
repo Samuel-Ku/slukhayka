@@ -782,6 +782,59 @@ class BareTreeMeasureTest(unittest.TestCase):
             self.assertEqual(ip.measure_bare_trees("origin/main"), 2)
 
 
+class PriceRecordTest(unittest.TestCase):
+    """Реєстр ціни (#1308): числа шапок — дані, і їх відтворює названа команда.
+
+    Гейт (`doc_numbers.py`) читає РЕЄСТР `PRICES`, а не git: копія дерева, у
+    якій біжить кожен сторож, `.git` не містить, а в CI чекаут не має
+    `origin/main` (раннер фетчить merge-ref) — джерело, яке кличе git, дало б
+    там нуль і почервонило б усе, що на нього спирається. Тому правдивість
+    реєстру доводить прогоном ЦЕЙ тест — там, де ref читається. Де не читається,
+    він каже це вголос, а не видає неперевірене за зелене.
+    """
+
+    def test_the_recorded_prices_are_what_the_documented_command_prints(self):
+        ok, _ = ip.resolve_main_ref(ip.MAIN_REF, REPO_ROOT)
+        if not ok:
+            self.skipTest("ref %s не читається — реєстр тут не перевірено" % ip.MAIN_REF)
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--measure-bare-trees",
+                "--ref", ip.MAIN_REF, "--repo", str(REPO_ROOT),
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        printed = {}
+        for line in proc.stdout.splitlines():
+            entry = line.strip()
+            if not entry.startswith("— "):
+                continue
+            key, _, value = entry[2:].rpartition(": ")
+            printed[key.strip("«»")] = int(value)
+        self.assertEqual(
+            dict(ip.PRICES), printed,
+            "шапки звіряються з реєстром, а реєстр — із прогоном команди",
+        )
+
+    def test_the_record_names_the_revision_it_was_measured_on(self):
+        """Реєстр без ревізії — число, якому нема з чим звіритися."""
+        self.assertTrue(ip.PRICE_REF, "реєстр мусить називати ревізію")
+        self.assertTrue(ip.PRICE_DATE, "реєстр мусить називати дату")
+        self.assertIn("--measure-bare-trees", ip.PRICE_COMMAND)
+
+    def test_the_record_is_about_the_main_ref_the_guard_judges(self):
+        """Реєстр — про той самий ref, який судить ґард: інакше він не про те."""
+        self.assertEqual(ip.MAIN_REF, "origin/main")
+
+    def test_a_class_without_a_record_is_an_error_not_a_silent_truncation(self):
+        """Реєстр і вимір звіряються по позиції — і розійтися за довжиною не сміють."""
+        with mock.patch.object(ip, "PRICES", ip.PRICES[:-1]):
+            with self.assertRaises(ValueError):
+                ip.measured_prices(ip.MAIN_REF)
+
+
 class RealIssueTest(unittest.TestCase):
     """Обидва прогони вимоги 1 — на справжньому тілі #1261 і на валідній премисі."""
 

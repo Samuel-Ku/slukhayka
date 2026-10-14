@@ -782,6 +782,31 @@ class BareTreeMeasureTest(unittest.TestCase):
             self.assertEqual(ip.measure_bare_trees("origin/main"), 2)
 
 
+def price_drift_note(recorded: dict, printed: dict, ref: str, revision: str) -> str:
+    """Причина розходження виміру з реєстром — у ТЕКСТІ, а не в здогаді (огляд PR #1311, C).
+
+    Застарілий локальний `origin/main` дає червоне з числами, які **виглядають
+    справжніми** (73/72/78/76/127/126 замість 75/74/80/78/132/131): винен не
+    код, а джерело. Діагноз «ref застарілий» не можна лишати оглядачеві — інакше
+    це той самий клас «червоне, яке виглядає як знахідка», проти якого стоїть
+    весь реєстр. Тому відмова називає **виміряну ревізію** й ревізію реєстру, а
+    не лише те, що числа не зійшлися.
+    """
+    if recorded == printed:
+        return "шапки звіряються з реєстром, а реєстр — із прогоном команди"
+    differences = ", ".join(
+        "«%s»: реєстр %s, вимір %s" % (key, recorded.get(key), printed.get(key))
+        for key in dict.fromkeys([key for key, _ in ip.PRICES] + sorted(printed))
+        if recorded.get(key) != printed.get(key)
+    )
+    return (
+        "вимір на %s (%s) дав інші числа, ніж реєстр (ref %s, %s): %s. "
+        "Або дерево змінилося, або локальний ref застарілий — тоді "
+        "`git fetch origin main`."
+        % (ref, revision[:8], ip.PRICE_REF, ip.PRICE_DATE, differences)
+    )
+
+
 class PriceRecordTest(unittest.TestCase):
     """Реєстр ціни (#1308): числа шапок — дані, і їх відтворює названа команда.
 
@@ -791,10 +816,14 @@ class PriceRecordTest(unittest.TestCase):
     там нуль і почервонило б усе, що на нього спирається. Тому правдивість
     реєстру доводить прогоном ЦЕЙ тест — там, де ref читається. Де не читається,
     він каже це вголос, а не видає неперевірене за зелене.
+
+    Розходження через застарілий ref — теж **червоне**, і воно мусить називати
+    винуватця в тексті (`price_drift_note`): ревізію, яку міряли, і ревізію
+    реєстру. Інакше оглядач бачить справжні на вигляд числа й шукає вину в коді.
     """
 
     def test_the_recorded_prices_are_what_the_documented_command_prints(self):
-        ok, _ = ip.resolve_main_ref(ip.MAIN_REF, REPO_ROOT)
+        ok, revision = ip.resolve_main_ref(ip.MAIN_REF, REPO_ROOT)
         if not ok:
             self.skipTest("ref %s не читається — реєстр тут не перевірено" % ip.MAIN_REF)
         proc = subprocess.run(
@@ -815,7 +844,32 @@ class PriceRecordTest(unittest.TestCase):
             printed[key.strip("«»")] = int(value)
         self.assertEqual(
             dict(ip.PRICES), printed,
+            price_drift_note(dict(ip.PRICES), printed, ip.MAIN_REF, revision),
+        )
+
+    def test_a_stale_ref_is_named_in_the_refusal_note(self):
+        """Межа (C): «червоне, яке виглядає як знахідка» мусить називати винуватця.
+
+        Той самий червоний, але в тексті — виміряна ревізія, ревізія реєстру й
+        підказка `git fetch origin main`; без них діагноз доводилося б угадувати.
+        """
+        recorded = dict(ip.PRICES)
+        stale = {key: value - 2 for key, value in ip.PRICES}
+        note = price_drift_note(recorded, stale, ip.MAIN_REF, "deadbeefcafe1234")
+        self.assertIn("deadbeef", note)
+        self.assertIn(ip.PRICE_REF, note)
+        self.assertIn(ip.PRICE_DATE, note)
+        self.assertIn("git fetch origin main", note)
+        # Різниця названа ПО КЛАСУ, і числа тут не хардкодяться: реєстр рухається
+        # разом із деревом `main`, а тест мусить пережити його оновлення.
+        first_key, first_value = ip.PRICES[0]
+        self.assertIn(
+            "«%s»: реєстр %d, вимір %d" % (first_key, first_value, first_value - 2),
+            note,
+        )
+        self.assertEqual(
             "шапки звіряються з реєстром, а реєстр — із прогоном команди",
+            price_drift_note(recorded, recorded, ip.MAIN_REF, "deadbeefcafe1234"),
         )
 
     def test_the_record_names_the_revision_it_was_measured_on(self):

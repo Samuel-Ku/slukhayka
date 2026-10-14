@@ -94,11 +94,14 @@ itself edits a file the running shell is still reading: pin those checks with th
 copy-mutant pattern in scripts/tests/test_mutate*.py instead.
 
 A SIGKILL cannot run the EXIT trap, so it leaves two things behind, and only one
-of them is cleaned up for you. The scratch directory is reaped by the NEXT run
-(scripts/tmp_budget.py claim — the same sweeper the mutation mechanisms use), so
-it cannot pile up in a tmpfs. The applied mutation is NOT reaped: it stays in the
-tree, and the next run refuses on a dirty worktree until you roll it back by hand
-(git checkout -- .). That is a boundary in this script, not an oversight.
+of them is cleaned up for you. The scratch directory is reaped at the START of the
+next run (scripts/tmp_budget.py sweep — the same sweeper the mutation mechanisms
+use; claim reaps again once the run gets that far), and that includes a run which
+then REFUSES — the dirty worktree a SIGKILL leaves behind is exactly what makes it
+refuse, so the directory cannot pile up in a tmpfs. The applied mutation is NOT
+reaped: it stays in the tree, and the next run refuses on a dirty worktree until
+you roll it back by hand (git checkout -- .). That is a boundary in this script,
+not an oversight.
 USAGE
 }
 
@@ -179,14 +182,16 @@ if [[ -n $python_arg && -n $test_class ]]; then
   refuse "--class and --python name different worlds; pass one"
 fi
 
-# Прибирання стоїть ПІСЛЯ розбору аргументів, але ДО перевірок, які можуть
-# відмовити, — і це не про охайність. SIGKILL лишає теку прогону, а якщо він
-# упав до відкату (а він падає туди, поки хтось у гурті переживає TERM), то ще й
-# застосовану мутацію в дереві: наступний прогін відмовляє саме на брудному
-# дереві. Прибирання, яке стоїть після перевірок, не виконалося б ніколи
-# (#1300): відмова цього прогону не сміє бути причиною, чому чужа тека лишається
-# в tmpfs назавжди. `--help` і `status` сюди не доходять: перший виходить вище,
-# другий `exec`-ається в трасування.
+# Прибирання стоїть ПІСЛЯ розбору аргументів і після перевірки `sha256sum` (вона
+# ще вище), але ДО перевірок РЕЖИМУ ПРОГОНУ — патча, класу, партиції й брудного
+# дерева, — і це не про охайність.
+# SIGKILL лишає теку прогону, а якщо він упав до відкату (а він падає туди, поки
+# хтось у гурті переживає TERM), то ще й застосовану мутацію в дереві: наступний
+# прогін відмовляє саме на брудному дереві. Прибирання, яке стоїть після ЦИХ
+# перевірок, не виконалося б ніколи (#1300): відмова цього прогону не сміє бути
+# причиною, чому чужа тека лишається в tmpfs назавжди. `status` проходить тут
+# ТЕЖ (його `exec` — нижче), і це навмисно: прибирання не залежить від режиму.
+# `--help` виходить вище, у розборі аргументів, і не прибирає нічого.
 python3 "$budget_module" sweep --prefix slukhayka-mutation. ||
   note "прибирання застарілих тек прогону не вдалося (причина вище)"
 

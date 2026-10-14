@@ -463,7 +463,7 @@ class ScratchTest(unittest.TestCase):
         self.assertEqual("4242", (created / tb.OWNER_MARKER).read_text().strip())
 
     def test_the_entry_point_sweeps_without_creating_a_scratch(self):
-        """`sweep` — те, чим прогін прибирає на САМОМУ СТАРТІ, до перевірок.
+        """`sweep` — те, чим прогін прибирає на старті, до перевірок РЕЖИМУ ПРОГОНУ.
 
         Різниця з `claim` не косметична: тека, лишена SIGKILL'ом, мусить зникнути
         й тоді, коли прогін відмовить (брудне дерево — саме той стан, у якому

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.merge
 
+import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -20,6 +21,10 @@ class ManualWorkMergeGate(private val database: AudiobookDatabase) {
 
     internal fun requireDatabase(expected: AudiobookDatabase) {
         require(database === expected) { "Commands and gate must use the same Room instance" }
+    }
+
+    internal fun requireDao(expected: AudiobookDao) {
+        require(database.audiobookDao() === expected) { "Merger and gate must use the same Room instance" }
     }
 
     /** Writers and activity admission acquire the same sorted participant locks as commands. */

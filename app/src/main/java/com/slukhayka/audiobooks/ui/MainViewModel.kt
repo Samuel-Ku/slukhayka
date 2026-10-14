@@ -4188,6 +4188,8 @@ class MainViewModel @JvmOverloads constructor(
     private var recommendationBaseRevision = 0L
     private var latestRecommendationInputs: RecommendationInputs? = null
     private var activeVectorRequest: VectorRequest? = null
+    private var activeVectorJob: kotlinx.coroutines.CompletableJob? = null
+    private var recommendationResetGeneration: Long? = null
     private var pendingWarmRequest = false
     private var pendingMissingRequest = false
     private var consumedMissingRequest: MissingRequestKey? = null
@@ -4270,8 +4272,10 @@ class MainViewModel @JvmOverloads constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun drainRecommendationRequests() {
+        val parentJob = viewModelScope.coroutineContext[Job] ?: return
         val admitted = synchronized(recommendationPassMonitor) {
-            if (recommendationBackendClosed || activeVectorRequest != null) return
+            if (recommendationBackendClosed || !parentJob.isActive ||
+                recommendationResetGeneration != null || activeVectorRequest != null) return
             val inputs = latestRecommendationInputs ?: return
             val request = if (pendingWarmRequest) {
                 pendingWarmRequest = false
@@ -4285,15 +4289,25 @@ class MainViewModel @JvmOverloads constructor(
                 VectorRequest.Missing(recommendationGeneration, recommendationInputRevision, inputs,
                     recommendationBaseRevision, base, missing)
             } else return
-            val ticket = checkNotNull(embeddingPassGate.begin {
-                embeddingPass.value = embeddingPass.value.let { it.copy(snapshot = it.snapshot.copy(ready = false)) }
-            })
+            // Own cancellation before either frame publication or IO dispatch.
+            val requestJob = kotlinx.coroutines.SupervisorJob(parentJob)
             activeVectorRequest = request
-            request to ticket
+            activeVectorJob = requestJob
+            try {
+                val ticket = checkNotNull(embeddingPassGate.begin {
+                    embeddingPass.value = embeddingPass.value.let { it.copy(snapshot = it.snapshot.copy(ready = false)) }
+                })
+                Triple(request, ticket, requestJob)
+            } catch (failure: Throwable) {
+                activeVectorRequest = null
+                activeVectorJob = null
+                requestJob.cancel()
+                throw failure
+            }
         }
-        // ATOMIC enters finally even if the VM scope is cancelled before dispatch.
-        viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.ATOMIC) {
-            val (request, ticket) = admitted
+        // ATOMIC enters finally even if invalidation cancels the owner before dispatch.
+        viewModelScope.launch(Dispatchers.IO + admitted.third, start = CoroutineStart.ATOMIC) {
+            val (request, ticket, requestJob) = admitted
             var backend: com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend? = null
             var context: com.slukhayka.audiobooks.data.recommend.EmbeddingContext? = null
             var status: com.slukhayka.audiobooks.data.recommend.RecommendationBackendStatus =
@@ -4422,12 +4436,14 @@ class MainViewModel @JvmOverloads constructor(
                                     if (cancelled || context == null) consumedUnusableWarmInputs = request.inputs
                                 }
                             } finally {
+                                check(activeVectorJob === requestJob)
                                 activeVectorRequest = null
+                                activeVectorJob = null
                                 embeddingPassGate.takePendingRerun()
                             }
                         }
                     } finally {
-                        drainRecommendationRequests()
+                        try { drainRecommendationRequests() } finally { requestJob.complete() }
                     }
                 }
             }
@@ -4511,8 +4527,14 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun clearRecommendationBackend(closing: Boolean = false) {
-        val retired = synchronized(recommendationPassMonitor) {
+    private data class RecommendationBackendReset(
+        val generation: Long,
+        val retired: List<com.slukhayka.audiobooks.data.recommend.LoadedRecommendationBackend>,
+    )
+
+    /** Record invalidation before returning; disposal remains outside monitors and on IO. */
+    private fun clearRecommendationBackend(closing: Boolean = false): RecommendationBackendReset {
+        val (reset, activeJob) = synchronized(recommendationPassMonitor) {
             embeddingPassGate.invalidate {
                 synchronized(recommendationBackendMonitor) {
                     recommendationGeneration++
@@ -4521,6 +4543,7 @@ class MainViewModel @JvmOverloads constructor(
                     loadedRecommendationBackend?.let { retiredRecommendationBackends.addLast(it) }
                     loadedRecommendationBackend = null
                 }
+                recommendationResetGeneration = if (closing) null else recommendationGeneration
                 recommendationBaseRevision++
                 consumedMissingRequest = null
                 consumedUnusableWarmInputs = null
@@ -4528,9 +4551,25 @@ class MainViewModel @JvmOverloads constructor(
                 pendingMissingRequest = false
                 embeddingPass.value = RuntimeEmbeddingPass()
             }
-            synchronized(recommendationBackendMonitor) { takeRetiredRecommendationBackends() }
+            val retired = synchronized(recommendationBackendMonitor) { takeRetiredRecommendationBackends() }
+            RecommendationBackendReset(recommendationGeneration, retired) to activeVectorJob
         }
-        retired.forEach(::closeRecommendationBackend)
+        activeJob?.cancel(CancellationException("Recommendations invalidated"))
+        return reset
+    }
+
+    /** Only this reset can reopen admission after its claimed idle handles are disposed. */
+    private fun finishRecommendationBackendReset(reset: RecommendationBackendReset) {
+        val inputs = captureRecommendationInputs()
+        synchronized(recommendationPassMonitor) {
+            if (recommendationBackendClosed || recommendationResetGeneration != reset.generation) return
+            recordRecommendationInputs(inputs)
+            pendingWarmRequest = true
+            consumedMissingRequest = null
+            consumedUnusableWarmInputs = null
+            recommendationResetGeneration = null
+        }
+        drainRecommendationRequests()
     }
 
 
@@ -4564,20 +4603,34 @@ class MainViewModel @JvmOverloads constructor(
     /** Installed files are retained: a listener retry reopens the actual backend. */
     fun retryEmbeddingModel() = prepareEmbeddingModel(allowDownload = false)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun prepareEmbeddingModel(allowDownload: Boolean) {
         if (recommendationBackendClosed) return
         if (allowDownload && modelInstaller.isInstalled() && loadedRecommendationBackend != null) return
         if (!_embeddingInstallInFlight.compareAndSet(false, true)) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val state = if (allowDownload) modelInstaller.ensureInstalled() else _embeddingModelState.value
-                if (!allowDownload || state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
-                    clearRecommendationBackend()
+        val retryReset = if (allowDownload) null else clearRecommendationBackend()
+        // Claimed idle handles must still be disposed if the VM closes before dispatch.
+        viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.ATOMIC) {
+            val completedReset = try {
+                if (retryReset != null) {
+                    retryReset.retired.forEach(::closeRecommendationBackend)
+                    retryReset
+                } else {
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val state = modelInstaller.ensureInstalled()
+                    if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
+                        clearRecommendationBackend().also { reset ->
+                            reset.retired.forEach(::closeRecommendationBackend)
+                        }
+                    } else null
                 }
-                requestNormalWarm()
             } finally {
+                // Preparation is done before a warm can enter its first embed.
+                // This finally must not clear a later retry's claimed install flag.
                 _embeddingInstallInFlight.set(false)
             }
+            if (completedReset != null) finishRecommendationBackendReset(completedReset)
+            else requestNormalWarm()
         }
     }
 
@@ -6494,8 +6547,12 @@ class MainViewModel @JvmOverloads constructor(
     // The captured-page import doors remain repository seams; 4read's release
     // browser now reaches them through WebSourceBrowserScreen as well.
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun onCleared() {
-        clearRecommendationBackend(closing = true)
+        val reset = clearRecommendationBackend(closing = true)
+        viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.ATOMIC) {
+            reset.retired.forEach(::closeRecommendationBackend)
+        }
         super.onCleared()
     }
 

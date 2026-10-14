@@ -7,7 +7,7 @@ Documentation=file:%h/Projects/slukhayka/docs/runbooks/branch-hygiene.md
 # торкається). Persistent=true доганяє пропущений запуск, якщо машина спала.
 OnCalendar=*-*-* 02:40:00
 Persistent=true
-RandomDelaySec=300
+RandomizedDelaySec=300
 
 [Install]
 WantedBy=timers.target

@@ -51,6 +51,10 @@ GUARD_TESTS = (
     ".test_a_changed_limit_moves_the_number_without_touching_the_mechanism",
     "test_ci_job_time.MeasurementTest"
     ".test_the_relation_floor_reddens_on_the_slowest_run",
+    "test_ci_job_time.MeasurementTest"
+    ".test_the_window_asks_the_api_for_main_push_runs_only",
+    "test_ci_job_time.RefusalTest"
+    ".test_a_run_from_another_branch_is_an_unknown_not_a_measurement",
     "test_ci_job_time.RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero",
     "test_declared_fields.RepositoryTest"
     ".test_every_record_declares_exactly_the_listed_fields",

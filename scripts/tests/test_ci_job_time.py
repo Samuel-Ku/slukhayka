@@ -14,19 +14,21 @@ GitHub сьогодні відповідає. Справжнє дерево пе
     а не написані в механізмі: підставлене дерево з іншим `timeout-minutes`
     рухає число, не чіпаючи код;
   * `MeasurementTest` — секунди, запас і відношення; вікно бере рівно завершені
-    прогони, а підлога запасу червоніє на повільному прогоні;
+    прогони `main` (подія `push`) і питає їх фільтром у САМОМУ запиті, а підлога
+    запасу червоніє на повільному прогоні;
   * `RefusalTest` — невідомість коштує код 2, а не «нуль»: немає `gh`, немає
-    завершених прогонів, джоби немає в прогоні, `gh` упав, дві джоби з тим імʼям,
-    ліміту немає;
+    завершених прогонів `main`, API віддав прогін не з `main`, джоби немає в
+    прогоні, `gh` упав, дві джоби з тим імʼям, ліміту немає;
   * `ClaimTest` — числа в документах: ліміт приймається, локальне число — лише
     ПОЗНАЧЕНЕ разом із навантаженням машини, а заморожене число джоби — знахідка;
   * `RepositoryTest` — справжнє дерево: ліміт 300 с, і жодного числа, яке не
     виводиться.
 
 Зарахований у `scripts/guard_witnesses.py` — один сторож на кожну половину
-механізму (`LimitTest`, `MeasurementTest`, `RefusalTest`, `ClaimTest`); решта
-перевіряють сам механізм і в реєстрі не стоять. Реєстр покриває НАЗВАНИХ, а не
-всіх.
+механізму (`LimitTest`, `MeasurementTest`, `RefusalTest`, `ClaimTest`), плюс
+окремий запис на кожен бік фільтра джерела (#1307): фільтр у запиті й відмова
+на прогін, який прийшов попри нього. Решта перевіряють сам механізм і в реєстрі
+не стоять. Реєстр покриває НАЗВАНИХ, а не всіх.
 """
 
 import contextlib
@@ -176,11 +178,19 @@ class Fixture(unittest.TestCase):
         )
         self.gh.chmod(self.gh.stat().st_mode | stat.S_IXUSR)
 
-    def write_runs(self, *runs: tuple[str, str]) -> None:
-        """Прогони фікстури: (id, status) — у тому порядку, як їх віддає API."""
+    def write_runs(self, *runs: tuple[str, str], branch: str = "main",
+                   event: str = "push") -> None:
+        """Прогони фікстури: (id, status) — у тому порядку, як їх віддає API.
+
+        `branch`/`event` — джерело прогону, і типово це `main` (подія `push`):
+        саме такі прогони механізм і питає (#1307). Інші значення — підставна
+        відповідь API, яка прийшла ПОПРИ фільтр, і тоді механізм мусить
+        відмовити, а не міряти чуже.
+        """
         entries = ", ".join(
-            '{"id": %s, "status": "%s", "created_at": "2026-10-14T0%s:00:00Z"}'
-            % (run_id, status, index)
+            '{"id": %s, "status": "%s", "created_at": "2026-10-14T0%s:00:00Z", '
+            '"head_branch": "%s", "event": "%s"}'
+            % (run_id, status, index, branch, event)
             for index, (run_id, status) in enumerate(runs)
         )
         (self.fixtures / "runs.json").write_text('{"workflow_runs": [%s]}' % entries,
@@ -300,11 +310,32 @@ class MeasurementTest(Fixture):
         self.assertIn("#1", out)
         self.assertIn("per_page=%d" % (1 * (1 + c.FETCH_SLACK)), self.calls()[0])
 
+    def test_the_window_asks_the_api_for_main_push_runs_only(self):
+        """Сторож #1307: джерело вікна — ОДНЕ, і фільтр стоїть у САМОМУ запиті.
+
+        Підлога — твердження про `main`. Механізм, який питає всі прогони
+        воркфлоу, міряє змішане джерело: саме так повільний PR-прогін ламав
+        підлогу `main` (#1307) — у вікні, зібраному з усіх гілок, найповільнішим
+        виявився чужий прогін, і механізм повідомив про порушення, якого на
+        `main` не було.
+        """
+        self.write_runs(("1", "completed"))
+        code, out, err = self.check("--runs", "1")
+        self.assertEqual(0, code, err)
+        self.assertIn("branch=%s" % c.MAIN_BRANCH, self.calls()[0])
+        self.assertIn("event=%s" % c.MAIN_EVENT, self.calls()[0])
+        # Джерело назване не лише в запиті, а й у рядку звіту: число без джерела
+        # поруч — те, чим ця вада й була.
+        self.assertIn("%s/%s" % (c.MAIN_BRANCH, c.MAIN_EVENT), out)
+        self.assertIn("вікно: останні 1 завершених прогонів `%s` (подія `%s`)"
+                      % (c.MAIN_BRANCH, c.MAIN_EVENT), out)
+
     def test_fewer_completed_runs_than_the_window_is_an_unknown(self):
         self.write_runs(("9", "in_progress"))
         code, out, err = self.check("--runs", "2")
         self.assertEqual(2, code)
         self.assertIn("завершених прогонів", err)
+        self.assertIn(c.MAIN_BRANCH, err)
 
     def test_the_relation_floor_reddens_on_the_slowest_run(self):
         """Сторож: підлога запасу — це перевірка, а не прикраса.
@@ -366,6 +397,30 @@ class RefusalTest(Fixture):
         self.assertEqual(2, code)
         self.assertIn("немає", err)
         self.assertIn("Script unit tests", err)
+
+    def test_a_run_from_another_branch_is_an_unknown_not_a_measurement(self):
+        """Сторож #1307: чужий прогін у вікні — невідомість (2), а не число.
+
+        Другий бік того самого фільтра. Якби API віддав прогін `pull_request`
+        попри `branch=main&event=push` (запит проігноровано, форму змінено),
+        міряти його означало б повернути ту саму змішаницю джерел, через яку
+        повільний PR ламав підлогу `main`. Механізм відмовляє — і називає
+        джерело, яке прийшло замість `main`.
+
+        `jobs-1.json` тут не декор: без нього мутант (`if foreign:` → `if False:`)
+        не дійшов би до виміру, підставний `gh` упав би на відсутній фікстурі — і
+        тест ловив би мутацію ЗЛАМАНИМ ПІДСТАВНИМ `gh` (той самий `exit=2`), а не
+        кодом виходу, який обіцяє. З ним мутант доходить до виміру, виходить
+        НУЛЕМ і друкує PR-прогін у списку — тож `assertEqual(2, code)` червоніє
+        сам, на тому, що сторож обіцяє: чужий прогін не міряється.
+        """
+        self.write_runs(("1", "completed"), branch="t1300-leak2", event="pull_request")
+        self.write_jobs("1", "2026-10-14T04:00:00Z", "2026-10-14T04:02:10Z")
+        code, out, err = self.check("--runs", "1")
+        self.assertEqual(2, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("t1300-leak2", err)
+        self.assertIn("pull_request", err)
+        self.assertIn(c.MAIN_BRANCH, err)
 
     def test_two_jobs_with_that_name_are_an_unknown(self):
         """Ретрай лишає два записи з тим самим імʼям — який міряти, не вгадується."""

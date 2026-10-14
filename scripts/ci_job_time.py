@@ -13,12 +13,13 @@
 Механізм робить дві речі, і обидві — дані, а не проза:
 
   * **міряє** джобу там, де ліміт діє. `gh api` віддає останні N завершених
-    прогонів воркфлоу `WORKFLOW`, а для кожного — `started_at` і `completed_at`
-    джоби, названої в `ci.yml`. Ліміт — не константа тут: `timeout-minutes`
-    читається з ТОГО САМОГО блоку `ci.yml`, і звідти ж беруться імʼя джоби та
-    команда, яку вона виконує. Число, яке не виводиться (немає `gh`, немає
-    прогонів, джоби немає в прогоні, коду виходу `gh` не розібрано), —
-    невідомість (2), а не «нуль»;
+    прогонів `main` (подія `push`) воркфлоу `WORKFLOW`, а для кожного —
+    `started_at` і `completed_at` джоби, названої в `ci.yml`. Ліміт — не
+    константа тут: `timeout-minutes` читається з ТОГО САМОГО блоку `ci.yml`, і
+    звідти ж беруться імʼя джоби та команда, яку вона виконує. Число, яке не
+    виводиться (немає `gh`, немає прогонів `main`, джоби немає в прогоні, коду
+    виходу `gh` не розібрано, API віддав прогін не з `main`), — невідомість
+    (2), а не «нуль»;
   * **тримає числа доку**. `CLAIMS` — рядки в дереві, які щось кажуть про час
     цієї джоби. Кожне число-секунда на такому рядку мусить бути ЛИБО лімітом,
     виведеним із `ci.yml`, ЛИБО частиною локального виміру, ПОЗНАЧЕНОГО разом
@@ -36,14 +37,27 @@
 
 Межі названі тут, у коді, а не лише в звіті:
 
-  * **вікно — останні `WINDOW` завершених прогонів, і це не «завжди».** Історія
-    прогонів у GitHub обмежена, а API віддає вікно, а не всю історію; тому
-    механізм питає `per_page` із запасом (`FETCH_SLACK`) і бере перші `WINDOW`
-    ЗАВЕРШЕНИХ. Прогін, який ще біжить, у вікно не входить — інакше число
-    джоби залежало б від того, коли його спитали. Чому саме пʼять: пʼяти
-    вистачає, щоб побачити розкид, і задосить мало, щоб зелений день не
+  * **вікно — останні `WINDOW` завершених прогонів `main` (подія `push`), і це
+    не «завжди».** Історія прогонів у GitHub обмежена, а API віддає вікно, а не
+    всю історію; тому механізм питає `per_page` із запасом (`FETCH_SLACK`) і бере
+    перші `WINDOW` ЗАВЕРШЕНИХ. Прогін, який ще біжить, у вікно не входить —
+    інакше число джоби залежало б від того, коли його спитали. Чому саме пʼять:
+    пʼяти вистачає, щоб побачити розкид, і задосить мало, щоб зелений день не
     виглядав як зелений тиждень. «Останні N» — не «завжди», і `--list` друкує
     N разом із причиною;
+  * **джерело вікна — ОДНЕ: `main` (подія `push`), і це фільтр у ЗАПИТІ.**
+    Підлога — твердження про `main`, тож міряються прогони `main`, а не «всі
+    прогони воркфлоу» (#1307). Прогін чужого PR у вікно не входить тому, що
+    його НЕ ПИТАЮТЬ (`branch=`, `event=` у запиті) — а не тому, що його
+    відкинуто після виміру: відкидання лишало б код, здатний змішати джерела, і
+    саме так повільний PR-прогін ламав підлогу `main` (#1307): у вікні,
+    зібраному з усіх гілок, найповільнішим виявився чужий прогін, і механізм
+    повідомив про порушення, якого на `main` не було. Другий бік того самого —
+    відмова: прогін, який API віддав ПОПРИ фільтр (не `main` або не `push`), не
+    міряється й не відкидається тихо, а робить вікно невідомістю (2). Межа
+    названа прямо: прогонів `main` у запитаній сторінці може бути менше за
+    `WINDOW` (у вікні були лише PR) — тоді це 2, а не менше вікно і не вигадане
+    число;
   * **міряється те, що записав GitHub.** Число — це `completed_at − started_at`
     тієї джоби, яку API назвав цим імʼям. Воно НЕ включає чергу до призначення
     раннера (її в цих двох точках немає) і не включає час ретраю: ретрай — це
@@ -85,13 +99,14 @@
     `timeout-minutes` — рішення власника, а не ліки від червоного. Якщо ліміт
     змінити, числа в документах розійдуться з ним, і `--check-docs` це назве.
 
-Коди виходу: 0 — час джоби міряно на N прогонах, відношення тримається, і кожне
-число в документах виводиться; 1 — знахідка (прогін дійшов до ліміту або
+Коди виходу: 0 — час джоби міряно на N прогонах `main`, відношення тримається, і
+кожне число в документах виводиться; 1 — знахідка (прогін дійшов до ліміту або
 перевищив його, відношення більше не тримається, число в доку не виводиться й
 не позначене); 2 — перевірити не вдалося (немає `gh` або він не відповів,
-немає завершених прогонів, джоби немає в прогоні, кілька джоб із тим імʼям,
-`ci.yml` не розібрано, немає `timeout-minutes`, немає `origin`, файлу немає,
-якір не один, рядок більше не несе числа, `/proc` не прочитано).
+немає завершених прогонів `main` у вікні, API віддав прогін не з `main`, джоби
+немає в прогоні, кілька джоб із тим імʼям, `ci.yml` не розібрано, немає
+`timeout-minutes`, немає `origin`, файлу немає, якір не один, рядок більше не
+несе числа, `/proc` не прочитано).
 """
 
 from __future__ import annotations
@@ -119,8 +134,16 @@ JOB_KEY = "script-tests"
 WINDOW = 5
 FETCH_SLACK = 3
 
+# Джерело вікна: підлога — про `main`, і міряється вона на прогонах `main`
+# (подія `push`). Це не «фільтр після виміру»: гілка й подія стоять у САМОМУ
+# запиті до API, тож прогін чужого PR у вікно не потрапляє — його не питають
+# (#1307). Змішане вікно міряло б не ту підлогу, про яку каже документ, і
+# повідомляло б про порушення, якого на `main` немає.
+MAIN_BRANCH = "main"
+MAIN_EVENT = "push"
+
 # Відношення, яке тримає доку: ліміт мусить бути не меншим за це число, помножене
-# на найповільніший виміряний прогін. Це ПІДЛОГА, не прогноз: раннер, який
+# на найповільніший виміряний прогін `main`. Це ПІДЛОГА, не прогноз: раннер, який
 # уповільниться вдвічі, почервонить механізм — і це буде правдою про ліміт.
 HEADROOM_RATIO = 2
 
@@ -163,12 +186,20 @@ class JobTimeError(Exception):
 
 
 class Measurement:
-    """Один виміряний прогін: номер, коли почався, секунди джоби."""
+    """Один виміряний прогін: номер, коли почався, секунди джоби.
 
-    def __init__(self, run_id: str, created_at: str, seconds: int):
+    `branch` і `event` несуться разом із числом навмисно: рядок звіту, який не
+    називає джерело, не дає побачити, з чого зібране вікно, — а саме на цьому
+    згоріла підлога, поки вікно мішало `main` із чужими PR (#1307).
+    """
+
+    def __init__(self, run_id: str, created_at: str, seconds: int,
+                 branch: str, event: str):
         self.run_id = run_id
         self.created_at = created_at
         self.seconds = seconds
+        self.branch = branch
+        self.event = event
 
 
 # --------------------------------------------------------------------------
@@ -315,21 +346,43 @@ def timestamp(value: object, where: str) -> datetime.datetime:
 
 
 def completed_runs(repo: str, window: int, gh: str | None = None) -> list[dict]:
-    """Останні завершені прогони воркфлоу — не більше `window`, і не менше."""
+    """Останні завершені прогони `main` (подія `push`) — не більше `window`.
+
+    Гілка й подія — у САМОМУ запиті (`branch=`, `event=`), а не у фільтрі після
+    виміру: прогін чужого PR у вікно не входить тому, що його не питають
+    (#1307). Межа названа: якщо в запитаній сторінці завершених прогонів `main`
+    менше за `window` — це НЕ «нуль прогонів» і не менше вікно, а невідомість
+    (2), бо прогін `main` може бути відсутній у вікні зовсім.
+    """
     workflow = Path(WORKFLOW).name
     payload = gh_api(
-        "repos/%s/actions/workflows/%s/runs?per_page=%d"
-        % (repo, workflow, window * (1 + FETCH_SLACK)),
+        "repos/%s/actions/workflows/%s/runs?per_page=%d&branch=%s&event=%s"
+        % (repo, workflow, window * (1 + FETCH_SLACK), MAIN_BRANCH, MAIN_EVENT),
         gh,
     )
     runs = payload.get("workflow_runs")
     if not isinstance(runs, list):
         raise JobTimeError("відповідь API не має `workflow_runs`")
+    # Другий бік того самого фільтра: якщо API віддав прогін не з `main` (запит
+    # проігноровано, форму `branch` змінено), він не міряється й не відкидається
+    # тихо — це невідомість. Так змішати джерела нема чим: або вікно одне, або
+    # числа немає.
+    foreign = [run for run in runs
+               if run.get("head_branch") != MAIN_BRANCH or run.get("event") != MAIN_EVENT]
+    if foreign:
+        raise JobTimeError(
+            "вікно мусить бути з прогонів `%s` (подія `%s`), а API віддав прогін "
+            "з гілки %r і події %r — час джоби з такого вікна не міряється"
+            % (MAIN_BRANCH, MAIN_EVENT, foreign[0].get("head_branch"),
+               foreign[0].get("event"))
+        )
     done = [run for run in runs if run.get("status") == "completed"]
     if len(done) < window:
         raise JobTimeError(
-            "завершених прогонів у вікні — %d, а треба %d: число джоби взяти нема з чого"
-            % (len(done), window)
+            "завершених прогонів `%s` (подія `%s`) у вікні — %d, а треба %d: число "
+            "джоби взяти нема з чого. Прогін `main` може бути відсутній у вікні — "
+            "тоді це невідомість (2), а не менше вікно"
+            % (MAIN_BRANCH, MAIN_EVENT, len(done), window)
         )
     return done[:window]
 
@@ -357,7 +410,8 @@ def measured(entry: dict, name: str, repo: str, gh: str | None = None) -> Measur
     seconds = int((finished - started).total_seconds())
     if seconds < 0:
         raise JobTimeError("прогін %s: completed_at раніше за started_at" % run_id)
-    return Measurement(run_id, str(entry.get("created_at") or ""), seconds)
+    return Measurement(run_id, str(entry.get("created_at") or ""), seconds,
+                       str(entry.get("head_branch") or "?"), str(entry.get("event") or "?"))
 
 
 # --------------------------------------------------------------------------
@@ -509,13 +563,14 @@ def headroom(limit: int, seconds: int) -> tuple[int, float, float]:
 
 
 def measurement_lines(name: str, limit: int, runs: list[Measurement]) -> list[str]:
-    """Рядок на прогін плюс підсумок: час, запас, відношення."""
+    """Рядок на прогін плюс підсумок: джерело, час, запас, відношення."""
     lines = []
     for run in runs:
         spare, percent, ratio = headroom(limit, run.seconds)
         lines.append(
-            "  #%s  %s  %d с · запас %d с (%.0f %%) · %.2f×"
-            % (run.run_id, run.created_at or "?", run.seconds, spare, percent, ratio)
+            "  #%s  %s  %s/%s  %d с · запас %d с (%.0f %%) · %.2f×"
+            % (run.run_id, run.created_at or "?", run.branch, run.event,
+               run.seconds, spare, percent, ratio)
         )
     times = sorted(run.seconds for run in runs)
     slowest = times[-1]
@@ -526,8 +581,9 @@ def measurement_lines(name: str, limit: int, runs: list[Measurement]) -> list[st
         % (len(runs), slowest, median, times[0])
     )
     lines.append(
-        "  запас найповільнішого: %d с (%.0f %%), %.2f× — підлога %.1f× %s"
-        % (spare, percent, ratio, HEADROOM_RATIO,
+        "  запас найповільнішого: %d с (%.0f %%), %.2f× — підлога %.1f× на "
+        "прогонах `%s` (подія `%s`) %s"
+        % (spare, percent, ratio, HEADROOM_RATIO, MAIN_BRANCH, MAIN_EVENT,
            "тримається" if ratio >= HEADROOM_RATIO else "БІЛЬШЕ НЕ ТРИМАЄТЬСЯ")
     )
     return lines
@@ -547,9 +603,10 @@ def verdict(runs: list[Measurement], limit: int) -> list[str]:
     if limit < HEADROOM_RATIO * slowest:
         findings.append(
             "відношення, назване в документах, більше не тримається: ліміт %d с "
-            "менший за %.1f× від найповільнішого прогону (%d с). Або число в доку "
-            "переміряти, або ліміт підняти — і те, й те вирішує не механізм"
-            % (limit, HEADROOM_RATIO, slowest)
+            "менший за %.1f× від найповільнішого прогону `%s` (подія `%s`, %d с). "
+            "Або число в доку переміряти, або ліміт підняти — і те, й те вирішує не "
+            "механізм"
+            % (limit, HEADROOM_RATIO, MAIN_BRANCH, MAIN_EVENT, slowest)
         )
     return findings
 
@@ -569,15 +626,17 @@ def success_line(mode: str, runs: int) -> str:
         return ("OK    локальний вимір надруковано ПОЗНАЧЕНИМ (навантаження й "
                 "памʼять машини); ЧАС ДЖОБИ тут не міряно — його міряє "
                 "`python3 scripts/ci_job_time.py` на CI, через `gh api`")
-    return ("OK    час джоби міряно на %d прогонах; зараховані рядки виводяться" % runs)
+    return ("OK    час джоби міряно на %d прогонах `%s` (подія `%s`); зараховані "
+            "рядки виводяться" % (runs, MAIN_BRANCH, MAIN_EVENT))
 
 
 def listing(root: Path = ROOT, window: int = WINDOW) -> list[str]:
     """Що механізм покриває — без `gh` і без мережі."""
     lines = [
         "джоба: %s (`%s`)" % (JOB_KEY, WORKFLOW),
-        "вікно: останні %d завершених прогонів (не «завжди» — історія API "
-        "обмежена, і `--runs` його рухає)" % window,
+        "вікно: останні %d завершених прогонів `%s` (подія `%s`) — не «всі прогони "
+        "воркфлоу» і не «завжди»: історія API обмежена, і `--runs` його рухає"
+        % (window, MAIN_BRANCH, MAIN_EVENT),
     ]
     for what, value in (("імʼя", lambda: job_name(root)),
                         ("ліміт", lambda: "%d с" % limit_seconds(root)),
@@ -586,7 +645,8 @@ def listing(root: Path = ROOT, window: int = WINDOW) -> list[str]:
             lines.append("%s: %s" % (what, value()))
         except (JobTimeError, OSError) as error:
             lines.append("%s: НЕВІДОМО (%s)" % (what, error))
-    lines.append("підлога запасу: %.1f× від найповільнішого прогону" % HEADROOM_RATIO)
+    lines.append("підлога запасу: %.1f× від найповільнішого прогону `%s` (подія `%s`)"
+                 % (HEADROOM_RATIO, MAIN_BRANCH, MAIN_EVENT))
     for relative, anchor in CLAIMS:
         lines.append("зарахований рядок: %s — «%s»" % (relative, anchor))
     return lines
@@ -599,8 +659,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--root", type=Path, default=ROOT, help="корінь дерева")
     parser.add_argument("--runs", type=int, default=WINDOW,
-                        help="скільки останніх завершених прогонів міряти (типово %d)"
-                             % WINDOW)
+                        help="скільки останніх завершених прогонів `%s` (подія `%s`) "
+                             "міряти (типово %d)" % (MAIN_BRANCH, MAIN_EVENT, WINDOW))
     parser.add_argument("--repo", default=None,
                         help="owner/name; типово — `origin` цього дерева")
     parser.add_argument("--check-docs", action="store_true",
@@ -654,7 +714,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("джоба: %s (`%s` у %s)" % (name, JOB_KEY, WORKFLOW))
             print("ліміт: %d с" % limit)
-            print("вікно: останні %d завершених прогонів" % arguments.runs)
+            print("вікно: останні %d завершених прогонів `%s` (подія `%s`)"
+                  % (arguments.runs, MAIN_BRANCH, MAIN_EVENT))
             for line in measurement_lines(name, limit, runs):
                 print(line)
             findings.extend(verdict(runs, limit))

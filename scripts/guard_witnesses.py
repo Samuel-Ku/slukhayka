@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 22 записи, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 24 записи, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
 паралельно (`--jobs`), і кожен друкує свій час під час прогону
 (`python3 scripts/guard_witnesses.py`) — 0.5–1.7 с на запис на цій машині (вона
@@ -583,6 +583,42 @@ GUARDS = (
                 file="scripts/ci_job_time.py",
                 find="            if int(float(figure)) == limit or labelled_local(line):\n",
                 replace="            if True:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.LocalRunTest"
+             ".test_the_local_mode_reports_a_local_measurement_and_not_the_job_time",
+        protects="рядок благополуччя ЛОКАЛЬНОГО режиму (#1299, огляд PR #1302): "
+                 "`--local` не питає `gh` і джоби не міряє, тож «час джоби "
+                 "міряно» в ньому — рядок, який суперечить позначці просто над "
+                 "ним. Механізм, який каже це на локальному вимірі, і є та "
+                 "плутанина, проти якої він написаний",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find='    if mode == "local":\n',
+                replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.ClaimTest"
+             ".test_a_word_that_merely_contains_the_mark_is_not_a_label",
+        protects="межу позначки як СЛОВА (#1299, огляд PR #1302): `download` і "
+                 "`upload` містять `load`, і рядок, який локальне число "
+                 "ЗАПЕРЕЧУЄ, сходив за позначений локальний вимір — тобто "
+                 "перевірка перевіряла не те, що обіцяє",
+        edits=(
+            # Підрядкове читання — рівно те, що було до правки.
+            Edit(
+                file="scripts/ci_job_time.py",
+                find='    return any(\n'
+                     '        re.search(r"(?<!\\w)%s(?!\\w)" % re.escape(mark), '
+                     'line, re.IGNORECASE)\n'
+                     '        for mark in marks\n'
+                     '    )\n',
+                replace="    return any(mark.lower() in line.lower() for mark in marks)\n",
             ),
         ),
     ),

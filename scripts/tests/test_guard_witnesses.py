@@ -43,6 +43,10 @@ import guard_witnesses as w  # noqa: E402
 GUARD_TESTS = (
     "test_ci_job_time.ClaimTest"
     ".test_a_local_figure_without_a_named_load_is_a_finding",
+    "test_ci_job_time.ClaimTest"
+    ".test_a_word_that_merely_contains_the_mark_is_not_a_label",
+    "test_ci_job_time.LocalRunTest"
+    ".test_the_local_mode_reports_a_local_measurement_and_not_the_job_time",
     "test_ci_job_time.LimitTest"
     ".test_a_changed_limit_moves_the_number_without_touching_the_mechanism",
     "test_ci_job_time.MeasurementTest"

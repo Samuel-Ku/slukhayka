@@ -456,8 +456,8 @@ mechanism will name every number that moves.
 Its named limits are in its docstring, and the first one is the price of the
 whole idea: **the mechanism sees only the shapes and files it lists.** A scan
 that demanded a command beside *every* number would drown — `python3
-scripts/doc_numbers.py --audit` counts 178 figures of "number + unit" across
-`docs/agents/*.md` and `scripts/**/*.py`, and 172 of them sit on a line with no
+scripts/doc_numbers.py --audit` counts 184 figures of "number + unit" across
+`docs/agents/*.md` and `scripts/**/*.py`, and 177 of them sit on a line with no
 date, most being records of the past (the seconds and gigabytes of one build on
 one machine on 2026-10-12) that no command reproduces at HEAD. So
 bytes and seconds are outside `SCANNED`; where such a number must stay, what is
@@ -813,9 +813,11 @@ mechanism asks the API for a window with slack, takes only *completed* runs, and
 `--runs N` moves it — the green line names the N it used.
 
 A local run of the same suite measures this machine, not the runner: it is
-**173.2 s locally on this shared machine under load 6.26** — which is what
-`python3 scripts/ci_job_time.py --local` prints, the number and the label
-together, because the two are one fact. The series that filed this ticket
+**173.2 s locally on this shared machine under load 6.26** (2026-10-14), and
+**201.2 s** the same day under load 8.15 — the local number moves with the load,
+which is why it cannot be the job's time. `python3 scripts/ci_job_time.py
+--local` prints it with the label, the number and the label together, because
+the two are one fact. The series that filed this ticket
 measured **159–239 s** locally under load 5.4 on this shared machine, and read
 it as the job's time; the mechanism now refuses that reading — an unlabelled
 local figure is a finding rather than a pass. It does not touch `ci.yml`:

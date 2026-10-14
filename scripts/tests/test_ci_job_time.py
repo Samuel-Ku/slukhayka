@@ -442,6 +442,25 @@ class ClaimTest(Fixture):
         code, out, err = self.check("--check-docs")
         self.assertEqual(0, code, err)
 
+    def test_a_word_that_merely_contains_the_mark_is_not_a_label(self):
+        """Підрядок — не позначка: знайшов огляд PR #1302 прогоном, не автор.
+
+        `download` і `upload` містять `load`, але навантаження не називають, а
+        рядок, який локальне число ЗАПЕРЕЧУЄ («this is not local»), теж не
+        позначка. Обидва проходили, доки позначка читалася як підрядок.
+        """
+        self.assertFalse(c.labelled_local(
+            "The local build downloads 240 s of artifacts"))
+        self.assertFalse(c.labelled_local(
+            "This is not local; the upload took 240 s"))
+        self.assertTrue(c.labelled_local(c.local_label(176.0, 5.4, 2.1, 15.0)))
+        self.write_claim(
+            limit="`script-tests` is capped by `timeout-minutes: 5` — 300 s; "
+                  "the local build downloads 240 s of artifacts.\n")
+        code, out, err = self.check("--check-docs")
+        self.assertEqual(1, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("240", err)
+
     def test_the_label_this_mechanism_prints_is_accepted_by_its_own_rule(self):
         """Форма позначки — дані, а не побажання: `--local` друкує РІВНО ту, яку
         приймає перевірка (інакше механізм відмовляв би власному виміру)."""
@@ -519,6 +538,31 @@ class RepositoryTest(unittest.TestCase):
         self.assertIn("300 с", out)
         for _, anchor in EXPECTED_CLAIMS:
             self.assertIn(anchor, out)
+
+
+class LocalRunTest(Fixture):
+    """`--local` міряє ТУТ — і не сміє казати, що міряв джобу.
+
+    Прогін тут не запускає справжнього набору (це коштувало б хвилини й
+    рекурсії): `local_measurement` і `machine_facts` підставлені, а міряється
+    те, що механізм ДРУКУЄ — позначку й рядок благополуччя.
+    """
+
+    def test_the_local_mode_reports_a_local_measurement_and_not_the_job_time(self):
+        """Огляд PR #1302 знайшов це прогоном: після позначки «НЕ час джоби» йшов
+        рядок «час джоби міряно на 5 прогонах», хоч `gh` у цьому режимі не
+        питали. Рядок благополуччя мусить бути СВІЙ у кожного режиму."""
+        with unittest.mock.patch.object(c, "local_measurement", return_value=42.0), \
+                unittest.mock.patch.object(c, "machine_facts",
+                                           return_value=(5.4, 2.1, 15.5)):
+            code, out, err = self.check("--local")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("ЛОКАЛЬНО 42.0 с", out)
+        self.assertIn("НЕ час джоби", out)
+        self.assertIn("ЧАС ДЖОБИ тут не міряно", out)
+        self.assertNotIn("час джоби міряно", out,
+                         "локальний режим не міряє джобу — і не сміє цього казати")
+        self.assertEqual([], self.calls(), "локальний вимір не питає `gh`")
 
 
 class LocalLabelTest(unittest.TestCase):

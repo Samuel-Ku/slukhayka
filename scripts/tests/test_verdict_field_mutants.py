@@ -355,6 +355,32 @@ class WitnessTest(unittest.TestCase):
         self.assertEqual(["вузький набір", "повний модуль"], [phase for phase, _ in phases])
         self.assertLess(len(phases[0][1]), len(phases[1][1]))
 
+    def test_the_narrow_phases_of_every_witness_come_before_the_full_ones(self):
+        """Порядок МІЖ свідками (#1313): вузькі всіх — перед повними будь-кого.
+
+        Це перестановка, а не звуження, тож вердикт змінитися не може — а час
+        може, і саме тому вона тут піниться. Повна фаза модуля, який не вбиває,
+        не сміє бігти перед вузькою модуля, який убиває: виміряно, що саме там
+        губилися десятки секунд.
+        """
+        modules = [REPO_ROOT / "scripts" / "tests" / "test_mutate.py",
+                   REPO_ROOT / "scripts" / "tests" / "test_mutate_python.py"]
+
+        phases = v.witness_phases(modules, "errors")
+        kinds = [phase for _module, phase, _targets in phases]
+
+        # Нічого не загублено: це ті самі фази, що дає `phases_for` на кожен модуль.
+        self.assertEqual(
+            sorted((module.name, phase) for module in modules
+                   for phase, _targets in v.phases_for(module, "errors")),
+            sorted((module.name, phase) for module, phase, _targets in phases),
+        )
+        # І жодна повна не стоїть перед вузькою.
+        self.assertIn(v.FULL_PHASE, kinds, "повна фаза мусить лишитися")
+        self.assertIn(v.NARROW_PHASE, kinds, "вузька фаза мусить лишитися")
+        first_full = kinds.index(v.FULL_PHASE)
+        self.assertNotIn(v.NARROW_PHASE, kinds[first_full:])
+
 
 class MutantTest(unittest.TestCase):
     def test_the_mutation_replaces_exactly_the_site(self):
@@ -472,6 +498,80 @@ class HistoricalStateTest(unittest.TestCase):
             {"поле запису", "правило вердикту", "передача в запис", "читання з артефакту"},
             {site.kind for site in report.sites},
         )
+
+
+# Другий свідок тієї самої ланки, який ДОПИСУЄТЬСЯ до копії фікстури: на ньому
+# видно, що прогін мутанта спиняється на першій червоній цілі, а не договорює
+# решту. З одним свідком це число не відрізнити від повного прогону — саме тому
+# він і потрібен. Сортується ПІСЛЯ `test_a_witness_that_raises_…`, тож першою
+# червоною лишається вона, і решта перевірок фікстури не зрушуються.
+SECOND_WITNESS = '''
+
+    def test_the_zeroed_errors_are_named_by_the_record(self):
+        artifact(tests=1, failures=0, errors=1)
+
+        self.assertEqual(1, run_tool()["errors"])
+'''
+
+
+class FailfastTest(unittest.TestCase):
+    """Прогін мутанта спиняється на першій червоній цілі — і це видно, а не обіцяно.
+
+    Вердикт від цього не залежить: він — код виходу, а прапорець може лише
+    ВКОРОТИТИ прогін, не створивши й не знявши жодної червоної цілі. Змінюється
+    рівно одне — скільком свідкам прогін устигає впасти. Без цієї перевірки
+    «швидше» могло б тихо означати «інакше»: мутація, яка знімає прапорець,
+    лишає вердикт тим самим, а це число — ні (запис у реєстрі
+    `guard_witnesses`).
+    """
+
+    def test_the_mutant_run_stops_at_the_first_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(FIXTURES / "pinned", root, dirs_exist_ok=True)
+            witness = root / "scripts" / "tests" / "test_gate.py"
+            witness.write_text(witness.read_text(encoding="utf-8") + SECOND_WITNESS,
+                               encoding="utf-8")
+
+            report = v.check(root, TESTS_DIR, only=["errors"])
+
+        self.assertEqual([], report.blocked)
+        self.assertEqual(4, len(report.killed))
+        for verdict in report.killed:
+            self.assertEqual(1, len(verdict.killed_by),
+                             "прогін договорює цілі, а не спиняється на першій "
+                             "червоній: %s" % verdict.killed_by)
+
+
+class WarmTest(unittest.TestCase):
+    """Прогрів перших базових прогонів — та сама робота, але без черги (#1313).
+
+    Замок ключа робить базовий прогін один на ключ; той, кому ключ потрібен
+    другим, СТОЇТЬ і чекає, і це час воркера, а не робота. Прогрів знімає чергу,
+    не змінюючи ні ключів, ні вердикту. Піниться тут саме те, що прогріваються
+    ПЕРШІ фази — дешеві, — а не останні: `phases[-1]` прогріло б повні набори
+    модулів, і зрізання тихо вернулося б разом із секундами.
+    """
+
+    def test_the_warmed_baselines_are_the_first_phases_of_every_site(self):
+        # Свідок справжній — у нього обидві фази, і повна більша за вузьку;
+        # `plan()` тут не потрібен: питання про ключі, а не про місця.
+        witness = REPO_ROOT / "scripts" / "tests" / "test_mutate.py"
+        site = v.Site(field=v.FIELDS_BY_NAME["errors"], kind="правило вердикту",
+                      path=Path("scripts/mutate.sh"), line=1, start=0, end=0,
+                      original="", replacement="")
+        witnesses = {site.path: [witness]}
+
+        phases = v.witness_phases(witnesses[site.path], site.field.name)
+        self.assertEqual([v.NARROW_PHASE, v.FULL_PHASE],
+                         [phase for _module, phase, _targets in phases])
+
+        warm = v.first_phase_baselines([site], witnesses)
+
+        # Прогрівається ПЕРША фаза — і тільки вона: ключ останньої (повний набір
+        # модуля) тут означав би, що прогрів рахує дороге замість дешевого.
+        self.assertEqual({(witness.name, tuple(phases[0][2]))}, set(warm))
+        self.assertNotIn((witness.name, tuple(phases[-1][2])), warm)
 
 
 class FailClosedTest(unittest.TestCase):
@@ -650,6 +750,30 @@ class FailClosedTest(unittest.TestCase):
 
         self.assertEqual(2, status, out)
         self.assertIn("не розібрано", err)
+
+    def test_an_unparsable_witness_module_is_unknown_not_a_traceback(self):
+        """Модуль-СВІДОК, якого не розібрано, — невідомість (2), не трейсбек.
+
+        `first_phase_baselines` читає свідків РАНІШЕ за першу мутацію, тож
+        `FieldError` звідти падає поза `judged`, який ловить рівно цей клас.
+        Обіцянка механізму — «невідомість — код 2, а не трейсбек» — мусить
+        триматися і тут: інакше той самий вхід дає інший код виходу й іншу
+        діагностику (знахідка огляду #1313). Свідок навмисно називає ОБИДВА
+        файли інструмента, щоб його було видно як свідка (текст читається навіть
+        коли модуль не парситься) і щоб упав саме розбір, а не «свідка немає».
+        """
+        root = self.root()
+        self.witness(
+            root,
+            '"""Свідок scripts/mutate.sh і scripts/mutation_trace.py — і зламаний."""\n'
+            "def broken(:\n",
+        )
+
+        status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("не розібрано", err)
+        self.assertNotIn("Traceback", err)
 
     def test_the_mechanism_refuses_to_run_inside_itself(self):
         root = self.root()

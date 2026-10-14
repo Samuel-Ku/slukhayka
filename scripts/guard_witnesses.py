@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 40 записів (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 44 записів (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -893,6 +893,54 @@ GUARDS = (
         ),
     ),
     Guard(
+        test="test_verdict_field_mutants.FailfastTest"
+             ".test_the_mutant_run_stops_at_the_first_red",
+        protects="прогін мутанта, який спиняється на першій червоній цілі (#1313): "
+                 "вердикт — це код виходу, тож прапорець може лише ВКОРОТИТИ прогін "
+                 "і не може змінити, убитий мутант чи ні. Єдине, чим він видимий, — "
+                 "скільком свідкам прогін устигає впасти. Знятий прапорець лишає "
+                 "вердикт тим самим, а прогін — повним: саме те число й червоніє",
+        edits=(
+            Edit(
+                file="scripts/verdict_field_mutants.py",
+                find='MUTANT_FLAGS = ("-f",)',
+                replace="MUTANT_FLAGS = ()  # mutated: прогін договорює всі цілі\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_verdict_field_mutants.WitnessTest"
+             ".test_the_narrow_phases_of_every_witness_come_before_the_full_ones",
+        protects="порядок фаз МІЖ свідками (#1313): вузькі всіх перед повними "
+                 "будь-кого. Це перестановка, а не звуження — набір фаз той самий, "
+                 "і якщо жодна вузька не вб'є, повні біжать усі. Повернутий порядок "
+                 "не міняє жодного вердикту й тому не червонить нічого іншого: без "
+                 "цієї перевірки зрізання тихо верталося б разом із секундами",
+        edits=(
+            Edit(
+                file="scripts/verdict_field_mutants.py",
+                find="    return narrow + full\n",
+                replace="    return full + narrow  # mutated: повні перед вузькими\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_verdict_field_mutants.WarmTest"
+             ".test_the_warmed_baselines_are_the_first_phases_of_every_site",
+        protects="прогрів базових прогонів (#1313): та сама робота, але без черги "
+                 "на замку ключа — виміряно 41 с із 95 с роботи (43 %), які воркери "
+                 "СТОЯЛИ, поки ядра простоювали. Прогріваються ПЕРШІ фази (дешеві); "
+                 "`phases[-1]` прогрів би повні набори модулів і повернув би "
+                 "секунди, нічого не поламавши видимо",
+        edits=(
+            Edit(
+                file="scripts/verdict_field_mutants.py",
+                find="        module, _phase, targets = phases[0]",
+                replace="        module, _phase, targets = phases[-1]  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
         test="test_suite_time.DecompositionTest"
              ".test_the_module_with_the_slow_setup_is_the_top_consumer",
         protects="проміжок перед тестом (#1312): час `setUpClass`, у якому біжить "
@@ -904,6 +952,26 @@ GUARDS = (
                 file="scripts/suite_time.py",
                 find="            seconds[module] += end - previous\n",
                 replace="            seconds[module] += end - start  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_verdict_field_mutants.FailClosedTest"
+             ".test_an_unparsable_witness_module_is_unknown_not_a_traceback",
+        protects="обіцянку «невідомість — код 2, а не трейсбек» там, де свідків "
+                 "читає ПРОГРІВ (#1313, знахідка огляду): ключі перших фаз "
+                 "рахуються до першої мутації, поза `judged`, і непарсибельний "
+                 "модуль-свідок падав звідти трейсбеком із кодом 1. Знята обгортка "
+                 "нічого не пропускає — але вердикт і діагностика стають іншими",
+        edits=(
+            Edit(
+                file="scripts/verdict_field_mutants.py",
+                find="            try:\n"
+                     "                warm = first_phase_baselines(report.sites, witnesses)\n"
+                     "            except (OSError, FieldError) as error:\n",
+                replace="            if True:  # mutated: невідомість падає трейсбеком\n"
+                        "                warm = first_phase_baselines(report.sites, witnesses)\n"
+                        "            elif False:\n",
             ),
         ),
     ),

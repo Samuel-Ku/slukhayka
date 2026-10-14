@@ -830,6 +830,18 @@ it as the job's time; the mechanism now refuses that reading — an unlabelled
 local figure is a finding rather than a pass. It does not touch `ci.yml`:
 raising `timeout-minutes` is the owner's call, not a fix for a red number.
 
+Where those seconds go is a separate command: `python3 scripts/suite_time.py`
+reads the same command out of the `script-tests` block, takes the modules from the
+directory by pattern, and measures each module — its tests *and* what sits outside
+them. `unittest --durations` cannot see `setUpClass`, and that is exactly where the
+gates run (`test_verdict_field_mutants.RepositoryTest` drives
+`verdict_field_mutants.py` from there), so the mechanism measures the gap before a
+test and charges it to that test's module. `--module <file>` measures one module
+again in its own run; `--list` names the command, the directory and the modules and
+measures nothing. Its numbers are local for the same reason the `--local` ones are:
+it prints them through `ci_job_time.local_label`, with the machine's load beside
+them, and never as the job's time.
+
 Merging is not that loop: `scripts/merge-pr.sh <pr>` is the gate. It re-reads the
 checks and refuses without a fresh `review:pass` verdict on the PR — who sets
 that label, and when, is `docs/agents/work-coordination.md`. `--dry-run` prints

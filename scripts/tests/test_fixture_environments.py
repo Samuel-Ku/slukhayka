@@ -398,6 +398,10 @@ CASES = (
             Program("ChangedTestWrapperScratchTest.setUp: self.java", "21.0.8"),
             Program("ChangedTestWrapperScratchTest.write_gradle: self.gradle",
                     "WRAPPER_TEST_LOG"),
+            # Підставна збірка, яка НЕ закінчується: нею прогін убивають SIGKILL'ом
+            # у польоті, і тека прогону лишається — так її й пінить сторож (#1300).
+            Program("ChangedTestWrapperScratchTest.write_hanging_gradle: self.gradle",
+                    "sleep 300"),
         ),
     ),
     StandIn(

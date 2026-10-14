@@ -66,7 +66,11 @@ GUARD_TESTS = (
     "test_named_boundaries.RegistryTest"
     ".test_the_unreadable_boundary_sections_are_the_named_ones",
     "test_test_wrappers.ChangedTestWrapperScratchTest"
+    ".test_a_scratch_left_by_a_sigkilled_run_is_reaped_by_the_next_run",
+    "test_test_wrappers.ChangedTestWrapperScratchTest"
     ".test_no_scratch_directory_survives_a_run",
+    "test_tmp_budget.ScratchTest"
+    ".test_the_prefixes_the_scripts_claim_are_the_reaped_ones",
     "test_verdict_field_mutants.FailClosedTest"
     ".test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier",
     "test_witness_derivation.DerivationTest"

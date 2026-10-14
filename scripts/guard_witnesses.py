@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 18 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 20 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
 паралельно (`--jobs`), і кожен друкує свій час під час прогону
 (`python3 scripts/guard_witnesses.py`) — 0.5–1.7 с на запис на цій машині (вона
@@ -497,9 +497,11 @@ GUARDS = (
                  "`merge-pr.sh`, `review-pass.sh`, `pre-release.sh`, `mutate.sh`) "
                  "цим сторожем не покриті — течі ЦЬОГО класу в них немає (`exec` "
                  "після пастки немає), і це перевірено окремо, а не ним. Інший клас "
-                 "— тека, лишена після SIGKILL-ескалації `build-slot-guard.py` "
-                 "(`slukhayka-mutation.*`), — тут не міряється взагалі: він не "
-                 "проходить крізь `exec`, і сторож про нього не обіцяє",
+                 "— тека, лишена SIGKILL'ом (ескалація `build-slot-guard.py`, OOM, "
+                 "перервана сесія), — тут не міряється взагалі: він не проходить "
+                 "крізь `exec`, і сторож про нього не обіцяє. Його міряє інший "
+                 "запис — `…test_a_scratch_left_by_a_sigkilled_run_is_reaped_by_the_"
+                 "next_run` (#1300)",
         edits=(
             # Мутація повертає причину в ДРУГОМУ місці `exec` — щоденному
             # (селектор не відображає `strings.xml` на партицію). Саме вона
@@ -521,6 +523,40 @@ GUARDS = (
                     "full suite: $reason\"\n"
                     '  exec "$repo_root/scripts/test-all.sh"\n'
                 ),
+            ),
+        ),
+    ),
+    Guard(
+        test="test_tmp_budget.ScratchTest"
+             ".test_the_prefixes_the_scripts_claim_are_the_reaped_ones",
+        protects="префікс теки прогону: прибиральник упізнає залишок SIGKILL'а ЗА "
+                 "ПРЕФІКСОМ, і префікс у константі мусить бути той самий, що в "
+                 "скрипті (#1300). Розійшлися — і тека прогону лишається в tmpfs "
+                 "назавжди, при зеленому наборі: саме так 95 тек "
+                 "`slukhayka-mutation.*` і 65 `slukhayka-changed-tests.*` пережили "
+                 "свої прогони",
+        edits=(
+            Edit(
+                file="scripts/tmp_budget.py",
+                find='SCRATCH_PREFIXES = ("slukhayka-mutation.", "slukhayka-changed-tests.")',
+                replace="SCRATCH_PREFIXES = ()",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_test_wrappers.ChangedTestWrapperScratchTest"
+             ".test_a_scratch_left_by_a_sigkilled_run_is_reaped_by_the_next_run",
+        protects="прибирання теки прогону на СТАРТІ наступного: EXIT-пастки SIGKILL "
+                 "не виконує ФІЗИЧНО, тож прибрати теку може лише наступний прогін "
+                 "— і без цього вона лишається в tmpfs назавжди (#1300). Мутація "
+                 "повертає `mktemp`, як було до правки: тека лишається, і наступний "
+                 "прогін її не бачить",
+        edits=(
+            Edit(
+                file="scripts/test-changed.sh",
+                find='scratch=$(python3 "$budget_module" claim --prefix '
+                     'slukhayka-changed-tests. --owner-pid $$) ||',
+                replace='scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-changed-tests.XXXXXX") ||',
             ),
         ),
     ),

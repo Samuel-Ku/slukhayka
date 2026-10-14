@@ -68,7 +68,9 @@ class Fixture:
         # keeps the JUnit XML out of `git status`.
         shutil.copy(REPO_ROOT / ".gitignore", self.root / ".gitignore")
         shutil.copy(REPO_ROOT / "app/.gitignore", self.root / "app/.gitignore")
-        for name in ("test_partitions.py", "test-all.sh"):
+        # `tmp_budget.py` — сусід скрипта, якого той кличе за техою прогону
+        # (#1300): копія дерева мусить мати все, що скрипт шукає поряд із собою.
+        for name in ("test_partitions.py", "test-all.sh", "tmp_budget.py"):
             shutil.copy(REPO_ROOT / "scripts" / name, self.root / "scripts" / name)
         shutil.copy(trace_source, self.root / "scripts" / "mutation_trace.py")
         shutil.copy(script_source, self.script)

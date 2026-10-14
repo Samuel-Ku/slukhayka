@@ -149,6 +149,12 @@ class Fixture:
         (self.root / "scripts" / "mutation_python_runner.py").write_text(
             sources["runner"].read_text(encoding="utf-8"), encoding="utf-8"
         )
+        # Сусід скрипта, якого той кличе за текою прогону (#1300): копія дерева
+        # мусить мати все, що `mutate.sh` шукає поряд із собою.
+        (self.root / "scripts" / "tmp_budget.py").write_text(
+            (REPO_ROOT / "scripts" / "tmp_budget.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
         # The root ignore file keeps .mutations/ invisible: without it the tool's
         # own record and artifact would make the tree dirty for the next run.
         shutil.copy(REPO_ROOT / ".gitignore", self.root / ".gitignore")

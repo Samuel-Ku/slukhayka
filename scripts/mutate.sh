@@ -26,6 +26,12 @@ trace_log=$trace_dir/runs.jsonl
 selector=$repo_root/scripts/test_partitions.py
 trace_module=$repo_root/scripts/mutation_trace.py
 python_runner=$repo_root/scripts/mutation_python_runner.py
+# Свою теку прогону створює спільний прибиральник (`scripts/tmp_budget.py`), а не
+# `mktemp`: він же прибирає теку, лишену SIGKILL'ом попереднього прогону, і кладе
+# маркер власника, щоб сусідній прогін не зніс живу (#1300). Прибирання тут
+# лишається як було — у EXIT-пастці; SIGKILL її не виконує, і саме тому
+# прибиральник мусить бути на СТАРТІ, а не в кінці.
+budget_module=$repo_root/scripts/tmp_budget.py
 runner=$repo_root/scripts/test-all.sh
 # Every partition alias depends on AGP's single testDebugUnitTest task, so they
 # all write one JUnit directory (app/build.gradle.kts registers the aliases on it).
@@ -86,6 +92,13 @@ find survivors for you: "survived" says the target ran green under the mutation,
 and nothing about the rest of the suite. A patch that edits scripts/mutate.sh
 itself edits a file the running shell is still reading: pin those checks with the
 copy-mutant pattern in scripts/tests/test_mutate*.py instead.
+
+A SIGKILL cannot run the EXIT trap, so it leaves two things behind, and only one
+of them is cleaned up for you. The scratch directory is reaped by the NEXT run
+(scripts/tmp_budget.py claim — the same sweeper the mutation mechanisms use), so
+it cannot pile up in a tmpfs. The applied mutation is NOT reaped: it stays in the
+tree, and the next run refuses on a dirty worktree until you roll it back by hand
+(git checkout -- .). That is a boundary in this script, not an oversight.
 USAGE
 }
 
@@ -239,8 +252,8 @@ if [[ -n $dirty ]]; then
   exit 2
 fi
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-mutation.XXXXXX") ||
-  refuse "cannot create a scratch directory"
+scratch=$(python3 "$budget_module" claim --prefix slukhayka-mutation. --owner-pid $$) ||
+  refuse "cannot create a scratch directory (the reason is above)"
 
 # One flag gates the rollback (set before the patch is applied, so a half-applied
 # patch is still covered), one gates the record (set only after the patch landed).

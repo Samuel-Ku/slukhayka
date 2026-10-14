@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 31 записів (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 33 записів (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -638,6 +638,43 @@ GUARDS = (
             Edit(
                 file="scripts/ci_job_time.py",
                 find="    if limit < HEADROOM_RATIO * slowest:\n",
+                replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.MeasurementTest"
+             ".test_the_window_asks_the_api_for_main_push_runs_only",
+        protects="джерело вікна (#1307): підлога — твердження про `main`, тож "
+                 "прогони питаються з `branch=main&event=push` у САМОМУ запиті. "
+                 "Знятий фільтр міряє ВСІ прогони воркфлоу — і повільний "
+                 "PR-прогін ламає підлогу `main`, про яку каже документ: у вікні "
+                 "#1307 найповільнішим був саме чужий прогін, і механізм "
+                 "повідомив про порушення, якого на `main` не було",
+        edits=(
+            # Рівно те, що було до правки: запит без гілки й події.
+            Edit(
+                file="scripts/ci_job_time.py",
+                find='        "repos/%s/actions/workflows/%s/runs?per_page=%d'
+                     '&branch=%s&event=%s"\n'
+                     "        % (repo, workflow, window * (1 + FETCH_SLACK), "
+                     "MAIN_BRANCH, MAIN_EVENT),\n",
+                replace='        "repos/%s/actions/workflows/%s/runs?per_page=%d"\n'
+                        "        % (repo, workflow, window * (1 + FETCH_SLACK)),\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.RefusalTest"
+             ".test_a_run_from_another_branch_is_an_unknown_not_a_measurement",
+        protects="другий бік того самого фільтра (#1307): прогін, який API віддав "
+                 "ПОПРИ `branch=main&event=push`, не міряється й не відкидається "
+                 "тихо — це невідомість (2). Прийнятий чужий прогін повертає ту "
+                 "саму змішаницю джерел, від якої підлога `main` і похитнулася",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    if foreign:\n",
                 replace="    if False:  # mutated\n",
             ),
         ),

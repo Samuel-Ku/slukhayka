@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 32 записи (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 39 записів (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -603,7 +603,8 @@ GUARDS = (
         edits=(
             Edit(
                 file="scripts/tmp_budget.py",
-                find='SCRATCH_PREFIXES = ("slukhayka-mutation.", "slukhayka-changed-tests.")',
+                find='SCRATCH_PREFIXES = ("slukhayka-mutation.", "slukhayka-changed-tests.", '
+                     '"slukhayka-tests.")',
                 replace="SCRATCH_PREFIXES = ()",
             ),
         ),
@@ -655,6 +656,43 @@ GUARDS = (
             Edit(
                 file="scripts/ci_job_time.py",
                 find="    if limit < HEADROOM_RATIO * slowest:\n",
+                replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.MeasurementTest"
+             ".test_the_window_asks_the_api_for_main_push_runs_only",
+        protects="джерело вікна (#1307): підлога — твердження про `main`, тож "
+                 "прогони питаються з `branch=main&event=push` у САМОМУ запиті. "
+                 "Знятий фільтр міряє ВСІ прогони воркфлоу — і повільний "
+                 "PR-прогін ламає підлогу `main`, про яку каже документ: у вікні "
+                 "#1307 найповільнішим був саме чужий прогін, і механізм "
+                 "повідомив про порушення, якого на `main` не було",
+        edits=(
+            # Рівно те, що було до правки: запит без гілки й події.
+            Edit(
+                file="scripts/ci_job_time.py",
+                find='        "repos/%s/actions/workflows/%s/runs?per_page=%d'
+                     '&branch=%s&event=%s"\n'
+                     "        % (repo, workflow, window * (1 + FETCH_SLACK), "
+                     "MAIN_BRANCH, MAIN_EVENT),\n",
+                replace='        "repos/%s/actions/workflows/%s/runs?per_page=%d"\n'
+                        "        % (repo, workflow, window * (1 + FETCH_SLACK)),\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.RefusalTest"
+             ".test_a_run_from_another_branch_is_an_unknown_not_a_measurement",
+        protects="другий бік того самого фільтра (#1307): прогін, який API віддав "
+                 "ПОПРИ `branch=main&event=push`, не міряється й не відкидається "
+                 "тихо — це невідомість (2). Прийнятий чужий прогін повертає ту "
+                 "саму змішаницю джерел, від якої підлога `main` і похитнулася",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    if foreign:\n",
                 replace="    if False:  # mutated\n",
             ),
         ),
@@ -772,6 +810,85 @@ GUARDS = (
                      '        for mark in marks\n'
                      '    )\n',
                 replace="    return any(mark.lower() in line.lower() for mark in marks)\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_tmp_budget.ScratchTest"
+             ".test_no_run_dir_prefix_in_the_tree_is_left_outside_the_sweeper",
+        protects="повнота списку префіксів (#1305): тека прогону, якої немає в "
+                 "прибиральнику, не прибирається НІКИМ — саме так `slukhayka-tests.*` "
+                 "й пережила свої прогони. Скануються самі скрипти, тож мутація, яка "
+                 "виносить префікс зі списку, лишає теку в tmpfs при зеленому наборі",
+        edits=(
+            Edit(
+                file="scripts/tmp_budget.py",
+                find='SCRATCH_PREFIXES = ("slukhayka-mutation.", "slukhayka-changed-tests.", '
+                     '"slukhayka-tests.")',
+                replace='SCRATCH_PREFIXES = ("slukhayka-mutation.", "slukhayka-changed-tests.")',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_test_wrappers.FullSuiteWrapperTest"
+             ".test_a_sigkilled_run_is_reaped_by_the_next_run",
+        protects="теку ПОВНОГО набору прибирає наступний прогін (#1305): її не "
+                 "прибирав ніхто, бо `test-all.sh` не писав маркера й не кликав "
+                 "прибиральника. Мутація повертає `mktemp`, як було: залишок "
+                 "SIGKILL'а лишається в tmpfs назавжди — і це видно прогоном",
+        edits=(
+            Edit(
+                file="scripts/test-all.sh",
+                find='run_temp=$(python3 "$budget_module" claim --prefix slukhayka-tests. '
+                     '--owner-pid $$) ||',
+                replace='run_temp=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-tests.XXXXXX") ||',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_test_wrappers.FullSuiteWrapperTest"
+             ".test_two_live_runs_coexist_and_a_sweep_takes_neither",
+        protects="маркер власника в теці повного набору (#1305): його мусить писати "
+                 "САМ прогін (`--owner-pid $$`). Без нього маркер називає "
+                 "короткоживучий хелпер, жива тека виглядає застарілою — і сусідній "
+                 "прогін зніс би `TMPDIR` у прогону, що саме працює",
+        edits=(
+            Edit(
+                file="scripts/test-all.sh",
+                find='run_temp=$(python3 "$budget_module" claim --prefix slukhayka-tests. '
+                     '--owner-pid $$) ||',
+                replace='run_temp=$(python3 "$budget_module" claim --prefix slukhayka-tests.) ||',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_test_wrappers.FullSuiteWrapperTest"
+             ".test_a_stale_run_dir_that_cannot_be_removed_does_not_fail_the_run",
+        protects="голосне «не вдалося» замість тихого (#1305): теку, яку прибирання "
+                 "не змогло зняти, воно називає в stderr, а прогін іде далі. Тиха "
+                 "невдача лишає місце зайнятим і нікого не попереджає — саме те, "
+                 "проти чого цей рядок і стоїть",
+        edits=(
+            Edit(
+                file="scripts/tmp_budget.py",
+                find='            announce("застаріле тимчасове дерево %s прибрати не вдалося (%s) — "\n'
+                     '                     "місце лишається зайнятим" % (entry, error))\n',
+                replace="            pass  # mutated: тихе «не вдалося»\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_test_wrappers.FullSuiteWrapperTest"
+             ".test_an_unavailable_tmpdir_refuses_with_a_named_reason",
+        protects="названа причина замість тихого коду 2 (#1305): до правки тут був "
+                 "`mktemp -d … || exit 2`, і причина не називалася взагалі — а тека "
+                 "прогону це `TMPDIR` для всього Gradle, тож «не стартувало» без "
+                 "причини лишає оператора без того, що саме полагодити",
+        edits=(
+            Edit(
+                file="scripts/tmp_budget.py",
+                find='        print("tmp_budget: %s" % error, file=sys.stderr)\n',
+                replace="        pass  # mutated: причина не названа\n",
             ),
         ),
     ),

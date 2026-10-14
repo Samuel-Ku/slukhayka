@@ -51,6 +51,10 @@ GUARD_TESTS = (
     ".test_a_changed_limit_moves_the_number_without_touching_the_mechanism",
     "test_ci_job_time.MeasurementTest"
     ".test_the_relation_floor_reddens_on_the_slowest_run",
+    "test_ci_job_time.MeasurementTest"
+    ".test_the_window_asks_the_api_for_main_push_runs_only",
+    "test_ci_job_time.RefusalTest"
+    ".test_a_run_from_another_branch_is_an_unknown_not_a_measurement",
     "test_ci_job_time.RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero",
     "test_declared_fields.RepositoryTest"
     ".test_every_record_declares_exactly_the_listed_fields",
@@ -82,6 +86,16 @@ GUARD_TESTS = (
     "test_named_boundaries.SectionTest.test_a_record_without_a_mutation_is_refused",
     "test_mutate.MutationRunTest"
     ".test_a_refused_run_still_reaps_the_scratch_a_sigkill_left",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_a_sigkilled_run_is_reaped_by_the_next_run",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_an_unavailable_tmpdir_refuses_with_a_named_reason",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_a_stale_run_dir_that_cannot_be_removed_does_not_fail_the_run",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_two_live_runs_coexist_and_a_sweep_takes_neither",
+    "test_tmp_budget.ScratchTest"
+    ".test_no_run_dir_prefix_in_the_tree_is_left_outside_the_sweeper",
     "test_named_boundaries.RegistryTest"
     ".test_the_unreadable_boundary_sections_are_the_named_ones",
     "test_test_wrappers.ChangedTestWrapperScratchTest"

@@ -62,14 +62,20 @@
     `test_named_boundaries.RegistryTest
     .test_the_unreadable_boundary_sections_are_the_named_ones`, і цей розділ
     змінив те число видимо.
+  * **порожній модуль — знахідка (1), і вона не зарахована окремим сторожем.**
+    Модуль, який є в теці за шаблоном, але не виконав жодного тесту, не випадає
+    з розкладу тихо: він названий у звіті й робить код 1. Свідка-мутації на цю
+    гілку в `guard_witnesses.py` немає — реєстр покриває НАЗВАНИХ, а не всіх, і
+    це названа межа, а не тиха згода: 41-й запис вимагав би або «41 записів»
+    (неграмотно), або однини в таблиці `doc_numbers`, якої там навмисно немає;
 
 Коди виходу: 0 — розклад виведено, і кожне число позначене як локальне; 1 —
-знахідка (тест не належить жодному модулю з теки, порожній модуль, арифметика
-розкладу не сходиться); 2 — перевірити не вдалося (немає `ci.yml` або блоку
-джоби, команда не є `-m unittest discover`, прапорець невідомий, немає теки чи
-шаблону, шаблон не називає жодного модуля, `--module` не з теки, прогін вийшов
-червоним або не вклався в час, інтервалів не розібрано, навантаження машини не
-прочитано).
+знахідка (тест не належить жодному модулю з теки, модуль за шаблоном без жодного
+тесту, арифметика розкладу не сходиться); 2 — перевірити не вдалося (немає
+`ci.yml` або блоку джоби, команда не є `-m unittest discover`, прапорець невідомий,
+немає теки чи шаблону, шаблон не називає жодного модуля, `--module` не з теки,
+прогін вийшов червоним або не вклався в час, інтервалів не розібрано, навантаження
+машини не прочитано).
 """
 
 from __future__ import annotations
@@ -168,6 +174,7 @@ class Report:
     rows: list[Row]
     gaps: list[Gap]
     strangers: list[str]
+    empty: tuple[str, ...]
 
     @property
     def outside(self) -> float:
@@ -434,6 +441,11 @@ def decomposition(record: dict, names: list[str]) -> Report:
         if counts[module]
     ]
     rows.sort(key=lambda row: (-row.seconds, row.module))
+    # Модуль, який є в теці за шаблоном, але не виконав жодного тесту, не має
+    # жодної секунди — і саме тому його не можна лишити непоміченим: він випав би
+    # з розкладу тихо, а разом із ним і його секунди. Це знахідка (1), а не
+    # порожній рядок у таблиці.
+    empty = tuple(module for module in names if not counts[module])
     return Report(
         total=float(record["finished"]) - float(record["started"]),
         discover=float(record["discover_end"]) - float(record["started"]),
@@ -442,6 +454,7 @@ def decomposition(record: dict, names: list[str]) -> Report:
         rows=rows,
         gaps=sorted(gaps, key=lambda gap: (-gap.seconds, gap.test)),
         strangers=strangers,
+        empty=empty,
     )
 
 
@@ -499,6 +512,12 @@ def report_lines(root: Path, tests_dir: str, pattern: str, names: list[str],
         "· тестів %d" % (report.total, report.discover, report.inside, report.outside,
                          report.tests)
     )
+    if report.empty:
+        lines.append(
+            "модулів без жодного тесту: %d — %s (їхні секунди в розклад не "
+            "потрапили, і це знахідка, а не тихий пропуск)"
+            % (len(report.empty), ", ".join(report.empty))
+        )
     lines.append("")
     lines.append(
         "найбільші проміжки поза тестами (перед першим тестом класу — там біжить "
@@ -625,6 +644,13 @@ def main(argv: list[str] | None = None) -> int:
         )
     if not report.rows:
         unknowns.append("жоден модуль не виконав жодного тесту — розкладу немає")
+    if report.empty:
+        findings.append(
+            "модулів у теці за шаблоном без жодного тесту — %d (%s): їхні секунди в "
+            "розклад не потрапили. Модуль, який випав, сховав би свої секунди — "
+            "саме тому це знахідка, а не порожній рядок"
+            % (len(report.empty), ", ".join(report.empty))
+        )
     if report.total <= 0:
         unknowns.append("набір тривав нуль — частку й розклад не взяти")
     if report.inside > report.total + 0.5:

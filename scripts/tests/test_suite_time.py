@@ -13,6 +13,8 @@
     дорогим `setUpClass` мусить бути найбільшим споживачем, і його секунда ПОЗА
     тестами мусить бути названа; топ-3 друкуються числом; `--module` дає те саме
     число незалежним прогоном;
+  * `FindingTest` — порожній модуль: файл за шаблоном без жодного тесту мусить
+    стати знахідкою (код 1) і бути названим, а не випасти з розкладу тихо;
   * `RefusalTest` — невідомість коштує код 2, а не «розклад із нулів»: команда
     не `discover`, невідомий прапорець, позиційний аргумент, немає теки, шаблон
     не називає модуля, `--module` не з теки, червоний прогін;
@@ -105,6 +107,13 @@ RED = (
     "class RedTest(unittest.TestCase):\n"
     "    def test_one(self):\n"
     "        self.fail('червоний прогін')\n"
+)
+# Модуль, який є в теці за шаблоном, але не виконує жодного тесту: він мусить
+# стати знахідкою, а не випасти з розкладу тихо.
+EMPTY = (
+    "import unittest  # noqa: F401\n"
+    "\n"
+    "HELPER = 1\n"
 )
 
 # Допуск на незалежну перевірку `--module`: окремий прогін тієї самої команди
@@ -297,6 +306,29 @@ class ListingTest(Fixture):
         self.assertIn("НЕВІДОМО", out)
 
 
+class FindingTest(Fixture):
+    """Порожній модуль — знахідка (1), а не тихе випадання з розкладу.
+
+    Модуль, який є в теці за шаблоном, але не виконав жодного тесту, не має
+    жодної секунди — і саме тому його легко не побачити. Наступний крок серії
+    шукає секунди, тож модуль, який випав, сховав би свої.
+    """
+
+    def test_a_module_without_tests_is_a_finding_not_a_silent_drop(self):
+        self.write_module("test_empty.py", EMPTY)
+        code, out, err = self.run_mechanism()
+        self.assertEqual(1, code, out)
+        self.assertIn("test_empty.py", err)
+        self.assertIn("без жодного тесту", out)
+        self.assertIn("test_empty.py", out)
+        self.assertIn("test_alpha.py", out, "решта розкладу мусить лишитися видимою")
+
+    def test_a_tree_without_empty_modules_stays_green(self):
+        code, out, err = self.run_mechanism()
+        self.assertEqual(0, code, err)
+        self.assertNotIn("без жодного тесту", out)
+
+
 class RefusalTest(Fixture):
     """Невідомість — код 2, а не розклад із нулів."""
 
@@ -376,6 +408,18 @@ class UnitTest(unittest.TestCase):
         self.assertEqual("test_alpha.AlphaTest.test_one", report.gaps[0].test)
         beta_gap = [gap for gap in report.gaps if gap.test.startswith("test_beta")]
         self.assertAlmostEqual(0.4, beta_gap[0].seconds, places=6)
+        self.assertEqual((), report.empty, "усі модулі виконали хоч один тест")
+
+    def test_a_module_without_tests_is_named_empty_not_dropped(self):
+        report = s.decomposition(
+            self.record(("test_alpha.AlphaTest.test_one", 0.0, 0.1, "ok"),
+                        ("test_beta.BetaTest.test_one", 0.1, 0.2, "ok"),
+                        discover_end=0.0, finished=0.2),
+            self.NAMES + ["test_empty.py"],
+        )
+        self.assertEqual(("test_empty.py",), report.empty)
+        self.assertEqual(["test_alpha.py", "test_beta.py"],
+                         [row.module for row in report.rows])
 
     def test_a_test_outside_the_directory_is_a_stranger_not_a_silent_zero(self):
         report = s.decomposition(

@@ -11,7 +11,7 @@ import java.security.MessageDigest
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Room55 exported-column change detector, called only inside readManualWorkMergeRows.
+ * Room55 exported-column change detector used inside scoped Room transactions.
  * Uses actual SQLite classes and binary64 values; this digest is not an Undo journal.
  * Retained globals and hidden SQLite/FTS storage internals are outside its contract.
  */
@@ -374,6 +374,18 @@ internal object ManualWorkMergeStorageFingerprint {
             rows.sortedWith(::compareBytes).forEach(out::bytes)
         }
         return "manual-work-merge-storage-v2:" + hex(out.finish())
+    }
+
+    /** Distinct domain: legacy storage-v2 proof bytes remain untouched. */
+    suspend fun forOperation(dao: AudiobookDao, scope: ManualWorkMergeOperationScope): String {
+        val snapshot = ManualWorkMergeSnapshotReader.readForOperation(dao, scope)
+        val context = currentCoroutineContext()
+        context.ensureActive()
+        val out = Frames(context)
+        out.string("ManualWorkMergeOperationGuard\u0000v1\u0000Room55")
+        out.string(scope.digest())
+        out.string(snapshot.storageFingerprint)
+        return "manual-work-merge-operation-scope-v1:" + hex(out.finish())
     }
 
     private fun requireRoom55(dao: AudiobookDao) {

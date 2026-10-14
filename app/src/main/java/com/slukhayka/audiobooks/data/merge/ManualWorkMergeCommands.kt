@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.db.WorkMergeOperationState
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.security.MessageDigest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
@@ -101,6 +102,22 @@ class ManualWorkMergeCommands(
                 val prior = identity.operationById(plan.operationId)
                 if (prior != null) {
                     val proof = JSONObject(prior.approvedIdentity)
+                    if (prior.payloadVersion == 3) {
+                        try {
+                            require(proof.getInt("format") == 2)
+                            val savedScope = ManualWorkMergeOperationScope.decode(proof.getJSONArray("operationScope"))
+                            require(savedScope.digest() == proof.getString("scopeDigest"))
+                            val savedJournal = ManualWorkMergeJournal(database, currentCoroutineContext())
+                            val savedBefore = savedJournal.decode(prior.beforeImages)
+                            require(savedBefore.formatVersion == 3 && proof.getString("beforeDigest") == bytesDigest(prior.beforeImages))
+                            savedScope.validateOriginals(plan.prepared.workIds, canonical, books,
+                                identity.preservedParticipants(plan.operationId).map { it.editionId }, savedBefore, savedJournal)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (invalid: RuntimeException) {
+                            return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Operation scope is invalid")
+                        }
+                    }
                     if (prior.state == WorkMergeOperationState.APPLIED.name &&
                         prior.canonicalWorkId == canonical && proof.getString("approval") == approval(plan, prior.beforeImages)) {
                         return@withTransaction ManualWorkMergeApplyResult.Applied(prior.operationId, prior.canonicalWorkId)
@@ -144,13 +161,39 @@ class ManualWorkMergeCommands(
                 val context = currentCoroutineContext()
                 val journal = ManualWorkMergeJournal(database, context)
                 val scope = (roots + canonical).distinct()
-                val before = journal.capture(scope, books)
+                val editionIds = preview.participants.flatMap { it.editions }.map { it.edition.id }.distinct()
+                val before = journal.capture(scope, books, editionIds, if (preview.snapshot.catalog.popularity.isEmpty()) 1 else 3)
                 val capturedPasses = before.rows.getValue("readthroughs")
                 if (capturedPasses.any { journal.text(it, "workId", before.encoding) !in roots } ||
                     capturedPasses.map { journal.text(it, "id", before.encoding) }.toSet() !=
                     preview.snapshot.library.readthroughs.map { it.id }.toSet()) {
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Readthrough ownership needs a participant decision")
                 }
+                val catalogPlan = try {
+                    ManualWorkMergeCatalogPlan.prepare(preview, before, canonical, journal)
+                } catch (invalid: IllegalArgumentException) {
+                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision(invalid.message ?: "Catalog policies need a decision")
+                }
+                val preparedScope = try {
+                    ManualWorkMergeOperationScope.capture(preview.snapshot, canonical).also {
+                        it.validateOriginals(roots, canonical, books, editionIds, before, journal)
+                    }
+                } catch (invalid: IllegalArgumentException) {
+                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision(invalid.message ?: "Operation scope needs a decision")
+                }
+                // Future canonical keys and original provider predicates can expose rows absent
+                // from the two-participant preview. Never adopt unsupported personal data as baseline.
+                val expanded = ManualWorkMergeSnapshotReader.readForOperation(database.audiobookDao(), preparedScope)
+                val expectedMissingCanonical = ManualWorkMergeConflict.UnresolvedReference("works", canonical, "Work", canonical)
+                if (expanded.conflicts.any { existingCanonical || it != expectedMissingCanonical } ||
+                    expanded.personal.corrections.isNotEmpty() || expanded.personal.preferences.isNotEmpty() ||
+                    expanded.personal.feedSnapshots.isNotEmpty() || expanded.personal.tombstones.isNotEmpty()) {
+                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Expanded operation dependencies need a decision")
+                }
+                if (expanded.library.entries.any { it.id == canonical } || expanded.library.books.any { it.id == canonical }) {
+                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Canonical identity collides with a Library namespace")
+                }
+                val operationScope = if (before.formatVersion == 3) preparedScope else null
                 val beforeBytes = journal.encode(before)
                 val rootRows = before.rows.getValue("works")
                 check(rootRows.size == 2)
@@ -285,6 +328,7 @@ class ManualWorkMergeCommands(
                 // The before-image retains every original claim, including deduplicated donors.
                 for (previousId in originalClaimIds) check(execute("DELETE FROM work_sources WHERE id = ?", previousId) == 1)
                 for (row in claims) journal.insert(row)
+                catalogPlan.apply(journal)
                 for (root in roots) {
                     execute("DELETE FROM works_fts WHERE workId = ?", root)
                     if (root != canonical) check(execute("DELETE FROM works WHERE id = ?", root) == 1)
@@ -292,11 +336,12 @@ class ManualWorkMergeCommands(
                 database.audiobookDao().refreshWorkSearchIndex(canonical)
                 identity.insertRedirects(aliases)
                 identity.insertPreservedParticipants(protected)
-                val after = journal.capture(scope, books)
+                val after = journal.capture(scope, books, editionIds, before.formatVersion)
                 check(after.formatVersion == before.formatVersion)
                 val afterBytes = journal.encode(after)
-                val afterFingerprint = database.audiobookDao().readManualWorkMergeRows(scope).storageFingerprint
-                val proof = JSONObject().put("format", 1).put("approval", approval(plan, beforeBytes))
+                val afterFingerprint = if (operationScope == null) database.audiobookDao().readManualWorkMergeRows(scope).storageFingerprint
+                    else ManualWorkMergeStorageFingerprint.forOperation(database.audiobookDao(), operationScope)
+                val proof = JSONObject().put("format", if (operationScope == null) 1 else 2).put("approval", approval(plan, beforeBytes))
                     .put("afterFingerprint", afterFingerprint).put("beforeDigest", bytesDigest(beforeBytes))
                     .put("afterDigest", bytesDigest(afterBytes))
                     .put("preserved", JSONArray(protected.map { JSONArray(listOf(it.bookId, it.editionId)) }))
@@ -314,6 +359,9 @@ class ManualWorkMergeCommands(
                             .put("coverFromClaimId", choice.coverFromClaimId ?: JSONObject.NULL)
                             .put("durationFromClaimId", choice.durationFromClaimId ?: JSONObject.NULL)
                     }))
+                if (operationScope != null) {
+                    proof.put("operationScope", operationScope.encode()).put("scopeDigest", operationScope.digest())
+                }
                 identity.insertOperation(WorkMergeOperationEntity(
                     operationId = plan.operationId, state = WorkMergeOperationState.APPLIED.name,
                     canonicalWorkId = canonical, participantWorkIds = JSONArray(roots).toString(),
@@ -350,7 +398,7 @@ class ManualWorkMergeCommands(
                 val context = currentCoroutineContext()
                 val journal = ManualWorkMergeJournal(database, context)
                 val proof = JSONObject(operation.approvedIdentity)
-                if (proof.getInt("format") != 1 || proof.getString("beforeDigest") != bytesDigest(operation.beforeImages) ||
+                if (proof.getInt("format") != (if (operation.payloadVersion == 3) 2 else 1) || proof.getString("beforeDigest") != bytesDigest(operation.beforeImages) ||
                     proof.getString("afterDigest") != bytesDigest(operation.afterImages)) {
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal payload integrity changed")
                 }
@@ -383,9 +431,23 @@ class ManualWorkMergeCommands(
                 val books = before.rows.getValue("library_entries").map { journal.text(it, "id", before.encoding) }
                 if (books.toSet() != protected.map { it.bookId }.toSet()) return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal and protection disagree")
                 val scope = (roots + operation.canonicalWorkId).distinct()
-                val current = journal.capture(scope, books)
+                val operationScope = if (operation.payloadVersion == 3) {
+                    try {
+                        ManualWorkMergeOperationScope.decode(proof.getJSONArray("operationScope")).also {
+                            require(it.digest() == proof.getString("scopeDigest")) { "Operation scope checksum changed" }
+                            it.validateOriginals(roots, operation.canonicalWorkId, books, protected.map { item -> item.editionId }, before, journal)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (invalid: RuntimeException) {
+                        return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Operation scope is invalid")
+                    }
+                } else null
+                val current = journal.capture(scope, books, operationScope?.editionIds.orEmpty(), operation.payloadVersion)
+                val currentFingerprint = if (operationScope == null) database.audiobookDao().readManualWorkMergeRows(scope).storageFingerprint
+                    else ManualWorkMergeStorageFingerprint.forOperation(database.audiobookDao(), operationScope)
                 if (!journal.encode(current).contentEquals(operation.afterImages) ||
-                    database.audiobookDao().readManualWorkMergeRows(scope).storageFingerprint != proof.getString("afterFingerprint")) {
+                    currentFingerprint != proof.getString("afterFingerprint")) {
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Applied dependencies changed")
                 }
                 val expectedAliases = before.rows.getValue("works").flatMap { row -> listOf(
@@ -414,6 +476,7 @@ class ManualWorkMergeCommands(
                     check(execute("DELETE FROM work_sources WHERE id = ?", journal.text(row, "id", after.encoding)) == 1)
                 }
                 for (row in before.rows.getValue("work_sources")) journal.insert(row)
+                ManualWorkMergeCatalogPlan.restore(before, after, journal)
                 execute("DELETE FROM works_fts WHERE workId = ?", operation.canonicalWorkId)
                 for (row in before.rows.getValue("works_fts")) journal.insert(row)
                 if (originalCanonical == null) check(execute("DELETE FROM works WHERE id = ?", operation.canonicalWorkId) == 1)
@@ -431,14 +494,10 @@ class ManualWorkMergeCommands(
 
     private fun supportsLibraryTracer(preview: ManualWorkMergePreview): Boolean {
         val snapshot = preview.snapshot
-        val catalog = snapshot.catalog
         val roots = preview.participants.map { it.work.id }.toSet()
         // Fail closed while the remaining carrier policies are implemented; never orphan them.
         return preview.participants.all { it.editions.isNotEmpty() && it.editions.all { edition -> edition.bookId != null && edition.edition.workId == edition.bookId } } &&
             snapshot.library.entries.all { it.workId in roots && it.downloadState in setOf("IDLE", "PAUSED") } &&
-            catalog.workFacets.isEmpty() && catalog.editionFacets.isEmpty() && catalog.facetSeries.isEmpty() &&
-            catalog.seriesMembers.isEmpty() && catalog.genreStates.isEmpty() && catalog.genreAssertions.isEmpty() &&
-            catalog.workGenres.isEmpty() && catalog.popularity.isEmpty() && catalog.vectors.isEmpty() &&
             snapshot.personal.corrections.isEmpty() && snapshot.personal.preferences.isEmpty() &&
             snapshot.personal.feedSnapshots.isEmpty() && supportsReadthroughs(preview) &&
             snapshot.library.books.all { it.sourceTreeUri == null && !it.isDownloaded } &&

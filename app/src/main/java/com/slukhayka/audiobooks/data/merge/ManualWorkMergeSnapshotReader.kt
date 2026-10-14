@@ -5,16 +5,21 @@ import com.slukhayka.audiobooks.data.sha256Hex
 import com.slukhayka.audiobooks.data.db.*
 import okio.ByteString.Companion.decodeBase64
 
-/** Called only inside AudiobookDao's concrete @Transaction read door. */
+/** Called inside the DAO read transaction or the Commands operation transaction. */
 internal object ManualWorkMergeSnapshotReader {
-    suspend fun read(dao: AudiobookDao, requested: List<String>): ManualWorkMergeSnapshot {
+    suspend fun read(dao: AudiobookDao, requested: List<String>): ManualWorkMergeSnapshot = readRows(dao, requested, null)
+
+    suspend fun readForOperation(dao: AudiobookDao, scope: ManualWorkMergeOperationScope): ManualWorkMergeSnapshot =
+        readRows(dao, scope.workIds, scope)
+
+    private suspend fun readRows(dao: AudiobookDao, requested: List<String>, scope: ManualWorkMergeOperationScope?): ManualWorkMergeSnapshot {
         require(requested.isNotEmpty() && requested.all { it.isNotBlank() }) { "Work identities are required" }
         val roots = requested.distinct().sortedWith(::compareMergeUtf8)
         val rootWorks = dao.manualMergeWorks(roots)
         val rootEntries = dao.manualMergeEntries(roots)
         // Root strings are candidate legacy book anchors too, not confirmed library associations.
-        val bookIds = (rootEntries.map { it.id } + roots).toCollection(linkedSetOf())
-        val editionIds = linkedSetOf<String>()
+        val bookIds = (rootEntries.map { it.id } + roots + scope?.bookIds.orEmpty()).toCollection(linkedSetOf())
+        val editionIds = scope?.editionIds.orEmpty().toCollection(linkedSetOf())
         val submissionSourceIds = linkedSetOf<String>()
         val anchors = (roots + bookIds).distinct()
         var editions = dao.manualMergeEditions(anchors, emptyList())
@@ -36,7 +41,7 @@ internal object ManualWorkMergeSnapshotReader {
             editionFacets = dao.manualMergeEditionFacets(roots, editionIds.toList())
             editionIds.addAll(editionFacets.map { it.editionId })
             sources = (dao.manualMergeSources(bookIds.toList(), editionIds.toList()) +
-                submissionSourceIds.mapNotNull { dao.getSourceById(it) }).distinctBy { it.id }
+                (submissionSourceIds + scope?.sourceIds.orEmpty()).mapNotNull { dao.getSourceById(it) }).distinctBy { it.id }
             submissions = dao.manualMergeSubmissions(bookIds.toList(), sources.map { it.id })
             submissionSourceIds.addAll(submissions.map { it.sourceId })
             chapters = dao.manualMergeChapters(bookIds.toList(), editionIds.toList())
@@ -58,7 +63,7 @@ internal object ManualWorkMergeSnapshotReader {
         var works = (rootWorks + dao.manualMergeWorks(
             (editions.map { it.workId } + entries.map { it.workId } + readthroughs.map { it.workId } +
                 editionFacets.map { it.workId }).distinct()
-        ) + dao.manualMergeWorksForKeys(rootWorks.map { it.mergeKey }.filter { it.isNotBlank() }))
+        ) + dao.manualMergeWorksForKeys((rootWorks.map { it.mergeKey }.filter { it.isNotBlank() } + scope?.workKeys.orEmpty())))
             .distinctBy { it.id }
         val sourceIds = sources.map { it.id }
         val tracks = dao.manualMergeTracks(sourceIds)
@@ -68,19 +73,19 @@ internal object ManualWorkMergeSnapshotReader {
         val workSources = dao.manualMergeWorkSources(roots)
         val members = dao.manualMergeSeriesMembers(roots)
         val facetSeries = dao.manualMergeFacetSeries(roots)
-        val seriesIds = (members.map { it.seriesId } + facetSeries.map { it.seriesId }).distinct()
+        val seriesIds = (members.map { it.seriesId } + facetSeries.map { it.seriesId } + scope?.seriesIds.orEmpty()).distinct()
         val series = dao.manualMergeSeries(seriesIds)
-        val universes = dao.manualMergeUniverses(series.mapNotNull { it.universeId }.distinct())
+        val universes = dao.manualMergeUniverses((series.mapNotNull { it.universeId } + scope?.universeIds.orEmpty()).distinct())
         val workFacets = dao.manualMergeWorkFacets(roots)
         val genreStates = dao.manualMergeGenreStates(roots)
         val assertions = dao.manualMergeGenreAssertions(roots)
         val workGenres = dao.manualMergeWorkGenres(roots)
-        val genres = dao.manualMergeGenres((assertions.map { it.genreId } + workGenres.map { it.genreId }).distinct())
-        val authorIds = workFacets.mapNotNull { it.canonicalAuthorId }.distinct()
+        val genres = dao.manualMergeGenres((assertions.map { it.genreId } + workGenres.map { it.genreId } + scope?.genreIds.orEmpty()).distinct())
+        val authorIds = (workFacets.mapNotNull { it.canonicalAuthorId } + scope?.authorIds.orEmpty()).distinct()
         val authors = dao.manualMergeAuthors(authorIds)
         val aliases = dao.manualMergeAuthorAliases(authorIds)
         val fts = dao.manualMergeFtsRows(roots)
-        val workKeys = (roots + rootWorks.map { it.mergeKey }.filter { it.isNotBlank() }).distinct()
+        val workKeys = (roots + rootWorks.map { it.mergeKey }.filter { it.isNotBlank() } + scope?.workKeys.orEmpty()).distinct()
         val popularity = dao.manualMergePopularity(workKeys)
         val vectors = dao.embeddingVectors(roots).map {
             ManualWorkMergeVectorRow(it.workId, it.textHash, ManualWorkMergeBytes(it.vector), it.updatedAt)
@@ -110,10 +115,10 @@ internal object ManualWorkMergeSnapshotReader {
             .forEach { issues += ManualWorkMergeConflict.OpaqueDocument("recommendation_preferences", it.kind + ":" + it.targetKey) }
         val items = dao.manualMergeCollectionItems(bookIds.toList())
         val collections = dao.manualMergeCollections(items.map { it.collectionId }.distinct())
-        val knownProviders = workSources.map { it.sourceId }.toSet()
-        val knownUrls = (workSources.map { it.sourceUrl } + sources.map { it.url } + books.map { it.sourceUrl })
+        val knownProviders = (workSources.map { it.sourceId } + scope?.providerIds.orEmpty()).toSet()
+        val knownUrls = (workSources.map { it.sourceUrl } + sources.map { it.url } + books.map { it.sourceUrl } + scope?.sourceUrls.orEmpty())
             .filter { it.isNotBlank() }.toSet()
-        val identityIds = (workKeys + bookIds + editionIds + sourceIds).toSet()
+        val identityIds = (workKeys + bookIds + editionIds + sourceIds + scope?.sourceIds.orEmpty()).toSet()
         val feedSnapshots = dao.manualMergeFeedSnapshots().filter { row ->
             feedInScope(row, identityIds, knownUrls, knownProviders, issues)
         }

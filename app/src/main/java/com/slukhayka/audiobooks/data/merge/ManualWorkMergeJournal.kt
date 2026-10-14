@@ -21,11 +21,12 @@ internal class ManualWorkMergeJournal(
     internal data class Cell(val type: String, val number: Long = 0, val bytes: ByteArray = byteArrayOf())
     internal data class Row(val table: String, val cells: List<Cell>)
     internal data class Image(val encoding: String, val rows: Map<String, List<Row>>, val formatVersion: Int)
-    private data class Table(val name: String, val columns: List<String>, val scopeColumn: String)
+    private data class Table(val name: String, val columns: List<String>, val scopeColumn: String, val keys: List<String> = listOf("id"))
 
     private val sql get() = database.openHelper.writableDatabase
 
-    fun capture(workIds: List<String>, bookIds: List<String>): Image {
+    fun capture(workIds: List<String>, bookIds: List<String>, editionIds: List<String> = emptyList(), formatFloor: Int = 1): Image {
+        require(supportsVersion(formatFloor))
         context.ensureActive()
         sql.query("PRAGMA user_version").use { cursor ->
             check(cursor.moveToFirst() && cursor.getLong(0) == 55L && !cursor.moveToNext()) { "Journal requires Room55" }
@@ -35,17 +36,23 @@ internal class ManualWorkMergeJournal(
         var retainedBytes = 0
         val result = linkedMapOf<String, List<Row>>()
         for (table in TABLES) {
-            val keys = (if (table.name == "library_entries") bookIds else workIds).distinct()
+            val keys = (when (table.name) {
+                "library_entries" -> bookIds
+                "edition_facets" -> editionIds
+                else -> workIds
+            }).distinct()
             val rows = mutableListOf<Row>()
             val projection = table.columns.flatMap { column ->
                 val name = quoted(column)
                 listOf("typeof($name)", "CASE WHEN typeof($name) = 'text' THEN CAST($name AS BLOB) ELSE $name END")
             }.joinToString(", ")
-            for (batch in keys.chunked(128)) {
+            val queries = listOf(table.scopeColumn to keys) +
+                (if (table.name == "edition_facets") listOf("workId" to workIds.distinct()) else emptyList())
+            for ((scopeColumn, scopeKeys) in queries) for (batch in scopeKeys.chunked(128)) {
                 context.ensureActive()
                 val placeholders = batch.joinToString(", ") { "?" }
                 sql.query(SimpleSQLiteQuery(
-                    "SELECT $projection FROM ${quoted(table.name)} WHERE ${quoted(table.scopeColumn)} IN ($placeholders)",
+                    "SELECT $projection FROM ${quoted(table.name)} WHERE ${quoted(scopeColumn)} IN ($placeholders)",
                     batch.toTypedArray(),
                 )).use { cursor ->
                     check(cursor.columnCount == table.columns.size * 2)
@@ -55,19 +62,25 @@ internal class ManualWorkMergeJournal(
                         val row = Row(table.name, table.columns.indices.map { index -> cell(cursor, index * 2) })
                         retainedBytes += rowBytes(row).size
                         check(retainedBytes <= MAX_PAYLOAD_BYTES) { "Manual merge journal payload bound" }
-                        rows += row
+                        if (table.name != "edition_facets" || rows.none { existing -> sameKey(existing, row) }) rows += row
                     }
                 }
             }
             result[table.name] = rows.sortedWith { first, second -> compareBytes(rowBytes(first), rowBytes(second)) }
         }
-        return Image(encoding, result, if (result.getValue("readthroughs").isEmpty()) 1 else 2)
+        val version = when {
+            CATALOG_TABLES.any { result.getValue(it.name).isNotEmpty() } || formatFloor == 3 -> 3
+            result.getValue("readthroughs").isNotEmpty() || formatFloor == 2 -> 2
+            else -> 1
+        }
+        return Image(encoding, result, version)
     }
 
     fun encode(image: Image): ByteArray {
         context.ensureActive()
         check(image.rows.values.sumOf { it.size } <= MAX_ROWS) { "Journal row bound" }
         val tables = tablesForVersion(image.formatVersion)
+        check(image.formatVersion == 3 || CATALOG_TABLES.all { image.rows.getValue(it.name).isEmpty() }) { "Legacy journal cannot omit catalog rows" }
         check(image.formatVersion != 1 || image.rows.getValue("readthroughs").isEmpty()) { "Legacy journal cannot omit Readthroughs" }
         val buffer = ByteArrayOutputStream()
         DataOutputStream(buffer).use { stream ->
@@ -112,7 +125,7 @@ internal class ManualWorkMergeJournal(
                 }
             }
             require(stream.read() == -1) { "Trailing journal payload" }
-            if (formatVersion == 1) rows["readthroughs"] = emptyList()
+            for (table in TABLES) if (table.name !in rows) rows[table.name] = emptyList()
             return Image(encoding, rows, formatVersion)
         }
     }
@@ -163,6 +176,52 @@ internal class ManualWorkMergeJournal(
             row.cells.forEachIndexed { index, value -> bind(statement, index + 1, value) }
             statement.bindString(row.cells.size + 1, previousId)
             statement.executeUpdateDelete()
+        }
+    }
+
+    fun value(row: Row, column: String): Cell = row.cells[descriptor(row.table).columns.indexOf(column).also { require(it >= 0) }]
+
+    fun nullableText(row: Row, column: String, encoding: String): String? =
+        if (value(row, column).type == "null") null else text(row, column, encoding)
+
+    fun integer(row: Row, column: String): Long = value(row, column).let {
+        require(it.type == "integer") { "Expected INTEGER $column in ${row.table}" }; it.number
+    }
+
+    fun key(row: Row, encoding: String): List<String> = descriptor(row.table).keys.map { text(row, it, encoding) }
+    fun sameKey(a: Row, b: Row): Boolean = a.table == b.table && descriptor(a.table).keys.all {
+        sameCell(value(a, it), value(b, it))
+    }
+    fun sameRow(a: Row, b: Row): Boolean = a.table == b.table && a.cells.size == b.cells.size &&
+        a.cells.zip(b.cells).all { (x, y) -> sameCell(x, y) }
+    fun compareRows(a: Row, b: Row): Int = compareBytes(rowBytes(a), rowBytes(b))
+
+    fun deleteByKey(row: Row): Int {
+        context.ensureActive()
+        val table = descriptor(row.table)
+        val values = table.keys.map { value(row, it).also { cell -> require(cell.type == "text") } }
+        val where = table.keys.joinToString(" AND ") { "${quoted(it)} = CAST(? AS TEXT)" }
+        return sql.compileStatement("DELETE FROM ${quoted(table.name)} WHERE $where").use { statement ->
+            values.forEachIndexed { index, cell -> bind(statement, index + 1, cell) }
+            statement.executeUpdateDelete()
+        }
+    }
+
+    /** Bounded occupancy read before planning a generated catalog key, including outside owners. */
+    fun rowByKey(tableName: String, keys: List<String>): Row? {
+        context.ensureActive()
+        val table = descriptor(tableName)
+        require(keys.size == table.keys.size)
+        val projection = table.columns.flatMap { column ->
+            val name = quoted(column)
+            listOf("typeof($name)", "CASE WHEN typeof($name) = 'text' THEN CAST($name AS BLOB) ELSE $name END")
+        }.joinToString(", ")
+        val where = table.keys.joinToString(" AND ") { "${quoted(it)} = ?" }
+        return sql.query(SimpleSQLiteQuery("SELECT $projection FROM ${quoted(table.name)} WHERE $where", keys.toTypedArray())).use { cursor ->
+            if (!cursor.moveToFirst()) null else Row(tableName, table.columns.indices.map { cell(cursor, it * 2) }).also {
+                require(!cursor.moveToNext()) { "Ambiguous catalog key" }
+                require(rowBytes(it).size <= MAX_PAYLOAD_BYTES) { "Catalog row payload bound" }
+            }
         }
     }
 
@@ -244,11 +303,12 @@ internal class ManualWorkMergeJournal(
     }
 
     companion object {
-        fun supportsVersion(version: Int): Boolean = version == 1 || version == 2
+        fun supportsVersion(version: Int): Boolean = version in 1..3
 
         private fun tablesForVersion(version: Int): List<Table> = when (version) {
             1 -> LEGACY_TABLES
-            2 -> TABLES
+            2 -> LIBRARY_TABLES
+            3 -> TABLES
             else -> error("Unknown journal format")
         }
         // Bound each payload; larger operations need a paged journal before UI exposure.
@@ -258,12 +318,25 @@ internal class ManualWorkMergeJournal(
             Table("works", listOf("id", "mergeKey", "title", "author", "seriesTitle", "seriesUrl", "seriesIndex", "coverImageUrl", "addedAt"), "id"),
             Table("library_entries", listOf("id", "workId", "origin", "isFavorite", "createdAt", "downloadProgress", "downloadState"), "id"),
             Table("work_sources", listOf("id", "workId", "sourceId", "sourceUrl", "streamOnly", "coverImageUrl", "durationSeconds", "addedAt"), "workId"),
-            Table("works_fts", listOf("workId", "title", "author", "series", "narrator"), "workId"),
+            Table("works_fts", listOf("workId", "title", "author", "series", "narrator"), "workId", listOf("workId")),
         )
-        private val TABLES = LEGACY_TABLES + Table(
+        private val LIBRARY_TABLES = LEGACY_TABLES + Table(
             "readthroughs",
             listOf("id", "libraryEntryId", "workId", "format", "state", "startedAt", "finishedAt", "editionId", "unit", "unitValue", "journalJson"),
             "workId",
         )
+        internal val catalogTables = listOf("series_members", "work_facets", "work_facet_series", "genre_assertion_states", "genre_assertions", "work_genres", "edition_facets", "embedding_vectors")
+        private val CATALOG_TABLES = listOf(
+            Table("series_members", listOf("workId", "seriesId", "position", "resolvedAt"), "workId", listOf("workId", "seriesId")),
+            Table("work_facets", listOf("workId", "canonicalAuthorId", "updatedAt"), "workId", listOf("workId")),
+            Table("work_facet_series", listOf("workId", "seriesId"), "workId", listOf("workId", "seriesId")),
+            Table("genre_assertion_states", listOf("workId", "sourceId", "documentUpdatedAt", "provenance"), "workId", listOf("workId", "sourceId")),
+            Table("genre_assertions", listOf("id", "assertionId", "workId", "genreId", "rawText", "sourceId", "observedAt"), "workId"),
+            Table("work_genres", listOf("workId", "genreId", "sourceId"), "workId", listOf("workId", "genreId", "sourceId")),
+            Table("edition_facets", listOf("editionId", "workId", "narratorId", "language", "durationSeconds", "durationBucketId", "chapterCount", "isAbridged", "availabilityAvailable", "availabilityObservedAtMillis", "availabilityTtlSeconds", "updatedAt"), "editionId", listOf("editionId")),
+            Table("embedding_vectors", listOf("workId", "textHash", "vector", "updatedAt"), "workId", listOf("workId")),
+        )
+        private val TABLES = LIBRARY_TABLES + CATALOG_TABLES
+
     }
 }

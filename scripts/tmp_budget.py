@@ -566,8 +566,9 @@ def claim_scratch(prefix: str, base: Path | None = None, *, relocate: str | None
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         description="Тека прогону скрипта-обгортки: прибрати застарілі й створити свою.",
-        epilog="Код 0 — шлях теки на stdout (claim) або скільки прибрано (sweep); "
-               "2 — відмова (причина в stderr).",
+        epilog="Код 0 — шлях теки на stdout (claim); 2 — відмова (причина в stderr). "
+               "`sweep` у stdout не пише НІЧОГО: у `mutate.sh` stdout — канал запису, "
+               "і зайве число там ламало б його як JSON.",
     )
     result.add_argument("action", choices=("claim", "sweep"),
                         help="claim — прибрати застарілі теки префікса й створити свою; "
@@ -596,7 +597,10 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     try:
         if arguments.action == "sweep":
-            print(len(sweep_scratch(arguments.prefix, base=arguments.tmpdir)))
+            # Нічого в stdout: у `mutate.sh` це канал запису (JSON), і число,
+            # домішане туди, ламає його для кожного, хто читає stdout машинно.
+            # Прибирання й так голосне — називає теку й байти в stderr.
+            sweep_scratch(arguments.prefix, base=arguments.tmpdir)
         else:
             print(claim_scratch(arguments.prefix, base=arguments.tmpdir,
                                 pid=arguments.owner_pid))

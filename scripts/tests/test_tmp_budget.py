@@ -479,7 +479,8 @@ class ScratchTest(unittest.TestCase):
             code = tb.main(["sweep", "--prefix", "slukhayka-mutation."])
 
         self.assertEqual(0, code, err.getvalue())
-        self.assertEqual("1", out.getvalue().strip())
+        self.assertEqual("", out.getvalue(),
+                         "sweep не сміє писати в stdout: там канал запису `mutate.sh`")
         self.assertFalse(old.exists())
         self.assertEqual([], sorted(self.root.iterdir()),
                          "sweep не сміє лишати по собі теку: він кличеться й на відмові")

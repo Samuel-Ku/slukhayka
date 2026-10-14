@@ -95,3 +95,9 @@ python3 scripts/branch-hygiene.py report --facts /tmp/facts.json --no-llm
 ```bash
 python3 -m unittest scripts.tests.test_branch_hygiene
 ```
+
+Право на видалення пінить і реєстр сторожів (`scripts/guard_witnesses.py`):
+мутація, яка знімає перевірку бази PR, червонить
+`test_pr_merged_into_a_release_lane_is_not_proof` у джобі `script-tests`. Тож
+твердження «PR, злитий у релізну лінію, не дає права видаляти» відтворюється в
+CI, а не тримається на слові.

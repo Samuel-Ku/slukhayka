@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 96 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 97 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -234,6 +234,31 @@ class Report:
 # зникнення запису видно як правку тесту. Розширюють його разом зі сторожем.
 
 GUARDS = (
+    Guard(
+        test="test_branch_hygiene.DecideTest"
+             ".test_pr_merged_into_a_release_lane_is_not_proof",
+        protects="право чистки гілок видаляти: PR, злитий у релізну лінію, доказом "
+                 "не є — у main його змін може не бути. Знята перевірка бази "
+                 "перетворює сторож порядка на видаляч роботи",
+        edits=(
+            Edit(
+                file="scripts/branch-hygiene.py",
+                find=(
+                    '        "merged_into_main": [\n'
+                    "            p for p in prs\n"
+                    '            if p["state"] == "MERGED" and '
+                    'p.get("baseRefName", main) == main\n'
+                    "        ],\n"
+                ),
+                replace=(
+                    '        "merged_into_main": [\n'
+                    "            p for p in prs\n"
+                    '            if p["state"] == "MERGED"\n'
+                    "        ],\n"
+                ),
+            ),
+        ),
+    ),
     Guard(
         test="test_issue_premise.ExtractionTest"
              ".test_measure_head_exists_because_the_docs_cite_it",

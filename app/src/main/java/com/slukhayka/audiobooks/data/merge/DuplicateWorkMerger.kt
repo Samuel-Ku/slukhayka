@@ -30,8 +30,10 @@ import kotlinx.coroutines.flow.first
  */
 class DuplicateWorkMerger(
     private val dao: AudiobookDao,
-    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
+    private val gate: ManualWorkMergeGate,
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit
 ) {
+    init { gate.requireDao(dao) }
 
     /** Merges every duplicate group; returns the number of loser rows removed. */
     suspend fun mergeOnce(): Int {
@@ -47,14 +49,16 @@ class DuplicateWorkMerger(
         for (group in groups) {
             val survivor = pickSurvivor(group)
             for (loser in group.filter { it.id != survivor.id }) {
-                writeBatchRunner {
-                    // Candidate grouping is only a hint. Re-read every proof in
-                    // the same transaction as the merge, including download state.
-                    val currentSurvivor = dao.getAudiobookById(survivor.id) ?: return@writeBatchRunner
-                    val currentLoser = dao.getAudiobookById(loser.id) ?: return@writeBatchRunner
-                    if (!canAutoMerge(currentSurvivor, currentLoser)) return@writeBatchRunner
-                    mergeInto(currentSurvivor, currentLoser)
-                    removed++
+                gate.withBookWrite(listOf(survivor.id, loser.id)) {
+                    writeBatchRunner {
+                        // Acquire the same sorted Book locks before opening Room's transaction.
+                        // Grouping is only a hint; every proof is reread inside the transaction.
+                        val currentSurvivor = dao.getAudiobookById(survivor.id) ?: return@writeBatchRunner
+                        val currentLoser = dao.getAudiobookById(loser.id) ?: return@writeBatchRunner
+                        if (!canAutoMerge(currentSurvivor, currentLoser)) return@writeBatchRunner
+                        mergeInto(currentSurvivor, currentLoser)
+                        removed++
+                    }
                 }
             }
         }
@@ -70,6 +74,8 @@ class DuplicateWorkMerger(
             }) return false
         val first = dao.getEditionForWork(survivor.id) ?: return false
         val second = dao.getEditionForWork(loser.id) ?: return false
+        if (gate.autoMergeExcluded(survivor.id, first.id) ||
+            gate.autoMergeExcluded(loser.id, second.id)) return false
         val narrator = MetadataAssertions.normalizeClaimedText(first.narrator) ?: return false
         val otherNarrator = MetadataAssertions.normalizeClaimedText(second.narrator) ?: return false
         if (!narrator.equals(otherNarrator, ignoreCase = true)) return false

@@ -80,6 +80,16 @@ GUARD_TESTS = (
     "test_named_boundaries.SectionTest.test_a_record_without_a_mutation_is_refused",
     "test_mutate.MutationRunTest"
     ".test_a_refused_run_still_reaps_the_scratch_a_sigkill_left",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_a_sigkilled_run_is_reaped_by_the_next_run",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_an_unavailable_tmpdir_refuses_with_a_named_reason",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_a_stale_run_dir_that_cannot_be_removed_does_not_fail_the_run",
+    "test_test_wrappers.FullSuiteWrapperTest"
+    ".test_two_live_runs_coexist_and_a_sweep_takes_neither",
+    "test_tmp_budget.ScratchTest"
+    ".test_no_run_dir_prefix_in_the_tree_is_left_outside_the_sweeper",
     "test_named_boundaries.RegistryTest"
     ".test_the_unreadable_boundary_sections_are_the_named_ones",
     "test_test_wrappers.ChangedTestWrapperScratchTest"

@@ -63,6 +63,37 @@ def decide(branch, **kwargs):
     return branch_hygiene.decide(branch, now=NOW, **kwargs)
 
 
+def make_worktree(
+    branch="t1",
+    *,
+    path="/repo/.worktrees/w1",
+    main=False,
+    current=False,
+    external=False,
+    dirty=0,
+    fresh_hours=48.0,
+    locked=False,
+    detached=False,
+):
+    return {
+        "path": path,
+        "branch": branch,
+        "main": main,
+        "current": current,
+        "external": external,
+        "dirty": dirty,
+        "fresh_hours": fresh_hours,
+        "locked": locked,
+        "detached": detached,
+        "prunable": False,
+        "touched_at": (NOW - timedelta(hours=fresh_hours)).isoformat(),
+    }
+
+
+def decide_local(branch, **kwargs):
+    return branch_hygiene.decide_local(branch, now=NOW, **kwargs)
+
+
 class DecideTest(unittest.TestCase):
     def test_ancestor_of_main_is_deleted(self):
         verdict = decide(make_branch("t1", ancestor=True, unique_patches=None))
@@ -291,9 +322,9 @@ class CollectIntegrationTest(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def run_git(self, cwd, *args):
+    def run_git(self, cwd, *args, check=True):
         return subprocess.run(
-            ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+            ["git", *args], cwd=cwd, check=check, capture_output=True, text=True
         )
 
     def commit(self, message):
@@ -432,6 +463,125 @@ class CollectIntegrationTest(unittest.TestCase):
         self.assertIn("refs/heads/unique", refs)
         self.assertIn("refs/heads/main", refs)
 
+    # --- локальне дерево ---
+
+    def add_worktree(self, name, branch):
+        """worktree всередині репозиторію — так, як .worktrees/ у справжньому."""
+        path = self.work / ".worktrees" / name
+        self.run_git(self.work, "worktree", "add", "-q", str(path), branch)
+        return path
+
+    def absorb(self, branch, filename):
+        """Гілка, чий коміт злито в main merge-комітом: tip стає предком."""
+        self.run_git(self.work, "checkout", "-q", "-b", branch)
+        (self.work / filename).write_text("x\n", encoding="utf-8")
+        self.commit(f"feat: {branch}")
+        self.run_git(self.work, "checkout", "-q", "main")
+        self.run_git(self.work, "merge", "-q", "--no-ff", "-m", f"merge {branch}", branch)
+        # Доказ поглинання міряється щодо origin/main, а не щодо локального main.
+        self.run_git(self.work, "push", "-q", "origin", "main")
+
+    def collect_local(self, *extra):
+        facts_path = self.root / "local-facts.json"
+        subprocess.run(
+            [sys.executable, str(SCRIPT), "collect-local", "--no-gh",
+             "--json", str(facts_path), *extra],
+            cwd=self.work, check=True, capture_output=True, text=True,
+        )
+        return json.loads(facts_path.read_text(encoding="utf-8"))
+
+    def run_local(self, *extra):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "local", "--no-gh", "--no-out", *extra],
+            cwd=self.work, check=False, capture_output=True, text=True,
+        )
+
+    def test_collect_local_sees_worktrees_and_branches(self):
+        self.absorb("merged", "a.txt")
+        self.run_git(self.work, "checkout", "-q", "-b", "wip")
+        (self.work / "b.txt").write_text("b\n", encoding="utf-8")
+        self.commit("feat: wip")
+        self.run_git(self.work, "checkout", "-q", "main")
+        worktree = self.add_worktree("wt-wip", "wip")
+        (worktree / "dirty.txt").write_text("x\n", encoding="utf-8")
+
+        facts = self.collect_local()
+        by_name = {branch["name"]: branch for branch in facts["branches"]}
+
+        self.assertTrue(by_name["merged"]["ancestor"])
+        self.assertFalse(by_name["wip"]["ancestor"])
+        self.assertEqual(by_name["wip"]["worktree"]["branch"], "wip")
+        self.assertEqual(by_name["wip"]["worktree"]["dirty"], 1)
+        self.assertTrue(by_name["wip"]["worktree"]["fresh_hours"] < 1)
+        self.assertEqual(len([w for w in facts["worktrees"] if w["main"]]), 1)
+        self.assertEqual(len([w for w in facts["worktrees"] if w["current"]]), 1)
+
+    def test_local_apply_removes_a_clean_absorbed_worktree_and_branch(self):
+        self.absorb("merged", "a.txt")
+        worktree = self.add_worktree("wt-merged", "merged")
+        self.run_git(self.work, "push", "-q", "origin", "--all")
+
+        result = self.run_local("--apply", "--fresh-hours", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("`merged` — видалено разом із worktree", result.stdout)
+        self.assertFalse(worktree.exists())
+        self.assertNotEqual(
+            self.run_git(self.work, "show-ref", "--verify", "refs/heads/merged",
+                         check=False).returncode, 0,
+        )
+        # робоча гілка й main лишилися
+        self.assertEqual(
+            self.run_git(self.work, "show-ref", "--verify", "refs/heads/main").returncode, 0
+        )
+
+    def test_local_apply_respects_a_reservation(self):
+        self.absorb("merged", "a.txt")
+        self.run_git(self.work, "push", "-q", "origin", "--all")
+        claims = self.work / ".git" / "agent-work-claims"
+        claims.mkdir(exist_ok=True)
+        (claims / "7.json").write_text(
+            json.dumps({"issue": "7", "status": "implementing", "branch": "merged"}),
+            encoding="utf-8",
+        )
+
+        result = self.run_local("--apply", "--fresh-hours", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("резервування #7", result.stdout)
+        self.assertEqual(
+            self.run_git(self.work, "show-ref", "--verify", "refs/heads/merged").returncode, 0
+        )
+
+    def test_local_apply_keeps_a_dirty_worktree(self):
+        self.absorb("merged", "a.txt")
+        worktree = self.add_worktree("wt-merged", "merged")
+        (worktree / "dirty.txt").write_text("x\n", encoding="utf-8")
+        self.run_git(self.work, "push", "-q", "origin", "--all")
+
+        result = self.run_local("--apply", "--fresh-hours", "0")
+        self.assertIn("worktree брудний", result.stdout)
+        self.assertTrue(worktree.exists())
+        self.assertEqual(
+            self.run_git(self.work, "show-ref", "--verify", "refs/heads/merged").returncode, 0
+        )
+
+    def test_a_worktree_whose_directory_is_gone_does_not_block_the_branch(self):
+        import shutil
+
+        self.absorb("merged", "a.txt")
+        worktree = self.add_worktree("wt-merged", "merged")
+        shutil.rmtree(worktree)
+
+        facts = self.collect_local()
+        by_name = {branch["name"]: branch for branch in facts["branches"]}
+        self.assertTrue(by_name["merged"]["worktree"]["prunable"])
+
+        result = self.run_local("--apply", "--fresh-hours", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(
+            self.run_git(self.work, "show-ref", "--verify", "refs/heads/merged",
+                         check=False).returncode, 0,
+        )
+
     def test_missing_origin_main_is_a_clear_error(self):
         self.run_git(self.work, "update-ref", "-d", "refs/remotes/origin/main")
         result = subprocess.run(
@@ -442,6 +592,216 @@ class CollectIntegrationTest(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("git fetch origin", result.stderr)
+
+
+class LocalDecideTest(unittest.TestCase):
+    def absorbed(self, name="t1", **kwargs):
+        branch = make_branch(name, ancestor=True, unique_patches=None)
+        branch["reflog_at"] = (NOW - timedelta(days=2)).isoformat()
+        branch["worktree"] = kwargs.pop("worktree", None)
+        return decide_local(branch, **kwargs)
+
+    def test_proven_absorbed_branch_is_deleted(self):
+        verdict = self.absorbed()
+        self.assertEqual(verdict["action"], "delete")
+        self.assertEqual(verdict["proof"], "ancestor")
+
+    def test_fresh_worktree_is_left_for_the_next_night(self):
+        verdict = self.absorbed(worktree=make_worktree(fresh_hours=1.5))
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("наступної ночі", verdict["reason"])
+
+    def test_dirty_worktree_is_left_alone(self):
+        verdict = self.absorbed(worktree=make_worktree(dirty=3, fresh_hours=48))
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("брудний", verdict["reason"])
+
+    def test_reserved_branch_is_left_alone(self):
+        verdict = self.absorbed(
+            name="t1301-asymmetry", claims=[{"issue": "1301", "status": "implementing"}]
+        )
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("#1301", verdict["reason"])
+
+    def test_reservation_matches_by_explicit_branch_and_worktree(self):
+        verdict = self.absorbed(
+            worktree=make_worktree(),
+            claims=[{"issue": "77", "branch": "t1", "worktree": "/repo/.worktrees/w1"}],
+        )
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("#77", verdict["reason"])
+
+    def test_main_and_current_worktrees_are_never_removed(self):
+        for flags in ({"main": True}, {"current": True}):
+            with self.subTest(**flags):
+                verdict = self.absorbed(worktree=make_worktree(**flags))
+                self.assertEqual(verdict["action"], "keep")
+
+    def test_worktree_outside_the_repository_is_reported_not_removed(self):
+        verdict = self.absorbed(worktree=make_worktree(external=True))
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("поза репозиторієм", verdict["reason"])
+
+    def test_branch_freezes_while_its_worktree_is_locked(self):
+        verdict = self.absorbed(worktree=make_worktree(locked=True))
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("залочено", verdict["reason"])
+
+    def test_branch_with_unpublished_work_is_kept(self):
+        branch = make_branch("t9", unique_patches=2, age_days=30)
+        branch["reflog_at"] = (NOW - timedelta(days=30)).isoformat()
+        branch["worktree"] = None
+        verdict = decide_local(branch)
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("PR немає", verdict["reason"])
+
+    def test_open_pr_still_blocks_local_deletion(self):
+        branch = make_branch("t9", ancestor=True, prs=[make_pr(5, "OPEN")])
+        branch["reflog_at"] = (NOW - timedelta(days=30)).isoformat()
+        branch["worktree"] = None
+        verdict = decide_local(branch)
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("#5", verdict["reason"])
+
+    def test_protected_local_branch_is_kept(self):
+        branch = make_branch("legal/bsl-1.1", ancestor=True, unique_patches=None)
+        branch["reflog_at"] = (NOW - timedelta(days=30)).isoformat()
+        branch["worktree"] = None
+        verdict = decide_local(branch)
+        self.assertEqual(verdict["action"], "keep")
+        self.assertTrue(verdict["protected"])
+
+
+class ClaimsTest(unittest.TestCase):
+    def test_issue_number_inside_the_branch_name_is_found(self):
+        records = [{"issue": "1185"}, {"issue": "1301"}]
+        self.assertEqual(branch_hygiene.claimed_by(records, "docs/issue-1185-local"), ["1185"])
+        self.assertEqual(branch_hygiene.claimed_by(records, "t1301-asymmetry"), ["1301"])
+
+    def test_a_number_inside_another_number_is_not_a_match(self):
+        self.assertEqual(branch_hygiene.claimed_by([{"issue": "301"}], "t1301-asymmetry"), [])
+        self.assertEqual(branch_hygiene.claimed_by([{"issue": "1"}], "t1301-asymmetry"), [])
+
+    def test_explicit_branch_and_worktree_fields_win(self):
+        records = [{"issue": "42", "branch": "wip", "worktree": "/w/wip"}]
+        self.assertEqual(branch_hygiene.claimed_by(records, "wip"), ["42"])
+        self.assertEqual(
+            branch_hygiene.claimed_by(records, "other", "/w/wip"), ["42"]
+        )
+        self.assertEqual(branch_hygiene.claimed_by(records, "other"), [])
+
+
+class LocalReportTest(unittest.TestCase):
+    def render(self, branches, *, applied=None, dry_run=True, pr_data=True):
+        facts = {
+            "collected_at": NOW.isoformat(),
+            "main": "main",
+            "main_sha": "d" * 40,
+            "pr_data": pr_data,
+            "common_dir": "/repo/.git",
+            "claims": [],
+            # Так само, як у справжніх фактах: worktree живуть і в гілці, і в списку.
+            "worktrees": [b["worktree"] for b in branches if b.get("worktree")],
+            "branches": branches,
+        }
+        decisions = [
+            branch_hygiene.decide_local(branch, now=NOW) for branch in branches
+        ]
+        return branch_hygiene.render_local_report(
+            facts, decisions, applied or [], dry_run=dry_run, now=NOW, fresh_hours=6
+        ), decisions
+
+    def local_branch(self, name, worktree=None, **kwargs):
+        branch = make_branch(name, **kwargs)
+        branch["reflog_at"] = (NOW - timedelta(days=2)).isoformat()
+        branch["worktree"] = worktree
+        return branch
+
+    def test_unpublished_work_is_named_with_a_command(self):
+        body, _ = self.render([self.local_branch("t9", unique_patches=2, age_days=30)])
+        self.assertIn("## Робота, якої немає в main", body)
+        self.assertIn("`t9`", body)
+        self.assertIn("git push -u origin t9", body)
+
+    def test_moved_branch_after_a_merged_pr_is_named(self):
+        branch = self.local_branch(
+            "t9", unique_patches=4, prs=[make_pr(1147, "MERGED", sha="b" * 40)]
+        )
+        body, _ = self.render([branch])
+        self.assertIn("PR #1147 злито в main, але гілка рухалася далі", body)
+        self.assertIn("git log origin/main..t9", body)
+
+    def test_dirty_worktree_is_listed_with_a_command(self):
+        body, _ = self.render([self.local_branch("t9", worktree=make_worktree(dirty=2))])
+        self.assertIn("## Брудні worktree", body)
+        self.assertIn("git worktree remove /repo/.worktrees/w1", body)
+
+    def test_dry_run_lists_what_would_be_removed(self):
+        body, _ = self.render([self.local_branch("t9", ancestor=True, unique_patches=None)])
+        self.assertIn("Сухий прогін", body)
+        self.assertIn("`t9`", body)
+
+    def test_missing_pr_data_is_disclosed(self):
+        body, _ = self.render(
+            [self.local_branch("t9", unique_patches=2)], pr_data=False
+        )
+        self.assertIn("Даних про PR немає", body)
+
+
+class ApiPrsTest(unittest.TestCase):
+    def test_merged_pr_maps_to_the_same_shape_as_gh(self):
+        mapped = branch_hygiene.map_api_pr(
+            {
+                "number": 1306,
+                "state": "closed",
+                "merged_at": "2026-10-14T18:20:00Z",
+                "draft": False,
+                "title": "fix(scripts): асиметрія",
+                "updated_at": "2026-10-14T18:20:00Z",
+                "html_url": "https://example.invalid/1306",
+                "base": {"ref": "main"},
+                "head": {
+                    "ref": "t1301-asymmetry",
+                    "sha": "a" * 40,
+                    "repo": {"owner": {"login": "Samuel-Ku"}},
+                },
+            }
+        )
+        self.assertEqual(mapped["state"], "MERGED")
+        self.assertEqual(mapped["baseRefName"], "main")
+        self.assertEqual(mapped["headRefName"], "t1301-asymmetry")
+        self.assertEqual(mapped["headRefOid"], "a" * 40)
+
+    def test_closed_unmerged_pr_is_closed(self):
+        mapped = branch_hygiene.map_api_pr(
+            {
+                "number": 1,
+                "state": "closed",
+                "merged_at": None,
+                "base": {"ref": "main"},
+                "head": {"ref": "x", "sha": "b" * 40, "repo": {"owner": {"login": "o"}}},
+            }
+        )
+        self.assertEqual(mapped["state"], "CLOSED")
+
+    def test_pr_from_a_deleted_fork_is_dropped(self):
+        self.assertIsNone(
+            branch_hygiene.map_api_pr(
+                {"number": 2, "state": "open", "base": {"ref": "main"}, "head": {"ref": "x"}}
+            )
+        )
+
+    def test_unattributed_pr_is_dropped_by_normalize(self):
+        raw = [
+            {
+                "number": 3,
+                "headRefName": "t1",
+                "baseRefName": "main",
+                "state": "MERGED",
+                "headRepositoryOwner": {"login": None},
+            }
+        ]
+        self.assertEqual(branch_hygiene.normalize_prs(raw, "Samuel-Ku"), [])
 
 
 class LlmTest(unittest.TestCase):

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Порядок у гілках: зібрати факти, прибрати поглинуте main, скласти нічний звіт.
 
-Три команди, які викликає нічний воркфлоу (і які можна гнати руками):
+Команди, які викликає нічний воркфлоу в CI і таймер на цій машині:
 
-    collect  — факти про віддалені гілки та їхні PR (JSON, нічого не змінює)
-    cleanup  — рішення про видалення; без --apply це сухий прогін
-    report   — markdown-звіт, з наративом LLM, якщо є токен (--upsert оновлює issue)
+    collect        — факти про віддалені гілки та їхні PR (JSON, нічого не змінює)
+    collect-local  — те саме про локальні гілки й worktree
+    cleanup        — рішення про віддалені гілки; без --apply це сухий прогін
+    local          — локальні гілки та worktree; без --apply це сухий прогін
+    report         — markdown-звіт, з наративом LLM, якщо є токен (--upsert оновлює issue)
 
 Правила, пороги й захищені назви — docs/runbooks/branch-hygiene.md.
 Скрипт ніколи не видаляє гілку, поки не доведено, що її вміст уже в main:
@@ -65,10 +67,16 @@ LLM_SYSTEM_PROMPT = (
 # --------------------------------------------------------------------------- #
 
 
-def run(cmd, *, check=True, input_text=None):
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, input=input_text, check=False
-    )
+def run(cmd, *, check=True, input_text=None, cwd=None):
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, input=input_text, check=False, cwd=cwd
+        )
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        # Каталогу немає (prunable worktree) — це відмова, а не падіння.
+        if check:
+            raise RuntimeError(f"{' '.join(cmd)} → {exc}") from exc
+        return subprocess.CompletedProcess(cmd, 127, "", str(exc))
     if check and result.returncode != 0:
         raise RuntimeError(
             f"{' '.join(cmd)} → код {result.returncode}: {result.stderr.strip()}"
@@ -76,8 +84,14 @@ def run(cmd, *, check=True, input_text=None):
     return result
 
 
-def git(*args, check=True):
-    return run(["git", *args], check=check)
+def git(*args, check=True, cwd=None):
+    return run(["git", *args], check=check, cwd=cwd)
+
+
+def last_line(result):
+    """Останній рядок виводу — те, що варто показати в звіті про невдачу."""
+    output = (result.stderr or result.stdout).strip()
+    return output.splitlines()[-1] if output else "невідома помилка"
 
 
 def parse_iso(value):
@@ -115,38 +129,104 @@ def dump_json(path, payload):
 # --------------------------------------------------------------------------- #
 
 
-def fetch_prs(use_gh=True, pr_facts_path=None):
-    """Список PR усіх станів. None означає «даних немає» — це не помилка."""
+def repo_slug():
+    """`owner/repo` з origin — без мережі, без gh і без keyring."""
+    url = git("remote", "get-url", "origin", check=False).stdout.strip()
+    for pattern in (
+        r"git@[^:]+:(.+?)(?:\.git)?$",
+        r"ssh://[^/]+/(.+?)(?:\.git)?$",
+        r"https?://[^/]+/(.+?)(?:\.git)?$",
+    ):
+        match = re.match(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+
+def prs_from_api(slug, token=None, pages=5, timeout=30):
+    """PR із GitHub API: працює без gh, без токена й без keyring.
+
+    Репозиторій публічний, тож анонімного ліміту (60 запитів на годину) досить
+    на кілька сторінок. Токен лише піднімає ліміт, якщо він узагалі є.
+    """
+    if not slug:
+        return None
+    token = token or os.environ.get("BRANCH_HYGIENE_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    items = []
+    for page in range(1, pages + 1):
+        url = (
+            f"https://api.github.com/repos/{slug}/pulls"
+            f"?state=all&sort=updated&direction=desc&per_page=100&page={page}"
+        )
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "slukhayka-branch-hygiene",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                page_items = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            print(f"GitHub API недоступний: {exc}", file=sys.stderr)
+            return None
+        items.extend(page_items)
+        if len(page_items) < 100:
+            break
+    return [mapped for mapped in (map_api_pr(item) for item in items) if mapped]
+
+
+def map_api_pr(item):
+    """Один PR із REST API у ту саму форму, що дає `gh pr list`."""
+    head = item.get("head") or {}
+    head_repo = head.get("repo") or {}
+    if not head_repo:
+        # PR із видаленого форка не можна приписати цьому репозиторію.
+        return None
+    state = "OPEN" if item.get("state") == "open" else "CLOSED"
+    if item.get("merged_at"):
+        state = "MERGED"
+    return {
+        "number": item.get("number"),
+        "headRefName": head.get("ref") or "",
+        "baseRefName": (item.get("base") or {}).get("ref") or "",
+        "state": state,
+        "isDraft": bool(item.get("draft")),
+        "title": item.get("title") or "",
+        "updatedAt": item.get("updated_at"),
+        "mergedAt": item.get("merged_at"),
+        "headRefOid": head.get("sha"),
+        "url": item.get("html_url"),
+        "headRepositoryOwner": {"login": (head_repo.get("owner") or {}).get("login")},
+    }
+
+
+def fetch_prs(use_gh=True, pr_facts_path=None, slug=None, api_token=None):
+    """PR усіх станів і джерело даних. `(None, None)` — «даних немає», не помилка."""
     if pr_facts_path:
-        return json.loads(Path(pr_facts_path).read_text(encoding="utf-8"))
-    if not use_gh:
-        return None
-    result = run(
-        [
-            "gh", "pr", "list", "--state", "all", "--limit", "500",
-            "--json",
-            "number,headRefName,baseRefName,state,isDraft,title,updatedAt,"
-            "mergedAt,headRefOid,url,headRepositoryOwner",
-        ],
-        check=False,
-    )
-    if result.returncode != 0:
-        print(f"gh pr list недоступний: {result.stderr.strip()}", file=sys.stderr)
-        return None
-    try:
-        return json.loads(result.stdout)
-    except ValueError:
-        return None
-
-
-def repo_owner():
-    result = run(["gh", "repo", "view", "--json", "nameWithOwner"], check=False)
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)["nameWithOwner"].split("/")[0]
-    except (ValueError, KeyError):
-        return None
+        return json.loads(Path(pr_facts_path).read_text(encoding="utf-8")), "facts"
+    if use_gh:
+        result = run(
+            [
+                "gh", "pr", "list", "--state", "all", "--limit", "500",
+                "--json",
+                "number,headRefName,baseRefName,state,isDraft,title,updatedAt,"
+                "mergedAt,headRefOid,url,headRepositoryOwner",
+            ],
+            check=False,
+        )
+        if result.returncode == 0:
+            try:
+                return json.loads(result.stdout), "gh"
+            except ValueError:
+                pass
+        else:
+            print(f"gh pr list недоступний: {last_line(result)}", file=sys.stderr)
+    prs = prs_from_api(slug, api_token)
+    if prs is None:
+        return None, None
+    return prs, "api"
 
 
 def normalize_prs(raw, owner):
@@ -154,7 +234,7 @@ def normalize_prs(raw, owner):
     for item in raw or []:
         head_owner = (item.get("headRepositoryOwner") or {}).get("login")
         # PR з форка може мати таку саму назву гілки, як локальна: не плутаємо.
-        if owner and head_owner and head_owner != owner:
+        if owner and head_owner != owner:
             continue
         prs.append(
             {
@@ -173,7 +253,31 @@ def normalize_prs(raw, owner):
     return prs
 
 
-def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None):
+def branch_facts(name, sha, main_sha, prs_by_branch, main=DEFAULT_MAIN):
+    """Усе, що потрібне рішенню про одну гілку — спільне для origin і локальних."""
+    tip = git("log", "-1", "--format=%cI\t%an\t%s", sha, check=False).stdout.rstrip("\n").split("\t")
+    tip_date = parse_iso(tip[0]) if tip else None
+    ancestor = git("merge-base", "--is-ancestor", sha, main_sha, check=False).returncode == 0
+    unique_patches = None
+    if not ancestor:
+        cherry = git("cherry", main_sha, sha, check=False)
+        if cherry.returncode == 0:
+            unique_patches = sum(1 for row in cherry.stdout.splitlines() if row.startswith("+"))
+    tags = git("tag", "--merged", sha, "--list", "v*", check=False).stdout.split()
+    return {
+        "name": name,
+        "sha": sha,
+        "ancestor": ancestor,
+        "unique_patches": unique_patches,
+        "tagged_release": tags[0] if tags else None,
+        "tip_date": tip_date.isoformat() if tip_date else None,
+        "tip_author": tip[1] if len(tip) > 1 else "",
+        "tip_subject": tip[2] if len(tip) > 2 else "",
+        "prs": prs_by_branch.get(name, []),
+    }
+
+
+def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None, slug=None):
     has_main = run(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{main}"],
         check=False,
@@ -186,8 +290,11 @@ def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None):
     now = now or datetime.now(timezone.utc)
     main_sha = git("rev-parse", f"refs/remotes/origin/{main}").stdout.strip()
 
-    raw_prs = fetch_prs(use_gh=use_gh, pr_facts_path=pr_facts_path)
-    owner = repo_owner() if (use_gh and pr_facts_path is None) else None
+    slug = slug or repo_slug()
+    raw_prs, pr_source = fetch_prs(
+        use_gh=use_gh, pr_facts_path=pr_facts_path, slug=slug
+    )
+    owner = slug.split("/")[0] if slug else None
     prs_by_branch = {}
     for pr in normalize_prs(raw_prs, owner):
         prs_by_branch.setdefault(pr["headRefName"], []).append(pr)
@@ -207,34 +314,14 @@ def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None):
         if symref or short in (f"origin/{main}", "origin"):
             continue
         name = short[len("origin/"):] if short.startswith("origin/") else short
-        tip = git("log", "-1", "--format=%cI\t%an\t%s", sha, check=False).stdout.rstrip("\n").split("\t")
-        tip_date = parse_iso(tip[0]) if tip else None
-        ancestor = git("merge-base", "--is-ancestor", sha, main_sha, check=False).returncode == 0
-        unique_patches = None
-        if not ancestor:
-            cherry = git("cherry", main_sha, sha, check=False)
-            if cherry.returncode == 0:
-                unique_patches = sum(1 for row in cherry.stdout.splitlines() if row.startswith("+"))
-        tags = git("tag", "--merged", sha, "--list", "v*", check=False).stdout.split()
-        branches.append(
-            {
-                "name": name,
-                "sha": sha,
-                "ancestor": ancestor,
-                "unique_patches": unique_patches,
-                "tagged_release": tags[0] if tags else None,
-                "tip_date": tip_date.isoformat() if tip_date else None,
-                "tip_author": tip[1] if len(tip) > 1 else "",
-                "tip_subject": tip[2] if len(tip) > 2 else "",
-                "prs": prs_by_branch.get(name, []),
-            }
-        )
+        branches.append(branch_facts(name, sha, main_sha, prs_by_branch, main))
 
     branches.sort(key=lambda b: b["name"])
     return {
         "collected_at": now.isoformat(),
         "main": main,
         "main_sha": main_sha,
+        "pr_source": pr_source,
         "pr_data": raw_prs is not None,
         "branches": branches,
     }
@@ -751,6 +838,441 @@ def cmd_report(args):
 
 
 # --------------------------------------------------------------------------- #
+# Локальне дерево
+# --------------------------------------------------------------------------- #
+
+FRESH_HOURS = 6
+LOCAL_REPORT_NAME = "branch-hygiene-local.md"
+
+
+def git_common_dir():
+    return Path(git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
+
+
+def claim_records(common_dir):
+    """Реєстр резервувань у спільному Git-каталозі (той самий, що читає координатор)."""
+    records = []
+    for path in sorted((common_dir / "agent-work-claims").glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        record.setdefault("issue", path.stem)
+        records.append(record)
+    return records
+
+
+def claimed_by(records, name, worktree_path=None):
+    """Які резервування тримають цю гілку чи worktree.
+
+    Резервування не має строку завершення, тож зайвий пропуск дешевший за
+    зачеплену чужу роботу: номер тікета шукаємо ще й у назві гілки.
+    """
+    found = []
+    for record in records:
+        issue = str(record.get("issue") or "")
+        if record.get("branch") == name:
+            found.append(issue or "?")
+            continue
+        if worktree_path and str(record.get("worktree") or "") == str(worktree_path):
+            found.append(issue or "?")
+            continue
+        if issue and re.search(r"(?:^|[^0-9])0*%s(?![0-9])" % re.escape(issue), name):
+            found.append(issue)
+    return sorted(set(found))
+
+
+def file_mtime(path):
+    try:
+        return datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return None
+
+
+def collect_worktrees(common_dir, root, now=None):
+    """worktree зі станом: бруд, свіжість, головне/поточне дерево, межі репо."""
+    now = now or datetime.now(timezone.utc)
+    entries = []
+    current = {}
+
+    def flush():
+        if current.get("path"):
+            entries.append(dict(current))
+        current.clear()
+
+    for line in git("worktree", "list", "--porcelain").stdout.splitlines():
+        if not line.strip():
+            flush()
+            continue
+        key, _, value = line.partition(" ")
+        if key == "worktree":
+            current["path"] = value
+        elif key == "branch":
+            current["branch"] = (
+                value[len("refs/heads/"):] if value.startswith("refs/heads/") else value
+            )
+        elif key == "detached":
+            current["detached"] = True
+        elif key == "locked":
+            current["locked"] = True
+        elif key == "prunable":
+            current["prunable"] = True
+    flush()
+
+    main_path = Path(entries[0]["path"]) if entries else root
+    worktrees = []
+    for index, entry in enumerate(entries):
+        path = Path(entry["path"])
+        gitdir = Path(
+            git("rev-parse", "--absolute-git-dir", cwd=path, check=False).stdout.strip() or path
+        )
+        branch = entry.get("branch")
+        stamps = [file_mtime(gitdir / name) for name in ("index", "HEAD")]
+        if branch:
+            stamps.append(file_mtime(common_dir / "logs" / "refs" / "heads" / branch))
+        stamps = [stamp for stamp in stamps if stamp]
+        touched = max(stamps) if stamps else None
+        if path.is_dir():
+            status = run(["git", "status", "--porcelain"], check=False, cwd=path)
+            dirty = len([row for row in status.stdout.splitlines() if row.strip()])
+        else:
+            # Каталогу немає — це prunable-запис, а не робоче дерево.
+            dirty = 0
+        worktrees.append(
+            {
+                "path": str(path),
+                "branch": branch,
+                "detached": bool(entry.get("detached")),
+                "locked": bool(entry.get("locked")),
+                "prunable": bool(entry.get("prunable")),
+                "main": index == 0,
+                "current": _within(path, root) and _within(root, path),
+                "external": not _within(path, main_path),
+                "dirty": dirty,
+                "touched_at": touched.isoformat() if touched else None,
+                "fresh_hours": (
+                    round((now - touched).total_seconds() / 3600, 1) if touched else None
+                ),
+            }
+        )
+    return worktrees
+
+
+def _within(path, parent):
+    try:
+        return path.resolve().is_relative_to(parent.resolve())
+    except OSError:
+        return False
+
+
+def collect_local_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None, slug=None):
+    has_main = run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{main}"],
+        check=False,
+    )
+    if has_main.returncode != 0:
+        raise SystemExit(
+            f"Немає refs/remotes/origin/{main} — спершу зроби git fetch"
+        )
+
+    now = now or datetime.now(timezone.utc)
+    main_sha = git("rev-parse", f"refs/remotes/origin/{main}").stdout.strip()
+    slug = slug or repo_slug()
+    raw_prs, pr_source = fetch_prs(use_gh=use_gh, pr_facts_path=pr_facts_path, slug=slug)
+    owner = slug.split("/")[0] if slug else None
+    prs_by_branch = {}
+    for pr in normalize_prs(raw_prs, owner):
+        prs_by_branch.setdefault(pr["headRefName"], []).append(pr)
+
+    common_dir = git_common_dir()
+    root = Path(git("rev-parse", "--show-toplevel").stdout.strip())
+    worktrees = collect_worktrees(common_dir, root, now)
+    worktree_by_branch = {
+        item["branch"]: item for item in worktrees if item.get("branch") and not item["detached"]
+    }
+
+    branches = []
+    for line in git("for-each-ref", "refs/heads", "--format=%(refname:short)\t%(objectname)").stdout.splitlines():
+        name, _, sha = line.partition("\t")
+        if not name or not sha:
+            continue
+        facts = branch_facts(name, sha, main_sha, prs_by_branch, main)
+        reflog = file_mtime(common_dir / "logs" / "refs" / "heads" / name)
+        facts["reflog_at"] = reflog.isoformat() if reflog else None
+        facts["worktree"] = worktree_by_branch.get(name)
+        branches.append(facts)
+
+    branches.sort(key=lambda b: b["name"])
+    return {
+        "collected_at": now.isoformat(),
+        "main": main,
+        "main_sha": main_sha,
+        "pr_source": pr_source,
+        "pr_data": raw_prs is not None,
+        "common_dir": str(common_dir),
+        "root": str(root),
+        "claims": claim_records(common_dir),
+        "worktrees": worktrees,
+        "branches": branches,
+    }
+
+
+def decide_local(branch, *, protect=(), main=DEFAULT_MAIN, claims=(), fresh_hours=FRESH_HOURS,
+                 now=None):
+    """Локальне рішення: доказ той самий, але додаються локальні запобіжники.
+
+    Право на видалення дає лише доведене поглинання (те саме `decide`);
+    резервування, свіжість, бруд, головне й поточне дерево та межі репозиторію
+    його забирають.
+    """
+    now = now or datetime.now(timezone.utc)
+    base = decide(branch, protect=protect, main=main, now=now)
+    worktree = branch.get("worktree")
+    if worktree and worktree.get("prunable"):
+        # Каталог уже зник, лишився адмінзапис: він не тримає гілку, а `prune`
+        # прибере його після прогону.
+        worktree = None
+    base["worktree"] = worktree
+    base["proof"] = base["rule"]
+    base["claimed_by"] = claimed_by(claims, branch["name"], (worktree or {}).get("path"))
+
+    touched = (worktree or {}).get("touched_at") or branch.get("reflog_at")
+    stamp = parse_iso(touched)
+    base["touched_at"] = touched
+    base["fresh_hours"] = None if stamp is None else round((now - stamp).total_seconds() / 3600, 1)
+
+    if base["action"] == "keep":
+        return base
+
+    def keep(reason):
+        base["action"] = "keep"
+        base["reason"] = reason
+        return base
+
+    if base["claimed_by"]:
+        return keep("резервування #%s — там чужа робота" % ", #".join(base["claimed_by"]))
+    if base["fresh_hours"] is not None and base["fresh_hours"] < fresh_hours:
+        return keep(
+            "торкалися %.1f год тому (< %d год) — наступної ночі"
+            % (base["fresh_hours"], fresh_hours)
+        )
+    if worktree:
+        if worktree["main"]:
+            return keep("головне дерево репозиторію")
+        if worktree["current"]:
+            return keep("поточне дерево — з нього й біжить сторож")
+        if worktree["locked"]:
+            return keep("worktree залочено")
+        if worktree["external"]:
+            return keep("worktree поза репозиторієм — прибирається руками")
+        if worktree["dirty"]:
+            return keep("worktree брудний (%d змін) — спершу розібрати їх" % worktree["dirty"])
+    return base
+
+
+def fetch_origin(slug=None):
+    """Свіжий origin по HTTPS: публічний репозиторій не потребує SSH і токена."""
+    slug = slug or repo_slug()
+    url = f"https://github.com/{slug}.git" if slug else "origin"
+    result = git(
+        "fetch", "--prune", "--force", url, "refs/heads/*:refs/remotes/origin/*",
+        check=False,
+    )
+    if result.returncode != 0:
+        print(f"fetch не вдався ({url}): {last_line(result)}", file=sys.stderr)
+        return False
+    return True
+
+
+def remove_local(item):
+    """Прибрати worktree (без --force) і по ньому гілку. Порядок саме такий."""
+    record = {"name": item["name"], "removed_worktree": False, "removed_branch": False,
+              "error": ""}
+    worktree = item.get("worktree")
+    if worktree and not worktree.get("prunable"):
+        result = git("worktree", "remove", worktree["path"], check=False)
+        if result.returncode != 0:
+            record["error"] = f"worktree не прибрано: {last_line(result)}"
+            return record
+        record["removed_worktree"] = True
+    result = git("branch", "-D", item["name"], check=False)
+    if result.returncode != 0:
+        record["error"] = f"гілку не видалено: {last_line(result)}"
+        return record
+    record["removed_branch"] = True
+    return record
+
+
+def render_local_report(facts, decisions, applied, *, dry_run, now, fresh_hours, stale_days=DEFAULT_STALE_DAYS):
+    removed = [item for item in applied if item["removed_branch"]]
+    failed = [item for item in applied if item["error"]]
+    to_delete = [d for d in decisions if d["action"] == "delete"]
+    kept = [d for d in decisions if d["action"] == "keep"]
+    by_name = {d["name"]: d for d in decisions}
+
+    lines = [
+        "# Порядок у гілках — локальне дерево",
+        "",
+        "Оновлено: %s UTC · гілок: %d · worktree: %d"
+        % (now.strftime("%Y-%m-%d %H:%M"), len(decisions), len(facts.get("worktrees") or [])),
+        "",
+    ]
+    if not facts.get("pr_data"):
+        lines += [
+            "> Даних про PR немає (ні gh, ні GitHub API) — судили лише за гітом, "
+            "і гілка з відкритим PR могла не потрапити під захист.",
+            "",
+        ]
+
+    lines += ["## Що зроблено", ""]
+    if dry_run:
+        if to_delete:
+            lines.append("Сухий прогін. Буде прибрано:")
+            for item in to_delete:
+                lines.append(f"- `{item['name']}` — {item['reason']}")
+        else:
+            lines.append("Сухий прогін: прибирати нічого.")
+    elif to_delete:
+        ok_names = {item["name"] for item in removed}
+        if ok_names:
+            for item in to_delete:
+                if item["name"] in ok_names:
+                    worktree = " разом із worktree" if item.get("worktree") else ""
+                    lines.append(f"- `{item['name']}` — видалено{worktree} ({item['reason']})")
+        else:
+            lines.append("Нічого не прибрано.")
+        for item in failed:
+            lines.append(f"- `{item['name']}` — не вдалося: {item['error']}")
+    else:
+        lines.append("Нічого не прибрано.")
+    lines.append("")
+
+    orphans = [
+        d for d in kept
+        if not d["protected"] and not d["release"] and d["action"] == "keep"
+        and d["proof"] is None and not d["open_prs"]
+    ]
+    lines += ["## Робота, якої немає в main", ""]
+    if orphans:
+        for item in sorted(orphans, key=lambda d: -(d["age_days"] or 0)):
+            reason = item["reason"]
+            if reason.startswith("PR #") and "рухалася далі" in reason:
+                hint = ("глянь, що не ввійшло: `git log origin/main..%s` — і або "
+                        "перенеси в main, або `git branch -D %s`" % (item["name"], item["name"]))
+            elif reason.startswith("PR злито не в main"):
+                hint = "PR злито в іншу лінію; у main цих змін немає — перенеси їх окремо"
+            elif reason == "PR закрито без злиття":
+                hint = ("або відкрий PR заново, або `git branch -D %s`" % item["name"])
+            else:
+                hint = ("`git push -u origin %s`, щоб відкрити PR, або "
+                        "`git branch -D %s`" % (item["name"], item["name"]))
+            lines.append(
+                "- `%s` (%s, останній коміт %s тому, %s) — %s"
+                % (item["name"], item["tip_subject"][:60] or "—", age_text(item["age_days"]),
+                   item["tip_author"] or "невідомий автор", reason)
+            )
+            lines.append(f"  → {hint}")
+    else:
+        lines.append("Немає.")
+    lines.append("")
+
+    dirty = [w for w in (facts.get("worktrees") or []) if w["dirty"] and not w["main"]]
+    lines += ["## Брудні worktree", ""]
+    if dirty:
+        for item in dirty:
+            lines.append(
+                "- `%s` (%s, %d змін) — `git -C %s status`, потім `git worktree remove %s`"
+                % (item["path"], item["branch"] or "detached", item["dirty"],
+                   item["path"], item["path"])
+            )
+    else:
+        lines.append("Немає.")
+    lines.append("")
+
+    held = [d for d in kept if d["action"] == "keep" and d["claimed_by"]]
+    fresh = [
+        d for d in kept
+        if d["action"] == "keep" and d["proof"] and not d["claimed_by"]
+        and d["fresh_hours"] is not None and d["fresh_hours"] < fresh_hours
+    ]
+    external = [
+        d for d in kept
+        if d["action"] == "keep" and d["proof"] and (d.get("worktree") or {}).get("external")
+    ]
+    lines += ["## Поглинуте, але лишене", ""]
+    if held or fresh or external:
+        for item in held:
+            lines.append(f"- `{item['name']}` — {item['reason']}")
+        for item in fresh:
+            lines.append(f"- `{item['name']}` — {item['reason']}")
+        for item in external:
+            lines.append(f"- `{item['name']}` — {item['reason']}")
+    else:
+        lines.append("Немає.")
+    lines.append("")
+
+    lines += ["## Лишено з інших причин", ""]
+    other = [
+        d for d in kept
+        if d not in held and d not in fresh and d not in external and d not in orphans
+    ]
+    reasons = {}
+    for item in other:
+        reasons[item["reason"]] = reasons.get(item["reason"], 0) + 1
+    if reasons:
+        for reason, count in sorted(reasons.items(), key=lambda pair: -pair[1]):
+            lines.append(f"- {reason}: {count}")
+    else:
+        lines.append("Немає.")
+    lines += [
+        "",
+        "---",
+        "Правила й межі: `docs/runbooks/branch-hygiene.md`. Локально сторож "
+        "прибирає лише доведено поглинуте, чисте й не зарезервоване.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def cmd_local(args):
+    if args.fetch:
+        fetch_origin()
+    facts = load_local_facts(args)
+    now = datetime.now(timezone.utc)
+    decisions = [
+        decide_local(
+            branch, protect=args.protect, main=args.main,
+            claims=facts.get("claims") or [], fresh_hours=args.fresh_hours, now=now,
+        )
+        for branch in facts["branches"]
+    ]
+    to_delete = [d for d in decisions if d["action"] == "delete"]
+    applied = []
+    if args.apply:
+        # Спершу прибираємо адмінзаписи, чиї каталоги вже зникли: інакше git
+        # уважає гілку зайнятою неіснуючим worktree і відмовляється її видаляти.
+        run(["git", "worktree", "prune"], check=False)
+        for item in to_delete:
+            record = remove_local(item)
+            applied.append(record)
+            state = "прибрано" if record["removed_branch"] else f"НЕ прибрано ({record['error']})"
+            print(f"{state}: {item['name']}", file=sys.stderr)
+
+    report = render_local_report(
+        facts, decisions, applied,
+        dry_run=not args.apply, now=now, fresh_hours=args.fresh_hours,
+    )
+    print(report)
+    if not args.no_out:
+        out = Path(args.out) if args.out else Path(facts["common_dir"]) / LOCAL_REPORT_NAME
+        out.write_text(report, encoding="utf-8")
+        print(f"Звіт: {out}", file=sys.stderr)
+    if args.json:
+        dump_json(args.json, {"dry_run": not args.apply, "decisions": decisions,
+                              "applied": applied})
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
@@ -759,6 +1281,16 @@ def load_facts(args):
     if getattr(args, "facts", None):
         return json.loads(Path(args.facts).read_text(encoding="utf-8"))
     return collect_facts(
+        main=args.main,
+        use_gh=not getattr(args, "no_gh", False),
+        pr_facts_path=getattr(args, "pr_facts", None),
+    )
+
+
+def load_local_facts(args):
+    if getattr(args, "facts", None):
+        return json.loads(Path(args.facts).read_text(encoding="utf-8"))
+    return collect_local_facts(
         main=args.main,
         use_gh=not getattr(args, "no_gh", False),
         pr_facts_path=getattr(args, "pr_facts", None),
@@ -779,14 +1311,32 @@ def build_parser():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    collect = commands.add_parser("collect", help="зібрати факти у JSON")
+    collect = commands.add_parser("collect", help="зібрати факти про origin у JSON")
     add_common(collect)
     collect.add_argument("--json", help="куди писати JSON (- для stdout)")
+
+    collect_local = commands.add_parser("collect-local",
+                                        help="зібрати факти про локальні гілки й worktree")
+    add_common(collect_local)
+    collect_local.add_argument("--json", help="куди писати JSON (- для stdout)")
 
     cleanup = commands.add_parser("cleanup", help="прибрати поглинуті гілки")
     add_common(cleanup)
     cleanup.add_argument("--apply", action="store_true", help="справді видаляти (типово сухий прогін)")
     cleanup.add_argument("--json", help="куди писати рішення й результат")
+
+    local = commands.add_parser("local", help="порядок у локальних гілках і worktree")
+    add_common(local)
+    local.add_argument("--apply", action="store_true",
+                       help="справді прибирати (типово сухий прогін)")
+    local.add_argument("--fetch", action="store_true",
+                       help="спершу оновити origin по HTTPS (без SSH)")
+    local.add_argument("--fresh-hours", type=int, default=FRESH_HOURS,
+                       help="що молодше за це — не чіпаємо (типово %d год)" % FRESH_HOURS)
+    local.add_argument("--out", help="куди писати звіт (типово <git-common-dir>/%s)"
+                       % LOCAL_REPORT_NAME)
+    local.add_argument("--no-out", action="store_true", help="не писати звіт у файл")
+    local.add_argument("--json", help="куди писати рішення й результат")
 
     report = commands.add_parser("report", help="скласти звіт")
     add_common(report)
@@ -818,6 +1368,19 @@ def main(argv=None):
         return 0
     if args.command == "cleanup":
         return cmd_cleanup(args)
+    if args.command == "collect-local":
+        facts = collect_local_facts(
+            main=args.main,
+            use_gh=not args.no_gh,
+            pr_facts_path=args.pr_facts,
+        )
+        if args.json:
+            dump_json(args.json, facts)
+        else:
+            print(json.dumps(facts, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "local":
+        return cmd_local(args)
     if args.command == "report":
         return cmd_report(args)
     raise SystemExit(f"невідома команда: {args.command}")

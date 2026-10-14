@@ -83,12 +83,69 @@ python3 scripts/branch-hygiene.py report --facts /tmp/facts.json --no-llm
 У CI той самий скрипт запускає `workflow_dispatch` з `dry_run: true`: тоді
 нічого не видаляється й issue не оновлюється, а повний звіт видно в summary.
 
+## Локальне дерево
+
+`python3 scripts/branch-hygiene.py local` прибирає те саме поглинуте, але на
+цій машині: локальні гілки та їхні worktree. Доказ поглинання той самий
+(`decide`), а локальних запобіжників більше, і кожен із них скоріше пропустить
+зайве, ніж зачепить чужу роботу:
+
+| запобіжник | що робить |
+|---|---|
+| резервування | гілка чи worktree з `agent-work-claims` не чіпається; номер тікета шукається і в назві гілки |
+| свіжість | торкалися менш ніж `--fresh-hours` (типово 6) годин тому — наступної ночі |
+| бруд | worktree зі змінами чи сміттям лишається; команда для розбору — у звіті |
+| головне й поточне дерево | не видаляються ніколи |
+| межі репозиторію | worktree поза репо (`~/Projects/slukhayka-wt/*`) — лише в звіті |
+| `--protect`, `legal/*`, `backup/*`, `release/*` без тега, відкритий PR | як і для `origin` |
+
+`git worktree remove` викликається **без** `--force`: брудний worktree він не
+прибере, і це навмисно. Гілка видаляється лише після того, як зник її
+worktree, — інакше дерево лишилося б із відірваною головою.
+
+Стан PR локальний прогін бере так само, як CI, але без gh, якщо той недоступний
+(наприклад, під systemd без розблокованого keyring): публічний
+`api.github.com` віддає те саме без токена. `origin` оновлюється по HTTPS
+(`--fetch`) — SSH-конфіг машини для цього не потрібен.
+
+Звіт лягає у спільний Git-каталог: `<git-common-dir>/branch-hygiene-local.md`
+(тобто `~/Projects/slukhayka/.git/branch-hygiene-local.md`), і той самий текст
+іде в журнал. Issue на GitHub веде CI — локальний прогін його не чіпає, щоб два
+письменники не переписували одне тіло.
+
+### Нічний таймер
+
+`scripts/systemd/branch-hygiene.{service,timer}` — юніти для `systemd --user`.
+Один раз:
+
+```bash
+systemctl --user link ~/Projects/slukhayka/scripts/systemd/branch-hygiene.service \
+                      ~/Projects/slukhayka/scripts/systemd/branch-hygiene.timer
+systemctl --user daemon-reload
+systemctl --user enable --now branch-hygiene.timer
+systemctl --user list-timers branch-hygiene.timer     # коли наступний прогін
+systemctl --user start branch-hygiene.service         # прогнати зараз
+journalctl --user -u branch-hygiene.service -n 50     # що він сказав
+```
+
+Таймер біжить о 02:40 і доганяє пропущений запуск (`Persistent=true`). Секрет
+не потрібен; якщо завести `~/.config/slukhayka/branch-hygiene.env` із
+`GH_TOKEN=…`, піднімається ліміт API, а токен LLM додає наратив у звіт.
+
+```bash
+# сухий прогін локальної частини
+python3 scripts/branch-hygiene.py local
+
+# прибрати те, що доведено поглинуте й чисте
+python3 scripts/branch-hygiene.py local --apply --fetch
+```
+
 ## Межі
 
-Локальні гілки та worktree (`/home/stealth/Projects/slukhayka/.worktrees/`)
-воркфлоу не бачить: він біжить на окремій машині GitHub. Їх прибирає
-мейнтейнер, орієнтуючись на розділ «Гілки без PR» у звіті. Локальні refи
-навмисно не чіпаються ніде — вони можуть нести ще не запушені страхові патчі.
+CI бачить лише `origin`: локальних гілок і worktree на машині мейнтейнера він
+не бачить фізично. Локальну половину робить `local` (розділ вище) — за
+розкладом таймера або руками. Локальні refи ніколи не чіпаються наосліп: право
+на видалення дає той самий доведений факт, що й для `origin`.
 
 ## Тести
 

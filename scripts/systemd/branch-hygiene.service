@@ -1,0 +1,19 @@
+[Unit]
+Description=Нічний порядок у гілках: прибрати доведено поглинуте, скласти звіт
+Documentation=file:%h/Projects/slukhayka/docs/runbooks/branch-hygiene.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/slukhayka
+# Секрет не потрібен: origin оновлюється по HTTPS, стан PR читається з
+# публічного GitHub API. Токен лише піднімає ліміт API й додає наратив LLM:
+#   mkdir -p %h/.config/slukhayka
+#   printf 'GH_TOKEN=...\n' > %h/.config/slukhayka/branch-hygiene.env
+#   chmod 600 %h/.config/slukhayka/branch-hygiene.env
+EnvironmentFile=-%h/.config/slukhayka/branch-hygiene.env
+ExecStart=/usr/bin/env python3 scripts/branch-hygiene.py local --apply --fetch
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true

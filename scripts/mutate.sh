@@ -179,6 +179,14 @@ if [[ -n $python_arg && -n $test_class ]]; then
   refuse "--class and --python name different worlds; pass one"
 fi
 
+# Прибирання стоїть на САМОМУ СТАРТІ — до перевірок, які можуть відмовити, і це
+# не про охайність: SIGKILL лишає теку прогону І застосовану мутацію в дереві,
+# тож наступний прогін відмовляє саме на брудному дереві. Прибирання, яке стоїть
+# після перевірок, не виконалося б ніколи (#1300): відмова цього прогону не сміє
+# бути причиною, чому чужа тека лишається в tmpfs назавжди.
+python3 "$budget_module" sweep --prefix slukhayka-mutation. ||
+  note "прибирання застарілих тек прогону не вдалося (причина вище)"
+
 # `--python` names one target the way the script-tests CI job discovers it:
 # scripts/tests/test_<name>.py for the whole file, …::<ClassName> for one class.
 # Both spellings reduce to the record's `class` key — the flat unittest module

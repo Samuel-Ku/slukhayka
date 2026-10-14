@@ -462,6 +462,29 @@ class ScratchTest(unittest.TestCase):
         self.assertTrue(created.is_dir())
         self.assertEqual("4242", (created / tb.OWNER_MARKER).read_text().strip())
 
+    def test_the_entry_point_sweeps_without_creating_a_scratch(self):
+        """`sweep` — те, чим прогін прибирає на САМОМУ СТАРТІ, до перевірок.
+
+        Різниця з `claim` не косметична: тека, лишена SIGKILL'ом, мусить зникнути
+        й тоді, коли прогін відмовить (брудне дерево — саме той стан, у якому
+        лишає `mutate.sh`). Тому `sweep` не створює нічого: тека, яку він створив
+        би, лишилася б по собі на шляху відмови.
+        """
+        old = self.scratch("slukhayka-mutation.old", payload=64)
+        os.utime(old, (1, 1))
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"TMPDIR": str(self.root)}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = tb.main(["sweep", "--prefix", "slukhayka-mutation."])
+
+        self.assertEqual(0, code, err.getvalue())
+        self.assertEqual("1", out.getvalue().strip())
+        self.assertFalse(old.exists())
+        self.assertEqual([], sorted(self.root.iterdir()),
+                         "sweep не сміє лишати по собі теку: він кличеться й на відмові")
+        self.assertIn(str(old), err.getvalue())
+
     def test_the_entry_point_refuses_loudly_when_there_is_nowhere_to_create(self):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.dict(os.environ, {"TMPDIR": str(self.root / "nope")}), \

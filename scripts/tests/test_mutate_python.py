@@ -136,6 +136,11 @@ class Fixture:
     def __init__(self, root: Path, logs: Path, sources: dict[str, Path]):
         self.root = root
         self.logs = logs
+        # Свій `TMPDIR` — ПОЗА копією дерева і свій, а не успадкований: інакше
+        # тека прогону лягає в спільний `/tmp` і лишається там після SIGKILL
+        # (#1300), а в самому дереві вона робила б його брудним.
+        self.tmp = logs / "tmp"
+        self.tmp.mkdir(parents=True, exist_ok=True)
         self.build(sources)
 
     def build(self, sources: dict[str, Path]) -> None:
@@ -190,6 +195,7 @@ class Fixture:
             "LC_ALL": "C",
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": str(self.logs / "gitconfig"),
+            "TMPDIR": str(self.tmp),
         }
         environment.update(overrides)
         return environment

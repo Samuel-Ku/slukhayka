@@ -566,10 +566,12 @@ def claim_scratch(prefix: str, base: Path | None = None, *, relocate: str | None
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         description="Тека прогону скрипта-обгортки: прибрати застарілі й створити свою.",
-        epilog="Код 0 — шлях теки на stdout; 2 — відмова (причина в stderr).",
+        epilog="Код 0 — шлях теки на stdout (claim) або скільки прибрано (sweep); "
+               "2 — відмова (причина в stderr).",
     )
-    result.add_argument("action", choices=("claim",),
-                        help="claim — прибрати застарілі теки префікса й створити свою")
+    result.add_argument("action", choices=("claim", "sweep"),
+                        help="claim — прибрати застарілі теки префікса й створити свою; "
+                             "sweep — лише прибрати (його кличе СТАРТ прогону, до перевірок)")
     result.add_argument("--prefix", required=True,
                         help="префікс теки прогону, напр. slukhayka-mutation.")
     result.add_argument("--tmpdir", default=None, help="корінь; типово TMPDIR")
@@ -582,14 +584,22 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Те, чим скрипт-обгортка користується замість власного `mktemp -d`.
 
-    Друга редакція «створити теку прогону» розійшлася б із першою саме в тому,
-    що тут і болить: у маркері власника. `bash` не може покликати Python-функцію,
-    тож місток — цей вхід, а не копія правила в bash.
+    Дві дії, і різниця між ними не косметична. `sweep` кличеться на САМОМУ
+    СТАРТІ прогону, до будь-яких перевірок: тека, лишена SIGKILL'ом, мусить
+    зникнути й тоді, коли цей прогін відмовить, — а брудне дерево (саме те, що
+    лишає `mutate.sh` після SIGKILL) відмову якраз і спричиняє. `claim` кличеться
+    тоді, коли прогін дійшов до роботи: він прибирає ще раз (дешево) і створює
+    свою теку з маркером. Друга редакція «створити теку прогону» розійшлася б із
+    першою саме в тому, що тут і болить, — у маркері власника; `bash` не може
+    покликати Python-функцію, тож місток — цей вхід, а не копія правила в bash.
     """
     arguments = parser().parse_args(argv)
     try:
-        print(claim_scratch(arguments.prefix, base=arguments.tmpdir,
-                            pid=arguments.owner_pid))
+        if arguments.action == "sweep":
+            print(len(sweep_scratch(arguments.prefix, base=arguments.tmpdir)))
+        else:
+            print(claim_scratch(arguments.prefix, base=arguments.tmpdir,
+                                pid=arguments.owner_pid))
     except BudgetError as error:
         print("tmp_budget: %s" % error, file=sys.stderr)
         return 2

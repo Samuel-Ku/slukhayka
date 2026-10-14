@@ -9,6 +9,14 @@ selector="$repo_root/scripts/test_partitions.py"
 # `cleanup` лишається як було — SIGKILL його не виконує, і саме тому прибиральник
 # мусить бути на СТАРТІ прогону, а не в кінці.
 budget_module="$repo_root/scripts/tmp_budget.py"
+
+# Прибирання стоїть на САМОМУ СТАРТІ — до розбору аргументів: тека, лишена
+# SIGKILL'ом, мусить зникнути й тоді, коли цей прогін відмовить (криві
+# аргументи), — інакше відмова одного прогону лишала б чужу теку в tmpfs
+# назавжди (#1300). `claim` нижче прибирає ще раз (дешево) і створює свою.
+python3 "$budget_module" sweep --prefix slukhayka-changed-tests. ||
+  printf '%s\n' "test-changed.sh: прибирання застарілих тек прогону не вдалося (причина вище)" >&2
+
 base_ref=origin/main
 changed_files=()
 

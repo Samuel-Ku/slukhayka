@@ -509,18 +509,22 @@ GUARDS = (
     Guard(
         test="test_issue_premise.BareTreeMeasureTest"
              ".test_the_documented_command_counts_the_same_class_the_verdict_makes_ambiguous",
-        protects="ЧИСЛО, яким названа ціна асиметрії (#1301): "
+        protects="ЧИСЛА, якими названа ціна асиметрії (#1301): "
                  "`--measure-bare-trees` мусить рахувати рівно той клас, який "
                  "`judge` переносить із 0 у 2 — односегментне ім'я без "
-                 "розширення, не кореневе, чия єдина коротка форма — дерево. "
-                 "Забути «не кореневе» — і в число входить `docs/`, який не "
-                 "платить: точний шлях знаходить його першим. Число стоїть у "
-                 "шапці механізму й у доку, тож хибне число тут — хибне там",
+                 "розширення, не кореневе, чия єдина коротка форма — дерево, — "
+                 "і друкувати сусідні означення тим самим кодом (шапка називає "
+                 "74/78/80/131/132 — після огляду PR #1306 це не проза, а дані). "
+                 "Забути «не кореневе» — і в ціну входить `docs/`, який не "
+                 "платить: точний шлях знаходить його першим. Числа стоять у "
+                 "шапці механізму й у доку, тож хибні числа тут — хибні там",
         edits=(
             Edit(
                 file="scripts/issue_premise.py",
-                find="        if not _is_bare_name(name) or name in top_level:\n",
-                replace="        if not _is_bare_name(name):  # mutated\n",
+                find="        if not include_root and name in top_level:\n"
+                     "            continue\n",
+                replace="        if False:  # mutated\n"
+                        "            continue\n",
             ),
         ),
     ),

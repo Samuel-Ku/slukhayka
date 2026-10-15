@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 66 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 68 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -1261,15 +1261,30 @@ GUARDS = (
     Guard(
         test="test_review_clone.NormalCaseTest"
              ".test_the_printed_diff_is_the_branch_and_not_the_working_tree",
-        protects="надруковану команду дифу (#1326): вона мусить називати БАЗУ Й "
-                 "`origin/<гілку>`, а не `HEAD`. Мутація повертає саме той "
-                 "`…HEAD`, яким #1323 дав чужий диф на 77 файлів — і оглядач "
-                 "читає чужу гілку як гілку огляду",
+        protects="надруковану команду дифу (#1326): вона мусить називати РЕВІЗІЮ "
+                 "огляду, а не `HEAD`. Мутація повертає саме той `…HEAD`, яким "
+                 "#1323 дав чужий диф на 77 файлів — і оглядач читає чужу гілку "
+                 "як гілку огляду",
         edits=(
             Edit(
                 file="scripts/review-clone.sh",
-                find='printf \'диф: git diff %s...origin/%s\\n\' "$MERGE_BASE" "$BRANCH"\n',
+                find='printf \'диф: git diff %s...%s\\n\' "$MERGE_BASE" "$TIP_SHA"\n',
                 replace='printf \'диф: git diff %s...HEAD\\n\' "$MERGE_BASE"  # mutated: HEAD\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.NormalCaseTest"
+             ".test_the_printed_diff_is_pinned_to_the_copy_revision",
+        protects="ревизію в надрукованій команді дифу (#1326): вона мусить бути "
+                 "РОЗВ'ЯЗАНИМ sha копії, а не рухомим `origin/<гілка>`. Мутація "
+                 "повертає ref — і диф показує коміти, яких у копії немає, тобто "
+                 "«копія», «база» й вердикт перестають бути про одну ревізію",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='printf \'диф: git diff %s...%s\\n\' "$MERGE_BASE" "$TIP_SHA"\n',
+                replace='printf \'диф: git diff %s...origin/%s\\n\' "$MERGE_BASE" "$BRANCH"  # mutated: рухомий ref\n',
             ),
         ),
     ),
@@ -1347,6 +1362,27 @@ GUARDS = (
                 file="scripts/review-clone.sh",
                 find='  if "$GIT" -C "$REPO" worktree list --porcelain 2>/dev/null | grep -Fxq "worktree $DIR"; then\n',
                 replace='  if false; then  # mutated: напівкопію не прибрано\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.UnknownTest"
+             ".test_a_missing_git_is_named_and_not_the_ref_name",
+        protects="названий випадок «немає git» (#1326): неробочий git валить першу "
+                 "ж команду, і без окремого питання до нього причина дістає ім'я "
+                 "«ім'я гілки не є іменем ref» — код правильний, а ІМ'Я ні. "
+                 "Мутація знімає перше питання (`git --version`), і стан, який "
+                 "шапка обіцяє назвати, знову звучить чимось іншим",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='if ! "$GIT" --version >/dev/null 2>&1; then\n'
+                     '  fail "немає git: \'$GIT\' не запускається (git --version не '
+                     'відповів) — без git базу назвати нічим"\n'
+                     'fi\n',
+                replace='if false; then  # mutated: «немає git» не названо\n'
+                        '  fail "немає git: \'$GIT\' не запускається"\n'
+                        'fi\n',
             ),
         ),
     ),

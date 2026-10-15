@@ -19,11 +19,15 @@ bare-репозиторій, а «мережі немає» відтворюєт
     скрипт спершу поглиблює історію;
   * `test_the_normal_case_stays_quiet_and_touches_no_other_ref` — крок не
     галасливий: шість рядків виводу, порожній stderr і жодного ref'а, крім двох
-    названих (ні `git fetch origin`, ні `--unshallow` на повному репо).
+    названих (ні `git fetch origin`, ні `--unshallow` на повному репо);
+  * `test_the_printed_diff_is_pinned_to_the_copy_revision` — гілку допушнують
+    ПІСЛЯ копії, і надрукована команда мусить лишитися про ревізію копії
+    (розв'язані sha), а не про рухомий ref.
 """
 
 import os
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -106,8 +110,10 @@ class CloneTest(unittest.TestCase):
     def rev(self, *args, cwd=None):
         return self.git("rev-parse", *args, cwd=cwd).stdout.strip()
 
-    def review(self, *args, expect=0, repo=None, cwd=None):
+    def review(self, *args, expect=0, repo=None, cwd=None, env=None):
         environment = {**os.environ, "REVIEW_CLONE_REPO": str(repo or self.repo)}
+        if env:
+            environment.update(env)
         result = subprocess.run(
             [str(REVIEW_CLONE), *args], cwd=str(cwd or self.repo),
             capture_output=True, text=True, env=environment, check=False,
@@ -188,9 +194,36 @@ class NormalCaseTest(CloneTest):
                          "команда: %s\nсирий вивід:\n%s" % (command, "\n".join(new)))
         self.assertNotIn(FOREIGN_FILES[0], new)
         self.assertEqual(self.ancestor, self.printed_base(result.stdout))
-        self.assertEqual("git diff %s...origin/%s" % (self.ancestor, BRANCH),
-                         command, "команда мусить називати БАЗУ Й origin/<гілку>, "
-                                  "не HEAD")
+        self.assertNotIn("HEAD", command,
+                         "команда не сміє називати HEAD координатора (#1323)")
+        self.assertIn(self.ancestor, command)
+        self.assertIn(self.tip, command)
+
+    def test_the_printed_diff_is_pinned_to_the_copy_revision(self):
+        """Гілку допушнуто ПІСЛЯ копії: команда мусить лишитися про КОПІЮ.
+
+        Надрукована команда називає РОЗВ'ЯЗАНІ sha, а не рухомий
+        `origin/<гілка>`: інакше диф покаже коміти, яких у копії немає, — і
+        «копія», «база» та вердикт перестануть бути про одну ревізію.
+        """
+        result = self.clone()
+        command = self.printed_diff(result.stdout)
+
+        (self.repo / "feat-three.txt").write_text("допушнуто\n", encoding="utf-8")
+        self.git("checkout", "-q", BRANCH)
+        self.git("add", "-A")
+        self.commit("B3 — гілку допушнуто під час огляду")
+        self.git("push", "-q", "origin", BRANCH)
+        moved = self.rev("origin/%s" % BRANCH)
+        by_ref = "git diff %s...origin/%s" % (self.ancestor, BRANCH)
+
+        self.assertNotEqual(self.tip, moved)
+        self.assertEqual("git diff %s...%s" % (self.ancestor, self.tip), command)
+        self.assertEqual(list(BRANCH_FILES), self.run_diff(command, cwd=self.repo),
+                         "надрукована команда мусить бути про ревізію КОПІЇ")
+        self.assertEqual(sorted(list(BRANCH_FILES) + ["feat-three.txt"]),
+                         self.run_diff(by_ref, cwd=self.repo),
+                         "ref рухомий — і саме тому його в команді немає")
 
     def test_the_normal_case_stays_quiet_and_touches_no_other_ref(self):
         """Мінімум виводу й жодного ref'а, крім двох названих."""
@@ -291,6 +324,25 @@ class UnknownTest(CloneTest):
 
         self.assertIn("немає мережі", result.stderr)
         self.assertNotIn("немає гілки", result.stderr)
+        self.assertFalse(self.copy.exists(), result.stdout)
+
+    def test_a_missing_git_is_named_and_not_the_ref_name(self):
+        """Шапка обіцяє окремий випадок «немає git» — і він мусить звучати так.
+
+        Неробочий git валить ПЕРШУ ж команду; якби першою була
+        `check-ref-format`, причина дістала б ім'я «ім'я гілки не є іменем ref» —
+        код правильний, а ім'я ні. PATH без git, але з `bash`: скрипт запускає
+        шебанг (`/usr/bin/env bash`), тож без bash у PATH він не стартував би
+        взагалі, і тест перевіряв би не те.
+        """
+        bin_without_git = self.base / "no-git"
+        bin_without_git.mkdir()
+        (bin_without_git / "bash").symlink_to(shutil.which("bash"))
+
+        result = self.clone(expect=2, env={"PATH": str(bin_without_git)})
+
+        self.assertIn("немає git", result.stderr)
+        self.assertNotIn("ім'я гілки", result.stderr)
         self.assertFalse(self.copy.exists(), result.stdout)
 
     def test_a_branch_without_shared_history_is_named(self):

@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 44 записів (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 49 записів (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -790,6 +790,97 @@ GUARDS = (
                 file="scripts/ci_job_time.py",
                 find='    if mode == "local":\n',
                 replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.MeasurementTest"
+             ".test_the_tree_revision_is_read_from_git_and_moves_with_a_commit",
+        protects="ревізію дерева, прочитану з git (#1317): вікно прив'язується до "
+                 "того, ЯКИЙ код прогін будував, і ревізія мусить рухатися разом "
+                 "із деревом. Ревізія-константа в механізмі лишається незмінною, "
+                 "коли дерево зрушило, — і прогони ІНШОГО дерева знову сходять за "
+                 "час джоби на цьому",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    revision = result.stdout.strip()\n",
+                replace='    revision = "0" * 40  # mutated: ревізія не з дерева\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.MeasurementTest"
+             ".test_a_window_where_every_run_built_this_tree_behaves_as_before",
+        protects="другий бік прив'язки (#1317): коли всі прогони вікна будували це "
+                 "дерево, вивід лишається тим самим — ті самі прогони, ті самі "
+                 "числа, той самий вердикт. Межа, яку друкують завжди, робить гейт "
+                 "галасливим там, де межі немає, і привчає не читати її",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    mixed = len(about) != len(runs)\n",
+                replace="    mixed = True  # mutated: межа друкується завжди\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.MeasurementTest"
+             ".test_a_window_that_crosses_the_change_boundary_names_the_run_about_this_tree",
+        protects="прив'язку вікна до дерева (#1317): підлога рахується лише з "
+                 "прогонів, чия ревізія дорівнює ревізії цього дерева, і прогін "
+                 "про це дерево названий. Вікно, яке міряють цілком, подає час "
+                 "джоби чотири правки тому за сьогоднішній — і червоніє на "
+                 "виправленні та зеленіє на регресії",
+        edits=(
+            # Рівно те, що було до правки: межу зміни не читано, вікно міряне цілком.
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    about = [run for run in runs if run.revision == revision]\n",
+                replace="    about = list(runs)  # mutated: межу зміни не читано\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.RefusalTest"
+             ".test_a_window_with_no_run_for_this_tree_is_an_unknown",
+        protects="невідомість як код 2 там, де жоден прогін вікна не будував це "
+                 "дерево (#1317): числа про це дерево немає, і підставити "
+                 "найновіше число з ІНШОГО дерева — це та сама тиха неправда. "
+                 "Замість відмови мутант міряє все вікно — і видає чужий час за "
+                 "час джоби на цьому дереві",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="    if not about:\n"
+                     "        raise JobTimeError(\n"
+                     '            "жоден із %d прогонів вікна не будував це дерево '
+                     '(%s): у вікні — %s. "\n'
+                     '            "Числа про час джоби на цьому дереві немає"\n'
+                     "            % (len(runs), revision,\n"
+                     '               ", ".join(sorted({run.revision for run in runs})))\n'
+                     "        )\n",
+                replace="    if not about:\n"
+                        "        about = list(runs)  # mutated: відмова замінена на "
+                        "«міряти ціле вікно»\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_ci_job_time.RefusalTest.test_a_run_without_a_revision_is_an_unknown",
+        protects="ревізію прогону як умову виміру (#1317): без `head_sha` вікно до "
+                 "дерева не прив'язати, і це відмова (2), а не «візьмемо прогін як "
+                 "є». Мутант повертає порожню ревізію — і прогін, про яке дерево "
+                 "він, лишається невидимим",
+        edits=(
+            Edit(
+                file="scripts/ci_job_time.py",
+                find="        raise JobTimeError(\n"
+                     '            "прогін %s: API не дав `head_sha` — вікно до дерева '
+                     'не прив\'язати, і "\n'
+                     '            "число джоби з нього не міряється" % run_id\n'
+                     "        )\n",
+                replace='        return ""  # mutated: прогін без ревізії приймається\n',
             ),
         ),
     ),

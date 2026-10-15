@@ -15,10 +15,13 @@ GitHub сьогодні відповідає. Справжнє дерево пе
     рухає число, не чіпаючи код;
   * `MeasurementTest` — секунди, запас і відношення; вікно бере рівно завершені
     прогони `main` (подія `push`) і питає їх фільтром у САМОМУ запиті, а підлога
-    запасу червоніє на повільному прогоні;
+    запасу червоніє на повільному прогоні. Тут же — прив'язка вікна до ДЕРЕВА
+    (#1317): ревізія береться з git, прогін про це дерево названий, а вікно, де
+    всі прогони про нього, поводиться як до прив'язки;
   * `RefusalTest` — невідомість коштує код 2, а не «нуль»: немає `gh`, немає
     завершених прогонів `main`, API віддав прогін не з `main`, джоби немає в
-    прогоні, `gh` упав, дві джоби з тим імʼям, ліміту немає;
+    прогоні, `gh` упав, дві джоби з тим імʼям, ліміту немає, API не дав ревізії,
+    жоден прогін вікна не будував це дерево;
   * `ClaimTest` — числа в документах: ліміт приймається, локальне число — лише
     ПОЗНАЧЕНЕ разом із навантаженням машини, а заморожене число джоби — знахідка;
   * `RepositoryTest` — справжнє дерево: ліміт 300 с, і жодного числа, яке не
@@ -27,15 +30,23 @@ GitHub сьогодні відповідає. Справжнє дерево пе
 Зарахований у `scripts/guard_witnesses.py` — один сторож на кожну половину
 механізму (`LimitTest`, `MeasurementTest`, `RefusalTest`, `ClaimTest`), плюс
 окремий запис на кожен бік фільтра джерела (#1307): фільтр у запиті й відмова
-на прогін, який прийшов попри нього. Решта перевіряють сам механізм і в реєстрі
-не стоять. Реєстр покриває НАЗВАНИХ, а не всіх.
+на прогін, який прийшов попри нього, — плюс п'ять на прив'язку вікна до дерева
+(#1317): ревізія з git, однорідне вікно, межа зміни, відмова без ревізії й
+відмова, коли жоден прогін не будував це дерево. Решта перевіряють сам механізм
+і в реєстрі не стоять. Реєстр покриває НАЗВАНИХ, а не всіх.
+
+Підставлене дерево — СПРАВЖНІЙ git-репозиторій (одна фіксація в `setUp`):
+ревізія вікна читається з нього, і підставлена константа перевіряла б, що
+механізм читає константу, а не те, що він читає дерево.
 """
 
 import contextlib
+import datetime
 import io
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -130,6 +141,7 @@ class Fixture(unittest.TestCase):
         self.claim_file = "docs/agents/local-environment.md"
         self.write_claim()
         (self.tree / "CONTRIBUTING.md").write_text(CONTRIBUTING_LINE, encoding="utf-8")
+        self.revision = self.commit_tree()
 
         self.fixtures = self.root / "gh"
         self.fixtures.mkdir()
@@ -141,6 +153,33 @@ class Fixture(unittest.TestCase):
         self.write_gh()
 
     # -- дерево ------------------------------------------------------------
+
+    def commit_tree(self, message: str = "fixture") -> str:
+        """Ревізія підставленого дерева — зі СПРАВЖНЬОГО git, а не з константи.
+
+        Вікно прив'язується до `git rev-parse HEAD` цього дерева, тож фікстура
+        мусить мати справжню ревізію: підставлена константа перевіряла б, що
+        механізм читає константу, а не те, що він читає дерево. `HEAD` — те
+        саме, чим прогони й прив'язуються.
+        """
+        git = shutil.which("git")
+        self.assertIsNotNone(git, "фікстурі потрібен `git`")
+        if not (self.tree / ".git").is_dir():
+            self.git_run(git, "init", "-q")
+        self.git_run(git, "add", "-A")
+        self.git_run(git, "-c", "user.email=fixture@invalid",
+                     "-c", "user.name=fixture", "-c", "commit.gpgsign=false",
+                     "commit", "-q", "--allow-empty", "-m", message)
+        result = self.git_run(git, "rev-parse", "HEAD")
+        return result.stdout.strip()
+
+    def git_run(self, git: str, *arguments: str):
+        result = subprocess.run([git, "-C", str(self.tree), *arguments],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(0, result.returncode,
+                         "`git %s` у фікстурі не вдався: %s"
+                         % (" ".join(arguments), result.stderr))
+        return result
 
     def write_workflow(self, text: str | None = None) -> None:
         self.workflow.write_text(text if text is not None else workflow_text(),
@@ -178,23 +217,33 @@ class Fixture(unittest.TestCase):
         )
         self.gh.chmod(self.gh.stat().st_mode | stat.S_IXUSR)
 
-    def write_runs(self, *runs: tuple[str, str], branch: str = "main",
+    def write_runs(self, *runs: tuple, branch: str = "main",
                    event: str = "push") -> None:
-        """Прогони фікстури: (id, status) — у тому порядку, як їх віддає API.
+        """Прогони фікстури: (id, status[, ревізія]) — у тому порядку, як їх віддає API.
 
         `branch`/`event` — джерело прогону, і типово це `main` (подія `push`):
         саме такі прогони механізм і питає (#1307). Інші значення — підставна
         відповідь API, яка прийшла ПОПРИ фільтр, і тоді механізм мусить
         відмовити, а не міряти чуже.
+
+        Третій член — ревізія, яку прогін будував (`head_sha`): типово це `HEAD`
+        підставленого дерева, тож усі прогони фікстури — про нього, і поведінка
+        та сама, що до прив'язки. `None` третім членом прибирає поле зовсім —
+        так перевіряється відмова, коли API ревізії не дав.
         """
-        entries = ", ".join(
-            '{"id": %s, "status": "%s", "created_at": "2026-10-14T0%s:00:00Z", '
-            '"head_branch": "%s", "event": "%s"}'
-            % (run_id, status, index, branch, event)
-            for index, (run_id, status) in enumerate(runs)
+        entries = []
+        for index, run in enumerate(runs):
+            run_id, status = run[0], run[1]
+            revision = run[2] if len(run) > 2 else self.revision
+            sha = "" if revision is None else ', "head_sha": "%s"' % revision
+            entries.append(
+                '{"id": %s, "status": "%s", "created_at": "2026-10-14T0%s:00:00Z"'
+                '%s, "head_branch": "%s", "event": "%s"}'
+                % (run_id, status, index, sha, branch, event)
+            )
+        (self.fixtures / "runs.json").write_text(
+            '{"workflow_runs": [%s]}' % ", ".join(entries), encoding="utf-8"
         )
-        (self.fixtures / "runs.json").write_text('{"workflow_runs": [%s]}' % entries,
-                                                encoding="utf-8")
 
     def write_jobs(self, run_id: str, start: str, finish: str,
                    name: str = "Script unit tests", count: int = 1) -> None:
@@ -206,6 +255,14 @@ class Fixture(unittest.TestCase):
         (self.fixtures / ("jobs-%s.json" % run_id)).write_text(
             '{"jobs": [%s]}' % jobs, encoding="utf-8"
         )
+
+    def write_jobs_seconds(self, run_id: str, seconds: int,
+                           name: str = "Script unit tests") -> None:
+        """Джоба тривалістю `seconds` — від фіксованої точки, щоб число було видно."""
+        start = datetime.datetime(2026, 10, 14, 4, 0, 0)
+        finish = start + datetime.timedelta(seconds=seconds)
+        self.write_jobs(run_id, start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        finish.strftime("%Y-%m-%dT%H:%M:%SZ"), name=name)
 
     def patched(self, path: str):
         return unittest.mock.patch.dict(os.environ, environment(
@@ -364,6 +421,69 @@ class MeasurementTest(Fixture):
         self.assertIn("разом: 2 · найповільніший 130 с · медіана 130 с · "
                       "найшвидший 80 с", out)
 
+    def test_the_tree_revision_is_read_from_git_and_moves_with_a_commit(self):
+        """Сторож: число прив'язується до РЕВІЗІЇ дерева, а не до константи.
+
+        Близнюк `LimitTest`: нова фіксація в підставленому дереві мусить зрушити
+        ревізію, якою вікно прив'язується. Механізм, який знає ревізію сам,
+        лишився б на старій — і міряв би прогони ІНШОГО дерева, подаючи їх як
+        час джоби на цьому (#1317).
+        """
+        first = c.tree_revision(self.tree)
+        self.assertEqual(self.revision, first)
+        (self.tree / "note.txt").write_text("x", encoding="utf-8")
+        second = self.commit_tree("next")
+        self.assertNotEqual(first, second)
+        self.assertEqual(second, c.tree_revision(self.tree))
+
+    def test_a_window_where_every_run_built_this_tree_behaves_as_before(self):
+        """Не галасливим: коли всі прогони вікна про це дерево, вивід не міняється.
+
+        Сторож другого боку #1317: прив'язка до дерева не сміє додавати межі
+        там, де її немає, — ті самі прогони, ті самі числа, той самий вердикт.
+        """
+        self.write_runs(("1", "completed"), ("2", "completed"))
+        self.write_jobs_seconds("1", 130)
+        self.write_jobs_seconds("2", 80)
+        code, out, err = self.check("--runs", "2")
+        self.assertEqual(0, code, err)
+        self.assertIn("про це дерево 2 з 2 прогонів", out)
+        self.assertIn("разом: 2 · найповільніший 130 с · медіана 130 с · "
+                      "найшвидший 80 с", out)
+        self.assertNotIn("ІНШЕ дерево", out)
+        self.assertNotIn("межа зміни", out)
+
+    def test_a_window_that_crosses_the_change_boundary_names_the_run_about_this_tree(self):
+        """Сторож: вікно, яке перетинає межу зміни, мусить назвати СВОЄ дерево.
+
+        Живий приклад тікета #1317: у вікні п'ять прогонів `main`, і лише
+        найновіший будував це дерево; решта чотири — ІНШЕ дерево, і саме вони
+        давали «БІЛЬШЕ НЕ ТРИМАЄТЬСЯ» про сьогоднішній код (відношення 1.68
+        проти підлоги 2). Механізм мусить міряти підлогу на прогоні про ЦЕ
+        дерево (148 с, відношення 2.03), назвати саме його, а решту — названими
+        виключити з підлоги.
+        """
+        self.write_runs(("38655125347", "completed"),
+                        ("38647777839", "completed", "534ed45c"),
+                        ("38634568885", "completed", "c6199ddb"),
+                        ("38630519414", "completed", "4ce040f6"),
+                        ("38624840096", "completed", "b21600f9"))
+        self.write_jobs_seconds("38655125347", 148)
+        self.write_jobs_seconds("38647777839", 179)
+        self.write_jobs_seconds("38634568885", 171)
+        self.write_jobs_seconds("38630519414", 167)
+        self.write_jobs_seconds("38624840096", 164)
+        code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("про це дерево 1 з 5 прогонів: #38655125347", out)
+        self.assertIn("← це дерево", out)
+        self.assertIn("межа зміни: 4 з 5", out)
+        self.assertIn("разом (про це дерево, 1)", out)
+        self.assertIn("найповільніший 148 с", out)
+        self.assertNotIn("БІЛЬШЕ НЕ ТРИМАЄТЬСЯ", out)
+        self.assertNotIn("179 с · запас", out,
+                         "секунди ІНШОГО дерева не сміють виглядати як запас джоби")
+
 
 # --------------------------------------------------------------------------
 # Невідомість — код 2, а не «нуль»
@@ -421,6 +541,36 @@ class RefusalTest(Fixture):
         self.assertIn("t1300-leak2", err)
         self.assertIn("pull_request", err)
         self.assertIn(c.MAIN_BRANCH, err)
+
+    def test_a_run_without_a_revision_is_an_unknown(self):
+        """Сторож: без `head_sha` вікно до дерева не прив'язати — і це код 2.
+
+        `gh` віддає ревізію на прогін (`head_sha`). Якщо поле зникло, прийняти
+        прогін означало б мовчки повернути стару поведінку — число без дерева;
+        тому відмова, а не «візьмемо як є».
+        """
+        self.write_runs(("1", "completed", None))
+        self.write_jobs_seconds("1", 148)
+        code, out, err = self.check("--runs", "1")
+        self.assertEqual(2, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("head_sha", err)
+        self.assertIn("прогін 1", err)
+
+    def test_a_window_with_no_run_for_this_tree_is_an_unknown(self):
+        """Сторож: вікно, де жоден прогін не будував це дерево, числа не дає.
+
+        Стара поведінка подала б найновіше число з ІНШОГО дерева як час джоби на
+        цьому — рівно та тиха неправда, від якої #1317 і заведено.
+        """
+        self.write_runs(("1", "completed", "534ed45c"),
+                        ("2", "completed", "c6199ddb"))
+        self.write_jobs_seconds("1", 179)
+        self.write_jobs_seconds("2", 171)
+        code, out, err = self.check("--runs", "2")
+        self.assertEqual(2, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("не будував це дерево", err)
+        self.assertIn(self.revision, err)
+        self.assertIn("534ed45c", err)
 
     def test_two_jobs_with_that_name_are_an_unknown(self):
         """Ретрай лишає два записи з тим самим імʼям — який міряти, не вгадується."""

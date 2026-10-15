@@ -806,18 +806,27 @@ about this job that is neither that limit nor a *labelled* local measurement.
 
 The job's own time cannot be a figure here at all, because it moves with every
 run; what lives here is the **relation** — the limit is more than twice the
-slowest of the last five *`main`* runs. `python3 scripts/ci_job_time.py` prints
-each of those runs with its branch and event, its headroom and its ratio, and
-exits `1` when the floor stops holding. The window is one source on purpose: the
-floor is a claim about `main`, so the mechanism asks the API for `main` pushes
-only (`branch=main&event=push`) — a slow run on somebody's PR cannot move the
-floor it does not belong to, and a run that arrives from another branch despite
-the filter is an unknown rather than a number. "The last five" is not "always":
-GitHub keeps a bounded history, so the mechanism asks the API for a window with
-slack, takes only *completed* runs, and `--runs N` moves it — the green line
-names the N it used. If fewer than five completed `main` pushes are in the
-fetched page, the mechanism refuses (exit `2`) instead of measuring a narrower
-window: "no `main` run in the window" is not a number.
+slowest run in the window *that built this tree*. `python3 scripts/ci_job_time.py`
+prints each of those runs with its branch and event, its headroom and its ratio —
+and, where the window crosses a change, each run's revision — and exits `1` when
+the floor stops holding. The window is
+one source on purpose: the floor is a claim about `main`, so the mechanism asks
+the API for `main` pushes only (`branch=main&event=push`) — a slow run on
+somebody's PR cannot move the floor it does not belong to, and a run that arrives
+from another branch despite the filter is an unknown rather than a number.
+`main` alone is not the whole source, though: successive `main` runs build
+*different trees*, and a merge changes the code — and the job's time with it.
+Each run therefore carries its `head_sha`, and the floor is computed from the
+runs whose revision equals this tree's (`git rev-parse HEAD`) and no others; the
+rest are printed by name, marked as another tree and excluded, and a window in
+which no run built this tree is an unknown (exit `2`) rather than the newest
+number from some other tree. "The last five" is not "always": GitHub keeps a
+bounded history,
+so the mechanism asks the API for a window with slack, takes only *completed*
+runs, and `--runs N` moves it — the green line names the N it used. If fewer than
+five completed `main` pushes are in the fetched page, the mechanism refuses
+(exit `2`) instead of measuring a narrower window: "no `main` run in the window"
+is not a number.
 
 A local run of the same suite measures this machine, not the runner: it is
 **173.2 s locally on this shared machine under load 6.26** (2026-10-14), and

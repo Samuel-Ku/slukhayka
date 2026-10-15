@@ -1072,6 +1072,49 @@ class GhTest(unittest.TestCase):
         self.assertEqual("", proc.stdout)
 
 
+class GitTest(unittest.TestCase):
+    """`git` немає — названа невідомість (код 2), а не стек (#1329).
+
+    Той самий клас, що діра 2 для `gh`, і та сама конвенція, що в
+    `ci_job_time.py` (`shutil.which("git")`). Через `new-lane.sh` ця діра
+    недосяжна — крок сам потребує `git`, — але «назвав відсутній `gh` і не
+    назвав відсутній `git`» лишало б у коді два способи робити одне (знахідка
+    доогляду).
+    """
+
+    def test_a_missing_git_is_an_unknown_not_a_stack(self):
+        """Без `git` — код 2 із названою причиною на всіх трьох шляхах до нього.
+
+        `--body-file` доходить до `git` у `check_body` (`resolve_main_ref`),
+        `--scan` і вимір — одразу; `--issue` першим питає `gh`, і тут `gh` теж
+        немає, тож він назве `gh` — і це так само код 2, а не стек.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-nogit-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        empty = base / "bin"
+        empty.mkdir()
+        body = base / "body.md"
+        body.write_text("читай `AGENTS.md`\n", encoding="utf-8")
+        environment = {"PATH": str(empty), "HOME": str(base), "LC_ALL": "C"}
+        for arguments, named in (
+            (("--body-file", str(body)), "немає `git`"),
+            (("--scan", "3"), "немає `git`"),
+            (("--measure-prose-numbers", "--scan-limit", "3"), "немає `git`"),
+            (("--quiet", "--issue", "1329"), "немає `gh`"),
+        ):
+            with self.subTest(arguments=arguments):
+                proc = subprocess.run(
+                    [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                     *arguments],
+                    capture_output=True, text=True, check=False, env=environment,
+                )
+                self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+                self.assertIn(named, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                # Причина названа, а не видана за вердикт: stdout порожній.
+                self.assertEqual("", proc.stdout)
+
+
 class ProseNumberMeasureTest(unittest.TestCase):
     """Вимір чисел у ПРОЗІ (#1329) — межа з числом, а не мовчазна діра.
 
@@ -1120,6 +1163,22 @@ class ProseNumberMeasureTest(unittest.TestCase):
         counted = ip.prose_number_tickets("у дереві 900 шляхів")
         self.assertEqual(counted["число + іменник-одиниця"], 1)
         self.assertEqual(counted["число + іменник РЕЄСТРУ"], 0)
+
+    def test_a_bare_registry_noun_without_a_number_is_not_a_figure(self):
+        """СУСІДНІЙ рядок драбини — той самий дефект (знахідка доогляду).
+
+        Групу мають ОБИДВА рядки `PROSE_NUMBER_CLASSES`, і сторож пінив лише
+        «іменник-одиниця»: знята `(?:…)` з РЕЄСТР-рядка лишала всі 736 тестів
+        зеленими, а метрика стрибала 4/7 → 121/314 — та сама хибна фігура, лише
+        на сусідньому рядку. Тут питання поставлено до РЕЄСТР-рядка: рядок без
+        жодної цифри, у якому є самі лише іменники реєстру.
+        """
+        bare = ip.prose_number_tickets("у тілі немає жодного запису, ні межі, ні сторожів")
+        self.assertEqual(bare, {name: 0 for name, _ in ip.PROSE_NUMBER_CLASSES},
+                         "голий іменник РЕЄСТРУ без числа — не фігура: %r" % (bare,))
+        # І навпаки: число перед тим самим іменником — фігура класу РЕЄСТРУ.
+        counted = ip.prose_number_tickets("реєстр має 22 сторожі")
+        self.assertEqual(counted["число + іменник РЕЄСТРУ"], 1)
 
     def test_the_documented_command_counts_prose_numbers(self):
         proc = self.run_with_gh_stub(
@@ -1385,8 +1444,12 @@ class RealGitTest(unittest.TestCase):
         real_run = subprocess.run
 
         def git_only(args, *rest, **kwargs):
-            if list(args)[:1] != ["git"]:
-                raise AssertionError(f"gh на нечитабельному ref-і кликати нічого: {args}")
+            # Шлях до `git` тепер РОЗВ'ЯЗАНИЙ (`git_executable` → `shutil.which`),
+            # тож звіряється ім'я, а не рядок `"git"`. Заборона лишається та
+            # сама: на нечитабельному ref-і кличеться `git` — і жодного `gh`.
+            called = os.path.basename(str(list(args)[0]))
+            if called != "git":
+                raise AssertionError(f"кликати нічого, крім git: {args}")
             return real_run(args, *rest, **kwargs)
 
         printed, errors = io.StringIO(), io.StringIO()

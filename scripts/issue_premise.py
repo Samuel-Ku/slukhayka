@@ -690,9 +690,13 @@ def git_output(args: list[str], repo: Path = REPO_ROOT) -> tuple[int, str, str]:
     нічого, а тест — залежав би від того, що завантажив раннер. Те саме
     дозволяє тестам підняти **свій** репозиторій у `/tmp` зі своїм `origin/main`
     і перевіряти справжній git, а не підставку.
+
+    Шлях до `git` дає `git_executable`, а не голе ім'я: без `git` тут був би
+    `FileNotFoundError` з трасуванням і код 1 («ВІДМОВА»), тоді як це
+    невідомість (код 2) — та сама межа, що для `gh` (знахідка доогляду #1329).
     """
     proc = subprocess.run(
-        ["git", *args],
+        [git_executable(), *args],
         cwd=str(repo),
         capture_output=True,
         text=True,
@@ -1169,20 +1173,22 @@ def format_report(ref: str, code: int, verdicts: list[Verdict]) -> str:
     return "\n".join(lines)
 
 
-class GhUnknown(Exception):
-    """`gh` не дав відповіді — невідомість (код 2), не стек і не «нуль» (#1329).
+class PremiseUnknown(Exception):
+    """Механізм не дістав відповіді від інструмента — невідомість (код 2) (#1329).
 
-    Два випадки, одна межа: `gh` немає на машині (`gh_executable`) і `gh` є, але
-    `gh issue view` вийшов із кодом (403, rate limit, обрив). Обидва — «не
-    прочитав»: жоден не сміє виглядати ні як «перевірив, усе гаразд», ні як
-    «ВІДМОВА: премиси немає» (код 1).
+    Три випадки, одна межа: `gh` немає на машині (`gh_executable`), `gh` є, але
+    `gh issue view` вийшов із кодом (403, rate limit, обрив), і `git` немає на
+    машині (`git_executable`). Кожен — «не зміг перевірити»: жоден не сміє
+    виглядати ні як «перевірив, усе гаразд», ні як «ВІДМОВА: премиси немає»
+    (код 1), ні як стек.
 
     У тому самому репозиторії цю межу тримає `ci_job_time.py`
     (`RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero`): відсутній `gh` —
     це названа причина, а не «нуль прогонів». Тут те саме, і навантажено це
     дужче: `new-lane.sh` кличе цей механізм на КОЖНІЙ смузі, тож
     `FileNotFoundError` з надр `subprocess` зупиняв координатора стеком замість
-    причини.
+    причини. Та сама межа — і для `git`: «назвав відсутній `gh` і не назвав
+    відсутній `git`» лишало б у коді два способи робити одне (знахідка доогляду).
     """
 
 
@@ -1196,9 +1202,27 @@ def gh_executable() -> str:
     """
     found = shutil.which("gh")
     if found is None:
-        raise GhUnknown(
+        raise PremiseUnknown(
             "немає `gh` — тіло issue читається через `gh issue view`, і взяти "
             "його більше нізвідки"
+        )
+    return found
+
+
+def git_executable() -> str:
+    """Шлях до `git`; його відсутність — невідомість, а не стек (#1329).
+
+    Той самий спосіб, що `gh_executable`, і та сама конвенція, що в
+    `ci_job_time.py` (`shutil.which("git")`). Через `new-lane.sh` ця діра
+    недосяжна — крок сам потребує `git`, — але це не привід лишити її
+    неназваною: без `git` механізм не дістає ні дерева `origin/main`, ні шляхів,
+    і `FileNotFoundError` виглядав би як «ВІДМОВА» (код 1).
+    """
+    found = shutil.which("git")
+    if found is None:
+        raise PremiseUnknown(
+            "немає `git` — без нього ні дерева `origin/main`, ні шляхів узяти "
+            "нізвідки"
         )
     return found
 
@@ -1246,7 +1270,7 @@ def read_body(args: argparse.Namespace) -> str:
             # Не `SystemExit`: код 1 у контракті — «ВІДМОВА: премиси немає», і
             # «не зміг прочитати тікет» не сміє виглядати як «тікет застарів»
             # (знахідка огляду #1329). Це невідомість → код 2 у `main`.
-            raise GhUnknown(
+            raise PremiseUnknown(
                 "не вдалося прочитати #%s: %s"
                 % (args.issue, proc.stderr.strip() or proc.returncode)
             )
@@ -1589,11 +1613,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", action="store_true", help="друкувати лише підсумок і відмови")
     args = parser.parse_args(argv)
 
-    # `gh` питається тут, а не в надрах `subprocess`: без нього вердикту немає
-    # взагалі, і це мусить бути названа невідомість (код 2), а не
+    # `gh` і `git` питаються тут, а не в надрах `subprocess`: без них вердикту
+    # немає взагалі, і це мусить бути названа невідомість (код 2), а не
     # `FileNotFoundError` з трасуванням (#1329). Той самий спосіб, що в
     # `ci_job_time.py`, — тут він навантажений дужче: `new-lane.sh` кличе цей
-    # механізм на кожній смузі.
+    # механізм на кожній смузі. `check_body` теж усередині: `--body-file` і
+    # `--issue` доходять до `git` саме там (`resolve_main_ref`), і без цього
+    # відсутній `git` лишався б стеком на найзвичайнішому шляху.
     try:
         if args.measure_head is not None:
             return measure_head(args.measure_head, args.scan_limit, args.ref, args.repo)
@@ -1604,18 +1630,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.scan is not None:
             return scan(args.scan, args.ref, args.repo)
         body = read_body(args)
-    except GhUnknown as error:
+        code, verdicts = check_body(body, args.ref, args.repo)
+        if args.quiet:
+            for verdict in verdicts:
+                if verdict.code != 0:
+                    print(f"[{verdict.code}] {verdict.display()} — {verdict.detail}")
+            print(f"issue_premise: {OUTCOME[code]} (ref {args.ref})")
+        else:
+            print(format_report(args.ref, code, verdicts))
+    except PremiseUnknown as error:
         print(f"НЕВІДОМО: {error}", file=sys.stderr)
         return 2
-
-    code, verdicts = check_body(body, args.ref, args.repo)
-    if args.quiet:
-        for verdict in verdicts:
-            if verdict.code != 0:
-                print(f"[{verdict.code}] {verdict.display()} — {verdict.detail}")
-        print(f"issue_premise: {OUTCOME[code]} (ref {args.ref})")
-    else:
-        print(format_report(args.ref, code, verdicts))
     return code
 
 

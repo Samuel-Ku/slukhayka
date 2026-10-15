@@ -95,8 +95,11 @@ GUARD_TESTS = (
     "test_issue_premise.GhTest.test_a_missing_gh_is_an_unknown_not_a_stack",
     "test_issue_premise.GhTest"
     ".test_a_gh_that_cannot_read_the_ticket_is_an_unknown_not_a_refusal",
+    "test_issue_premise.GitTest.test_a_missing_git_is_an_unknown_not_a_stack",
     "test_issue_premise.ProseNumberMeasureTest"
     ".test_a_bare_noun_without_a_number_is_not_a_figure",
+    "test_issue_premise.ProseNumberMeasureTest"
+    ".test_a_bare_registry_noun_without_a_number_is_not_a_figure",
     "test_issue_premise.ProseNumberMeasureTest"
     ".test_an_unread_ticket_is_named_and_not_a_zero",
     "test_issue_premise.ProseNumberMeasureTest"

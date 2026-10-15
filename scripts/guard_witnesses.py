@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 74 записи, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 76 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -276,8 +276,28 @@ GUARDS = (
         edits=(
             Edit(
                 file="scripts/issue_premise.py",
-                find="    if found is None:\n",
-                replace="    if False:  # mutated\n",
+                # Контекст обов'язковий: `if found is None:` є і в `git_executable`,
+                # і `find` мусить траплятися у файлі рівно один раз.
+                find='    found = shutil.which("gh")\n'
+                     "    if found is None:\n",
+                replace='    found = shutil.which("gh")\n'
+                        "    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.GitTest.test_a_missing_git_is_an_unknown_not_a_stack",
+        protects="відсутній `git` — та сама межа, що для `gh`: `FileNotFoundError` "
+                 "давав стек і код 1 («ВІДМОВА»), тоді як це невідомість (код 2). "
+                 "«Назвав відсутній `gh` і не назвав `git`» — два способи робити "
+                 "одне в одному файлі (знахідка доогляду #1329)",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find='    found = shutil.which("git")\n'
+                     "    if found is None:\n",
+                replace='    found = shutil.which("git")\n'
+                        "    if False:  # mutated\n",
             ),
         ),
     ),
@@ -319,6 +339,21 @@ GUARDS = (
     ),
     Guard(
         test="test_issue_premise.ProseNumberMeasureTest"
+             ".test_a_bare_registry_noun_without_a_number_is_not_a_figure",
+        protects="СУСІДНІЙ рядок драбини: група потрібна й навколо "
+                 "РЕЄСТР-списку. Знята лише там, вона лишала всі 736 тестів "
+                 "зеленими, а метрику вела 4/7 → 121/314 — та сама хибна фігура "
+                 "на один рядок далі (знахідка доогляду #1329)",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find='    ("число + іменник РЕЄСТРУ", rf"\\d{{1,4}}\\s+(?:{PROSE_REGISTRY_NOUN_RE})"),\n',
+                replace='    ("число + іменник РЕЄСТРУ", rf"\\d{{1,4}}\\s+{PROSE_REGISTRY_NOUN_RE}"),  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ProseNumberMeasureTest"
              ".test_an_unread_ticket_is_named_and_not_a_zero",
         protects="непрочитане тіло як названу невідомість: без перевірки коду "
                  "виходу `gh issue view` провал падав у «шляхів немає» / «0 фігур», "
@@ -345,7 +380,7 @@ GUARDS = (
         edits=(
             Edit(
                 file="scripts/issue_premise.py",
-                find='            raise GhUnknown(\n'
+                find='            raise PremiseUnknown(\n'
                      '                "не вдалося прочитати #%s: %s"\n',
                 replace='            raise SystemExit(\n'
                         '                "не вдалося прочитати #%s: %s"\n',

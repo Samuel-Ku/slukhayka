@@ -6,9 +6,16 @@
 мережу: `origin` — локальний bare-репозиторій.
 
 Копія смуги містить ЛИШЕ ті скрипти, які new-lane.sh справді кличе з неї
-(`guard_witnesses.py --count` і `ci_job_time.py --list`) та воркфлоу, з якого
+(`guard_witnesses.py --count`, `ci_job_time.py --list` і
+`issue_premise.py --issue` — премиса тікета, #1324) та воркфлоу, з якого
 `ci_job_time` читає ліміт. Фікстура не вдає, що це все дерево: якщо список
 викликів виросте, тест почервоніє, а не піде тихо в інший бік.
+
+`gh` у тестах — фікстура на `PATH` (`FAKE_GH`): тікет читає справжній
+`issue_premise.py`, а тіло тікета приходить із файлу, названого в
+`NEW_LANE_TEST_ISSUE_BODY`. Порожнє ім'я — «gh не відповів»; саме так
+перевіряється невідомість (код 2), яку не можна видати за зелене світло.
+Мережі не торкається жоден тест.
 """
 
 import os
@@ -21,9 +28,26 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NEW_LANE = REPO_ROOT / "scripts" / "new-lane.sh"
-LANE_SCRIPTS = ("guard_witnesses.py", "tmp_budget.py", "ci_job_time.py")
+LANE_SCRIPTS = ("guard_witnesses.py", "tmp_budget.py", "ci_job_time.py",
+                "issue_premise.py")
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 GITIGNORE = REPO_ROOT / ".gitignore"
+
+# Фікстура `gh`: тіло тікета — з файлу, названого в `NEW_LANE_TEST_ISSUE_BODY`,
+# а сам виклик дописується в `NEW_LANE_TEST_GH_LOG` (щоб тест бачив, про ЯКИЙ
+# тікет спитали). Порожнє ім'я файлу — «gh не відповів», і тоді вихід 1.
+FAKE_GH = """#!/bin/sh
+# Фікстура `gh issue view <номер> --json body --jq .body` для тестів new-lane.
+if [ -n "${NEW_LANE_TEST_GH_LOG:-}" ]; then
+  printf '%s\\n' "$*" >> "$NEW_LANE_TEST_GH_LOG"
+fi
+body="${NEW_LANE_TEST_ISSUE_BODY:-}"
+if [ -n "$body" ] && cat -- "$body" 2>/dev/null; then
+  exit 0
+fi
+echo "gh: тікет не читається (фікстура без тіла)" >&2
+exit 1
+"""
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
@@ -61,6 +85,18 @@ class LaneTest(unittest.TestCase):
         self.git("push", "-q", "origin", "main")
         self.main_sha = self.rev("origin/main")
 
+        # `gh` — фікстура: тікет читає справжній `issue_premise.py`, а тіло
+        # приходить із файлу. Мережа в тестах не потрібна жодному з них.
+        self.bin = self.base / "bin"
+        self.bin.mkdir()
+        fake_gh = self.bin / "gh"
+        fake_gh.write_text(FAKE_GH, encoding="utf-8")
+        fake_gh.chmod(0o755)
+        self.gh_log_path = self.base / "gh.log"
+        self.issue_body = self.base / "issue-body.md"
+        # Типове тіло — свіже: шлях із нього справді є в `origin/main` копії.
+        self.set_issue_body("Тікет посилається на `scripts/guard_witnesses.py`.\n")
+
     # --- інструменти -------------------------------------------------------
     def git(self, *args, cwd=None, check=True):
         result = subprocess.run(
@@ -89,6 +125,11 @@ class LaneTest(unittest.TestCase):
             **os.environ,
             "NEW_LANE_REPO": str(self.repo),
             "NEW_LANE_OWNER": owner,
+            # Фікстура `gh` попереду справжнього: жоден тест не ходить у мережу
+            # й не читає справжній тікет.
+            "PATH": "%s%s%s" % (self.bin, os.pathsep, os.environ.get("PATH", "")),
+            "NEW_LANE_TEST_ISSUE_BODY": str(self.issue_body),
+            "NEW_LANE_TEST_GH_LOG": str(self.gh_log_path),
         }
         if env:
             environment.update(env)
@@ -102,6 +143,16 @@ class LaneTest(unittest.TestCase):
             % (" ".join(args), result.stdout, result.stderr),
         )
         return result
+
+    def set_issue_body(self, text):
+        """Тіло, яке фікстура `gh` віддає на `gh issue view <номер>`."""
+        self.issue_body.write_text(text, encoding="utf-8")
+
+    def gh_calls(self):
+        """Рядки викликів фікстурованого `gh` — щоб бачити, про який тікет питали."""
+        if not self.gh_log_path.exists():
+            return ""
+        return self.gh_log_path.read_text(encoding="utf-8")
 
     def create_lane(self, *args, expect=0, env=None):
         return self.lane(ISSUE, SLUG, *args, expect=expect, env=env)
@@ -259,6 +310,76 @@ class RefusalTest(LaneTest):
 
         self.assertIn("числом", result.stderr)
         self.assertFalse((self.repo / ".worktrees").exists())
+
+
+class PremiseTest(LaneTest):
+    """Премиса тікета перевіряється ДО роботи — і вердикт НАЗВАНО (#1324).
+
+    Тікет старіє МІЖ написанням і створенням смуги (`empty_shape_mutants
+    --list` у #1315 був 1, став 2; «`guard_witnesses` у main — 40» на базі було
+    56). `issue_premise.py` це ловить — і до цього тікета його не кликав жоден
+    крок. Тести нижче пінять саме крок: застарілий тікет мусить бути названий у
+    фактах, а смуга — лишитися.
+    """
+
+    def test_a_fresh_ticket_is_named_as_the_premise_and_the_copy_is_made(self):
+        result = self.create_lane()
+
+        self.assertIn("премиса тікета: ПРЕМИСА Є", result.stdout)
+        self.assertTrue(self.lane_path().is_dir(), result.stdout)
+        self.assertTrue(self.claim_path().is_file())
+        # Спитано наявним механізмом і саме про цей тікет.
+        self.assertIn("issue view %s" % ISSUE, self.gh_calls())
+
+    def test_a_stale_ticket_is_named_and_the_lane_is_still_created(self):
+        """Червоний на СТАРІЙ поведінці: крок не кликав `issue_premise.py`.
+
+        Шлях, названий у тілі, з `origin/main` зник (тікет застарів). Смуга
+        мусить лишитися — застарілий тікет не привід не створювати її, — але
+        названим мусить бути і вердикт, і сам шлях: інакше смуга починає роботу
+        з хибного числа.
+        """
+        self.set_issue_body("Тікет посилається на `docs/gone-plan.md`.\n")
+
+        result = self.create_lane()
+
+        self.assertIn("премиса тікета: ВІДМОВА (код 1)", result.stdout)
+        self.assertIn("docs/gone-plan.md", result.stdout)
+        self.assertIn("issue_premise: ВІДМОВА", result.stdout)
+        self.assertTrue(self.lane_path().is_dir(),
+                        "смуга лишається: знахідка — попередження, а не відмова")
+        self.assertTrue(self.claim_path().is_file())
+
+    def test_a_ticket_without_paths_is_named_unknown_not_green(self):
+        """«Нічого не перевірено» не дорівнює «все гаразд» — і це видно."""
+        self.set_issue_body("Тікет про символи коду, без жодного шляху в бектиках.\n")
+
+        result = self.create_lane()
+
+        self.assertIn("премиса тікета: НЕВІДОМІСТЬ (код 2)", result.stdout)
+        self.assertNotIn("премиса тікета: ПРЕМИСА Є", result.stdout)
+        self.assertTrue(self.lane_path().is_dir())
+
+    def test_an_unreadable_ticket_is_an_unknown_and_no_copy_is_made(self):
+        """`gh` не відповів ⇒ код 2, і НІ копії, ні резервування, ні гілки.
+
+        Порожнє ім'я тіла — це «тікет не читається»: вердикту немає взагалі, тож
+        перевірити премису не вдалося. Це єдиний стан, у якому крок відмовляє:
+        тут «не знаю» не можна прочитати на свою користь.
+        """
+        result = self.create_lane(expect=2, env={"NEW_LANE_TEST_ISSUE_BODY": ""})
+
+        self.assertIn("не прочитано", result.stderr)
+        self.assertIn("gh: тікет не читається", result.stderr,
+                      "причина мусить бути ВИДНА, а не переказана")
+        self.assertFalse(self.lane_path().exists(), result.stdout)
+        self.assertFalse(self.claim_path().exists())
+        self.assertNotEqual(
+            0,
+            self.git("show-ref", "--verify", "--quiet",
+                     "refs/heads/t%s-%s" % (ISSUE, SLUG), check=False).returncode,
+            "гілка невдалого прогону не сміє лишитися",
+        )
 
 
 class ReleaseTest(LaneTest):

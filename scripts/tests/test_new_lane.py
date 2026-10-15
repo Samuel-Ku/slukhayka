@@ -281,6 +281,30 @@ class ReleaseTest(LaneTest):
                         "дерево координатора не можна прочитати як копію")
         self.assertNotIn("координаторське.txt", result.stdout + result.stderr)
 
+    def test_release_clears_a_stale_worktree_record_under_a_recreated_directory(self):
+        """Застарілий (`prunable`) запис + тека на тому ж шляху — залишок F1.
+
+        `git worktree list` друкує такий запис як `prunable`, а `git -C` у теці
+        на його шляху піднімається до БАТЬКІВСЬКОГО репозиторію. Якщо вірити
+        запису, симптом F1 повертається: «копія має зміни» про дерево
+        координатора й глухий кут для номера.
+        """
+        self.create_lane()
+        shutil.rmtree(self.lane_path())
+        self.lane_path().mkdir(parents=True)
+        outsider = self.repo / "координаторське.txt"
+        outsider.write_text("не чіпати\n", encoding="utf-8")
+
+        result = self.lane("--release", ISSUE)
+
+        self.assertIn("незареєстровану теку прибрано", result.stdout)
+        self.assertFalse(self.lane_path().exists())
+        self.assertNotIn(str(self.lane_path()),
+                         self.git("worktree", "list", "--porcelain").stdout,
+                         "застарілий запис мусить бути прибраний")
+        self.assertTrue(outsider.is_file())
+        self.assertNotIn("координаторське.txt", result.stdout + result.stderr)
+
     def test_release_refuses_a_non_empty_unregistered_directory(self):
         """Непорожню незареєстровану теку не чіпаємо: її вміст нам невідомий."""
         stray = self.repo / ".worktrees" / ("w%s" % ISSUE)
@@ -290,7 +314,7 @@ class ReleaseTest(LaneTest):
 
         result = self.lane("--release", ISSUE, expect=1)
 
-        self.assertIn("не зареєстрована", result.stderr)
+        self.assertIn("не є чекаутом", result.stderr)
         self.assertTrue(keepsake.is_file())
 
     def test_release_removes_a_clean_copy_and_keeps_the_branch_and_the_claim(self):

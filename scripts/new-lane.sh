@@ -45,11 +45,23 @@
 #     спроба впреться в «гілка вже існує». Це вузьке вікно (ref пишеться
 #     останнім кроком, коли все вже перевірено), і видаляти гілку тут означало б
 #     завести прибирання чужого ref'а — тому межа названа, а не замовчана;
-#   * `--release` читає `git` у копії ЛИШЕ коли копія зареєстрована worktree'ом.
-#     Незареєстрована тека `.worktrees/w<номер>` — не смуга: `git -C` у ній
-#     піднявся б до батьківського репозиторію й прочитав дерево КООРДИНАТОРА
-#     (той самий клас, проти якого цей скрипт і писався). Таку теку скрипт
-#     прибирає лише порожньою, а непорожню не чіпає й каже про це;
+#   * `--release` читає `git` у копії ЛИШЕ коли копія — ЖИВИЙ чекаут смуги:
+#     `worktree_live` вимагає запису без позначки `prunable`, а `lane_is_checkout`
+#     — щоб `rev-parse --show-toplevel` у ній дорівнював їй самій. Обидві
+#     перевірки потрібні, і ось чому: незареєстрована тека І застарілий
+#     (prunable) запис із текою, створеною знову на тому ж шляху, однаково
+#     змусили б `git -C` піднятися до БАТЬКІВСЬКОГО репозиторію й прочитати
+#     дерево КООРДИНАТОРА (той самий клас, проти якого цей скрипт і писався).
+#     Такий шлях скрипт або прибирає (порожню теку — `rmdir`, застарілий запис —
+#     `worktree prune`), або не чіпає й каже про це; живого запису, що не є
+#     чекаутом, він не чіпає взагалі — це стан, якого ми не розуміємо;
+#   * механізм стає РОБОЧИМ ПІСЛЯ МЕРДЖУ, і це названо, а не замовчано: факти
+#     беруться з КОПІЇ (`guard_witnesses.py --count`, `ci_job_time.py --list`), а
+#     копія — це `origin/main`. Проти бази БЕЗ цього тікета створення падає
+#     раніше — `guard_witnesses.py: error: unrecognized arguments: --count` — і
+#     чисто відкочується (копії, резервування й гілки не лишається). Тести цього
+#     не бачать: фікстура копіює скрипти з дерева самого PR, тож перевіряють
+#     майбутню базу, а не сьогоднішню;
 #   * резервування не знімається автоматично: у `agent-work-claim.py` навмисно
 #     немає примусового звільнення, і цей скрипт його не вигадує. Він лише
 #     НАЗИВАЄ шлях запису;
@@ -192,10 +204,33 @@ fi
 LANE="$REPO/$LANES_DIR/w$ISSUE"
 BRANCH="t$ISSUE-$SLUG"
 
-worktree_registered() {
+# Запис worktree Є — будь-який, і живий, і застарілий (`prunable`).
+worktree_recorded() {
   # Абсолютні шляхи: `git worktree list --porcelain` друкує рівно їх.
   "$GIT" -C "$REPO" worktree list --porcelain 2>/dev/null |
     grep -Fxq "worktree $1"
+}
+
+# Запис worktree ЖИВИЙ: він Є й git НЕ позначив його `prunable`. Різниця не
+# косметична: застарілий запис (теку прибрали out-of-band, а `.git/worktrees/<id>`
+# лишився) друкує `prunable …`, і якщо вважати його зареєстрованим, то
+# `git -C "$LANE"` у теці на тому ж шляху піднімається до БАТЬКІВСЬКОГО
+# репозиторію — тобто симптом F1 повертається разом із глухим кутом.
+worktree_live() {
+  "$GIT" -C "$REPO" worktree list --porcelain 2>/dev/null | awk -v lane="$1" '
+    /^worktree / { path = substr($0, 10); stale = 0; next }
+    /^prunable/  { if (path == lane) stale = 1; next }
+    /^$/         { if (path == lane && !stale) { print "yes"; exit } path = ""; next }
+    END          { if (path == lane && !stale) print "yes" }
+  ' | grep -qx yes
+}
+
+# Шлях — СПРАВЖНІЙ чекаут смуги, а не тека всередині батьківського репозиторію:
+# `--show-toplevel` у ній дорівнює їй самій. Це друга, незалежна від запису
+# перевірка — і єдина, що стоїть між `git -C "$LANE"` і деревом координатора.
+lane_is_checkout() {
+  [ -d "$1" ] || return 1
+  [ "$("$GIT" -C "$1" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$1" && pwd -P)" ]
 }
 
 COMMON="$("$GIT" -C "$REPO" rev-parse --path-format=absolute --git-common-dir)" ||
@@ -236,51 +271,60 @@ rollback() {
 # --------------------------------------------------------------------------
 
 if [ "$RELEASE" = true ]; then
-  if [ ! -e "$LANE" ] && ! worktree_registered "$LANE"; then
+  if [ ! -e "$LANE" ] && ! worktree_recorded "$LANE"; then
     fail "немає смуги w$ISSUE у $REPO — нема чого звільняти"
   fi
   LANE_BRANCH=""
-  if worktree_registered "$LANE"; then
-    # Зареєстрований worktree — і ТІЛЬКИ тут `git -C "$LANE"` читає саму копію.
-    if [ -d "$LANE" ]; then
-      LANE_BRANCH="$("$GIT" -C "$LANE" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-      DIRTY="$("$GIT" -C "$LANE" status --porcelain)" ||
-        fail "не вдалося прочитати стан копії $LANE"
-      if [ -n "$DIRTY" ]; then
-        printf 'FAIL  копія %s має незакомічені зміни — прибирання втратило б їх:\n' "$LANE" >&2
-        printf '%s\n' "$DIRTY" | sed 's/^/      /' >&2
-        refuse "закоміть або збережи їх, тоді повтори scripts/new-lane.sh --release $ISSUE"
+  if worktree_live "$LANE" && lane_is_checkout "$LANE"; then
+    # ЖИВИЙ чекаут смуги — і ТІЛЬКИ тут `git -C "$LANE"` читає саму копію.
+    LANE_BRANCH="$("$GIT" -C "$LANE" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    DIRTY="$("$GIT" -C "$LANE" status --porcelain)" ||
+      fail "не вдалося прочитати стан копії $LANE"
+    if [ -n "$DIRTY" ]; then
+      printf 'FAIL  копія %s має незакомічені зміни — прибирання втратило б їх:\n' "$LANE" >&2
+      printf '%s\n' "$DIRTY" | sed 's/^/      /' >&2
+      refuse "закоміть або збережи їх, тоді повтори scripts/new-lane.sh --release $ISSUE"
+    fi
+    for marker in rebase-merge rebase-apply MERGE_HEAD; do
+      if [ -e "$("$GIT" -C "$LANE" rev-parse --git-path "$marker")" ]; then
+        refuse "копія $LANE посеред операції ($marker) — заверши або скасуй її, тоді повтори"
       fi
-      for marker in rebase-merge rebase-apply MERGE_HEAD; do
-        if [ -e "$("$GIT" -C "$LANE" rev-parse --git-path "$marker")" ]; then
-          refuse "копія $LANE посеред операції ($marker) — заверши або скасуй її, тоді повтори"
-        fi
-      done
-      if ! "$GIT" -C "$REPO" worktree remove "$LANE"; then
-        fail "git worktree remove не прибрав $LANE"
-      fi
-    else
-      if ! "$GIT" -C "$REPO" worktree prune; then
-        fail "git worktree prune не прибрав запис копії $LANE"
-      fi
+    done
+    if ! "$GIT" -C "$REPO" worktree remove "$LANE"; then
+      fail "git worktree remove не прибрав $LANE"
     fi
     printf 'OK    копію прибрано: %s\n' "$LANE"
-  else
-    # Тека є, але worktree'ом НЕ зареєстрована. `git -C "$LANE"` тут піднявся б
-    # до БАТЬКІВСЬКОГО репозиторію й прочитав дерево КООРДИНАТОРА — і тоді
-    # «копія має зміни» назвало б чужі зміни, а номер лишився б заблокованим
-    # назавжди: створити — відмова, а підказане лікування не працює. Це рівно
-    # той клас, проти якого цей скрипт і писався (факт приписано не тому
-    # дереву), тому тут ми НЕ кличемо git у копії взагалі. Прибираємо лише
-    # ПОРОЖНЮ теку; непорожню не чіпаємо — її вміст нам невідомий.
+  elif [ -e "$LANE" ]; then
+    # Шлях Є, але чекаутом смуги НЕ є: незареєстрована тека або ЗАСТАРІЛИЙ
+    # (prunable) запис, чия тека зникла й була створена знову як звичайна.
+    # `git -C "$LANE"` тут піднявся б до БАТЬКІВСЬКОГО репозиторію й прочитав
+    # дерево КООРДИНАТОРА — і тоді «копія має зміни» назвало б чужі зміни, а
+    # номер лишився б заблокованим назавжди: створити — відмова, а підказане
+    # лікування не працює. Тому тут ми НЕ кличемо git у цій теці взагалі.
+    if worktree_live "$LANE"; then
+      # Живий запис, але не чекаут: стан, якого ми не розуміємо, — не чіпаємо.
+      refuse "шлях $LANE має живий worktree-запис, але не є чекаутом смуги — стан невідомий; розбери його руками"
+    fi
+    # Застарілий запис більше ні на що не вказує: прибираємо його (живих prune
+    # не чіпає), щоб той самий номер не лишався зайнятим привидом.
+    if ! "$GIT" -C "$REPO" worktree prune; then
+      fail "не вдалося прибрати застарілий запис копії $LANE"
+    fi
     if [ -d "$LANE" ] && [ -z "$(ls -A "$LANE")" ]; then
       if ! rmdir "$LANE"; then
         fail "порожню незареєстровану теку $LANE не прибрано"
       fi
-      printf 'OK    порожню незареєстровану теку прибрано: %s (worktree-запису не було)\n' "$LANE"
+      printf 'OK    порожню незареєстровану теку прибрано: %s (чекаутом смуги вона не була)\n' "$LANE"
     else
-      refuse "тека $LANE не зареєстрована як worktree смуги, але не порожня — прибирання втратило б її вміст ($(ls -A "$LANE" | tr '\n' ' ')); прибери її руками, якщо впевнений"
+      refuse "шлях $LANE не є чекаутом смуги, але не порожній — прибирання втратило б його вміст ($(ls -A "$LANE" | tr '\n' ' ')); прибери його руками, якщо впевнений"
     fi
+  else
+    # Теки немає, а запис є — застарілий. Прибираємо запис, а не вдаємо, що
+    # смуги не було: інакше він лишився б привидом, на який впав би `worktree add`.
+    if ! "$GIT" -C "$REPO" worktree prune; then
+      fail "не вдалося прибрати застарілий запис копії $LANE"
+    fi
+    printf 'OK    застарілий запис копії прибрано (теки не було): %s\n' "$LANE"
   fi
   printf 'OK    гілку %s не видаляю: вона лишається в refs/heads (та сама межа, що в merge-pr.sh).\n' \
     "${LANE_BRANCH:-смуги}"
@@ -304,9 +348,16 @@ if ! BASE="$("$GIT" -C "$REPO" rev-parse origin/main)"; then
 fi
 BASE_SHORT="$("$GIT" -C "$REPO" rev-parse --short origin/main)"
 
+# Застарілі записи (тека зникла, `.git/worktrees/<id>` лишився) прибираємо ДО
+# перевірки: інакше номер вважався б зайнятим записом-привидом, а `worktree add`
+# упав би на «missing but already registered worktree». `prune` живих не чіпає.
+if ! "$GIT" -C "$REPO" worktree prune; then
+  fail "не вдалося прибрати застарілі записи worktree — копії не створено"
+fi
+
 # Копія зайнята — відмова ДО резервування: друга смуга в ту саму копію не сідає,
 # і тікет не лишається зайнятим неіснуючою смугою.
-if [ -e "$LANE" ] || worktree_registered "$LANE"; then
+if [ -e "$LANE" ] || worktree_recorded "$LANE"; then
   fail "копія вже існує: $LANE — друга смуга в ту саму копію не сідає. Прибери її (scripts/new-lane.sh --release $ISSUE) або візьми інший номер."
 fi
 if "$GIT" -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH"; then

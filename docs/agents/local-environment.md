@@ -779,10 +779,18 @@ instead of recollection: the branch, the base `sha`, the guard registry's
 `scripts/new-lane.sh --release <issue>` removes the lane's copy once it has
 nothing to lose — it refuses when the copy has uncommitted changes or a rebase
 in flight, and it never deletes the branch; `merge-pr.sh` names this command
-after a merge instead of removing a possibly-foreign worktree itself. The
-registry is `<git-common-dir>/agent-work-claims/<issue>.json`, shared by every
-chat on this machine; the reservation is never dropped automatically — deleting
-the claim's file releases it, and that is done once the ticket is closed.
+after a merge instead of removing a possibly-foreign worktree itself. It reads
+git inside a path only when that path is a **live lane checkout** — a recorded
+worktree that git does not mark `prunable`, whose `--show-toplevel` is the copy
+itself. A stray directory, or a stale `prunable` record with a directory
+recreated on the same path, is never read as the lane: it would make git walk up
+to the surrounding repository and report the coordinator's tree as the lane's.
+Such a path is either cleared (an empty directory is removed, a stale record is
+pruned) or left alone and named — a non-empty path whose contents are unknown is
+not touched. The registry is
+`<git-common-dir>/agent-work-claims/<issue>.json`, shared by every chat on this
+machine; the reservation is never dropped automatically — deleting the claim's
+file releases it, and that is done once the ticket is closed.
 Publish the reservation as an issue comment before coding;
 `docs/agents/work-coordination.md` owns the protocol.
 

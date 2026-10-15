@@ -101,6 +101,12 @@ GUARD_TESTS = (
     ".test_a_refused_run_still_reaps_the_scratch_a_sigkill_left",
     "test_new_lane.RefusalTest"
     ".test_a_second_lane_in_the_same_copy_is_refused",
+    "test_new_lane.ReleaseTest"
+    ".test_release_removes_an_empty_unregistered_directory",
+    "test_new_lane.ReleaseTest"
+    ".test_release_clears_a_stale_worktree_record_under_a_recreated_directory",
+    "test_new_lane.ReleaseTest"
+    ".test_release_refuses_a_non_empty_unregistered_directory",
     "test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
     "test_suite_time.DecompositionTest"
     ".test_the_module_with_the_slow_setup_is_the_top_consumer",

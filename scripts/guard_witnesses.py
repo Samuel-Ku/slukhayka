@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 53 записи (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 56 записів (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -1102,8 +1102,51 @@ GUARDS = (
         edits=(
             Edit(
                 file="scripts/new-lane.sh",
-                find='if [ -e "$LANE" ] || worktree_registered "$LANE"; then\n',
+                find='if [ -e "$LANE" ] || worktree_recorded "$LANE"; then\n',
                 replace="# mutated: перевірки копії немає\nif false; then\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest"
+             ".test_release_removes_an_empty_unregistered_directory",
+        protects="`--release` на НЕзареєстрованій теці (#1321, F1): така тека "
+                 "прибирається, а дерево координатора не читається. Мутація "
+                 "довіряє шляху — і тоді `git -C` у ній читає БАТЬКІВСЬКИЙ "
+                 "репозиторій, а ім'я чужого файлу потрапляє у вивід",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  if worktree_live "$LANE" && lane_is_checkout "$LANE"; then\n',
+                replace='  if [ -e "$LANE" ]; then  # mutated: довіряємо шляху\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest"
+             ".test_release_clears_a_stale_worktree_record_under_a_recreated_directory",
+        protects="залишок F1 (#1321): застарілий (`prunable`) запис не вважається "
+                 "живим чекаутом. Мутація довіряє ЗАПИСУ — і `git -C` у теці на "
+                 "тому ж шляху читає дерево координатора, повертаючи глухий кут",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  if worktree_live "$LANE" && lane_is_checkout "$LANE"; then\n',
+                replace='  if worktree_recorded "$LANE"; then  # mutated: довіряємо запису\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest"
+             ".test_release_refuses_a_non_empty_unregistered_directory",
+        protects="межу `--release` (#1321): непорожній шлях, що не є чекаутом, не "
+                 "чіпається. Прибирання без цієї відмови втратило б невідомий "
+                 "вміст — `rmdir` падає, і код виходу бреше про причину",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -d "$LANE" ] && [ -z "$(ls -A "$LANE")" ]; then\n',
+                replace='    if [ -d "$LANE" ]; then  # mutated: непорожню теж прибираємо\n',
             ),
         ),
     ),

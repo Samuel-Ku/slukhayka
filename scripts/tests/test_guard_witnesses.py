@@ -44,6 +44,8 @@ GUARD_TESTS = (
     "test_ci_job_time.ClaimTest"
     ".test_a_local_figure_without_a_named_load_is_a_finding",
     "test_ci_job_time.ClaimTest"
+    ".test_a_timeout_minutes_literal_that_is_not_the_limit_is_a_finding",
+    "test_ci_job_time.ClaimTest"
     ".test_a_word_that_merely_contains_the_mark_is_not_a_label",
     "test_ci_job_time.LocalRunTest"
     ".test_the_local_mode_reports_a_local_measurement_and_not_the_job_time",

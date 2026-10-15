@@ -23,7 +23,9 @@ GitHub сьогодні відповідає. Справжнє дерево пе
     прогоні, `gh` упав, дві джоби з тим імʼям, ліміту немає, API не дав ревізії,
     жоден прогін вікна не будував це дерево;
   * `ClaimTest` — числа в документах: ліміт приймається, локальне число — лише
-    ПОЗНАЧЕНЕ разом із навантаженням машини, а заморожене число джоби — знахідка;
+    ПОЗНАЧЕНЕ разом із навантаженням машини, заморожене число джоби — знахідка,
+    і літерал `timeout-minutes` на зарахованому рядку мусить дорівнювати
+    лімітові (#1319);
   * `RepositoryTest` — справжнє дерево: ліміт 480 с, і жодного числа, яке не
     виводиться.
 
@@ -140,7 +142,7 @@ class Fixture(unittest.TestCase):
         self.write_workflow()
         self.claim_file = "docs/agents/local-environment.md"
         self.write_claim()
-        (self.tree / "CONTRIBUTING.md").write_text(CONTRIBUTING_LINE, encoding="utf-8")
+        self.write_contributing()
         self.revision = self.commit_tree()
 
         self.fixtures = self.root / "gh"
@@ -188,6 +190,10 @@ class Fixture(unittest.TestCase):
     def write_claim(self, limit: str = LIMIT_LINE, rest: str = REST_LINES) -> None:
         """Рядки зарахованого файлу: ліміт і два локальні — окремо від нього."""
         (self.tree / self.claim_file).write_text(limit + rest, encoding="utf-8")
+
+    def write_contributing(self, line: str = CONTRIBUTING_LINE) -> None:
+        """Другий зарахований файл: його числа теж мусять рухатися з деревом."""
+        (self.tree / "CONTRIBUTING.md").write_text(line, encoding="utf-8")
 
     # -- підставний gh -----------------------------------------------------
 
@@ -640,6 +646,30 @@ class ClaimTest(Fixture):
         code, out, err = self.check("--check-docs")
         self.assertEqual(1, code)
         self.assertIn("137", err)
+
+    def test_a_timeout_minutes_literal_that_is_not_the_limit_is_a_finding(self):
+        """Сторож #1319: літерал хвилинами мусить дорівнювати лімітові з `ci.yml`.
+
+        Гейт бачив лише секунди, тож рядок «`timeout-minutes: 5` — 480 с»
+        проходив зеленим: наступна правка ліміту оновила б секунди (як гейт і
+        вимагає) — і копія хвилинами лишилася б брехнею. Тут секунди
+        правильні, а літерал — старий, і почервоніти мусить саме він.
+        """
+        self.write_workflow(workflow_text(minutes="8"))
+        self.write_contributing("І ліміт тієї ж джоби — 480 с (`timeout-minutes` із `ci.yml`).\n")
+        self.write_claim(limit="`script-tests` is capped by `timeout-minutes: 5` — 480 с.\n")
+        code, out, err = self.check("--check-docs")
+        self.assertEqual(1, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("timeout-minutes: 5", err)
+        self.assertIn("480", err)
+
+    def test_the_timeout_minutes_literal_that_is_the_limit_passes(self):
+        """Контроль до сторожа вище: той самий рядок із лімітом із `ci.yml` зелений."""
+        self.write_workflow(workflow_text(minutes="8"))
+        self.write_contributing("І ліміт тієї ж джоби — 480 с (`timeout-minutes` із `ci.yml`).\n")
+        self.write_claim(limit="`script-tests` is capped by `timeout-minutes: 8` — 480 с.\n")
+        code, out, err = self.check("--check-docs")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
 
     def test_a_labelled_local_figure_with_the_load_passes(self):
         self.write_claim(limit="`script-tests` is capped by `timeout-minutes: 5` — 300 s, "

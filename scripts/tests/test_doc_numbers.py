@@ -95,7 +95,7 @@ EXPECTED_FIGURES = (
     ("scripts/new-lane.sh", "«премиса є»"),
     ("scripts/new-lane.sh", "«у тілі немає шляхів у бектиках»"),
     ("scripts/new-lane.sh", "«ім'я неоднозначне»"),
-    ("scripts/new-lane.sh", "9 відмов"),
+    ("scripts/new-lane.sh", "«відмов»"),
 )
 
 EXPECTED_SCANNED = (
@@ -581,7 +581,7 @@ class ShellStepTest(FixtureMixin):
         `PRICES`. Тест стверджує це прогоном: `102` → `999` — знахідка, а не
         зелений (як було до #1328 і як лишалося після самого лише розширення).
         """
-        self.edit("scripts/new-lane.sh", "102 «премиса є»", "999 «премиса є»")
+        self.edit("scripts/new-lane.sh", "«премиса є» — 102", "«премиса є» — 999")
         code, out, err = self.check()
         self.assertEqual(1, code, "stdout=%r stderr=%r" % (out, err))
         self.assertIn("scan_window", out)

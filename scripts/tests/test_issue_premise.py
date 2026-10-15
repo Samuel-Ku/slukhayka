@@ -920,10 +920,54 @@ class ScanWindowRecordTest(unittest.TestCase):
         )
 
     def test_the_record_and_the_measurement_cannot_diverge_in_length(self):
-        """Клас без місця у вимірі — помилка, а не мовчазне усічення `zip`."""
-        with mock.patch.object(ip, "SCAN_WINDOW", ip.SCAN_WINDOW[:-1]):
+        """Клас без місця у вимірі — помилка, а не мовчазне усічення `zip`.
+
+        Вимір тут — ПІДСТАВКА, а не живий `gh`: довжини — чиста властивість, і
+        тест, який кликав би мережу, червонив би в CI ЗАВЖДИ (джоба
+        `script-tests` не виставляє `GH_TOKEN`, і `gh` там не працює) — рівно
+        той клас, проти якого стоїть реєстр.
+        """
+        printed = (1, 2, 3)  # коротший за реєстр
+        with mock.patch.object(
+            ip, "measure_scan_window", return_value=(printed, ())
+        ):
             with self.assertRaises(ValueError):
                 ip.measured_scan_window()
+
+    def test_the_documented_scan_command_reports_the_record_under_a_stub_gh(self):
+        """Живий вимір — під ПІДСТАВНИМ `gh`, як і решта набору (#1328).
+
+        `GH_STUB` дає два тікети, у тілі яких названо шлях дерева: форма запису
+        мусить надрукувати КЛЮЧІ `SCAN_WINDOW` з виміряними числами, а нота —
+        НАЗВАТИ ревізію реєстру й виміряну. Мережі й облікових даних тут немає,
+        тож тест працює і в CI.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-scan-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(base, {"docs/voice.md": "voice\n"})
+        stub = base / "bin"
+        stub.mkdir()
+        gh = stub / "gh"
+        gh.write_text(GH_STUB, encoding="utf-8")
+        gh.chmod(0o755)
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--scan", "2", "--ref", "origin/main", "--repo", str(repo),
+            ],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        for key, _ in ip.SCAN_WINDOW:
+            self.assertIn("— «%s»:" % key, proc.stdout, proc.stdout)
+        self.assertIn(ip.SCAN_REF, proc.stdout)
+        self.assertIn("РУХОМЕ", proc.stdout)
+        self.assertIn("переміряй і онови", proc.stdout)
 
     def test_a_missing_gh_is_an_unknown_not_a_zero(self):
         """Немає `gh` — невідомість, а не «нуль тікетів» (та сама межа, що в `ci_job_time`)."""

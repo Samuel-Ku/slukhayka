@@ -18,10 +18,17 @@
   * `RefusalTest` — невідомість коштує відмову (код 2): зник якір, якір не
     один, рядок більше не несе числа, ключа немає в серії, файлу немає;
   * `BoundaryTest` — межа названа МАШИННО: число у формі, якої немає в
-    `NOUNS` (одиниці, секунди), число у файлі, якого немає в `SCANNED`, і число в
-    код-спані (цитата, не твердження) механізм НЕ ловить, і тест це стверджує.
-    Це не діра, яку тут замовчують, а названа межа — «число, яке щось стверджує
-    про дерево» відрізняє оглядач, не regex;
+    `NOUNS` (одиниці, секунди), число у файлі, якого немає в `SCANNED`, число в
+    код-спані (цитата, не твердження) і СТАРШІ знімки `gh`-вікна (91/90/10/9,
+    93/87/11/9) механізм НЕ ловить, і тест це стверджує. Це не діра, яку тут
+    замовчують, а названа межа — «число, яке щось стверджує про дерево»
+    відрізняє оглядач, не regex;
+  * `ShellStepTest` і `ScanWindowTest` (#1328) — кроки серії на shell у
+    `SCANNED`, і числа `gh`-вікна в них: до #1328 списку `.sh` не містив ЖОДЕН,
+    тож числа в `new-lane.sh` не бачив жоден гейт. Тут — і те, що незарахований
+    верхньорівневий крок червонить (`test_every_top_level_shell_step_is_enrolled`),
+    і сторож на число класу в `.sh`, і сторож на ЗАПИС `SCAN_WINDOW` (мутація
+    реєстру червонить), і те, що `102` → `999` тепер знахідка;
   * `GrammaticalFormTest` і `SingularBoundaryTest` (#1315) — форма іменника за
     класом ЧИСЛА і за МОВОЮ: реєстр на 41 мусить бути зеленим із граматично
     правильним «41 запис», червоним із чужим числом і з «41 записів»; а «один
@@ -85,6 +92,10 @@ EXPECTED_FIGURES = (
     ("docs/agents/issue-tracker.md", "«без крапки, разом із кореневими»"),
     ("docs/agents/issue-tracker.md", "«будь-який збіг-дерево»"),
     ("docs/agents/issue-tracker.md", "«без крапки, будь-який збіг-дерево»"),
+    ("scripts/new-lane.sh", "«премиса є»"),
+    ("scripts/new-lane.sh", "«у тілі немає шляхів у бектиках»"),
+    ("scripts/new-lane.sh", "«ім'я неоднозначне»"),
+    ("scripts/new-lane.sh", "«відмов»"),
 )
 
 EXPECTED_SCANNED = (
@@ -96,6 +107,26 @@ EXPECTED_SCANNED = (
     "scripts/verdict_field_mutants.py",
     "scripts/declared_fields.py",
     "scripts/issue_premise.py",
+    "scripts/app-dependency-licenses.sh",
+    "scripts/check-app-dns.sh",
+    "scripts/check-base-sync.sh",
+    "scripts/check-migration-slot.sh",
+    "scripts/dependency-licenses.sh",
+    "scripts/generate-keystore.sh",
+    "scripts/merge-pr.sh",
+    "scripts/mutate.sh",
+    "scripts/new-lane.sh",
+    "scripts/pre-release.sh",
+    "scripts/review-clone.sh",
+    "scripts/review-pass.sh",
+    "scripts/run-instrumented-suites.sh",
+    "scripts/source-budget-snapshot.sh",
+    "scripts/telegram-login-spike.sh",
+    "scripts/test-all.sh",
+    "scripts/test-changed.sh",
+    "scripts/wait-for-android-package-service.sh",
+    "scripts/wide-window.sh",
+    "scripts/wizard-spec40-rules-matrix.sh",
 )
 
 # Файли, з яких складається підставлене дерево. Механізм читає їх як текст і
@@ -504,6 +535,87 @@ class NumberShapeTest(FixtureMixin):
         self.assertIn("а мусить рівно одне", err)
 
 
+class ShellStepTest(FixtureMixin):
+    """Кроки серії на shell теж скануються (#1328).
+
+    До #1328 `SCANNED` не містив жодного `scripts/*.sh`, тож числа класу в
+    `new-lane.sh` — найновішому кроці (резервує тікет, бере свіжий `main`, друкує
+    факти для брифа) — не бачив ЖОДЕН гейт: зіпсоване число лишалося зеленим і в
+    `doc_numbers`, і в усьому наборі. Прогін на незміненому дереві дав 0 знахідок
+    і 0 невідомостей на всіх 20 верхньорівневих кроках, тож список розширено на
+    ВСІ, а не лише на цитовані: «цитований» список залежав би від себе самого
+    (`cited_scripts` читає `SCANNED`), а нецитований крок лишився б невидимим
+    рівно там, де діра й була.
+    """
+
+    def test_every_top_level_shell_step_is_enrolled(self):
+        """Крок, який не зарахували, знову стане невидимим — це видно тестом."""
+        on_disk = sorted(path.name for path in (REPO_ROOT / "scripts").glob("*.sh"))
+        enrolled = sorted(
+            Path(one).name for one in d.SCANNED if one.endswith(".sh")
+        )
+        self.assertEqual(
+            on_disk, enrolled,
+            "кожен верхньорівневий `scripts/*.sh` мусить бути в `SCANNED`",
+        )
+
+    def test_a_number_in_a_shell_step_is_a_finding(self):
+        """Сторож: число класу в `.sh` мусить виводитися, а не бути невидимим.
+
+        Це той бік межі, який #1328 закриває: файл у списку — і незараховане
+        число в ньому вже знахідка.
+        """
+        self.edit("scripts/new-lane.sh",
+                  "# Коди виходу:",
+                  "# шість випадків класу\n# Коди виходу:")
+        code, out, err = self.check()
+        self.assertEqual(1, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("шість випадків", out)
+
+    def test_a_gh_window_number_in_a_shell_step_is_a_finding(self):
+        """#1328: числа `--scan 200` пінить ЗАПИС `SCAN_WINDOW`, а не прогін.
+
+        Розширення `SCANNED` зробило файл ВИДИМИМ, але числа — не пінованими:
+        за ними не йде жоден іменник із `NOUNS_DATA`, а джерело їхнє — `gh`.
+        Пінить їх джерело `("record", "scan_window", …)` — той самий прийом, що
+        `PRICES`. Тест стверджує це прогоном: `102` → `999` — знахідка, а не
+        зелений (як було до #1328 і як лишалося після самого лише розширення).
+        """
+        self.edit("scripts/new-lane.sh", "«премиса є» — 102", "«премиса є» — 999")
+        code, out, err = self.check()
+        self.assertEqual(1, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("scan_window", out)
+
+
+class ScanWindowTest(unittest.TestCase):
+    """Запис `gh`-вікна — сторож, а не проза (#1328).
+
+    Числа кроку премиси в `new-lane.sh` до #1328 не пінив жоден гейт: файл не
+    був у `SCANNED`, а розширення списку їх не пінить — за ними не йде жоден
+    іменник із `NOUNS_DATA`. Пінить їх ЗАПИС `SCAN_WINDOW` (як `PRICES`), і
+    мутація саме реєстру мусить почервонити цей сторож: інакше число в прозі
+    знову нічим не тримається.
+    """
+
+    def test_the_recorded_window_pins_the_shell_step_numbers(self):
+        findings, unknowns = d.check()
+        self.assertEqual([], unknowns, "невідомість — не «число виводиться»")
+        self.assertEqual([], findings, "чотири числа вікна мусять виводитися із запису")
+        enrolled = {
+            source[2]
+            for _, _, source in d.FIGURES
+            if source[0] == "record" and source[1] == "scan_window"
+        }
+        self.assertEqual(
+            4, len(enrolled),
+            "усі чотири класи вікна мусять бути зараховані джерелом `record`",
+        )
+        self.assertEqual(
+            set(d.measured("scan_window")), enrolled,
+            "зараховані класи мусять бути ключами реєстру",
+        )
+
+
 class BoundaryTest(FixtureMixin):
     """Межа названа машинно: чого механізм НЕ бачить, тест це стверджує."""
 
@@ -546,13 +658,14 @@ class BoundaryTest(FixtureMixin):
         self.assertEqual(0, code, err)
 
     def test_a_gh_window_number_in_a_scanned_file_passes_silently(self):
-        """Межа названа машинно: чисел `--scan 200` гейт НЕ бачить — і не вдає.
+        """Межа названа машинно: СТАРШІ знімки вікна гейт НЕ бачить — і не вдає.
 
-        `--scan 200` питає `gh` про рухоме вікно останніх тікетів; у гейта немає
-        ні `gh`, ні мережі, тож джерела в `derive` для цих чисел немає. Вони
-        лишаються прозою з названою командою і ревізією (межа — у шапці
-        `doc_numbers.py`), і тест це стверджує, а не замовчує: правка такого
-        числа в СКАНОВАНОМУ файлі проходить зеленим.
+        `--scan 200` питає `gh` про рухоме вікно останніх тікетів, тож джерела в
+        `derive` для цих чисел немає — джерело тут ЗАПИС (`SCAN_WINDOW`). Числа
+        91/90/10/9 (і 93/87/11/9) — знімки ІНШИХ ревізій, і в `FIGURES` вони не
+        входять: джерело `record` читає голі числа, а ті абзаци ставлять по
+        кілька на рядок (межа — у шапці `doc_numbers.py`). Тест стверджує це
+        прогоном, а не замовчує: правка такого числа проходить зеленим.
         """
         self.edit("docs/agents/issue-tracker.md", "91/90/10/9 на", "92/90/10/9 на")
         code, out, err = self.check()

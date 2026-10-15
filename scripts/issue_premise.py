@@ -192,9 +192,11 @@
   усе, що на нього спирається. Чи реєстр правдивий, показує прогоном
   `test_issue_premise.PriceRecordTest` там, де ref читається; де не читається —
   це названо вголос, а не видано за перевірене. Числа `gh`-вікна
-  (`--scan 200`) у `FIGURES` не входять узагалі: у гейта немає ні `gh`, ні
-  мережі, а вікно пливе разом зі списком issue — вони лишаються прозою з
-  названою командою, і жоден рядок не обіцяє протилежного.
+  (`--scan 200`) входять у `FIGURES` від #1328 — через ЗАПИС `SCAN_WINDOW`
+  (нижче), а не через прогін: у гейта немає ні `gh`, ні мережі, і саме тому
+  джерелом стає запис, як і в `PRICES`. Різниця між двома реєстрами названа
+  там-таки, у `SCAN_WINDOW`, і вона одна: `PRICES` відтворюється на нерухомому
+  ref-і, а вікно — знімок рухомого списку тікетів.
   Це **хибна неоднозначність** — як #962, #1029 і #822 є хибними відмовами, — і
   серед тікетів, що рушили, хибний саме **#997**: він пише «інші файли в
   `drawable/`», а `drawable` — реальна тека `app/src/main/res/drawable`; ліки
@@ -861,6 +863,42 @@ PRICES = (
 )
 
 
+# Числа `gh`-вікна (#1328) — той самий клас, що `PRICES`, і та сама причина
+# читати ЗАПИС, а не кликати джерело з гейта: у гейта немає ні `gh`, ні мережі.
+# Числа стоять у кроці премиси `scripts/new-lane.sh` (крок резервує тікет, бере
+# свіжий `main` і друкує факти брифа), і до #1328 їх не бачив жоден гейт.
+# Різниця між реєстрами одна, і вона названа:
+#   * `PRICES` ВІДТВОРЮЄТЬСЯ: ref незмінний ⇒ дерево незмінне ⇒ ті самі числа;
+#   * `SCAN_WINDOW` — ЗНІМОК рухомого списку: `--scan 200` питає `gh` про 200
+#     останніх тікетів, і кожен новий тікет зсуває вікно. На `584dda73` той
+#     самий `--scan 200` дає 104/77/11/8 проти 102/78/11/9 на `424655b1` —
+#     тобто заднім числом знімок НЕ перевіряється, і це не недогляд, а факт.
+#   * тому реєстр оновлює РУКАМИ той, хто переміряв `--scan 200`; прогін друкує
+#     той самий вимір у формі запису і НАЗИВАЄ розходження з реєстром
+#     (`scan_drift_note`), тож свідок тут — сама команда.
+#   * живий прогін у НАБОРІ не стоїть, і ціна названа виміром, а не обіцянкою:
+#     окремий `--scan 200` — це 201 виклик `gh` і 112 с на цій машині. Коли цей
+#     виклик стояв у тесті (#1328), він коштував 114.6 с і підіймав локальний
+#     набір до 456 с при ліміті джоби `script-tests` у 480 с — тобто впритул;
+#     після перенесення під ПІДСТАВНИЙ `gh` набір іде 283 с на 741 тест. Числа
+#     тут саме тому, що вони й були доказом: тест із живим `gh` — це той самий
+#     «прогін не в тому середовищі», і в CI він червоний ЗАВЖДИ (`GH_TOKEN`
+#     джоба не виставляє).
+# Сума чотирьох чисел — це і є вікно: класи ділять його навпіл без решти, і
+# `test_issue_premise.ScanWindowRecordTest` пінить саме це.
+SCAN_REF = "424655b1"
+SCAN_DATE = "2026-10-15"
+SCAN_LIMIT = 200
+SCAN_COMMAND = "python3 scripts/issue_premise.py --scan 200"
+
+SCAN_WINDOW = (
+    ("премиса є", 102),
+    ("у тілі немає шляхів у бектиках", 78),
+    ("ім'я неоднозначне", 11),
+    ("відмов", 9),
+)
+
+
 def measured_prices(ref: str, repo: Path = REPO_ROOT) -> tuple[tuple[str, int], ...]:
     """Ті самі шість чисел, пораховані ЖИВИМИ предикатами, а не взяті з реєстру.
 
@@ -1193,30 +1231,41 @@ def measure_bare_trees(ref: str, repo: Path = REPO_ROOT) -> int:
     return 0
 
 
-def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
-    """Шум на останніх тікетах репозиторію — числом, яке можна відтворити.
+class ScanError(Exception):
+    """Вікно переміряти не вдалося — невідомість, а не нуль."""
 
-    Числа в шапці й у `docs/agents/issue-tracker.md` не мусять бути
-    твердженням, якому вірять на слово: та сама команда на тому самому
-    `origin/main` дає ті самі числа, і друкує ревізію, щоб було видно, про
-    який стан ішлося.
+
+def measure_scan_window(limit: int, ref: str, repo: Path = REPO_ROOT):
+    """Чотири класи вікна, пораховані ЖИВИМИ предикатами, і подробиці для друку.
+
+    Порядок класів — це порядок `SCAN_WINDOW`, і він же — порядок, у якому числа
+    стоять у `new-lane.sh`: реєстр і вимір звіряються **по позиції** (як
+    `PRICES` і `measured_prices`), тож переставити клас не можна тихо.
+
+    Що тут означають `limit` і `ref`, і чого вони НЕ означають (#1328):
+      * `limit` — СКІЛЬКИ тікетів питати в `gh` (`--limit`), тобто розмір вікна;
+      * `ref` і `repo` — дерево, у якому `check_body` судить ШЛЯХИ з тіл;
+      * `SCAN_REF` не обмежує вимір: `gh issue list` завжди віддає ПОТОЧНИЙ
+        список останніх тікетів, і жоден ref його не «відкочує». Саме тому
+        `SCAN_REF` підписує ЗАПИС (на якій ревізії числа міряли), а не вимір, і
+        саме тому той самий `--scan 200` на іншій ревізії дає інші числа.
     """
-    ok, revision = resolve_main_ref(ref, repo)
-    if not ok:
-        print(f"issue_premise: ref `{ref}` не читається — переміряти нічого", file=sys.stderr)
-        return 2
-    listed = subprocess.run(
-        ["gh", "issue", "list", "--state", "all", "--limit", str(limit), "--json", "number", "--jq", ".[].number"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        listed = subprocess.run(
+            ["gh", "issue", "list", "--state", "all", "--limit", str(limit),
+             "--json", "number", "--jq", ".[].number"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        raise ScanError("немає `gh` у PATH — вікно переміряти нічого")
     if listed.returncode != 0:
-        print(f"issue_premise: не вдалося перелічити issue: {listed.stderr.strip()}", file=sys.stderr)
-        return 2
+        raise ScanError("не вдалося перелічити issue: %s" % listed.stderr.strip())
 
+    numbers = listed.stdout.split()
     premise, no_paths, ambiguous, refused = 0, 0, {}, {}
-    for number in listed.stdout.split():
+    for number in numbers:
         body = subprocess.run(
             ["gh", "issue", "view", number, "--json", "body", "--jq", ".body"],
             capture_output=True, text=True, check=False,
@@ -1232,16 +1281,85 @@ def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
         else:
             ambiguous[number] = [v.candidate.path for v in verdicts if v.code == 2]
 
-    total = len(listed.stdout.split())
-    print(f"issue_premise: шум на {total} тікетах, ref {ref} ({revision[:8]})")
+    counts = (premise, no_paths, len(ambiguous), len(refused))
+    return counts, (numbers, ambiguous, refused)
+
+
+def measured_scan_window(
+    limit: int = SCAN_LIMIT, ref: str = SCAN_REF, repo: Path = REPO_ROOT
+) -> tuple[tuple[str, int], ...]:
+    """Той самий вимір у формі запису: ключі `SCAN_WINDOW` і живі числа.
+
+    Розійтися за довжиною реєстр і вимір не можуть: клас, доданий у `SCAN_WINDOW`
+    без відповідного друку в `scan`, — це помилка тут, а не мовчазне усічення
+    `zip` (та сама межа, що в `measured_prices`).
+    """
+    counts, _ = measure_scan_window(limit, ref, repo)
+    if len(counts) != len(SCAN_WINDOW):
+        raise ValueError(
+            "реєстр і вимір розійшлися за довжиною: %d класів проти %d записів"
+            % (len(counts), len(SCAN_WINDOW))
+        )
+    return tuple((key, value) for (key, _), value in zip(SCAN_WINDOW, counts))
+
+
+def scan_drift_note(recorded: dict, printed: dict, ref: str, revision: str) -> str:
+    """Чому вимір розійшовся з реєстром — у ТЕКСТІ, а не в здогаді.
+
+    Вікно рухається, і це видно: те саме `--scan 200` на `584dda73` дає
+    104/77/11/8 проти 102/78/11/9 на `424655b1`. Тому розходження тут — не
+    «числа зламалися», а «знімок застарів»; хто його побачив, мусить знати, яку
+    ревізію міряли і яку записано, інакше шукатиме вину в коді.
+    """
+    if recorded == printed:
+        return "вікно збіглося з реєстром (%s, %s)" % (SCAN_REF, SCAN_DATE)
+    differences = ", ".join(
+        "«%s»: реєстр %s, вимір %s" % (key, recorded.get(key), printed.get(key))
+        for key in dict.fromkeys([key for key, _ in SCAN_WINDOW] + sorted(printed))
+        if recorded.get(key) != printed.get(key)
+    )
+    return (
+        "вікно РУХОМЕ — реєстр %s (%s), вимір на %s (%s): %s; переміряй і онови "
+        "SCAN_WINDOW руками (це знімок, заднім числом він не перевіряється)"
+        % (SCAN_REF, SCAN_DATE, ref, revision[:8], differences)
+    )
+
+
+def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
+    """Шум на останніх тікетах репозиторію — числом, яке можна відтворити.
+
+    Числа в шапці й у `docs/agents/issue-tracker.md` не мусять бути
+    твердженням, якому вірять на слово: та сама команда на тому самому
+    `origin/main` дає ті самі числа, і друкує ревізію, щоб було видно, про
+    який стан ішлося. Від #1328 вона друкує ще й форму запису (`SCAN_WINDOW`) і
+    називає розходження з реєстром — саме цей вивід оновлює реєстр руками.
+    """
+    ok, revision = resolve_main_ref(ref, repo)
+    if not ok:
+        print(f"issue_premise: ref `{ref}` не читається — переміряти нічого", file=sys.stderr)
+        return 2
+    try:
+        counts, details = measure_scan_window(limit, ref, repo)
+    except ScanError as error:
+        print(f"issue_premise: {error}", file=sys.stderr)
+        return 2
+    premise, no_paths, ambiguous_count, refused_count = counts
+    numbers, ambiguous, refused = details
+
+    print(f"issue_premise: шум на {len(numbers)} тікетах, ref {ref} ({revision[:8]})")
     print(f"  ПРЕМИСА Є: {premise}")
     print(f"  НЕВІДОМІСТЬ (шляхів у бектиках немає): {no_paths}")
-    print(f"  НЕВІДОМІСТЬ (ім'я неоднозначне): {len(ambiguous)}")
+    print(f"  НЕВІДОМІСТЬ (ім'я неоднозначне): {ambiguous_count}")
     for number, paths in sorted(ambiguous.items()):
         print(f"    #{number}: {', '.join(paths)}")
-    print(f"  ВІДМОВА: {len(refused)} тікетів, {sum(len(v) for v in refused.values())} шляхів")
+    print(f"  ВІДМОВА: {refused_count} тікетів, {sum(len(v) for v in refused.values())} шляхів")
     for number, paths in sorted(refused.items()):
         print(f"    #{number}: {', '.join(paths)}")
+    record = tuple((key, value) for (key, _), value in zip(SCAN_WINDOW, counts))
+    print(f"  реєстр вікна (ref {SCAN_REF}, {SCAN_DATE}) — той самий вимір у формі запису:")
+    for key, value in record:
+        print(f"  — «{key}»: {value}")
+    print("  " + scan_drift_note(dict(SCAN_WINDOW), dict(record), ref, revision))
     return 0
 
 

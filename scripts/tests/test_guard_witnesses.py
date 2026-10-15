@@ -77,6 +77,9 @@ GUARD_TESTS = (
     "test_doc_numbers.RepositoryTest.test_the_cited_commands_all_exist",
     "test_doc_numbers.RepositoryTest"
     ".test_the_enrolled_prices_are_the_recorded_measurement",
+    "test_doc_numbers.ShellStepTest.test_a_number_in_a_shell_step_is_a_finding",
+    "test_doc_numbers.ScanWindowTest"
+    ".test_the_recorded_window_pins_the_shell_step_numbers",
     "test_fixture_environments.EnvironmentTest"
     ".test_a_named_run_that_is_skipped_is_not_green",
     "test_fixture_environments.EnvironmentTest"

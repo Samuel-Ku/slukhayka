@@ -23,9 +23,12 @@
     Це не діра, яку тут замовчують, а названа межа — «число, яке щось стверджує
     про дерево» відрізняє оглядач, не regex;
   * `GrammaticalFormTest` і `SingularBoundaryTest` (#1315) — форма іменника за
-    класом ЧИСЛА: реєстр на 41 мусить бути зеленим із граматично правильним
-    «41 запис», червоним із чужим числом і з «41 записів»; а «один запис»
-    словом лишається зворотом, тоді як «1 запис» цифрою — уже число.
+    класом ЧИСЛА і за МОВОЮ: реєстр на 41 мусить бути зеленим із граматично
+    правильним «41 запис», червоним із чужим числом і з «41 записів»; а «один
+    запис» словом лишається зворотом, тоді як «1 запис» цифрою — уже число.
+    Англійська тут окремо: «21 cases» — ПРАВИЛЬНА множина, і вона мусить бути
+    зеленою, а не хибною відмовою (той бік, у який клас-таблиця брехала б із
+    одним українським правилом для всіх мов).
 
 Зараховані в `scripts/guard_witnesses.py` сторожі цього файлу — піни на
 справжньому дереві (`test_every_number_derives_on_the_real_tree`,
@@ -581,6 +584,12 @@ class GrammaticalFormTest(FixtureMixin):
     лишався незарахованим, тобто недоведеним. Тут — прогоном, на підставленому
     дереві: реєстр на 41 мусить бути зеленим із «41 запис» і червоним, коли
     число не те, а «41 записів» — відмова з назвою форми.
+
+    Друга половина — МОВА форми. Англійська після 21/41/101 хоче МНОЖИНИ
+    («21 cases» — правильно), тож клас беруть з `required_classes`, а не з
+    одного українського правила: інакше правильний англійський рядок ставав би
+    хибною відмовою — найдорожчим різновидом червоного, бо блокує правильну
+    роботу.
     """
 
     def registry(self, size):
@@ -625,6 +634,45 @@ class GrammaticalFormTest(FixtureMixin):
         self.edit("scripts/guard_witnesses.py",
                   "разом %s" % count_phrase(), "разом 101 запис")
         with self.registry(101):
+            code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def cases(self, size):
+        """`CASES` названого розміру — англійські рядки серії теж мають клас.
+
+        Дописи йдуть У КІНЕЦЬ, щоб місця `#1270`/`#1254`/`#1257` не поїхали.
+        """
+        extra = tuple(("#dummy%d" % n, "проба")
+                      for n in range(size - len(d.CASES)))
+        return unittest.mock.patch.object(d, "CASES", tuple(d.CASES) + extra)
+
+    def test_an_english_plural_after_a_number_ending_in_one_is_green(self):
+        """«21 cases» — ПРАВИЛЬНА англійська, і вона не сміє бути хибною відмовою.
+
+        Це той бік, у який клас-таблиця брехала б, якби тримала одне українське
+        правило для всіх мов: по-англійськи після 21/41/101 іде МНОЖИНА.
+        """
+        self.edit("docs/agents/local-environment.md",
+                  "series has **eight** cases", "series has **21** cases")
+        with self.cases(21):
+            code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_an_english_singular_for_a_plural_number_is_a_named_finding(self):
+        """Контроль: «21 case» — англійська форма не та, і це ВИДНО."""
+        self.edit("docs/agents/local-environment.md",
+                  "series has **eight** cases", "series has **21** case")
+        with self.cases(21):
+            code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("«21 case»", out)
+        self.assertIn("множина", out)
+
+    def test_an_english_singular_for_one_is_green(self):
+        """Другий бік англійського правила: для 1 — однина («1 guard»)."""
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(), "разом 1 guard")
+        with self.registry(1):
             code, out, err = self.check()
         self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
 

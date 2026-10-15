@@ -69,6 +69,8 @@ GUARD_TESTS = (
     ".test_a_window_with_no_run_for_this_tree_is_an_unknown",
     "test_declared_fields.RepositoryTest"
     ".test_every_record_declares_exactly_the_listed_fields",
+    "test_doc_numbers.GrammaticalFormTest"
+    ".test_a_singular_header_for_a_number_ending_in_one_is_green",
     "test_doc_numbers.RepositoryTest.test_every_number_derives_on_the_real_tree",
     "test_doc_numbers.RepositoryTest.test_the_cited_commands_all_exist",
     "test_doc_numbers.RepositoryTest"

@@ -18,10 +18,16 @@
   * `RefusalTest` — невідомість коштує відмову (код 2): зник якір, якір не
     один, рядок більше не несе числа, ключа немає в серії, файлу немає;
   * `BoundaryTest` — межа названа МАШИННО: число у формі, якої немає в
-    `NOUNS` (одиниці, секунди), число у файлі, якого немає в `SCANNED`, і число в
-    код-спані (цитата, не твердження) механізм НЕ ловить, і тест це стверджує.
-    Це не діра, яку тут замовчують, а названа межа — «число, яке щось стверджує
-    про дерево» відрізняє оглядач, не regex;
+    `NOUNS` (одиниці, секунди), число у файлі, якого немає в `SCANNED`, число в
+    код-спані (цитата, не твердження) і число `gh`-вікна в сканованому файлі
+    механізм НЕ ловить, і тест це стверджує. Це не діра, яку тут замовчують, а
+    названа межа — «число, яке щось стверджує про дерево» відрізняє оглядач, не
+    regex;
+  * `ShellStepTest` (#1328) — кроки серії на shell у `SCANNED`: до #1328 списку
+    `.sh` не містив ЖОДЕН, тож числа в `new-lane.sh` не бачив жоден гейт. Тут —
+    і те, що незарахований верхньорівневий крок червонить
+    (`test_every_top_level_shell_step_is_enrolled`), і сторож на число класу в
+    `.sh`, і НАЗВАНА межа: числа `--scan 200` розширення не пінить;
   * `GrammaticalFormTest` і `SingularBoundaryTest` (#1315) — форма іменника за
     класом ЧИСЛА і за МОВОЮ: реєстр на 41 мусить бути зеленим із граматично
     правильним «41 запис», червоним із чужим числом і з «41 записів»; а «один
@@ -96,6 +102,26 @@ EXPECTED_SCANNED = (
     "scripts/verdict_field_mutants.py",
     "scripts/declared_fields.py",
     "scripts/issue_premise.py",
+    "scripts/app-dependency-licenses.sh",
+    "scripts/check-app-dns.sh",
+    "scripts/check-base-sync.sh",
+    "scripts/check-migration-slot.sh",
+    "scripts/dependency-licenses.sh",
+    "scripts/generate-keystore.sh",
+    "scripts/merge-pr.sh",
+    "scripts/mutate.sh",
+    "scripts/new-lane.sh",
+    "scripts/pre-release.sh",
+    "scripts/review-clone.sh",
+    "scripts/review-pass.sh",
+    "scripts/run-instrumented-suites.sh",
+    "scripts/source-budget-snapshot.sh",
+    "scripts/telegram-login-spike.sh",
+    "scripts/test-all.sh",
+    "scripts/test-changed.sh",
+    "scripts/wait-for-android-package-service.sh",
+    "scripts/wide-window.sh",
+    "scripts/wizard-spec40-rules-matrix.sh",
 )
 
 # Файли, з яких складається підставлене дерево. Механізм читає їх як текст і
@@ -504,6 +530,45 @@ class NumberShapeTest(FixtureMixin):
         self.assertIn("а мусить рівно одне", err)
 
 
+class ShellStepTest(FixtureMixin):
+    """Кроки серії на shell теж скануються (#1328).
+
+    До #1328 `SCANNED` не містив жодного `scripts/*.sh`, тож числа класу в
+    `new-lane.sh` — найновішому кроці (резервує тікет, бере свіжий `main`, друкує
+    факти для брифа) — не бачив ЖОДЕН гейт: зіпсоване число лишалося зеленим і в
+    `doc_numbers`, і в усьому наборі. Прогін на незміненому дереві дав 0 знахідок
+    і 0 невідомостей на всіх 20 верхньорівневих кроках, тож список розширено на
+    ВСІ, а не лише на цитовані: «цитований» список залежав би від себе самого
+    (`cited_scripts` читає `SCANNED`), а нецитований крок лишився б невидимим
+    рівно там, де діра й була.
+    """
+
+    def test_every_top_level_shell_step_is_enrolled(self):
+        """Крок, який не зарахували, знову стане невидимим — це видно тестом."""
+        on_disk = sorted(path.name for path in (REPO_ROOT / "scripts").glob("*.sh"))
+        enrolled = sorted(
+            Path(one).name for one in d.SCANNED if one.endswith(".sh")
+        )
+        self.assertEqual(
+            on_disk, enrolled,
+            "кожен верхньорівневий `scripts/*.sh` мусить бути в `SCANNED`",
+        )
+
+    def test_a_number_in_a_shell_step_is_a_finding(self):
+        """Сторож: число класу в `.sh` мусить виводитися, а не бути невидимим.
+
+        Це той бік межі, який #1328 закриває: файл у списку — і незараховане
+        число в ньому вже знахідка. Другий бік (числа `--scan 200`, яких не
+        пінить і розширений список) стверджує сусідній `BoundaryTest`.
+        """
+        self.edit("scripts/new-lane.sh",
+                  "# Коди виходу:",
+                  "# шість випадків класу\n# Коди виходу:")
+        code, out, err = self.check()
+        self.assertEqual(1, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("шість випадків", out)
+
+
 class BoundaryTest(FixtureMixin):
     """Межа названа машинно: чого механізм НЕ бачить, тест це стверджує."""
 
@@ -555,6 +620,21 @@ class BoundaryTest(FixtureMixin):
         числа в СКАНОВАНОМУ файлі проходить зеленим.
         """
         self.edit("docs/agents/issue-tracker.md", "91/90/10/9 на", "92/90/10/9 на")
+        code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_a_gh_window_number_in_a_shell_step_passes_silently(self):
+        """Межа названа машинно: `102` у `new-lane.sh` гейт НЕ пінить (#1328).
+
+        Числа `--scan 200` у кроці премиси (102/78/11/9 на базі `424655b1`) — це
+        запис `gh`-вікна, той самий клас, що 91/90/10/9 у шапці
+        `issue_premise.py`. Розширення `SCANNED` на `scripts/*.sh` робить файл
+        ВИДИМИМ, але число — ні: у `derive` для нього немає джерела (у гейта
+        немає `gh`), і за ним не йде жоден іменник із `NOUNS_DATA`. Тест
+        стверджує це прогоном, а не прозою: `102` → `999` лишається зеленим, і
+        це названа межа, а не тиха діра.
+        """
+        self.edit("scripts/new-lane.sh", "102 «премиса є»", "999 «премиса є»")
         code, out, err = self.check()
         self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
 

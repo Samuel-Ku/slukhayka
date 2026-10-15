@@ -1422,6 +1422,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--root", type=Path, default=ROOT, help="корінь дерева (типово — репозиторій)")
     parser.add_argument("--list", action="store_true", help="лише назвати сторожів, не гнати мутантів")
+    parser.add_argument("--count", action="store_true",
+                        help="надрукувати ОДНЕ число — скільки записів у реєстрі; "
+                             "це не кількість рядків `--list` (на запис припадає два), "
+                             "і з `--list` виграє `--count`")
     parser.add_argument("--guard", action="append", default=[],
                         help="обмежитись одним сторожем (його ціллю); можна кілька разів — "
                              "це звуження, а не вимикач: кожен названий усе одно перевіряється")
@@ -1439,6 +1443,13 @@ def main(argv: list[str] | None = None) -> int:
               % (", ".join(unknown), ", ".join(GUARDS_BY_TEST)), file=sys.stderr)
         return 2
     entries = tuple(GUARDS_BY_TEST[name] for name in arguments.guard) or GUARDS
+
+    if arguments.count:
+        # Одне число одним рядком — його ЦИТУЮТЬ у брифи, а не рахують рядки
+        # виводу. Друкується рівно те, що `--list` назвав би, тож `--guard`
+        # звужує й число; саме тому тут `len(entries)`, а не `len(GUARDS)`.
+        print(len(entries))
+        return 0
 
     if arguments.list:
         for guard in entries:

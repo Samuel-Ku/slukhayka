@@ -111,10 +111,17 @@ that does not check"». Спільне в усіх: **число в доку, я
   * **числа `gh`-вікна — поза `FIGURES`, і це названо.** `--scan 200` питає
     `gh` про рухоме вікно останніх тікетів: у гейта немає ні `gh`, ні мережі, а
     число пливе разом зі списком issue. Такі числа (91/90/10/9 у шапці
-    `issue_premise.py`) лишаються прозою з названою командою і ревізією — вони
-    законні саме тому, що НЕВИВОДИМІ, і жоден рядок не обіцяє протилежного;
-    межа машинна: у `derive` для них немає джерела, тож `FIGURES` їх не
-    зарахує;
+    `issue_premise.py`, 102/78/11/9 у шапці `new-lane.sh`) лишаються прозою з
+    названою командою і ревізією — вони законні саме тому, що НЕВИВОДИМІ, і
+    жоден рядок не обіцяє протилежного; межа машинна: у `derive` для них немає
+    джерела, тож `FIGURES` їх не зарахує. **Розширення `SCANNED` на
+    `scripts/*.sh` (#1328) їх НЕ пінить**, і це перевірено прогоном, а не
+    обіцяно: за ними не йде жоден іменник із `NOUNS_DATA` (далі стоять «премиса
+    є», «у тілі немає шляхів», «ім'я неоднозначне», «відмов»), а джерело їхнє —
+    `gh`, не дерево. Тому файл тепер ВИДНО, а число — ні:
+    `test_doc_numbers.BoundaryTest
+    .test_a_gh_window_number_in_a_shell_step_passes_silently` підставляє `999`
+    замість `102` і вимагає ЗЕЛЕНОГО;
   * **цей файл не сканує СЕБЕ, і причина машинна.** Його шапка цитує вигадану
     команду першої версії механізму (`scripts/guard_witnesses.py --check`) — це
     урок, а не команда, але командна половина читає ЦИТАТИ з код-спанів за
@@ -316,7 +323,12 @@ FIGURES = (
      ("record", "prices", "без крапки, будь-який збіг-дерево")),
 )
 
-# Корпус, який міряє `--audit`: документи для агентів і всі скрипти.
+# Корпус, який міряє `--audit`: документи для агентів і всі `.py`-механізми
+# (`scripts/**/*.py`). `scripts/*.sh` сюди НЕ входять, і це виміряно (#1328):
+# розширення на них додає одну фігуру на одному файлі — специфікатор ширини
+# поля `printf` у `run-instrumented-suites.sh:63` (цифри, тоді `s`) проходить
+# як «число + секунди». Лічильник від цього лише галасливіший, а гейтом він не
+# був ніколи; числа кроків у `.sh` бачить `SCANNED` нижче.
 AUDIT_FILES = (("docs/agents", "*.md"), ("scripts", "**/*.py"))
 
 # Фігура «число + одиниця» — те, чого вимагати команду біля кожного не можна.
@@ -331,6 +343,18 @@ DATED = re.compile(r"\b20\d\d-\d\d-\d\d\b|\b[0-9a-f]{7,40}\b")
 # перевіркою (#1308): `CONTRIBUTING.md` — місця п'ятого й шостого випадків,
 # `issue_premise.py` — ціна правила про теку, `issue-tracker.md` — той самий
 # текст для агента.
+#
+# Кроки серії на shell — тут від #1328, і це окремий клас, а не «ще файли»:
+# `new-lane.sh` резервує тікет, бере свіжий `main` і друкує факти для брифа, а
+# числа в ньому не бачив ЖОДЕН гейт, бо списку `.sh` не містив узагалі.
+# Прогін на незміненому дереві дав 0 знахідок і 0 невідомостей на всіх 20
+# верхньорівневих кроках — тому беремо ВСІ, а не лише цитовані: «цитований»
+# список залежав би від себе самого (`cited_scripts` читає `SCANNED`), а
+# нецитований крок лишився б невидимим рівно там, де діра й була. `scripts/**/*.sh`
+# (rules-matrix, tests/fixtures) поза списком: фікстури інших механізмів — не
+# кроки цього дерева. Межа списку — у ньому самому, і
+# `test_doc_numbers.ShellStepTest.test_every_top_level_shell_step_is_enrolled`
+# робить пропущений крок червоним, а не тихим.
 SCANNED = (
     "CONTRIBUTING.md",
     "docs/agents/local-environment.md",
@@ -340,6 +364,26 @@ SCANNED = (
     "scripts/verdict_field_mutants.py",
     "scripts/declared_fields.py",
     "scripts/issue_premise.py",
+    "scripts/app-dependency-licenses.sh",
+    "scripts/check-app-dns.sh",
+    "scripts/check-base-sync.sh",
+    "scripts/check-migration-slot.sh",
+    "scripts/dependency-licenses.sh",
+    "scripts/generate-keystore.sh",
+    "scripts/merge-pr.sh",
+    "scripts/mutate.sh",
+    "scripts/new-lane.sh",
+    "scripts/pre-release.sh",
+    "scripts/review-clone.sh",
+    "scripts/review-pass.sh",
+    "scripts/run-instrumented-suites.sh",
+    "scripts/source-budget-snapshot.sh",
+    "scripts/telegram-login-spike.sh",
+    "scripts/test-all.sh",
+    "scripts/test-changed.sh",
+    "scripts/wait-for-android-package-service.sh",
+    "scripts/wide-window.sh",
+    "scripts/wizard-spec40-rules-matrix.sh",
 )
 
 # Формат: (джерело, написання для місця в серії, форми кількості за класами).

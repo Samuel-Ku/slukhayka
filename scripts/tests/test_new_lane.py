@@ -203,6 +203,29 @@ class RefusalTest(LaneTest):
         self.assertIn("гілка", result.stderr)
         self.assertFalse(self.lane_path().exists())
 
+    def test_a_base_that_cannot_answer_leaves_no_copy_no_claim_and_no_branch(self):
+        """Невідомість відкатується ПОВНІСТЮ — інакше наступна спроба впреться
+        у «гілка вже існує» від власного невдалого прогону."""
+        (self.repo / "scripts" / "guard_witnesses.py").write_text(
+            'import sys\n\nif "--count" in sys.argv:\n    sys.exit(2)\nprint(0)\n',
+            encoding="utf-8",
+        )
+        self.git("add", "-A")
+        self.commit("стара база без --count")
+        self.git("push", "-q", "origin", "main")
+
+        result = self.create_lane(expect=2)
+
+        self.assertIn("копію прибрано", result.stderr)
+        self.assertFalse(self.lane_path().exists())
+        self.assertFalse(self.claim_path().exists())
+        self.assertNotEqual(
+            0,
+            self.git("show-ref", "--verify", "--quiet",
+                     "refs/heads/t%s-%s" % (ISSUE, SLUG), check=False).returncode,
+            "гілка невдалого прогону не сміє лишитися",
+        )
+
     def test_the_owner_is_never_invented(self):
         result = self.create_lane(expect=2, env={"NEW_LANE_OWNER": "", "DSH_SESSION_ID": ""})
 

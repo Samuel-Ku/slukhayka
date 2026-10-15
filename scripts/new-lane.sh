@@ -70,6 +70,10 @@ set -euo pipefail
 
 GIT="${NEW_LANE_GIT:-git}"
 PYTHON="${NEW_LANE_PYTHON:-python3}"
+# Абсолютна тека самого скрипта: нею резервування кличеться з будь-якого cwd
+# (нижче ми заходимо в `$REPO`), і `NEW_LANE_REPO` може вказувати на ІНШУ копію,
+# у якій `agent-work-claim.py` може бути старішим або його не бути зовсім.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Тека смуг у робочій копії — константа, а не здогад: за нею копію знаходять і
 # створення, і `--release`, і саме її названо в брифі.
@@ -247,7 +251,9 @@ if [ "$RELEASE" = true ]; then
       fail "git worktree remove не прибрав $LANE"
     fi
   else
-    "$GIT" -C "$REPO" worktree prune
+    if ! "$GIT" -C "$REPO" worktree prune; then
+      fail "git worktree prune не прибрав запис копії $LANE"
+    fi
   fi
   printf 'OK    копію прибрано: %s\n' "$LANE"
   printf 'OK    гілку %s не видаляю: вона лишається в refs/heads (та сама межа, що в merge-pr.sh).\n' \
@@ -293,7 +299,7 @@ PLAN="${PLAN_FLAG:-${NEW_LANE_PLAN:-docs/plans/$(date -u +%F)-$ISSUE-$SLUG.md}}"
 set +e
 CLAIM_OUT="$(
   cd "$REPO" &&
-    "$PYTHON" "$(dirname "$0")/agent-work-claim.py" acquire "$ISSUE" \
+    "$PYTHON" "$SCRIPT_DIR/agent-work-claim.py" acquire "$ISSUE" \
       --owner "$OWNER" --reservation "$RESERVATION" --plan "$PLAN" 2>&1
 )"
 CLAIM_CODE=$?
@@ -304,7 +310,7 @@ if [ "$CLAIM_CODE" -ne 0 ]; then
 fi
 CLAIM_CREATED=true
 
-if ! "$GIT" -C "$REPO" worktree add --no-track -b "$BRANCH" "$LANE" origin/main; then
+if ! "$GIT" -C "$REPO" worktree add --detach "$LANE" origin/main; then
   rollback
   fail "git worktree add не вдався — копію й резервування прибрано"
 fi
@@ -334,6 +340,16 @@ if [ -z "$JOB_NAME" ] || [ -z "$JOB_LIMIT" ] || [ "${JOB_LIMIT#НЕВІДОМО}
   fail "ліміт джоби не прочитано з копії ('$JOB_NAME' / '$JOB_LIMIT') — копію прибрано"
 fi
 
+# Гілку смуги створюємо ОСТАННІМ кроком, коли все вже перевірено: якщо факти не
+# зібралися, відкат прибирає саму копію, і жодної гілки по собі не лишається —
+# інакше наступна спроба вперлася б у «гілка вже існує» від власного невдалого
+# прогону. `--no-track`: гілка смуги не «відстежує» origin/main, бо тоді
+# `git status` бреше про базу — та сама хибна база, тільки тихіша.
+if ! "$GIT" -C "$LANE" switch -q --no-track -c "$BRANCH"; then
+  rollback
+  fail "не вдалося створити гілку $BRANCH у копії — копію й резервування прибрано"
+fi
+
 # --------------------------------------------------------------------------
 # Факти для брифа: їх вставляють, а не згадують
 # --------------------------------------------------------------------------
@@ -361,5 +377,5 @@ printf 'команди смуги (прогнати самій):\n'
 for command in "${LANE_COMMANDS[@]}"; do
   printf '  %s\n' "$command"
 done
-printf 'мердж: scripts/merge-pr.sh <номер PR> — зливає координатор, не `gh merge`\n'
+printf 'мердж: scripts/merge-pr.sh <номер PR> — зливає координатор, не `gh pr merge`\n'
 printf 'звільнити копію після мерджу: scripts/new-lane.sh --release %s\n' "$ISSUE"

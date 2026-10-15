@@ -889,6 +889,82 @@ class PriceRecordTest(unittest.TestCase):
                 ip.measured_prices(ip.MAIN_REF)
 
 
+class ScanWindowRecordTest(unittest.TestCase):
+    """Запис `gh`-вікна (#1328): числа кроку премиси — дані, а не проза.
+
+    Гейт (`doc_numbers.py`) читає РЕЄСТР `SCAN_WINDOW` імпортом, як `PRICES`: у
+    нього немає ні `gh`, ні мережі. Різниця між реєстрами названа в самому
+    `SCAN_WINDOW`, і вона одна: `PRICES` відтворюється на нерухомому ref-і, а
+    вікно — ЗНІМОК рухомого списку тікетів.
+
+    Тому живий прогін тут НЕ стоїть, і це названо числом, а не обіцянкою:
+    `--scan 200` — це 201 виклик `gh` і 112 с на цій машині (виміряно), проти
+    ліміту джоби `script-tests` у 480 с при 278 с самого набору; і він
+    червонів би на кожен новий тікет — на `584dda73` те саме вікно дає
+    104/77/11/8 проти записаних 102/78/11/9. Свідок тут — сама команда
+    `--scan 200`: вона друкує вимір у формі запису й називає розходження
+    (`scan_drift_note`), і оновлює реєстр руками той, хто її прогнав.
+    """
+
+    def test_the_record_names_the_revision_date_limit_and_command(self):
+        self.assertTrue(ip.SCAN_REF, "реєстр мусить називати ревізію")
+        self.assertTrue(ip.SCAN_DATE, "реєстр мусить називати дату")
+        self.assertEqual(200, ip.SCAN_LIMIT)
+        self.assertIn("--scan 200", ip.SCAN_COMMAND)
+
+    def test_the_classes_partition_the_window(self):
+        """Сума класів — це і є вікно: інакше запис не про вікно, а про зріз."""
+        self.assertEqual(
+            ip.SCAN_LIMIT, sum(value for _, value in ip.SCAN_WINDOW),
+            "чотири класи мусять ділити вікно без решти",
+        )
+
+    def test_the_record_and_the_measurement_cannot_diverge_in_length(self):
+        """Клас без місця у вимірі — помилка, а не мовчазне усічення `zip`."""
+        with mock.patch.object(ip, "SCAN_WINDOW", ip.SCAN_WINDOW[:-1]):
+            with self.assertRaises(ValueError):
+                ip.measured_scan_window()
+
+    def test_a_missing_gh_is_an_unknown_not_a_zero(self):
+        """Немає `gh` — невідомість, а не «нуль тікетів» (та сама межа, що в `ci_job_time`)."""
+        with mock.patch.object(ip.subprocess, "run", side_effect=FileNotFoundError):
+            with self.assertRaises(ip.ScanError):
+                ip.measure_scan_window(ip.SCAN_LIMIT, "HEAD")
+
+    def test_an_unmeasurable_window_is_code_two(self):
+        with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "deadbeef")):
+            with mock.patch.object(
+                ip, "measure_scan_window", side_effect=ip.ScanError("немає `gh` у PATH")
+            ):
+                with contextlib.redirect_stderr(io.StringIO()) as err:
+                    code = ip.scan(ip.SCAN_LIMIT, ip.MAIN_REF)
+        self.assertEqual(2, code)
+        self.assertIn("gh", err.getvalue())
+
+    def test_the_drift_note_names_the_revision_and_the_record(self):
+        """Розходження мусить називати винуватця — інакше це «червоне, схоже на знахідку».
+
+        Вікно рухається ЗАВЖДИ, тож «числа не зійшлися» без ревізії й дати
+        реєстру змушувало б оглядача шукати вину в коді.
+        """
+        recorded = dict(ip.SCAN_WINDOW)
+        printed = dict(recorded)
+        key = ip.SCAN_WINDOW[0][0]
+        printed[key] = recorded[key] + 2
+        note = ip.scan_drift_note(recorded, printed, ip.MAIN_REF, "584dda73abcdef")
+        self.assertIn(ip.SCAN_REF, note)
+        self.assertIn(ip.SCAN_DATE, note)
+        self.assertIn("584dda73", note)
+        self.assertIn(
+            "«%s»: реєстр %d, вимір %d" % (key, recorded[key], recorded[key] + 2),
+            note,
+        )
+        self.assertIn(
+            "вікно збіглося",
+            ip.scan_drift_note(recorded, recorded, ip.MAIN_REF, "x"),
+        )
+
+
 class RealIssueTest(unittest.TestCase):
     """Обидва прогони вимоги 1 — на справжньому тілі #1261 і на валідній премисі."""
 

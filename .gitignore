@@ -24,6 +24,11 @@ keystore.properties
 # Local agent tooling state — never part of the public repo.
 .headroom/
 .serena/
+# #1321: lane copies live in `.worktrees/` INSIDE the working tree, and a fresh
+# clone has no `.git/info/exclude` entry for them — without this line the new
+# `scripts/new-lane.sh` would itself make the tree dirty, and `scripts/mutate.sh`
+# refuses to run on a dirty tree. Same reason as `/.mutations/` below.
+/.worktrees/
 # #1221: the mutation-run trail is machine-local too — scripts/mutate.sh refuses
 # to run on a dirty tree, so its own record must not make the tree dirty.
 /.mutations/

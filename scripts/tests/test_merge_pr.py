@@ -611,6 +611,9 @@ class MergePrTest(unittest.TestCase):
         self.assertIn("перевірки пройдено, але gh pr merge не злито", result.stderr)
         self.assertIn("not mergeable", result.stderr)
         self.assertNotIn("машиночитного вердикту", result.stderr)
+        # Вказівка прибрати копію — лише ПІСЛЯ злиття: на незлитому PR вона
+        # звільнила б смугу, яку ще нікуди не злито (#1321, F3).
+        self.assertNotIn("new-lane.sh --release", result.stdout)
 
     def test_does_not_claim_the_label_is_missing_when_the_probe_fails(self):
         result = self.gate(pr=pr_payload(labels=()), timeline=page(),

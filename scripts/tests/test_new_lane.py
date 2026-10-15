@@ -264,6 +264,35 @@ class RefusalTest(LaneTest):
 class ReleaseTest(LaneTest):
     """Гігієна: копія прибирається, коли в ній нема чого втрачати."""
 
+    def test_release_removes_an_empty_unregistered_directory(self):
+        """Незареєстрована тека — не смуга: `git -C` у ній піднявся б до
+        БАТЬКІВСЬКОГО репозиторію й прочитав дерево КООРДИНАТОРА (огляд #1321,
+        F1). Тому така тека прибирається без жодного `git` у ній."""
+        stray = self.repo / ".worktrees" / ("w%s" % ISSUE)
+        stray.mkdir(parents=True)
+        outsider = self.repo / "координаторське.txt"
+        outsider.write_text("не чіпати\n", encoding="utf-8")
+
+        result = self.lane("--release", ISSUE)
+
+        self.assertIn("незареєстровану теку прибрано", result.stdout)
+        self.assertFalse(stray.exists())
+        self.assertTrue(outsider.is_file(),
+                        "дерево координатора не можна прочитати як копію")
+        self.assertNotIn("координаторське.txt", result.stdout + result.stderr)
+
+    def test_release_refuses_a_non_empty_unregistered_directory(self):
+        """Непорожню незареєстровану теку не чіпаємо: її вміст нам невідомий."""
+        stray = self.repo / ".worktrees" / ("w%s" % ISSUE)
+        stray.mkdir(parents=True)
+        keepsake = stray / "чиєсь.txt"
+        keepsake.write_text("невідоме\n", encoding="utf-8")
+
+        result = self.lane("--release", ISSUE, expect=1)
+
+        self.assertIn("не зареєстрована", result.stderr)
+        self.assertTrue(keepsake.is_file())
+
     def test_release_removes_a_clean_copy_and_keeps_the_branch_and_the_claim(self):
         self.create_lane()
 

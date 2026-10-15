@@ -40,7 +40,16 @@
 #     який стирає чужу роботу. Прибирає координатор ЯВНО — і рівно тоді, коли
 #     переконався, що правок немає;
 #   * гілку не видаляє жодна вітка цього скрипта: `t<номер>-<slug>` лишається
-#     в `refs/heads`, як і після `merge-pr.sh`;
+#     в `refs/heads`, як і після `merge-pr.sh`. Названа й ціна цієї межі: якщо
+#     `switch -c` упаде ВЖЕ після запису ref'а, гілка лишиться, і наступна
+#     спроба впреться в «гілка вже існує». Це вузьке вікно (ref пишеться
+#     останнім кроком, коли все вже перевірено), і видаляти гілку тут означало б
+#     завести прибирання чужого ref'а — тому межа названа, а не замовчана;
+#   * `--release` читає `git` у копії ЛИШЕ коли копія зареєстрована worktree'ом.
+#     Незареєстрована тека `.worktrees/w<номер>` — не смуга: `git -C` у ній
+#     піднявся б до батьківського репозиторію й прочитав дерево КООРДИНАТОРА
+#     (той самий клас, проти якого цей скрипт і писався). Таку теку скрипт
+#     прибирає лише порожньою, а непорожню не чіпає й каже про це;
 #   * резервування не знімається автоматично: у `agent-work-claim.py` навмисно
 #     немає примусового звільнення, і цей скрипт його не вигадує. Він лише
 #     НАЗИВАЄ шлях запису;
@@ -227,35 +236,52 @@ rollback() {
 # --------------------------------------------------------------------------
 
 if [ "$RELEASE" = true ]; then
-  if [ ! -d "$LANE" ] && ! worktree_registered "$LANE"; then
+  if [ ! -e "$LANE" ] && ! worktree_registered "$LANE"; then
     fail "немає смуги w$ISSUE у $REPO — нема чого звільняти"
   fi
   LANE_BRANCH=""
-  if [ -d "$LANE" ]; then
-    LANE_BRANCH="$("$GIT" -C "$LANE" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-  fi
-  if [ -d "$LANE" ]; then
-    DIRTY="$("$GIT" -C "$LANE" status --porcelain)" ||
-      fail "не вдалося прочитати стан копії $LANE"
-    if [ -n "$DIRTY" ]; then
-      printf 'FAIL  копія %s має незакомічені зміни — прибирання втратило б їх:\n' "$LANE" >&2
-      printf '%s\n' "$DIRTY" | sed 's/^/      /' >&2
-      refuse "закоміть або збережи їх, тоді повтори scripts/new-lane.sh --release $ISSUE"
-    fi
-    for marker in rebase-merge rebase-apply MERGE_HEAD; do
-      if [ -e "$("$GIT" -C "$LANE" rev-parse --git-path "$marker")" ]; then
-        refuse "копія $LANE посеред операції ($marker) — заверши або скасуй її, тоді повтори"
+  if worktree_registered "$LANE"; then
+    # Зареєстрований worktree — і ТІЛЬКИ тут `git -C "$LANE"` читає саму копію.
+    if [ -d "$LANE" ]; then
+      LANE_BRANCH="$("$GIT" -C "$LANE" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+      DIRTY="$("$GIT" -C "$LANE" status --porcelain)" ||
+        fail "не вдалося прочитати стан копії $LANE"
+      if [ -n "$DIRTY" ]; then
+        printf 'FAIL  копія %s має незакомічені зміни — прибирання втратило б їх:\n' "$LANE" >&2
+        printf '%s\n' "$DIRTY" | sed 's/^/      /' >&2
+        refuse "закоміть або збережи їх, тоді повтори scripts/new-lane.sh --release $ISSUE"
       fi
-    done
-    if ! "$GIT" -C "$REPO" worktree remove "$LANE"; then
-      fail "git worktree remove не прибрав $LANE"
+      for marker in rebase-merge rebase-apply MERGE_HEAD; do
+        if [ -e "$("$GIT" -C "$LANE" rev-parse --git-path "$marker")" ]; then
+          refuse "копія $LANE посеред операції ($marker) — заверши або скасуй її, тоді повтори"
+        fi
+      done
+      if ! "$GIT" -C "$REPO" worktree remove "$LANE"; then
+        fail "git worktree remove не прибрав $LANE"
+      fi
+    else
+      if ! "$GIT" -C "$REPO" worktree prune; then
+        fail "git worktree prune не прибрав запис копії $LANE"
+      fi
     fi
+    printf 'OK    копію прибрано: %s\n' "$LANE"
   else
-    if ! "$GIT" -C "$REPO" worktree prune; then
-      fail "git worktree prune не прибрав запис копії $LANE"
+    # Тека є, але worktree'ом НЕ зареєстрована. `git -C "$LANE"` тут піднявся б
+    # до БАТЬКІВСЬКОГО репозиторію й прочитав дерево КООРДИНАТОРА — і тоді
+    # «копія має зміни» назвало б чужі зміни, а номер лишився б заблокованим
+    # назавжди: створити — відмова, а підказане лікування не працює. Це рівно
+    # той клас, проти якого цей скрипт і писався (факт приписано не тому
+    # дереву), тому тут ми НЕ кли́чемо git у копії взагалі. Прибираємо лише
+    # ПОРОЖНЮ теку; непорожню не чіпаємо — її вміст нам невідомий.
+    if [ -d "$LANE" ] && [ -z "$(ls -A "$LANE")" ]; then
+      if ! rmdir "$LANE"; then
+        fail "порожню незареєстровану теку $LANE не прибрано"
+      fi
+      printf 'OK    порожню незареєстровану теку прибрано: %s (worktree-запису не було)\n' "$LANE"
+    else
+      refuse "тека $LANE не зареєстрована як worktree смуги, але не порожня — прибирання втратило б її вміст ($(ls -A "$LANE" | tr '\n' ' ')); прибери її руками, якщо впевнений"
     fi
   fi
-  printf 'OK    копію прибрано: %s\n' "$LANE"
   printf 'OK    гілку %s не видаляю: вона лишається в refs/heads (та сама межа, що в merge-pr.sh).\n' \
     "${LANE_BRANCH:-смуги}"
   if [ -f "$CLAIM_FILE" ]; then

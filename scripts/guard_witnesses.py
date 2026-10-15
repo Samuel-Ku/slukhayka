@@ -89,7 +89,8 @@
 рядком, придатним для цитати в брифі. Це не прикраса: `--list` на запис друкує
 ДВА рядки, і саме `wc -l` від нього дав хибне число в тілі коміта (98 замість 49)
 і в брифі (40 замість 39) — тому число виводить РЕЄСТР, а не рядки виводу
-(`test_guard_witnesses.CountTest` пінить обидві половини цього твердження).
+(`test_guard_witnesses.CountTest` пінить саме те, що обіцяє назва:
+`--count == len(GUARDS)`, а не випадкову дворядковість сусіднього `--list`).
 """
 
 from __future__ import annotations
@@ -1108,10 +1109,10 @@ GUARDS = (
     ),
     Guard(
         test="test_guard_witnesses.CountTest"
-             ".test_the_count_is_the_registry_and_not_the_number_of_output_lines",
-        protects="число реєстру одним рядком (#1321): `--count` мусить міряти "
-                 "РЕЄСТР, а не рядки виводу `--list` — саме на цьому вже двічі "
-                 "народилося хибне число в брифи",
+             ".test_the_count_is_the_length_of_the_registry",
+        protects="число реєстру одним рядком (#1321): `--count` мусить дорівнювати "
+                 "ДОВЖИНІ РЕЄСТРУ, а не кількості рядків виводу `--list` — саме на "
+                 "цьому вже двічі народилося хибне число в брифи",
         edits=(
             Edit(
                 file="scripts/guard_witnesses.py",

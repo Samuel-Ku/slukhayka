@@ -78,7 +78,7 @@ GUARD_TESTS = (
     "test_fixture_environments.EnvironmentTest"
     ".test_the_guard_sees_only_the_runs_it_is_named",
     "test_guard_witnesses.CountTest"
-    ".test_the_count_is_the_registry_and_not_the_number_of_output_lines",
+    ".test_the_count_is_the_length_of_the_registry",
     "test_guard_witnesses.FindingTest"
     ".test_a_guard_that_stays_green_under_its_mutation_is_a_finding",
     "test_guard_witnesses.RefusalTest"
@@ -418,30 +418,27 @@ class RefusalTest(FixtureBase):
 
 
 class CountTest(unittest.TestCase):
-    """`--count` — одне число для цитати, а не кількість рядків виводу (#1321).
+    """`--count` — довжина РЕЄСТРУ одним рядком для цитати (#1321).
 
     Саме тут двічі народилося хибне число в брифи: `--list` друкує два рядки на
     запис, і `wc -l` дає вдвічі більше за реєстр. Тому число мусить виводитися
-    РЕЄСТРОМ, а не рахуватися очима з виводу.
+    РЕЄСТРОМ. Піниться саме обіцянка — `--count == len(GUARDS)`, — а не
+    випадкова властивість сусіднього виводу: `--count != рядків --list` істинне
+    лише ПОКИ `--list` дворядковий, і одного дня це зламало б сторожа на
+    правильному коді (огляд #1321, F4).
     """
 
-    def test_the_count_is_the_registry_and_not_the_number_of_output_lines(self):
+    def test_the_count_is_the_length_of_the_registry(self):
         counted = subprocess.run(
             [sys.executable, str(MECHANISM), "--count"],
-            check=False, capture_output=True, text=True,
-        )
-        listed = subprocess.run(
-            [sys.executable, str(MECHANISM), "--list"],
             check=False, capture_output=True, text=True,
         )
 
         self.assertEqual(0, counted.returncode, counted.stderr)
         self.assertEqual(1, len(counted.stdout.splitlines()),
                          "число мусить бути ОДНИМ рядком, придатним для цитати")
-        self.assertEqual(str(EXPECTED_GUARDS), counted.stdout.strip())
-        # Друга половина твердження: це не довжина виводу `--list`.
-        self.assertNotEqual(counted.stdout.strip(),
-                            str(len(listed.stdout.splitlines())))
+        self.assertEqual(len(w.GUARDS), int(counted.stdout.strip()),
+                         "--count мусить дорівнювати довжині САМОГО реєстру")
 
     def test_a_narrowed_count_is_the_number_of_the_named_entries(self):
         """`--count` міряє те саме, що `--list` назвав би, — тож `--guard` звужує."""

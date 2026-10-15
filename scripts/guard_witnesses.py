@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 50 записів (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 56 записів (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -84,6 +84,13 @@
 видно, а не вгадується. Запис без мутації не заводиться — `GUARDS` і є переліком
 того, що гейт перевіряє; старі сторожа без запису не отримують ні тихої згоди,
 ні червоного — механізм просто каже, скількох покриває.
+
+Скільки їх саме, питають КОМАНДОЮ, а не очима: `--count` друкує одне число одним
+рядком, придатним для цитати в брифі. Це не прикраса: `--list` на запис друкує
+ДВА рядки, і саме `wc -l` від нього дав хибне число в тілі коміта (98 замість 49)
+і в брифі (40 замість 39) — тому число виводить РЕЄСТР, а не рядки виводу
+(`test_guard_witnesses.CountTest` пінить саме те, що обіцяє назва:
+`--count == len(GUARDS)`, а не випадкову дворядковість сусіднього `--list`).
 """
 
 from __future__ import annotations
@@ -1087,6 +1094,90 @@ GUARDS = (
             ),
         ),
     ),
+    Guard(
+        test="test_new_lane.RefusalTest.test_a_second_lane_in_the_same_copy_is_refused",
+        protects="відмову створити другу смугу в тій самій копії (#1321): без неї "
+                 "дві смуги сідають в одну теку, і `commit --amend`, `reset --hard` "
+                 "та стерті правки стають питанням часу",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='if [ -e "$LANE" ] || worktree_recorded "$LANE"; then\n',
+                replace="# mutated: перевірки копії немає\nif false; then\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest"
+             ".test_release_removes_an_empty_unregistered_directory",
+        protects="`--release` на НЕзареєстрованій теці (#1321, F1): така тека "
+                 "прибирається, а дерево координатора не читається. Мутація "
+                 "довіряє шляху — і тоді `git -C` у ній читає БАТЬКІВСЬКИЙ "
+                 "репозиторій, а ім'я чужого файлу потрапляє у вивід",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  if worktree_live "$LANE" && lane_is_checkout "$LANE"; then\n',
+                replace='  if [ -e "$LANE" ]; then  # mutated: довіряємо шляху\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest"
+             ".test_release_clears_a_stale_worktree_record_under_a_recreated_directory",
+        protects="залишок F1 (#1321): застарілий (`prunable`) запис не вважається "
+                 "живим чекаутом. Мутація довіряє ЗАПИСУ — і `git -C` у теці на "
+                 "тому ж шляху читає дерево координатора, повертаючи глухий кут",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  if worktree_live "$LANE" && lane_is_checkout "$LANE"; then\n',
+                replace='  if worktree_recorded "$LANE"; then  # mutated: довіряємо запису\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest"
+             ".test_release_refuses_a_non_empty_unregistered_directory",
+        protects="межу `--release` (#1321): непорожній шлях, що не є чекаутом, не "
+                 "чіпається. Прибирання без цієї відмови втратило б невідомий "
+                 "вміст — `rmdir` падає, і код виходу бреше про причину",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -d "$LANE" ] && [ -z "$(ls -A "$LANE")" ]; then\n',
+                replace='    if [ -d "$LANE" ]; then  # mutated: непорожню теж прибираємо\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_guard_witnesses.CountTest"
+             ".test_the_count_is_the_length_of_the_registry",
+        protects="число реєстру одним рядком (#1321): `--count` мусить дорівнювати "
+                 "ДОВЖИНІ РЕЄСТРУ, а не кількості рядків виводу `--list` — саме на "
+                 "цьому вже двічі народилося хибне число в брифи",
+        edits=(
+            Edit(
+                file="scripts/guard_witnesses.py",
+                find="        print(len(entries))\n        return 0\n\n    if arguments.list:\n",
+                replace="        print(2 * len(entries))  # mutated: рядки --list, а не записи\n"
+                        "        return 0\n\n    if arguments.list:\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
+        protects="безпеку `--release` (#1321): копія з незакоміченими змінами не "
+                 "прибирається. Прибирання без цієї відмови стирає чужі правки — "
+                 "той самий клас, що дві смуги в одній теці",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -n "$DIRTY" ]; then\n',
+                replace='    if false; then  # mutated: брудну копію прибираємо\n',
+            ),
+        ),
+    ),
 )
 
 GUARDS_BY_TEST = {guard.test: guard for guard in GUARDS}
@@ -1422,6 +1513,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--root", type=Path, default=ROOT, help="корінь дерева (типово — репозиторій)")
     parser.add_argument("--list", action="store_true", help="лише назвати сторожів, не гнати мутантів")
+    parser.add_argument("--count", action="store_true",
+                        help="надрукувати ОДНЕ число — скільки записів у реєстрі; "
+                             "це не кількість рядків `--list` (на запис припадає два), "
+                             "і з `--list` виграє `--count`")
     parser.add_argument("--guard", action="append", default=[],
                         help="обмежитись одним сторожем (його ціллю); можна кілька разів — "
                              "це звуження, а не вимикач: кожен названий усе одно перевіряється")
@@ -1439,6 +1534,13 @@ def main(argv: list[str] | None = None) -> int:
               % (", ".join(unknown), ", ".join(GUARDS_BY_TEST)), file=sys.stderr)
         return 2
     entries = tuple(GUARDS_BY_TEST[name] for name in arguments.guard) or GUARDS
+
+    if arguments.count:
+        # Одне число одним рядком — його ЦИТУЮТЬ у брифи, а не рахують рядки
+        # виводу. Друкується рівно те, що `--list` назвав би, тож `--guard`
+        # звужує й число; саме тому тут `len(entries)`, а не `len(GUARDS)`.
+        print(len(entries))
+        return 0
 
     if arguments.list:
         for guard in entries:

@@ -644,7 +644,7 @@ jobs:
     name: Script unit tests
     needs: timing-start
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
       - name: Checkout

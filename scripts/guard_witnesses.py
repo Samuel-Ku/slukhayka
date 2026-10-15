@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 60 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 66 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -1255,6 +1255,98 @@ GUARDS = (
                 file="scripts/new-lane.sh",
                 find='if [ -z "$PREMISE_REPORT" ]; then\n',
                 replace="if false; then  # mutated: порожній вивід — теж вердикт\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.NormalCaseTest"
+             ".test_the_printed_diff_is_the_branch_and_not_the_working_tree",
+        protects="надруковану команду дифу (#1326): вона мусить називати БАЗУ Й "
+                 "`origin/<гілку>`, а не `HEAD`. Мутація повертає саме той "
+                 "`…HEAD`, яким #1323 дав чужий диф на 77 файлів — і оглядач "
+                 "читає чужу гілку як гілку огляду",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='printf \'диф: git diff %s...origin/%s\\n\' "$MERGE_BASE" "$BRANCH"\n',
+                replace='printf \'диф: git diff %s...HEAD\\n\' "$MERGE_BASE"  # mutated: HEAD\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.ShallowTest"
+             ".test_a_shallow_repo_is_deepened_before_the_base_is_named",
+        protects="поглиблення shallow-репо ДО назви бази (#1326; shallow-приклади "
+                 "тікета #1320/#1322 на цій машині не відтворюються — межа названа "
+                 "в шапці скрипта): в обрізаній історії merge-base або не існує, "
+                 "або виходить заниженим. Мутація лишає репо shallow — і замість "
+                 "названої бази крок мусить відмовити, а не назвати обрізаний коміт",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='if [ "$SHALLOW_BEFORE" = true ]; then\n  FETCH_ARGS+=(--unshallow)\nfi\n',
+                replace='if false; then  # mutated: shallow не поглиблюється\n'
+                        '  FETCH_ARGS+=(--unshallow)\nfi\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.UnknownTest"
+             ".test_a_branch_without_shared_history_is_named",
+        protects="невідомість бази (#1326): коли спільної історії немає, "
+                 "`merge-base` не існує. Мутація підставляє верхівку `origin/main` "
+                 "замість нього — і копія створюється під базу, якої не існує, "
+                 "тобто «не знаю» стає названою базою",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='MERGE_BASE="$("$GIT" -C "$REPO" merge-base "$BASE_SHA" "$TIP_SHA" 2>/dev/null)"\n',
+                replace='MERGE_BASE="$BASE_SHA"  # mutated: база без merge-base\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.UnknownTest"
+             ".test_an_unreachable_origin_is_named_as_no_network",
+        protects="названий випадок «немає мережі» (#1326): недосяжний `origin` — "
+                 "це не «немає гілки» й не «немає merge-base». Мутація знімає "
+                 "перевірку досяжності — і причина змішується з рештою, тобто "
+                 "оглядач читає про відсутній ref там, де не відповів remote",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='  if [ -z "$REMOTE_HEADS" ]; then\n',
+                replace='  if false; then  # mutated: мережу не названо\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.UnknownTest.test_a_missing_branch_is_named",
+        protects="названий випадок «немає гілки» (#1326): гілки, якої на `origin` "
+                 "немає, не можна оглядати, і причина мусить бути названа сама — "
+                 "інакше #1323 повертається тихою половиною (локальна гілка з тим "
+                 "самим ім'ям). Мутація знімає цю перевірку, і причина губиться "
+                 "в загальному «fetch не вдався»",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='  if ! has_remote_head "$BRANCH"; then\n',
+                replace='  if false; then  # mutated: відсутня гілка не названа\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_review_clone.UnknownTest.test_a_failed_worktree_add_leaves_no_half_copy",
+        protects="відкат напівкопії (#1326): невдалий `git worktree add` лишає "
+                 "ЗАРЕЄСТРОВАНИЙ worktree з порожньою текою, і без прибирання "
+                 "наступний виклик падає на «тека вже існує» від власного "
+                 "невдалого прогону. Мутація не прибирає напівкопію — і крок сам "
+                 "собі закриває шлях",
+        edits=(
+            Edit(
+                file="scripts/review-clone.sh",
+                find='  if "$GIT" -C "$REPO" worktree list --porcelain 2>/dev/null | grep -Fxq "worktree $DIR"; then\n',
+                replace='  if false; then  # mutated: напівкопію не прибрано\n',
             ),
         ),
     ),

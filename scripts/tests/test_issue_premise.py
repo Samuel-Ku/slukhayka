@@ -126,18 +126,22 @@ case "$1 $2" in
 esac
 """
 
-# Підставний `gh` для виміру чисел у ПРОЗІ (#1329): три тіла, кожне — на свій
+# Підставний `gh` для виміру чисел у ПРОЗІ (#1329): чотири тіла, кожне — на свій
 # щабель драбини. #1 несе число перед іменником РЕЄСТРУ, #2 — перед звичайним
-# іменником-одиницею, #3 — число ЛИШЕ в бектиках, і воно не мусить рахуватися:
-# бектики — це те, що тікет НАВОДИТЬ, а не твердження про дерево.
+# іменником-одиницею, #3 — число ЛИШЕ в бектиках (не рахується: бектики — це те,
+# що тікет НАВОДИТЬ, а не твердження про дерево), #4 — ГОЛИЙ іменник БЕЗ числа
+# («у тілі немає жодного шляху»): він не сміє давати жодної фігури, і саме на
+# ньому перша версія виміру брехала (список альтернатив без групи ловив
+# «шляху»/«копій» як числа — знахідка огляду).
 PROSE_GH_STUB = """#!/bin/sh
 case "$1 $2" in
-  "issue list") printf '1\\n2\\n3\\n' ;;
+  "issue list") printf '1\\n2\\n3\\n4\\n' ;;
   "issue view")
     case "$3" in
       1) printf 'реєстр має 22 сторожі\\n' ;;
       2) printf 'у дереві 900 шляхів\\n' ;;
       3) printf 'у бектиках `40` — цитата\\n' ;;
+      4) printf 'у тілі немає жодного шляху, і копій теж\\n' ;;
       *) exit 1 ;;
     esac ;;
   *) exit 1 ;;
@@ -1029,6 +1033,44 @@ class GhTest(unittest.TestCase):
                 # мусить виглядати як вердикт.
                 self.assertEqual("", proc.stdout)
 
+    def test_a_gh_that_cannot_read_the_ticket_is_an_unknown_not_a_refusal(self):
+        """Наявний, але помилковий `gh` (403, rate limit) — код 2, не код 1.
+
+        Код 1 у контракті — «ВІДМОВА: премиси немає». `read_body` на проваленому
+        `gh issue view` кидав `SystemExit`, тобто рівно 1: «не зміг прочитати
+        тікет» виглядало як «тікет застарів» (знахідка огляду #1329).
+
+        Ламається РІВНО гілка `issue view` зареєстрованої фікстури `GH_STUB`:
+        окремої програми не заводимо, це та сама програма з іншим виходом.
+        """
+        broken = GH_STUB.replace(
+            '''  "issue view") printf 'читай `docs/voice.md`\\n' ;;''',
+            '''  "issue view") printf 'Bad credentials\\n' >&2; exit 1 ;;''',
+        )
+        self.assertNotEqual(broken, GH_STUB, "фікстура змінилася — правка не діє")
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-ghfail-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        stub = base / "bin"
+        stub.mkdir()
+        gh = stub / "gh"
+        gh.write_text(broken, encoding="utf-8")
+        gh.chmod(0o755)
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+             "--quiet", "--issue", "1329"],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+        self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+        self.assertIn("Bad credentials", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        # І вердикту немає: причина названа, а не видана за «премиси немає».
+        self.assertEqual("", proc.stdout)
+
 
 class ProseNumberMeasureTest(unittest.TestCase):
     """Вимір чисел у ПРОЗІ (#1329) — межа з числом, а не мовчазна діра.
@@ -1038,34 +1080,82 @@ class ProseNumberMeasureTest(unittest.TestCase):
     не лишати підрядок у help.
     """
 
-    def test_the_documented_command_counts_prose_numbers(self):
+    def run_with_gh_stub(self, stub_text: str, *arguments: str):
+        """Прогін механізму на підставленому `gh` і своєму дереві з `origin/main`."""
         base = Path(tempfile.mkdtemp(prefix="issue-premise-prose-"))
         self.addCleanup(shutil.rmtree, base, True)
         repo = build_repo(base, {"AGENTS.md": "# Agent instructions\n"})
         stub = base / "bin"
         stub.mkdir()
         gh = stub / "gh"
-        gh.write_text(PROSE_GH_STUB, encoding="utf-8")
+        gh.write_text(stub_text, encoding="utf-8")
         gh.chmod(0o755)
         environment = {
             "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
             "HOME": str(base),
             "LC_ALL": "C",
         }
-        proc = subprocess.run(
+        return subprocess.run(
             [
                 sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
-                "--measure-prose-numbers", "--scan-limit", "3",
-                "--ref", "origin/main", "--repo", str(repo),
+                *arguments, "--ref", "origin/main", "--repo", str(repo),
             ],
             capture_output=True, text=True, check=False, env=environment,
         )
+
+    def test_a_bare_noun_without_a_number_is_not_a_figure(self):
+        """Сторож СЕМАНТИКИ метрики, а не існування опції (знахідка огляду).
+
+        Перша версія #1329 збирала клас як `\\d{1,4}\\s+` + список альтернатив
+        БЕЗ групи, і `|шлях…` виносило альтернативи на верхній рівень усього
+        регекса: «у тілі немає жодного шляху» — рядок без жодної цифри — давав
+        дві фігури, а вимір на 200 тілах — 172 замість 17. Сторож, який лише
+        ВИКЛИКАЄ команду, цього не бачив: він лишався зелений і на зламаному
+        групуванні. Тут питання поставлено прямо до метрики.
+        """
+        bare = ip.prose_number_tickets("у тілі немає жодного шляху, і копій теж")
+        self.assertEqual(bare, {name: 0 for name, _ in ip.PROSE_NUMBER_CLASSES},
+                         "голий іменник без числа — не фігура: %r" % (bare,))
+        # І навпаки: число перед тим самим іменником — фігура того самого класу.
+        counted = ip.prose_number_tickets("у дереві 900 шляхів")
+        self.assertEqual(counted["число + іменник-одиниця"], 1)
+        self.assertEqual(counted["число + іменник РЕЄСТРУ"], 0)
+
+    def test_the_documented_command_counts_prose_numbers(self):
+        proc = self.run_with_gh_stub(
+            PROSE_GH_STUB, "--measure-prose-numbers", "--scan-limit", "4"
+        )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        # Драбина ціла, і число в бектиках (#3) не рахується: у нього 0 фігур.
+        # Драбина ціла; число в бектиках (#3) і голий іменник без числа (#4) не
+        # рахуються — саме #4 червонить зламане групування (було б 3 тікети).
         self.assertIn("будь-яке число в прозі: 2 тікетів, 2 фігур", proc.stdout)
         self.assertIn("число + іменник-одиниця: 2 тікетів, 2 фігур", proc.stdout)
         self.assertIn("число + іменник РЕЄСТРУ: 1 тікетів, 1 фігур", proc.stdout)
         self.assertIn("«число + іменник РЕЄСТРУ»: #1", proc.stdout)
+
+    def test_an_unread_ticket_is_named_and_not_a_zero(self):
+        """Провалений fetch — не «0 фігур» і не «шляхів немає» (знахідка огляду).
+
+        `gh issue view` віддавав `.stdout` без перевірки коду виходу, тож тікет,
+        якого `gh` не віддав (403, rate limit, обрив), падав у відро «шляхів у
+        бектиках немає» в `--scan` і давав нуль фігур у вимірі — «не прочитав»
+        було не відрізнити від «прочитав, шляхів немає». Тут ламається РІВНО
+        гілка #2 зареєстрованої фікстури `PROSE_GH_STUB`: окремої програми не
+        заводимо, це та сама програма з одним зламаним виходом.
+        """
+        broken = PROSE_GH_STUB.replace(
+            "      2) printf 'у дереві 900 шляхів\\n' ;;", "      2) exit 1 ;;"
+        )
+        self.assertNotEqual(broken, PROSE_GH_STUB, "фікстура змінилася — правка не діє")
+        for arguments in (
+            ("--scan", "4"),
+            ("--measure-prose-numbers", "--scan-limit", "4"),
+        ):
+            with self.subTest(arguments=arguments):
+                proc = self.run_with_gh_stub(broken, *arguments)
+                self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+                # #2 НАЗВАНИЙ, а не розчинений у «шляхів немає» / «0 фігур».
+                self.assertIn("НЕ ПРОЧИТАНО (gh не віддав тіло): 1 — #2", proc.stdout)
 
 
 class MainRefTest(unittest.TestCase):

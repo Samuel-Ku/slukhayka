@@ -92,7 +92,21 @@ GUARD_TESTS = (
     ".test_a_mutation_that_edits_the_guards_own_test_is_refused",
     "test_guard_witnesses.RefusalTest"
     ".test_a_mutation_that_no_longer_applies_is_an_unknown",
+    "test_issue_premise.ExtractionTest"
+    ".test_a_path_with_arguments_in_the_same_span_is_a_candidate",
     "test_issue_premise.ExtractionTest.test_measure_head_exists_because_the_docs_cite_it",
+    "test_issue_premise.GhTest.test_a_missing_gh_is_an_unknown_not_a_stack",
+    "test_issue_premise.GhTest"
+    ".test_a_gh_that_cannot_read_the_ticket_is_an_unknown_not_a_refusal",
+    "test_issue_premise.GitTest.test_a_missing_git_is_an_unknown_not_a_stack",
+    "test_issue_premise.ProseNumberMeasureTest"
+    ".test_a_bare_noun_without_a_number_is_not_a_figure",
+    "test_issue_premise.ProseNumberMeasureTest"
+    ".test_a_bare_registry_noun_without_a_number_is_not_a_figure",
+    "test_issue_premise.ProseNumberMeasureTest"
+    ".test_an_unread_ticket_is_named_and_not_a_zero",
+    "test_issue_premise.ProseNumberMeasureTest"
+    ".test_the_documented_command_counts_prose_numbers",
     "test_issue_premise.BareTreeMeasureTest"
     ".test_the_documented_command_counts_the_same_class_the_verdict_makes_ambiguous",
     "test_issue_premise.TreeEvidenceTest"

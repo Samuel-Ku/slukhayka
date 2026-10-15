@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 70 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 78 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -251,6 +251,139 @@ GUARDS = (
                     "    )\n"
                 ),
                 replace="",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ExtractionTest"
+             ".test_a_path_with_arguments_in_the_same_span_is_a_candidate",
+        protects="шлях з аргументами в тих самих бектиках: до #1329 інтервал із "
+                 "пробілом не ставав кандидатом зовсім, і тікет #1326 діставав "
+                 "«ПРЕМИСА Є» там, де `git cat-file -e` казав «немає»",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find="    return head if _is_path_like(head) else span\n",
+                replace="    return span  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.GhTest.test_a_missing_gh_is_an_unknown_not_a_stack",
+        protects="відсутній `gh`: названа невідомість (код 2) замість "
+                 "`FileNotFoundError` стеком — `new-lane.sh` кличе цей механізм "
+                 "на кожній смузі",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                # Контекст обов'язковий: `if found is None:` є і в `git_executable`,
+                # і `find` мусить траплятися у файлі рівно один раз.
+                find='    found = shutil.which("gh")\n'
+                     "    if found is None:\n",
+                replace='    found = shutil.which("gh")\n'
+                        "    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.GitTest.test_a_missing_git_is_an_unknown_not_a_stack",
+        protects="відсутній `git` — та сама межа, що для `gh`: `FileNotFoundError` "
+                 "давав стек і код 1 («ВІДМОВА»), тоді як це невідомість (код 2). "
+                 "«Назвав відсутній `gh` і не назвав `git`» — два способи робити "
+                 "одне в одному файлі (знахідка доогляду #1329)",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find='    found = shutil.which("git")\n'
+                     "    if found is None:\n",
+                replace='    found = shutil.which("git")\n'
+                        "    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ProseNumberMeasureTest"
+             ".test_the_documented_command_counts_prose_numbers",
+        protects="команду `--measure-prose-numbers`, на яку посилається документ і "
+                 "шапка: вирізана опція мусить червонити сторожа, а не лишати "
+                 "підрядок у `--help`",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find=(
+                    "    source.add_argument(\n"
+                    '        "--measure-prose-numbers",\n'
+                    '        action="store_true",\n'
+                    '        help="скільки тікетів несуть числа в ПРОЗІ тіл — клас, якого вердикт не "\n'
+                    '             "ловить (вимір межі, а не перевірка)",\n'
+                    "    )\n"
+                ),
+                replace="",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ProseNumberMeasureTest"
+             ".test_a_bare_noun_without_a_number_is_not_a_figure",
+        protects="СЕМАНТИКУ метрики: `\\d{1,4}\\s+` мусить мати групу навколо "
+                 "списку альтернатив. Без неї `|шлях…` виносить альтернативи на "
+                 "верхній рівень, і голий іменник без числа стає фігурою — саме "
+                 "так вимір дав 172 замість 17 (знахідка огляду #1329)",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find='    ("число + іменник-одиниця", rf"\\d{{1,4}}\\s+(?:{PROSE_COUNT_NOUN_RE})"),\n',
+                replace='    ("число + іменник-одиниця", rf"\\d{{1,4}}\\s+{PROSE_COUNT_NOUN_RE}"),  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ProseNumberMeasureTest"
+             ".test_a_bare_registry_noun_without_a_number_is_not_a_figure",
+        protects="СУСІДНІЙ рядок драбини: група потрібна й навколо "
+                 "РЕЄСТР-списку. Знята лише там, вона лишала всі 736 тестів "
+                 "зеленими, а метрику вела 4/7 → 121/314 — та сама хибна фігура "
+                 "на один рядок далі (знахідка доогляду #1329)",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find='    ("число + іменник РЕЄСТРУ", rf"\\d{{1,4}}\\s+(?:{PROSE_REGISTRY_NOUN_RE})"),\n',
+                replace='    ("число + іменник РЕЄСТРУ", rf"\\d{{1,4}}\\s+{PROSE_REGISTRY_NOUN_RE}"),  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ProseNumberMeasureTest"
+             ".test_an_unread_ticket_is_named_and_not_a_zero",
+        protects="непрочитане тіло як названу невідомість: без перевірки коду "
+                 "виходу `gh issue view` провал падав у «шляхів немає» / «0 фігур», "
+                 "і «не прочитав» не відрізнялося від «прочитав, шляхів немає» "
+                 "(знахідка огляду #1329)",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find="        if proc.returncode != 0:\n"
+                     "            unread.append(number)\n"
+                     "            continue\n",
+                replace="        if False:  # mutated\n"
+                        "            unread.append(number)\n"
+                        "            continue\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.GhTest"
+             ".test_a_gh_that_cannot_read_the_ticket_is_an_unknown_not_a_refusal",
+        protects="код 2 на проваленому читанні тікета: `SystemExit` давав код 1, "
+                 "а код 1 у контракті — «ВІДМОВА: премиси немає», тож «не зміг "
+                 "прочитати тікет» виглядало як «тікет застарів» (знахідка огляду #1329)",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find='            raise PremiseUnknown(\n'
+                     '                "не вдалося прочитати #%s: %s"\n',
+                replace='            raise SystemExit(\n'
+                        '                "не вдалося прочитати #%s: %s"\n',
             ),
         ),
     ),

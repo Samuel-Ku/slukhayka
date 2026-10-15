@@ -346,7 +346,13 @@ CASES = (
     StandIn(
         name="підставний gh фікстури test_issue_premise",
         where=("scripts/tests/test_issue_premise.py",),
-        programs=(Program("GH_STUB", "issue list"),),
+        programs=(
+            Program("GH_STUB", "issue list"),
+            # Другий `gh` тієї самої фікстури: вимір чисел у ПРОЗІ (#1329) читає
+            # інші тіла, ніж сторож команди `--measure-head`, і зливати їх в одну
+            # програму означало б пінити одне місце двома різними доказами.
+            Program("PROSE_GH_STUB", "issue list"),
+        ),
     ),
     StandIn(
         name="підставний gh фікстури test_ci_job_time",

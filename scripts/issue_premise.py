@@ -17,6 +17,7 @@
     python3 scripts/issue_premise.py --issue 1261                    # уже заведений
     python3 scripts/issue_premise.py --scan 200                      # переміряти шум
     python3 scripts/issue_premise.py --measure-bare-trees            # ціна правила про теку
+    python3 scripts/issue_premise.py --measure-prose-numbers         # ціна межі про прозу
 
 Форма позначки — `NEW:` **усередині** того самого інтервалу в бектиках, перед
 шляхом::
@@ -87,7 +88,12 @@
 `judge`. Вікно рухається, і це видно: на `f81c724f` (2026-10-14) той самий
 `--scan 200` дає 93/87/11/9 — відмови ті самі 9 тікетів і 11 шляхів, а серед
 неоднозначних додався сам #1301 (його тіло наводить `drawable/` і
-`ui/components/`).
+`ui/components/`). Після правки #1329 (шлях з аргументами) той самий `--scan
+200` на `584dda73` (2026-10-15) дає 102/75/15/8: чотири тікети — #1264, #1270,
+#1271, #1276 — перейшли в неоднозначність через `mutate.sh --python`, і це та
+сама пара, що вже виміряні #1249/#1250/#1255 (у дереві три копії `mutate.sh`,
+дві з них — фікстури; ліки ті самі — назви `scripts/mutate.sh`). Відмов не
+побільшало: ті самі 8 тікетів і 10 шляхів.
 
 Межі, названі прямо:
 
@@ -103,6 +109,34 @@
   премиси**, а не перевірки: що автор назвав шляхом, те й перевірено. Саме
   тому тікет без жодного шляху в бектиках — невідомість (код 2), а не зелене
   світло: «нічого не перевірено» не дорівнює «все гаразд».
+* **Шлях з аргументами в тих самих бектиках читається як шлях (#1329).**
+  `` `scripts/review-clone.sh <гілка> [--dir <шлях>]` `` давав кандидата
+  `scripts/review-clone.sh` — а до правки не давав нікого, і тікет #1326
+  діставав «ПРЕМИСА Є», хоч `git cat-file -e
+  origin/main:scripts/review-clone.sh` казав «немає». Межа названа в
+  `_path_token`: аргументи відкидаються, а не інтервал, і читається **рівно
+  перший токен** — та й лише коли він сам проходить `_is_path_like`. Тому
+  `gh issue view <n> --comments` лишається командою, «це шлях до файлу» —
+  прозою, а позначка `NEW:` перед таким шляхом працює як працювала. Ціна,
+  названа там же: проза, що ПОЧИНАЄТЬСЯ з імені файлу, стає кандидатом і на
+  відсутньому шляху дає відмову (на вікні 200 тікетів — жодного такого).
+* **Число, написане ПРОЗОЮ в тілі, не ловить ніщо — і це названа межа, а не
+  тиха діра (#1329).** `--scan` дивиться лише на бектики, а `doc_numbers.py` —
+  лише на корпус (`docs/agents/*.md`, `scripts/**/*.py`), не на issue. Тому
+  `python3 scripts/issue_premise.py --quiet --issue 1315` і сьогодні дає
+  «ПРЕМИСА Є», хоч три числа того тікета застаріли між написанням і смугою.
+  Ціна межі виміряна командою, а не обіцяна: `--measure-prose-numbers` на 200
+  останніх тікетах (`584dda73`, 2026-10-15) дає **чотири** тікети з числом
+  перед іменником РЕЄСТРУ («N сторожів», «N записів») — #814 (інвентар
+  локальних звітів, не дерево), #1312, #1315, #1321; три з чотирьох справді
+  стверджують стан реєстру дерева й **пливуть**. Сусідній щабель — число перед
+  звичайним іменником-одиницею («N шляхів»): **17** тікетів із 200. Вимагати
+  перевірки кожного означало б читати прозу й гадати, що саме число стверджує, —
+  та сама межа, що в `_is_prose_fragment`. Вікно рухається разом зі списком
+  issue, тож число пливе не з ref-ом; ревізію друкує сама команда. Перша версія
+  цього виміру давала тут 172 — і це була **хибна** фігура: список альтернатив
+  без групи ловив голий іменник без числа (див. коментар біля
+  `PROSE_NUMBER_CLASSES`), а сторож метрики того не бачив. Знахідка огляду.
 * Цитата чужого хибного твердження теж дає відмову: ґард не читає контекст і
   не відрізняє «шлях є» від «шляху немає, і це і є проблема». Ліки названі й
   дешеві — прибрати бектики зі згадки-контрприкладу або позначити її `NEW:`.
@@ -223,6 +257,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -413,6 +448,15 @@ def _top_level_entries(ref: str, repo: Path) -> frozenset[str]:
     огляду PR #1268). Це ж і робило тест залежним від чекауту: у CI `origin/main`
     не існує, дерево порожнє, і `docs/agents` читався як проза.
 
+    Межа, названа прямо (знахідка огляду #1329): помилка `git ls-tree` дає тут
+    ПОРОЖНЮ множину — тобто «не прочитав» тут не відрізняється від «верхнього
+    рівня немає». Це не тиха згода: порожня множина робить більше імен прозою
+    (`_is_prose_fragment`), тобто вердикт іде в бік **відмови** або коду 2, а не
+    в бік «премиса є». У вердикті цю межу підпирає `resolve_main_ref`: він
+    питається ПЕРШИМ і на нечитабельному ref-і дає код 2, не доходячи сюди.
+    Виклик цих функцій повз `check_body` (виміри, `_bare_tree_class`) такої
+    підпори не має й на помилці git порахує менше — це названа межа, не повнота.
+
     Кешується на (repo, ref): один процес `git` на прогін.
     """
     key = (repo, ref)
@@ -557,6 +601,40 @@ def _is_path_like(span: str) -> bool:
     return Path(span).suffix.lower() in PATH_EXTENSIONS
 
 
+def _path_token(span: str) -> str:
+    """Шлях, названий інтервалом: сам інтервал або його ПЕРШИЙ токен (#1329).
+
+    Тікет #1326 писав свій центральний шлях як
+    `` `scripts/review-clone.sh <гілка> [--dir <шлях>]` `` — і механізм не бачив
+    його взагалі, бо `_is_path_like` відкидає інтервал із пробілом. Тобто
+    «премиса є» стояло там, де `git cat-file -e origin/main:scripts/review-clone.sh`
+    казав «немає»: хибно зелене, рівно той клас, проти якого механізм існує.
+
+    Тут аргументи відкидаються, а не інтервал: шляхом стає **перший токен**, і
+    лише коли він сам проходить ті самі ворота, що голий інтервал
+    (`_is_path_like`). Не послаблює нічого: `origin/main` питається про
+    `scripts/review-clone.sh` (той самий `git cat-file -e`), `NEW:` працює як
+    працював.
+
+    Обидві межі названі прямо, і обидві вужчі за «проза з пробілом лишається
+    прозою».
+
+    * читається РІВНО перший токен. Інтервал, у якому шлях стоїть не першим
+      (`` `--dir <шлях> scripts/review-clone.sh` ``), шляхом не стає — це вже
+      розбір командного рядка, а не пошук названого шляху;
+    * прозою лишається та проза, чий ПЕРШИЙ токен ворота не проходить («це шлях
+      до файлу»). Проза, що ПОЧИНАЄТЬСЯ з імені файлу (`` `docs/absent.md is the
+      entry point` ``), стає кандидатом і на відсутньому шляху дає ВІДМОВУ. Це
+      ціна форми, названа, а не замовчана: ліки дешеві — прибрати бектики або
+      позначити `NEW:`. На вікні 200 тікетів (`584dda73`) ціна не проявилася:
+      відмови ті самі — 8 тікетів і 10 шляхів (знахідка огляду #1329).
+    """
+    if " " not in span and "\t" not in span:
+        return span
+    head = span.split()[0]
+    return head if _is_path_like(head) else span
+
+
 def _named_paths(body: str) -> list[Candidate]:
     """Кандидати без звернення до `.gitignore` — та перевірка коштує процес."""
     found: list[Candidate] = []
@@ -566,6 +644,7 @@ def _named_paths(body: str) -> list[Candidate]:
         path = span[len(NEW_MARKER):] if marked_new else span
         if _is_command_span(path):
             continue
+        path = _path_token(path)
         if not _is_path_like(path):
             continue
         if path.endswith("/"):
@@ -613,9 +692,13 @@ def git_output(args: list[str], repo: Path = REPO_ROOT) -> tuple[int, str, str]:
     нічого, а тест — залежав би від того, що завантажив раннер. Те саме
     дозволяє тестам підняти **свій** репозиторій у `/tmp` зі своїм `origin/main`
     і перевіряти справжній git, а не підставку.
+
+    Шлях до `git` дає `git_executable`, а не голе ім'я: без `git` тут був би
+    `FileNotFoundError` з трасуванням і код 1 («ВІДМОВА»), тоді як це
+    невідомість (код 2) — та сама межа, що для `gh` (знахідка доогляду #1329).
     """
     proc = subprocess.run(
-        ["git", *args],
+        [git_executable(), *args],
         cwd=str(repo),
         capture_output=True,
         text=True,
@@ -728,6 +811,13 @@ def main_matches_suffix(ref: str, suffix: str, repo: Path = REPO_ROOT) -> list[M
     Тип береться з поля об'єкта, а не вгадується з імені: тека `ci.yml` — теж
     тека, хоч і виглядає файлом. Рядок, якого регулярка не розібрала, не стає
     збігом навмисно (див. `LS_TREE_LINE_RE`).
+
+    Межа, названа прямо (знахідка огляду #1329): помилка `git ls-tree` дає тут
+    ПОРОЖНІЙ список — «не прочитав» не відрізняється від «такого хвоста немає».
+    Для вердикту це не тиха згода, а рух у бік **відмови** (0 збігів → код 1),
+    і підпирає його `resolve_main_ref`, який питається першим. Вимір
+    (`_bare_tree_class`, `tree_entries`) такої підпори не має: на помилці git
+    він порахує менше, і це названа межа, а не повнота.
     """
     code, out, _ = git_output(["ls-tree", "-r", "-t", ref], repo)
     if code != 0:
@@ -1121,17 +1211,106 @@ def format_report(ref: str, code: int, verdicts: list[Verdict]) -> str:
     return "\n".join(lines)
 
 
+class PremiseUnknown(Exception):
+    """Механізм не дістав відповіді від інструмента — невідомість (код 2) (#1329).
+
+    Три випадки, одна межа: `gh` немає на машині (`gh_executable`), `gh` є, але
+    `gh issue view` вийшов із кодом (403, rate limit, обрив), і `git` немає на
+    машині (`git_executable`). Кожен — «не зміг перевірити»: жоден не сміє
+    виглядати ні як «перевірив, усе гаразд», ні як «ВІДМОВА: премиси немає»
+    (код 1), ні як стек.
+
+    У тому самому репозиторії цю межу тримає `ci_job_time.py`
+    (`RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero`): відсутній `gh` —
+    це названа причина, а не «нуль прогонів». Тут те саме, і навантажено це
+    дужче: `new-lane.sh` кличе цей механізм на КОЖНІЙ смузі, тож
+    `FileNotFoundError` з надр `subprocess` зупиняв координатора стеком замість
+    причини. Та сама межа — і для `git`: «назвав відсутній `gh` і не назвав
+    відсутній `git`» лишало б у коді два способи робити одне (знахідка доогляду).
+    """
+
+
+def gh_executable() -> str:
+    """Шлях до `gh`; його відсутність — невідомість, а не стек.
+
+    Той самий спосіб, що в `ci_job_time.gh_executable`, і саме тому він
+    повторений, а не вигаданий: питання ставить `shutil.which`, і відповідь
+    «немає» стає названою причиною до того, як `subprocess` устигне кинути
+    `FileNotFoundError`.
+    """
+    found = shutil.which("gh")
+    if found is None:
+        raise PremiseUnknown(
+            "немає `gh` — тіло issue читається через `gh issue view`, і взяти "
+            "його більше нізвідки"
+        )
+    return found
+
+
+def git_executable() -> str:
+    """Шлях до `git`; його відсутність — невідомість, а не стек (#1329).
+
+    Той самий спосіб, що `gh_executable`, і та сама конвенція, що в
+    `ci_job_time.py` (`shutil.which("git")`). Через `new-lane.sh` ця діра
+    недосяжна — крок сам потребує `git`, — але це не привід лишити її
+    неназваною: без `git` механізм не дістає ні дерева `origin/main`, ні шляхів,
+    і `FileNotFoundError` виглядав би як «ВІДМОВА» (код 1).
+    """
+    found = shutil.which("git")
+    if found is None:
+        raise PremiseUnknown(
+            "немає `git` — без нього ні дерева `origin/main`, ні шляхів узяти "
+            "нізвідки"
+        )
+    return found
+
+
+def issue_bodies(numbers: list[str], executable: str) -> tuple[dict[str, str], list[str]]:
+    """Тіла issue за номерами; провалений fetch — назване «не прочитано», не порожнє тіло.
+
+    Доти результат брався як `.stdout` без перевірки коду виходу, і тікет, якого
+    `gh` не віддав (403, rate limit, обрив), падав у відро «шляхів у бектиках
+    немає» — а у вимірі прози давав нуль фігур. Тобто «не прочитав» було не
+    відрізнити від «прочитав, шляхів немає». Тепер такі номери повертаються
+    окремо (`unread`), виклик їх НАЗИВАЄ і віддає код 2: число, зібране з
+    непрочитаних тіл, — не число (знахідка огляду #1329).
+    """
+    bodies: dict[str, str] = {}
+    unread: list[str] = []
+    for number in numbers:
+        proc = subprocess.run(
+            [executable, "issue", "view", number, "--json", "body", "--jq", ".body"],
+            capture_output=True, text=True, check=False,
+        )
+        if proc.returncode != 0:
+            unread.append(number)
+            continue
+        bodies[number] = proc.stdout
+    return bodies, unread
+
+
+def unread_line(unread: list[str]) -> str:
+    """Непрочитані тікети — номерами, а не «десь не вийшло»."""
+    return "НЕ ПРОЧИТАНО (gh не віддав тіло): %d — %s" % (
+        len(unread), ", ".join("#%s" % number for number in unread)
+    )
+
+
 def read_body(args: argparse.Namespace) -> str:
     if args.issue is not None:
         proc = subprocess.run(
-            ["gh", "issue", "view", str(args.issue), "--json", "body", "--jq", ".body"],
+            [gh_executable(), "issue", "view", str(args.issue), "--json", "body", "--jq", ".body"],
             capture_output=True,
             text=True,
             check=False,
         )
         if proc.returncode != 0:
-            raise SystemExit(
-                f"issue_premise: не вдалося прочитати #{args.issue}: {proc.stderr.strip() or proc.returncode}"
+            # Не `SystemExit`: код 1 у контракті — «ВІДМОВА: премиси немає», і
+            # «не зміг прочитати тікет» не сміє виглядати як «тікет застарів»
+            # (знахідка огляду #1329). Це невідомість → код 2 у `main`.
+            raise PremiseUnknown(
+                "не вдалося прочитати #%s: %s"
+                % (args.issue, proc.stderr.strip() or proc.returncode)
             )
         return proc.stdout
     if args.body_file == "-":
@@ -1164,19 +1343,21 @@ def measure_head(head: str, limit: int, ref: str, repo: Path = REPO_ROOT) -> int
         print(f"issue_premise: ref `{ref}` не читається — міряти нічого", file=sys.stderr)
         return 2
     top_level = _top_level_entries(ref, repo)
+    executable = gh_executable()
     listed = subprocess.run(
-        ["gh", "issue", "list", "--state", "all", "--limit", str(limit), "--json", "number", "--jq", ".[].number"],
+        [executable, "issue", "list", "--state", "all", "--limit", str(limit), "--json", "number", "--jq", ".[].number"],
         capture_output=True, text=True, check=False,
     )
     if listed.returncode != 0:
         print(f"issue_premise: не вдалося перелічити issue: {listed.stderr.strip()}", file=sys.stderr)
         return 2
+    numbers = listed.stdout.split()
+    bodies, unread = issue_bodies(numbers, executable)
     paths, tickets = 0, set()
-    for number in listed.stdout.split():
-        body = subprocess.run(
-            ["gh", "issue", "view", number, "--json", "body", "--jq", ".body"],
-            capture_output=True, text=True, check=False,
-        ).stdout
+    for number in numbers:
+        body = bodies.get(number)
+        if body is None:
+            continue
         for candidate in _named_paths(body):
             if candidate.path.split("/")[0] == head:
                 paths += 1
@@ -1184,6 +1365,9 @@ def measure_head(head: str, limit: int, ref: str, repo: Path = REPO_ROOT) -> int
     print(f"issue_premise: голова `{head}` на {limit} тікетах (ref {ref})")
     print(f"  шляхів у тілах: {paths}, тікетів: {len(tickets)}")
     print(f"  верхня тека `{head}` у дереві: {'є' if head in top_level else 'немає'}")
+    if unread:
+        print(f"  {unread_line(unread)}")
+        return 2
     return 0
 
 
@@ -1250,26 +1434,44 @@ def measure_scan_window(limit: int, ref: str, repo: Path = REPO_ROOT):
         `SCAN_REF` підписує ЗАПИС (на якій ревізії числа міряли), а не вимір, і
         саме тому той самий `--scan 200` на іншій ревізії дає інші числа.
     """
+    # `gh` питається через `gh_executable()`, а не голим `["gh", …]` (#1329):
+    # відсутній `gh` — названа причина, а не `FileNotFoundError` з надр
+    # `subprocess`. Контракт ЦІЄЇ функції (і `scan`, який кличе її живцем) —
+    # `ScanError` («вікно переміряти нічого»), тож названа причина `gh_executable`
+    # перекладається в нього, не губившись: текст той самий, і місце з тим самим
+    # текстом уже має `main()` (код 2). Так обидві межі лишаються однією: без
+    # `gh` — код 2, порожній stdout, без стека.
+    try:
+        executable = gh_executable()
+    except PremiseUnknown as error:
+        raise ScanError(str(error)) from error
     try:
         listed = subprocess.run(
-            ["gh", "issue", "list", "--state", "all", "--limit", str(limit),
+            [executable, "issue", "list", "--state", "all", "--limit", str(limit),
              "--json", "number", "--jq", ".[].number"],
             capture_output=True,
             text=True,
             check=False,
         )
     except FileNotFoundError:
+        # Ловить лише те, що `gh_executable` не міг побачити: зникнення `gh` між
+        # двома кроками. `gh` тут уже розв'язаний шлях, і голий `["gh", …]` не
+        # кличеться — але ця гілка лишається названою, а не стеком.
         raise ScanError("немає `gh` у PATH — вікно переміряти нічого")
     if listed.returncode != 0:
         raise ScanError("не вдалося перелічити issue: %s" % listed.stderr.strip())
 
     numbers = listed.stdout.split()
+    # Тіла читає `issue_bodies` (#1329): вона перевіряє КОД ВИХОДУ й повертає
+    # непрочитані ОКРЕМО, тож «не прочитав» не стає ані «премиса є», ані
+    # «шляхів немає». Живий `scan` називає їх і віддає код 2.
+    bodies, unread = issue_bodies(numbers, executable)
+
     premise, no_paths, ambiguous, refused = 0, 0, {}, {}
     for number in numbers:
-        body = subprocess.run(
-            ["gh", "issue", "view", number, "--json", "body", "--jq", ".body"],
-            capture_output=True, text=True, check=False,
-        ).stdout
+        body = bodies.get(number)
+        if body is None:
+            continue
         code, verdicts = check_body(body, ref, repo)
         bad = [v.candidate.path for v in verdicts if v.code == 1]
         if bad:
@@ -1282,7 +1484,11 @@ def measure_scan_window(limit: int, ref: str, repo: Path = REPO_ROOT):
             ambiguous[number] = [v.candidate.path for v in verdicts if v.code == 2]
 
     counts = (premise, no_paths, len(ambiguous), len(refused))
-    return counts, (numbers, ambiguous, refused)
+    # Непрочитані тіла — теж частина повернення, а не тихий пропуск: вони
+    # випадають з усіх чотирьох класів, тож сума `counts` неповна, і `scan`
+    # мусить мати чим це назвати (код 2). `measured_scan_window` бере лише
+    # `counts` — форма запису не залежить від подробиць.
+    return counts, (numbers, ambiguous, refused, unread)
 
 
 def measured_scan_window(
@@ -1332,7 +1538,10 @@ def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
     твердженням, якому вірять на слово: та сама команда на тому самому
     `origin/main` дає ті самі числа, і друкує ревізію, щоб було видно, про
     який стан ішлося. Від #1328 вона друкує ще й форму запису (`SCAN_WINDOW`) і
-    називає розходження з реєстром — саме цей вивід оновлює реєстр руками.
+    називає розходження з реєстром — саме цей вивід оновлює реєстр руками. Від
+    #1329 непрочитане тіло назване окремо (`НЕ ПРОЧИТАНО`) і дає код 2, і тоді
+    форма запису НЕ друкується: знімок неповного вікна не сміє виглядати як те,
+    що його копіюють у `SCAN_WINDOW`.
     """
     ok, revision = resolve_main_ref(ref, repo)
     if not ok:
@@ -1344,7 +1553,7 @@ def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
         print(f"issue_premise: {error}", file=sys.stderr)
         return 2
     premise, no_paths, ambiguous_count, refused_count = counts
-    numbers, ambiguous, refused = details
+    numbers, ambiguous, refused, unread = details
 
     print(f"issue_premise: шум на {len(numbers)} тікетах, ref {ref} ({revision[:8]})")
     print(f"  ПРЕМИСА Є: {premise}")
@@ -1355,11 +1564,141 @@ def scan(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
     print(f"  ВІДМОВА: {refused_count} тікетів, {sum(len(v) for v in refused.values())} шляхів")
     for number, paths in sorted(refused.items()):
         print(f"    #{number}: {', '.join(paths)}")
+    if unread:
+        # Непрочитане тіло не стає ані «премиса є», ані «шляхів немає»: воно
+        # випадає з усіх відер, і код 2 каже, що число неповне. Форма запису
+        # (`SCAN_WINDOW`) тут НЕ друкується: неповне вікно не можна видавати за
+        # знімок, який оновлюють руками — а саме до цього кличе `scan_drift_note`.
+        print(f"  {unread_line(unread)}")
+        return 2
     record = tuple((key, value) for (key, _), value in zip(SCAN_WINDOW, counts))
     print(f"  реєстр вікна (ref {SCAN_REF}, {SCAN_DATE}) — той самий вимір у формі запису:")
     for key, value in record:
         print(f"  — «{key}»: {value}")
     print("  " + scan_drift_note(dict(SCAN_WINDOW), dict(record), ref, revision))
+    return 0
+
+
+# --------------------------------------------------------------------------
+# Вимір: число, написане ПРОЗОЮ в тілі, — клас, якого вердикт не ловить (#1329)
+# --------------------------------------------------------------------------
+#
+# `--scan` дивиться лише на бектики, а `doc_numbers.py` — лише на корпус
+# (`docs/agents/*.md`, `scripts/**/*.py`), не на issue. Тому «40» у #1315 і
+# сьогодні дає «ПРЕМИСА Є», хоч число застаріло. Це НЕ діра, яку тут закривають:
+# закрити її означало б читати прозу й вирішувати, чи число справді стверджує
+# стан дерева. Це клас, який міряють, щоб межа мала число — і щоб було видно,
+# чи вартий він правки (ціль #1329 прямо дозволяє назвати межу замість правки).
+
+# Іменник, перед яким число в прозі щось стверджує про РЕЄСТР дерева
+# («N сторожів», «N записів»): саме ці числа пливуть, бо реєстр росте.
+# Обидва означення нижче — СПИСКИ альтернатив БЕЗ власної групи, і групу ставить
+# місце вжитку (`PROSE_NUMBER_CLASSES`). Це не косметика: без `(?:…)` перший
+# `|шлях…` виносить альтернативи на верхній рівень УСЬОГО регекса, і клас
+# починає ловити голий іменник без числа — «у тілі немає жодного шляху» давало
+# фігуру. Саме так було в першій версії #1329, і вимір давав 172 замість 17.
+PROSE_REGISTRY_NOUN_RE = (
+    r"сторож(?:ів|і|а)?|запис(?:ів|и|у)?|випадк(?:ів|и|у)?|меж(?:ей|і|у)?"
+    r"|мутац(?:ій|ії|ію)?|двійник(?:ів|и)?"
+)
+# Ширше означення («N шляхів», «N тікетів») — сусідній клас, як
+# `NEIGHBOUR_CLASSES` біля ціни теки: без нього не видно, чи число реєстру
+# рідкісне, чи просто губиться в прозі, де чисел багато.
+PROSE_COUNT_NOUN_RE = PROSE_REGISTRY_NOUN_RE + (
+    r"|шлях(?:ів|и|у)?|тікет(?:ів|и|у)?|файл(?:ів|и|у)?|тест(?:ів|и|у)?"
+    r"|рядк(?:ів|и|у)?|відмов(?:а|и|у)?|коміт(?:ів|и|у)?|джоб(?:а|и|у)?"
+    r"|пункт(?:ів|и)?|копі(?:й|я|ї|й|ю)?"
+)
+# Драбина означень, від найширшого до найвужчого. Число, перед яким стоїть `#`
+# (`#766`), — це посилання на тікет, а не кількість; `(?<![\w#])` відкидає його
+# тим самим правилом, що й цифру всередині слова.
+#
+# `(?:{…})` тут — та сама група, без якої список альтернатив розсипається на
+# верхній рівень регекса (див. коментар до означень). Сторож цієї семантики —
+# `test_issue_premise.ProseNumberMeasureTest.test_a_bare_noun_without_a_number_is_not_a_figure`
+# у реєстрі `guard_witnesses.py`.
+PROSE_NUMBER_CLASSES = (
+    ("будь-яке число в прозі", r"\d{1,4}"),
+    ("число + іменник-одиниця", rf"\d{{1,4}}\s+(?:{PROSE_COUNT_NOUN_RE})"),
+    ("число + іменник РЕЄСТРУ", rf"\d{{1,4}}\s+(?:{PROSE_REGISTRY_NOUN_RE})"),
+)
+FENCED_BLOCK_RE = re.compile(r"```.*?```", re.S)
+CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+
+
+def prose_only(body: str) -> str:
+    """Тіло без цитат: блоки ``` і бектики прибрано.
+
+    Число в бектиках — це те, що тікет НАВОДИТЬ (команда, шлях, уривок зі
+    старої шапки), а не твердження про стан дерева. Той самий поділ, що в
+    `doc_numbers.py`: механізм читає прозу, не цитати.
+    """
+    return CODE_SPAN_RE.sub(" ", FENCED_BLOCK_RE.sub(" ", body))
+
+
+def prose_number_tickets(body: str) -> dict[str, int]:
+    """Скільки фігур кожного класу драбини є в ПРОЗІ одного тіла."""
+    text = prose_only(body)
+    return {
+        name: len(re.findall(rf"(?<![\w#]){pattern}(?![\w])", text))
+        for name, pattern in PROSE_NUMBER_CLASSES
+    }
+
+
+def measure_prose_numbers(limit: int, ref: str, repo: Path = REPO_ROOT) -> int:
+    """Скільки тікетів несуть числа в ПРОЗІ — клас, якого вердикт не бачить (#1329).
+
+        python3 scripts/issue_premise.py --measure-prose-numbers
+
+    Це ОЦІНКА ОБСЯГУ, а не вердикт: жодного шляху тут не судять, і жодного
+    числа не перевіряють. Драбина означень друкується вся, бо різниця між її
+    щаблями і є відповіддю на питання «чи варта ця межа правки»: число перед
+    іменником РЕЄСТРУ пливе разом із реєстром, а звичайне число в прозі — ні.
+
+    Вікно — той самий список issue, що в `--scan`, тож число пливе разом із
+    ним; `ref` тут лише називає дерево, про яке звітують (самі числа — про
+    тіла, не про дерево), і його ревізія друкується, щоб було видно стан.
+
+    Без `gh` — та сама названа невідомість (код 2), що в решті режимів.
+    """
+    ok, revision = resolve_main_ref(ref, repo)
+    if not ok:
+        print(f"issue_premise: ref `{ref}` не читається — міряти нічого", file=sys.stderr)
+        return 2
+    executable = gh_executable()
+    listed = subprocess.run(
+        [executable, "issue", "list", "--state", "all", "--limit", str(limit),
+         "--json", "number", "--jq", ".[].number"],
+        capture_output=True, text=True, check=False,
+    )
+    if listed.returncode != 0:
+        print(f"issue_premise: не вдалося перелічити issue: {listed.stderr.strip()}", file=sys.stderr)
+        return 2
+    numbers = listed.stdout.split()
+    bodies, unread = issue_bodies(numbers, executable)
+    tickets: dict[str, list[str]] = {name: [] for name, _ in PROSE_NUMBER_CLASSES}
+    figures: dict[str, int] = {name: 0 for name, _ in PROSE_NUMBER_CLASSES}
+    for number in numbers:
+        body = bodies.get(number)
+        if body is None:
+            continue
+        for name, count in prose_number_tickets(body).items():
+            if count:
+                tickets[name].append(number)
+                figures[name] += count
+    print(f"issue_premise: числа в ПРОЗІ тіл на {len(numbers)} тікетах, ref {ref} ({revision[:8]})")
+    for name, _ in PROSE_NUMBER_CLASSES:
+        print(f"  {name}: {len(tickets[name])} тікетів, {figures[name]} фігур")
+    narrow = PROSE_NUMBER_CLASSES[-1][0]
+    print(
+        f"  тікети класу «{narrow}»: "
+        + (", ".join(f"#{number}" for number in sorted(tickets[narrow], key=int)) or "немає")
+    )
+    if unread:
+        # Непрочитане тіло — не «нуль фігур»: воно випадає з драбини, і код 2
+        # каже, що числа неповні.
+        print(f"  {unread_line(unread)}")
+        return 2
     return 0
 
 
@@ -1388,6 +1727,12 @@ def main(argv: list[str] | None = None) -> int:
         help="скільки імен платять за правило про теку: односегментне ім'я без "
              "розширення, не кореневе, чия єдина коротка форма — дерево",
     )
+    source.add_argument(
+        "--measure-prose-numbers",
+        action="store_true",
+        help="скільки тікетів несуть числа в ПРОЗІ тіл — клас, якого вердикт не "
+             "ловить (вимір межі, а не перевірка)",
+    )
     # Help цієї опції НЕ називає `--measure-head`, і це не косметика: сама лише
     # згадка робила сторожа «команда з документа існує» фальшивим — вирізавши
     # блок `source.add_argument("--measure-head", …)`, той сторож лишався
@@ -1410,22 +1755,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", action="store_true", help="друкувати лише підсумок і відмови")
     args = parser.parse_args(argv)
 
-    if args.measure_head is not None:
-        return measure_head(args.measure_head, args.scan_limit, args.ref, args.repo)
-    if args.measure_bare_trees:
-        return measure_bare_trees(args.ref, args.repo)
-    if args.scan is not None:
-        return scan(args.scan, args.ref, args.repo)
-
-    body = read_body(args)
-    code, verdicts = check_body(body, args.ref, args.repo)
-    if args.quiet:
-        for verdict in verdicts:
-            if verdict.code != 0:
-                print(f"[{verdict.code}] {verdict.display()} — {verdict.detail}")
-        print(f"issue_premise: {OUTCOME[code]} (ref {args.ref})")
-    else:
-        print(format_report(args.ref, code, verdicts))
+    # `gh` і `git` питаються тут, а не в надрах `subprocess`: без них вердикту
+    # немає взагалі, і це мусить бути названа невідомість (код 2), а не
+    # `FileNotFoundError` з трасуванням (#1329). Той самий спосіб, що в
+    # `ci_job_time.py`, — тут він навантажений дужче: `new-lane.sh` кличе цей
+    # механізм на кожній смузі. `check_body` теж усередині: `--body-file` і
+    # `--issue` доходять до `git` саме там (`resolve_main_ref`), і без цього
+    # відсутній `git` лишався б стеком на найзвичайнішому шляху.
+    try:
+        if args.measure_head is not None:
+            return measure_head(args.measure_head, args.scan_limit, args.ref, args.repo)
+        if args.measure_bare_trees:
+            return measure_bare_trees(args.ref, args.repo)
+        if args.measure_prose_numbers:
+            return measure_prose_numbers(args.scan_limit, args.ref, args.repo)
+        if args.scan is not None:
+            return scan(args.scan, args.ref, args.repo)
+        body = read_body(args)
+        code, verdicts = check_body(body, args.ref, args.repo)
+        if args.quiet:
+            for verdict in verdicts:
+                if verdict.code != 0:
+                    print(f"[{verdict.code}] {verdict.display()} — {verdict.detail}")
+            print(f"issue_premise: {OUTCOME[code]} (ref {args.ref})")
+        else:
+            print(format_report(args.ref, code, verdicts))
+    except PremiseUnknown as error:
+        print(f"НЕВІДОМО: {error}", file=sys.stderr)
+        return 2
     return code
 
 

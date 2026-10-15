@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 68 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 71 запис, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -248,6 +248,54 @@ GUARDS = (
                     '        metavar="HEAD",\n'
                     '        help="скільки шляхів у тілах тікетів мають таку голову '
                     '(вимір для BRANCH_HEADS)",\n'
+                    "    )\n"
+                ),
+                replace="",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ExtractionTest"
+             ".test_a_path_with_arguments_in_the_same_span_is_a_candidate",
+        protects="шлях з аргументами в тих самих бектиках: до #1329 інтервал із "
+                 "пробілом не ставав кандидатом зовсім, і тікет #1326 діставав "
+                 "«ПРЕМИСА Є» там, де `git cat-file -e` казав «немає»",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find="    return head if _is_path_like(head) else span\n",
+                replace="    return span  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.GhTest.test_a_missing_gh_is_an_unknown_not_a_stack",
+        protects="відсутній `gh`: названа невідомість (код 2) замість "
+                 "`FileNotFoundError` стеком — `new-lane.sh` кличе цей механізм "
+                 "на кожній смузі",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find="    if found is None:\n",
+                replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_issue_premise.ProseNumberMeasureTest"
+             ".test_the_documented_command_counts_prose_numbers",
+        protects="команду `--measure-prose-numbers`, на яку посилається документ і "
+                 "шапка: вирізана опція мусить червонити сторожа, а не лишати "
+                 "підрядок у `--help`",
+        edits=(
+            Edit(
+                file="scripts/issue_premise.py",
+                find=(
+                    "    source.add_argument(\n"
+                    '        "--measure-prose-numbers",\n'
+                    '        action="store_true",\n'
+                    '        help="скільки тікетів несуть числа в ПРОЗІ тіл — клас, якого вердикт не "\n'
+                    '             "ловить (вимір межі, а не перевірка)",\n'
                     "    )\n"
                 ),
                 replace="",

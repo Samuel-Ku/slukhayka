@@ -126,6 +126,24 @@ case "$1 $2" in
 esac
 """
 
+# Підставний `gh` для виміру чисел у ПРОЗІ (#1329): три тіла, кожне — на свій
+# щабель драбини. #1 несе число перед іменником РЕЄСТРУ, #2 — перед звичайним
+# іменником-одиницею, #3 — число ЛИШЕ в бектиках, і воно не мусить рахуватися:
+# бектики — це те, що тікет НАВОДИТЬ, а не твердження про дерево.
+PROSE_GH_STUB = """#!/bin/sh
+case "$1 $2" in
+  "issue list") printf '1\\n2\\n3\\n' ;;
+  "issue view")
+    case "$3" in
+      1) printf 'реєстр має 22 сторожі\\n' ;;
+      2) printf 'у дереві 900 шляхів\\n' ;;
+      3) printf 'у бектиках `40` — цитата\\n' ;;
+      *) exit 1 ;;
+    esac ;;
+  *) exit 1 ;;
+esac
+"""
+
 
 class FakeTree:
     """Дерево `origin/main` як множина шляхів — із ТИПОМ запису (#1281).
@@ -375,6 +393,7 @@ class ExtractionTest(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, bodies.get(number, ""), "")
 
         with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "0" * 40)), \
+                mock.patch.object(ip, "gh_executable", lambda: "gh"), \
                 mock.patch.object(ip, "_top_level_entries", lambda ref, repo: frozenset({"app"})), \
                 mock.patch.object(ip.subprocess, "run", fake_run):
             printed = io.StringIO()
@@ -491,6 +510,36 @@ class ExtractionTest(unittest.TestCase):
         # Позначка поза інтервалом не діє: вона мусить бути невідривною від шляху.
         found = ip.candidates("NEW: `docs/agents/premise.md` з'явиться")
         self.assertEqual([(c.path, c.marked_new) for c in found], [("docs/agents/premise.md", False)])
+
+    def test_a_path_with_arguments_in_the_same_span_is_a_candidate(self):
+        """Сторож #1329: шлях з аргументами судиться як шлях, а не зникає.
+
+        Тікет #1326 писав свій центральний шлях як
+        `scripts/review-clone.sh <гілка> [--dir <шлях>]`, і механізм не бачив
+        його взагалі: `_is_path_like` відкидає інтервал із пробілом. Через це
+        «ПРЕМИСА Є» стояло там, де `git cat-file -e
+        origin/main:scripts/review-clone.sh` казав «немає» — хибно зелене на
+        справжньому тікеті. Ворота при цьому не слабшають: команда лишається
+        командою, проза з пробілом — прозою, `NEW:` працює як працював.
+        """
+        found = ip.candidates("`scripts/review-clone.sh <гілка> [--dir <шлях>]`")
+        self.assertEqual([c.path for c in found], ["scripts/review-clone.sh"])
+        self.assertEqual(ip.candidates("`gh issue view <n> --comments`"), [])
+        self.assertEqual(ip.candidates("`python3 scripts/x.py --flag`"), [])
+        self.assertEqual(ip.candidates("`це шлях до файлу`"), [])
+        marked = ip.candidates("`NEW:scripts/x.sh <arg>`")
+        self.assertEqual([(c.path, c.marked_new) for c in marked], [("scripts/x.sh", True)])
+        # І сам вердикт: неіснуючий шлях з аргументами — ВІДМОВА, а не зелене.
+        code, verdicts, _ = judge_body(
+            "центральний шлях — `scripts/review-clone.sh <гілка> [--dir <шлях>]`, "
+            "поруч наявний `AGENTS.md`",
+            {"AGENTS.md"},
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            [(v.candidate.path, v.code) for v in verdicts],
+            [("scripts/review-clone.sh", 1), ("AGENTS.md", 0)],
+        )
 
 
 class JudgeTest(unittest.TestCase):
@@ -914,6 +963,109 @@ class RealIssueTest(unittest.TestCase):
         passed, _, _ = judge_body(VALID_PREMISE_BODY, tree)
         self.assertEqual(refused, 1)
         self.assertEqual(passed, 0)
+
+
+class GhTest(unittest.TestCase):
+    """`gh` немає — названа невідомість (код 2), а не стек (#1329).
+
+    Той самий клас, що `ci_job_time.RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero`.
+    Тут він навантажений дужче: `new-lane.sh` кличе цей механізм на КОЖНІЙ смузі,
+    тож `FileNotFoundError` з надр `subprocess` зупиняв координатора стеком
+    замість причини.
+    """
+
+    def run_without_gh(self, *arguments: str):
+        """Прогін механізму там, де `gh` у `PATH` немає зовсім.
+
+        `git` при цьому лишається — символічним посиланням, а не спадком
+        `PATH`: `--scan` питає дерево ПЕРШИМ, і порожній `PATH` зламав би
+        `git_output` раніше за питання про `gh` — тобто сторож міряв би не ту
+        діру. Так само зроблено в `test_ci_job_time` (порожня тека замість
+        спадку), але там `gh` питається першим, і `git` не потрібен.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-nogh-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        empty = base / "bin"
+        empty.mkdir()
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("немає `git` — до питання про `gh` не дійти")
+        (empty / "git").symlink_to(git)
+        environment = {"PATH": str(empty), "HOME": str(base), "LC_ALL": "C"}
+        return subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"), *arguments],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+
+    def test_a_missing_gh_is_an_unknown_not_a_stack(self):
+        """Сторож #1329: без `gh` — код 2 із названою причиною, не трасування.
+
+        Перевіряються всі три режими, які питають `gh`: `--issue`, `--scan` і
+        вимір. Причина спільна — `gh_executable`, — але шляхи до неї різні, і
+        саме `--scan`/вимір питають дерево ПЕРШИМ: якби вони зверталися до `gh`
+        повз `gh_executable`, сторож бачив би лише `--issue`.
+
+        `--ref HEAD` і свій `--repo` — не декор: у CI чекаут не має
+        `origin/main` (раннер фетчить merge-ref), і без них `--scan` спинився б
+        на недійсному ref-і, а не на відсутньому `gh` — тобто сторож міряв би
+        не ту діру.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-nogh-repo-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(base, {"AGENTS.md": "# Agent instructions\n"})
+        for mode in (
+            ["--quiet", "--issue", "1329"],
+            ["--scan", "3", "--ref", "HEAD", "--repo", str(repo)],
+            ["--measure-prose-numbers", "--scan-limit", "3",
+             "--ref", "HEAD", "--repo", str(repo)],
+        ):
+            with self.subTest(mode=mode):
+                proc = self.run_without_gh(*mode)
+                self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+                self.assertIn("немає `gh`", proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                # Порожній stdout — не косметика: `new-lane.sh` читає саме його
+                # як «вердикту немає» і НЕ створює смуги. Названа причина не
+                # мусить виглядати як вердикт.
+                self.assertEqual("", proc.stdout)
+
+
+class ProseNumberMeasureTest(unittest.TestCase):
+    """Вимір чисел у ПРОЗІ (#1329) — межа з числом, а не мовчазна діра.
+
+    Сторож ВИКЛИКАЄ команду з документа, а не читає `--help` (той самий
+    прийом, що для `--measure-head`): вирізана опція мусить червонити сторожа, а
+    не лишати підрядок у help.
+    """
+
+    def test_the_documented_command_counts_prose_numbers(self):
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-prose-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(base, {"AGENTS.md": "# Agent instructions\n"})
+        stub = base / "bin"
+        stub.mkdir()
+        gh = stub / "gh"
+        gh.write_text(PROSE_GH_STUB, encoding="utf-8")
+        gh.chmod(0o755)
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--measure-prose-numbers", "--scan-limit", "3",
+                "--ref", "origin/main", "--repo", str(repo),
+            ],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # Драбина ціла, і число в бектиках (#3) не рахується: у нього 0 фігур.
+        self.assertIn("будь-яке число в прозі: 2 тікетів, 2 фігур", proc.stdout)
+        self.assertIn("число + іменник-одиниця: 2 тікетів, 2 фігур", proc.stdout)
+        self.assertIn("число + іменник РЕЄСТРУ: 1 тікетів, 1 фігур", proc.stdout)
+        self.assertIn("«число + іменник РЕЄСТРУ»: #1", proc.stdout)
 
 
 class MainRefTest(unittest.TestCase):

@@ -775,7 +775,10 @@ share a copy — that is how `commit --amend` and `reset --hard` once wiped
 another lane's edits), creates the copy from the **fresh `origin/main`** rather
 than the current HEAD, and prints the briefing facts as the output of commands
 instead of recollection: the branch, the base `sha`, the guard registry's
-`--count`, the job limit, and the commands the lane runs itself.
+`--count`, the job limit, the ticket's premise against `origin/main` (through
+`issue_premise.py --issue` — a stale ticket is **named** there and the lane is
+still created, while an unreadable ticket is exit 2 and no copy is made), and
+the commands the lane runs itself.
 `scripts/new-lane.sh --release <issue>` removes the lane's copy once it has
 nothing to lose — it refuses when the copy has uncommitted changes or a rebase
 in flight, and it never deletes the branch; `merge-pr.sh` names this command

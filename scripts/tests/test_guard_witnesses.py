@@ -112,6 +112,8 @@ GUARD_TESTS = (
     "test_new_lane.ReleaseTest"
     ".test_release_refuses_a_non_empty_unregistered_directory",
     "test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
+    "test_new_lane.PremiseTest.test_a_stale_ticket_is_named_and_the_lane_is_still_created",
+    "test_new_lane.PremiseTest.test_an_unreadable_ticket_is_an_unknown_and_no_copy_is_made",
     "test_suite_time.DecompositionTest"
     ".test_the_module_with_the_slow_setup_is_the_top_consumer",
     "test_test_wrappers.FullSuiteWrapperTest"

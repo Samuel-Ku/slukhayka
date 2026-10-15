@@ -5,7 +5,7 @@
 прийом, що підставний `adb` у `test_wide_window.py`) віддає фікстуру
 `workflow_runs` і `jobs`, тож міряється САМЕ ЧИТАННЯ двох полів API, а не те, що
 GitHub сьогодні відповідає. Справжнє дерево перевіряється лише там, де воно й
-потрібне: ліміт мусить бути 300 с із `ci.yml`, а кожен зарахований рядок у
+потрібне: ліміт мусить бути 480 с із `ci.yml`, а кожен зарахований рядок у
 документах — виводитися.
 
 Що тут піниться:
@@ -24,7 +24,7 @@ GitHub сьогодні відповідає. Справжнє дерево пе
     жоден прогін вікна не будував це дерево;
   * `ClaimTest` — числа в документах: ліміт приймається, локальне число — лише
     ПОЗНАЧЕНЕ разом із навантаженням машини, а заморожене число джоби — знахідка;
-  * `RepositoryTest` — справжнє дерево: ліміт 300 с, і жодного числа, яке не
+  * `RepositoryTest` — справжнє дерево: ліміт 480 с, і жодного числа, яке не
     виводиться.
 
 Зарахований у `scripts/guard_witnesses.py` — один сторож на кожну половину
@@ -69,7 +69,7 @@ EXPECTED_CLAIMS = (
 )
 EXPECTED_WINDOW = 5
 EXPECTED_RATIO = 2
-EXPECTED_LIMIT = 300
+EXPECTED_LIMIT = 480
 EXPECTED_COMMAND = ("python3", "-m", "unittest", "discover", "-s", "scripts/tests",
                     "-p", "test_*.py")
 
@@ -294,7 +294,7 @@ class LimitTest(Fixture):
     """Ліміт виводиться з `ci.yml`: підставлений ліміт рухає число."""
 
     def test_the_real_tree_reads_the_limit_the_name_and_the_command(self):
-        """Справжнє дерево: 300 с — це `timeout-minutes: 5`, прочитані з `ci.yml`."""
+        """Справжнє дерево: 480 с — це `timeout-minutes: 8`, прочитані з `ci.yml`."""
         self.assertEqual(EXPECTED_LIMIT, c.limit_seconds(REPO_ROOT))
         self.assertEqual("Script unit tests", c.job_name(REPO_ROOT))
         self.assertEqual(EXPECTED_COMMAND, c.local_command(REPO_ROOT))
@@ -740,7 +740,7 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(0, code, err)
         self.assertIn("script-tests", out)
         self.assertIn("останні %d завершених прогонів" % EXPECTED_WINDOW, out)
-        self.assertIn("300 с", out)
+        self.assertIn("480 с", out)
         for _, anchor in EXPECTED_CLAIMS:
             self.assertIn(anchor, out)
 

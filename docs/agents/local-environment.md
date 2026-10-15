@@ -799,7 +799,7 @@ workflow file — both jobs say so in `ci.yml`.
 
 ### The job's time is measured where its limit applies
 
-`script-tests` **is capped by** `timeout-minutes: 5` — **300 s**, and that number is
+`script-tests` **is capped by** `timeout-minutes: 8` — **480 s**, and that number is
 read out of `ci.yml` rather than copied into prose: `python3
 scripts/ci_job_time.py --check-docs` refuses any seconds figure the docs claim
 about this job that is neither that limit nor a *labelled* local measurement.

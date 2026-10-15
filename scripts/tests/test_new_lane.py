@@ -226,6 +226,27 @@ class RefusalTest(LaneTest):
             "гілка невдалого прогону не сміє лишитися",
         )
 
+    def test_a_base_that_answers_nothing_is_an_unknown(self):
+        """Порожній рядок — теж невідомість, а не «нуль сторожів».
+
+        База, яка на `--count` виходить нулем і не друкує НІЧОГО, мусить
+        відмовити (код 2): інакше бриф отримав би порожнє число — те саме хибне
+        число, тільки без цифри.
+        """
+        (self.repo / "scripts" / "guard_witnesses.py").write_text(
+            'import sys\n\nif "--count" in sys.argv:\n    sys.exit(0)\nprint(0)\n',
+            encoding="utf-8",
+        )
+        self.git("add", "-A")
+        self.commit("база, яка мовчить на --count")
+        self.git("push", "-q", "origin", "main")
+
+        result = self.create_lane(expect=2)
+
+        self.assertIn("не число", result.stderr)
+        self.assertFalse(self.lane_path().exists())
+        self.assertFalse(self.claim_path().exists())
+
     def test_the_owner_is_never_invented(self):
         result = self.create_lane(expect=2, env={"NEW_LANE_OWNER": "", "DSH_SESSION_ID": ""})
 

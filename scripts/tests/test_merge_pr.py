@@ -938,6 +938,9 @@ class MergePrTest(unittest.TestCase):
         )
         self.assertNotIn("--delete-branch", "\n".join(self.invocations()))
         self.assertIn("злито squash-ом", result.stdout)
+        # Копію смуги гейт не прибирає — і називає КОМАНДУ, якою це робить
+        # координатор (#1321): мовчазне «злито» лишало б смугу назавжди.
+        self.assertIn("scripts/new-lane.sh --release 1205", result.stdout)
 
     def test_dry_run_reports_the_merge_without_running_it(self):
         result = self.gate("--dry-run")

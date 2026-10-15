@@ -767,10 +767,24 @@ python3 scripts/agent-work-claim.py acquire <issue> --owner <chat-id> \
     --reservation <name> --plan <path>
 ```
 
-The registry is `<git-common-dir>/agent-work-claims/<issue>.json`, shared by
-every chat on this machine. Deleting a claim's file releases it — do that once
-the ticket is closed. Publish the reservation as an issue comment before
-coding; `docs/agents/work-coordination.md` owns the protocol.
+One command does the whole lane dispatch, and it is the one to use:
+`scripts/new-lane.sh <issue> <slug>`. It fetches `origin/main`, reserves the
+ticket through the claim script above (a busy ticket is exit 2 and **no copy is
+created**), refuses when `.worktrees/w<issue>` already exists (two lanes never
+share a copy — that is how `commit --amend` and `reset --hard` once wiped
+another lane's edits), creates the copy from the **fresh `origin/main`** rather
+than the current HEAD, and prints the briefing facts as the output of commands
+instead of recollection: the branch, the base `sha`, the guard registry's
+`--count`, the job limit, and the commands the lane runs itself.
+`scripts/new-lane.sh --release <issue>` removes the lane's copy once it has
+nothing to lose — it refuses when the copy has uncommitted changes or a rebase
+in flight, and it never deletes the branch; `merge-pr.sh` names this command
+after a merge instead of removing a possibly-foreign worktree itself. The
+registry is `<git-common-dir>/agent-work-claims/<issue>.json`, shared by every
+chat on this machine; the reservation is never dropped automatically — deleting
+the claim's file releases it, and that is done once the ticket is closed.
+Publish the reservation as an issue comment before coding;
+`docs/agents/work-coordination.md` owns the protocol.
 
 ## The migration slot
 

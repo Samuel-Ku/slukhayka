@@ -77,6 +77,8 @@ GUARD_TESTS = (
     ".test_a_named_run_that_is_skipped_is_not_green",
     "test_fixture_environments.EnvironmentTest"
     ".test_the_guard_sees_only_the_runs_it_is_named",
+    "test_guard_witnesses.CountTest"
+    ".test_the_count_is_the_registry_and_not_the_number_of_output_lines",
     "test_guard_witnesses.FindingTest"
     ".test_a_guard_that_stays_green_under_its_mutation_is_a_finding",
     "test_guard_witnesses.RefusalTest"
@@ -97,6 +99,9 @@ GUARD_TESTS = (
     "test_named_boundaries.SectionTest.test_a_record_without_a_mutation_is_refused",
     "test_mutate.MutationRunTest"
     ".test_a_refused_run_still_reaps_the_scratch_a_sigkill_left",
+    "test_new_lane.RefusalTest"
+    ".test_a_second_lane_in_the_same_copy_is_refused",
+    "test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
     "test_suite_time.DecompositionTest"
     ".test_the_module_with_the_slow_setup_is_the_top_consumer",
     "test_test_wrappers.FullSuiteWrapperTest"
@@ -410,6 +415,43 @@ class RefusalTest(FixtureBase):
         self.assertEqual(EXPECTED_GUARDS,
                          len([line for line in listed.stdout.splitlines()
                               if line.startswith("test_")]))
+
+
+class CountTest(unittest.TestCase):
+    """`--count` — одне число для цитати, а не кількість рядків виводу (#1321).
+
+    Саме тут двічі народилося хибне число в брифи: `--list` друкує два рядки на
+    запис, і `wc -l` дає вдвічі більше за реєстр. Тому число мусить виводитися
+    РЕЄСТРОМ, а не рахуватися очима з виводу.
+    """
+
+    def test_the_count_is_the_registry_and_not_the_number_of_output_lines(self):
+        counted = subprocess.run(
+            [sys.executable, str(MECHANISM), "--count"],
+            check=False, capture_output=True, text=True,
+        )
+        listed = subprocess.run(
+            [sys.executable, str(MECHANISM), "--list"],
+            check=False, capture_output=True, text=True,
+        )
+
+        self.assertEqual(0, counted.returncode, counted.stderr)
+        self.assertEqual(1, len(counted.stdout.splitlines()),
+                         "число мусить бути ОДНИМ рядком, придатним для цитати")
+        self.assertEqual(str(EXPECTED_GUARDS), counted.stdout.strip())
+        # Друга половина твердження: це не довжина виводу `--list`.
+        self.assertNotEqual(counted.stdout.strip(),
+                            str(len(listed.stdout.splitlines())))
+
+    def test_a_narrowed_count_is_the_number_of_the_named_entries(self):
+        """`--count` міряє те саме, що `--list` назвав би, — тож `--guard` звужує."""
+        counted = subprocess.run(
+            [sys.executable, str(MECHANISM), "--count", "--guard", GUARD_TESTS[0]],
+            check=False, capture_output=True, text=True,
+        )
+
+        self.assertEqual(0, counted.returncode, counted.stderr)
+        self.assertEqual("1", counted.stdout.strip())
 
 
 class RegistryTest(unittest.TestCase):

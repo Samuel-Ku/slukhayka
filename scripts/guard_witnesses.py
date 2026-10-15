@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 50 записів (множина
+Ціна реєстру, і саме тому він не стає галасливим: разом 53 записи (множина
 навмисна — число міряє `doc_numbers`, а його таблиця не має однини: «один запис»
 це вказівний зворот, а не кількість), і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Записи йдуть
@@ -84,6 +84,12 @@
 видно, а не вгадується. Запис без мутації не заводиться — `GUARDS` і є переліком
 того, що гейт перевіряє; старі сторожа без запису не отримують ні тихої згоди,
 ні червоного — механізм просто каже, скількох покриває.
+
+Скільки їх саме, питають КОМАНДОЮ, а не очима: `--count` друкує одне число одним
+рядком, придатним для цитати в брифі. Це не прикраса: `--list` на запис друкує
+ДВА рядки, і саме `wc -l` від нього дав хибне число в тілі коміта (98 замість 49)
+і в брифі (40 замість 39) — тому число виводить РЕЄСТР, а не рядки виводу
+(`test_guard_witnesses.CountTest` пінить обидві половини цього твердження).
 """
 
 from __future__ import annotations
@@ -1084,6 +1090,47 @@ GUARDS = (
                 replace="            if True:  # mutated: невідомість падає трейсбеком\n"
                         "                warm = first_phase_baselines(report.sites, witnesses)\n"
                         "            elif False:\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RefusalTest.test_a_second_lane_in_the_same_copy_is_refused",
+        protects="відмову створити другу смугу в тій самій копії (#1321): без неї "
+                 "дві смуги сідають в одну теку, і `commit --amend`, `reset --hard` "
+                 "та стерті правки стають питанням часу",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='if [ -e "$LANE" ] || worktree_registered "$LANE"; then\n',
+                replace="# mutated: перевірки копії немає\nif false; then\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_guard_witnesses.CountTest"
+             ".test_the_count_is_the_registry_and_not_the_number_of_output_lines",
+        protects="число реєстру одним рядком (#1321): `--count` мусить міряти "
+                 "РЕЄСТР, а не рядки виводу `--list` — саме на цьому вже двічі "
+                 "народилося хибне число в брифи",
+        edits=(
+            Edit(
+                file="scripts/guard_witnesses.py",
+                find="        print(len(entries))\n        return 0\n\n    if arguments.list:\n",
+                replace="        print(2 * len(entries))  # mutated: рядки --list, а не записи\n"
+                        "        return 0\n\n    if arguments.list:\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
+        protects="безпеку `--release` (#1321): копія з незакоміченими змінами не "
+                 "прибирається. Прибирання без цієї відмови стирає чужі правки — "
+                 "той самий клас, що дві смуги в одній теці",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -n "$DIRTY" ]; then\n',
+                replace='    if false; then  # mutated: брудну копію прибираємо\n',
             ),
         ),
     ),

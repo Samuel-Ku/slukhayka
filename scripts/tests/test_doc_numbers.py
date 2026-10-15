@@ -18,11 +18,17 @@
   * `RefusalTest` — невідомість коштує відмову (код 2): зник якір, якір не
     один, рядок більше не несе числа, ключа немає в серії, файлу немає;
   * `BoundaryTest` — межа названа МАШИННО: число у формі, якої немає в
-    `NOUNS` (одиниці, секунди), число у файлі, якого немає в `SCANNED`, число в
-    код-спані (цитата, не твердження) і кількість в однині («один запис» —
-    вказівний зворот, не число) механізм НЕ ловить, і тест це стверджує. Це не
-    діра, яку тут замовчують, а названа межа — «число, яке щось стверджує про
-    дерево» відрізняє оглядач, не regex.
+    `NOUNS` (одиниці, секунди), число у файлі, якого немає в `SCANNED`, і число в
+    код-спані (цитата, не твердження) механізм НЕ ловить, і тест це стверджує.
+    Це не діра, яку тут замовчують, а названа межа — «число, яке щось стверджує
+    про дерево» відрізняє оглядач, не regex;
+  * `GrammaticalFormTest` і `SingularBoundaryTest` (#1315) — форма іменника за
+    класом ЧИСЛА і за МОВОЮ: реєстр на 41 мусить бути зеленим із граматично
+    правильним «41 запис», червоним із чужим числом і з «41 записів»; а «один
+    запис» словом лишається зворотом, тоді як «1 запис» цифрою — уже число.
+    Англійська тут окремо: «21 cases» — ПРАВИЛЬНА множина, і вона мусить бути
+    зеленою, а не хибною відмовою (той бік, у який клас-таблиця брехала б із
+    одним українським правилом для всіх мов).
 
 Зараховані в `scripts/guard_witnesses.py` сторожі цього файлу — піни на
 справжньому дереві (`test_every_number_derives_on_the_real_tree`,
@@ -102,13 +108,15 @@ FIXTURE_FILES = tuple(sorted(set(EXPECTED_SCANNED)))
 def count_phrase():
     """«22 записи» — число й іменник РІВНО так, як їх пише шапка `guard_witnesses`.
 
-    Українська форма множини залежить від числа: 21 — «запис», 22–24 — «записи»,
-    далі — «записів». Механізм ловить ЛИШЕ форми множини (`NOUNS`), тож шапка
-    пише ту форму, яка граматична, а тест мусить брати ту саму — інакше він
-    ламався б на кожному новому сторожі (живий приклад: двадцять другий сторож
-    `GUARDS` у #1299 перевів шапку на «22 записи», і два тести, що знали форму
-    «записів», упали). Число тут не хардкодиться: його звіряє сам механізм
-    (`FIGURES`: `("count", "guards")`), а не цей рядок.
+    Українська форма залежить від числа: 21 — «запис», 22–24 — «записи»,
+    далі — «записів». Механізм знає всі три класи (`NOUNS_DATA` і
+    `grammatical_class` у `doc_numbers.py`, #1315), тож шапка пише ту форму, яка
+    граматична, а тест мусить брати ту саму — інакше він ламався б на кожному
+    новому сторожі (живий приклад: двадцять другий сторож `GUARDS` у #1299
+    перевів шапку на «22 записи», і два тести, що знали форму «записів», упали;
+    другий живий приклад — #1315: реєстр на 41 вимагає «41 запис», і до #1315
+    це була невідомість, а не число). Число тут не хардкодиться: його звіряє сам
+    механізм (`FIGURES`: `("count", "guards")`), а не цей рядок.
     """
     words = {word for pair in d.CARDINALS for word in pair}
     text = (REPO_ROOT / "scripts" / "guard_witnesses.py").read_text(encoding="utf-8")
@@ -524,7 +532,13 @@ class BoundaryTest(FixtureMixin):
         self.assertEqual(0, code, err)
 
     def test_a_count_in_the_singular_is_not_a_count(self):
-        """«один запис» — вказівний зворот; форма кількості його не ловить."""
+        """«один запис» — вказівний зворот; слово, а не форма, його виключає.
+
+        Сама одинична форма тепер У таблиці (#1315): її вимагає 21/41/101. Тихою
+        цю фразу робить `DEMONSTRATIVES` — «один»/«one» перед одиничною формою є
+        зворотом, а не кількістю; цифра «1 запис» — уже число
+        (`SingularBoundaryTest`).
+        """
         self.edit("scripts/guard_witnesses.py",
                   "разом %s" % count_phrase(),
                   "разом %s, і один запис окремо" % count_phrase())
@@ -559,6 +573,124 @@ class BoundaryTest(FixtureMixin):
             any("не оголошує --check" in one for one in findings),
             "цитата вигаданої опції мусить бути видима — саме тому файл поза списком",
         )
+
+
+class GrammaticalFormTest(FixtureMixin):
+    """Форма іменника мусить бути формою САМЕ цього числа, а не будь-якою (#1315).
+
+    До #1315 таблиця `NOUNS` знала лише множину, тож шапка реєстру, що переріс
+    40 і вимагає ОДНИНИ («41 запис»), ставала невідомістю (код 2) — «рядок
+    більше не несе числа». Це структурна стеля серії: кожен новий сторож
+    лишався незарахованим, тобто недоведеним. Тут — прогоном, на підставленому
+    дереві: реєстр на 41 мусить бути зеленим із «41 запис» і червоним, коли
+    число не те, а «41 записів» — відмова з назвою форми.
+
+    Друга половина — МОВА форми. Англійська після 21/41/101 хоче МНОЖИНИ
+    («21 cases» — правильно), тож клас беруть з `required_classes`, а не з
+    одного українського правила: інакше правильний англійський рядок ставав би
+    хибною відмовою — найдорожчим різновидом червоного, бо блокує правильну
+    роботу.
+    """
+
+    def registry(self, size):
+        """Реєстр названого розміру — те, що виводить `("count", "guards")`."""
+        return unittest.mock.patch.object(d, "guards", lambda: tuple(range(size)))
+
+    def test_a_singular_header_for_a_number_ending_in_one_is_green(self):
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(), "разом 41 запис")
+        with self.registry(41):
+            code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_a_singular_header_with_the_wrong_number_is_a_finding(self):
+        """Контроль: те саме дерево, але число не те — мусить почервоніти."""
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(), "разом 40 запис")
+        with self.registry(41):
+            code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("рядок каже «40»", out)
+
+    def test_a_plural_form_for_a_number_ending_in_one_is_a_named_finding(self):
+        """«41 записів» — число правильне, форма ні; відмова мусить назвати форму."""
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(), "разом 41 записів")
+        with self.registry(41):
+            code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("«41 записів»", out)
+        self.assertIn("однина", out)
+
+    def test_a_few_form_for_a_number_ending_in_two_is_green(self):
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(), "разом 22 записи")
+        with self.registry(22):
+            code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_a_compound_number_ending_in_one_is_green(self):
+        """101 — складене число, і воно теж вимагає однини («101 запис»)."""
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(), "разом 101 запис")
+        with self.registry(101):
+            code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def cases(self, size):
+        """`CASES` названого розміру — англійські рядки серії теж мають клас.
+
+        Дописи йдуть У КІНЕЦЬ, щоб місця `#1270`/`#1254`/`#1257` не поїхали.
+        """
+        extra = tuple(("#dummy%d" % n, "проба")
+                      for n in range(size - len(d.CASES)))
+        return unittest.mock.patch.object(d, "CASES", tuple(d.CASES) + extra)
+
+    def test_an_english_plural_after_a_number_ending_in_one_is_green(self):
+        """«21 cases» — ПРАВИЛЬНА англійська, і вона не сміє бути хибною відмовою.
+
+        Це той бік, у який клас-таблиця брехала б, якби тримала одне українське
+        правило для всіх мов: по-англійськи після 21/41/101 іде МНОЖИНА.
+        """
+        self.edit("docs/agents/local-environment.md",
+                  "series has **eight** cases", "series has **21** cases")
+        with self.cases(21):
+            code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+    def test_an_english_singular_for_a_plural_number_is_a_named_finding(self):
+        """Контроль: «21 case» — англійська форма не та, і це ВИДНО."""
+        self.edit("docs/agents/local-environment.md",
+                  "series has **eight** cases", "series has **21** case")
+        with self.cases(21):
+            code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("«21 case»", out)
+        self.assertIn("множина", out)
+
+    def test_an_english_singular_for_one_is_green(self):
+        """Другий бік англійського правила: для 1 — однина («1 guard»)."""
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(), "разом 1 guard")
+        with self.registry(1):
+            code, out, err = self.check()
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+
+
+class SingularBoundaryTest(FixtureMixin):
+    """Одинична форма ЦИФРОЮ — число; зворот «один запис» словом тихий (#1315).
+
+    Словесну половину цієї межі тримає `BoundaryTest`: там вона й була названа.
+    """
+
+    def test_a_digit_singular_is_a_number(self):
+        """Та сама форма словом — зворот, а цифрою — твердження, і воно видно."""
+        self.edit("scripts/guard_witnesses.py",
+                  "разом %s" % count_phrase(),
+                  "1 запис окремо.\nразом %s" % count_phrase())
+        code, out, _ = self.check()
+        self.assertEqual(1, code)
+        self.assertIn("рядок каже «1»", out)
 
 
 if __name__ == "__main__":

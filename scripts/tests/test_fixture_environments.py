@@ -361,6 +361,17 @@ CASES = (
         programs=(Program("FAKE_GH", "NEW_LANE_TEST_ISSUE_BODY"),),
     ),
     StandIn(
+        # Підставний `post-checkout`, який валить `git worktree add` ПІСЛЯ
+        # реєстрації worktree: так піниться відкат напівкопії (#1326). Нічого з
+        # оточення він не читає — тому ні префікса, ні названих входів.
+        name="підставний post-checkout фікстури test_review_clone",
+        where=("scripts/tests/test_review_clone.py",),
+        programs=(
+            Program("UnknownTest.test_a_failed_worktree_add_leaves_no_half_copy: hook",
+                    "exit 1"),
+        ),
+    ),
+    StandIn(
         name="підставний adb фікстури test_wide_window",
         where=("scripts/tests/test_wide_window.py",),
         prefix="FAKE_ADB_",
@@ -720,6 +731,7 @@ class RegistryTest(unittest.TestCase):
              "scripts/tests/test_merge_pr.py",
              "scripts/tests/test_mutate.py",
              "scripts/tests/test_new_lane.py",
+             "scripts/tests/test_review_clone.py",
              "scripts/tests/test_review_pass.py",
              "scripts/tests/test_test_wrappers.py",
              "scripts/tests/test_wide_window.py"],

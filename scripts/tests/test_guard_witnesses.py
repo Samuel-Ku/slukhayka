@@ -114,6 +114,17 @@ GUARD_TESTS = (
     "test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
     "test_new_lane.PremiseTest.test_a_stale_ticket_is_named_and_the_lane_is_still_created",
     "test_new_lane.PremiseTest.test_an_unreadable_ticket_is_an_unknown_and_no_copy_is_made",
+    "test_review_clone.NormalCaseTest"
+    ".test_the_printed_diff_is_the_branch_and_not_the_working_tree",
+    "test_review_clone.NormalCaseTest"
+    ".test_the_printed_diff_is_pinned_to_the_copy_revision",
+    "test_review_clone.ShallowTest"
+    ".test_a_shallow_repo_is_deepened_before_the_base_is_named",
+    "test_review_clone.UnknownTest.test_a_branch_without_shared_history_is_named",
+    "test_review_clone.UnknownTest.test_a_failed_worktree_add_leaves_no_half_copy",
+    "test_review_clone.UnknownTest.test_a_missing_branch_is_named",
+    "test_review_clone.UnknownTest.test_a_missing_git_is_named_and_not_the_ref_name",
+    "test_review_clone.UnknownTest.test_an_unreachable_origin_is_named_as_no_network",
     "test_suite_time.DecompositionTest"
     ".test_the_module_with_the_slow_setup_is_the_top_consumer",
     "test_test_wrappers.FullSuiteWrapperTest"

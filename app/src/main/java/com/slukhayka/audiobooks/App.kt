@@ -1531,10 +1531,8 @@ class App : Application() {
             onBookCompleted = { bookId ->
                 bookFeedbackStore.completed(bookId)
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.BOOK_COMPLETED)
-                // #1174 (друга смуга): the end-of-book event is the completion
-                // the awards read, so THIS is the door that both takes the
-                // «покинуто» mark away and captures «завершив після покинутого»
-                // — in that order, inside the one call.
+                // Completion captures «завершив після покинутого» before
+                // clearing the «покинуто» mark, inside the one call.
                 clearAbandonMarkOnCompletion(bookId)
             },
             onListeningObservation = achievementRecorder::recordObservation,

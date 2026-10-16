@@ -81,6 +81,7 @@ fun LazyListScope.homeFeedContent(
     peopleNewArrivals: PersonNewArrivals.CatalogProjection = PersonNewArrivals.CatalogProjection(emptyList(), emptySet()),
     recommendedBooks: List<RecommendationEngine.Recommendation>,
     recommendationsReady: Boolean = true,
+    recommendationModelMode: com.slukhayka.audiobooks.data.recommend.RecommendationModelMode? = null,
     personalCycles: List<com.slukhayka.audiobooks.ui.library.PersonalCycle>,
     similarCycles: List<com.slukhayka.audiobooks.ui.library.SimilarCycle> = emptyList(),
     shortBooks: List<CatalogBook>,
@@ -183,6 +184,20 @@ fun LazyListScope.homeFeedContent(
     val hasForYouContent = personalCycles.isNotEmpty() ||
         similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
     item { AppSectionHeader(title = stringResource(R.string.feed_for_you), level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
+    if (recommendationModelMode != null &&
+        recommendationModelMode != com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.FULL
+    ) {
+        item(key = "recommendation_runtime_status") {
+            Text(
+                text = recommendationRuntimeModeText(recommendationModelMode),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("home_recommendations_model_status")
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
+    }
     if (!hasForYouContent) {
         item {
             Text(

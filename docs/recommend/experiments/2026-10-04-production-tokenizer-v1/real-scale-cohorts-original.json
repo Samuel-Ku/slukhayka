@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "registeredAt": "2026-10-04",
+  "labelProvenance": "Preregistered expert bibliographic relevance proxy. These are real Works selected by topic; no listener completion history is asserted. Freeze before any ONNX results.",
+  "selectionRule": "Resolve listed title aliases and author surname against the frozen LibriVox mirror; if multiple Editions match choose lexicographically first archive identifier after Work dedup. Missing targets fail; never replace a cohort after observing scores.",
+  "seed": 42,
+  "k": 20,
+  "cohorts": [
+    {
+      "id": "gothic",
+      "works": [
+        {
+          "title": "Dracula",
+          "authorSurname": "Stoker",
+          "titleAliases": []
+        },
+        {
+          "title": "Frankenstein",
+          "authorSurname": "Shelley",
+          "titleAliases": []
+        },
+        {
+          "title": "Carmilla",
+          "authorSurname": "Fanu",
+          "titleAliases": []
+        },
+        {
+          "title": "The Picture of Dorian Gray",
+          "authorSurname": "Wilde",
+          "titleAliases": []
+        },
+        {
+          "title": "The Strange Case of Dr. Jekyll and Mr. Hyde",
+          "authorSurname": "Stevenson",
+          "titleAliases": [
+            "Strange Case of Dr. Jekyll and Mr. Hyde",
+            "Dr. Jekyll and Mr. Hyde"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utopia-and-dystopia",
+      "works": [
+        {
+          "title": "The Time Machine",
+          "authorSurname": "Wells",
+          "titleAliases": []
+        },
+        {
+          "title": "The Coming Race",
+          "authorSurname": "Lytton",
+          "titleAliases": []
+        },
+        {
+          "title": "Looking Backward",
+          "authorSurname": "Bellamy",
+          "titleAliases": [
+            "Looking Backward: 2000-1887"
+          ]
+        },
+        {
+          "title": "Erewhon",
+          "authorSurname": "Butler",
+          "titleAliases": []
+        },
+        {
+          "title": "News from Nowhere",
+          "authorSurname": "Morris",
+          "titleAliases": []
+        }
+      ]
+    },
+    {
+      "id": "sea-voyages",
+      "works": [
+        {
+          "title": "Moby Dick",
+          "authorSurname": "Melville",
+          "titleAliases": [
+            "Moby-Dick",
+            "Moby Dick; or, The Whale"
+          ]
+        },
+        {
+          "title": "Two Years Before the Mast",
+          "authorSurname": "Dana",
+          "titleAliases": []
+        },
+        {
+          "title": "The Sea-Wolf",
+          "authorSurname": "London",
+          "titleAliases": [
+            "The Sea Wolf"
+          ]
+        },
+        {
+          "title": "Captains Courageous",
+          "authorSurname": "Kipling",
+          "titleAliases": []
+        },
+        {
+          "title": "The Narrative of Arthur Gordon Pym of Nantucket",
+          "authorSurname": "Poe",
+          "titleAliases": [
+            "The Narrative of Arthur Gordon Pym",
+            "Narrative of Arthur Gordon Pym of Nantucket"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "detective-fiction",
+      "works": [
+        {
+          "title": "The Moonstone",
+          "authorSurname": "Collins",
+          "titleAliases": []
+        },
+        {
+          "title": "The Hound of the Baskervilles",
+          "authorSurname": "Doyle",
+          "titleAliases": []
+        },
+        {
+          "title": "The Mystery of the Yellow Room",
+          "authorSurname": "Leroux",
+          "titleAliases": []
+        },
+        {
+          "title": "The Leavenworth Case",
+          "authorSurname": "Green",
+          "titleAliases": []
+        },
+        {
+          "title": "The Secret Adversary",
+          "authorSurname": "Christie",
+          "titleAliases": []
+        }
+      ]
+    },
+    {
+      "id": "childrens-fantasy",
+      "works": [
+        {
+          "title": "Alice’s Adventures in Wonderland",
+          "authorSurname": "Carroll",
+          "titleAliases": [
+            "Alice's Adventures in Wonderland",
+            "Alice in Wonderland"
+          ]
+        },
+        {
+          "title": "The Wonderful Wizard of Oz",
+          "authorSurname": "Baum",
+          "titleAliases": []
+        },
+        {
+          "title": "Peter Pan",
+          "authorSurname": "Barrie",
+          "titleAliases": []
+        },
+        {
+          "title": "The Wind in the Willows",
+          "authorSurname": "Grahame",
+          "titleAliases": []
+        },
+        {
+          "title": "The Princess and the Goblin",
+          "authorSurname": "MacDonald",
+          "titleAliases": []
+        }
+      ]
+    }
+  ]
+}

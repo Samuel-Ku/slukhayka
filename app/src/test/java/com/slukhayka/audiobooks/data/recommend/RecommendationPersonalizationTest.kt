@@ -79,7 +79,7 @@ class RecommendationPersonalizationTest {
     }
 
     @Test
-    fun `ranking subtracts negative centroid filters exclusions and applies diversity caps`() {
+    fun `ranking subtracts negative interest filters exclusions and applies diversity caps`() {
         val candidates = listOf(
             candidate("a1", "Автор A 1", "A", "S1"),
             candidate("a2", "Автор A 2", "A", "S2"),
@@ -255,7 +255,7 @@ class RecommendationPersonalizationTest {
     @Test
     fun `a source top never suggests a book the profile pushes against`() {
         // top1 sits at the TOP of a source list but is close to the listener's
-        // NEGATIVE centroid — the source's celebration must not surface it.
+        // negative interest — the source's celebration must not surface it.
         val personal = (1..10).map { candidate("p$it", "Книга $it", "Автор $it", "S$it") }
         val topped = listOf(
             candidate("top1", "Топ один", "Інший автор 1", "X1"),
@@ -346,4 +346,285 @@ class RecommendationPersonalizationTest {
         assertTrue(ranked.isNotEmpty())
         assertFalse(ranked.any { it.candidate.author == "Тарас Шевченко" })
     }
+    @Test
+    fun `separate interests put each matching book before a bridge with its own reason`() {
+        val ranked = RecommendationPersonalization.rank(
+            candidates = listOf("01-A", "01-B", "01-Bridge").map { RecommendationEngine.Candidate(it, it) },
+            signals = listOf(
+                RecommendationEngine.Signal("P1", "P1", weight = 1.0),
+                RecommendationEngine.Signal("P2", "P2", weight = 1.0)
+            ),
+            vectors = mapOf(
+                "P1" to floatArrayOf(1f, 0f), "P2" to floatArrayOf(0f, 1f),
+                "01-A" to floatArrayOf(1f, 0f), "01-B" to floatArrayOf(0f, 1f),
+                "01-Bridge" to floatArrayOf(.70710677f, .70710677f)
+            ),
+            topN = 3, explorationCount = 0
+        )
+        assertEquals(listOf("01-A", "01-B", "01-Bridge"), ranked.map { it.candidate.id })
+        assertEquals(listOf("P1", "P2", "P1"), ranked.map { it.reasonTitle })
+    }
+
+    @Test
+    fun `equal positive overlap ranks smaller negative overlap first`() {
+        val ranked = RecommendationPersonalization.rank(
+            candidates = listOf("02-X", "02-Y").map { RecommendationEngine.Candidate(it, it) },
+            signals = listOf(RecommendationEngine.Signal("P", "P", weight = 1.0), RecommendationEngine.Signal("N", "N", weight = -1.0)),
+            vectors = mapOf("P" to floatArrayOf(1f, 0f), "N" to floatArrayOf(.8f, .6f),
+                "02-X" to floatArrayOf(.8f, .6f), "02-Y" to floatArrayOf(.8f, -.6f)),
+            topN = 2, explorationCount = 0
+        )
+        assertEquals(listOf("02-Y", "02-X"), ranked.map { it.candidate.id })
+        assertEquals(.604, ranked[0].semanticScore, 1e-6)
+        assertEquals(.1, ranked[1].semanticScore, 1e-6)
+    }
+
+    @Test
+    fun `metadata lifts use actual genre aliases without inferring unknown genres`() {
+        val ranked = RecommendationPersonalization.rank(
+            candidates = listOf(
+                RecommendationEngine.Candidate("03-author", "Author", author = "Positive Author"),
+                RecommendationEngine.Candidate("03-genre", "Genre", genre = "sci-fi"),
+                RecommendationEngine.Candidate("03-series", "Series", series = "Positive Series"),
+                RecommendationEngine.Candidate("03-none", "None"),
+                RecommendationEngine.Candidate("03-space", "Space", genre = "Space Tales")
+            ),
+            signals = listOf(RecommendationEngine.Signal("P", "P", author = "Positive Author", genre = "Science Fiction", series = "Positive Series", weight = 1.0)),
+            vectors = listOf("P", "03-author", "03-genre", "03-series", "03-none", "03-space").associateWith { floatArrayOf(1f, 0f) },
+            topN = 5, explorationCount = 0
+        )
+        assertEquals(listOf("03-author", "03-genre", "03-series", "03-none", "03-space"), ranked.map { it.candidate.id })
+        listOf(.70, .65, .60, .55, .55).zip(ranked).forEach { (expected, item) -> assertEquals(expected, item.score, 1e-9) }
+    }
+
+    @Test
+    fun `negative metadata subtracts facets without inventing positive facets`() {
+        val ranked = RecommendationPersonalization.rank(
+            candidates = listOf(
+                RecommendationEngine.Candidate("04-X", "X", author = "Negative Author", genre = "poetry", series = "Negative Series"),
+                RecommendationEngine.Candidate("04-Y", "Y")
+            ),
+            signals = listOf(
+                RecommendationEngine.Signal("P", "P", weight = 1.0),
+                RecommendationEngine.Signal("N", "N", author = "Negative Author", genre = "poetry", series = "Negative Series", weight = -1.0)
+            ),
+            vectors = mapOf("P" to floatArrayOf(1f, 0f), "N" to floatArrayOf(0f, 1f), "04-X" to floatArrayOf(1f, 0f), "04-Y" to floatArrayOf(1f, 0f)),
+            topN = 2, explorationCount = 0
+        )
+        assertEquals(listOf("04-Y", "04-X"), ranked.map { it.candidate.id })
+        assertEquals(1.0, ranked[0].semanticScore, 1e-9)
+        assertEquals(1.0, ranked[1].semanticScore, 1e-9)
+        assertEquals(.55, ranked[0].score, 1e-9)
+        assertEquals(.25, ranked[1].score, 1e-9)
+    }
+
+    @Test
+    fun `hard exclusions precede unchanged greedy author and series caps`() {
+        val candidates = listOf(
+            RecommendationEngine.Candidate("05-A1", "A1", author = "Author A", series = "S1"),
+            RecommendationEngine.Candidate("05-C", "C", author = "Author C", series = "S1"),
+            RecommendationEngine.Candidate("05-A2", "A2", author = "Author A", series = "S2"),
+            RecommendationEngine.Candidate("05-A3", "A3", author = "Author A", series = "S3"),
+            RecommendationEngine.Candidate("05-B", "B", author = "Author B", series = "S4"),
+            RecommendationEngine.Candidate("05-H", "H", author = "Hidden Author"),
+            RecommendationEngine.Candidate("05-K", "K")
+        )
+        val cosines = mapOf("05-A1" to .95, "05-C" to .90, "05-A2" to .85, "05-A3" to .80, "05-B" to .75, "05-H" to .99, "05-K" to .98)
+        val ranked = RecommendationPersonalization.rank(
+            candidates, listOf(RecommendationEngine.Signal("P", "P", weight = 1.0)),
+            cosines.mapValues { (_, x) -> floatArrayOf(x.toFloat(), kotlin.math.sqrt(1 - x * x).toFloat()) } + ("P" to floatArrayOf(1f, 0f)),
+            excludedWorkIds = setOf("05-K"), excludedAuthors = setOf("Hidden Author"), topN = 3, explorationCount = 0
+        )
+        assertEquals(listOf("05-A1", "05-A2", "05-B"), ranked.map { it.candidate.id })
+    }
+
+    @Test
+    fun `missing vectors are skipped and negative only evidence has no personal row`() {
+        val candidates = listOf("06-V1", "06-V2", "06-M").map { RecommendationEngine.Candidate(it, it) }
+        val vectors = mapOf("P" to floatArrayOf(1f, 0f), "N" to floatArrayOf(0f, 1f), "06-V1" to floatArrayOf(1f, 0f), "06-V2" to floatArrayOf(1f, 0f))
+        val ranked = RecommendationPersonalization.rank(candidates,
+            listOf(RecommendationEngine.Signal("P", "P", weight = 1.0)), vectors, topN = 3, explorationCount = 0)
+        assertEquals(listOf("06-V1", "06-V2"), ranked.map { it.candidate.id })
+        val negativeOnly = RecommendationPersonalization.rank(candidates,
+            listOf(RecommendationEngine.Signal("N", "N", weight = -1.0)), vectors, topN = 3, explorationCount = 0)
+        assertTrue(negativeOnly.isEmpty())
+    }
+
+    @Test
+    fun `reason follows weighted interest strength instead of raw cosine`() {
+        val ranked = RecommendationPersonalization.rank(
+            candidates = listOf(RecommendationEngine.Candidate("C", "C")),
+            signals = listOf(RecommendationEngine.Signal("Pweak", "Weak", weight = 1.0), RecommendationEngine.Signal("Pstrong", "Strong", weight = 2.0)),
+            vectors = mapOf("C" to floatArrayOf(1f, 0f), "Pweak" to floatArrayOf(1f, 0f), "Pstrong" to floatArrayOf(.6f, .8f)),
+            topN = 1, explorationCount = 0
+        )
+        assertEquals("Strong", ranked.single().reasonTitle)
+        assertEquals(.6, ranked.single().semanticScore, 1e-6)
+        assertEquals(.33, ranked.single().score, 1e-6)
+    }
+
+    @Test
+    fun `equal weighted reasons use stable work ID regardless of signal order`() {
+        val ranked = RecommendationPersonalization.rank(
+            candidates = listOf(RecommendationEngine.Candidate("C", "C")),
+            signals = listOf(RecommendationEngine.Signal("P02", "Second", weight = 2.0), RecommendationEngine.Signal("P01", "First", weight = 2.0)),
+            vectors = mapOf("C" to floatArrayOf(1f, 0f), "P01" to floatArrayOf(.6f, .8f), "P02" to floatArrayOf(.6f, -.8f)),
+            topN = 1, explorationCount = 0
+        )
+        assertEquals("First", ranked.single().reasonTitle)
+        assertEquals(.6, ranked.single().semanticScore, 1e-6)
+    }
+
+    @Test
+    fun `eligible negative strength participates in the shared denominator`() {
+        val ranked = RecommendationPersonalization.rank(
+            candidates = listOf(RecommendationEngine.Candidate("C", "C")),
+            signals = listOf(RecommendationEngine.Signal("P", "P", weight = 1.0), RecommendationEngine.Signal("N", "N", weight = -2.0)),
+            vectors = mapOf("C" to floatArrayOf(1f, 0f), "P" to floatArrayOf(1f, 0f), "N" to floatArrayOf(0f, 1f)),
+            topN = 1, explorationCount = 0
+        )
+        assertEquals(.5, ranked.single().semanticScore, 1e-9)
+        assertEquals(.275, ranked.single().score, 1e-9)
+    }
+
+    @Test
+    fun `positive cap retains strongest twenty with stable IDs and omits their lost facets`() {
+        val signals = (21 downTo 1).map { index ->
+            val id = "P%02d".format(java.util.Locale.ROOT, index)
+            RecommendationEngine.Signal(id, id, genre = if (index == 21) "poetry" else "", weight = 1.0)
+        }
+        val vectors = signals.associate { it.id to if (it.id == "P21") floatArrayOf(0f, 1f) else floatArrayOf(1f, 0f) } +
+            mapOf("A" to floatArrayOf(1f, 0f), "B" to floatArrayOf(0f, 1f))
+        val ranked = RecommendationPersonalization.rank(
+            listOf(RecommendationEngine.Candidate("A", "A", genre = "poetry"), RecommendationEngine.Candidate("B", "B")),
+            signals, vectors, topN = 2, explorationCount = 0
+        )
+        assertEquals(listOf("A"), ranked.map { it.candidate.id })
+        assertEquals(.55, ranked.single().score, 1e-9)
+        assertEquals("P01", ranked.single().reasonTitle)
+    }
+
+    @Test
+    fun `the twenty first negative still contributes semantic and metadata penalties`() {
+        val negatives = (1..21).map { index ->
+            val id = "N%02d".format(java.util.Locale.ROOT, index)
+            RecommendationEngine.Signal(id, id, genre = if (index == 21) "poetry" else "", weight = -1.0)
+        }
+        val vectors = negatives.associate { it.id to if (it.id == "N21") floatArrayOf(1f, 0f) else floatArrayOf(0f, 1f) } +
+            mapOf("P" to floatArrayOf(1f, 0f), "C" to floatArrayOf(1f, 0f))
+        val ranked = RecommendationPersonalization.rank(
+            listOf(RecommendationEngine.Candidate("C", "C", genre = "poetry")),
+            listOf(RecommendationEngine.Signal("P", "P", weight = 1.0)) + negatives, vectors,
+            topN = 1, explorationCount = 0
+        )
+        assertEquals(.30, ranked.single().semanticScore, 1e-9)
+        assertEquals(.065, ranked.single().score, 1e-9)
+    }
+
+    @Test
+    fun `antipodal negative evidence never becomes a semantic bonus`() {
+        val ranked = RecommendationPersonalization.rank(
+            listOf(RecommendationEngine.Candidate("C", "C")),
+            listOf(RecommendationEngine.Signal("P", "P", weight = 1.0), RecommendationEngine.Signal("N", "N", weight = -1.0)),
+            mapOf("P" to floatArrayOf(1f, 0f), "N" to floatArrayOf(-1f, 0f), "C" to floatArrayOf(1f, 0f)),
+            topN = 1, explorationCount = 0
+        )
+        assertEquals(1.0, ranked.single().semanticScore, 1e-9)
+        assertEquals(.55, ranked.single().score, 1e-9)
+    }
+
+    @Test
+    fun `only finite nonzero signed supports with vectors affect rank and normalization`() {
+        val invalid = listOf(
+            RecommendationEngine.Signal("infinite-positive", "Invalid", genre = "poetry", weight = Double.POSITIVE_INFINITY),
+            RecommendationEngine.Signal("infinite-negative", "Invalid", author = "Invalid", weight = Double.NEGATIVE_INFINITY),
+            RecommendationEngine.Signal("nan", "Invalid", weight = Double.NaN),
+            RecommendationEngine.Signal("zero", "Invalid", weight = 0.0),
+            RecommendationEngine.Signal("missing", "Invalid", weight = 100.0)
+        )
+        val candidates = listOf(RecommendationEngine.Candidate("C", "C", author = "Invalid", genre = "poetry"), RecommendationEngine.Candidate("D", "D"))
+        val vectors = mapOf("P" to floatArrayOf(1f, 0f), "C" to floatArrayOf(1f, 0f), "D" to floatArrayOf(0f, 1f),
+            "infinite-positive" to floatArrayOf(0f, 1f), "infinite-negative" to floatArrayOf(1f, 0f), "nan" to floatArrayOf(1f, 0f), "zero" to floatArrayOf(0f, 1f))
+        val ranked = RecommendationPersonalization.rank(candidates,
+            listOf(RecommendationEngine.Signal("P", "P", weight = 1.0)) + invalid, vectors, topN = 2, explorationCount = 0)
+        assertEquals(listOf("C"), ranked.map { it.candidate.id })
+        assertEquals(1.0, ranked.single().semanticScore, 1e-9)
+        assertEquals(.55, ranked.single().score, 1e-9)
+        assertEquals("P", ranked.single().reasonTitle)
+        assertTrue(RecommendationPersonalization.rank(candidates, invalid, vectors, topN = 2, explorationCount = 0).isEmpty())
+    }
+
+    @Test
+    fun `shared binary facets cancel while warranted negative scores stay signed`() {
+        val ranked = RecommendationPersonalization.rank(
+            listOf(RecommendationEngine.Candidate("C", "C", author = "ÉLAN AUTHOR", genre = "sci-fi", series = "Saga One")),
+            listOf(
+                RecommendationEngine.Signal("P", "P", author = "Élan—Author", genre = "Science Fiction", series = "Saga—One", weight = 1.0),
+                RecommendationEngine.Signal("N", "N", author = "élan author", genre = "sci-fi", series = "saga one", weight = -2.0)
+            ),
+            listOf("P", "N", "C").associateWith { floatArrayOf(1f, 0f) }, topN = 1, explorationCount = 0
+        )
+        assertEquals(listOf("C"), ranked.map { it.candidate.id })
+        assertEquals(-.20, ranked.single().semanticScore, 1e-9)
+        assertEquals(-.11, ranked.single().score, 1e-9)
+        assertEquals("P", ranked.single().reasonTitle)
+    }
+
+    @Test
+    fun `unknown genre matches its own raw identity without becoming science fiction`() {
+        val ranked = RecommendationPersonalization.rank(
+            listOf(RecommendationEngine.Candidate("Space", "Space", genre = "space tales"), RecommendationEngine.Candidate("SciFi", "SciFi", genre = "sci-fi")),
+            listOf(RecommendationEngine.Signal("P", "P", genre = "Space Tales", weight = 1.0)),
+            listOf("P", "Space", "SciFi").associateWith { floatArrayOf(1f, 0f) }, topN = 2, explorationCount = 0
+        )
+        assertEquals(listOf("Space", "SciFi"), ranked.map { it.candidate.id })
+        assertEquals(.65, ranked[0].score, 1e-9)
+        assertEquals(.55, ranked[1].score, 1e-9)
+    }
+
+    @Test
+    fun `source eligible zero overlap keeps stable reason despite unequal strength ordering`() {
+        val signals = listOf(RecommendationEngine.Signal("P02", "Second", weight = 2.0), RecommendationEngine.Signal("P01", "First", weight = 1.0))
+        for (order in listOf(signals, signals.reversed())) {
+            val ranked = RecommendationPersonalization.rank(
+                listOf(RecommendationEngine.Candidate("C", "C")), order,
+                mapOf("P01" to floatArrayOf(1f, 0f), "P02" to floatArrayOf(1f, 0f), "C" to floatArrayOf(0f, 1f)),
+                topN = 1, explorationCount = 0, sourceLabelsByWorkId = mapOf("C" to "Source")
+            )
+            assertEquals("First", ranked.single().reasonTitle)
+            assertEquals(0.0, ranked.single().semanticScore, 0.0)
+            assertEquals(0.0, ranked.single().score, 0.0)
+        }
+    }
+
+    @Test
+    fun `positive cap prioritizes strength before stable ID and loses omitted metadata`() {
+        val signals = (1..21).map { index ->
+            val id = "P%02d".format(java.util.Locale.ROOT, index)
+            RecommendationEngine.Signal(id, id, genre = if (index == 1) "poetry" else "", weight = if (index == 1) 1.0 else 2.0)
+        }
+        val vectors = signals.associate { it.id to if (it.id == "P01") floatArrayOf(0f, 1f) else floatArrayOf(1f, 0f) } +
+            mapOf("A" to floatArrayOf(1f, 0f), "B" to floatArrayOf(0f, 1f))
+        val ranked = RecommendationPersonalization.rank(
+            listOf(RecommendationEngine.Candidate("A", "A", genre = "poetry"), RecommendationEngine.Candidate("B", "B")),
+            signals, vectors, topN = 2, explorationCount = 0
+        )
+        assertEquals(listOf("A"), ranked.map { it.candidate.id })
+        assertEquals(.55, ranked.single().score, 1e-9)
+        assertEquals("P02", ranked.single().reasonTitle)
+    }
+
+    @Test
+    fun `source eligible antipodal positive overlap is zero rather than negative`() {
+        val ranked = RecommendationPersonalization.rank(
+            listOf(RecommendationEngine.Candidate("C", "C")),
+            listOf(RecommendationEngine.Signal("P", "P", weight = 1.0)),
+            mapOf("P" to floatArrayOf(1f, 0f), "C" to floatArrayOf(-1f, 0f)),
+            topN = 1, explorationCount = 0, sourceLabelsByWorkId = mapOf("C" to "Source")
+        )
+        assertEquals(0.0, ranked.single().semanticScore, 0.0)
+        assertEquals(0.0, ranked.single().score, 0.0)
+        assertEquals("P", ranked.single().reasonTitle)
+    }
+
 }

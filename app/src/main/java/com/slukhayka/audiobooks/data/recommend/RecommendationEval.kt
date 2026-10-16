@@ -3,22 +3,11 @@ package com.slukhayka.audiobooks.data.recommend
 import kotlin.math.ln
 
 /**
- * The leave-one-out evaluation gate of the recommendation row (spec-19
- * US11 / Q6): the semantic ranking must beat the genre+author baseline on
- * real completions before the row ships.
- *
- * Method: for each held-out completed book (the signal), rank a random
- * catalogue sample (other completions + distractors) by similarity to that
- * signal, and measure how high the other real completions rank — recall@K
- * and NDCG@K. The same sample and signals feed both the candidate
- * [semanticEmbedder] and the [baselineEmbedder], so the comparison is fair.
- *
- * #487: recall@K is the FRACTION of the relevant set found in the top K
- * (hits / |relevant|), averaged over folds, so it is always in [0, 1]. The
- * earlier version divided the hit count only by the number of folds and
- * could report values above 1 — numbers that could not be read as recall.
- *
- * Pure JVM, deterministic under a seeded RNG — a regression corpus pins it.
+ * Offline recommendation metrics. [evaluateLeaveOneOut] uses the entire
+ * candidate catalog and predicts the held-out positive from remaining signals.
+ * Both backends share the production personalization and displayed top-K policy.
+ * The older sampled, inverted [evaluate] remains only for historical fixtures;
+ * its result does not establish the real-catalog acceptance gate.
  */
 object RecommendationEval {
 
@@ -32,6 +21,74 @@ object RecommendationEval {
         val semanticWins: Boolean
             get() = semanticRecallAtK > baselineRecallAtK ||
                 (semanticRecallAtK == baselineRecallAtK && semanticNdcgAtK > baselineNdcgAtK)
+    }
+
+    data class Fold(
+        val cohortIndex: Int,
+        val heldOutId: String,
+        val candidateCount: Int,
+        val semanticRank: Int?,
+        val baselineRank: Int?,
+        val semanticTopIds: List<String>,
+        val baselineTopIds: List<String>
+    )
+
+    data class LeaveOneOutReport(val report: Report, val folds: List<Fold>) {
+        /** #487 asks for more hits in the top K; an ordering-only tie cannot pass. */
+        val passesGate: Boolean get() = report.semanticRecallAtK > report.baselineRecallAtK &&
+            report.semanticNdcgAtK >= report.baselineNdcgAtK
+    }
+
+    /** Full catalog LOO: all other positive Works train the profile; only the held-out Work is relevant. */
+    fun evaluateLeaveOneOut(
+        completionCohorts: List<List<String>>,
+        candidates: List<RecommendationEngine.Candidate>,
+        semanticVectors: Map<String, FloatArray>,
+        baselineVectors: Map<String, FloatArray>,
+        k: Int = 20
+    ): LeaveOneOutReport {
+        require(k > 0) { "k must be positive" }
+        require(completionCohorts.isNotEmpty()) { "At least one cohort is required" }
+        require(candidates.isNotEmpty()) { "Catalog must be nonempty" }
+        val catalog = candidates.sortedBy { it.id }
+        val byId = catalog.associateBy { it.id }
+        require(byId.size == catalog.size && byId.keys.none { it.isBlank() }) { "Candidate Work ids must be unique and nonblank" }
+        for ((name, vectors) in listOf("semantic" to semanticVectors, "baseline" to baselineVectors)) {
+            require(catalog.all { it.id in vectors }) { "$name vectors must cover the entire catalog" }
+            val dimension = vectors.getValue(catalog.first().id).size
+            require(dimension > 0 && catalog.all { candidate ->
+                val vector = vectors.getValue(candidate.id)
+                vector.size == dimension && vector.all { it.isFinite() } &&
+                    vector.sumOf { it.toDouble() * it } > 1e-12
+            }) { "$name backend produced a missing, degenerate or nonfinite vector" }
+
+        }
+        val folds = completionCohorts.flatMapIndexed { cohortIndex, cohort ->
+            require(cohort.size >= 2 && cohort.toSet().size == cohort.size) { "Cohort $cohortIndex needs at least two distinct Works" }
+            require(cohort.all { it in byId }) { "Every cohort Work must be present in the catalog" }
+            cohort.map { heldOut ->
+                val training = cohort.filter { it != heldOut }
+                val signals = training.map { id ->
+                    val work = byId.getValue(id)
+                    RecommendationEngine.Signal(id, work.title, work.author, work.genre, work.series, weight = .9)
+                }
+                val exclusions = training.toSet()
+                fun top(vectors: Map<String, FloatArray>) = RecommendationEngine.recommendWithVectors(
+                    catalog, signals, vectors, exclusions, k
+                ).map { it.candidate.id }
+                val semanticTop = top(semanticVectors)
+                val baselineTop = top(baselineVectors)
+                fun rank(top: List<String>): Int? = top.indexOf(heldOut).takeIf { it >= 0 }?.plus(1)
+                Fold(cohortIndex, heldOut, catalog.size - exclusions.size,
+                    rank(semanticTop), rank(baselineTop), semanticTop, baselineTop)
+            }
+        }
+        fun recall(rank: (Fold) -> Int?) = folds.count { rank(it) != null }.toDouble() / folds.size
+        fun ndcg(rank: (Fold) -> Int?) = folds.sumOf { fold ->
+            rank(fold)?.let { ln(2.0) / ln(it + 1.0) } ?: 0.0
+        } / folds.size
+        return LeaveOneOutReport(Report(recall { it.semanticRank }, ndcg { it.semanticRank },
+            recall { it.baselineRank }, ndcg { it.baselineRank }), folds)
     }
 
     /**

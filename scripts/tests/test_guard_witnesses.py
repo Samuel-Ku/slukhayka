@@ -131,6 +131,13 @@ GUARD_TESTS = (
     "test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
     "test_new_lane.PremiseTest.test_a_stale_ticket_is_named_and_the_lane_is_still_created",
     "test_new_lane.PremiseTest.test_an_unreadable_ticket_is_an_unknown_and_no_copy_is_made",
+    "test_new_lane.LocalPropertiesTest"
+    ".test_an_existing_local_properties_is_carried_into_the_lane_and_named",
+    "test_new_lane.LocalPropertiesTest"
+    ".test_a_copy_without_local_properties_names_why_android_cannot_build",
+    "test_new_lane.CreateTest.test_the_reservation_does_not_invent_a_plan_path",
+    "test_new_lane.CreateTest.test_a_named_plan_that_does_not_exist_is_refused",
+    "test_new_lane.CreateTest.test_a_named_plan_that_exists_is_recorded_and_named",
     "test_review_clone.NormalCaseTest"
     ".test_the_printed_diff_is_the_branch_and_not_the_working_tree",
     "test_review_clone.NormalCaseTest"

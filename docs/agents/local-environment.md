@@ -15,9 +15,24 @@ worktree, and never commit in the main checkout.
 One lane, one worktree, one branch, off `origin/main`:
 
 ```sh
+scripts/new-lane.sh <issue> <slug>
+```
+
+That command is the manual sequence below, all of it — and the second line is
+why the first line alone is not enough (#1332): `local.properties` is
+git-excluded, so it never arrives in a fresh worktree by itself, and an Android
+build there dies with `SDK location not found` (lane #1187 lost a run to it).
+The manual pair stays written down as what the command must replace, not as a
+recipe to run by hand:
+
+```sh
 git worktree add .worktrees/<lane> -b <branch> origin/main
 cp local.properties .worktrees/<lane>/local.properties
 ```
+
+If the file is not in the checkout root, `new-lane.sh` still creates the lane
+and says in its facts that an Android build will not work in that copy, and
+why. It never invents the file.
 
 Worktrees live under `.worktrees/` (git-excluded) and leave with
 `git worktree remove --force .worktrees/<lane>` once their PR is merged.
@@ -764,8 +779,13 @@ guess.
 ```sh
 python3 scripts/agent-work-claim.py status
 python3 scripts/agent-work-claim.py acquire <issue> --owner <chat-id> \
-    --reservation <name> --plan <path>
+    --reservation <name> [--plan <existing-path>]
 ```
+
+`--plan` is optional and, when named, must be a path that exists in
+`origin/main`; without it the record carries `null`. A lane's plan does not
+exist yet at lane-creation time, so a fabricated `docs/plans/…` path there is a
+record saying one thing while reality says another (#1337).
 
 One command does the whole lane dispatch, and it is the one to use:
 `scripts/new-lane.sh <issue> <slug>`. It fetches `origin/main`, reserves the
@@ -773,11 +793,16 @@ ticket through the claim script above (a busy ticket is exit 2 and **no copy is
 created**), refuses when `.worktrees/w<issue>` already exists (two lanes never
 share a copy — that is how `commit --amend` and `reset --hard` once wiped
 another lane's edits), creates the copy from the **fresh `origin/main`** rather
-than the current HEAD, and prints the briefing facts as the output of commands
-instead of recollection: the branch, the base `sha`, the guard registry's
+than the current HEAD, carries `local.properties` into the copy when the
+checkout root has one — and names that fact in its output; with no such file it
+still creates the lane and says an Android build will not work there, and why
+(#1332) — and prints the briefing facts as the output of commands instead of
+recollection: the branch, the base `sha`, the guard registry's
 `--count`, the job limit, the ticket's premise against `origin/main` (through
 `issue_premise.py --issue` — a stale ticket is **named** there and the lane is
-still created, while an unreadable ticket is exit 2 and no copy is made), and
+still created, while an unreadable ticket is exit 2 and no copy is made), the
+carried `local.properties`, the reservation's `plan` field (`null` unless a
+named path really exists in `origin/main` — #1337), and
 the commands the lane runs itself.
 `scripts/new-lane.sh --release <issue>` removes the lane's copy once it has
 nothing to lose — it refuses when the copy has uncommitted changes or a rebase

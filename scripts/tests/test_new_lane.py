@@ -18,6 +18,7 @@
 Мережі не торкається жоден тест.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -203,11 +204,48 @@ class CreateTest(LaneTest):
         self.assertNotEqual(fresh, self.rev("HEAD"))
         self.assertEqual(fresh, self.rev("HEAD", cwd=self.lane_path()))
 
-    def test_the_default_plan_path_names_the_ticket_and_the_slug(self):
+    def test_the_reservation_does_not_invent_a_plan_path(self):
+        """Без `--plan` у записі `null`, і факти це НАЗИВАЮТЬ (#1337).
+
+        Червоний на СТАРІЙ поведінці: крок вигадував
+        `docs/plans/<дата>-<номер>-<slug>.md`, якого не існувало — шість
+        записів, шість шляхів, і жоден `docs/plans/…` не вів нікуди. Запис, що
+        каже одне, а реальність — інше, і є той дефект.
+        """
         result = self.create_lane()
 
-        self.assertIn("план: docs/plans/", result.stdout)
-        self.assertIn("%s-%s.md" % (ISSUE, SLUG), result.stdout)
+        self.assertIn("план: не задано", result.stdout)
+        self.assertIn("null", result.stdout)
+        self.assertNotIn("docs/plans/", result.stdout,
+                         "вигаданого шляху плану в фактах бути не може")
+        recorded = json.loads(self.claim_path().read_text(encoding="utf-8"))
+        self.assertIsNone(recorded["plan"],
+                          "у записі мусить бути чесне null, а не вигаданий шлях")
+
+    def test_a_named_plan_that_does_not_exist_is_refused(self):
+        """`--plan` на неіснуючий шлях — відмова ДО резервування (#1337)."""
+        result = self.create_lane("--plan", "docs/plans/gone.md", expect=2)
+
+        self.assertIn("не існує в origin/main", result.stderr)
+        self.assertIn("docs/plans/gone.md", result.stderr)
+        self.assertFalse(self.lane_path().exists(), result.stdout)
+        self.assertFalse(self.claim_path().exists(),
+                         "резервування не сміє назвати неіснуючий план")
+
+    def test_a_named_plan_that_exists_is_recorded_and_named(self):
+        """Названий шлях, який справді є в базі, потрапляє в запис і у факти."""
+        plan = "docs/plans/2026-01-02-existing-plan.md"
+        (self.repo / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        (self.repo / plan).write_text("# план\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.commit("план існує в базі")
+        self.git("push", "-q", "origin", "main")
+
+        result = self.create_lane("--plan", plan)
+
+        self.assertIn("план: %s (є в origin/main)" % plan, result.stdout)
+        recorded = json.loads(self.claim_path().read_text(encoding="utf-8"))
+        self.assertEqual(plan, recorded["plan"])
 
     def test_a_named_owner_is_the_one_written_into_the_reservation(self):
         self.create_lane(env={"NEW_LANE_OWNER": "dsh-web-w1321"})
@@ -310,6 +348,69 @@ class RefusalTest(LaneTest):
 
         self.assertIn("числом", result.stderr)
         self.assertFalse((self.repo / ".worktrees").exists())
+
+
+class LocalPropertiesTest(LaneTest):
+    """Крок ручного рецепта, який загубився при автоматизації (#1332).
+
+    `docs/agents/local-environment.md` описує створення смуги двома кроками:
+    `git worktree add …` і `cp local.properties …/local.properties`.
+    `new-lane.sh` (#1321) замінив рецепт — і не переніс другий крок. Файл у
+    `.gitignore` (`.gitignore:19`), тож у копію сам не потрапляє, а без нього
+    Android-збірка падає `SDK location not found` — смуга #1187 втратила через
+    це прогін. Обидва боки перевіряються тут: файл є — перенесено й названо;
+    файлу немає — не падає, і причина названа.
+    """
+
+    def test_an_existing_local_properties_is_carried_into_the_lane_and_named(self):
+        contents = "sdk.dir=/opt/android-sdk\n"
+        (self.repo / "local.properties").write_text(contents, encoding="utf-8")
+
+        result = self.create_lane()
+
+        self.assertEqual(
+            contents,
+            (self.lane_path() / "local.properties").read_text(encoding="utf-8"),
+            result.stdout,
+        )
+        self.assertIn("local.properties: є — перенесено", result.stdout)
+        self.assertIn(str(self.repo / "local.properties"), result.stdout)
+        # Файл ігнорований, тож копія не виглядає брудною: `--release` зможе її
+        # прибрати, а `git status` не бреше про неіснуючі правки.
+        self.assertEqual("", self.git("status", "--porcelain",
+                                      cwd=self.lane_path()).stdout)
+
+    def test_a_copy_without_local_properties_names_why_android_cannot_build(self):
+        """Файлу немає — НЕ відмова: названо, що збірка не працюватиме, і чому."""
+        self.assertFalse((self.repo / "local.properties").exists())
+
+        result = self.create_lane()
+
+        self.assertIn("local.properties: НЕМА", result.stdout)
+        self.assertIn(str(self.repo / "local.properties"), result.stdout)
+        self.assertIn("SDK location not found", result.stdout)
+        self.assertIn(".gitignore", result.stdout)
+        self.assertTrue(self.lane_path().is_dir(),
+                        "відсутній local.properties — не привід не створювати смугу")
+        self.assertTrue(self.claim_path().is_file())
+        self.assertFalse((self.lane_path() / "local.properties").exists())
+
+    def test_a_lane_that_got_local_properties_is_still_releasable(self):
+        """Ігнорований файл не робить копію «брудною»: `--release` її прибирає.
+
+        `git worktree remove` без `--force` відмовляє на брудному дереві (це
+        межа `--release`). Файл у `.gitignore` брудом не є — і ця перевірка
+        тримає саме те: перенесений `local.properties` не робить копію
+        вічною.
+        """
+        (self.repo / "local.properties").write_text("sdk.dir=/opt/android-sdk\n",
+                                                    encoding="utf-8")
+        self.create_lane()
+
+        result = self.lane("--release", ISSUE)
+
+        self.assertIn("копію прибрано", result.stdout)
+        self.assertFalse(self.lane_path().exists())
 
 
 class PremiseTest(LaneTest):

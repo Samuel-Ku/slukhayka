@@ -408,17 +408,27 @@ was watching an empty place for them. What survives is the *named* pairing — "
 run exercises *this* stand-in" — which would cost one mutation per stand-in; the
 guard's docstring names that limit in the code.
 
-The next review round (`#1341`) closed two holes in that compensation, and both are
-named in the code rather than in prose. A run that goes *skipped* under the broken
-stand-ins used to pass, because only `green` counted as "did not redden"; now anything
-but `red` is a finding (`runs_that_did_not_redden`), on the named runs and on the
-fixture modules alike. And the execution proof holds for the embedded programs only: a
-fixture file is invoked as `bash gate.sh`, so breaking it means replacing its text, and
-a run that merely *reads* that text reddens too — for the six file stand-ins under
-`fixtures/` the guard cannot tell a reader from an executor. That limit is stated where
-the mutation lives (`broken_tool_text`), it is called a missed hole rather than a safe
-refusal, and `test_a_reader_of_a_file_stand_in_is_indistinguishable_from_an_executor`
-runs the reader, shows it accepted, and pins the shape for all six.
+The next review round (`#1341`) closed **one** hole in that compensation and only
+**named** a second — an earlier version of this paragraph said "closed two holes", and
+that was one word too many: one was named, not closed. The closed one: a run that goes
+*skipped* under the broken stand-ins used to pass, because only `green` counted as "did
+not redden"; now anything but `red` is a finding (`runs_that_did_not_redden`), on the
+named runs and on the fixture modules alike. The named one: the execution proof held
+for the embedded programs only — a fixture file is invoked as `bash gate.sh`, so
+breaking it appeared to mean replacing its text, and a run that merely *reads* that
+text reddened too; for the six file stand-ins under `fixtures/` the guard could not
+tell a reader from an executor. That was stated where the mutation lives
+(`broken_tool_text`) as a missed hole rather than a safe refusal.
+
+That hole is closed too, and as a **choice**, not a limit of the possible. The
+mutation now keeps the original text byte-for-byte — first line and whole body — and
+inserts a killer line after the shebang (`broken_tool_text`), so a run that merely
+*reads* the file stays green and the guard names it a finding, while the executor
+reddens. `test_a_reader_of_a_file_stand_in_is_named_and_not_accepted` shows both sides
+through the guard's own verdict and runs all six file stand-ins intact (exit zero) and
+broken (non-zero). The limit that remains is narrower and also named: a run that
+compares the whole text byte-for-byte notices the inserted line — a comparison, not a
+read.
 
 The fourth gate is about the records themselves (`#1276`). One target produced
 **six** switches of a single form: a registry entry could *declare* something about

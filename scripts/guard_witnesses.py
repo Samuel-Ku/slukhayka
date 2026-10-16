@@ -540,19 +540,19 @@ GUARDS = (
     ),
     Guard(
         test="test_fixture_environments.EnvironmentTest"
-             ".test_a_reader_of_a_file_stand_in_is_indistinguishable_from_an_executor",
-        protects="МЕЖА В КОДІ (#1341): читач файлового підставного не відрізняється "
-                 "від виконавця, бо мутація замінює ВМІСТ, а вміст читає й читач. "
-                 "Мутація, яка лишає читачеві його рядок (виконання ламає, тексту "
-                 "не чіпає), зсуває саме цю межу — і пін мусить почервоніти, а не "
-                 "пережити її мовчки",
+             ".test_a_reader_of_a_file_stand_in_is_named_and_not_accepted",
+        protects="ЧИТАЧА файлового підставного ВИДНО (#1341): мутація лишає текст "
+                 "байт-у-байт і лише додає рядок, який убиває виконання, тож "
+                 "читач лишається ЗЕЛЕНИЙ і ґард називає його знахідкою, а "
+                 "виконавець червоніє. Мутація, яка повертає заміну ВМІСТУ, "
+                 "робить читача червоним і знову приймає його свідком — пін "
+                 "мусить почервоніти, а не пережити це мовчки",
         edits=(
             Edit(
                 file="scripts/tests/test_fixture_environments.py",
-                find='    return BROKEN_PYTHON_TOOL if where.endswith(".py") '
-                     "else BROKEN_SHELL_TOOL\n",
-                replace='    return "# head-name\\nexit 1\\n"  '
-                        "# mutated: читач лишається зелений\n",
+                find="    return first + separator + killer + rest\n",
+                replace="    return first + separator + killer  "
+                        "# mutated: вміст замінено, читач теж червоніє\n",
             ),
         ),
     ),

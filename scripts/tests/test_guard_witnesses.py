@@ -85,7 +85,7 @@ GUARD_TESTS = (
     "test_fixture_environments.EnvironmentTest"
     ".test_a_named_run_that_becomes_skipped_is_a_finding",
     "test_fixture_environments.EnvironmentTest"
-    ".test_a_reader_of_a_file_stand_in_is_indistinguishable_from_an_executor",
+    ".test_a_reader_of_a_file_stand_in_is_named_and_not_accepted",
     "test_fixture_environments.EnvironmentTest"
     ".test_a_fixture_module_that_passes_to_skipped_is_not_red",
     "test_fixture_environments.EnvironmentTest"

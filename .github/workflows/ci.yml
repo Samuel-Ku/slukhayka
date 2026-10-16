@@ -154,8 +154,16 @@ jobs:
   #     context (unlike `pull_request_target`, which runs in the base's), so a
   #     PR that rewrites THIS step — rather than the script — still runs the
   #     rewritten step. Reading the gate from base closes the script-shaped
-  #     door, not the workflow-shaped one; that one is closed by review and
-  #     branch protection, not by anything in this file;
+  #     door, not the workflow-shaped one — and NOTHING IN THIS REPOSITORY
+  #     CLOSES THAT ONE TODAY. It is named here so the gap is not mistaken for
+  #     a guard: `gh api repos/.../branches/main` answers `protected: false`,
+  #     there are no repository rulesets, and `merge-pr.sh` does not read this
+  #     file. So a PR that rewrites this step — or its `if:` — still gets a
+  #     green "ADR number guard". Closing it takes a required workflow in a
+  #     repository ruleset (a ruleset is taken from the default branch, so a PR
+  #     cannot edit it) or CODEOWNERS; both are administrative and neither
+  #     lives in this file. The same gap covers `base-sync` and
+  #     `lint-baseline`, which also run their scripts from the PR's tree;
   #   * numbers that entered `main` without a PR (direct push or a merge that
   #     already happened), and the cross-PR half above.
   adr-numbers:

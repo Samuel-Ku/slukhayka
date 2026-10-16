@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 89 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 92 записи, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -514,9 +514,60 @@ GUARDS = (
         edits=(
             Edit(
                 file="scripts/tests/test_fixture_environments.py",
-                find="        return sorted(name for name, verdict in verdicts.items() "
-                     'if verdict == "green")\n',
+                find="        return sorted(name for name, verdict in verdicts.items()\n"
+                     '                      if verdict != "red")\n',
                 replace="        return []  # mutated: вердикт більше не бачить зелених\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_named_run_that_becomes_skipped_is_a_finding",
+        protects="`green → skipped` (#1341): прогін, який під зламаними підставними "
+                 "не почервонів, а ПРОПУСТИВСЯ, теж свідком не був. Поки знахідкою "
+                 "була сама лише зелень, він проходив ґард тихо — і саме цю стару "
+                 "поведінку мутація й повертає",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="        return sorted(name for name, verdict in verdicts.items()\n"
+                     '                      if verdict != "red")\n',
+                replace="        return sorted(name for name, verdict in verdicts.items()\n"
+                        '                      if verdict == "green")  '
+                        "# mutated: скіп знову не знахідка\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_reader_of_a_file_stand_in_is_indistinguishable_from_an_executor",
+        protects="МЕЖА В КОДІ (#1341): читач файлового підставного не відрізняється "
+                 "від виконавця, бо мутація замінює ВМІСТ, а вміст читає й читач. "
+                 "Мутація, яка лишає читачеві його рядок (виконання ламає, тексту "
+                 "не чіпає), зсуває саме цю межу — і пін мусить почервоніти, а не "
+                 "пережити її мовчки",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find='    return BROKEN_PYTHON_TOOL if where.endswith(".py") '
+                     "else BROKEN_SHELL_TOOL\n",
+                replace='    return "# head-name\\nexit 1\\n"  '
+                        "# mutated: читач лишається зелений\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_fixture_module_that_passes_to_skipped_is_not_red",
+        protects="`green → skipped` на рівні МОДУЛЯ фікстури (#1341): вердикт "
+                 "модуля мусить лишити скіп окремим, бо згортання «не всі зелені» "
+                 "в `red` робить модуль, який перестав виконуватися, "
+                 "почервонілим — і ґард приймає його за свідка",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find='    return "skipped"\n',
+                replace='    return "green"  # mutated: скіп знову не знахідка\n',
             ),
         ),
     ),

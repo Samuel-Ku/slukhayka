@@ -402,11 +402,23 @@ or an embedded program with no record — and cannot catch the unnamed. That is 
 whole price, and it is a run, not a paragraph. The compensation landed as `#1294`:
 `EnvironmentTest.test_every_named_run_reddens_when_every_stand_in_is_broken`
 breaks every registered stand-in in a copy of the tree and requires every named run
-to go red — the link proven by execution, never read from the AST. It also named the
-runs that executed no stand-in at all, and those left `ENVIRONMENT_TARGETS`, because
-the environment guard was watching an empty place for them. What survives is the
-*named* pairing — "this run exercises *this* stand-in" — which would cost one
-mutation per stand-in; the guard's docstring names that limit in the code.
+to go red — no verdict read from the AST. It also named the runs that executed no
+stand-in at all, and those left `ENVIRONMENT_TARGETS`, because the environment guard
+was watching an empty place for them. What survives is the *named* pairing — "this
+run exercises *this* stand-in" — which would cost one mutation per stand-in; the
+guard's docstring names that limit in the code.
+
+The next review round (`#1341`) closed two holes in that compensation, and both are
+named in the code rather than in prose. A run that goes *skipped* under the broken
+stand-ins used to pass, because only `green` counted as "did not redden"; now anything
+but `red` is a finding (`runs_that_did_not_redden`), on the named runs and on the
+fixture modules alike. And the execution proof holds for the embedded programs only: a
+fixture file is invoked as `bash gate.sh`, so breaking it means replacing its text, and
+a run that merely *reads* that text reddens too — for the six file stand-ins under
+`fixtures/` the guard cannot tell a reader from an executor. That limit is stated where
+the mutation lives (`broken_tool_text`), it is called a missed hole rather than a safe
+refusal, and `test_a_reader_of_a_file_stand_in_is_indistinguishable_from_an_executor`
+runs the reader, shows it accepted, and pins the shape for all six.
 
 The fourth gate is about the records themselves (`#1276`). One target produced
 **six** switches of a single form: a registry entry could *declare* something about

@@ -399,9 +399,14 @@ happens*: a test outside `ENVIRONMENT_TARGETS` is not executed under either
 environment. So a new stand-in is covered only when someone names its run, and
 nothing reddens when they forget; the registry catches the unregistered — a file
 or an embedded program with no record — and cannot catch the unnamed. That is the
-whole price, and it is a run, not a paragraph. The compensation is a ticket of its
-own (`#1294`): break every registered stand-in in a copy of the tree and require
-every named run to go red — the link proven by execution, never read from the AST.
+whole price, and it is a run, not a paragraph. The compensation landed as `#1294`:
+`EnvironmentTest.test_every_named_run_reddens_when_every_stand_in_is_broken`
+breaks every registered stand-in in a copy of the tree and requires every named run
+to go red — the link proven by execution, never read from the AST. It also named the
+runs that executed no stand-in at all, and those left `ENVIRONMENT_TARGETS`, because
+the environment guard was watching an empty place for them. What survives is the
+*named* pairing — "this run exercises *this* stand-in" — which would cost one
+mutation per stand-in; the guard's docstring names that limit in the code.
 
 The fourth gate is about the records themselves (`#1276`). One target produced
 **six** switches of a single form: a registry entry could *declare* something about

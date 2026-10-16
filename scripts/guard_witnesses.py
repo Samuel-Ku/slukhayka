@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 87 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 88 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -500,6 +500,23 @@ GUARDS = (
                 file="scripts/tests/test_fixture_environments.py",
                 find="    unittest.TestLoader().loadTestsFromNames(sys.argv[1:])\n",
                 replace='    unittest.TestLoader().discover(".")  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_every_named_run_reddens_when_every_stand_in_is_broken",
+        protects="названий прогін, який НІЧОГО не запускає (#1294): ґард ламає "
+                 "кожного зареєстрованого підставного й вимагає, щоб кожен "
+                 "названий прогін почервонів. Порожній перелік мутацій лишає "
+                 "ґард зеленим про будь-що — і саме це мутація й робить, а "
+                 "відмова на порожньому переліку ловить її",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="    touched: list[str] = []\n",
+                replace="    touched: list[str] = []\n"
+                        "    return touched  # mutated: жодного підставного не зламано\n",
             ),
         ),
     ),

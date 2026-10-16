@@ -55,19 +55,24 @@ dotted-ресивер. Бо «згадує» і «запускає» — це т
 ЧЕСНА МЕЖА, І ВОНА ТУТ, А НЕ ЛИШЕ В ЗВІТІ. **Автоматичного покриття нових
 підставних немає.** Підставний інструмент, який успадковує оточення, зелений,
 доки його не названо в `ENVIRONMENT_TARGETS` руками — список розширюється разом
-із прогоном, і ніщо не перевіряє, що названий тест справді запускає інструмент.
-Реєстр ловить **незареєстроване** — файл, програму, читання чужої змінної, — і не
-ловить «цей прогін справді ганяє цього підставного». Сам реєстр цього не
-замовчує: межа названа біля `ENVIRONMENT_TARGETS` і нижче, у «Межах», а її ціна
-показана ПРОГОНОМ —
+із прогоном. Другу половину тієї межі закрито ПРОГОНОМ (#1294):
+`EnvironmentTest.test_every_named_run_reddens_when_every_stand_in_is_broken`
+ламає КОЖНОГО зареєстрованого підставного в копії дерева й вимагає, щоб КОЖЕН
+названий прогін почервонів, — тож названий, який нічого не запускає, тепер
+ВИДНО, а не припущено (трьох таких він і назвав, і вони зі списку пішли).
+Лишається названим поіменний зв'язок — «саме цей прогін запускає саме цього
+підставного»: він вимагав би мутації на кожного підставного, і його тут немає.
+Реєстр ловить **незареєстроване** — файл, програму, читання чужої змінної, — і
+не ловить «цей прогін справді ганяє цього підставного» поіменно. Ціну названого
+показує ПРОГОНОМ
 `EnvironmentTest.test_the_guard_sees_only_the_runs_it_is_named`: успадкований
 підставний червоний під отрутою тоді й лише тоді, коли його прогін названо.
 
   * **оточення піниться на НАЗВАНОМУ наборі тестів** (`ENVIRONMENT_TARGETS`), а не
     на виведеному: список лежить у коді, піниться тестом нижче і резолвиться,
     тож звузити його мовчки не можна, а розширити — руками, разом із прогоном.
-    Тепер чесно: реєстр ловить НЕЗАРЕЄСТРОВАНЕ, а чи справді запускає названий
-    тест — не ловить і не обіцяє;
+    Чи справді запускає названий прогін якогось підставного, ловить ґард
+    виконанням (#1294); поіменного зв'язку не ловить ніщо, і це названо;
   * **фікстурний інструмент мусить бути НАЗВАНИЙ тестом, який лежить поруч**
     (`fixtures/*/*/scripts/tests/test_*.py`), і ці модулі ганяються в копії дерева
     в обох прогонах оточення. Це перевірка покриття, а не доказ запуску: новий
@@ -78,9 +83,12 @@ dotted-ресивер. Бо «згадує» і «запускає» — це т
 
 Що `EnvironmentTest` справді доводить: КОЖЕН названий прогін зелений і з порожнім
 оточенням, і під отруєним; якщо підставний усередині нього успадкує оточення
-раннера — прогін червоний. Чого не доводить: що цей прогін справді ЗАПУСКАЄ
-кожного зареєстрованого підставного і що новий запис узагалі потрапив у список —
-він розширюється руками (межа названа біля `ENVIRONMENT_TARGETS`).
+раннера — прогін червоний. І окремо, прогоном (#1294): кожен названий прогін
+справді ЗАПУСКАЄ якогось зареєстрованого підставного — під зламаним він
+червоніє, а прогін, який нічого не запускає, лишається зелений і стає видимим.
+Чого не доводить: що він запускає САМЕ ТОГО, за якого його тримали, і що новий
+запис узагалі потрапив у список — він розширюється руками (межа названа біля
+`ENVIRONMENT_TARGETS`).
 
 СКІП-СЛІПОТА (#1270, знахідка огляду #1267). Прогін, який нічого не виконав,
 виходить із НУЛЕМ: `@unittest.skip` на названому прогоні лишав `EnvironmentTest`
@@ -145,10 +153,11 @@ dotted-ресивер. Бо «згадує» і «запускає» — це т
     тому — він доводив, що НАЗИВАЄ файл чи маркер, а не що ПОРІВНЮЄ форму, і
     виглядав захистом, не бувши ним;
   * підставний, який успадковує оточення, ловиться лише тоді, коли його ганяє
-    НАЗВАНИЙ прогін: реєстр не виводить прогони і не перевіряє, що названий тест
-    справді запускає інструмент. **Нові підставні автоматично не покриті** —
-    `ENVIRONMENT_TARGETS` розширюють руками, і ніщо не червоніє, якщо цього не
-    зробити.
+    НАЗВАНИЙ прогін: реєстр не виводить прогони. Чи названий прогін справді
+    ЗАПУСКАЄ якогось зареєстрованого підставного — тепер доводить прогоном ґард
+    виконанням (#1294); поіменного зв'язку («саме цього») не доводить ніщо, і це
+    названо. **Нові підставні автоматично не покриті** — `ENVIRONMENT_TARGETS`
+    розширюють руками, і ніщо не червоніє, якщо цього не зробити.
 
 Дві фікстури (`verdict_field`, `empty_shape`) отруюють оточення і самі, своїми
 `EnvironmentTest`; тут вони в реєстрі, і їхні тести теж ганяються — у копії
@@ -503,9 +512,31 @@ CASES = (
 #
 # ЧЕСНА МЕЖА: автоматичного покриття нових підставних НЕМАЄ. Новий підставний
 # інструмент, який успадковує оточення, буде зелений, доки його не назвуть тут
-# руками; ніщо не червоніє, якщо цього не зробити. І чи названий тест справді
-# ЗАПУСКАЄ інструмент, звідси теж не видно — видно лише, що він під двома
-# оточеннями зелений.
+# руками; ніщо не червоніє, якщо цього не зробити. А чи названий прогін справді
+# ЗАПУСКАЄ підставного — видно не звідси, а з
+# `EnvironmentTest.test_every_named_run_reddens_when_every_stand_in_is_broken`
+# (#1294): він ламає кожного зареєстрованого підставного і вимагає, щоб КОЖЕН
+# прогін із цього списку почервонів.
+#
+# ТРИ ПРОГОНИ, ЯКИХ ТУТ БІЛЬШЕ НЕМАЄ, І ЧОМУ (#1294). Той ґард назвав їх
+# знахідками — вони лишаються зелені під зламаними підставними, тобто не
+# запускають жодного з них, і ґард оточення дивився на них у порожнє:
+#
+#   * `test_empty_shape_mutants.ScannerTest`
+#     `.test_reads_arms_with_offsets_and_keeps_the_source_intact` — читає
+#     ВХІДНИЙ ТЕКСТ (`SAMPLE`), а не запускає інструмент: `SAMPLE` зареєстрований
+#     лише тому, що починається шебангом, і так його й названо в `CASES`;
+#   * `test_fixture_environments.EnvironmentTest`
+#     `.test_a_named_run_that_is_skipped_is_not_green` — ганяє фікстурний
+#     `test_gate` з дописаним `@unittest.skip`, тож `gate.sh` не виконується
+#     взагалі: предмет цього прогону — скіп-сліпота (#1270), не підставний;
+#   * `test_test_wrappers.FullSuiteWrapperTest`
+#     `.test_rejects_a_non_21_override_with_an_actionable_error` — сам переписує
+#     підставну `java` власним текстом, і вердикт не залежить від її виводу.
+#
+# Прибрати їх — не послаблення: ґард оточення для них був зелений НІ НА ЧОМУ, і
+# саме тому вони звідси пішли. Прогони лишаються в наборі — їх ганяє `unittest
+# discover`, — а їхні власні правила пінять їхні власні сторожа.
 #
 # Звузити список мовчки не можна: його пінить
 # `RegistryTest.test_the_environment_runs_are_the_named_set` і резолвить кожне
@@ -513,10 +544,6 @@ CASES = (
 ENVIRONMENT_TARGETS = (
     "test_android_emulator_readiness.AndroidEmulatorReadinessTest"
     ".test_waits_until_android_package_service_is_usable",
-    "test_empty_shape_mutants.ScannerTest"
-    ".test_reads_arms_with_offsets_and_keeps_the_source_intact",
-    "test_fixture_environments.EnvironmentTest"
-    ".test_a_named_run_that_is_skipped_is_not_green",
     "test_issue_premise.ExtractionTest"
     ".test_measure_head_exists_because_the_docs_cite_it",
     "test_merge_pr.MergePrTest.test_fails_closed_when_the_patch_comparison_fails",
@@ -531,8 +558,6 @@ ENVIRONMENT_TARGETS = (
     "test_test_wrappers.ChangedTestWrapperWebCheckTest"
     ".test_web_path_runs_the_web_check_and_no_android_partition",
     "test_test_wrappers.FullSuiteWrapperTest.test_cleans_temp_when_interrupted",
-    "test_test_wrappers.FullSuiteWrapperTest"
-    ".test_rejects_a_non_21_override_with_an_actionable_error",
     "test_test_wrappers.FullSuiteWrapperTest"
     ".test_uses_jdk_21_and_a_fresh_temp_then_cleans_it",
     "test_wide_window.DeviceRunTest"
@@ -863,10 +888,6 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(
             ["test_android_emulator_readiness.AndroidEmulatorReadinessTest"
              ".test_waits_until_android_package_service_is_usable",
-             "test_empty_shape_mutants.ScannerTest"
-             ".test_reads_arms_with_offsets_and_keeps_the_source_intact",
-             "test_fixture_environments.EnvironmentTest"
-             ".test_a_named_run_that_is_skipped_is_not_green",
              "test_issue_premise.ExtractionTest"
              ".test_measure_head_exists_because_the_docs_cite_it",
              "test_merge_pr.MergePrTest"
@@ -884,8 +905,6 @@ class RegistryTest(unittest.TestCase):
              ".test_web_path_runs_the_web_check_and_no_android_partition",
              "test_test_wrappers.FullSuiteWrapperTest"
              ".test_cleans_temp_when_interrupted",
-             "test_test_wrappers.FullSuiteWrapperTest"
-             ".test_rejects_a_non_21_override_with_an_actionable_error",
              "test_test_wrappers.FullSuiteWrapperTest"
              ".test_uses_jdk_21_and_a_fresh_temp_then_cleans_it",
              "test_wide_window.DeviceRunTest"
@@ -1019,9 +1038,16 @@ class UnrelatedTest(unittest.TestCase):
 # інтерпретатором (`python3 file`), шебанг не ламає — такий прогін лишиться
 # зелений і буде названий знахідкою ґарда. Це відмова в безпечний бік (зайва
 # знахідка, а не пропущена діра), і сьогодні серед названих прогонів такої немає.
-UNRUNNABLE_INTERPRETER = "#!/nonexistent/slukhayka-stand-in"
-BROKEN_SHELL_TOOL = "#!/usr/bin/env bash\nexit 1\n"
-BROKEN_PYTHON_TOOL = "#!/usr/bin/env python3\nimport sys\nsys.exit(1)\n"
+#
+# ШЕБАНГИ ЗІБРАНІ З ШМАТКІВ НАВМИСНО. Скан реєстру бачить ЛІТЕРАЛ, значення
+# якого ПОЧИНАЄТЬСЯ шебангом, і вимагав би запису в `CASES` на кожен із цих
+# рядків — а це не підставні інструменти, а мутація. Межа названа в докстрінзі
+# модуля: «програма, зібрана з кількох шматків у рантаймі, — її не бачить ні
+# скан, ні токени»; тут нею користуються свідомо.
+SHEBANG_MARK = "#!"
+UNRUNNABLE_INTERPRETER = SHEBANG_MARK + "/nonexistent/slukhayka-stand-in"
+BROKEN_SHELL_TOOL = SHEBANG_MARK + "/usr/bin/env bash\nexit 1\n"
+BROKEN_PYTHON_TOOL = SHEBANG_MARK + "/usr/bin/env python3\nimport sys\nsys.exit(1)\n"
 
 
 def break_the_run(text: str) -> str:

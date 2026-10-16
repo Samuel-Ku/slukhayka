@@ -175,6 +175,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTS_DIR = REPO_ROOT / "scripts" / "tests"
 FIXTURES = TESTS_DIR / "fixtures"
 
+# `tmp_budget.link_tree` — ЄДИНЕ місце, де в репозиторії будується копія дерева
+# (#1270): `scripts/` у ній справжня, решта записів кореня — симлінки. Копія для
+# доказу ВИКОНАННЯМ будується нею ж, а не власною редакцією, яка розійшлася б із
+# тією, що вже пережила CI.
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+import tmp_budget  # noqa: E402  (шлях додано вище: scripts/ не на sys.path у наборі)
+
 # Скільки чекати на вкладений прогін. Таймаут — це провал, не «зелено».
 NESTED_TIMEOUT_SECONDS = 600
 
@@ -200,6 +208,46 @@ print(json.dumps({
     "skippedIds": [test.id() for test, _reason in result.skipped],
 }))
 raise SystemExit(0 if result.wasSuccessful() else 1)
+'''
+
+# Прогін названих цілей із ПОІМЕННИМ вердиктом. Агрегатних лічильників мало, коли
+# питання не «чи виконався прогін», а «КОТРИЙ із названих лишився зелений»: саме
+# цей перелік і є вироком нового ґарда (#1294). Форма та сама, що NESTED_RUN, і
+# так само без шебанга — скани реєстру її не бачать (межа названа в докстрінзі
+# модуля, «програма БЕЗ шебанга невидима ВСІМ трьом сканам»).
+NESTED_VERDICTS = '''
+import json
+import sys
+import unittest
+
+
+class Outcomes(unittest.TestResult):
+    def __init__(self):
+        super().__init__()
+        self.outcomes = {}
+
+    def addSuccess(self, test):
+        self.outcomes[test.id()] = "green"
+
+    def addFailure(self, test, error):
+        self.outcomes[test.id()] = "red"
+
+    def addError(self, test, error):
+        self.outcomes[test.id()] = "red"
+
+    def addSkip(self, test, reason):
+        self.outcomes[test.id()] = "skipped"
+
+    def addExpectedFailure(self, test, error):
+        self.outcomes[test.id()] = "skipped"
+
+    def addUnexpectedSuccess(self, test):
+        self.outcomes[test.id()] = "red"
+
+
+result = Outcomes()
+unittest.TestLoader().loadTestsFromNames(sys.argv[1:]).run(result)
+print(json.dumps(result.outcomes))
 '''
 
 # Отрута — рівно те, що приносить раннер: затьмарені команди, чужий `BASH_ENV`,
@@ -946,6 +994,139 @@ class UnrelatedTest(unittest.TestCase):
 '''
 
 
+# --- доказ ВИКОНАННЯМ: зламати кожного підставного й вимагати червоного -------
+
+# Підставного ламають ДВОМА різними способами, і різниця тут не косметична.
+#
+#   * файл під `fixtures/` — це інструмент ЗА ВИЗНАЧЕННЯМ: реєстр пінить рівність
+#     «кожен файл під `fixtures/` — зареєстрований підставний»
+#     (`RegistryTest.test_the_registry_names_every_tool_under_the_fixtures`), а
+#     фікстури кличуть його ЯВНИМ інтерпретатором (`bash gate.sh`) — отже, шебанг
+#     не читається взагалі, і ламати треба ВЕСЬ текст;
+#   * вбудована програма — це НЕ обов'язково інструмент. `SAMPLE` у
+#     `test_empty_shape_mutants` зареєстрований лише тому, що ПОЧИНАЄТЬСЯ
+#     шебангом, а насправді це ВХІДНИЙ ТЕКСТ сканера (так його й названо в
+#     `CASES`). Тому вбудовану програму ламають ВИКОНАННЯМ, а не вмістом:
+#     інтерпретатора, названого в шебангові, більше немає. Прогін, який справді
+#     ЗАПУСКАЄ підставного, червоніє; прогін, який лише ЧИТАЄ текст, не зауважує
+#     нічого — і саме тому лишається зеленим, тобто видимим як «жодного
+#     підставного не виконав». Саме так кандидат тікета #1294
+#     (`test_empty_shape_mutants.ScannerTest`
+#     `.test_reads_arms_with_offsets_and_keeps_the_source_intact`) став видимим, а
+#     не припущеним.
+#
+# Межа цієї другої мутації, і вона тут: програму, яку кличуть ЯВНИМ
+# інтерпретатором (`python3 file`), шебанг не ламає — такий прогін лишиться
+# зелений і буде названий знахідкою ґарда. Це відмова в безпечний бік (зайва
+# знахідка, а не пропущена діра), і сьогодні серед названих прогонів такої немає.
+UNRUNNABLE_INTERPRETER = "#!/nonexistent/slukhayka-stand-in"
+BROKEN_SHELL_TOOL = "#!/usr/bin/env bash\nexit 1\n"
+BROKEN_PYTHON_TOOL = "#!/usr/bin/env python3\nimport sys\nsys.exit(1)\n"
+
+
+def break_the_run(text: str) -> str:
+    """Той самий текст, але виконатися йому більше НЕМА ЧИМ.
+
+    Шебанг указує на неіснуючий інтерпретатор — запуск підставного ядром падає.
+    Байти, які читає сканер, лишаються незмінними: ламається ВИКОНАННЯ, а не
+    вміст, і саме тому ця мутація відрізняє «прогін запустив підставного» від
+    «прогін прочитав його як текст».
+    """
+    _first, separator, rest = text.partition("\n")
+    return UNRUNNABLE_INTERPRETER + separator + rest
+
+
+def broken_tool_text(where: str) -> str:
+    """Текст, у який обертається файл-інструмент фікстури: він не спрацює взагалі.
+
+    Шебанга тут мало: фікстури кличуть інструмент явним `bash`/`python3`, тож
+    ламається весь текст, а не перший рядок.
+    """
+    return BROKEN_PYTHON_TOOL if where.endswith(".py") else BROKEN_SHELL_TOOL
+
+
+def _claimed_program_spans(source: str, ats: set[str]) -> list[tuple[int, int, str]]:
+    """Зсуви в джерелі для названих програм — разом із їхнім текстом.
+
+    Ключ той самий, що в `embedded_programs` (`Program.at` плюс дедуплікація
+    `#2`): місце літерала і є особистістю програми, а дві копії того самого
+    тексту — дві різні програми. Зсуви від початку файлу, щоб правити джерело
+    одним проходом і не зсунути те, що ще не замінено.
+    """
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree)
+               for child in ast.iter_child_nodes(parent)}
+    found: dict[str, tuple[ast.AST, str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(parents.get(node), ast.JoinedStr):
+            continue
+        text = _program_text(node)
+        if text is None:
+            continue
+        key = _location(node, parents, source)
+        unique, index = key, 2
+        while unique in found:
+            unique, index = f"{key}#{index}", index + 1
+        found[unique] = (node, text)
+
+    lines = source.splitlines(keepends=True)
+
+    def offset(line: int, column: int) -> int:
+        return sum(len(part) for part in lines[:line - 1]) + column
+
+    spans = []
+    for at in sorted(ats):
+        node, text = found[at]
+        spans.append((offset(node.lineno, node.col_offset),
+                      offset(node.end_lineno, node.end_col_offset), text))
+    return spans
+
+
+def stand_in_breakages(root: Path) -> list[str]:
+    """Місця, які зачепить мутація, — БЕЗ самої мутації.
+
+    Порожній перелік означав би перевірку, яка не ламає нічого і тому зелена про
+    будь-що; тож його видно окремо (`assertTrue` у ґарді) і коштує він нуль
+    прогонів. Назви — ті самі місця, якими реєстр і тримає підставних.
+    """
+    touched: list[str] = []
+    for case in CASES:
+        touched.extend(where for where in case.where
+                       if "fixtures" in Path(where).parts)
+    for case in CASES:
+        if case.programs:
+            touched.extend("%s:%s" % (case.where[0], program.at)
+                           for program in case.programs)
+    return touched
+
+
+def apply_breakages(root: Path) -> None:
+    """Зламати КОЖНОГО зареєстрованого підставного в копії дерева.
+
+    Два способи — за видом підставного, і чому саме такі, названо над
+    `UNRUNNABLE_INTERPRETER`: файл під `fixtures/` — інструмент, і ламається
+    цілком; вбудована програма ламається ВИКОНАННЯМ, щоб прогін, який її лише
+    читає, лишився зеленим і був видимий.
+    """
+    for case in CASES:
+        for where in case.where:
+            if "fixtures" in Path(where).parts:
+                (root / where).write_text(broken_tool_text(where), encoding="utf-8")
+
+    by_module: dict[str, set[str]] = {}
+    for case in CASES:
+        if case.programs:
+            by_module.setdefault(case.where[0], set()).update(
+                program.at for program in case.programs)
+
+    for relative, ats in by_module.items():
+        module = root / relative
+        source = module.read_text(encoding="utf-8")
+        for start, end, text in sorted(_claimed_program_spans(source, ats), reverse=True):
+            source = source[:start] + repr(break_the_run(text)) + source[end:]
+        module.write_text(source, encoding="utf-8")
+
+
 class EnvironmentTest(unittest.TestCase):
     """Кожен названий прогін мусить бути зелений і без спадку, і під отрутою."""
 
@@ -1008,6 +1189,155 @@ class EnvironmentTest(unittest.TestCase):
             "названі прогони мусять бути зелені Й ВИКОНАНІ: код виходу нуль при "
             "пропущеному тесті — не зелень (#1270)\n"
             + "\n".join(run.output for run in failures),
+        )
+
+    @staticmethod
+    def runs_that_stayed_green(verdicts: dict[str, str]) -> list[str]:
+        """Названі прогони, які НЕ почервоніли, — і саме вони є вироком ґарда.
+
+        Одна функція на ґард і на демонстрацію: якби демонстрація ухвалювала
+        вердикт власним рядком, вона пінила б себе, а не правило.
+        """
+        return sorted(name for name, verdict in verdicts.items() if verdict == "green")
+
+    def run_verdicts(self, targets: tuple[str, ...], environment: dict,
+                     cwd: Path) -> dict[str, str]:
+        """Поіменний вердикт прогону: `test.id()` → `green` / `red` / `skipped`.
+
+        `run_named` каже, ЧИ прогін зелений; тут питають, КОТРИЙ із названих
+        лишився зеленим під зламаними підставними, — і без імені вердикт ґарда
+        не назвав би винного.
+        """
+        result = subprocess.run(
+            [sys.executable, "-c", NESTED_VERDICTS, *targets],
+            cwd=str(cwd), check=False, capture_output=True, text=True,
+            env=environment, timeout=NESTED_TIMEOUT_SECONDS,
+        )
+        lines = [line for line in result.stdout.strip().splitlines() if line.strip()]
+        if not lines:
+            return {}
+        try:
+            parsed = json.loads(lines[-1])
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def run_verdicts_in(self, root: Path, environment: dict) -> dict[str, str]:
+        """Вердикти КОЖНОГО названого прогону в копії `root` — разом із фікстурними.
+
+        Фікстурні модулі ганяються в копії ФІКСТУРИ (вона пише артефакти поруч із
+        собою) — тією самою, що бере `run_fixture`, лише взятою з копії дерева,
+        тож злам підставного файлу в ній видно.
+        """
+        verdicts = dict(self.run_verdicts(ENVIRONMENT_TARGETS, environment,
+                                          root / "scripts" / "tests"))
+        for fixture, module in sorted({(fixture, module)
+                                       for fixture, _name, modules in fixture_naming_tests()
+                                       for module in modules}):
+            label = "%s: %s" % (fixture.relative_to(REPO_ROOT), module)
+            with tempfile.TemporaryDirectory(prefix="fixture-environment-") as temporary:
+                work = Path(temporary) / "root"
+                shutil.copytree(root / fixture.relative_to(REPO_ROOT) / "scripts",
+                                work / "scripts")
+                found = self.run_verdicts((module[:-3],), environment,
+                                          work / "scripts" / "tests")
+            verdicts[label] = ("green" if found and all(v == "green" for v in found.values())
+                               else "red")
+        return verdicts
+
+    def test_a_run_that_executes_no_stand_in_is_a_finding(self):
+        """Демонстрація мусить вижити: прогін, який НІЧОГО не запускає, ВИДНО (#1294).
+
+        Той самий код, що ґард вище (`broken_tool_text`, `run_verdicts`,
+        `runs_that_stayed_green`), на дереві фікстури `empty_shape/pinned`, зі
+        зламаним `gate.sh`:
+
+          * `INHERITING_RUN` запускає підставний — під зламаним він червоний, і
+            ґард його пропускає (порожній перелік знахідок);
+          * `UNRELATED_RUN` не запускає нічого — він зелений і під зламаним, і
+            ґард МУСИТЬ назвати його знахідкою.
+
+        Без другої половини «кожен названий прогін мусить почервоніти» було б
+        зеленим і на дереві, де не зламано нічого: твердження перевіряється
+        прогоном з ОБОХ боків, а не припускається.
+        """
+        fixture = FIXTURES / "empty_shape" / "pinned"
+        with tempfile.TemporaryDirectory(prefix="executes-nothing-") as temporary:
+            work = Path(temporary) / "root"
+            shutil.copytree(fixture / "scripts", work / "scripts")
+            tests = work / "scripts" / "tests"
+            (tests / "test_inherits.py").write_text(INHERITING_RUN, encoding="utf-8")
+            (tests / "test_unrelated.py").write_text(UNRELATED_RUN, encoding="utf-8")
+            marker = work / "marker"
+            marker.mkdir()
+            (marker / "head-name").write_text("release\n", encoding="utf-8")
+            (work / "scripts" / "gate.sh").write_text(
+                broken_tool_text("gate.sh"), encoding="utf-8")
+
+            executing = self.run_verdicts(("test_inherits",), dict(STRIPPED), tests)
+            nothing = self.run_verdicts(("test_unrelated",), dict(STRIPPED), tests)
+
+        self.assertEqual(["red"], sorted(executing.values()),
+                         "прогін, який ЗАПУСКАЄ зламаного підставного, мусить "
+                         "почервоніти: %s" % executing)
+        self.assertEqual(["green"], sorted(nothing.values()),
+                         "прогін, який нічого не запускає, лишається зеленим — у "
+                         "цьому й ціна: %s" % nothing)
+        self.assertEqual([], self.runs_that_stayed_green(executing),
+                         "ґард мусить пропустити прогін, який справді залежить від "
+                         "підставного")
+        self.assertEqual(["test_unrelated.UnrelatedTest.test_adds"],
+                         self.runs_that_stayed_green(nothing),
+                         "ґард мусить назвати знахідкою прогін, який не запустив "
+                         "жодного підставного")
+
+    def test_every_named_run_reddens_when_every_stand_in_is_broken(self):
+        """Зв'язок «названий прогін ↔ підставний» доводиться ВИКОНАННЯМ (#1294).
+
+        `ENVIRONMENT_TARGETS` — НАЗВАНИЙ список (виведення з AST прибрано, #1279),
+        і ціна названого в тому, що ніщо не перевіряло, чи названий прогін
+        справді ЗАПУСКАЄ зареєстрованого підставного. Тут це доводиться
+        прогоном, а не читанням:
+
+          * у копії дерева (`tmp_budget.link_tree` — та сама копія, що в
+            `guard_witnesses`) кожен названий прогін мусить бути зелений;
+          * потім ламається КОЖЕН зареєстрований підставний (`apply_breakages`) —
+            і кожен названий прогін мусить почервоніти.
+
+        Прогін, який лишився зелений під зламаними підставними, або не запускає
+        жодного з них, або не читає їхнього вердикту — для ґарда це те саме:
+        успадковане оточення ламає підставного, і прогін, який не зауважує його
+        відмови, свідком не був (тікет #1294).
+
+        Це доводить, що прогін запускає ЯКОГОСЬ зареєстрованого підставного й
+        читає його вердикт, — і НЕ доводить, що він запускає САМЕ ТОГО, за якого
+        його тримали: поіменний зв'язок вимагав би окремої мутації на кожного
+        підставного. Межа названа тут, у коді, а не лише в звіті.
+        """
+        with tempfile.TemporaryDirectory(prefix="broken-stand-ins-") as temporary:
+            root = tmp_budget.link_tree(REPO_ROOT, Path(temporary))
+            breakages = stand_in_breakages(root)
+            self.assertTrue(
+                breakages,
+                "жодного підставного не зламано — перевірка порожня, і зелена вона "
+                "про будь-що: %s" % breakages,
+            )
+            intact = self.run_verdicts_in(root, dict(STRIPPED))
+            apply_breakages(root)
+            broken = self.run_verdicts_in(root, dict(STRIPPED))
+
+        self.assertEqual(sorted(intact), sorted(broken),
+                         "обидва прогони мусять бачити той самий набір цілей — "
+                         "інакше червоне в копії не від зламу")
+        self.assertEqual(
+            [], sorted(name for name, verdict in intact.items() if verdict != "green"),
+            "копія з ЦІЛИМИ підставними мусить бути зелена — інакше червоне в "
+            "копії зі зламаними не від зламу",
+        )
+        self.assertEqual(
+            [], self.runs_that_stayed_green(broken),
+            "названий прогін, зелений при ЗЛАМАНИХ підставних, не запускає жодного "
+            "з них і не читає їхнього вердикту — свідком він не був (#1294)",
         )
 
     def test_a_named_run_that_is_skipped_is_not_green(self):

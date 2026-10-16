@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 88 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 89 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -500,6 +500,23 @@ GUARDS = (
                 file="scripts/tests/test_fixture_environments.py",
                 find="    unittest.TestLoader().loadTestsFromNames(sys.argv[1:])\n",
                 replace='    unittest.TestLoader().discover(".")  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_run_that_executes_no_stand_in_is_a_finding",
+        protects="демонстрація мусить ВИЖИТИ (#1294): той самий вердикт, що в ґарді, "
+                 "мусить відрізнити прогін, який запускає зламаного підставного "
+                 "(червоний — ґард пропускає), від прогону, який не запускає "
+                 "нічого (зелений — ґард називає знахідкою). Вердикт, сліпий до "
+                 "зелених, лишає демонстрацію без другої половини",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="        return sorted(name for name, verdict in verdicts.items() "
+                     'if verdict == "green")\n',
+                replace="        return []  # mutated: вердикт більше не бачить зелених\n",
             ),
         ),
     ),

@@ -1317,6 +1317,20 @@ class EnvironmentTest(unittest.TestCase):
                          "ґард мусить назвати знахідкою прогін, який не запустив "
                          "жодного підставного")
 
+        # І ЧОМУ кандидат тікета (#1294) лишається зелений — не «так склалося», а
+        # тому що мутація ламає ВИКОНАННЯ, а не вміст. `SAMPLE` — вхідний текст
+        # сканера; під `break_the_run` його ТІЛО незмінне, тож і `scan(SAMPLE)`
+        # незмінний, і зелений `ScannerTest` справді не запускав підставного.
+        sample = embedded_programs(TESTS_DIR / "test_empty_shape_mutants.py")["SAMPLE"]
+        broken_sample = break_the_run(sample)
+        self.assertEqual(
+            sample.partition("\n")[2], broken_sample.partition("\n")[2],
+            "мутація зачепила ВМІСТ, а не виконання — тоді «зелений» `ScannerTest` "
+            "нічого не доводив би",
+        )
+        self.assertNotEqual(sample.split("\n")[0], broken_sample.split("\n")[0],
+                            "шебанг мусив змінитися — інакше підставний не зламаний")
+
     def test_every_named_run_reddens_when_every_stand_in_is_broken(self):
         """Зв'язок «названий прогін ↔ підставний» доводиться ВИКОНАННЯМ (#1294).
 

@@ -24,16 +24,28 @@
     те, що гейт ЛИШЕ читає (жодного `edit`, `-X`, `POST`);
   * `BoundaryTest` — названі межі перевіряються прогоном: номер у ТЕКСТІ файлу
     гейт не бачить; ревізія без теки ADR і неіснуюча ревізія — невідомість;
-    дивне імʼя в PR — невідомість, а не «повз»; `--limit 0` — відмова.
+    дивне імʼя в PR — невідомість, а не «повз»; `--limit 0` — відмова;
+  * `JobFromBaseTest` — сама ДЖОБА `adr-numbers` у `ci.yml` (#1335): тіло її
+    кроку читається з файлу й виконується в підставленому дереві, тож тест
+    червоніє рівно тоді, коли крок повертається до скрипта з дерева PR. Гілка,
+    зрізана до гейта, проходить (стара форма кроку на ній падає — причина #1334
+    названа й відтворена), PR із дублем номера червоніє, PR, який гасить свій
+    скрипт на «завжди 0», усе одно червоніє, бо гейт із бази, а база без скрипта
+    і база з порожнім скриптом — код 2 із названою причиною.
 
 Зараховані в `scripts/guard_witnesses.py` сторожі — `TreeTest`, `UnknownTest`,
 `TrialMergeTest` і `OpenPrTest` (по одному на мутацію). Решта перевіряють сам
 механізм і в реєстрі не стоять: реєстр покриває НАЗВАНИХ, а не всіх.
+`JobFromBaseTest` не зарахований не через недогляд: той механізм перевіряє
+мутанта як Python (`ast.parse`) або shell (`bash -n`), а мутант `ci.yml` не
+проходить ні те, ні те (`bash -n .github/workflows/ci.yml` → код 2), тож запис
+давав би «немає вердикту», а не червоного сторожа.
 """
 
 import contextlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,6 +58,14 @@ MECHANISM = REPO_ROOT / "scripts" / "adr_numbers.py"
 sys.path.insert(0, str(MECHANISM.parent))
 
 import adr_numbers  # noqa: E402
+import ci_job_time  # noqa: E402
+
+# Джоба й крок, чиє тіло `run:` виконує `JobFromBaseTest`. Джоба називається
+# ключем, крок — тим імʼям, що стоїть у `ci.yml`; зникнення будь-якого з них —
+# відмова, а не «перший-ліпший крок».
+ADR_JOB = "adr-numbers"
+ADR_GATE_STEP = "Fail when the trial merge carries two ADRs with one number"
+ADR_WORKFLOW = Path(".github/workflows/ci.yml")
 
 
 # --------------------------------------------------------------------------
@@ -623,6 +643,242 @@ class BoundaryTest(Fixture):
         self.assertEqual([], findings)
         self.assertEqual(1, len(unknowns))
         self.assertIn("61-x.md", unknowns[0])
+
+
+# --------------------------------------------------------------------------
+# Джоба в ci.yml: гейт із БАЗИ, дерево з PR (#1335)
+# --------------------------------------------------------------------------
+
+
+def job_gate_body(workflow: Path = REPO_ROOT / ADR_WORKFLOW) -> str:
+    """Тіло `run:` кроку гейта — прочитане з `ci.yml`, а не переказане.
+
+    Блок джоби читає `ci_job_time.job_block` (той самий розбір `ci.yml`, що й
+    для ліміту джоби; PyYAML у CI немає). Кроків із `run:` у джобі два, і
+    береться той, який названий `ADR_GATE_STEP`: кількість збігів, інша за один,
+    — відмова, а не «перший-ліпший».
+    """
+    text = workflow.read_text(encoding="utf-8")
+    block = ci_job_time.job_block(text, ADR_JOB)
+    steps: list[tuple[str, str]] = []
+    name = ""
+    index = 0
+    while index < len(block):
+        line = block[index]
+        match = re.match(r"^      - name:\s*(\S.*?)\s*$", line)
+        if match:
+            name = match.group(1)
+        if re.match(r"^        run:\s*\|", line):
+            body: list[str] = []
+            index += 1
+            while index < len(block) and (
+                not block[index].strip() or block[index].startswith("          ")
+            ):
+                body.append(block[index][10:])
+                index += 1
+            steps.append((name, "\n".join(body) + "\n"))
+            continue
+        index += 1
+    found = [body for step, body in steps if step == ADR_GATE_STEP]
+    if len(found) != 1:
+        raise AssertionError(
+            "у джобі %s кроків з імʼям %r — %d, а тіло `run:` мусить бути одне "
+            "(кроків із `run:` у джобі: %s)"
+            % (ADR_JOB, ADR_GATE_STEP, len(found), ", ".join(repr(s) for s, _ in steps))
+        )
+    return found[0]
+
+
+class JobFromBaseTest(Fixture):
+    """Крок гейта з `ci.yml` у підставленому дереві — три боки й дві невідомості.
+
+    Дерево: `main` несе справжній `scripts/adr_numbers.py` і `docs/adr/0001`,
+    `old-pr` зрізаний ДО нього (скрипта в дереві немає — це #1334), `duplicate-pr`
+    додає друге `0001`, `neutered-pr` гасить свій скрипт на «завжди 0» і теж
+    додає друге `0001`, а `no-gate-base`/`empty-gate-base` — бази без скрипта й з
+    порожнім скриптом. `refs/remotes/origin/*` ставляться прямо: крок `git fetch`,
+    який робить із них `origin/$BASE_REF`, — не предмет цієї перевірки.
+    """
+
+    def setUp(self):
+        self.work = self.repository("adr-job-")
+        # $RUNNER_TEMP — СУСІДНЯ тека робочій, і це навмисно: типове
+        # `Path(__file__).parents[1]` у `adr_numbers.py` тоді вказує повз
+        # репозиторій, тож крок без `--root "$GITHUB_WORKSPACE"` відмовляє кодом
+        # 2, а не проходить випадково.
+        self.runner_temp = self.base("adr-job-temp-")
+        self.build_world()
+
+    # -- підставлене дерево -------------------------------------------------
+
+    def build_world(self) -> None:
+        work = self.work
+        real_script = MECHANISM.read_text(encoding="utf-8")
+        write_adr(work, "0001-alpha.md")
+        (work / "README.md").write_text("підставкове дерево\n", encoding="utf-8")
+        self.commit(work, "seed: ADR 0001 без гейта")
+
+        # PR, зрізаний ДО #1227: його дерево скрипта не має взагалі.
+        self.assert_git(work, "checkout", "-q", "-b", "old-pr")
+        write_adr(work, "0002-old-pr.md")
+        self.commit(work, "old PR: свій номер, скрипта не має")
+
+        # main отримує гейт (#1227 злито) — і він мусить судити гілку нижче.
+        self.assert_git(work, "checkout", "-q", "main")
+        script = work / "scripts" / "adr_numbers.py"
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text(real_script, encoding="utf-8")
+        self.commit(work, "main: гейт #1227")
+
+        self.assert_git(work, "checkout", "-q", "-b", "duplicate-pr", "main")
+        write_adr(work, "0001-duplicate.md")
+        self.commit(work, "PR вносить номер 0001 удруге")
+
+        # Контроль: PR і править скрипт на «завжди 0», і вносить дубль.
+        self.assert_git(work, "checkout", "-q", "-b", "neutered-pr", "main")
+        script.write_text("import sys\n\nsys.exit(0)  # «завжди 0»\n", encoding="utf-8")
+        write_adr(work, "0001-duplicate.md")
+        self.commit(work, "PR гасить свій скрипт і вносить дубль")
+
+        # Дві невідомості: база без скрипта і база з порожнім скриптом.
+        # `main~1` — seed: `main` несе рівно один коміт поверх нього, і той
+        # коміт і є гейт #1227.
+        self.assert_git(work, "branch", "no-gate-base", "main~1")
+        self.assert_git(work, "checkout", "-q", "-b", "empty-gate-base", "main~1")
+        empty = work / "scripts" / "adr_numbers.py"
+        empty.parent.mkdir(parents=True, exist_ok=True)
+        empty.write_text("", encoding="utf-8")
+        self.commit(work, "база: порожній скрипт")
+
+        self.assert_git(work, "checkout", "-q", "main")
+        for name in ("main", "old-pr", "duplicate-pr", "neutered-pr",
+                     "no-gate-base", "empty-gate-base"):
+            revision = self.assert_git(work, "rev-parse", name).strip()
+            self.assert_git(
+                work, "update-ref", "refs/remotes/origin/%s" % name, revision)
+
+    # -- прогони ------------------------------------------------------------
+
+    def checkout(self, revision: str) -> None:
+        """Стати на ревізію PR — те, що робить `actions/checkout` у джобі."""
+        self.assert_git(self.work, "checkout", "-q", "--detach", "--force", revision)
+
+    def environment(self) -> dict:
+        environment = git_environment()
+        environment.update({
+            "BASE_REF": "main",
+            "GITHUB_WORKSPACE": str(self.work),
+            "RUNNER_TEMP": str(self.runner_temp),
+        })
+        return environment
+
+    def run_step(self, revision: str, base_ref: str = "main") -> subprocess.CompletedProcess:
+        """Тіло кроку з `ci.yml` — тим самим `bash`, у тому самому дереві."""
+        executable = shutil.which("bash")
+        if executable is None:  # pragma: no cover
+            raise unittest.SkipTest("немає bash")
+        body = job_gate_body()
+        self.checkout(revision)
+        environment = self.environment()
+        environment["BASE_REF"] = base_ref
+        return subprocess.run(
+            [executable, "-c", body], cwd=str(self.work), env=environment,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+
+    def run_old_step(self, revision: str, base_ref: str = "main") -> subprocess.CompletedProcess:
+        """Крок У СТАРІЙ формі (`python3 scripts/adr_numbers.py`) — для причини.
+
+        Це тіло, яке стояло в джобі до #1335, і воно потрібне як доказ, а не як
+        альтернатива: контрольний бік без нього не доводив би, що PR справді
+        намагався вимкнути гейт.
+        """
+        executable = shutil.which("python3")
+        if executable is None:  # pragma: no cover
+            raise unittest.SkipTest("немає python3")
+        self.checkout(revision)
+        return subprocess.run(
+            [executable, "scripts/adr_numbers.py", "--base", "origin/%s" % base_ref,
+             "--head", "HEAD"],
+            cwd=str(self.work), env=self.environment(), capture_output=True,
+            text=True, encoding="utf-8", errors="replace",
+        )
+
+    def transcript(self, result: subprocess.CompletedProcess) -> str:
+        return "код %d\nstdout:\n%s\nstderr:\n%s" % (
+            result.returncode, result.stdout, result.stderr)
+
+    # -- боки ---------------------------------------------------------------
+
+    def test_a_branch_cut_before_the_gate_passes(self):
+        """(а) PR, старіший за гейт: скрипта в дереві немає, а крок зелений."""
+        result = self.run_step("old-pr")
+        self.assertFalse(
+            (self.work / "scripts" / "adr_numbers.py").exists(),
+            "підставковий PR мусить бути без скрипта — інакше це не випадок #1334:\n%s"
+            % self.transcript(result),
+        )
+        self.assertEqual(0, result.returncode, self.transcript(result))
+        self.assertIn("ПРОЧИТАНО:", result.stdout)
+        self.assertIn("OK", result.stdout)
+
+    def test_the_old_step_died_on_that_branch(self):
+        """Причина #1334 відтворена: те саме дерево, старе тіло кроку."""
+        result = self.run_old_step("old-pr")
+        self.assertNotEqual(0, result.returncode, self.transcript(result))
+        self.assertIn("adr_numbers.py", result.stderr)
+        self.assertIn("No such file or directory", result.stderr)
+
+    def test_a_pr_that_brings_a_duplicate_number_fails(self):
+        """(б) Дубль номера в PR — червоний, і названі ОБИДВА шляхи."""
+        result = self.run_step("duplicate-pr")
+        self.assertEqual(1, result.returncode, self.transcript(result))
+        self.assertIn("FAIL", result.stdout)
+        self.assertIn("0001-alpha.md", result.stdout)
+        self.assertIn("0001-duplicate.md", result.stdout)
+
+    def test_a_pr_cannot_switch_off_its_own_gate(self):
+        """(в) Контроль: PR гасить свій скрипт — і все одно червоніє."""
+        own = self.run_old_step("neutered-pr")
+        self.assertEqual(
+            0, own.returncode,
+            "PR-копія мусить виходити нулем — без цього «червоний» не доводив би, "
+            "що PR намагався вимкнути гейт:\n%s" % self.transcript(own),
+        )
+        result = self.run_step("neutered-pr")
+        self.assertEqual(1, result.returncode, self.transcript(result))
+        self.assertIn("0001-duplicate.md", result.stdout)
+
+    def test_a_base_without_the_script_is_a_named_unknown(self):
+        """(г) База без скрипта — код 2 із названою причиною, не «зелено»."""
+        result = self.run_step("duplicate-pr", base_ref="no-gate-base")
+        self.assertEqual(2, result.returncode, self.transcript(result))
+        self.assertIn("НЕВІДОМО", result.stdout + result.stderr)
+        self.assertIn("no-gate-base", result.stdout + result.stderr)
+        self.assertIn("adr_numbers.py", result.stdout + result.stderr)
+        # Невідомість не сміє звучати ні згодою, ні знахідкою.
+        self.assertNotIn("OK", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+
+    def test_an_empty_script_in_the_base_is_a_named_unknown(self):
+        """(д) Порожній скрипт бази — код 2; порожній файл сам виходить нулем."""
+        empty = self.runner_temp / "empty_gate.py"
+        empty.write_text("", encoding="utf-8")
+        executable = shutil.which("python3")
+        if executable is None:  # pragma: no cover
+            raise unittest.SkipTest("немає python3")
+        silent = subprocess.run([executable, str(empty)], capture_output=True,
+                                text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(
+            0, silent.returncode,
+            "порожній скрипт мусить виходити нулем — саме тому порожнеча коштує "
+            "код 2, а не «проїхали»",
+        )
+        result = self.run_step("old-pr", base_ref="empty-gate-base")
+        self.assertEqual(2, result.returncode, self.transcript(result))
+        self.assertIn("НЕВІДОМО", result.stdout + result.stderr)
+        self.assertIn("empty-gate-base", result.stdout + result.stderr)
+        self.assertNotIn("OK", result.stdout)
 
 
 if __name__ == "__main__":

@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 78 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 82 записи, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -1555,6 +1555,67 @@ GUARDS = (
                 replace='if false; then  # mutated: «немає git» не названо\n'
                         '  fail "немає git: \'$GIT\' не запускається"\n'
                         'fi\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_adr_numbers.TreeTest.test_two_files_with_one_number_are_a_finding",
+        protects="сам дубль номера ADR (#1227): `git` зливає два РІЗНІ імена під "
+                 "одним номером чисто, тож без цієї перевірки гейт зелений рівно "
+                 "на тій формі, проти якої він стоїть (#1139 і #1186 обидва "
+                 "додають 0061)",
+        edits=(
+            Edit(
+                file="scripts/adr_numbers.py",
+                find="        if len(group) < 2:\n            continue\n",
+                replace="        if True:  # mutated: дубль номера не названо\n"
+                        "            continue\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_adr_numbers.UnknownTest"
+             ".test_a_missing_adr_directory_is_an_unknown_not_a_clean_tree",
+        protects="«немає теки» як невідомість (код 2), а не «дублів немає»: "
+                 "порожній вхід не сміє бути зеленим — та сама межа, що «прогін "
+                 "виконав нуль тестів не є зеленню»",
+        edits=(
+            Edit(
+                file="scripts/adr_numbers.py",
+                find='    if not directory.is_dir():\n'
+                     '        raise AdrUnknown("немає теки %s у %s" % (ADR_DIR, root))\n',
+                replace='    if False:  # mutated: немає теки не названо\n'
+                        '        raise AdrUnknown("немає теки %s у %s" % (ADR_DIR, root))\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_adr_numbers.TrialMergeTest"
+             ".test_a_conflicted_trial_merge_is_an_unknown_not_a_clean_tree",
+        protects="конфліктне пробне злиття — неповна перевірка, а не «колізій "
+                 "немає»: дерево конфлікту теж містить файли, і без цієї гілки "
+                 "гейт читав би його як справжній результат",
+        edits=(
+            Edit(
+                file="scripts/adr_numbers.py",
+                find='    result = git(root, ["merge-tree", "--write-tree", base, head])\n'
+                     "    if result.returncode != 0:\n",
+                replace='    result = git(root, ["merge-tree", "--write-tree", base, head])\n'
+                        "    if False:  # mutated: конфлікт не названо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_adr_numbers.OpenPrTest"
+             ".test_the_same_new_number_in_two_open_prs_names_both",
+        protects="один новий номер у ДВОХ відкритих PR (#1227) — єдине місце, де "
+                 "колізію #1139/#1186 видно ДО злиття: без цієї перевірки "
+                 "read-only режим зелений рівно там, де він потрібен",
+        edits=(
+            Edit(
+                file="scripts/adr_numbers.py",
+                find="        if len({entry[2] for entry in entries}) > 1:\n",
+                replace="        if False:  # mutated: два PR з одним номером не названо\n",
             ),
         ),
     ),

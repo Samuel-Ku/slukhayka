@@ -125,6 +125,95 @@ jobs:
           set -euo pipefail
           scripts/check-base-sync.sh "origin/$BASE_REF" "HEAD"
 
+  # #1227: two ADRs can claim ONE number and `git` will not notice, because the
+  # filenames differ — the text merge is clean and the merge result simply
+  # carries both files. Live, not hypothetical: #1139 and #1186 each add a
+  # different 0061, and #1139's 0062 already exists on main. Like `base-sync`
+  # above, the guard reads the TRIAL-MERGE tree (`git merge-tree --write-tree`:
+  # object store only, worktree and index untouched) and fails when one number
+  # arrives twice. PR-only, same as `migration-slot` and `base-sync`: on push to
+  # main there is no base to compare against.
+  #
+  # The cross-PR half (`scripts/adr_numbers.py --open-prs`, read-only `gh`) is
+  # deliberately NOT called here: this job carries no token, and a green run of
+  # a check that never asked would be the silent green this guard exists
+  # against. It runs locally, where a token exists.
+  #
+  # #1335: the GATE is read out of the BASE ref, not out of the tree it judges
+  # (see the last step). Running the checkout's own `scripts/adr_numbers.py`
+  # failed in both directions: a branch cut before #1227 merged carries no
+  # script at all — PR #1334 died on `can't open file .../adr_numbers.py`,
+  # exit 2, a red check no commit on that branch could fix — and any PR could
+  # edit the script to "always 0" and pass the gate it was subject to.
+  #
+  # What this job still does NOT check, named here and not only in a report:
+  #   * the PR's own copy of `scripts/adr_numbers.py` — unread by design: a PR
+  #     that neuters the script is judged by the base copy, so the duplicate it
+  #     brings still reddens (that is the point of reading the gate from base);
+  #   * `ci.yml` itself. GitHub runs a `pull_request` job in the merge commit's
+  #     context (unlike `pull_request_target`, which runs in the base's), so a
+  #     PR that rewrites THIS step — rather than the script — still runs the
+  #     rewritten step. Reading the gate from base closes the script-shaped
+  #     door, not the workflow-shaped one — and NOTHING IN THIS REPOSITORY
+  #     CLOSES THAT ONE TODAY. It is named here so the gap is not mistaken for
+  #     a guard: `gh api repos/.../branches/main` answers `protected: false`,
+  #     there are no repository rulesets, and `merge-pr.sh` does not read this
+  #     file. So a PR that rewrites this step — or its `if:` — still gets a
+  #     green "ADR number guard". Closing it takes a required workflow in a
+  #     repository ruleset (a ruleset is taken from the default branch, so a PR
+  #     cannot edit it) or CODEOWNERS; both are administrative and neither
+  #     lives in this file. The same gap covers `base-sync` and
+  #     `lint-baseline`, which also run their scripts from the PR's tree;
+  #   * numbers that entered `main` without a PR (direct push or a merge that
+  #     already happened), and the cross-PR half above.
+  adr-numbers:
+    name: ADR number guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # The PR's OWN head commit (same reasoning as `base-sync` above): the
+          # default `refs/pull/N/merge` ref already contains the base tip, so
+          # every number main brings would read as the PR's own.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Refresh the base ref
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -eu
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+      - name: Fail when the trial merge carries two ADRs with one number
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # The gate is the base ref's blob, read through the object store, and
+          # it runs from $RUNNER_TEMP — out of the PR's tree. `python3
+          # scripts/adr_numbers.py` here would run the PR's own copy: a gate the
+          # checked side can switch off is not a gate. The TREE under judgement
+          # is still the PR checkout: `--root` is the workspace, `--head` HEAD.
+          gate="$RUNNER_TEMP/adr_numbers_gate.py"
+          if ! git show "origin/$BASE_REF:scripts/adr_numbers.py" >"$gate" 2>"$RUNNER_TEMP/adr_numbers_gate.err"; then
+            detail="$(tail -n 1 "$RUNNER_TEMP/adr_numbers_gate.err" 2>/dev/null || true)"
+            echo "НЕВІДОМО: origin/$BASE_REF не дає scripts/adr_numbers.py — ${detail:-без подробиць}"
+            echo "НЕВІДОМО: довіреного гейта немає, копію з PR не запускаю — «колізій немає» сказати нема про що"
+            exit 2
+          fi
+          # An empty blob runs green and asks nothing: the silent pass this
+          # guard exists against.
+          if [ ! -s "$gate" ]; then
+            echo "НЕВІДОМО: origin/$BASE_REF:scripts/adr_numbers.py порожній — порожній гейт виходить із кодом 0"
+            exit 2
+          fi
+          echo "ГЕЙТ: origin/$BASE_REF:scripts/adr_numbers.py, blob $(git hash-object "$gate"), $(wc -c <"$gate") байт — дерево з PR"
+          python3 "$gate" --root "$GITHUB_WORKSPACE" --base "origin/$BASE_REF" --head HEAD
+
   lint:
     name: Android Lint
     runs-on: ubuntu-latest

@@ -98,5 +98,27 @@ class LocalFolderScannerTest {
         assertEquals(1, entries.size)
         assertEquals("solo.mp3", entries.first().fileName)
         assertTrue(entries.first().parentFolder == null)
+        assertEquals("content://fake/solo.mp3", entries.first().uri)
+    }
+
+    @Test
+    fun `scan keeps each file's document uri as the by-reference address`() {
+        val tree = FakeDocumentFile(
+            "Books", directory = true,
+            children = listOf(
+                FakeDocumentFile("Кобзар", directory = true, children = listOf(
+                    FakeDocumentFile("01.mp3", directory = false)
+                )),
+                FakeDocumentFile("solo.mp3", directory = false)
+            )
+        )
+
+        val entries = LocalFolderScanner.scan(tree, context.contentResolver)
+
+        assertEquals(
+            listOf("content://fake/01.mp3", "content://fake/solo.mp3"),
+            entries.map { it.uri }
+        )
+        assertEquals(listOf("Кобзар", null), entries.map { it.parentFolder })
     }
 }

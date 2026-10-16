@@ -42,6 +42,7 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.listening.ListeningObservation
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.ProgressSyncController
+import com.slukhayka.audiobooks.data.listening.startsAtBookEnd
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -1366,13 +1367,23 @@ class AudioPlayerManager(
         var positionSeconds = initialPositionSeconds
         // Spec-16 T4: starting playback of a finished book is a re-listen — it
         // resets to the beginning (chapter 0, position 0) and logs RELISTEN
-        // instead of RESUME. Completion is derived from position, the same rule
-        // the library card uses (AC4): only a start at/after the very end of
-        // the book triggers it, so explicit chapter or bookmark navigation
-        // (which never asks to start at the end) is untouched.
-        val totalDurationSeconds = loadChapters.sumOf { it.durationSeconds }
-        val relisten = forceRelisten ||
-            (autoPlay && totalDurationSeconds > 0L && positionSeconds >= totalDurationSeconds)
+        // instead of RESUME. Completion is derived from the position in the
+        // BOOK, through the very rule the library card uses
+        // ([com.slukhayka.audiobooks.data.listening.startsAtBookEnd] →
+        // isBookFinished, AC4): only a start at/after the very end of a book
+        // whose total is KNOWN triggers it, so explicit chapter or bookmark
+        // navigation (which never asks to start at the end) is untouched.
+        // #1187 — the old rule compared the in-chapter position with the sum of
+        // the loaded chapters, which for a local book was only the chapters
+        // already listened to: 60 s into the third chapter of a book whose one
+        // played chapter is 45 s read as "past the end" and reset a book that
+        // was two thirds unheard.
+        val relisten = forceRelisten || (autoPlay && startsAtBookEnd(
+            chapters = loadChapters,
+            chapterIndex = chapterIdx,
+            positionSeconds = positionSeconds,
+            bookTotalDurationSeconds = book.totalDurationSeconds
+        ))
         if (relisten) {
             chapterIdx = 0
             positionSeconds = 0L

@@ -240,8 +240,9 @@ interface AudiobookDao {
     /**
      * Spec-24 T8 (#169) — the candidate pool of the chapter-duration probe:
      * every book with at least one unknown-duration chapter (0 is the
-     * unknown placeholder written at import). The pass filters the stream
-     * gate (non-blank sourceUrl) on top.
+     * unknown placeholder written at import). The pass filters on top by the
+     * probe target it has: a stream URL for a streamed book, a local reader
+     * plus a file path for a local import (#1187).
      */
     @Query("SELECT DISTINCT bookId FROM chapters WHERE durationSeconds <= 0")
     suspend fun getBookIdsWithUnknownChapterDurations(): List<String>

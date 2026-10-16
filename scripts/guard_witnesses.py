@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 82 записи, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 87 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -1427,6 +1427,80 @@ GUARDS = (
                 file="scripts/new-lane.sh",
                 find='if [ -z "$PREMISE_REPORT" ]; then\n',
                 replace="if false; then  # mutated: порожній вивід — теж вердикт\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.LocalPropertiesTest"
+             ".test_an_existing_local_properties_is_carried_into_the_lane_and_named",
+        protects="перенесення `local.properties` у копію смуги (#1332): це крок "
+                 "ручного рецепта, який ЗАГУБИВСЯ при автоматизації (#1321) — "
+                 "файл у `.gitignore`, тож у копію сам не потрапляє. Мутація не "
+                 "переносить наявний файл, і копія знову не збирається "
+                 "(`SDK location not found`), як сталося у смуги #1187",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='if [ -f "$LOCAL_PROPERTIES" ]; then\n',
+                replace="if false; then  # mutated: наявний файл не переносимо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.LocalPropertiesTest"
+             ".test_a_copy_without_local_properties_names_why_android_cannot_build",
+        protects="НАЗВАНУ відсутність `local.properties` (#1332): коли файлу "
+                 "немає, факти мусять сказати, що Android-збірка в цій копії не "
+                 "працюватиме, і чому. Мутація замовчує відсутність — і смуга "
+                 "гадає, чому збірки немає, замість того щоб знати",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  LOCAL_PROPERTIES_FACT="НЕМА ($LOCAL_PROPERTIES) — Android-збірка',
+                replace='  LOCAL_PROPERTIES_FACT="є ($LOCAL_PROPERTIES) — Android-збірка',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest.test_the_reservation_does_not_invent_a_plan_path",
+        protects="чесне поле `plan` у резервуванні (#1337): без названого шляху "
+                 "там `null`, а не вигаданий `docs/plans/…` — усі п'ять шляхів "
+                 "`docs/plans/…` у шести записах кореневої копії не існували, і "
+                 "жодного з них не було в `origin/main`. Мутація "
+                 "повертає вигаданий шлях, і запис знову каже одне, а "
+                 "реальність — інше",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='PLAN="${PLAN_FLAG:-${NEW_LANE_PLAN:-}}"',
+                replace='PLAN="${PLAN_FLAG:-${NEW_LANE_PLAN:-docs/plans/$(date -u +%F)-$ISSUE-$SLUG.md}}"  # mutated',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest.test_a_named_plan_that_does_not_exist_is_refused",
+        protects="відмову назвати в записі неіснуючий план (#1337): названий "
+                 "шлях перевіряється проти `origin/main` ДО резервування. Мутація "
+                 "знімає перевірку — і запис знову вказує на файл, якого немає",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  if ! "$GIT" -C "$REPO" cat-file -e "origin/main:$PLAN" 2>/dev/null; then\n',
+                replace="  if false; then  # mutated: шлях плану не перевіряємо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest.test_a_named_plan_that_exists_is_recorded_and_named",
+        protects="названий план доходить до резервування (#1337): шлях, який "
+                 "справді є в базі смуги, мусить потрапити в запис, а не "
+                 "загубитися дорогою. Мутація не передає `--plan` — і `null` у "
+                 "записі означав би «плану немає» там, де координатор його назвав",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  CLAIM_ARGS+=(--plan "$PLAN")\n',
+                replace="  :  # mutated: названий план не передаємо\n",
             ),
         ),
     ),

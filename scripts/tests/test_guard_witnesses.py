@@ -179,6 +179,13 @@ GUARD_TESTS = (
     "test_witness_derivation.DerivationTest"
     ".test_every_form_is_accepted_and_runs_nothing",
     "test_witness_derivation.DerivationTest.test_the_same_ast_gives_two_truths",
+    "test_adr_numbers.TreeTest.test_two_files_with_one_number_are_a_finding",
+    "test_adr_numbers.UnknownTest"
+    ".test_a_missing_adr_directory_is_an_unknown_not_a_clean_tree",
+    "test_adr_numbers.TrialMergeTest"
+    ".test_a_conflicted_trial_merge_is_an_unknown_not_a_clean_tree",
+    "test_adr_numbers.OpenPrTest"
+    ".test_the_same_new_number_in_two_open_prs_names_both",
 )
 EXPECTED_GUARDS = len(GUARD_TESTS)
 

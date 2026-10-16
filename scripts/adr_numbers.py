@@ -20,10 +20,10 @@
   * без `--base` читається дерево робочої копії (`--root`) або названої ревізії
     (`--head REF`);
   * `--open-prs` (або `--pr N`) — ЛИШЕ ЧИТАННЯ `gh`: один і той самий номер, який
-    додають два відкриті PR, і номер, який PR додає там, де він уже в `main`.
-    Читаються `number`, `headRefOid`, `files` (`changeType`), і нічого не
-    пишеться — ні issue, ні PR, ні файли дерева: цей режим нікого не
-    перенумеровує.
+    додають два відкриті PR, два рішення під одним номером усередині одного PR, і
+    номер, який PR додає там, де він уже в `main`. Читаються `number`,
+    `headRefOid`, `files` (`changeType`), і нічого не пишеться — ні issue, ні PR,
+    ні файли дерева: цей режим нікого не перенумеровує.
 
 Коди виходу: 0 — жоден номер не несуть два рішення; 1 — знахідка (номер несуть
 два рішення; номер додають два відкриті PR; PR додає номер, який уже в `main`), і
@@ -237,14 +237,21 @@ def trial_merge_names(root: Path, base: str, head: str) -> list[str]:
     result = git(root, ["merge-tree", "--write-tree", base, head])
     if result.returncode != 0:
         if "CONFLICT" in result.stdout or "conflict" in result.stdout:
-            conflicts = [
-                line.strip() for line in result.stdout.splitlines()[1:]
-                if line.strip() and "CONFLICT" not in line
-            ]
+            # Рядки стадій — це `ls-tree`-рядки конфлікту; для причини досить
+            # ІМЕН файлів, і кожен з них названий (та сама межа, що в дереві).
+            names: list[str] = []
+            for line in result.stdout.splitlines()[1:]:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                parts = stripped.split("\t")
+                candidate = parts[-1].strip() if len(parts) > 1 else stripped.split()[-1]
+                if candidate and candidate not in names:
+                    names.append(candidate)
             raise AdrUnknown(
                 "пробне злиття %s..%s конфліктне — дерева для перевірки немає, і "
-                "«колізій немає» сказати нема про що%s"
-                % (base, head, " (%s)" % "; ".join(conflicts[:3]) if conflicts else "")
+                "«колізій немає» сказати нема про що (%s)"
+                % (base, head, ", ".join(names[:3]) or "конфліктні файли не названі")
             )
         raise AdrUnknown(
             "`git merge-tree %s %s` не назвав дерева: %s" % (base, head, detail(result))
@@ -375,18 +382,31 @@ def open_pr_findings(root: Path, main_ref: str, prs: list[int], limit: int, gh):
     findings: list[str] = []
     for adr_number in sorted(by_number):
         entries = by_number[adr_number]
-        # Один і той самий PR міг назвати номер двічі — це не два PR.
-        if len({entry[0] for entry in entries}) > 1:
-            findings.append(
-                "номер %s додають два відкриті PR: %s"
-                % (
-                    adr_number,
-                    "; ".join(
-                        "PR #%d (HEAD %s) — %s" % (number, head, path)
-                        for number, head, path in sorted(entries)
-                    ),
+        # Два РІЗНІ шляхи під одним номером — колізія, і не важливо, чи вони з
+        # різних PR, чи з одного: `git` обидва зливає чисто. Один і той самий
+        # шлях, названий двічі, колізією не є.
+        if len({entry[2] for entry in entries}) > 1:
+            prs_named = sorted({entry[0] for entry in entries})
+            if len(prs_named) > 1:
+                findings.append(
+                    "номер %s додають два відкриті PR: %s"
+                    % (
+                        adr_number,
+                        "; ".join(
+                            "PR #%d (HEAD %s) — %s" % (number, head, path)
+                            for number, head, path in sorted(entries)
+                        ),
+                    )
                 )
-            )
+            else:
+                findings.append(
+                    "PR #%d (HEAD %s) додає два рішення під одним номером %s: %s"
+                    % (
+                        prs_named[0], next(entry[1] for entry in entries),
+                        adr_number,
+                        ", ".join(sorted({entry[2] for entry in entries})),
+                    )
+                )
         if adr_number in main_by_number:
             for number, head, path in sorted(entries):
                 findings.append(

@@ -67,7 +67,7 @@ EXPECTED_UNREADABLE_SECTIONS = (
     ("scripts/verdict_field_mutants.py",
      "Межі, названі прямо (кожну доведено тестом або виміром, а не обіцянкою):"),
 )
-EXPECTED_BOUNDARY_HEADINGS = 13
+EXPECTED_BOUNDARY_HEADINGS = 14
 EXPECTED_BOUNDARY_IDS = (
     "#1276-list",
     "#1276-run-built",

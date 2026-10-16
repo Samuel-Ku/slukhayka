@@ -18,13 +18,15 @@
     зелений; гейт на тій самій парі дає 1. Без гейта цей тест падав би на
     першій же перевірці;
   * `OpenPrTest` — read-only режим `gh`: один номер у двох PR (обидва PR і
-    перевірені HEAD названі), номер, який PR додає там, де він уже в `main`,
-    невідомий `changeType` і жодного запису в `gh` (лише читання);
+    перевірені HEAD названі), два рішення під одним номером усередині одного PR,
+    номер, який PR додає там, де він уже в `main`, невідомий `changeType`,
+    відсутній HEAD, відповідь не списком, вікно `--limit 3` у аргументі `gh` і
+    те, що гейт ЛИШЕ читає (жодного `edit`, `-X`, `POST`);
   * `BoundaryTest` — названі межі перевіряються прогоном: номер у ТЕКСТІ файлу
-    гейт не бачить, вікно `--limit` назване в аргументі `gh`, а `--limit 0` —
-    відмова.
+    гейт не бачить; ревізія без теки ADR і неіснуюча ревізія — невідомість;
+    дивне імʼя в PR — невідомість, а не «повз»; `--limit 0` — відмова.
 
-Зараховані в `scripts/guard_witnesses.py` сторожі — `FindingTest`, `UnknownTest`,
+Зараховані в `scripts/guard_witnesses.py` сторожі — `TreeTest`, `UnknownTest`,
 `TrialMergeTest` і `OpenPrTest` (по одному на мутацію). Решта перевіряють сам
 механізм і в реєстрі не стоять: реєстр покриває НАЗВАНИХ, а не всіх.
 """
@@ -328,6 +330,8 @@ class TrialMergeTest(Fixture):
         code, out, err = self.run_gate(root, "--base", "left", "--head", "right")
         self.assertEqual(2, code, "stdout=%r stderr=%r" % (out, err))
         self.assertIn("конфліктне", err)
+        self.assertIn("0001-one.md", err)
+        self.assertNotIn("Traceback", err)
         self.assertNotIn("OK", out)
 
     def test_a_deleted_number_replaced_by_another_is_not_a_collision(self):
@@ -463,6 +467,36 @@ class OpenPrTest(Fixture):
         self.assertEqual(1, len(findings), findings)
         self.assertIn("0062-one-heavy-build-slot.md", findings[0])
         self.assertIn("c" * 40, findings[0])
+
+    def test_two_decisions_under_one_number_inside_one_pr_are_a_finding(self):
+        """Той самий клас усередині одного PR: `git` зливає обидва файли чисто."""
+        root = self.main_repository("adr-pr-inside-")
+        runner, _ = self.fake_gh(
+            {"number": 42, "headRefOid": "9" * 40, "files": [
+                file_entry("docs/adr/0061-first.md", "ADDED"),
+                file_entry("docs/adr/0061-second.md", "ADDED"),
+            ]})
+        with contextlib.redirect_stdout(io.StringIO()):
+            findings, unknowns = adr_numbers.check(
+                root, prs=[42], main_ref="main", gh=runner)
+        self.assertEqual([], unknowns)
+        self.assertEqual(1, len(findings), findings)
+        self.assertIn("#42", findings[0])
+        self.assertIn("0061-first.md", findings[0])
+        self.assertIn("0061-second.md", findings[0])
+
+    def test_the_same_path_twice_in_one_pr_is_not_a_collision(self):
+        root = self.main_repository("adr-pr-twice-")
+        runner, _ = self.fake_gh(
+            {"number": 42, "headRefOid": "8" * 40, "files": [
+                file_entry("docs/adr/0061-first.md", "ADDED"),
+                file_entry("docs/adr/0061-first.md", "MODIFIED"),
+            ]})
+        with contextlib.redirect_stdout(io.StringIO()):
+            findings, unknowns = adr_numbers.check(
+                root, prs=[42], main_ref="main", gh=runner)
+        self.assertEqual([], unknowns)
+        self.assertEqual([], findings)
 
     def test_the_gate_only_reads_from_gh(self):
         """Жодного запису: ні `edit`, ні `-X`, ні тіла в `gh`-виклику."""

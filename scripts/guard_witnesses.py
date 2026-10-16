@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 87 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 92 записи, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -500,6 +500,91 @@ GUARDS = (
                 file="scripts/tests/test_fixture_environments.py",
                 find="    unittest.TestLoader().loadTestsFromNames(sys.argv[1:])\n",
                 replace='    unittest.TestLoader().discover(".")  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_run_that_executes_no_stand_in_is_a_finding",
+        protects="демонстрація мусить ВИЖИТИ (#1294): той самий вердикт, що в ґарді, "
+                 "мусить відрізнити прогін, який запускає зламаного підставного "
+                 "(червоний — ґард пропускає), від прогону, який не запускає "
+                 "нічого (зелений — ґард називає знахідкою). Вердикт, сліпий до "
+                 "зелених, лишає демонстрацію без другої половини",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="        return sorted(name for name, verdict in verdicts.items()\n"
+                     '                      if verdict != "red")\n',
+                replace="        return []  # mutated: вердикт більше не бачить зелених\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_named_run_that_becomes_skipped_is_a_finding",
+        protects="`green → skipped` (#1341): прогін, який під зламаними підставними "
+                 "не почервонів, а ПРОПУСТИВСЯ, теж свідком не був. Поки знахідкою "
+                 "була сама лише зелень, він проходив ґард тихо — і саме цю стару "
+                 "поведінку мутація й повертає",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="        return sorted(name for name, verdict in verdicts.items()\n"
+                     '                      if verdict != "red")\n',
+                replace="        return sorted(name for name, verdict in verdicts.items()\n"
+                        '                      if verdict == "green")  '
+                        "# mutated: скіп знову не знахідка\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_reader_of_a_file_stand_in_is_named_and_not_accepted",
+        protects="ЧИТАЧА файлового підставного ВИДНО (#1341): мутація лишає текст "
+                 "байт-у-байт і лише додає рядок, який убиває виконання, тож "
+                 "читач лишається ЗЕЛЕНИЙ і ґард називає його знахідкою, а "
+                 "виконавець червоніє. Мутація, яка повертає заміну ВМІСТУ, "
+                 "робить читача червоним і знову приймає його свідком — пін "
+                 "мусить почервоніти, а не пережити це мовчки",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="    return first + separator + killer + rest\n",
+                replace="    return first + separator + killer  "
+                        "# mutated: вміст замінено, читач теж червоніє\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_fixture_module_that_passes_to_skipped_is_not_red",
+        protects="`green → skipped` на рівні МОДУЛЯ фікстури (#1341): вердикт "
+                 "модуля мусить лишити скіп окремим, бо згортання «не всі зелені» "
+                 "в `red` робить модуль, який перестав виконуватися, "
+                 "почервонілим — і ґард приймає його за свідка",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find='    return "skipped"\n',
+                replace='    return "green"  # mutated: скіп знову не знахідка\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_every_named_run_reddens_when_every_stand_in_is_broken",
+        protects="названий прогін, який НІЧОГО не запускає (#1294): ґард ламає "
+                 "кожного зареєстрованого підставного й вимагає, щоб кожен "
+                 "названий прогін почервонів. Порожній перелік мутацій лишає "
+                 "ґард зеленим про будь-що — і саме це мутація й робить, а "
+                 "відмова на порожньому переліку ловить її",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="    touched: list[str] = []\n",
+                replace="    touched: list[str] = []\n"
+                        "    return touched  # mutated: жодного підставного не зламано\n",
             ),
         ),
     ),

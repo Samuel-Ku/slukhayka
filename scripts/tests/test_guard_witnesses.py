@@ -83,6 +83,16 @@ GUARD_TESTS = (
     "test_fixture_environments.EnvironmentTest"
     ".test_a_named_run_that_is_skipped_is_not_green",
     "test_fixture_environments.EnvironmentTest"
+    ".test_a_named_run_that_becomes_skipped_is_a_finding",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_a_reader_of_a_file_stand_in_is_named_and_not_accepted",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_a_fixture_module_that_passes_to_skipped_is_not_red",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_a_run_that_executes_no_stand_in_is_a_finding",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_every_named_run_reddens_when_every_stand_in_is_broken",
+    "test_fixture_environments.EnvironmentTest"
     ".test_the_guard_sees_only_the_runs_it_is_named",
     "test_guard_witnesses.CountTest"
     ".test_the_count_is_the_length_of_the_registry",

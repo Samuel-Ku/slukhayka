@@ -125,6 +125,48 @@ jobs:
           set -euo pipefail
           scripts/check-base-sync.sh "origin/$BASE_REF" "HEAD"
 
+  # #1227: two ADRs can claim ONE number and `git` will not notice, because the
+  # filenames differ — the text merge is clean and the merge result simply
+  # carries both files. Live, not hypothetical: #1139 and #1186 each add a
+  # different 0061, and #1139's 0062 already exists on main. Like `base-sync`
+  # above, the guard reads the TRIAL-MERGE tree (`git merge-tree --write-tree`:
+  # object store only, worktree and index untouched) and fails when one number
+  # arrives twice. PR-only, same as `migration-slot` and `base-sync`: on push to
+  # main there is no base to compare against.
+  #
+  # The cross-PR half (`scripts/adr_numbers.py --open-prs`, read-only `gh`) is
+  # deliberately NOT called here: this job carries no token, and a green run of
+  # a check that never asked would be the silent green this guard exists
+  # against. It runs locally, where a token exists.
+  adr-numbers:
+    name: ADR number guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # The PR's OWN head commit (same reasoning as `base-sync` above): the
+          # default `refs/pull/N/merge` ref already contains the base tip, so
+          # every number main brings would read as the PR's own.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Refresh the base ref
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -eu
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+      - name: Fail when the trial merge carries two ADRs with one number
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          python3 scripts/adr_numbers.py --base "origin/$BASE_REF" --head HEAD
+
   lint:
     name: Android Lint
     runs-on: ubuntu-latest

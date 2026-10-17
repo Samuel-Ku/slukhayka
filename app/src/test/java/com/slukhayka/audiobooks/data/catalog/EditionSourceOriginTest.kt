@@ -101,6 +101,22 @@ class EditionSourceOriginTest {
         language = "uk"
     )
 
+    /**
+     * A page of the SAME narration (matching narrator + language) so an
+     * explicit re-import merges into the already-stored Edition card.
+     */
+    private fun mergeDetail(url: String, vararg streamUrls: String) = SourceBookDetail(
+        title = "Кобзар",
+        author = "Тарас Шевченко",
+        narrator = "Спільний диктор",
+        url = url,
+        chapters = streamUrls.mapIndexed { index, stream ->
+            SourceChapter("Розділ ${index + 1}", stream, (index + 1) * 100L)
+        },
+        totalDurationSeconds = streamUrls.size * 100L,
+        language = "uk"
+    )
+
     private suspend fun seedChapterlessBook(bookId: String, sourceUrl: String) {
         dao.insertAudiobooks(
             listOf(
@@ -236,5 +252,43 @@ class EditionSourceOriginTest {
         assertTrue("no Chapters", dao.getChaptersListForBook("book-failed").isEmpty())
         assertTrue("no Source", dao.getSourcesForBookSync("book-failed").isEmpty())
         assertTrue("no SourceTrack", dao.getTracksForBookSync("book-failed").isEmpty())
+    }
+
+    @Test
+    fun `attaching a physical Source keeps the Edition's logical chapters`() = runBlocking {
+        val soundbooks = FakeSourceAdapter(
+            "soundbooks",
+            mergeDetail(
+                "https://sound-books.net/kobzar.html",
+                "https://arch.sound-books.net/kobzar/1.mp3",
+                "https://arch.sound-books.net/kobzar/2.mp3"
+            )
+        )
+        val lihtar = FakeSourceAdapter(
+            "lihtar",
+            mergeDetail("https://lihtar.in.ua/book/kobzar", "https://lihtar.in.ua/audio/9.mp3")
+        )
+        val imp = imports(soundbooks, lihtar)
+        val first = imp.importBookFromSource(
+            "soundbooks",
+            mergeDetail(
+                "https://sound-books.net/kobzar.html",
+                "https://arch.sound-books.net/kobzar/1.mp3",
+                "https://arch.sound-books.net/kobzar/2.mp3"
+            )
+        )!!
+        val before = dao.getChaptersListForBook(first.id)
+        assertEquals(2, before.size)
+
+        val attached = imp.importBookFromSource(
+            "lihtar",
+            mergeDetail("https://lihtar.in.ua/book/kobzar", "https://lihtar.in.ua/audio/9.mp3")
+        )
+
+        assertEquals("the same narration merges into one card", first.id, attached!!.id)
+        assertEquals("the logical chapter list is untouched", before, dao.getChaptersListForBook(first.id))
+        val source = dao.getSourcesForBookSync(first.id).single { it.type == "lihtar" }
+        assertEquals("lihtar", source.type)
+        assertEquals(1, dao.getTracksForSourceSync(source.id).size)
     }
 }

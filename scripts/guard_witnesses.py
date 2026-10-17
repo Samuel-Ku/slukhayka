@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 92 записи, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 96 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -1586,6 +1586,78 @@ GUARDS = (
                 file="scripts/new-lane.sh",
                 find='  CLAIM_ARGS+=(--plan "$PLAN")\n',
                 replace="  :  # mutated: названий план не передаємо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest"
+             ".test_a_named_plan_that_is_a_directory_is_refused",
+        protects="ТИП план-шляху (#1340): тека в `origin/main` теж «існує», тож "
+                 "`cat-file -e` приймав `--plan docs` — і в запис потрапляло "
+                 "`\"plan\": \"docs\"`, хоч дерево не є планом. Мутація повертає "
+                 "саму `-e` — і твердження поля («шлях існує») знову "
+                 "виконується, а сенс — ні",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  PLAN_OBJECT="$("$GIT" -C "$REPO" cat-file -t '
+                     '"origin/main:$PLAN" 2>/dev/null || true)"\n',
+                replace='  "$GIT" -C "$REPO" cat-file -e "origin/main:$PLAN" '
+                        '2>/dev/null && PLAN_OBJECT=blob || PLAN_OBJECT=""  '
+                        '# mutated: -e пропускає дерево\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest.test_a_quoted_reservation_is_removed_too",
+        protects="прибирання запису з лапкою в назві (#1340): `rollback` "
+                 "порівнював РЯДОК файлу, а `json.dump` екранує лапку як `\\\"` — "
+                 "збігу не було, і файл лишався під повідомленням «прибрано». "
+                 "Мутація повертає саме те рядкове порівняння",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -f "$CLAIM_FILE" ] && claim_is_ours; then\n',
+                replace='    if grep -Fq "\\"reservation\\": '
+                        '\\"$RESERVATION\\"" "$CLAIM_FILE"; then  '
+                        '# mutated: рядок, а не JSON\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest"
+             ".test_a_rollback_with_a_plain_reservation_removes_the_claim",
+        protects="сам факт прибирання запису відкатом (#1340): запис мусить "
+                 "зникнути з диска, а не лишитися під повідомленням. Мутація не "
+                 "прибирає його — і «резервування прибрано» стає словом без стану",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='      rm -f -- "$CLAIM_FILE" 2>/dev/null || true\n',
+                replace="      :  # mutated: запис не прибираємо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest"
+             ".test_a_claim_that_cannot_be_removed_is_named_not_hidden",
+        protects="ПРАВДУ повідомлення відкату (#1340): якщо запис лишився "
+                 "(чужий, нерозібраний, `rm` відмовив), це мусить бути НАЗВАНО, "
+                 "а не замовчано. Мутація каже «прибрано» незалежно від диска — "
+                 "і координатор піднімає другу смугу на зайнятий тікет",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -f "$CLAIM_FILE" ]; then\n'
+                     '      ROLLBACK_CLAIM_FACT="резервування ЛИШИЛОСЯ: '
+                     '$CLAIM_FILE — воно не наше (чуже або нерозібране) чи його '
+                     'не вдалося прибрати; зніми його руками, якщо це справді '
+                     'наше"\n'
+                     '    else\n'
+                     '      ROLLBACK_CLAIM_FACT="резервування прибрано"\n'
+                     '    fi\n',
+                replace='    ROLLBACK_CLAIM_FACT="резервування прибрано"  '
+                        '# mutated: наявність не перевіряємо\n',
             ),
         ),
     ),

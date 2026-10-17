@@ -148,6 +148,13 @@ GUARD_TESTS = (
     "test_new_lane.CreateTest.test_the_reservation_does_not_invent_a_plan_path",
     "test_new_lane.CreateTest.test_a_named_plan_that_does_not_exist_is_refused",
     "test_new_lane.CreateTest.test_a_named_plan_that_exists_is_recorded_and_named",
+    "test_new_lane.CreateTest"
+    ".test_a_named_plan_that_is_a_directory_is_refused",
+    "test_new_lane.RollbackTest.test_a_quoted_reservation_is_removed_too",
+    "test_new_lane.RollbackTest"
+    ".test_a_rollback_with_a_plain_reservation_removes_the_claim",
+    "test_new_lane.RollbackTest"
+    ".test_a_claim_that_cannot_be_removed_is_named_not_hidden",
     "test_review_clone.NormalCaseTest"
     ".test_the_printed_diff_is_the_branch_and_not_the_working_tree",
     "test_review_clone.NormalCaseTest"

@@ -2520,20 +2520,30 @@ private fun LibraryBookGridContent(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { book.percent },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                    .clearAndSetSemantics { },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant,
-                // #292 carried to the shelf: the M3 stop dot read as a stray
-                // amber marker crowding the provenance chip right below it
-                // (device review, 2026-09-16).
-                drawStopIndicator = {}
-            )
+            // #1187 — an unknown book length must not be drawn as a bar. At
+            // `percent == 0f` an empty track reads exactly like "nothing
+            // listened", while the same tile's a11y description says the
+            // duration is unknown. The slot stays reserved either way, so the
+            // provenance chip below does not jump.
+            if (book.knownPercent != null) {
+                LinearProgressIndicator(
+                    progress = { book.percent },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                        .clearAndSetSemantics { }
+                        .testTag("library_tile_progress_${book.book.id}"),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant,
+                    // #292 carried to the shelf: the M3 stop dot read as a stray
+                    // amber marker crowding the provenance chip right below it
+                    // (device review, 2026-09-16).
+                    drawStopIndicator = {}
+                )
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             // The provenance chip sits directly under this bar. 4 dp merged
             // the two amber elements into one smudge; the chip needs air.
             Spacer(modifier = Modifier.height(10.dp))

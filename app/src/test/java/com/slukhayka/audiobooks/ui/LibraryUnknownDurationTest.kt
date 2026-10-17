@@ -4,12 +4,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
+import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
 import com.slukhayka.audiobooks.ui.screens.LibraryContinueCard
 import com.slukhayka.audiobooks.ui.screens.LibraryDenseRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -97,6 +99,35 @@ class LibraryUnknownDurationTest {
                 useUnmergedTree = true
             )
             .assertCountEquals(1)
+    }
+
+    /**
+     * #1187 — the BROWSE TILE is a third surface, and the third review caught
+     * it drawing the bar unconditionally. `clearAndSetSemantics` keeps the bar
+     * out of the merged tree, so the test tag is the only handle.
+     */
+    @Test
+    fun anUnknownTotalDrawsNoBarOnTheTile() {
+        renderTile(unknownTotal)
+        composeTestRule
+            .onAllNodesWithTag("library_tile_progress_${unknownTotal.book.id}", useUnmergedTree = true)
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun aKnownTotalDrawsItsBarOnTheTile() {
+        renderTile(knownTotal)
+        composeTestRule
+            .onAllNodesWithTag("library_tile_progress_${knownTotal.book.id}", useUnmergedTree = true)
+            .assertCountEquals(1)
+    }
+
+    private fun renderTile(book: LibraryBook) {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibraryBookCard(book = book, grid = true, onClick = {})
+            }
+        }
     }
 
     private fun render(book: LibraryBook) {

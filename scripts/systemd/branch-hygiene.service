@@ -13,7 +13,13 @@ WorkingDirectory=%h/Projects/slukhayka
 #   printf 'GH_TOKEN=...\n' > %h/.config/slukhayka/branch-hygiene.env
 #   chmod 600 %h/.config/slukhayka/branch-hygiene.env
 EnvironmentFile=-%h/.config/slukhayka/branch-hygiene.env
-ExecStart=/usr/bin/env python3 scripts/branch-hygiene.py local --apply --fetch
+# Скрипт беремо з `origin/main`, а не з робочого дерева: головне дерево
+# мейнтейнера стоїть на своїй гілці, і після мержу PR скрипта в ньому може не
+# бути. HTTPS-адреса тут явна — SSH цієї машини не працює (власник
+# /etc/ssh/ssh_config.d/20-omarchy-keepalive.conf), і таймер не має від нього
+# залежати. `python3 -` читає скрипт зі stdin: він самодостатній, без імпортів
+# із репозиторію й без опори на власний шлях.
+ExecStart=/usr/bin/env bash -c 'git fetch --prune --force https://github.com/Samuel-Ku/slukhayka.git refs/heads/main:refs/remotes/origin/main && git show origin/main:scripts/branch-hygiene.py | python3 - local --apply --fetch'
 Nice=10
 IOSchedulingClass=idle
 NoNewPrivileges=true

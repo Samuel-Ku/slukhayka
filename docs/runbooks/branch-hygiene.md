@@ -132,6 +132,14 @@ journalctl --user -u branch-hygiene.service -n 50     # що він сказав
 не потрібен; якщо завести `~/.config/slukhayka/branch-hygiene.env` із
 `GH_TOKEN=…`, піднімається ліміт API, а токен LLM додає наратив у звіт.
 
+Юніт **не** бере скрипт із робочого дерева: він витягує
+`scripts/branch-hygiene.py` з `origin/main` (`git show origin/main:… | python3 -`).
+Інакше таймер залежав би від того, яка гілка стоїть у головному дереві — а там
+у мейнтейнера своя робота, і скрипта в ній може не бути. Наслідок названий
+прямо: **поки PR не злито, юніт падає** з `fatal: path 'scripts/branch-hygiene.py'
+exists on disk, but not in 'origin/main'` — і це видно в
+`systemctl --user --failed`, а не тихо.
+
 ```bash
 # сухий прогін локальної частини
 python3 scripts/branch-hygiene.py local

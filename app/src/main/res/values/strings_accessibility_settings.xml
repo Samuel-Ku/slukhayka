@@ -92,13 +92,19 @@
     <string name="app_locale_english">English</string>
 
     <string name="storage_title">Завантаження та пам\'ять</string>
-    <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`. -->
-    <string name="storage_stat_audio_on_device">Аудіо на пристрої</string>
+    <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`.
+         #1163 — the first number is the SOURCE downloads the manager lists, and
+         the private copies of local imports are their own figure below; naming
+         that number «Аудіо на пристрої» was how 0 МБ answered for 3,23 ГБ. -->
+    <string name="storage_stat_downloads">Завантаження</string>
     <string name="storage_stat_free">Вільно</string>
+    <string name="storage_stat_local_copies">Локальні копії</string>
     <string name="storage_device_heading">Пам\'ять пристрою</string>
     <string name="storage_rescan_action">Пересканувати локальні файли</string>
     <string name="storage_danger_heading">Небезпечна зона</string>
-    <string name="storage_delete_consequence">Видаляє всі завантажені файли з пристрою. Цю дію не можна скасувати.</string>
+    <!-- #1163 — the clear's scope is source downloads; the copy that came from a
+         local folder is not one and stays where it is. -->
+    <string name="storage_delete_consequence">Видаляє всі завантажені з джерел файли з пристрою. Локальні копії лишаються. Цю дію не можна скасувати.</string>
     <string name="storage_delete_action">Видалити завантажені файли</string>
     <string name="storage_delete_dialog_title">Видалити завантажені файли?</string>
 

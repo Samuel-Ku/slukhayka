@@ -706,7 +706,11 @@
     <string name="lib_filter_new">Нові</string>
     <string name="lib_filter_listening">Слухаю</string>
     <string name="lib_filter_completed">Завершені</string>
-    <string name="lib_filter_downloaded">Завантажені</string>
+    <!-- #1163 — «На пристрої», not «Завантажені»: the chip holds the books whose
+         audio is readable on this device (source downloads AND readable local
+         copies), while the download manager stays the surface for network
+         downloads only (owner decision 2026-10-11). -->
+    <string name="lib_filter_downloaded">На пристрої</string>
     <string name="lib_filter_local">Локальні</string>
     <string name="lib_filter_online">Онлайн</string>
     <string name="lib_filter_favorite">Обрані</string>

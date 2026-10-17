@@ -12,6 +12,7 @@ import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.downloadPermittedFor
 import com.slukhayka.audiobooks.data.db.DownloadState
+import com.slukhayka.audiobooks.data.imports.LibraryImport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -1328,21 +1329,111 @@ class OfflineDownloads(
         )
     }
 
+    /** #1163 — the SOURCE downloads, summed over the actual files on disk. */
     fun getAudioCacheSizeBytes(): Long {
         val baseDir = resolveBaseDir() ?: return 0L
-        var total = 0L
         // Phase 2.5 hotfix (HI-002 / PERF-015): previously read
         // filesDir/audio_downloads while downloadAudiobookOffline wrote
         // filesDir/audiobooks. Cache size was always 0 MB.
-        val audioDir = File(baseDir, OFFLINE_AUDIO_DIR)
-        if (audioDir.exists()) {
-            audioDir.walkTopDown().forEach { file ->
-                if (file.isFile) total += file.length()
-            }
+        return directorySizeBytes(File(baseDir, OFFLINE_AUDIO_DIR))
+    }
+
+    /**
+     * #1163 — the private copies of local imports (`filesDir/local_imports`),
+     * summed over the actual files on disk.
+     *
+     * The directory NAME is read from [LibraryImport.LOCAL_AUDIO_DIR] and never
+     * written down again: the import owns where a copy lives, this module only
+     * accounts for it. The staging dir is deliberately NOT counted — it holds
+     * no committed copy, so its bytes would be a promise about a file that does
+     * not exist yet.
+     */
+    fun getLocalCopiesSizeBytes(): Long {
+        val baseDir = resolveBaseDir() ?: return 0L
+        return directorySizeBytes(File(baseDir, LibraryImport.LOCAL_AUDIO_DIR))
+    }
+
+    /**
+     * #1163 — what the APP itself occupies, split by the two things that are
+     * app data: the Source downloads ([getAudioCacheSizeBytes]) and the private
+     * copies of local imports ([getLocalCopiesSizeBytes]).
+     *
+     * Both numbers are sums of ACTUAL file lengths, never an estimate from
+     * chapter durations. A file the listener keeps in an external folder is not
+     * app data and is deliberately in neither — the storage screen must not
+     * rename someone else's folder as the app's bytes.
+     */
+    fun getAppStorageUsage(): AppStorageUsage = AppStorageUsage(
+        downloadedBytes = getAudioCacheSizeBytes(),
+        localCopyBytes = getLocalCopiesSizeBytes()
+    )
+
+    private fun directorySizeBytes(dir: File): Long {
+        if (!dir.exists()) return 0L
+        var total = 0L
+        dir.walkTopDown().forEach { file ->
+            if (file.isFile) total += file.length()
         }
         return total
     }
 
+    /**
+     * #1163 — the books whose audio really IS on this device: at least one of
+     * their Sources is readable IN FULL — every one of that Source's tracks
+     * points at an existing, non-empty file.
+     *
+     * Whole-Source completeness, not "some track somewhere": the chip this feeds
+     * is «На пристрої», and a book with 3 of 20 chapters is not a book you have
+     * (the partial case keeps its honest «Офлайн (N/M)» badge instead). The rule
+     * is the repository's existing one for a downloaded book — see
+     * `DownloadedBookProof` — with the local import included, because its
+     * private copy is the only copy it has (ADR-0057).
+     *
+     * Availability is read off the FILESYSTEM, not off the historical
+     * `isDownloaded` flag: that flag survives a cleared directory, a lost copy
+     * and a hand-deleted file, and while it stands this filter promises audio
+     * that cannot be played. A file the listener keeps in an external folder is
+     * not an app copy: until the by-reference read (#1185) lands, it is not
+     * claimed here.
+     */
+    suspend fun bookIdsOnDevice(): Set<String> = withContext(Dispatchers.IO) {
+        dao.getAllAudiobooksOnce().mapNotNull { book ->
+            val onDevice = dao.getTracksForBookSync(book.id)
+                .groupBy { it.sourceId }
+                .values
+                .any { sourceTracks ->
+                    sourceTracks.isNotEmpty() && sourceTracks.all { track ->
+                        track.localFilePath?.let { path ->
+                            val file = File(path)
+                            file.isFile && file.length() > 0L
+                        } == true
+                    }
+                }
+            book.id.takeIf { onDevice }
+        }.toSet()
+    }
+
+    /**
+     * #1163 — «Очистити завантаження» destroys the SOURCE downloads and the
+     * state that says they were here. It is not the local import's action and
+     * no longer pretends to be one.
+     *
+     * The old body deleted `filesDir/audiobooks` and then reset EVERY book and
+     * EVERY track through the DAO's global `markAllNotDownloaded()` +
+     * `clearAllTracksDownloadState()` pair. A local import's copy is not a
+     * download: it is the only copy of a book the listener brought into the
+     * library (ADR-0057 — losing the original never deletes it), yet that pair
+     * wiped its `localFilePath` and its `isDownloaded` flag. The book kept its
+     * gigabytes on disk and lost its «on device» state — the two halves of
+     * #1163. Both global queries are gone with this change; the scoped reset
+     * below replaced them.
+     *
+     * The reset is therefore scoped per book, by the source its tracks belong
+     * to: a `type = "local"` source is the listener's own copy and is left
+     * completely alone — file path, download flag and download state. A book
+     * that also carries source tracks (a merged local import) is reset like any
+     * other download, because those tracks really were downloads.
+     */
     suspend fun clearAllAudioCache() {
         val baseDir = resolveBaseDir()
         withContext(Dispatchers.IO) {
@@ -1354,8 +1445,32 @@ class OfflineDownloads(
                     audioDir.deleteRecursively()
                 }
             }
-            dao.markAllNotDownloaded()
-            dao.clearAllTracksDownloadState()
+            for (book in dao.getAllAudiobooksOnce()) {
+                val localSourceIds = dao.getSourcesForBookSync(book.id)
+                    .filter { it.type == LOCAL_SOURCE_TYPE }
+                    .map { it.id }
+                    .toSet()
+                val tracks = dao.getTracksForBookSync(book.id)
+                for (track in tracks) {
+                    // A local copy is not a download: it keeps its path and its
+                    // state even when it shares the book with source tracks.
+                    if (track.sourceId in localSourceIds) continue
+                    dao.updateTrackDownloadState(track.id, isDownloaded = false, filePath = null)
+                }
+                // A LOCAL-ONLY book is not this action's business at all. Every
+                // other book is reset — including one whose download flag was
+                // set before its track rows existed (the pre-#1163 shape).
+                val localOnly = localSourceIds.isNotEmpty() &&
+                    tracks.none { it.sourceId !in localSourceIds }
+                if (!localOnly) {
+                    dao.updateDownloadStateWithState(
+                        book.id,
+                        isDownloaded = false,
+                        progress = 0f,
+                        state = DownloadState.IDLE
+                    )
+                }
+            }
         }
     }
 
@@ -1363,7 +1478,24 @@ class OfflineDownloads(
         /** Single source of truth for the offline-audio directory name. */
         const val OFFLINE_AUDIO_DIR = "audiobooks"
 
+        /**
+         * #1163 — the source type a local import writes for its private copy
+         * (see `LibraryImport`). A track of such a source is the listener's own
+         * file, never a download.
+         */
+        private const val LOCAL_SOURCE_TYPE = "local"
+
         /** #531 — a file at least this big is a READY chapter, never a stub. */
         private const val READY_FILE_MIN_BYTES = 100L
     }
+}
+
+/**
+ * #1163 — what the app itself occupies on the device, split by the two things
+ * that are app data: the Source downloads and the private copies of local
+ * imports. Both are measured from the actual files, so the pair answers «куди
+ * поділися 3,23 ГБ» with the app's own bytes instead of one folder's.
+ */
+data class AppStorageUsage(val downloadedBytes: Long, val localCopyBytes: Long) {
+    val totalBytes: Long get() = downloadedBytes + localCopyBytes
 }

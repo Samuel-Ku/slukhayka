@@ -644,7 +644,9 @@
     <string name="lib_filter_new">New</string>
     <string name="lib_filter_listening">Listening</string>
     <string name="lib_filter_completed">Finished</string>
-    <string name="lib_filter_downloaded">Downloaded</string>
+    <!-- #1163 — see the UK twin: the chip is about what is readable on this
+         device, not only about what was downloaded. -->
+    <string name="lib_filter_downloaded">On device</string>
     <string name="lib_filter_local">Local</string>
     <string name="lib_filter_online">Online</string>
     <string name="lib_filter_favorite">Favourites</string>

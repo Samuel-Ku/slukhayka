@@ -29,4 +29,8 @@
     <string name="lib_import_split_here">Podziel przed tym rozdziałem</string>
     <string name="metadata_edit_series">Seria</string>
     <string name="metadata_edit_series_index">Numer w serii</string>
+    <!-- #1163 — the storage card's two figures, so the new labels cost no
+         MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
+    <string name="storage_stat_downloads">Pobrane</string>
+    <string name="storage_stat_local_copies">Kopie lokalne</string>
 </resources>

@@ -120,7 +120,7 @@ import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
  * books live side by side; the segmented status row (Усі / Нові / Слухаю /
- * Завершені / Завантажені, spec-28 #193) plus a filter sheet (Обрані /
+ * Завершені / На пристрої, spec-28 #193, #1163) plus a filter sheet (Обрані /
  * Локальні / Онлайн, six sort modes, grid/list toggle) and client-side
  * search sit above a single book card that always shows author,
  * series+volume, progress, remaining time, download status and a small
@@ -3563,9 +3563,9 @@ private fun libraryChrome(
     // selection (the active status, or this launcher while a rare
     // filter is active). The screen used to scroll the line here,
     // and for every one-tap status that meant «back to the start»:
-    // the LAST chip, «Завантажені», stayed under the right window
-    // edge while selected — the #390 defect the #885 redesign
-    // brought back.
+    // the LAST chip — «Завантажені» when #1165 was filed, «На пристрої»
+    // since #1163 — stayed under the right window edge while selected: the
+    // #390 defect the #885 redesign brought back.
     val isSheetFilterActive = filter in SHEET_FILTERS
     LibraryStatusRow(
         selected = filter,

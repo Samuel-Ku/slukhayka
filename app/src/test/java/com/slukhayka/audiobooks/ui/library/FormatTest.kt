@@ -58,14 +58,17 @@ class FormatTest {
         val text = clearCacheConfirmText(12, 2_469_396_397L)
         assertEquals(
             "Видалити 12 завантажених книг, 2,3 ГБ? " +
-                "Книги залишаться в медіатеці — доведеться завантажити знову.",
+                "Книги залишаться в медіатеці — доведеться завантажити знову. " +
+                "Локальні копії лишаються.",
             text
         )
     }
 
     @Test
     fun `confirm copy takes the proper plural for one and few`() {
-        val tail = " Книги залишаться в медіатеці — доведеться завантажити знову."
+        // #1163 — the copy names what SURVIVES the clear: the download goes, the
+        // private copy of a local import does not.
+        val tail = " Книги залишаться в медіатеці — доведеться завантажити знову. Локальні копії лишаються."
         assertEquals("Видалити 1 завантажену книгу, 350 МБ?$tail", clearCacheConfirmText(1, 350L * 1024 * 1024))
         assertEquals("Видалити 3 завантажені книги, 350 МБ?$tail", clearCacheConfirmText(3, 350L * 1024 * 1024))
         assertEquals("Видалити 21 завантажену книгу, 350 МБ?$tail", clearCacheConfirmText(21, 350L * 1024 * 1024))

@@ -28,9 +28,10 @@ fun interface LocalFileDurationReader {
 /**
  * The production reader — [MediaMetadataRetriever] over the copied local file:
  * the container's own header, offline, no network, and without reading the
- * audio bytes (the ticket's «метадані, а не байти»). ADR-0061 keeps the
- * original file in the imported folder, so the path the local import stored is
- * the file this opens.
+ * audio bytes (the ticket's «метадані, а не байти»). The local import keeps its
+ * own private copy under `filesDir/local_imports` — written and hashed in the
+ * staging dir first (#618) — and the database rows point at that copy, so the
+ * path the local import stored is the file this opens.
  *
  * Duration is never derived from file size or bitrate here: that arithmetic
  * belongs to the stream prober, where a CBR frame header proves the bitrate. A

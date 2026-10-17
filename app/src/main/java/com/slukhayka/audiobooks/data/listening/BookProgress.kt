@@ -108,12 +108,16 @@ fun isBookFinished(
  * The price of the refusal is paid in the open, and it is deliberate: a local
  * book whose files cannot be measured — a deleted folder, an unreadable
  * container, a codec [android.media.MediaMetadataRetriever] does not know —
- * has no total at all, so the card shows the honest unknown state
- * («Тривалість невідома», [com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown])
- * and the book is never called finished by position. Nothing else may be
- * invented from file size or bitrate for a local file: those are streams'
- * arithmetic, and [com.slukhayka.audiobooks.data.duration.ChapterDurationProbe]
- * measures real local containers instead.
+ * has no total at all. ADR-0014 then makes the card render NO number: no
+ * percent, no bar, and no remaining-time line, because 0 % there would be this
+ * function's sentinel read as a reading. Only the a11y state names the state
+ * honestly, through
+ * [com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown]
+ * («Тривалість невідома»), and the book is never called finished by position.
+ * Nothing else may be invented from file size or bitrate for a local file:
+ * those are streams' arithmetic, and
+ * [com.slukhayka.audiobooks.data.duration.ChapterDurationProbe] measures real
+ * local containers instead.
  */
 fun knownBookTotalSeconds(
     chapters: List<ChapterEntity>,

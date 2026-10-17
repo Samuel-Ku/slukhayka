@@ -125,6 +125,38 @@ class LibraryModelTest {
         assertEquals(2700L, built.remainingSeconds)
     }
 
+    // #1187 / ADR-0014 — the honest half of the same rule. When no total proves
+    // the book's length, `percent` is 0f as the SENTINEL for "unknown", and the
+    // card must not read it as a real «0%». `knownPercent` is the number the
+    // card renders, so null here is the proof that it renders nothing (and
+    // draws no empty bar) instead.
+    @Test
+    fun `a book whose files were never measured shows no percent at all`() {
+        val b = book("a", "Локальна книга")
+        // The only chapter's file could not be measured, so its duration is 0.
+        val chapters = listOf(chapter("a", 0, 0L))
+        val p = progress("a", chapterIndex = 0, position = 3L)
+
+        val built = buildLibraryBooks(listOf(b), listOf(p), mapOf("a" to chapters)).single()
+
+        assertEquals(0L, built.totalDurationSeconds)
+        assertEquals(0f, built.percent, 0.0001f)
+        // The book is being listened to — the reachable case the review named:
+        // it becomes the «Продовжити» card with no total at all.
+        assertTrue(built.isListening)
+        assertNull(built.knownPercent)
+    }
+
+    @Test
+    fun `a book with a proven total keeps showing the percent the card renders`() {
+        val b = book("a", "Книга", totalDurationSeconds = 3600L)
+        val p = progress("a", position = 900L)
+
+        val built = buildLibraryBooks(listOf(b), listOf(p), emptyMap()).single()
+
+        assertEquals(25, built.knownPercent)
+    }
+
     @Test
     fun `no progress means zero position and not listening`() {
         val b = book("a", "Книга")

@@ -203,6 +203,13 @@ class SourceCatalog(
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
 
+    // ADR-0004 + ADR-0007: the on-open preparation of a chapter-less Edition
+    // stores its resolved page through the SAME write module the explicit
+    // import uses — one provenance rule, one transaction, no door-local
+    // source literal.
+    private val editionSourceWriter =
+        com.slukhayka.audiobooks.data.imports.EditionSourceWriter(dao, writeBatchRunner)
+
     /** ADR-0037 — the source ids whose AUDIO the listener has refused. */
     private fun refusedAudioSources(): Set<String> = sourceAudioRefusal.value
 
@@ -1470,10 +1477,11 @@ class SourceCatalog(
         // live page's chapters on EVERY play/refresh -- observed on-device as
         // 54 chapter rows for one 6-chapter seed book, scrambled order, and
         // the player picking up reasd.org streams instead of the seeded ones.
-        // The empty-chapter warning below must name 4read only when the 4read
-        // fallback actually ran; a mirror work (e.g. LibriVox) has no chapters
-        // yet for its own reasons — the mirror is not an import.
-        var attemptedFourReadFallback = false
+        // The empty-chapter warning below must name the fallback only when the
+        // book's OWN source fallback actually ran; a mirror work (e.g.
+        // LibriVox) has no chapters yet for its own reasons — the mirror is
+        // not an import.
+        var attemptedOwnSourceFallback = false
         // #814 — матеріалізація з ВЛАСНОГО джерела книги, а не лише з 4read.
         //
         // Ця гілка — той самий «метод 4read», про який просив користувач:
@@ -1495,30 +1503,41 @@ class SourceCatalog(
             // materialization either — the refusal covers the fallback too.
             bookSourceId !in refusedAudioSources()
         ) {
-            attemptedFourReadFallback = true
+            attemptedOwnSourceFallback = true
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
             val detail = bookAdapter.fetchBookPage(sourceUrl)
             if (detail.chapters.isNotEmpty()) {
                 // ADR-0004 + ADR-0007: materialization (one id format, one
                 // title fallback, duration conventions; Edition chapters +
-                // Source tracks) comes from the one module.
+                // Source tracks) and the Source's provenance come from the
+                // shared write module. The stored type is the page's OWN
+                // adapter id — the fallback used to hard-code «4read» for any
+                // allowed Direct Source, so a foreign page's tracks stopped
+                // pairing under the wrong provenance.
                 val edition = dao.getEditionForWork(bookId)
                 // Spec-45 (#405) — the fallback-created Edition claims the
                 // page's content language, and the id formula agrees with the
                 // import write path so lookups match stored rows.
-                val editionId = edition?.id ?: EditionId.forBook(book?.mergeKey ?: "", bookId, book?.narrator ?: "", detail.language)
-                if (edition == null) {
-                    dao.insertEdition(
-                        EditionEntity(
-                            id = editionId,
-                            workId = bookId,
-                            narrator = book?.narrator ?: "",
-                            language = detail.language,
-                            totalChapters = detail.chapters.size,
-                            totalDurationSeconds = detail.totalDurationSeconds ?: 0L
-                        )
+                val editionId = edition?.id
+                    ?: EditionId.forBook(book?.mergeKey ?: "", bookId, book?.narrator ?: "", detail.language)
+                val written = editionSourceWriter.writeResolvedPage(
+                    bookId = bookId,
+                    bookTitle = book?.title ?: bookSourceId,
+                    sourceId = bookAdapter.sourceId,
+                    pageUrl = sourceUrl,
+                    detail = detail,
+                    existingEdition = edition,
+                    draftEdition = EditionEntity(
+                        id = editionId,
+                        workId = bookId,
+                        narrator = book?.narrator ?: "",
+                        language = detail.language,
+                        totalChapters = detail.chapters.size,
+                        totalDurationSeconds = detail.totalDurationSeconds ?: 0L
                     )
+                )
+                if (edition == null) {
                     // R1 (#508): the fallback-created Edition's facet projection
                     // lands through the same shared seam — the feed's language
                     // dimension sees a page-materialized rendition too.
@@ -1527,7 +1546,7 @@ class SourceCatalog(
                         domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
                         narrator = book?.narrator ?: "",
                         language = detail.language,
-                        chapterCount = detail.chapters.size
+                        chapterCount = written.chapters.size
                     )
                 } else if (edition.language.isBlank() && detail.language.isNotBlank()) {
                     // R1 (#508): the Edition row predates the language claim —
@@ -1539,28 +1558,9 @@ class SourceCatalog(
                         domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
                         narrator = edition.narrator,
                         language = detail.language,
-                        chapterCount = detail.chapters.size
+                        chapterCount = written.chapters.size
                     )
                 }
-                val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "4read" }
-                    ?: SourceEntity(
-                        id = "4read-$editionId",
-                        bookId = bookId,
-                        editionId = editionId,
-                        type = "4read",
-                        url = sourceUrl,
-                        streamOnly = streamOnlyFor("4read"),
-                        addedAt = System.currentTimeMillis()
-                    ).also { dao.insertSources(listOf(it)) }
-                val materialized = MetadataAssertions.materializeChaptersAndTracks(
-                    editionId = editionId,
-                    sourceId = source.id,
-                    bookId = bookId,
-                    bookTitle = book?.title ?: "4read",
-                    chapters = detail.chapters
-                )
-                dao.insertChapters(materialized.chapters)
-                dao.insertTracks(materialized.tracks)
                 // Back-fill the real chapter count, the site's own total
                 // duration ("Триває:"), and the real author/narrator/genre/
                 // rating/series now that we've fetched the book page — the
@@ -1570,7 +1570,7 @@ class SourceCatalog(
                     book?.totalDurationSeconds ?: 0L,
                     detail.totalDurationSeconds
                 )
-                dao.updateBookStats(bookId, materialized.chapters.size, knownDuration)
+                dao.updateBookStats(bookId, written.chapters.size, knownDuration)
                 val author = MetadataAssertions.normalizeClaimedText(detail.author)
                 val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
                 val genres = detail.genres.joinToString(" · ").ifBlank { null }
@@ -1601,21 +1601,22 @@ class SourceCatalog(
                 MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
                     dao.updateCoverImageUrl(bookId, cover)
                 }
-                chapters = materialized.chapters
+                chapters = written.chapters
             }
         }
 
-        // Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006): when 4read fetch
-        // returns no streams the previous code synthesised N chapters pointing
-        // at unrelated archive.org MP3s (time_machine / war_of_the_worlds) so
-        // that the chapter list was always populated. Users heard 19th-century
-        // sci-fi while the UI showed their selected book. We refuse to fabricate
-        // audio and surface an empty chapter list — the player / UI sees the
-        // absence and shows a "no chapters available" message instead.
-        if (chapters.isEmpty() && attemptedFourReadFallback) {
+        // Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006): when the page
+        // fetch returns no streams the previous code synthesised N chapters
+        // pointing at unrelated archive.org MP3s (time_machine /
+        // war_of_the_worlds) so that the chapter list was always populated.
+        // Users heard 19th-century sci-fi while the UI showed their selected
+        // book. We refuse to fabricate audio and surface an empty chapter list
+        // — the player / UI sees the absence and shows a "no chapters
+        // available" message instead.
+        if (chapters.isEmpty() && attemptedOwnSourceFallback) {
             Log.w(
                 "SourceCatalog",
-                "No chapters for bookId=$bookId and 4read fetch returned none; " +
+                "No chapters for bookId=$bookId and the source page returned none; " +
                     "refusing to fabricate placeholder audio."
             )
         }

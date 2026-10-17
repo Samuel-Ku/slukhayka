@@ -1,3 +1,33 @@
+"""Чистка гілок і локального дерева тримається на доведенні (#1303).
+
+Що тут піниться:
+
+  * `DecideTest` — три доведення поглинання (`ancestor`, `pr-merged-sha` із
+    merge-комітом у графі `main`, `patch-absorbed`) і все, що їх скасовує:
+    відкритий PR, PR у релізній лінії, захищена назва, реліз без тега;
+  * `LocalDecideTest` — локальні запобіжники: резервування, свіжість, бруд,
+    ігнорований вміст, головне й поточне дерево, worktree поза репозиторієм;
+  * `ClaimsTest` — резервування шукається за номером тікета в назві гілки й
+    смуги; полів `branch`/`worktree` реєстр не має — ця межа названа в
+    `docs/runbooks/branch-hygiene.md`;
+  * `LocalReportTest` — звіт називає роботу, якої немає в `main`, і підказку
+    вибирає зі структури рішення, а не з власної прози;
+  * `ApiPrsTest` — форма PR із публічного GitHub API: джерело без gh, без
+    токена й без keyring;
+  * `CollectIntegrationTest` — справжній git-репозиторій: збір фактів, `--apply`
+    проти справжніх гілки та worktree, відмова без PR-даних, відмова видаляти
+    гілку, що рушила після збору фактів, і ігнорований вміст, який
+    `git worktree remove` зніс би разом із деревом;
+  * `LlmTest` — наратив не має права падати на недоступному endpoint.
+
+Межі, названі прямо. У реєстрі сторожів (`scripts/guard_witnesses.py`) стоять
+три записи з цього файлу — саме ті, що тримають право на видалення: перевірка
+бази PR, перевірка резервувань і пін доведеного sha. Решта перевіряють форму
+звіту, збір фактів і локальне прибирання; реєстр покриває НАЗВАНИХ, а не всіх.
+Мережі в тестах немає: `gh` підставляється файлом `--pr-facts`, `map_api_pr`
+перевіряється на фікстурі, а `LlmTest` стукає в закритий порт localhost.
+"""
+
 import importlib.util
 import json
 import subprocess
@@ -43,9 +73,10 @@ def make_branch(
 
 
 def make_pr(number, state, *, sha="a" * 40, draft=False, head="topic", updated_days=1,
-            base="main"):
+            base="main", in_main_graph=True):
     stamp = (NOW - timedelta(days=updated_days)).isoformat()
     return {
+        "inMainGraph": in_main_graph,
         "number": number,
         "headRefName": head,
         "baseRefName": base,
@@ -117,6 +148,20 @@ class DecideTest(unittest.TestCase):
         )
         self.assertEqual(verdict["action"], "delete")
         self.assertEqual(verdict["rule"], "pr-merged-sha")
+
+    def test_merged_pr_outside_the_main_graph_is_not_proof(self):
+        # Після force-push `main` PR лишається MERGED із тим самим tip, але його
+        # вмісту в main немає: видалення гілки втратило б єдиний ref.
+        verdict = decide(
+            make_branch(
+                "t1",
+                sha="b" * 40,
+                unique_patches=2,
+                prs=[make_pr(11, "MERGED", sha="b" * 40, in_main_graph=False)],
+            )
+        )
+        self.assertEqual(verdict["action"], "keep")
+        self.assertIn("рухалася далі", verdict["reason"])
 
     def test_merged_pr_with_moved_branch_is_kept(self):
         verdict = decide(
@@ -249,6 +294,22 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(decisions[0]["stale_draft"])
         self.assertIn("драфт без руху", body)
         self.assertIn("#700", body)
+
+    def test_a_fresh_pr_on_a_branch_with_an_old_one_is_not_stale(self):
+        _, decisions = self.build(
+            [
+                make_branch(
+                    "t1",
+                    unique_patches=2,
+                    prs=[
+                        make_pr(701, "OPEN", updated_days=40),
+                        make_pr(702, "OPEN", updated_days=2),
+                    ],
+                )
+            ]
+        )
+        self.assertEqual(decisions[0]["pr_stale_days"], 2)
+        self.assertFalse(decisions[0]["stale_open"])
 
     def test_fresh_open_pr_is_not_stale(self):
         _, decisions = self.build(
@@ -416,10 +477,12 @@ class CollectIntegrationTest(unittest.TestCase):
         refs = self.run_git(self.work, "ls-remote", "--heads", "origin").stdout
         self.assertIn("refs/heads/absorbed", refs)
 
-    def collect_path(self):
+    def collect_path(self, pr_facts=None):
         path = self.root / "facts-for-cleanup.json"
+        injected = ["--pr-facts", str(pr_facts)] if pr_facts else []
         subprocess.run(
-            [sys.executable, str(SCRIPT), "collect", "--no-gh", "--json", str(path)],
+            [sys.executable, str(SCRIPT), "collect", "--no-gh", "--json", str(path),
+             *injected],
             cwd=self.work,
             check=True,
             capture_output=True,
@@ -428,27 +491,34 @@ class CollectIntegrationTest(unittest.TestCase):
         return path
 
     def make_branches(self):
-        """Поглинута гілка + самобутня гілка, обидві на origin."""
+        """Поглинута гілка + самобутня гілка, обидві на origin.
+
+        Повертає (sha поглинутої гілки, merge-коміт у main).
+        """
         self.run_git(self.work, "checkout", "-q", "-b", "absorbed")
         (self.work / "a.txt").write_text("a\n", encoding="utf-8")
         self.commit("feat: absorbed")
+        sha = self.run_git(self.work, "rev-parse", "HEAD").stdout.strip()
         self.run_git(self.work, "checkout", "-q", "main")
         self.run_git(self.work, "merge", "-q", "--no-ff", "-m", "merge absorbed", "absorbed")
+        merge_commit = self.run_git(self.work, "rev-parse", "HEAD").stdout.strip()
         self.run_git(self.work, "checkout", "-q", "-b", "unique")
         (self.work / "b.txt").write_text("b\n", encoding="utf-8")
         self.commit("feat: unique")
         self.run_git(self.work, "checkout", "-q", "main")
         self.run_git(self.work, "push", "-q", "origin", "--all")
+        return sha, merge_commit
 
     def test_apply_deletes_only_the_absorbed_branch(self):
-        self.make_branches()
+        sha, merge_commit = self.make_branches()
+        pr_facts = self.write_pr_facts("absorbed", sha, merge_commit)
         result = subprocess.run(
             [
                 sys.executable,
                 str(SCRIPT),
                 "cleanup",
                 "--facts",
-                str(self.collect_path()),
+                str(self.collect_path(pr_facts)),
                 "--apply",
             ],
             cwd=self.work,
@@ -472,27 +542,59 @@ class CollectIntegrationTest(unittest.TestCase):
         return path
 
     def absorb(self, branch, filename):
-        """Гілка, чий коміт злито в main merge-комітом: tip стає предком."""
+        """Гілка, чий коміт злито в main merge-комітом: tip стає предком.
+
+        Повертає sha merge-коміту — він у графі main, тож годиться на роль
+        `mergeCommit` для підставлених PR-фактів.
+        """
         self.run_git(self.work, "checkout", "-q", "-b", branch)
         (self.work / filename).write_text("x\n", encoding="utf-8")
         self.commit(f"feat: {branch}")
+        sha = self.run_git(self.work, "rev-parse", "HEAD").stdout.strip()
         self.run_git(self.work, "checkout", "-q", "main")
         self.run_git(self.work, "merge", "-q", "--no-ff", "-m", f"merge {branch}", branch)
         # Доказ поглинання міряється щодо origin/main, а не щодо локального main.
         self.run_git(self.work, "push", "-q", "origin", "main")
+        return sha
 
-    def collect_local(self, *extra):
+    def write_pr_facts(self, branch, sha, merge_commit, *, state="MERGED",
+                       base="main", number=1):
+        """Підставлені PR-факти: без них чистка тепер відмовляється працювати."""
+        path = self.root / f"pr-{branch.replace('/', '-')}.json"
+        path.write_text(json.dumps([{
+            "number": number,
+            "headRefName": branch,
+            "baseRefName": base,
+            "state": state,
+            "isDraft": False,
+            "title": f"PR {number}",
+            "updatedAt": "2026-10-14T00:00:00Z",
+            "mergedAt": "2026-10-14T00:00:00Z" if state == "MERGED" else None,
+            "headRefOid": sha,
+            "mergeCommit": {"oid": merge_commit},
+            "url": f"https://example.invalid/{number}",
+            "headRepositoryOwner": {"login": "test"},
+        }], ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def main_sha(self):
+        return self.run_git(self.work, "rev-parse", "main").stdout.strip()
+
+    def collect_local(self, *extra, pr_facts=None):
         facts_path = self.root / "local-facts.json"
+        injected = ["--pr-facts", str(pr_facts)] if pr_facts else []
         subprocess.run(
             [sys.executable, str(SCRIPT), "collect-local", "--no-gh",
-             "--json", str(facts_path), *extra],
+             "--json", str(facts_path), *injected, *extra],
             cwd=self.work, check=True, capture_output=True, text=True,
         )
         return json.loads(facts_path.read_text(encoding="utf-8"))
 
-    def run_local(self, *extra):
+    def run_local(self, *extra, pr_facts=None):
+        injected = ["--pr-facts", str(pr_facts)] if pr_facts else []
         return subprocess.run(
-            [sys.executable, str(SCRIPT), "local", "--no-gh", "--no-out", *extra],
+            [sys.executable, str(SCRIPT), "local", "--no-gh", "--no-out",
+             *injected, *extra],
             cwd=self.work, check=False, capture_output=True, text=True,
         )
 
@@ -517,11 +619,12 @@ class CollectIntegrationTest(unittest.TestCase):
         self.assertEqual(len([w for w in facts["worktrees"] if w["current"]]), 1)
 
     def test_local_apply_removes_a_clean_absorbed_worktree_and_branch(self):
-        self.absorb("merged", "a.txt")
+        sha = self.absorb("merged", "a.txt")
         worktree = self.add_worktree("wt-merged", "merged")
         self.run_git(self.work, "push", "-q", "origin", "--all")
+        pr_facts = self.write_pr_facts("merged", sha, self.main_sha())
 
-        result = self.run_local("--apply", "--fresh-hours", "0")
+        result = self.run_local("--apply", "--fresh-hours", "0", pr_facts=pr_facts)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("`merged` — видалено разом із worktree", result.stdout)
         self.assertFalse(worktree.exists())
@@ -535,8 +638,9 @@ class CollectIntegrationTest(unittest.TestCase):
         )
 
     def test_local_apply_respects_a_reservation(self):
-        self.absorb("merged", "a.txt")
+        sha = self.absorb("merged", "a.txt")
         self.run_git(self.work, "push", "-q", "origin", "--all")
+        pr_facts = self.write_pr_facts("merged", sha, self.main_sha())
         claims = self.work / ".git" / "agent-work-claims"
         claims.mkdir(exist_ok=True)
         (claims / "7.json").write_text(
@@ -544,7 +648,7 @@ class CollectIntegrationTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        result = self.run_local("--apply", "--fresh-hours", "0")
+        result = self.run_local("--apply", "--fresh-hours", "0", pr_facts=pr_facts)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("резервування #7", result.stdout)
         self.assertEqual(
@@ -552,12 +656,13 @@ class CollectIntegrationTest(unittest.TestCase):
         )
 
     def test_local_apply_keeps_a_dirty_worktree(self):
-        self.absorb("merged", "a.txt")
+        sha = self.absorb("merged", "a.txt")
         worktree = self.add_worktree("wt-merged", "merged")
         (worktree / "dirty.txt").write_text("x\n", encoding="utf-8")
         self.run_git(self.work, "push", "-q", "origin", "--all")
+        pr_facts = self.write_pr_facts("merged", sha, self.main_sha())
 
-        result = self.run_local("--apply", "--fresh-hours", "0")
+        result = self.run_local("--apply", "--fresh-hours", "0", pr_facts=pr_facts)
         self.assertIn("worktree брудний", result.stdout)
         self.assertTrue(worktree.exists())
         self.assertEqual(
@@ -567,20 +672,96 @@ class CollectIntegrationTest(unittest.TestCase):
     def test_a_worktree_whose_directory_is_gone_does_not_block_the_branch(self):
         import shutil
 
-        self.absorb("merged", "a.txt")
+        sha = self.absorb("merged", "a.txt")
         worktree = self.add_worktree("wt-merged", "merged")
         shutil.rmtree(worktree)
+        pr_facts = self.write_pr_facts("merged", sha, self.main_sha())
 
-        facts = self.collect_local()
+        facts = self.collect_local(pr_facts=pr_facts)
         by_name = {branch["name"]: branch for branch in facts["branches"]}
         self.assertTrue(by_name["merged"]["worktree"]["prunable"])
 
-        result = self.run_local("--apply", "--fresh-hours", "0")
+        result = self.run_local("--apply", "--fresh-hours", "0", pr_facts=pr_facts)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotEqual(
             self.run_git(self.work, "show-ref", "--verify", "refs/heads/merged",
                          check=False).returncode, 0,
         )
+
+    def test_apply_refuses_when_there_is_no_pr_data(self):
+        """Без даних про PR захист «відкритий PR не чіпаємо» зникає — тож анічого."""
+        sha = self.absorb("merged", "a.txt")
+        self.run_git(self.work, "push", "-q", "origin", "--all")
+
+        result = self.run_local("--apply", "--fresh-hours", "0")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("Даних про PR немає", result.stdout)
+        self.assertEqual(
+            self.run_git(self.work, "show-ref", "--verify", "refs/heads/merged").returncode, 0
+        )
+        self.assertTrue(sha)
+
+    def test_cleanup_refuses_a_branch_that_moved_after_the_facts(self):
+        """Видалення пінить доведений sha: гілка рушила — відмова, не втрата."""
+        sha, merge_commit = self.make_branches()
+        pr_facts = self.write_pr_facts("absorbed", sha, merge_commit)
+        facts_path = self.collect_path(pr_facts)
+
+        self.run_git(self.work, "checkout", "-q", "absorbed")
+        (self.work / "later.txt").write_text("later\n", encoding="utf-8")
+        self.commit("feat: пізніша робота")
+        self.run_git(self.work, "push", "-q", "origin", "absorbed")
+        self.run_git(self.work, "checkout", "-q", "main")
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "cleanup", "--facts", str(facts_path), "--apply"],
+            cwd=self.work, check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        refs = self.run_git(self.work, "ls-remote", "--heads", "origin").stdout
+        self.assertIn("refs/heads/absorbed", refs)
+        self.assertIn("НЕ видалено", result.stderr + result.stdout)
+
+    def test_local_apply_keeps_a_worktree_with_ignored_content(self):
+        """`worktree remove` без --force зносить і ігнороване — сторож цього не робить."""
+        self.run_git(self.work, "checkout", "-q", "main")
+        (self.work / ".gitignore").write_text("local.properties\nbuild/\n", encoding="utf-8")
+        self.commit("chore: ignore")
+        self.run_git(self.work, "push", "-q", "origin", "main")
+
+        sha = self.absorb("merged", "a.txt")
+        worktree = self.add_worktree("wt-merged", "merged")
+        (worktree / "local.properties").write_text("sdk.dir=/secret\n", encoding="utf-8")
+        self.run_git(self.work, "push", "-q", "origin", "--all")
+        pr_facts = self.write_pr_facts("merged", sha, self.main_sha())
+
+        facts = self.collect_local(pr_facts=pr_facts)
+        by_name = {branch["name"]: branch for branch in facts["branches"]}
+        self.assertEqual(by_name["merged"]["worktree"]["dirty"], 0)
+        self.assertEqual(by_name["merged"]["worktree"]["ignored_blocking"], ["local.properties"])
+
+        result = self.run_local("--apply", "--fresh-hours", "0", pr_facts=pr_facts)
+        self.assertIn("ігнорований вміст", result.stdout)
+        self.assertTrue(worktree.exists())
+        self.assertTrue((worktree / "local.properties").exists())
+
+    def test_local_apply_ignores_build_residue(self):
+        """Відходи збірки — не привід лишати дерево."""
+        self.run_git(self.work, "checkout", "-q", "main")
+        (self.work / ".gitignore").write_text("build/\n", encoding="utf-8")
+        self.commit("chore: ignore")
+        self.run_git(self.work, "push", "-q", "origin", "main")
+
+        sha = self.absorb("merged", "a.txt")
+        worktree = self.add_worktree("wt-merged", "merged")
+        (worktree / "build").mkdir()
+        (worktree / "build" / "out.txt").write_text("x\n", encoding="utf-8")
+        self.run_git(self.work, "push", "-q", "origin", "--all")
+        pr_facts = self.write_pr_facts("merged", sha, self.main_sha())
+
+        result = self.run_local("--apply", "--fresh-hours", "0", pr_facts=pr_facts)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(worktree.exists())
 
     def test_missing_origin_main_is_a_clear_error(self):
         self.run_git(self.work, "update-ref", "-d", "refs/remotes/origin/main")
@@ -682,6 +863,15 @@ class ClaimsTest(unittest.TestCase):
         self.assertEqual(branch_hygiene.claimed_by([{"issue": "301"}], "t1301-asymmetry"), [])
         self.assertEqual(branch_hygiene.claimed_by([{"issue": "1"}], "t1301-asymmetry"), [])
 
+    def test_issue_number_inside_the_worktree_path_is_found(self):
+        # Смуги звуться `w<номер>`: гілка без номера у назві все одно захищена,
+        # якщо тікет зарезервовано.
+        records = [{"issue": "1187"}]
+        self.assertEqual(
+            branch_hygiene.claimed_by(records, "feat/local-book-duration",
+                                      "/repo/.worktrees/w1187"), ["1187"]
+        )
+
     def test_explicit_branch_and_worktree_fields_win(self):
         records = [{"issue": "42", "branch": "wip", "worktree": "/w/wip"}]
         self.assertEqual(branch_hygiene.claimed_by(records, "wip"), ["42"])
@@ -722,6 +912,16 @@ class LocalReportTest(unittest.TestCase):
         self.assertIn("## Робота, якої немає в main", body)
         self.assertIn("`t9`", body)
         self.assertIn("git push -u origin t9", body)
+
+    def test_hint_for_a_moved_branch_comes_from_structure(self):
+        # Підказка більше не розбирає власну прозу: досить мати PR, злитий у
+        # main, і відсутній доказ поглинання.
+        branch = self.local_branch(
+            "t9", unique_patches=4, prs=[make_pr(1147, "MERGED", sha="b" * 40)]
+        )
+        body, decisions = self.render([branch])
+        self.assertEqual(decisions[0]["merged_into_main"][0]["number"], 1147)
+        self.assertIn("git log origin/main..t9", body)
 
     def test_moved_branch_after_a_merged_pr_is_named(self):
         branch = self.local_branch(

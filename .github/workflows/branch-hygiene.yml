@@ -14,9 +14,10 @@ name: branch-hygiene
 # Сухий прогін: workflow_dispatch із dry_run — нічого не видаляється, issue не
 # оновлюється, а повний текст звіту видно в summary прогону.
 #
-# Секрети: BRANCH_HYGIENE_LLM_TOKEN — ключ LLM-endpoint для наративу звіту.
-# Якщо його немає, береться OCR_LLM_AUTH_TOKEN (той самий endpoint, що в
-# ocr-review.yml). Без жодного токена звіт лишається детермінованим.
+# Секрети: BRANCH_HYGIENE_LLM_TOKEN — ключ LLM-endpoint для наративу звіту
+# (OpenAI-сумісний /chat/completions; адреса й модель — константи в скрипті).
+# Якщо його не заведено, пробується наявний OCR_LLM_AUTH_TOKEN. Без жодного
+# токена звіт лишається детермінованим і не падає.
 
 on:
   schedule:

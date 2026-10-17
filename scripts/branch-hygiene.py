@@ -11,7 +11,15 @@
 
 Правила, пороги й захищені назви — docs/runbooks/branch-hygiene.md.
 Скрипт ніколи не видаляє гілку, поки не доведено, що її вміст уже в main:
-предок main, злитий PR із тим самим tip, або нуль унікальних патчів.
+предок main, злитий у main PR із тим самим tip (і merge-комітом у графі main),
+або нуль унікальних патчів. Видалення пінить доведений sha через
+`--force-with-lease`, тож гілка, що рушила після збору фактів, не зникає.
+
+Коди виходу (як у сусідніх механізмів):
+    0 — усе, що доведено, прибрано (можливо, прибирати було нічого);
+    1 — частину гілок прибрати не вдалося (робота не зроблена повністю);
+    2 — перевірити не вдалося: немає даних про PR під час `--apply`, немає
+        `origin/main`, gh і GitHub API недоступні.
 """
 
 from __future__ import annotations
@@ -48,7 +56,7 @@ LLM_MAX_TOKENS = 1200
 
 RULE_TEXT = {
     "ancestor": "tip — предок main",
-    "pr-merged-sha": "злитий PR із тим самим tip",
+    "pr-merged-sha": "злитий PR із тим самим tip, merge-коміт у графі main",
     "patch-absorbed": "нуль унікальних патчів щодо main",
 }
 
@@ -143,7 +151,7 @@ def repo_slug():
     return None
 
 
-def prs_from_api(slug, token=None, pages=5, timeout=30):
+def prs_from_api(slug, token=None, pages=10, timeout=30):
     """PR із GitHub API: працює без gh, без токена й без keyring.
 
     Репозиторій публічний, тож анонімного ліміту (60 запитів на годину) досить
@@ -197,6 +205,7 @@ def map_api_pr(item):
         "updatedAt": item.get("updated_at"),
         "mergedAt": item.get("merged_at"),
         "headRefOid": head.get("sha"),
+        "mergeCommit": {"oid": item.get("merge_commit_sha")},
         "url": item.get("html_url"),
         "headRepositoryOwner": {"login": (head_repo.get("owner") or {}).get("login")},
     }
@@ -209,10 +218,10 @@ def fetch_prs(use_gh=True, pr_facts_path=None, slug=None, api_token=None):
     if use_gh:
         result = run(
             [
-                "gh", "pr", "list", "--state", "all", "--limit", "500",
+                "gh", "pr", "list", "--state", "all", "--limit", "1000",
                 "--json",
                 "number,headRefName,baseRefName,state,isDraft,title,updatedAt,"
-                "mergedAt,headRefOid,url,headRepositoryOwner",
+                "mergedAt,headRefOid,mergeCommit,url,headRepositoryOwner",
             ],
             check=False,
         )
@@ -247,10 +256,26 @@ def normalize_prs(raw, owner):
                 "updatedAt": item.get("updatedAt"),
                 "mergedAt": item.get("mergedAt"),
                 "headRefOid": item.get("headRefOid"),
+                "mergeCommit": item.get("mergeCommit"),
                 "url": item.get("url"),
             }
         )
     return prs
+
+
+def merge_commit_in_main(pr, main_sha):
+    """Чи справді merge-коміт цього PR у графі main.
+
+    Після force-push у `main` (у цьому репозиторії вже був —
+    `docs/history-cleanup-force-push.md`) PR лишається MERGED із тим самим
+    `headRefOid`, але його вмісту в `main` немає. Без цієї звірки видалення
+    гілки знесло б єдиний ref на таку роботу.
+    """
+    merge = pr.get("mergeCommit")
+    oid = merge.get("oid") if isinstance(merge, dict) else merge
+    if not oid:
+        return False
+    return git("merge-base", "--is-ancestor", oid, main_sha, check=False).returncode == 0
 
 
 def branch_facts(name, sha, main_sha, prs_by_branch, main=DEFAULT_MAIN):
@@ -264,6 +289,10 @@ def branch_facts(name, sha, main_sha, prs_by_branch, main=DEFAULT_MAIN):
         if cherry.returncode == 0:
             unique_patches = sum(1 for row in cherry.stdout.splitlines() if row.startswith("+"))
     tags = git("tag", "--merged", sha, "--list", "v*", check=False).stdout.split()
+    prs = prs_by_branch.get(name, [])
+    for pr in prs:
+        if pr.get("state") == "MERGED":
+            pr["inMainGraph"] = merge_commit_in_main(pr, main_sha)
     return {
         "name": name,
         "sha": sha,
@@ -273,11 +302,12 @@ def branch_facts(name, sha, main_sha, prs_by_branch, main=DEFAULT_MAIN):
         "tip_date": tip_date.isoformat() if tip_date else None,
         "tip_author": tip[1] if len(tip) > 1 else "",
         "tip_subject": tip[2] if len(tip) > 2 else "",
-        "prs": prs_by_branch.get(name, []),
+        "prs": prs,
     }
 
 
-def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None, slug=None):
+def collection_context(main, use_gh, pr_facts_path, slug, now=None):
+    """Спільний початок обох зборів: свіжість main, PR і розкладка за гілками."""
     has_main = run(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{main}"],
         check=False,
@@ -286,10 +316,8 @@ def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None, 
         raise SystemExit(
             f"Немає refs/remotes/origin/{main} — спершу зроби git fetch origin"
         )
-
     now = now or datetime.now(timezone.utc)
     main_sha = git("rev-parse", f"refs/remotes/origin/{main}").stdout.strip()
-
     slug = slug or repo_slug()
     raw_prs, pr_source = fetch_prs(
         use_gh=use_gh, pr_facts_path=pr_facts_path, slug=slug
@@ -298,6 +326,13 @@ def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None, 
     prs_by_branch = {}
     for pr in normalize_prs(raw_prs, owner):
         prs_by_branch.setdefault(pr["headRefName"], []).append(pr)
+    return now, main_sha, raw_prs, pr_source, prs_by_branch
+
+
+def collect_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None, slug=None):
+    now, main_sha, raw_prs, pr_source, prs_by_branch = collection_context(
+        main, use_gh, pr_facts_path, slug, now
+    )
 
     refs = git(
         "for-each-ref",
@@ -376,10 +411,15 @@ def decide(branch, *, protect=(), main=DEFAULT_MAIN, now=None):
     absorbed = None
     if branch["ancestor"]:
         absorbed = "ancestor"
-    elif any(p.get("headRefOid") == branch["sha"] for p in base["merged_into_main"]):
+    elif any(
+        p.get("headRefOid") == branch["sha"] and p.get("inMainGraph")
+        for p in base["merged_into_main"]
+    ):
         # Злитий у main PR із тим самим tip: гілка не рухалася після злиття,
         # отже не несе нічого, чого немає в main (працює й для squash/rebase).
-        # PR, злитий у релізну лінію, доказом не є: у main його може не бути.
+        # PR, злитий у релізну лінію, доказом не є: у main його може не бути;
+        # і merge-коміт мусить бути в графі main — інакше після force-push
+        # `main` PR лишається MERGED, а вмісту в main немає.
         absorbed = "pr-merged-sha"
     elif branch.get("unique_patches") == 0:
         absorbed = "patch-absorbed"
@@ -430,8 +470,16 @@ def decide_all(facts, *, protect=(), now=None):
 # --------------------------------------------------------------------------- #
 
 
-def delete_branch(name):
-    result = git("push", "origin", "--delete", name, check=False)
+def delete_branch(name, sha):
+    """Видалити рівно ту ревізію, яку доведено поглинутою.
+
+    `--force-with-lease` пінить ref на доведений sha: якщо гілка рушила після
+    збору фактів, видалення відмовляє, а не зносить нову роботу.
+    """
+    result = git(
+        "push", f"--force-with-lease=refs/heads/{name}:{sha}", "origin", "--delete", name,
+        check=False,
+    )
     if result.returncode == 0:
         return True, ""
     output = (result.stderr or result.stdout).strip()
@@ -439,10 +487,12 @@ def delete_branch(name):
     return False, lines[-1] if lines else "невідома помилка"
 
 
-def render_cleanup_summary(decisions, applied, dry_run):
+def render_cleanup_summary(decisions, applied, dry_run, refused=None):
     deleted = [d for d in decisions if d["action"] == "delete"]
     kept = [d for d in decisions if d["action"] == "keep"]
     lines = ["## Порядок у гілках — чистка", ""]
+    if refused:
+        lines += [f"**Нічого не видалено.** {refused}", ""]
     if dry_run:
         lines.append(f"Сухий прогін. Поглинутих гілок: {len(deleted)}.")
     else:
@@ -468,29 +518,48 @@ def render_cleanup_summary(decisions, applied, dry_run):
 
 
 def cmd_cleanup(args):
-    facts = load_facts(args)
+    if getattr(args, "fetch", False):
+        fetch_origin()
+    facts = load_facts(args, collect_facts)
     decisions = decide_all(facts, protect=args.protect)
     to_delete = [d for d in decisions if d["action"] == "delete"]
 
     applied = []
-    if args.apply:
+    refused = None
+    if args.apply and not facts.get("pr_data"):
+        # Без даних про PR зникає захист «відкритий PR не чіпаємо», а воркфлоу
+        # обіцяє його як «ніколи». Тому краще не видалити нічого й сказати це
+        # вголос, ніж видалити наосліп.
+        refused = (
+            "Даних про PR немає (ні gh, ні GitHub API) — чистка нічого не видаляє, "
+            "бо без них гілка з відкритим PR не відрізняється від закинутої."
+        )
+        print(refused, file=sys.stderr)
+    elif args.apply:
         for item in to_delete:
-            ok, error = delete_branch(item["name"])
+            ok, error = delete_branch(item["name"], item["sha"])
             applied.append({"name": item["name"], "ok": ok, "error": error})
             state = "видалено" if ok else f"НЕ видалено ({error})"
             print(f"{state}: {item['name']}", file=sys.stderr)
 
-    summary = render_cleanup_summary(decisions, applied, dry_run=not args.apply)
+    summary = render_cleanup_summary(decisions, applied, dry_run=not args.apply, refused=refused)
     print(summary)
     if args.json:
         dump_json(
             args.json,
             {
                 "dry_run": not args.apply,
+                "refused": refused,
                 "decisions": decisions,
                 "applied": applied,
             },
         )
+    if refused:
+        return 2
+    failures = [item for item in applied if not item["ok"]]
+    if failures:
+        print(f"Не вдалося видалити: {len(failures)}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -557,7 +626,9 @@ def with_pr_freshness(decisions, stale_days, now):
         if opened:
             stamps = [parse_iso(p.get("updatedAt")) for p in opened]
             stamps = [s for s in stamps if s is not None]
-            item["pr_stale_days"] = age_days(min(stamps), now) if stamps else None
+            # Рух — це остання активність: гілка з одним старим і одним свіжим PR
+            # не застійна.
+            item["pr_stale_days"] = age_days(max(stamps), now) if stamps else None
         else:
             item["pr_stale_days"] = None
         stale_pr = item["pr_stale_days"] is not None and item["pr_stale_days"] >= stale_days
@@ -582,6 +653,7 @@ def render_report(facts, decisions, deleted_payload, *, stale_days, narrative, n
 
     dry_run = (deleted_payload or {}).get("dry_run")
     applied = (deleted_payload or {}).get("applied") or []
+    refused = (deleted_payload or {}).get("refused")
     deletions = [d for d in branches if d["action"] == "delete"]
     lines.append("## Що зроблено цієї ночі")
     lines.append("")
@@ -589,6 +661,8 @@ def render_report(facts, decisions, deleted_payload, *, stale_days, narrative, n
         lines.append(
             "Чистку не запускали в цьому прогоні, або вона впала — дивись лог прогону."
         )
+    elif refused:
+        lines.append(f"Чистку відкладено: {refused}")
     elif dry_run:
         if deletions:
             lines.append("Сухий прогін. Буде видалено:")
@@ -877,7 +951,12 @@ def claimed_by(records, name, worktree_path=None):
         if worktree_path and str(record.get("worktree") or "") == str(worktree_path):
             found.append(issue or "?")
             continue
-        if issue and re.search(r"(?:^|[^0-9])0*%s(?![0-9])" % re.escape(issue), name):
+        haystack = name
+        if worktree_path:
+            # Смуги цього репозиторію звуться `w<номер тікета>`, і в назві гілки
+            # номера може не бути взагалі (`feat/branch-hygiene`).
+            haystack = f"{name}\n{worktree_path}"
+        if issue and re.search(r"(?:^|[^0-9])0*%s(?![0-9])" % re.escape(issue), haystack):
             found.append(issue)
     return sorted(set(found))
 
@@ -934,10 +1013,21 @@ def collect_worktrees(common_dir, root, now=None):
         touched = max(stamps) if stamps else None
         if path.is_dir():
             status = run(["git", "status", "--porcelain"], check=False, cwd=path)
-            dirty = len([row for row in status.stdout.splitlines() if row.strip()])
+            rows = [row for row in status.stdout.splitlines() if row.strip()]
+            dirty = len([row for row in rows if not row.startswith("!!")])
+            kept_ignored = run(
+                ["git", "status", "--porcelain", "--ignored=matching"],
+                check=False, cwd=path,
+            )
+            ignored = [
+                row[3:].strip() for row in kept_ignored.stdout.splitlines()
+                if row.startswith("!!")
+            ]
         else:
             # Каталогу немає — це prunable-запис, а не робоче дерево.
             dirty = 0
+            ignored = []
+        blocking = [item for item in ignored if blocks_removal(path, item)]
         worktrees.append(
             {
                 "path": str(path),
@@ -949,6 +1039,8 @@ def collect_worktrees(common_dir, root, now=None):
                 "current": _within(path, root) and _within(root, path),
                 "external": not _within(path, main_path),
                 "dirty": dirty,
+                "ignored": ignored,
+                "ignored_blocking": blocking,
                 "touched_at": touched.isoformat() if touched else None,
                 "fresh_hours": (
                     round((now - touched).total_seconds() / 3600, 1) if touched else None
@@ -956,6 +1048,35 @@ def collect_worktrees(common_dir, root, now=None):
             }
         )
     return worktrees
+
+
+# Відходи збірки й кеші інструментів: їхня втрата нічого не коштує. Усе інше
+# ігнороване — чужий стан (конфіг, нотатки, журнал мутацій), і `worktree remove`
+# без `--force` зносить його разом із деревом, бо `git status --porcelain` його
+# не бачить.
+DISPOSABLE_IGNORED = (
+    ".gradle/", ".kotlin/", "build/", "node_modules/", "__pycache__/",
+    ".mutations/", ".cache-tmp/", ".pytest_cache/", ".ruff_cache/",
+)
+
+
+def blocks_removal(path, ignored):
+    """Чи блокує цей ігнорований шлях видалення worktree."""
+    name = ignored.rstrip("/")
+    if ignored.endswith("/") or (path / name).is_dir():
+        if ignored in DISPOSABLE_IGNORED or name + "/" in DISPOSABLE_IGNORED:
+            return False
+        if any(part + "/" in DISPOSABLE_IGNORED for part in Path(name).parts):
+            return False
+        target = path / name
+        try:
+            # Порожня тека не тримає нічого — втрачати нічого.
+            return any(target.iterdir())
+        except OSError:
+            return True
+    if name.endswith(".pyc") or name.endswith(".class"):
+        return False
+    return True
 
 
 def _within(path, parent):
@@ -966,23 +1087,9 @@ def _within(path, parent):
 
 
 def collect_local_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=None, slug=None):
-    has_main = run(
-        ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{main}"],
-        check=False,
+    now, main_sha, raw_prs, pr_source, prs_by_branch = collection_context(
+        main, use_gh, pr_facts_path, slug, now
     )
-    if has_main.returncode != 0:
-        raise SystemExit(
-            f"Немає refs/remotes/origin/{main} — спершу зроби git fetch"
-        )
-
-    now = now or datetime.now(timezone.utc)
-    main_sha = git("rev-parse", f"refs/remotes/origin/{main}").stdout.strip()
-    slug = slug or repo_slug()
-    raw_prs, pr_source = fetch_prs(use_gh=use_gh, pr_facts_path=pr_facts_path, slug=slug)
-    owner = slug.split("/")[0] if slug else None
-    prs_by_branch = {}
-    for pr in normalize_prs(raw_prs, owner):
-        prs_by_branch.setdefault(pr["headRefName"], []).append(pr)
 
     common_dir = git_common_dir()
     root = Path(git("rev-parse", "--show-toplevel").stdout.strip())
@@ -1009,6 +1116,7 @@ def collect_local_facts(main=DEFAULT_MAIN, use_gh=True, pr_facts_path=None, now=
         "main_sha": main_sha,
         "pr_source": pr_source,
         "pr_data": raw_prs is not None,
+        "pr_count": len(raw_prs or []),
         "common_dir": str(common_dir),
         "root": str(root),
         "claims": claim_records(common_dir),
@@ -1067,6 +1175,11 @@ def decide_local(branch, *, protect=(), main=DEFAULT_MAIN, claims=(), fresh_hour
             return keep("worktree поза репозиторієм — прибирається руками")
         if worktree["dirty"]:
             return keep("worktree брудний (%d змін) — спершу розібрати їх" % worktree["dirty"])
+        if worktree.get("ignored_blocking"):
+            return keep(
+                "worktree має ігнорований вміст (%s) — git знесе його разом із деревом"
+                % ", ".join(worktree["ignored_blocking"][:3])
+            )
     return base
 
 
@@ -1103,7 +1216,8 @@ def remove_local(item):
     return record
 
 
-def render_local_report(facts, decisions, applied, *, dry_run, now, fresh_hours, stale_days=DEFAULT_STALE_DAYS):
+def render_local_report(facts, decisions, applied, *, dry_run, now, fresh_hours,
+                        stale_days=DEFAULT_STALE_DAYS, refused=None):
     removed = [item for item in applied if item["removed_branch"]]
     failed = [item for item in applied if item["error"]]
     to_delete = [d for d in decisions if d["action"] == "delete"]
@@ -1113,10 +1227,13 @@ def render_local_report(facts, decisions, applied, *, dry_run, now, fresh_hours,
     lines = [
         "# Порядок у гілках — локальне дерево",
         "",
-        "Оновлено: %s UTC · гілок: %d · worktree: %d"
-        % (now.strftime("%Y-%m-%d %H:%M"), len(decisions), len(facts.get("worktrees") or [])),
+        "Оновлено: %s UTC · гілок: %d · worktree: %d · PR у вікні: %d"
+        % (now.strftime("%Y-%m-%d %H:%M"), len(decisions),
+           len(facts.get("worktrees") or []), facts.get("pr_count") or 0),
         "",
     ]
+    if refused:
+        lines += [f"**Нічого не прибрано.** {refused}", ""]
     if not facts.get("pr_data"):
         lines += [
             "> Даних про PR немає (ні gh, ні GitHub API) — судили лише за гітом, "
@@ -1156,22 +1273,55 @@ def render_local_report(facts, decisions, applied, *, dry_run, now, fresh_hours,
     if orphans:
         for item in sorted(orphans, key=lambda d: -(d["age_days"] or 0)):
             reason = item["reason"]
-            if reason.startswith("PR #") and "рухалася далі" in reason:
+            branch_name = item["name"]
+            if item["merged_into_main"] and not item["open_prs"] and item["proof"] is None:
                 hint = ("глянь, що не ввійшло: `git log origin/main..%s` — і або "
-                        "перенеси в main, або `git branch -D %s`" % (item["name"], item["name"]))
-            elif reason.startswith("PR злито не в main"):
+                        "перенеси в main, або `git branch -D %s`" % (branch_name, branch_name))
+            elif item["merged_prs"]:
                 hint = "PR злито в іншу лінію; у main цих змін немає — перенеси їх окремо"
-            elif reason == "PR закрито без злиття":
-                hint = ("або відкрий PR заново, або `git branch -D %s`" % item["name"])
+            elif item["closed_prs"]:
+                hint = ("або відкрий PR заново, або `git branch -D %s`" % branch_name)
             else:
                 hint = ("`git push -u origin %s`, щоб відкрити PR, або "
-                        "`git branch -D %s`" % (item["name"], item["name"]))
+                        "`git branch -D %s`" % (branch_name, branch_name))
             lines.append(
                 "- `%s` (%s, останній коміт %s тому, %s) — %s"
                 % (item["name"], item["tip_subject"][:60] or "—", age_text(item["age_days"]),
                    item["tip_author"] or "невідомий автор", reason)
             )
             lines.append(f"  → {hint}")
+    else:
+        lines.append("Немає.")
+    lines.append("")
+
+    held_ignored = [
+        w for w in (facts.get("worktrees") or [])
+        if w.get("ignored_blocking") and not w["main"] and not w["external"]
+    ]
+    lines += ["## Ігнорований вміст у worktree", ""]
+    if held_ignored:
+        for item in held_ignored:
+            lines.append(
+                "- `%s` (%s) — не порожнє: %s. `git worktree remove` знесе це разом "
+                "із деревом, тож сторож не чіпає"
+                % (item["path"], item["branch"] or "detached",
+                   ", ".join(item["ignored_blocking"][:4]))
+            )
+    else:
+        lines.append("Немає.")
+    lines.append("")
+
+    detached = [
+        w for w in (facts.get("worktrees") or [])
+        if w["detached"] and not w["main"] and not w["prunable"]
+    ]
+    lines += ["## Відірвані worktree (detached HEAD)", ""]
+    if detached:
+        for item in detached:
+            lines.append(
+                "- `%s` — гілки немає, тож довести поглинання нічим; прибирається руками"
+                % item["path"]
+            )
     else:
         lines.append("Немає.")
     lines.append("")
@@ -1236,7 +1386,7 @@ def render_local_report(facts, decisions, applied, *, dry_run, now, fresh_hours,
 def cmd_local(args):
     if args.fetch:
         fetch_origin()
-    facts = load_local_facts(args)
+    facts = load_facts(args, collect_local_facts)
     now = datetime.now(timezone.utc)
     decisions = [
         decide_local(
@@ -1247,7 +1397,14 @@ def cmd_local(args):
     ]
     to_delete = [d for d in decisions if d["action"] == "delete"]
     applied = []
-    if args.apply:
+    refused = None
+    if args.apply and not facts.get("pr_data"):
+        refused = (
+            "Даних про PR немає (ні gh, ні GitHub API) — локальна чистка нічого не "
+            "прибирає, бо без них гілка з відкритим PR не відрізняється від закинутої."
+        )
+        print(refused, file=sys.stderr)
+    elif args.apply:
         # Спершу прибираємо адмінзаписи, чиї каталоги вже зникли: інакше git
         # уважає гілку зайнятою неіснуючим worktree і відмовляється її видаляти.
         run(["git", "worktree", "prune"], check=False)
@@ -1259,7 +1416,7 @@ def cmd_local(args):
 
     report = render_local_report(
         facts, decisions, applied,
-        dry_run=not args.apply, now=now, fresh_hours=args.fresh_hours,
+        dry_run=not args.apply, now=now, fresh_hours=args.fresh_hours, refused=refused,
     )
     print(report)
     if not args.no_out:
@@ -1267,8 +1424,13 @@ def cmd_local(args):
         out.write_text(report, encoding="utf-8")
         print(f"Звіт: {out}", file=sys.stderr)
     if args.json:
-        dump_json(args.json, {"dry_run": not args.apply, "decisions": decisions,
-                              "applied": applied})
+        dump_json(args.json, {"dry_run": not args.apply, "refused": refused,
+                              "decisions": decisions, "applied": applied})
+    if refused:
+        return 2
+    if [item for item in applied if item["error"]]:
+        print("Частину гілок прибрати не вдалося", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -1277,20 +1439,11 @@ def cmd_local(args):
 # --------------------------------------------------------------------------- #
 
 
-def load_facts(args):
+def load_facts(args, collector):
+    """Факти з `--facts` або зібрані щойно — різниця лише в збирачі."""
     if getattr(args, "facts", None):
         return json.loads(Path(args.facts).read_text(encoding="utf-8"))
-    return collect_facts(
-        main=args.main,
-        use_gh=not getattr(args, "no_gh", False),
-        pr_facts_path=getattr(args, "pr_facts", None),
-    )
-
-
-def load_local_facts(args):
-    if getattr(args, "facts", None):
-        return json.loads(Path(args.facts).read_text(encoding="utf-8"))
-    return collect_local_facts(
+    return collector(
         main=args.main,
         use_gh=not getattr(args, "no_gh", False),
         pr_facts_path=getattr(args, "pr_facts", None),
@@ -1323,6 +1476,8 @@ def build_parser():
     cleanup = commands.add_parser("cleanup", help="прибрати поглинуті гілки")
     add_common(cleanup)
     cleanup.add_argument("--apply", action="store_true", help="справді видаляти (типово сухий прогін)")
+    cleanup.add_argument("--fetch", action="store_true",
+                         help="спершу оновити origin по HTTPS (без SSH)")
     cleanup.add_argument("--json", help="куди писати рішення й результат")
 
     local = commands.add_parser("local", help="порядок у локальних гілках і worktree")

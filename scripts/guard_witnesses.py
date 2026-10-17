@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 98 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 99 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -954,6 +954,21 @@ GUARDS = (
                 find='SCRATCH_PREFIXES = ("slukhayka-mutation.", "slukhayka-changed-tests.", '
                      '"slukhayka-tests.")',
                 replace="SCRATCH_PREFIXES = ()",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_branch_hygiene.CollectIntegrationTest"
+             ".test_cleanup_refuses_a_branch_that_moved_after_the_facts",
+        protects="пін доведеного sha при видаленні: без `--force-with-lease` "
+                 "знімається гілка, що рушила після збору фактів, — тобто "
+                 "втрачається робота, якої ніхто не поглинав",
+        edits=(
+            Edit(
+                file="scripts/branch-hygiene.py",
+                find='        "push", f"--force-with-lease=refs/heads/{name}:{sha}", '
+                     '"origin", "--delete", name,\n',
+                replace='        "push", "origin", "--delete", name,\n',
             ),
         ),
     ),

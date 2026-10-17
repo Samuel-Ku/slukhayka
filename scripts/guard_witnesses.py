@@ -966,9 +966,8 @@ GUARDS = (
         edits=(
             Edit(
                 file="scripts/branch-hygiene.py",
-                find='        "push", f"--force-with-lease=refs/heads/{name}:{sha}", '
-                     '"origin", "--delete", name,\n',
-                replace='        "push", "origin", "--delete", name,\n',
+                find='    lease = f"--force-with-lease=refs/heads/{name}:{sha}"\n',
+                replace='    lease = "--force"\n',
             ),
         ),
     ),

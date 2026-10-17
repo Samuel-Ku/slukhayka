@@ -475,16 +475,29 @@ def delete_branch(name, sha):
 
     `--force-with-lease` пінить ref на доведений sha: якщо гілка рушила після
     збору фактів, видалення відмовляє, а не зносить нову роботу.
+
+    Спершу пробуємо `origin` (у CI це HTTPS із токеном, і він працює). Якщо не
+    вдався — та сама дія по HTTPS із токеном `gh`: SSH цієї машини зламаний
+    (власник `/etc/ssh/ssh_config.d/20-omarchy-keepalive.conf`), і без цього
+    документована ручна команда не могла б видалити нічого.
     """
-    result = git(
-        "push", f"--force-with-lease=refs/heads/{name}:{sha}", "origin", "--delete", name,
-        check=False,
-    )
+    lease = f"--force-with-lease=refs/heads/{name}:{sha}"
+    result = git("push", lease, "origin", "--delete", name, check=False)
     if result.returncode == 0:
         return True, ""
-    output = (result.stderr or result.stdout).strip()
-    lines = output.splitlines() if output else []
-    return False, lines[-1] if lines else "невідома помилка"
+    slug = repo_slug()
+    if slug:
+        fallback = run(
+            [
+                "git", "-c", "credential.helper=!gh auth git-credential",
+                "push", lease, f"https://github.com/{slug}.git", "--delete", name,
+            ],
+            check=False,
+        )
+        if fallback.returncode == 0:
+            return True, ""
+        result = fallback
+    return False, last_line(result)
 
 
 def render_cleanup_summary(decisions, applied, dry_run, refused=None):
@@ -492,7 +505,11 @@ def render_cleanup_summary(decisions, applied, dry_run, refused=None):
     kept = [d for d in decisions if d["action"] == "keep"]
     lines = ["## Порядок у гілках — чистка", ""]
     if refused:
+        # Відмова — це не «видалено 0 із N»: жодного рішення не виконували.
         lines += [f"**Нічого не видалено.** {refused}", ""]
+        lines.append(f"Поглинутих гілок, які лишилися: {len(deleted)}.")
+        lines += ["", f"Лишено: {len(kept)}.", ""]
+        return "\n".join(lines) + "\n"
     if dry_run:
         lines.append(f"Сухий прогін. Поглинутих гілок: {len(deleted)}.")
     else:
@@ -843,7 +860,7 @@ def upsert_issue(body):
 
 
 def cmd_report(args):
-    facts = load_facts(args)
+    facts = load_facts(args, collect_facts)
     now = datetime.now(timezone.utc)
     decisions = with_pr_freshness(
         decide_all(facts, protect=args.protect, now=now), args.stale_days, now

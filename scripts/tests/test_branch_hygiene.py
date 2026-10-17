@@ -34,6 +34,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -688,6 +689,100 @@ class CollectIntegrationTest(unittest.TestCase):
                          check=False).returncode, 0,
         )
 
+    def test_report_cli_runs_end_to_end(self):
+        """Саме цього тесту бракувало, коли `report` упав на сигнатурі `load_facts`."""
+        facts_path = self.root / "report-facts.json"
+        facts_path.write_text(json.dumps({
+            "collected_at": "2026-10-14T00:00:00+00:00",
+            "main": "main",
+            "main_sha": "d" * 40,
+            "pr_source": "facts",
+            "pr_data": True,
+            "pr_count": 1,
+            "branches": [{
+                "name": "t1", "sha": "a" * 40, "ancestor": True,
+                "unique_patches": None, "tagged_release": None,
+                "tip_date": "2026-10-14T00:00:00+00:00", "tip_author": "T",
+                "tip_subject": "feat: x", "prs": [],
+            }],
+        }, ensure_ascii=False), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "report", "--facts", str(facts_path), "--no-llm"],
+            cwd=self.work, check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("branch-hygiene-report", result.stdout)
+        self.assertIn("## Що зроблено", result.stdout)
+
+    def test_cleanup_refuses_when_there_is_no_pr_data(self):
+        """Відмова без PR-даних стосується й віддаленої половини, не лише локальної."""
+        self.make_branches()
+        facts_path = self.collect_path()
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "cleanup", "--facts", str(facts_path), "--apply"],
+            cwd=self.work, check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("Нічого не видалено", result.stdout)
+        self.assertNotIn("— видалено:", result.stdout)
+        refs = self.run_git(self.work, "ls-remote", "--heads", "origin").stdout
+        self.assertIn("refs/heads/absorbed", refs)
+
+    def test_report_upsert_reaches_gh_with_the_report_body(self):
+        """Нічний issue живе на цьому шляху — тож він мусить мати прогін, не обіцянку."""
+        import os
+        import stat
+
+        facts_path = self.root / "upsert-facts.json"
+        facts_path.write_text(json.dumps({
+            "collected_at": "2026-10-14T00:00:00+00:00",
+            "main": "main", "main_sha": "d" * 40,
+            "pr_source": "facts", "pr_data": True, "pr_count": 1,
+            "branches": [{
+                "name": "t1", "sha": "a" * 40, "ancestor": True,
+                "unique_patches": None, "tagged_release": None,
+                "tip_date": "2026-10-14T00:00:00+00:00", "tip_author": "T",
+                "tip_subject": "feat: x", "prs": [],
+            }],
+        }, ensure_ascii=False), encoding="utf-8")
+
+        calls = self.root / "gh-calls.log"
+        stdin_copy = self.root / "gh-stdin.log"
+        fake_gh = self.root / "bin" / "gh"
+        fake_gh.parent.mkdir(exist_ok=True)
+        fake_gh.write_text(
+            "#!/usr/bin/env bash\n"
+            'printf "%s\\n" "$*" >> "$GH_CALLS"\n'
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$arg\" = \"-\" ]; then cat >> \"$GH_STDIN\"; fi\n"
+            "done\n"
+            'case "$1 $2" in\n'
+            '  "issue list") echo "[]" ;;\n'
+            '  "issue create") echo "https://github.com/x/y/issues/999" ;;\n'
+            '  "issue edit") echo "edited" ;;\n'
+            '  "label create") echo "label" ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        fake_gh.chmod(fake_gh.stat().st_mode | stat.S_IXUSR)
+
+        environment = dict(os.environ)
+        environment["PATH"] = f"{fake_gh.parent}:{environment['PATH']}"
+        environment["GH_CALLS"] = str(calls)
+        environment["GH_STDIN"] = str(stdin_copy)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "report", "--facts", str(facts_path),
+             "--no-llm", "--upsert"],
+            cwd=self.work, check=False, capture_output=True, text=True, env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        logged = calls.read_text(encoding="utf-8")
+        self.assertIn("issue create", logged)
+        self.assertIn("branch-hygiene", logged)
+        self.assertIn("branch-hygiene-report", stdin_copy.read_text(encoding="utf-8"))
+
     def test_apply_refuses_when_there_is_no_pr_data(self):
         """Без даних про PR захист «відкритий PR не чіпаємо» зникає — тож анічого."""
         sha = self.absorb("merged", "a.txt")
@@ -1002,6 +1097,64 @@ class ApiPrsTest(unittest.TestCase):
             }
         ]
         self.assertEqual(branch_hygiene.normalize_prs(raw, "Samuel-Ku"), [])
+
+
+class DeleteBranchTest(unittest.TestCase):
+    def test_a_failed_origin_push_falls_back_to_https_with_gh(self):
+        calls = []
+
+        def fake_git(*args, **kwargs):
+            calls.append(("git", list(args)))
+            return subprocess.CompletedProcess(args, 1, "", "ssh: Bad owner or permissions")
+
+        def fake_run(cmd, **kwargs):
+            calls.append(("run", list(cmd)))
+            if "credential.helper=!gh auth git-credential" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            return subprocess.CompletedProcess(cmd, 1, "", "nope")
+
+        with unittest.mock.patch.object(branch_hygiene, "git", fake_git), \
+                unittest.mock.patch.object(branch_hygiene, "run", fake_run), \
+                unittest.mock.patch.object(branch_hygiene, "repo_slug",
+                                           lambda: "owner/repo"):
+            ok, error = branch_hygiene.delete_branch("t1", "a" * 40)
+
+        self.assertTrue(ok, error)
+        self.assertTrue(any("credential.helper" in " ".join(cmd) for _, cmd in calls))
+        self.assertIn("--force-with-lease=refs/heads/t1:" + "a" * 40,
+                      " ".join(calls[1][1]))
+
+    def test_both_paths_failing_reports_the_error(self):
+        def fake_git(*args, **kwargs):
+            return subprocess.CompletedProcess(args, 1, "", "ssh: Bad owner")
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 1, "", "gh: not logged in")
+
+        with unittest.mock.patch.object(branch_hygiene, "git", fake_git), \
+                unittest.mock.patch.object(branch_hygiene, "run", fake_run), \
+                unittest.mock.patch.object(branch_hygiene, "repo_slug",
+                                           lambda: "owner/repo"):
+            ok, error = branch_hygiene.delete_branch("t1", "a" * 40)
+
+        self.assertFalse(ok)
+        self.assertIn("not logged in", error)
+
+
+class CleanupSummaryTest(unittest.TestCase):
+    def test_a_refusal_does_not_claim_deletions(self):
+        decisions = [{
+            "name": "t1", "action": "delete", "reason": "поглинуто main",
+            "sha": "a" * 40, "protected": False, "release": False, "prs": [],
+            "open_prs": [], "merged_prs": [], "closed_prs": [],
+            "merged_into_main": [], "proof": "ancestor", "age_days": 1,
+        }]
+        body = branch_hygiene.render_cleanup_summary(
+            decisions, [], dry_run=False, refused="немає PR-даних"
+        )
+        self.assertIn("Нічого не видалено", body)
+        self.assertIn("Поглинутих гілок, які лишилися: 1", body)
+        self.assertNotIn("видалено:", body)
 
 
 class LlmTest(unittest.TestCase):

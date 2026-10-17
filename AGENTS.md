@@ -3,7 +3,9 @@
 AI agents working in this repository should first read:
 
 - `CONTEXT.md` — the domain glossary and ubiquitous language
-- `docs/adr/` — architectural decisions and their rationale
+- `docs/adr/` — architectural decisions and their rationale. Open a decision
+  when the task touches its concept, its rules, or a reference in the diff;
+  the directory is a list to choose from, not reading for its own sake
 - `CONTRIBUTING.md` — how to contribute and what the repository expects
 - `docs/agents/local-environment.md` — the shared build slot, offline flags,
   partitions and work claims on this machine

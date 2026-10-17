@@ -83,6 +83,16 @@ GUARD_TESTS = (
     "test_fixture_environments.EnvironmentTest"
     ".test_a_named_run_that_is_skipped_is_not_green",
     "test_fixture_environments.EnvironmentTest"
+    ".test_a_named_run_that_becomes_skipped_is_a_finding",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_a_reader_of_a_file_stand_in_is_named_and_not_accepted",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_a_fixture_module_that_passes_to_skipped_is_not_red",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_a_run_that_executes_no_stand_in_is_a_finding",
+    "test_fixture_environments.EnvironmentTest"
+    ".test_every_named_run_reddens_when_every_stand_in_is_broken",
+    "test_fixture_environments.EnvironmentTest"
     ".test_the_guard_sees_only_the_runs_it_is_named",
     "test_guard_witnesses.CountTest"
     ".test_the_count_is_the_length_of_the_registry",
@@ -131,6 +141,20 @@ GUARD_TESTS = (
     "test_new_lane.ReleaseTest.test_a_dirty_copy_is_not_removed_by_release",
     "test_new_lane.PremiseTest.test_a_stale_ticket_is_named_and_the_lane_is_still_created",
     "test_new_lane.PremiseTest.test_an_unreadable_ticket_is_an_unknown_and_no_copy_is_made",
+    "test_new_lane.LocalPropertiesTest"
+    ".test_an_existing_local_properties_is_carried_into_the_lane_and_named",
+    "test_new_lane.LocalPropertiesTest"
+    ".test_a_copy_without_local_properties_names_why_android_cannot_build",
+    "test_new_lane.CreateTest.test_the_reservation_does_not_invent_a_plan_path",
+    "test_new_lane.CreateTest.test_a_named_plan_that_does_not_exist_is_refused",
+    "test_new_lane.CreateTest.test_a_named_plan_that_exists_is_recorded_and_named",
+    "test_new_lane.CreateTest"
+    ".test_a_named_plan_that_is_a_directory_is_refused",
+    "test_new_lane.RollbackTest.test_a_quoted_reservation_is_removed_too",
+    "test_new_lane.RollbackTest"
+    ".test_a_rollback_with_a_plain_reservation_removes_the_claim",
+    "test_new_lane.RollbackTest"
+    ".test_a_claim_that_cannot_be_removed_is_named_not_hidden",
     "test_review_clone.NormalCaseTest"
     ".test_the_printed_diff_is_the_branch_and_not_the_working_tree",
     "test_review_clone.NormalCaseTest"

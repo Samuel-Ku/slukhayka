@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 82 записи, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 96 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -500,6 +500,91 @@ GUARDS = (
                 file="scripts/tests/test_fixture_environments.py",
                 find="    unittest.TestLoader().loadTestsFromNames(sys.argv[1:])\n",
                 replace='    unittest.TestLoader().discover(".")  # mutated\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_run_that_executes_no_stand_in_is_a_finding",
+        protects="демонстрація мусить ВИЖИТИ (#1294): той самий вердикт, що в ґарді, "
+                 "мусить відрізнити прогін, який запускає зламаного підставного "
+                 "(червоний — ґард пропускає), від прогону, який не запускає "
+                 "нічого (зелений — ґард називає знахідкою). Вердикт, сліпий до "
+                 "зелених, лишає демонстрацію без другої половини",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="        return sorted(name for name, verdict in verdicts.items()\n"
+                     '                      if verdict != "red")\n',
+                replace="        return []  # mutated: вердикт більше не бачить зелених\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_named_run_that_becomes_skipped_is_a_finding",
+        protects="`green → skipped` (#1341): прогін, який під зламаними підставними "
+                 "не почервонів, а ПРОПУСТИВСЯ, теж свідком не був. Поки знахідкою "
+                 "була сама лише зелень, він проходив ґард тихо — і саме цю стару "
+                 "поведінку мутація й повертає",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="        return sorted(name for name, verdict in verdicts.items()\n"
+                     '                      if verdict != "red")\n',
+                replace="        return sorted(name for name, verdict in verdicts.items()\n"
+                        '                      if verdict == "green")  '
+                        "# mutated: скіп знову не знахідка\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_reader_of_a_file_stand_in_is_named_and_not_accepted",
+        protects="ЧИТАЧА файлового підставного ВИДНО (#1341): мутація лишає текст "
+                 "байт-у-байт і лише додає рядок, який убиває виконання, тож "
+                 "читач лишається ЗЕЛЕНИЙ і ґард називає його знахідкою, а "
+                 "виконавець червоніє. Мутація, яка повертає заміну ВМІСТУ, "
+                 "робить читача червоним і знову приймає його свідком — пін "
+                 "мусить почервоніти, а не пережити це мовчки",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="    return first + separator + killer + rest\n",
+                replace="    return first + separator + killer  "
+                        "# mutated: вміст замінено, читач теж червоніє\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_a_fixture_module_that_passes_to_skipped_is_not_red",
+        protects="`green → skipped` на рівні МОДУЛЯ фікстури (#1341): вердикт "
+                 "модуля мусить лишити скіп окремим, бо згортання «не всі зелені» "
+                 "в `red` робить модуль, який перестав виконуватися, "
+                 "почервонілим — і ґард приймає його за свідка",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find='    return "skipped"\n',
+                replace='    return "green"  # mutated: скіп знову не знахідка\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_fixture_environments.EnvironmentTest"
+             ".test_every_named_run_reddens_when_every_stand_in_is_broken",
+        protects="названий прогін, який НІЧОГО не запускає (#1294): ґард ламає "
+                 "кожного зареєстрованого підставного й вимагає, щоб кожен "
+                 "названий прогін почервонів. Порожній перелік мутацій лишає "
+                 "ґард зеленим про будь-що — і саме це мутація й робить, а "
+                 "відмова на порожньому переліку ловить її",
+        edits=(
+            Edit(
+                file="scripts/tests/test_fixture_environments.py",
+                find="    touched: list[str] = []\n",
+                replace="    touched: list[str] = []\n"
+                        "    return touched  # mutated: жодного підставного не зламано\n",
             ),
         ),
     ),
@@ -1427,6 +1512,157 @@ GUARDS = (
                 file="scripts/new-lane.sh",
                 find='if [ -z "$PREMISE_REPORT" ]; then\n',
                 replace="if false; then  # mutated: порожній вивід — теж вердикт\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.LocalPropertiesTest"
+             ".test_an_existing_local_properties_is_carried_into_the_lane_and_named",
+        protects="перенесення `local.properties` у копію смуги (#1332): це крок "
+                 "ручного рецепта, який ЗАГУБИВСЯ при автоматизації (#1321) — "
+                 "файл у `.gitignore`, тож у копію сам не потрапляє. Мутація не "
+                 "переносить наявний файл, і копія знову не збирається "
+                 "(`SDK location not found`), як сталося у смуги #1187",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='if [ -f "$LOCAL_PROPERTIES" ]; then\n',
+                replace="if false; then  # mutated: наявний файл не переносимо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.LocalPropertiesTest"
+             ".test_a_copy_without_local_properties_names_why_android_cannot_build",
+        protects="НАЗВАНУ відсутність `local.properties` (#1332): коли файлу "
+                 "немає, факти мусять сказати, що Android-збірка в цій копії не "
+                 "працюватиме, і чому. Мутація замовчує відсутність — і смуга "
+                 "гадає, чому збірки немає, замість того щоб знати",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  LOCAL_PROPERTIES_FACT="НЕМА ($LOCAL_PROPERTIES) — Android-збірка',
+                replace='  LOCAL_PROPERTIES_FACT="є ($LOCAL_PROPERTIES) — Android-збірка',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest.test_the_reservation_does_not_invent_a_plan_path",
+        protects="чесне поле `plan` у резервуванні (#1337): без названого шляху "
+                 "там `null`, а не вигаданий `docs/plans/…` — усі п'ять шляхів "
+                 "`docs/plans/…` у шести записах кореневої копії не існували, і "
+                 "жодного з них не було в `origin/main`. Мутація "
+                 "повертає вигаданий шлях, і запис знову каже одне, а "
+                 "реальність — інше",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='PLAN="${PLAN_FLAG:-${NEW_LANE_PLAN:-}}"',
+                replace='PLAN="${PLAN_FLAG:-${NEW_LANE_PLAN:-docs/plans/$(date -u +%F)-$ISSUE-$SLUG.md}}"  # mutated',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest.test_a_named_plan_that_does_not_exist_is_refused",
+        protects="відмову назвати в записі неіснуючий план (#1337): названий "
+                 "шлях перевіряється проти `origin/main` ДО резервування. Мутація "
+                 "читає порожній тип як `blob` — і запис знову вказує на файл, "
+                 "якого немає",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    \'\')\n'
+                     '      fail "план \'$PLAN\' не існує в origin/main — запис у '
+                     'резервуванні назвав би неіснуючий файл (#1337). Назви '
+                     'наявний шлях або не давай --plan: тоді в записі буде null"\n',
+                replace="    '')  # mutated: неіснуючий шлях не перевіряємо\n"
+                        "      PLAN_OBJECT=blob\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest.test_a_named_plan_that_exists_is_recorded_and_named",
+        protects="названий план доходить до резервування (#1337): шлях, який "
+                 "справді є в базі смуги, мусить потрапити в запис, а не "
+                 "загубитися дорогою. Мутація не передає `--plan` — і `null` у "
+                 "записі означав би «плану немає» там, де координатор його назвав",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  CLAIM_ARGS+=(--plan "$PLAN")\n',
+                replace="  :  # mutated: названий план не передаємо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.CreateTest"
+             ".test_a_named_plan_that_is_a_directory_is_refused",
+        protects="ТИП план-шляху (#1340): тека в `origin/main` теж «існує», тож "
+                 "`cat-file -e` приймав `--plan docs` — і в запис потрапляло "
+                 "`\"plan\": \"docs\"`, хоч дерево не є планом. Мутація повертає "
+                 "саму `-e` — і твердження поля («шлях існує») знову "
+                 "виконується, а сенс — ні",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  PLAN_OBJECT="$("$GIT" -C "$REPO" cat-file -t '
+                     '"origin/main:$PLAN" 2>/dev/null || true)"\n',
+                replace='  "$GIT" -C "$REPO" cat-file -e "origin/main:$PLAN" '
+                        '2>/dev/null && PLAN_OBJECT=blob || PLAN_OBJECT=""  '
+                        '# mutated: -e пропускає дерево\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest.test_a_quoted_reservation_is_removed_too",
+        protects="прибирання запису з лапкою в назві (#1340): `rollback` "
+                 "порівнював РЯДОК файлу, а `json.dump` екранує лапку як `\\\"` — "
+                 "збігу не було, і файл лишався під повідомленням «прибрано». "
+                 "Мутація повертає саме те рядкове порівняння",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -f "$CLAIM_FILE" ] && claim_is_ours; then\n',
+                replace='    if grep -Fq "\\"reservation\\": '
+                        '\\"$RESERVATION\\"" "$CLAIM_FILE"; then  '
+                        '# mutated: рядок, а не JSON\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest"
+             ".test_a_rollback_with_a_plain_reservation_removes_the_claim",
+        protects="сам факт прибирання запису відкатом (#1340): запис мусить "
+                 "зникнути з диска, а не лишитися під повідомленням. Мутація не "
+                 "прибирає його — і «резервування прибрано» стає словом без стану",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='      rm -f -- "$CLAIM_FILE" 2>/dev/null || true\n',
+                replace="      :  # mutated: запис не прибираємо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest"
+             ".test_a_claim_that_cannot_be_removed_is_named_not_hidden",
+        protects="ПРАВДУ повідомлення відкату (#1340): якщо запис лишився "
+                 "(чужий, нерозібраний, `rm` відмовив), це мусить бути НАЗВАНО, "
+                 "а не замовчано. Мутація каже «прибрано» незалежно від диска — "
+                 "і координатор піднімає другу смугу на зайнятий тікет",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if [ -f "$CLAIM_FILE" ]; then\n'
+                     '      ROLLBACK_CLAIM_FACT="резервування ЛИШИЛОСЯ: '
+                     '$CLAIM_FILE — воно не наше (чуже або нерозібране) чи його '
+                     'не вдалося прибрати; зніми його руками, якщо це справді '
+                     'наше"\n'
+                     '    else\n'
+                     '      ROLLBACK_CLAIM_FACT="резервування прибрано"\n'
+                     '    fi\n',
+                replace='    ROLLBACK_CLAIM_FACT="резервування прибрано"  '
+                        '# mutated: наявність не перевіряємо\n',
             ),
         ),
     ),

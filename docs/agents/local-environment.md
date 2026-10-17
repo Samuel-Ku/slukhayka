@@ -15,9 +15,24 @@ worktree, and never commit in the main checkout.
 One lane, one worktree, one branch, off `origin/main`:
 
 ```sh
+scripts/new-lane.sh <issue> <slug>
+```
+
+That command is the manual sequence below, all of it — and the second line is
+why the first line alone is not enough (#1332): `local.properties` is
+git-excluded, so it never arrives in a fresh worktree by itself, and an Android
+build there dies with `SDK location not found` (lane #1187 lost a run to it).
+The manual pair stays written down as what the command must replace, not as a
+recipe to run by hand:
+
+```sh
 git worktree add .worktrees/<lane> -b <branch> origin/main
 cp local.properties .worktrees/<lane>/local.properties
 ```
+
+If the file is not in the checkout root, `new-lane.sh` still creates the lane
+and says in its facts that an Android build will not work in that copy, and
+why. It never invents the file.
 
 Worktrees live under `.worktrees/` (git-excluded) and leave with
 `git worktree remove --force .worktrees/<lane>` once their PR is merged.
@@ -384,9 +399,36 @@ happens*: a test outside `ENVIRONMENT_TARGETS` is not executed under either
 environment. So a new stand-in is covered only when someone names its run, and
 nothing reddens when they forget; the registry catches the unregistered — a file
 or an embedded program with no record — and cannot catch the unnamed. That is the
-whole price, and it is a run, not a paragraph. The compensation is a ticket of its
-own (`#1294`): break every registered stand-in in a copy of the tree and require
-every named run to go red — the link proven by execution, never read from the AST.
+whole price, and it is a run, not a paragraph. The compensation landed as `#1294`:
+`EnvironmentTest.test_every_named_run_reddens_when_every_stand_in_is_broken`
+breaks every registered stand-in in a copy of the tree and requires every named run
+to go red — no verdict read from the AST. It also named the runs that executed no
+stand-in at all, and those left `ENVIRONMENT_TARGETS`, because the environment guard
+was watching an empty place for them. What survives is the *named* pairing — "this
+run exercises *this* stand-in" — which would cost one mutation per stand-in; the
+guard's docstring names that limit in the code.
+
+The next review round (`#1341`) closed **one** hole in that compensation and only
+**named** a second — an earlier version of this paragraph said "closed two holes", and
+that was one word too many: one was named, not closed. The closed one: a run that goes
+*skipped* under the broken stand-ins used to pass, because only `green` counted as "did
+not redden"; now anything but `red` is a finding (`runs_that_did_not_redden`), on the
+named runs and on the fixture modules alike. The named one: the execution proof held
+for the embedded programs only — a fixture file is invoked as `bash gate.sh`, so
+breaking it appeared to mean replacing its text, and a run that merely *reads* that
+text reddened too; for the six file stand-ins under `fixtures/` the guard could not
+tell a reader from an executor. That was stated where the mutation lives
+(`broken_tool_text`) as a missed hole rather than a safe refusal.
+
+That hole is closed too, and as a **choice**, not a limit of the possible. The
+mutation now keeps the original text byte-for-byte — first line and whole body — and
+inserts a killer line after the shebang (`broken_tool_text`), so a run that merely
+*reads* the file stays green and the guard names it a finding, while the executor
+reddens. `test_a_reader_of_a_file_stand_in_is_named_and_not_accepted` shows both sides
+through the guard's own verdict and runs all six file stand-ins intact (exit zero) and
+broken (non-zero). The limit that remains is narrower and also named: a run that
+compares the whole text byte-for-byte notices the inserted line — a comparison, not a
+read.
 
 The fourth gate is about the records themselves (`#1276`). One target produced
 **six** switches of a single form: a registry entry could *declare* something about
@@ -764,8 +806,13 @@ guess.
 ```sh
 python3 scripts/agent-work-claim.py status
 python3 scripts/agent-work-claim.py acquire <issue> --owner <chat-id> \
-    --reservation <name> --plan <path>
+    --reservation <name> [--plan <existing-path>]
 ```
+
+`--plan` is optional and, when named, must be a path that exists in
+`origin/main`; without it the record carries `null`. A lane's plan does not
+exist yet at lane-creation time, so a fabricated `docs/plans/…` path there is a
+record saying one thing while reality says another (#1337).
 
 One command does the whole lane dispatch, and it is the one to use:
 `scripts/new-lane.sh <issue> <slug>`. It fetches `origin/main`, reserves the
@@ -773,11 +820,16 @@ ticket through the claim script above (a busy ticket is exit 2 and **no copy is
 created**), refuses when `.worktrees/w<issue>` already exists (two lanes never
 share a copy — that is how `commit --amend` and `reset --hard` once wiped
 another lane's edits), creates the copy from the **fresh `origin/main`** rather
-than the current HEAD, and prints the briefing facts as the output of commands
-instead of recollection: the branch, the base `sha`, the guard registry's
+than the current HEAD, carries `local.properties` into the copy when the
+checkout root has one — and names that fact in its output; with no such file it
+still creates the lane and says an Android build will not work there, and why
+(#1332) — and prints the briefing facts as the output of commands instead of
+recollection: the branch, the base `sha`, the guard registry's
 `--count`, the job limit, the ticket's premise against `origin/main` (through
 `issue_premise.py --issue` — a stale ticket is **named** there and the lane is
-still created, while an unreadable ticket is exit 2 and no copy is made), and
+still created, while an unreadable ticket is exit 2 and no copy is made), the
+carried `local.properties`, the reservation's `plan` field (`null` unless a
+named path really exists in `origin/main` — #1337), and
 the commands the lane runs itself.
 `scripts/new-lane.sh --release <issue>` removes the lane's copy once it has
 nothing to lose — it refuses when the copy has uncommitted changes or a rebase

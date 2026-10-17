@@ -18,6 +18,7 @@
 Мережі не торкається жоден тест.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -203,11 +204,78 @@ class CreateTest(LaneTest):
         self.assertNotEqual(fresh, self.rev("HEAD"))
         self.assertEqual(fresh, self.rev("HEAD", cwd=self.lane_path()))
 
-    def test_the_default_plan_path_names_the_ticket_and_the_slug(self):
+    def test_the_reservation_does_not_invent_a_plan_path(self):
+        """Без `--plan` у записі `null`, і факти це НАЗИВАЮТЬ (#1337).
+
+        Червоний на СТАРІЙ поведінці: крок вигадував
+        `docs/plans/<дата>-<номер>-<slug>.md`, якого не існувало — шість
+        записів, шість шляхів, і жоден `docs/plans/…` не вів нікуди. Запис, що
+        каже одне, а реальність — інше, і є той дефект.
+        """
         result = self.create_lane()
 
-        self.assertIn("план: docs/plans/", result.stdout)
-        self.assertIn("%s-%s.md" % (ISSUE, SLUG), result.stdout)
+        self.assertIn("план: не задано", result.stdout)
+        self.assertIn("null", result.stdout)
+        self.assertNotIn("docs/plans/", result.stdout,
+                         "вигаданого шляху плану в фактах бути не може")
+        recorded = json.loads(self.claim_path().read_text(encoding="utf-8"))
+        self.assertIsNone(recorded["plan"],
+                          "у записі мусить бути чесне null, а не вигаданий шлях")
+
+    def test_a_named_plan_that_does_not_exist_is_refused(self):
+        """`--plan` на неіснуючий шлях — відмова ДО резервування (#1337)."""
+        result = self.create_lane("--plan", "docs/plans/gone.md", expect=2)
+
+        self.assertIn("не існує в origin/main", result.stderr)
+        self.assertIn("docs/plans/gone.md", result.stderr)
+        self.assertFalse(self.lane_path().exists(), result.stdout)
+        self.assertFalse(self.claim_path().exists(),
+                         "резервування не сміє назвати неіснуючий план")
+
+    def test_a_named_plan_that_exists_is_recorded_and_named(self):
+        """Названий шлях, який справді є в базі, потрапляє в запис і у факти."""
+        plan = "docs/plans/2026-01-02-existing-plan.md"
+        (self.repo / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        (self.repo / plan).write_text("# план\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.commit("план існує в базі")
+        self.git("push", "-q", "origin", "main")
+
+        result = self.create_lane("--plan", plan)
+
+        self.assertIn("план: %s (є в origin/main)" % plan, result.stdout)
+        recorded = json.loads(self.claim_path().read_text(encoding="utf-8"))
+        self.assertEqual(plan, recorded["plan"])
+
+    def test_a_named_plan_that_is_a_directory_is_refused(self):
+        """Червоний на СТАРІЙ поведінці: `--plan <тека>` приймалося (#1340).
+
+        `git cat-file -e origin/main:docs` відповідає «об'єкт існує», а ДЕРЕВО
+        теж об'єкт — тека потрапляла в запис як план. Твердження поля («шлях
+        існує») виконувалося, а сенс — ні: дерево не є планом. На старому коді
+        смуга створювалася з `"plan": "docs"`, тож очікуваний код 2 тут і є
+        червоним.
+        """
+        (self.repo / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        (self.repo / "docs" / "spec.md").write_text("# спека\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.commit("тека docs існує в базі")
+        self.git("push", "-q", "origin", "main")
+        # Передумова дефекту — тут, у тесті, а не в припущенні: `-e` теку
+        # приймає, а `-t` називає її деревом.
+        self.assertEqual(0, self.git("cat-file", "-e", "origin/main:docs",
+                                     check=False).returncode)
+        self.assertEqual("tree", self.git("cat-file", "-t", "origin/main:docs",
+                                          check=False).stdout.strip())
+
+        result = self.create_lane("--plan", "docs", expect=2)
+
+        self.assertIn("docs", result.stderr)
+        self.assertIn("дерево", result.stderr)
+        self.assertIn("не файл плану", result.stderr)
+        self.assertFalse(self.lane_path().exists(), result.stdout)
+        self.assertFalse(self.claim_path().exists(),
+                         "резервування не сміє назвати теку планом")
 
     def test_a_named_owner_is_the_one_written_into_the_reservation(self):
         self.create_lane(env={"NEW_LANE_OWNER": "dsh-web-w1321"})
@@ -310,6 +378,153 @@ class RefusalTest(LaneTest):
 
         self.assertIn("числом", result.stderr)
         self.assertFalse((self.repo / ".worktrees").exists())
+
+
+class RollbackTest(LaneTest):
+    """Відкат прибирає запис резервування і каже ПРАВДУ про те, що лишилося.
+
+    Дефект (#1340): `rollback` порівнював РЯДОК файлу
+    (`grep -Fq '"reservation": "<назва>"'`), а `json.dump` екранує лапку в назві
+    як `\\"`. Збігу не було — запис ЛИШАВСЯ, хоч повідомлення казало
+    «резервування прибрано». Ціна найбільша з можливих: координатор, який
+    бачить «прибрано», піднімає другу смугу на зайнятий тікет.
+
+    Невідомість беруть із `RefusalTest`: база, яка не відповідає на `--count`,
+    валить створення ПІСЛЯ резервування, тож прогін справді доходить до відкату —
+    і саме там видно, що сталося із записом.
+    """
+
+    def break_the_base(self):
+        """База без `--count`: створення падає ПІСЛЯ резервування — є що відкочувати."""
+        (self.repo / "scripts" / "guard_witnesses.py").write_text(
+            'import sys\n\nif "--count" in sys.argv:\n    sys.exit(2)\nprint(0)\n',
+            encoding="utf-8",
+        )
+        self.git("add", "-A")
+        self.commit("стара база без --count")
+        self.git("push", "-q", "origin", "main")
+
+    def refuse_removing_the_claim(self):
+        """Фікстура `rm`: відмовляє рівно на шляху запису резервування."""
+        fake_rm = self.bin / "rm"
+        fake_rm.write_text(
+            "#!/bin/sh\n"
+            "for arg in \"$@\"; do\n"
+            "  case \"$arg\" in *agent-work-claims*) exit 1 ;; esac\n"
+            "done\n"
+            "exec /bin/rm \"$@\"\n",
+            encoding="utf-8",
+        )
+        fake_rm.chmod(0o755)
+
+    def test_a_rollback_with_a_plain_reservation_removes_the_claim(self):
+        """Бік (а): звичайна назва — запис прибрано, і це названо."""
+        self.break_the_base()
+
+        result = self.create_lane("--reservation", "probe", expect=2)
+
+        self.assertIn("копію прибрано", result.stderr)
+        self.assertIn("резервування прибрано", result.stderr)
+        self.assertFalse(self.claim_path().exists(),
+                         "відкат мусить прибрати власний запис")
+
+    def test_a_quoted_reservation_is_removed_too(self):
+        """Бік (б), і він ЧЕРВОНИЙ на старій поведінці.
+
+        Назва з лапкою — не екзотика, а рівно той вхід, на якому рядкове
+        порівняння не збігалося: повідомлення казало «прибрано», а файл
+        лишався. Розібраний JSON дає те саме значення, тож запис прибирається.
+        """
+        self.break_the_base()
+
+        result = self.create_lane("--reservation", 'probe"x', expect=2)
+
+        self.assertIn("резервування прибрано", result.stderr)
+        self.assertNotIn("ЛИШИЛОСЯ", result.stderr)
+        self.assertFalse(self.claim_path().exists(),
+                         "запис із лапкою в назві мусить бути прибраний, а не "
+                         "лишитися під повідомленням «прибрано»")
+
+    def test_a_claim_that_cannot_be_removed_is_named_not_hidden(self):
+        """Другий бік правди: якщо запис лишився, це НАЗВАНО.
+
+        `rm`, який відмовляє, — не екзотика: права, чужа тека, нерозібраний
+        запис. Повідомлення мусить назвати файл, а не повторити «прибрано» —
+        інакше відкат обіцяє стан, якого немає.
+        """
+        self.break_the_base()
+        self.refuse_removing_the_claim()
+
+        result = self.create_lane("--reservation", "probe", expect=2)
+
+        self.assertIn("резервування ЛИШИЛОСЯ", result.stderr)
+        self.assertIn(str(self.claim_path()), result.stderr)
+        self.assertNotIn("резервування прибрано", result.stderr)
+        self.assertTrue(self.claim_path().is_file(),
+                        "файл справді лишився — і саме це названо")
+
+
+class LocalPropertiesTest(LaneTest):
+    """Крок ручного рецепта, який загубився при автоматизації (#1332).
+
+    `docs/agents/local-environment.md` описує створення смуги двома кроками:
+    `git worktree add …` і `cp local.properties …/local.properties`.
+    `new-lane.sh` (#1321) замінив рецепт — і не переніс другий крок. Файл у
+    `.gitignore` (`.gitignore:19`), тож у копію сам не потрапляє, а без нього
+    Android-збірка падає `SDK location not found` — смуга #1187 втратила через
+    це прогін. Обидва боки перевіряються тут: файл є — перенесено й названо;
+    файлу немає — не падає, і причина названа.
+    """
+
+    def test_an_existing_local_properties_is_carried_into_the_lane_and_named(self):
+        contents = "sdk.dir=/opt/android-sdk\n"
+        (self.repo / "local.properties").write_text(contents, encoding="utf-8")
+
+        result = self.create_lane()
+
+        self.assertEqual(
+            contents,
+            (self.lane_path() / "local.properties").read_text(encoding="utf-8"),
+            result.stdout,
+        )
+        self.assertIn("local.properties: є — перенесено", result.stdout)
+        self.assertIn(str(self.repo / "local.properties"), result.stdout)
+        # Файл ігнорований, тож копія не виглядає брудною: `--release` зможе її
+        # прибрати, а `git status` не бреше про неіснуючі правки.
+        self.assertEqual("", self.git("status", "--porcelain",
+                                      cwd=self.lane_path()).stdout)
+
+    def test_a_copy_without_local_properties_names_why_android_cannot_build(self):
+        """Файлу немає — НЕ відмова: названо, що збірка не працюватиме, і чому."""
+        self.assertFalse((self.repo / "local.properties").exists())
+
+        result = self.create_lane()
+
+        self.assertIn("local.properties: НЕМА", result.stdout)
+        self.assertIn(str(self.repo / "local.properties"), result.stdout)
+        self.assertIn("SDK location not found", result.stdout)
+        self.assertIn(".gitignore", result.stdout)
+        self.assertTrue(self.lane_path().is_dir(),
+                        "відсутній local.properties — не привід не створювати смугу")
+        self.assertTrue(self.claim_path().is_file())
+        self.assertFalse((self.lane_path() / "local.properties").exists())
+
+    def test_a_lane_that_got_local_properties_is_still_releasable(self):
+        """Ігнорований файл не робить копію «брудною»: `--release` її прибирає.
+
+        `git worktree remove` без `--force` відмовляє на брудному дереві (це
+        межа `--release`). Файл у `.gitignore` брудом не є — і ця перевірка
+        тримає саме те: перенесений `local.properties` не робить копію
+        вічною.
+        """
+        (self.repo / "local.properties").write_text("sdk.dir=/opt/android-sdk\n",
+                                                    encoding="utf-8")
+        self.create_lane()
+
+        result = self.lane("--release", ISSUE)
+
+        self.assertIn("копію прибрано", result.stdout)
+        self.assertFalse(self.lane_path().exists())
 
 
 class PremiseTest(LaneTest):

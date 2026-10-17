@@ -247,6 +247,36 @@ class CreateTest(LaneTest):
         recorded = json.loads(self.claim_path().read_text(encoding="utf-8"))
         self.assertEqual(plan, recorded["plan"])
 
+    def test_a_named_plan_that_is_a_directory_is_refused(self):
+        """Червоний на СТАРІЙ поведінці: `--plan <тека>` приймалося (#1340).
+
+        `git cat-file -e origin/main:docs` відповідає «об'єкт існує», а ДЕРЕВО
+        теж об'єкт — тека потрапляла в запис як план. Твердження поля («шлях
+        існує») виконувалося, а сенс — ні: дерево не є планом. На старому коді
+        смуга створювалася з `"plan": "docs"`, тож очікуваний код 2 тут і є
+        червоним.
+        """
+        (self.repo / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        (self.repo / "docs" / "spec.md").write_text("# спека\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.commit("тека docs існує в базі")
+        self.git("push", "-q", "origin", "main")
+        # Передумова дефекту — тут, у тесті, а не в припущенні: `-e` теку
+        # приймає, а `-t` називає її деревом.
+        self.assertEqual(0, self.git("cat-file", "-e", "origin/main:docs",
+                                     check=False).returncode)
+        self.assertEqual("tree", self.git("cat-file", "-t", "origin/main:docs",
+                                          check=False).stdout.strip())
+
+        result = self.create_lane("--plan", "docs", expect=2)
+
+        self.assertIn("docs", result.stderr)
+        self.assertIn("дерево", result.stderr)
+        self.assertIn("не файл плану", result.stderr)
+        self.assertFalse(self.lane_path().exists(), result.stdout)
+        self.assertFalse(self.claim_path().exists(),
+                         "резервування не сміє назвати теку планом")
+
     def test_a_named_owner_is_the_one_written_into_the_reservation(self):
         self.create_lane(env={"NEW_LANE_OWNER": "dsh-web-w1321"})
 
@@ -348,6 +378,90 @@ class RefusalTest(LaneTest):
 
         self.assertIn("числом", result.stderr)
         self.assertFalse((self.repo / ".worktrees").exists())
+
+
+class RollbackTest(LaneTest):
+    """Відкат прибирає запис резервування і каже ПРАВДУ про те, що лишилося.
+
+    Дефект (#1340): `rollback` порівнював РЯДОК файлу
+    (`grep -Fq '"reservation": "<назва>"'`), а `json.dump` екранує лапку в назві
+    як `\\"`. Збігу не було — запис ЛИШАВСЯ, хоч повідомлення казало
+    «резервування прибрано». Ціна найбільша з можливих: координатор, який
+    бачить «прибрано», піднімає другу смугу на зайнятий тікет.
+
+    Невідомість беруть із `RefusalTest`: база, яка не відповідає на `--count`,
+    валить створення ПІСЛЯ резервування, тож прогін справді доходить до відкату —
+    і саме там видно, що сталося із записом.
+    """
+
+    def break_the_base(self):
+        """База без `--count`: створення падає ПІСЛЯ резервування — є що відкочувати."""
+        (self.repo / "scripts" / "guard_witnesses.py").write_text(
+            'import sys\n\nif "--count" in sys.argv:\n    sys.exit(2)\nprint(0)\n',
+            encoding="utf-8",
+        )
+        self.git("add", "-A")
+        self.commit("стара база без --count")
+        self.git("push", "-q", "origin", "main")
+
+    def refuse_removing_the_claim(self):
+        """Фікстура `rm`: відмовляє рівно на шляху запису резервування."""
+        fake_rm = self.bin / "rm"
+        fake_rm.write_text(
+            "#!/bin/sh\n"
+            "for arg in \"$@\"; do\n"
+            "  case \"$arg\" in *agent-work-claims*) exit 1 ;; esac\n"
+            "done\n"
+            "exec /bin/rm \"$@\"\n",
+            encoding="utf-8",
+        )
+        fake_rm.chmod(0o755)
+
+    def test_a_rollback_with_a_plain_reservation_removes_the_claim(self):
+        """Бік (а): звичайна назва — запис прибрано, і це названо."""
+        self.break_the_base()
+
+        result = self.create_lane("--reservation", "probe", expect=2)
+
+        self.assertIn("копію прибрано", result.stderr)
+        self.assertIn("резервування прибрано", result.stderr)
+        self.assertFalse(self.claim_path().exists(),
+                         "відкат мусить прибрати власний запис")
+
+    def test_a_quoted_reservation_is_removed_too(self):
+        """Бік (б), і він ЧЕРВОНИЙ на старій поведінці.
+
+        Назва з лапкою — не екзотика, а рівно той вхід, на якому рядкове
+        порівняння не збігалося: повідомлення казало «прибрано», а файл
+        лишався. Розібраний JSON дає те саме значення, тож запис прибирається.
+        """
+        self.break_the_base()
+
+        result = self.create_lane("--reservation", 'probe"x', expect=2)
+
+        self.assertIn("резервування прибрано", result.stderr)
+        self.assertNotIn("ЛИШИЛОСЯ", result.stderr)
+        self.assertFalse(self.claim_path().exists(),
+                         "запис із лапкою в назві мусить бути прибраний, а не "
+                         "лишитися під повідомленням «прибрано»")
+
+    def test_a_claim_that_cannot_be_removed_is_named_not_hidden(self):
+        """Другий бік правди: якщо запис лишився, це НАЗВАНО.
+
+        `rm`, який відмовляє, — не екзотика: права, чужа тека, нерозібраний
+        запис. Повідомлення мусить назвати файл, а не повторити «прибрано» —
+        інакше відкат обіцяє стан, якого немає.
+        """
+        self.break_the_base()
+        self.refuse_removing_the_claim()
+
+        result = self.create_lane("--reservation", "probe", expect=2)
+
+        self.assertIn("резервування ЛИШИЛОСЯ", result.stderr)
+        self.assertIn(str(self.claim_path()), result.stderr)
+        self.assertNotIn("резервування прибрано", result.stderr)
+        self.assertTrue(self.claim_path().is_file(),
+                        "файл справді лишився — і саме це названо")
 
 
 class LocalPropertiesTest(LaneTest):

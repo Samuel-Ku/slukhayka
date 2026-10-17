@@ -14,6 +14,7 @@ import com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * Wayfinder #39 — Медіатека filters, sorting and the unified book card.
@@ -89,6 +90,17 @@ data class LibraryBook(
     val percent: Float
         get() = if (totalDurationSeconds <= 0L) 0f
         else (cumulativePositionSeconds.toFloat() / totalDurationSeconds).coerceIn(0f, 1f)
+
+    /**
+     * #1187 — the percent a surface may SHOW, or null when no total proves one.
+     *
+     * [percent] is 0f when `totalDurationSeconds` is unknown, and that 0 is the
+     * sentinel for "no total", never a reading: ADR-0014 renders an unknown
+     * duration as nothing, so the card must show no number and draw no bar
+     * rather than «0%» (and the a11y state says «Тривалість невідома» instead).
+     */
+    val knownPercent: Int?
+        get() = if (totalDurationSeconds > 0L) (percent * 100f).roundToInt() else null
 
     val remainingSeconds: Long
         get() = (totalDurationSeconds - cumulativePositionSeconds).coerceAtLeast(0L)
@@ -174,8 +186,10 @@ fun buildLibraryBooks(
         val progress = progressById[book.id]
         // The site-provided book total is authoritative — unknown (unplayed)
         // chapter durations are spread over the remainder so the book card
-        // never shows a shrunken "37:23" for a 16:41:11 book. Locally imported
-        // books (no site total) fall back to the sum of known chapters.
+        // never shows a shrunken "37:23" for a 16:41:11 book. A local book has
+        // no site total: [knownBookTotalSeconds] proves one from its chapters
+        // only when EVERY chapter was measured — a partial sum is a count of
+        // what has been probed so far, not a shorter book (#1187).
         val facts = bookProgress(chapters, progress, book.totalDurationSeconds)
         LibraryBook(
             book = book,

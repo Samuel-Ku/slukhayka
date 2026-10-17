@@ -1519,33 +1519,42 @@ internal fun LibraryContinueCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
-                    LinearProgressIndicator(
-                        progress = { book.percent },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant,
-                        // #292: the M3 stop dot sat at the track's end like a
-                        // second, unexplained marker (device review, 2026-09-16).
-                        drawStopIndicator = {}
-                    )
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                    // The remaining time lives in the CTA right below — repeating
-                    // it here made the two labels fight for one line on a phone
-                    // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
-                    Text(
-                        text = stringResource(
-                            R.string.lib_progress_percent,
-                            (book.percent * 100f).roundToInt()
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    // #1187 — ADR-0014: an unknown duration renders as NOTHING.
+                    // `knownPercent` is null when no total proves one, and the
+                    // card drew an empty bar plus «Прослухано 0%» for such a
+                    // book — the sentinel read as a reading. The bar keeps
+                    // `percent` (unchanged for the totals that ARE known); only
+                    // its visibility is gated here.
+                    val knownPercent = book.knownPercent
+                    if (knownPercent != null) {
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+                        LinearProgressIndicator(
+                            progress = { book.percent },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.outlineVariant,
+                            // #292: the M3 stop dot sat at the track's end like a
+                            // second, unexplained marker (device review, 2026-09-16).
+                            drawStopIndicator = {}
+                        )
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                        // The remaining time lives in the CTA right below — repeating
+                        // it here made the two labels fight for one line on a phone
+                        // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
+                        Text(
+                            text = stringResource(
+                                R.string.lib_progress_percent,
+                                knownPercent
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
@@ -1855,10 +1864,13 @@ internal fun LibraryDenseRow(
             book.book.displayAuthor
         )
     }
+    // #1187 — ADR-0014: an unknown duration renders as NOTHING. `knownPercent`
+    // is null exactly when no total proves one, so «0%» never appears for a
+    // book whose files were never measured; the row says nothing instead.
     val progressLabel = when {
         book.isCompleted -> stringResource(R.string.lib_progress_done)
         book.isNew -> stringResource(R.string.lib_progress_new)
-        else -> "${(book.percent * 100f).roundToInt()}%"
+        else -> book.knownPercent?.let { "$it%" }
     }
     Row(
         modifier = Modifier
@@ -2002,11 +2014,13 @@ internal fun LibraryDenseRow(
                     }
                 )
             }
-            Text(
-                text = progressLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (progressLabel != null) {
+                Text(
+                    text = progressLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         LibraryInlineOfflineBadge(book, downloadCount)
     }

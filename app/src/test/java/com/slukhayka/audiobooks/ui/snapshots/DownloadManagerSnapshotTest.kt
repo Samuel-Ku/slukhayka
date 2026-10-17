@@ -85,6 +85,9 @@ class DownloadManagerSnapshotTest {
                         ),
                         occupiedBytes = 1_200_000_000L,
                         freeBytes = 42_600_000_000L,
+                        // #1163 — the private local copies, a figure of their
+                        // own next to the downloads the queue lists.
+                        localCopyBytes = 512L * 1024 * 1024,
                         hasLocalBooks = false,
                         showDelete = true,
                         bookCount = 1,
@@ -103,6 +106,10 @@ class DownloadManagerSnapshotTest {
 
         composeTestRule.onNodeWithText("Черга завантажень").assertExists()
         composeTestRule.onNodeWithText("Прибрати завершені").assertExists()
+        // The manager's own scope stays network downloads; the local copies are
+        // NAMED below it instead of being smuggled into the downloads' bytes.
+        composeTestRule.onNodeWithText("Завантаження").assertExists()
+        composeTestRule.onNodeWithText("Локальні копії").assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/download_manager_populated.png"
         )

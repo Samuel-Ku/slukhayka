@@ -1367,6 +1367,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _cacheSizeFormatted = MutableStateFlow("0 МБ")
     val cacheSizeFormatted: StateFlow<String> = _cacheSizeFormatted.asStateFlow()
 
+    // #1163 — the private copies of local imports (`filesDir/local_imports`) are
+    // app data too, but they are NOT downloads: the storage screen shows them as
+    // their own figure instead of letting a downloads-only number answer «куди
+    // поділися 3,23 ГБ» with «0 МБ».
+    private val _localCopyBytes = MutableStateFlow(0L)
+    val localCopyBytes: StateFlow<Long> = _localCopyBytes.asStateFlow()
+
+    /**
+     * #1163 — the books whose audio is readable on disk right now, re-read from
+     * the filesystem (not from the historical `isDownloaded` flag) so the
+     * library's «На пристрої» filter and the storage screen agree on one fact.
+     * Initial value is empty: the filter shows nothing until the first read
+     * lands, never a book whose copy may be gone.
+     */
+    private val _onDeviceBookIds = MutableStateFlow<Set<String>>(emptySet())
+
     // Spec-40: these fields must be initialized before the init block starts
     // identity resolution on Dispatchers.IO. Keeping them below init made a
     // fast local-only ensure() race the constructor and write into a field
@@ -1511,11 +1527,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * #1163 — the three facts only the filesystem can answer, read together so
+     * the storage card, the destructive confirmation and the library's «На
+     * пристрої» filter can never quote three different moments:
+     *
+     * - the SOURCE downloads' bytes;
+     * - the private local copies' bytes (their own figure, never added to the
+     *   downloads' — the owner decision of 2026-10-11 names them separately);
+     * - the books that really have a readable copy on disk.
+     */
     fun refreshCacheSize() {
         viewModelScope.launch(Dispatchers.IO) {
-            val bytes = offlineDownloads.getAudioCacheSizeBytes()
-            _cacheSizeBytes.value = bytes
-            _cacheSizeFormatted.value = formatBytes(bytes)
+            val usage = offlineDownloads.getAppStorageUsage()
+            _cacheSizeBytes.value = usage.downloadedBytes
+            _cacheSizeFormatted.value = formatBytes(usage.downloadedBytes)
+            _localCopyBytes.value = usage.localCopyBytes
+            _onDeviceBookIds.value = offlineDownloads.bookIdsOnDevice()
         }
     }
 
@@ -1529,12 +1557,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Wayfinder #39: the unified Медіатека list — every book with its playback
     // state and chapter-derived metrics. Filtering and sorting happen in the
     // screen via the pure filterAndSortLibrary; this flow only combines.
+    //
+    // #1163 — the readable-copy ids ride along: «На пристрої» must be decided by
+    // what is on the disk right now, and the filesystem is not a Room table, so
+    // the answer arrives as [refreshCacheSize]'s fourth flow. A change to it
+    // re-derives the list, which is exactly the moment the filter's set changes.
     val libraryBooks: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> = combine(
         libraryEntries.allBooks,
         libraryEntries.recentProgress,
-        libraryEntries.allChapters
-    ) { books, progress, chapters ->
-        com.slukhayka.audiobooks.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
+        libraryEntries.allChapters,
+        _onDeviceBookIds
+    ) { books, progress, chapters, onDeviceIds ->
+        com.slukhayka.audiobooks.ui.library.buildLibraryBooks(
+            books,
+            progress,
+            chapters.groupBy { it.bookId },
+            onDeviceIds
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
@@ -6003,6 +6042,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Local import failed", e)
                 _importMessage.value = "Не вдалося імпортувати файл"
+            } finally {
+                // #1163 — the new private copy IS the «На пристрої» proof, and
+                // the filesystem is not a Room table: without this read the
+                // filter would not see the book until the next app start.
+                refreshCacheSize()
             }
         }
     }
@@ -6047,6 +6091,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Preview import failed", e)
                 _importMessage.value = "Не вдалося імпортувати папку"
+            } finally {
+                // #1163 — the applied plan's private copies are now on disk, so
+                // «На пристрої» can include them on the very next frame.
+                refreshCacheSize()
             }
         }
     }
@@ -6158,6 +6206,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Re-scan failed", e)
                 _importMessage.value = "Не вдалося пересканувати папки"
+            } finally {
+                // #1163 — a re-scan adds and loses private copies; the readable
+                // set and the local-copies figure must follow it.
+                refreshCacheSize()
             }
         }
     }

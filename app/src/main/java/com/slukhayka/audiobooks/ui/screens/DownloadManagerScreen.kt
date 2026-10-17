@@ -75,6 +75,9 @@ fun DownloadManagerScreen(
     val queue by viewModel.downloadQueue.collectAsState()
     val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
     val cacheSizeBytes by viewModel.cacheSizeBytes.collectAsState()
+    // #1163 — the private copies of local imports are their own figure: app
+    // data, but not a download, and never added to the downloads' bytes.
+    val localCopyBytes by viewModel.localCopyBytes.collectAsState()
     val freeBytes by viewModel.downloadFreeBytes.collectAsState()
     var storageDialogVisible by remember { mutableStateOf(false) }
 
@@ -88,7 +91,11 @@ fun DownloadManagerScreen(
         viewModel.refreshDownloadQueue()
     }
 
-    val offlineCount = libraryBooks.count { it.book.isDownloaded }
+    // #1163 — the destructive clear's scope is SOURCE downloads. A local import
+    // keeps its copy and its state (see OfflineDownloads.clearAllAudioCache), so
+    // the confirmation must not count it as a book it will empty: the number and
+    // the action have to name the same set.
+    val offlineCount = libraryBooks.count { it.book.isDownloaded && !it.isLocal }
     val hasLocalBooks = libraryBooks.any { it.isLocal }
 
     SettingsDestinationScaffold(
@@ -100,6 +107,7 @@ fun DownloadManagerScreen(
             items = queue,
             occupiedBytes = cacheSizeBytes,
             freeBytes = freeBytes,
+            localCopyBytes = localCopyBytes,
             hasLocalBooks = hasLocalBooks,
             showDelete = offlineCount > 0 || cacheSizeBytes > 0L,
             bookCount = offlineCount,
@@ -133,6 +141,9 @@ fun DownloadManagerPane(
     items: List<DownloadQueueItem>,
     occupiedBytes: Long,
     freeBytes: Long,
+    // #1163 — the private local copies, shown as their own figure in the storage
+    // card below (never a download, never added to occupiedBytes).
+    localCopyBytes: Long = 0L,
     hasLocalBooks: Boolean,
     showDelete: Boolean,
     bookCount: Int,
@@ -178,6 +189,7 @@ fun DownloadManagerPane(
         StorageDestinationPane(
             occupiedBytes = occupiedBytes,
             freeBytes = freeBytes,
+            localCopyBytes = localCopyBytes,
             hasLocalBooks = hasLocalBooks,
             showDelete = showDelete,
             bookCount = bookCount,

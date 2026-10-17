@@ -26,8 +26,15 @@ import java.util.Locale
 
 /**
  * The library filters (spec-28 #193). The five one-tap statuses live in the
- * visible segmented row (Усі / Нові / Слухаю / Завершені / Завантажені); the
+ * visible segmented row (Усі / Нові / Слухаю / Завершені / На пристрої); the
  * three rare filters (Обрані / Локальні / Онлайн) live in the filter sheet.
+ *
+ * #1163 — the fourth status is «На пристрої» («On device»), not
+ * «Завантажені»: it holds the books whose audio is readable on this device —
+ * downloads from sources AND readable local copies — while the download manager
+ * stays the surface for network downloads only (owner decision 2026-10-11). The
+ * ENUM NAME is unchanged on purpose: it is not user-visible, and renaming it
+ * would churn the chip's test tag and every golden that names it.
  *
  * spec-46 T08 (#569) — the label is a string resource, never a hardcoded UK
  * literal: a screen outside a composable context (or the EN build) must never
@@ -84,7 +91,17 @@ data class LibraryBook(
     val book: AudiobookEntity,
     val progress: PlaybackProgressEntity?,
     val cumulativePositionSeconds: Long,
-    val totalDurationSeconds: Long
+    val totalDurationSeconds: Long,
+    /**
+     * #1163 — a whole readable Source of this book exists on the device right
+     * now: every track of at least one source points at an existing, non-empty
+     * file (computed from the filesystem by
+     * `OfflineDownloads.bookIdsOnDevice`). Deliberately NOT
+     * [AudiobookEntity.isDownloaded]: that historical flag survives a cleared
+     * directory or a hand-deleted file, so it can claim audio the app cannot
+     * play.
+     */
+    val hasReadableLocalCopy: Boolean = false
 ) {
     val percent: Float
         get() = if (totalDurationSeconds <= 0L) 0f
@@ -92,6 +109,15 @@ data class LibraryBook(
 
     val remainingSeconds: Long
         get() = (totalDurationSeconds - cumulativePositionSeconds).coerceAtLeast(0L)
+
+    /**
+     * #1163 — «На пристрої»: the honest offline test. A book is on device when
+     * its audio really is — a readable copy the app owns, whether it was
+     * downloaded from a source or imported from a local folder (whose private
+     * copy is the only copy it has, ADR-0057).
+     */
+    val isOnDevice: Boolean
+        get() = hasReadableLocalCopy
 
     /** Spec-28 #193 — «Нові»: never started, i.e. no playback progress row at all. */
     val isNew: Boolean
@@ -158,11 +184,19 @@ data class LibraryBook(
  * real total duration (falling back to the book's own stamp when a book has no
  * chapters) and the cumulative position — through the ONE shared rule,
  * [com.slukhayka.audiobooks.data.listening.bookProgress].
+ *
+ * #1163 — [onDeviceBookIds] is the set of books whose audio is readable on disk
+ * right now (`OfflineDownloads.bookIdsOnDevice`). It is a parameter and not a
+ * DAO read: the filesystem has no Flow, so the caller owns the moment it is
+ * read, and this projection stays pure and testable. The default keeps a caller
+ * that knows nothing about copies honest — such a book is simply not claimed as
+ * «на пристрої».
  */
 fun buildLibraryBooks(
     books: List<AudiobookEntity>,
     progressList: List<PlaybackProgressEntity>,
-    chaptersByBook: Map<String, List<ChapterEntity>>
+    chaptersByBook: Map<String, List<ChapterEntity>>,
+    onDeviceBookIds: Set<String> = emptySet()
 ): List<LibraryBook> {
     // Spec-10 T2: positions are per source, so several rows can exist for one
     // book; the card shows the latest (last-listened) one.
@@ -181,7 +215,8 @@ fun buildLibraryBooks(
             book = book,
             progress = progress,
             cumulativePositionSeconds = facts.cumulativePositionSeconds,
-            totalDurationSeconds = facts.totalDurationSeconds
+            totalDurationSeconds = facts.totalDurationSeconds,
+            hasReadableLocalCopy = book.id in onDeviceBookIds
         )
     }
 }
@@ -208,7 +243,12 @@ private fun matchesFilter(book: LibraryBook, filter: LibraryFilter): Boolean = w
     LibraryFilter.NEW -> book.isNew
     LibraryFilter.LISTENING -> book.isListening
     LibraryFilter.COMPLETED -> book.isCompleted
-    LibraryFilter.DOWNLOADED -> book.book.isDownloaded
+    // #1163 — the chip is «На пристрої», and it now checks exactly that. The
+    // old rule read the historical `book.isDownloaded` flag alone: a local
+    // import was listed by the luck of the import writing that flag, and a book
+    // whose directory had been cleared stayed listed with nothing to play (the
+    // owner decision of 2026-10-11: availability follows the readable Source).
+    LibraryFilter.DOWNLOADED -> book.isOnDevice
     LibraryFilter.LOCAL -> book.isLocal
     LibraryFilter.ONLINE -> !book.isLocal
     LibraryFilter.FAVORITE -> book.book.isFavorite

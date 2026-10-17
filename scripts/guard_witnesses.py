@@ -1566,12 +1566,17 @@ GUARDS = (
         test="test_new_lane.CreateTest.test_a_named_plan_that_does_not_exist_is_refused",
         protects="відмову назвати в записі неіснуючий план (#1337): названий "
                  "шлях перевіряється проти `origin/main` ДО резервування. Мутація "
-                 "знімає перевірку — і запис знову вказує на файл, якого немає",
+                 "читає порожній тип як `blob` — і запис знову вказує на файл, "
+                 "якого немає",
         edits=(
             Edit(
                 file="scripts/new-lane.sh",
-                find='  if ! "$GIT" -C "$REPO" cat-file -e "origin/main:$PLAN" 2>/dev/null; then\n',
-                replace="  if false; then  # mutated: шлях плану не перевіряємо\n",
+                find='    \'\')\n'
+                     '      fail "план \'$PLAN\' не існує в origin/main — запис у '
+                     'резервуванні назвав би неіснуючий файл (#1337). Назви '
+                     'наявний шлях або не давай --plan: тоді в записі буде null"\n',
+                replace="    '')  # mutated: неіснуючий шлях не перевіряємо\n"
+                        "      PLAN_OBJECT=blob\n",
             ),
         ),
     ),

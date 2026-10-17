@@ -542,7 +542,7 @@ CLAIM_CREATED=true
 
 if ! "$GIT" -C "$REPO" worktree add --detach "$LANE" origin/main; then
   rollback
-  fail "git worktree add не вдався — копії не створено; $ROLLBACK_CLAIM_FACT"
+  fail "git worktree add не вдався — смугу не зареєстровано (перевір $LANE, чи не лишився слід); $ROLLBACK_CLAIM_FACT"
 fi
 WORKTREE_CREATED=true
 

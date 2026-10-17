@@ -447,7 +447,14 @@ CASES = (
         name="підставний gh фікстури test_new_lane",
         where=("scripts/tests/test_new_lane.py",),
         prefix="NEW_LANE_TEST_",
-        programs=(Program("FAKE_GH", "NEW_LANE_TEST_ISSUE_BODY"),),
+        programs=(
+            Program("FAKE_GH", "NEW_LANE_TEST_ISSUE_BODY"),
+            # Підставний `rm`, який відмовляє прибрати запис резервування (#1340):
+            # ним піниться ПРАВДА повідомлення відкату — запис лишається, і це
+            # названо. Читає лише власні аргументи, тож ні префікса, ні входів.
+            Program("RollbackTest.refuse_removing_the_claim: fake_rm",
+                    "agent-work-claims"),
+        ),
     ),
     StandIn(
         # Підставний `post-checkout`, який валить `git worktree add` ПІСЛЯ

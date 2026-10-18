@@ -13,6 +13,14 @@ AI agents working in this repository should first read:
 All other guidance lives in the documentation tree; this file only points to
 it. The repository welcomes external contributions (see `CONTRIBUTING.md`).
 
+**A copy is not `main`.** This file is read from whichever copy you work in — a
+lane, a clone, the repository root — and the root may sit on someone else's
+branch with uncommitted edits. When the question is about the state of the
+repository rather than the tree in front of you, read `origin/main` or start a
+fresh copy with `scripts/new-lane.sh`: a file missing here may exist there, and
+a count taken here may be stale. This has already produced a wrong "the file
+does not exist" once.
+
 ## Voice
 
 Every text that leaves this repository (README, release notes, posts, issue

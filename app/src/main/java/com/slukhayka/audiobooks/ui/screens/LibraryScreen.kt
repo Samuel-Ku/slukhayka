@@ -3504,76 +3504,76 @@ fun LibraryReadingYearSection(
                         .testTag("library_year"),
                     contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                 ) {
-                item {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(
-                            text = stringResource(R.string.lib_year_heading, projection.year.year),
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.testTag("reading_year_heading")
-                        )
-                        Text(
-                            text = stringResource(R.string.lib_year_total, projection.year.totalFinished),
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.testTag("reading_year_total")
-                        )
-                        projection.year.finishedByFormat.toSortedMap().forEach { (format, count) ->
+                    item {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Text(
-                                text = stringResource(
-                                    R.string.lib_year_format,
-                                    readingFormatLabel(format),
-                                    count
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = stringResource(R.string.lib_year_heading, projection.year.year),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.testTag("reading_year_heading")
+                            )
+                            Text(
+                                text = stringResource(R.string.lib_year_total, projection.year.totalFinished),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.testTag("reading_year_total")
+                            )
+                            projection.year.finishedByFormat.toSortedMap().forEach { (format, count) ->
+                                Text(
+                                    text = stringResource(
+                                        R.string.lib_year_format,
+                                        readingFormatLabel(format),
+                                        count
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.lib_year_rule),
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-                        Text(
-                            text = stringResource(R.string.lib_year_rule),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        // #1286 — the honest outcome of the last action, INCLUDING
-                        // the refusal and the storage failure; never only a success.
-                        if (message != null) {
-                            Text(
-                                text = message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(top = 8.dp)
-                                    .testTag("reading_progress_message")
-                            )
-                        }
-                        if (state.refreshFailed) {
-                            Text(
-                                text = stringResource(R.string.lib_year_refresh_failed),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier
-                                    .padding(top = 8.dp)
-                                    .testTag("reading_year_stale")
-                            )
-                            OutlinedButton(
-                                onClick = onRetry,
-                                modifier = Modifier
-                                    .heightIn(min = 48.dp)
-                                    .testTag("reading_year_retry")
-                            ) {
-                                Text(stringResource(R.string.feedback_retry))
+                            // #1286 — the honest outcome of the last action, INCLUDING
+                            // the refusal and the storage failure; never only a success.
+                            if (message != null) {
+                                Text(
+                                    text = message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("reading_progress_message")
+                                )
+                            }
+                            if (state.refreshFailed) {
+                                Text(
+                                    text = stringResource(R.string.lib_year_refresh_failed),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("reading_year_stale")
+                                )
+                                OutlinedButton(
+                                    onClick = onRetry,
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("reading_year_retry")
+                                ) {
+                                    Text(stringResource(R.string.feedback_retry))
+                                }
                             }
                         }
                     }
-                }
-                // #876 — the passes still in the listener's hands: ONE journal
-                // record per action, in the format's own unit, and finishing
-                // belongs to that pass alone.
-                items(projection.active, key = { it.id }) { pass ->
-                    ReadingProgressRow(
-                        pass = pass,
-                        onRecord = { value -> onRecord(pass, value) },
-                        onFinish = { onFinish(pass) }
-                    )
-                }
+                    // #876 — the passes still in the listener's hands: ONE journal
+                    // record per action, in the format's own unit, and finishing
+                    // belongs to that pass alone.
+                    items(projection.active, key = { it.id }) { pass ->
+                        ReadingProgressRow(
+                            pass = pass,
+                            onRecord = { value -> onRecord(pass, value) },
+                            onFinish = { onFinish(pass) }
+                        )
+                    }
                 }
             }
         }

@@ -296,10 +296,10 @@ class FindingTest(FixtureMixin):
         self.assertEqual(1, code)
         self.assertIn("рядок каже «seventh»", out)
         self.assertIn("«eighth»", out)
-        # Рядок фігури — 352, а не 337: перепис того самого розділу «Worktrees»
-        # (#1332) додав вище п'ятнадцять рядків. Число тут — МІСЦЕ, і воно
-        # мусить збігатися з деревом; зсув видно як знахідку, а не як тишу.
-        self.assertIn("docs/agents/local-environment.md:352", out)
+        # Рядок фігури — 379, а не 352: розділ «Mutations» виріс на три правила
+        # про середовище (#1360). Число тут — МІСЦЕ, і воно мусить збігатися з
+        # деревом; зсув видно як знахідку, а не як тишу.
+        self.assertIn("docs/agents/local-environment.md:379", out)
 
     def test_a_count_that_disagrees_with_the_registry_is_a_finding(self):
         self.edit("scripts/guard_witnesses.py",

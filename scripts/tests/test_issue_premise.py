@@ -887,6 +887,15 @@ class PriceRecordTest(unittest.TestCase):
             ],
             capture_output=True, text=True, check=False,
         )
+        # Код 2 — це саме «ref не читається, міряти нічого»: так інструмент
+        # відповідає на дерево, у якому git-виклик не бачить ref. Скіп тут
+        # обовʼязковий, бо перевірка вище (`resolve_main_ref`) у КОПІЇ дерева
+        # проходить: git піднімається вгору до справжнього `.git`, а вимір у
+        # копії — ні. Без цієї гілки набір-свідок `test_empty_shape_mutants`
+        # ставав червоним «без мутації» на будь-якій машині (перевірено: і на
+        # стані `main` із реєстром 75, і з 76).
+        if proc.returncode == 2:
+            self.skipTest("ref %s не читається в цьому дереві — міряти нічого" % ip.MAIN_REF)
         self.assertEqual(0, proc.returncode, proc.stderr)
         printed = {}
         for line in proc.stdout.splitlines():

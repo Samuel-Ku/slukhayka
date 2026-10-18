@@ -61,21 +61,22 @@ import java.util.concurrent.Executor
  *   - Nothing scales with the row count: a 1-row page and a 30-row page cost
  *     the same two statements, which is the "без N+1" half of the AC.
  *
- * ## What is excluded from the count, and why (named, not hidden)
+ * ## What is excluded from the count, and why (one named category, not a guess)
  *
- * `setQueryCallback` also reports Room's own machinery, and two kinds of it
- * land in the measured window:
+ * `setQueryCallback` also reports Room's own machinery, and the fixture's
+ * seeding makes a lot of it: the first refresh after a write lazily installs
+ * the InvalidationTracker's temp triggers and index rows — 32 statements for
+ * this schema — and Room posts that work to its query executor, so it can land
+ * inside the measured window. A run of this class showed it landing in 5 of 7
+ * tests and not in the other 2: timing, not code.
  *
- *   - transaction control (`BEGIN IMMEDIATE TRANSACTION`, `END TRANSACTION`,
- *     `TRANSACTION SUCCESSFUL`) — Room 2.7 reports these through the same
- *     callback. They are not queries;
- *   - the InvalidationTracker's poll
- *     (`SELECT * FROM room_table_modification_log WHERE invalidated = 1`),
- *     which the seed's writes trigger asynchronously; whether it lands inside
- *     the window is timing, not code.
- *
- * Both are excluded BY EXACT TEXT, and everything else is counted — a
- * fail-loud direction on purpose. A count filtered by the feed's own marker
+ * So one category is excluded, by NAME: anything naming
+ * `room_table_modification_log` (the poll, the `INSERT OR IGNORE` index rows,
+ * the `CREATE TEMP TRIGGER` bodies), plus transaction control
+ * (`BEGIN IMMEDIATE TRANSACTION`, `END TRANSACTION`, `TRANSACTION SUCCESSFUL`,
+ * `ROLLBACK TRANSACTION`, `COMMIT`) — Room 2.7 reports those through the same
+ * callback too. Everything else is counted: a
+ * FAIL-LOUD direction on purpose. A count filtered by the feed's own marker
  * (`fromSharedLibrary`) would be blind to the N+1 that AC5 forbids, because a
  * per-row cover lookup has a different SQL shape:
  * `SELECT coverImageUrl FROM audiobooks WHERE sourceUrl = ? LIMIT 1`. The
@@ -138,25 +139,35 @@ class WorkFeedPageQueryCountTest {
     private val pageSize = 30
     private val initialLoadSize = pageSize * 3
 
-    /** Room's own statements, excluded by exact text — see the class KDoc. */
-    private val roomBookkeeping = setOf(
+    /**
+     * Room's own machinery, excluded by NAME — see the class KDoc. Two shapes,
+     * both observed in a run: the InvalidationTracker's bookkeeping (anything
+     * naming `room_table_modification_log`: its poll, the index rows, the temp
+     * trigger bodies) and transaction control. Neither is a query of the
+     * surface, and the first one lands in the measured window by timing.
+     */
+    private val transactionControl = setOf(
         "BEGIN IMMEDIATE TRANSACTION",
         "BEGIN EXCLUSIVE TRANSACTION",
         "BEGIN DEFERRED TRANSACTION",
         "END TRANSACTION",
         "TRANSACTION SUCCESSFUL",
         "ROLLBACK TRANSACTION",
-        "COMMIT",
-        "SELECT * FROM room_table_modification_log WHERE invalidated = 1"
+        "COMMIT"
     )
 
+    private fun String.isRoomMachinery(): Boolean {
+        val sql = trim()
+        return sql.contains("room_table_modification_log") || sql in transactionControl
+    }
+
     /** What one load cost, split into the surface's statements and Room's own. */
-    private data class Observed(val counted: List<String>, val bookkeeping: List<String>) {
+    private data class Observed(val counted: List<String>, val machinery: List<String>) {
         fun describe(): String =
             "зараховані (${counted.size}):\n" +
                 counted.joinToString("\n") { "  • " + it.label() } +
-                "\nслужбові (${bookkeeping.size}):\n" +
-                bookkeeping.joinToString("\n") { "  • " + it.label() }
+                "\nмашинерія Room (${machinery.size}):\n" +
+                machinery.joinToString("\n") { "  • " + it.label() }
 
         private fun String.label(): String =
             replace(Regex("\\s+"), " ").trim().let { if (it.length > 150) it.take(150) + "…" else it }
@@ -227,8 +238,8 @@ class WorkFeedPageQueryCountTest {
 
     /** Splits the log Room just wrote into the surface's statements and Room's own. */
     private fun classify(): Observed {
-        val (bookkeeping, counted) = statements.toList().partition { it.trim() in roomBookkeeping }
-        return Observed(counted, bookkeeping)
+        val (machinery, counted) = statements.toList().partition { it.isRoomMachinery() }
+        return Observed(counted, machinery)
     }
 
     private fun refresh(

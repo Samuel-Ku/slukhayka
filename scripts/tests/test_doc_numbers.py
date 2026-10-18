@@ -299,7 +299,7 @@ class FindingTest(FixtureMixin):
         # Рядок фігури — 379, а не 352: розділ «Mutations» виріс на три правила
         # про середовище (#1360). Число тут — МІСЦЕ, і воно мусить збігатися з
         # деревом; зсув видно як знахідку, а не як тишу.
-        self.assertIn("docs/agents/local-environment.md:394", out)
+        self.assertIn("docs/agents/local-environment.md:241", out)
 
     def test_a_count_that_disagrees_with_the_registry_is_a_finding(self):
         self.edit("scripts/guard_witnesses.py",

@@ -347,7 +347,24 @@ sys.exit(0 if claim.get("reservation") == sys.argv[2] else 1)
 # коли файлу справді немає.
 ROLLBACK_CLAIM_FACT="резервування не створювалося"
 
+# Чи лишився шлях на диску. `-e` не бачить посилання, яке нікуди не веде, а воно
+# теж слід; тож питаються обидві форми. Це стан ДИСКА — і саме він, а не код
+# виходу команди, дає факт нижче.
+lane_present() {
+  [ -e "$1" ] || [ -L "$1" ]
+}
+
+# Факт про КОПІЮ ставить сам відкат, і ставить його ТИМ САМИМ способом, що й
+# факт про резервування (#1343). Код виходу `git worktree remove` каже, що
+# команда мала намір зробити, а не що лишилося: відмова (права, чужий процес,
+# підмінений `git`) і навіть успішний вихід із текою на диску лишали
+# повідомлення «копію прибрано» без копії за ним. Тому після спроби питається
+# ДИСК, і кожне місце, яке кличе `rollback`, вставляє цей факт у своє
+# повідомлення — поряд із фактом про резервування.
+ROLLBACK_LANE_FACT="копії не створювалося"
+
 rollback() {
+  local lane_remove_failed=false lane_remove_error=""
   if [ "$WORKTREE_CREATED" = true ]; then
     # `--force` тут законний рівно тому, що копію створив ЦЕЙ прогін: перед
     # `worktree add` перевірено, що ні теки, ні реєстрації не було, тож
@@ -355,9 +372,30 @@ rollback() {
     # `guard_witnesses.py --count` лишає в ній `__pycache__`: у цьому
     # репозиторії він ігнорований, а в чужому дереві міг би й не бути — і тоді
     # `remove` без `--force` відмовив би, лишивши по собі саме ту напівкопію,
-    # яку відкат і прибирає.)
-    "$GIT" -C "$REPO" worktree remove --force "$LANE" 2>/dev/null ||
+    # яку відкат і прибирає.) Вивід `remove` не викидається: коли тека лишиться,
+    # саме він і стане НАЗВАНОЮ причиною. `prune` лишається запасним ходом на
+    # відмову `remove` (застарілий запис без теки прибирає він), але вердикт
+    # ставить не він.
+    if ! lane_remove_error="$("$GIT" -C "$REPO" worktree remove --force "$LANE" 2>&1)"; then
+      lane_remove_failed=true
       "$GIT" -C "$REPO" worktree prune 2>/dev/null || true
+    fi
+  fi
+  # Причина йде в повідомлення одним рядком — факти вставляються, а не
+  # друкуються блоком.
+  lane_remove_error="${lane_remove_error//$'\n'/ }"
+  if lane_present "$LANE"; then
+    if [ "$WORKTREE_CREATED" != true ]; then
+      ROLLBACK_LANE_FACT="копія ЛИШИЛАСЯ: $LANE — цей відкат її не прибирав (копію створив не він: git worktree add не вдався); прибери її руками"
+    elif [ "$lane_remove_failed" = true ]; then
+      ROLLBACK_LANE_FACT="копія ЛИШИЛАСЯ: $LANE — git worktree remove відмовив (${lane_remove_error:-без повідомлення}); прибери її руками: $GIT -C $REPO worktree remove --force $LANE"
+    else
+      ROLLBACK_LANE_FACT="копія ЛИШИЛАСЯ: $LANE — git worktree remove вийшов без помилки, але тека лишилася на диску; прибери її руками: $GIT -C $REPO worktree remove --force $LANE"
+    fi
+  elif [ "$WORKTREE_CREATED" = true ]; then
+    ROLLBACK_LANE_FACT="копію прибрано"
+  else
+    ROLLBACK_LANE_FACT="копії немає — цей прогін її не створював"
   fi
   if [ "$CLAIM_CREATED" = true ]; then
     # Прибираємо рівно той запис, який створили самі: чужий запис із тим самим

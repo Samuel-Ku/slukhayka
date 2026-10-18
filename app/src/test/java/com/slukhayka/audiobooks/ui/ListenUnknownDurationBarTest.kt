@@ -5,7 +5,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodes
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
@@ -53,10 +52,12 @@ class ListenUnknownDurationBarTest {
         SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)
     )
 
+    @Composable
     private fun theme(content: @Composable () -> Unit) {
         AudiobookTheme(darkTheme = true) { content() }
     }
 
+    @Composable
     private fun hero(book: AudiobookEntity) {
         ListenHeroCard(
             book = book,
@@ -67,6 +68,7 @@ class ListenUnknownDurationBarTest {
         )
     }
 
+    @Composable
     private fun recentRow(book: AudiobookEntity) {
         RecentlyListenedRow(
             book = book,

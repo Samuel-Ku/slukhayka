@@ -330,26 +330,16 @@ class FakeAudiobookDao(
         }
     }
 
-    override suspend fun resetAllEntryDownloadProgress() {
-        libraryEntriesState.update { current -> current.map { it.copy(downloadProgress = 0f) } }
-    }
-
     override suspend fun markBookNotDownloaded(bookId: String) {
         updateDownloadState(bookId, isDownloaded = false, progress = 0f)
     }
 
-    override suspend fun clearAllBookDownloadState() {
-        booksState.update { current -> current.map { it.copy(isDownloaded = false) } }
-    }
-
-    override suspend fun markAllNotDownloaded() {
-        booksState.update { current ->
-            current.map {
-                it.copy(isDownloaded = false).also { b -> b.downloadProgress = 0f }
-            }
-        }
-        libraryEntriesState.update { current -> current.map { it.copy(downloadProgress = 0f) } }
-    }
+    // #1163 — the global clear trio (markAllNotDownloaded /
+    // clearAllBookDownloadState / resetAllEntryDownloadProgress /
+    // clearAllTracksDownloadState) is gone from the DAO: it reset local imports
+    // too. The scoped destructive clear goes through
+    // OfflineDownloads.clearAllAudioCache, which this fake serves with the
+    // per-book methods below.
 
     // --- Chapters ---------------------------------------------------------
 
@@ -530,12 +520,6 @@ class FakeAudiobookDao(
         val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
         tracksState.update { current ->
             current.map { tr -> if (tr.sourceId in sourceIds) tr.copy(isDownloaded = false, localFilePath = null) else tr }
-        }
-    }
-
-    override suspend fun clearAllTracksDownloadState() {
-        tracksState.update { current ->
-            current.map { it.copy(isDownloaded = false, localFilePath = null) }
         }
     }
 

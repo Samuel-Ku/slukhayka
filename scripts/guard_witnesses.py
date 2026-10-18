@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 96 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 99 записів, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -234,6 +234,45 @@ class Report:
 # зникнення запису видно як правку тесту. Розширюють його разом зі сторожем.
 
 GUARDS = (
+    Guard(
+        test="test_branch_hygiene.LocalDecideTest"
+             ".test_reserved_branch_is_left_alone",
+        protects="резервування чужої роботи: без перевірки `agent-work-claims` "
+                 "локальна чистка стає сліпою до чужого чату й прибирає гілку, "
+                 "яку ще роблять",
+        edits=(
+            Edit(
+                file="scripts/branch-hygiene.py",
+                find='    if base["claimed_by"]:\n',
+                replace="    if False:  # mutated\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_branch_hygiene.DecideTest"
+             ".test_pr_merged_into_a_release_lane_is_not_proof",
+        protects="право чистки гілок видаляти: PR, злитий у релізну лінію, доказом "
+                 "не є — у main його змін може не бути. Знята перевірка бази "
+                 "перетворює сторож порядка на видаляч роботи",
+        edits=(
+            Edit(
+                file="scripts/branch-hygiene.py",
+                find=(
+                    '        "merged_into_main": [\n'
+                    "            p for p in prs\n"
+                    '            if p["state"] == "MERGED" and '
+                    'p.get("baseRefName", main) == main\n'
+                    "        ],\n"
+                ),
+                replace=(
+                    '        "merged_into_main": [\n'
+                    "            p for p in prs\n"
+                    '            if p["state"] == "MERGED"\n'
+                    "        ],\n"
+                ),
+            ),
+        ),
+    ),
     Guard(
         test="test_issue_premise.ExtractionTest"
              ".test_measure_head_exists_because_the_docs_cite_it",
@@ -915,6 +954,20 @@ GUARDS = (
                 find='SCRATCH_PREFIXES = ("slukhayka-mutation.", "slukhayka-changed-tests.", '
                      '"slukhayka-tests.")',
                 replace="SCRATCH_PREFIXES = ()",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_branch_hygiene.CollectIntegrationTest"
+             ".test_cleanup_refuses_a_branch_that_moved_after_the_facts",
+        protects="пін доведеного sha при видаленні: без `--force-with-lease` "
+                 "знімається гілка, що рушила після збору фактів, — тобто "
+                 "втрачається робота, якої ніхто не поглинав",
+        edits=(
+            Edit(
+                file="scripts/branch-hygiene.py",
+                find='    lease = f"--force-with-lease=refs/heads/{name}:{sha}"\n',
+                replace='    lease = "--force"\n',
             ),
         ),
     ),

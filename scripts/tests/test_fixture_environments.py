@@ -438,6 +438,19 @@ CASES = (
         ),
     ),
     StandIn(
+        name="підставний gh фікстури test_branch_hygiene",
+        where=("scripts/tests/test_branch_hygiene.py",),
+        # Підставний `gh` пише свої виклики й тіло з stdin у ці дві змінні.
+        prefix="GH_",
+        programs=(
+            Program(
+                "CollectIntegrationTest"
+                ".test_report_upsert_reaches_gh_with_the_report_body: fake_gh",
+                "GH_CALLS",
+            ),
+        ),
+    ),
+    StandIn(
         name="підставний gh фікстури test_ci_job_time",
         where=("scripts/tests/test_ci_job_time.py",),
         prefix="FAKE_GH_",
@@ -837,6 +850,7 @@ class RegistryTest(unittest.TestCase):
 
         self.assertEqual(
             ["scripts/tests/test_android_emulator_readiness.py",
+             "scripts/tests/test_branch_hygiene.py",
              "scripts/tests/test_ci_job_time.py",
              "scripts/tests/test_empty_shape_mutants.py",
              "scripts/tests/test_issue_premise.py",

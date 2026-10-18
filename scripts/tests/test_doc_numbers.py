@@ -71,13 +71,13 @@ EXPECTED_CASES = (
 )
 
 EXPECTED_FIGURES = (
-    ("docs/agents/local-environment.md", "gate is about the guards themselves"),
+    ("docs/agents/gates.md", "gate is about the guards themselves"),
     ("scripts/guard_witnesses.py", "випадок класу"),
     ("scripts/empty_shape_mutants.py", "випадок за дві цілі"),
     ("scripts/guard_witnesses.py", "не стає галасливим"),
-    ("docs/agents/local-environment.md", "series has"),
-    ("docs/agents/local-environment.md", "figures of"),
-    ("docs/agents/local-environment.md", "sit on a line"),
+    ("docs/agents/gates.md", "series has"),
+    ("docs/agents/gates.md", "figures of"),
+    ("docs/agents/gates.md", "sit on a line"),
     ("CONTRIBUTING.md", "показав межу самого правила"),
     ("CONTRIBUTING.md", "і другий машинний гейт"),
     ("scripts/issue_premise.py", "«ціна правила про теку»"),
@@ -101,6 +101,7 @@ EXPECTED_FIGURES = (
 EXPECTED_SCANNED = (
     "CONTRIBUTING.md",
     "docs/agents/local-environment.md",
+    "docs/agents/gates.md",
     "docs/agents/issue-tracker.md",
     "scripts/guard_witnesses.py",
     "scripts/empty_shape_mutants.py",
@@ -290,16 +291,16 @@ class FindingTest(FixtureMixin):
 
     def test_a_position_that_disagrees_with_the_series_is_a_finding(self):
         """Живий приклад тікета: «seventh» там, де серія дає восьме місце."""
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "The eighth case of", "The seventh case of")
         code, out, _ = self.check()
         self.assertEqual(1, code)
         self.assertIn("рядок каже «seventh»", out)
         self.assertIn("«eighth»", out)
-        # Рядок фігури — 241: розділ «Mutations» виріс на три правила (#1360), а потім
-        # про середовище (#1360). Число тут — МІСЦЕ, і воно мусить збігатися з
-        # деревом; зсув видно як знахідку, а не як тишу.
-        self.assertIn("docs/agents/local-environment.md:241", out)
+        # Рядок фігури — 33 у `gates.md`: абзац переїхав туди з `Mutations`
+        # (#1366). Число тут — МІСЦЕ, і воно мусить збігатися з деревом; зсув
+        # видно як знахідку, а не як тишу.
+        self.assertIn("docs/agents/gates.md:33", out)
 
     def test_a_count_that_disagrees_with_the_registry_is_a_finding(self):
         self.edit("scripts/guard_witnesses.py",
@@ -311,7 +312,7 @@ class FindingTest(FixtureMixin):
 
     def test_a_number_nobody_derives_is_a_finding(self):
         """Число на рядку, якого немає в реєстрі, проходить повз нього?"""
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "The eighth case of",
                   "The eighth case of\nThe twelfth case of \"a check that does "
                   "not check\" was invented.")
@@ -387,14 +388,14 @@ class RefusalTest(FixtureMixin):
     """Невідомість коштує відмову (код 2), а не тихий дозвіл."""
 
     def test_a_missing_anchor_is_an_unknown(self):
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "gate is about the guards themselves", "gate is about something else")
         code, _, err = self.check()
         self.assertEqual(2, code)
         self.assertIn("якір мусить траплятися рівно раз", err)
 
     def test_an_anchor_that_is_not_alone_is_an_unknown(self):
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "The eighth case of",
                   "The eighth case of ... and the gate is about the guards "
                   "themselves, and the eighth case of")
@@ -403,7 +404,7 @@ class RefusalTest(FixtureMixin):
         self.assertIn("якір мусить траплятися рівно раз", err)
 
     def test_a_line_that_no_longer_carries_the_number_is_an_unknown(self):
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "The eighth case of", "The case of")
         code, _, err = self.check()
         self.assertEqual(2, code)
@@ -467,14 +468,14 @@ class NumberShapeTest(FixtureMixin):
     """Діри, названі оглядом PR #1295: кожна мусить бути червона."""
 
     def test_a_position_line_that_names_another_key_is_an_unknown(self):
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "(`#1270`). The eighth case of", "(`#1233`). The eighth case of")
         code, _, err = self.check()
         self.assertEqual(2, code)
         self.assertIn("називає інший ключ (#1233)", err)
 
     def test_a_position_line_that_names_no_key_is_an_unknown(self):
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "(`#1270`). The eighth case of", ". The eighth case of")
         code, _, err = self.check()
         self.assertEqual(2, code)
@@ -482,7 +483,7 @@ class NumberShapeTest(FixtureMixin):
 
     def test_a_line_with_two_numbers_of_the_same_source_is_an_unknown(self):
         """Шапка обіцяє «рівно одне число» — і CLI мусить це тримати, не лише тест."""
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "(`#1270`). The eighth case of",
                   "(`#1270`). The eighth case of, and the eighth case of again")
         code, _, err = self.check()
@@ -503,7 +504,7 @@ class NumberShapeTest(FixtureMixin):
 
     def test_an_ordinal_written_in_digits_is_accepted(self):
         """«The 8th case of» — те саме число, і воно мусить проходити."""
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "The eighth case of", "The 8th case of")
         code, _, err = self.check()
         self.assertEqual(0, code, err)
@@ -624,7 +625,7 @@ class BoundaryTest(FixtureMixin):
 
     def test_a_figure_of_an_unlisted_shape_passes_silently(self):
         """Одиниці й секунди поза формами: 999 MiB нічого не червонить."""
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "The eighth case of",
                   "The eighth case of (naive 999 MiB, 42 s) ")
         code, _, err = self.check()
@@ -639,7 +640,7 @@ class BoundaryTest(FixtureMixin):
 
     def test_a_number_in_a_code_span_is_a_citation_not_a_claim(self):
         """Число в бектиках — те, що документ НАВОДИТЬ; механізм читає прозу."""
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "The eighth case of",
                   "The eighth case of\nThe text used to read `the seventh case of "
                   "\"a check that does not check\"`.")
@@ -768,7 +769,7 @@ class GrammaticalFormTest(FixtureMixin):
         Це той бік, у який клас-таблиця брехала б, якби тримала одне українське
         правило для всіх мов: по-англійськи після 21/41/101 іде МНОЖИНА.
         """
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "series has **eight** cases", "series has **21** cases")
         with self.cases(21):
             code, out, err = self.check()
@@ -776,7 +777,7 @@ class GrammaticalFormTest(FixtureMixin):
 
     def test_an_english_singular_for_a_plural_number_is_a_named_finding(self):
         """Контроль: «21 case» — англійська форма не та, і це ВИДНО."""
-        self.edit("docs/agents/local-environment.md",
+        self.edit("docs/agents/gates.md",
                   "series has **eight** cases", "series has **21** case")
         with self.cases(21):
             code, out, _ = self.check()

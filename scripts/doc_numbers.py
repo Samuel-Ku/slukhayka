@@ -20,7 +20,7 @@ that does not check"». Спільне в усіх: **число в доку, я
       корпус (`docs/agents/*.md`, `scripts/**/*.py`) і друкує, скільки в ньому
       фігур «число + одиниця» і скільки з них без дати на рядку. Обидва числа
       зараховані в `FIGURES` там, де вони написані
-      (`docs/agents/local-environment.md`), а не в цьому файлі: якір мусить
+      (`docs/agents/gates.md`), а не в цьому файлі: якір мусить
       траплятися у файлі рівно раз, а рядок самого реєстру був би другим
       входженням. Решта фігур — **записи про минуле**: секунди й гігабайти
       конкретної збірки на конкретній машині 2026-10-12, яких жодна команда не
@@ -252,7 +252,7 @@ CASES = (
 
 FIGURES = (
     # Сьомий випадок тікета: «seventh» у доку проти восьмого місця `#1270`.
-    ("docs/agents/local-environment.md",
+    ("docs/agents/gates.md",
      "gate is about the guards themselves",
      ("position", "cases", "#1270")),
     # Те саме число в шапці механізму, який цей клас і називає.
@@ -270,15 +270,15 @@ FIGURES = (
     # Скільки випадків у серії — там, де документ це стверджує: число мусить мати
     # ту саму форму, яку механізм ловить, інакше дев'ятий випадок у `CASES`
     # почервонить два рядки, а цей мовчатиме.
-    ("docs/agents/local-environment.md",
+    ("docs/agents/gates.md",
      "series has",
      ("count", "cases")),
     # Числа, якими відкинуто варіант (а), живуть у доку, який їх наводить:
     # у файлі самого реєстру якір не міг би траплятися рівно раз.
-    ("docs/agents/local-environment.md",
+    ("docs/agents/gates.md",
      "figures of",
      ("audit", "units")),
-    ("docs/agents/local-environment.md",
+    ("docs/agents/gates.md",
      "sit on a line",
      ("audit", "undated")),
     # Той самий клас у `CONTRIBUTING.md`: п'ятий і шостий випадки серії названі
@@ -388,6 +388,7 @@ DATED = re.compile(r"\b20\d\d-\d\d-\d\d\b|\b[0-9a-f]{7,40}\b")
 SCANNED = (
     "CONTRIBUTING.md",
     "docs/agents/local-environment.md",
+    "docs/agents/gates.md",
     "docs/agents/issue-tracker.md",
     "scripts/guard_witnesses.py",
     "scripts/empty_shape_mutants.py",

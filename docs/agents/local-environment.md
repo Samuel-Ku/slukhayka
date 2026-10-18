@@ -11,7 +11,7 @@ each links to the section that explains it.
 | before you… | the rule | see |
 |---|---|---|
 | run anything heavy | the slot wants **3500 MB free** and **swap growth ≤ 2000 MB** | [The memory guard](#the-memory-guard) |
-| run anything heavy | **kill the idle Gradle daemon first, by PID**: `jps -l \| grep GradleDaemon`, then `kill <pid>`. **Never `pkill -f 'GradleDaemon'`** — that pattern also matches the shell invoking it and kills the caller | [The memory guard](#the-memory-guard) |
+| run anything heavy | **kill the idle Gradle daemon first, by PID**: `jps -l \| grep GradleDaemon`, then `kill <pid>`. **Never `pkill -f 'GradleDaemon'`** — that pattern also matches the shell invoking it and kills the caller | [Mutations](#mutations) |
 | run a mutation | **lower the daemon's heap, not the client's**: `GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx3g"`. `GRADLE_OPTS="-Xmx3g"` leaves the build at `-Xmx4g` and only raises the client ceiling | [Mutations](#mutations) |
 | check a build's result | **write the exit code to a file**, not through a pipe: `(cmd > log 2>&1; echo $? > exit)`. `cmd \| tail` reports `tail`'s status, so `exit 0` can sit beside `BUILD FAILED` | [Mutations](#mutations) |
 | compile anything | a lane **inherits** `local.properties` from the copy that created it — a stale `sdk.dir` (this machine has seen `/opt/android-sdk`, which does not exist) makes Gradle answer `SDK location not found`. The SDK here is `/home/stealth/android-sdk`, or set `ANDROID_HOME` | [Worktrees](#worktrees) |

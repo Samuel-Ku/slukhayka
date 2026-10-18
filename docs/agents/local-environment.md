@@ -256,15 +256,19 @@ record. Exit codes: `0` caught · `1` survived · `2` refused · `3` no verdict 
 Three rules decide whether a mutation run reaches a verdict at all. All three are
 measured on the shared slot, and each has already cost a run:
 
-- **Give the JVM less heap.** `mutate.sh` reaches gradlew through `test-all.sh`,
-  which runs `--no-daemon`, while `gradle.properties` asks for `-Xmx4g`. That
-  has killed the build mid-run (`Gradle build daemon disappeared unexpectedly`)
-  and produced `no-verdict` twice out of two:
+- **Lower the *daemon's* heap, not the client's.** `mutate.sh` reaches gradlew
+  through `test-all.sh`, which runs `--no-daemon`, while `gradle.properties`
+  asks for `-Xmx4g`. In Gradle 9 a `--no-daemon` run still forks a single-use
+  daemon, and that daemon takes its heap from `org.gradle.jvmargs` — **not** from
+  `GRADLE_OPTS`, which only sizes the client launcher. Override the property:
 
   ```sh
-  env TMPDIR=/tmp GRADLE_OPTS="-Xmx3g" ../gt scripts/mutate.sh \
-      --patch .mutations/patches/<name>.patch --class <FQCN>
+  env TMPDIR=/tmp GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx3g" ../gt \
+      scripts/mutate.sh --patch .mutations/patches/<name>.patch --class <FQCN>
   ```
+
+  `GRADLE_OPTS="-Xmx3g"` on its own leaves the build heap at `-Xmx4g` and only
+  raises the client ceiling.
 
 - **Kill the idle Gradle daemon first, by PID.** A sleeping daemon holds
   2.4–3.4 GB RSS, so `MemAvailable` never reaches the guard's 3500 MB floor and

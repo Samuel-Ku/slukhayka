@@ -63,15 +63,65 @@ export PATH="$JDK_DIR/bin:$PATH"
 # не відразу й не там, де причина: на голій Fedora відсутність `gh` виявилася
 # саме так (перевірено на dragonborn).
 missing=""
-for c in python3 jq flock nice ionice timeout git npm; do
+for c in python3 jq flock nice ionice timeout git npm curl unzip; do
   command -v "$c" >/dev/null 2>&1 || missing="$missing $c"
 done
 [ -n "$missing" ] && die "немає обов'язкових утиліт:$missing (постав їх у PATH воркера)"
+log "передумови: базові утиліти на місці"
+
+# 1c) Android command-line tools, якщо на машині їх немає ------------------
+# Попередня версія мовчки покладалася на `/opt/android-sdk/...`: на машині, де
+# SDK ніколи не ставили (гола Fedora, dragonborn), крок 2 просто не виконувався,
+# і «готово» друкувалося без SDK. Тепер інструменти або вже є за явним шляхом,
+# або ставляться в user-space.
+export JAVA_HOME="$JDK_DIR"
+export PATH="$JDK_DIR/bin:$PATH"
+if [ ! -x "$SDKMANAGER" ]; then
+  log "Android SDK немає за $SDKMANAGER — ставлю command-line tools"
+  tmp="$(mktemp -d)"
+  zip_name="$(curl -fsSL https://dl.google.com/android/repository/repository2-3.xml 2>/dev/null \
+    | grep -oE 'commandlinetools-linux-[0-9]+_latest\.zip' | head -1 || true)"
+  : "${zip_name:=commandlinetools-linux-13114758_latest.zip}"
+  curl -fsSL "https://dl.google.com/android/repository/$zip_name" -o "$tmp/clt.zip" \
+    || die "не завантажились command-line tools ($zip_name)"
+  unzip -q "$tmp/clt.zip" -d "$tmp/clt" || die "не розпакувався zip command-line tools"
+  rm -rf "$SWARM_ROOT/cmdline-tools/latest"
+  mkdir -p "$SWARM_ROOT/cmdline-tools"
+  mv "$tmp/clt/cmdline-tools" "$SWARM_ROOT/cmdline-tools/latest"
+  SDKMANAGER="$SWARM_ROOT/cmdline-tools/latest/bin/sdkmanager"
+  [ -x "$SDKMANAGER" ] || die "sdkmanager не зʼявився після розпакування"
+  rm -rf "$tmp"
+  log "sdkmanager: $SDKMANAGER"
+fi
+
+# 1d) gh у user-space (контракт без нього не виконується) -----------------
+# `gh` потрібен і для коментарів у тікеті, і для push (через `gh auth setup-git`).
+# На голій машині його немає, а sudo недоступний (на dragonborn `sudo -n` — ні),
+# тому ставимо бінарник у $BIN_DIR і додаємо його в PATH. Залогованість
+# перевіряємо ПІСЛЯ встановлення — токен приносить hub окремо (`gh auth login
+# --with-token` зі stdin, як і решту секретів), і без нього задача впала б на
+# першому ж кроці контракту.
+export PATH="$BIN_DIR:$PATH"
+if ! command -v gh >/dev/null 2>&1; then
+  log "gh немає — ставлю в $BIN_DIR"
+  tmp="$(mktemp -d)"
+  gh_tag="$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest 2>/dev/null \
+    | jq -r '.tag_name // empty' || true)"
+  : "${gh_tag:=v2.63.2}"
+  gh_ver="${gh_tag#v}"
+  curl -fsSL "https://github.com/cli/cli/releases/download/$gh_tag/gh_${gh_ver}_linux_amd64.tar.gz" \
+    -o "$tmp/gh.tar.gz" || die "не завантажився gh $gh_tag"
+  tar -xzf "$tmp/gh.tar.gz" -C "$tmp" || die "не розпакувався gh"
+  install -m 755 "$tmp/gh_${gh_ver}_linux_amd64/bin/gh" "$BIN_DIR/gh" \
+    || die "не поклав gh у $BIN_DIR"
+  rm -rf "$tmp"
+  log "gh: $(command -v gh)"
+fi
 command -v gh >/dev/null 2>&1 \
-  || die "немає gh: контракт вимагає коментарів у тікеті; постав gh у PATH воркера"
+  || die "немає gh: контракт вимагає коментарів у тікеті"
 gh auth status >/dev/null 2>&1 \
-  || die "gh не залогований: коментар у тікеті й push не працюватимуть"
-log "передумови: утиліти на місці, gh залогований"
+  || die "gh не залогований: hub має принести токен (gh auth login --with-token)"
+log "передумови: gh залогований"
 
 # 2) Android SDK ----------------------------------------------------------
 # Беремо найновіші 36.x платформу й build-tools, які реально пропонує
@@ -219,7 +269,7 @@ cat >"$SWARM_ROOT/env.sh" <<EOF
 export SWARM_ROOT="$SWARM_ROOT"
 export REPO_DIR="$REPO_DIR"
 export JAVA_HOME="$JDK_DIR"
-export PATH="$JDK_DIR/bin:$NPM_PREFIX/bin:\$PATH"
+export PATH="$JDK_DIR/bin:$BIN_DIR:$NPM_PREFIX/bin:\$PATH"
 export ANDROID_HOME="$SDK_DIR"
 export ANDROID_SDK_ROOT="$SDK_DIR"
 export GRADLE_USER_HOME="$GRADLE_HOME"

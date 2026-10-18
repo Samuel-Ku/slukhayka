@@ -17,8 +17,13 @@
 #   * плани тікета в резервуванні не вигадуються: поле лишається `null`, а бриф
 #     їде коментарем і файлом промпта (new-lane.sh #1337 карає вигаданий шлях);
 #   * lease/heartbeat — властивість hub-процесу, а не агента: якщо hub помер, це
-#     видно саме як пропущені heartbeat-коментарі, і наступний hub має право
-#     перебрати тікет;
+#     видно саме як пропущені heartbeat-коментарі. Невдала диспетчеризація
+#     (воркер недоступний, таймаут, немає SWARM-RESULT, роботи не зʼявилося на
+#     origin) звільняє резервування сама — і на виході, і на сигналі
+#     (SIGTERM/SIGHUP через EXIT-пастку). Лишається рівно один випадок, який
+#     код накрити не може: SIGKILL або падіння машини — тоді запис
+#     `.git/agent-work-claims/<n>.json` знімає координатор вручну, переконавшись,
+#     що роботи немає;
 #   * робота вважається зробленою тільки після пушу гілки з зеленими цільовими
 #     тестами; частковий результат лишається в лозі й у коментарі.
 #
@@ -174,7 +179,14 @@ python3 scripts/agent-work-claim.py acquire "$ISSUE" --owner "$OWNER" \
 # було — запис знімаємо самі. Перед зняттям перевіряємо, що файл САМЕ НАШ:
 # інакше після перевикористання імені чи чужого запуску ми зняли б чуже.
 release_claim() {
-  local f="$REPO_ROOT/.git/agent-work-claims/$ISSUE.json"
+  # Адресу беремо ТАК САМО, як `agent-work-claim.py acquire`: спільний каталог
+  # через git, а не `$REPO_ROOT/.git`. У звʼязаній смузі `.git` — це ФАЙЛ, тож
+  # шлях `$REPO_ROOT/.git/...` не існує, і функція мовчки казала б «звільняти
+  # нічого», лишаючи запис (знахідка огляду #1351, п.4).
+  local common f
+  common="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$common" ] || common="$REPO_ROOT/.git"
+  f="$common/agent-work-claims/$ISSUE.json"
   [ -f "$f" ] || { say "резервування немає — звільняти нічого"; return 0; }
   if jq -e --arg o "$OWNER" --arg r "swarm-$WORKER" \
        '.ownerThread == $o and .reservation == $r' "$f" >/dev/null 2>&1; then
@@ -205,7 +217,17 @@ heartbeat() {
 STARTED="$(date +%s)"
 say "dispatch -> $WORKER (timeout ${TIMEOUT_MIN}m), log: $LOG"
 heartbeat "$STARTED" & HB_PID=$!
-trap 'kill "$HB_PID" 2>/dev/null || true' EXIT
+# Звільнення висить на EXIT-пастці, а не лише на хвості скрипта: hub, убитий
+# сигналом посеред диспетчу (SIGTERM/SIGHUP), до хвоста не дійде, а запис
+# лишиться назавжди й заблокує тікет для того самого скрипта — рівно пастка, на
+# якій спіткнувся #1286 (знахідка огляду #1351, п.1). Змінні на цей момент
+# можуть бути не встановлені, тож беремо `${RC:-1}`: невідомість трактуємо як
+# невдачу. SIGKILL накрити неможливо — такий запис знімає координатор вручну
+# (це названо в docs/agents/swarm.md).
+trap 'kill "$HB_PID" 2>/dev/null || true
+      if [ "${RC:-1}" -ne 0 ] || [ -z "${RESULT_LINE:-}" ] || [ "${BRANCH_PRESENT:-0}" -eq 0 ]; then
+        release_claim
+      fi' EXIT
 
 set +e
 "${SSH_CMD[@]}" <"$PROMPT" 2>&1 | tee "$LOG"
@@ -227,7 +249,9 @@ ssh -T "${SSH_BASE[@]}" "$WORKER" "$REMOTE_STOP" 2>&1 | sed 's/^/  /' \
 
 # --- 5. що саме приїхало: гілка на origin --------------------------------
 BRANCH_INFO="(гілки t$ISSUE-$SLUG на origin не видно)"
+BRANCH_PRESENT=0
 if git ls-remote --exit-code origin "refs/heads/t$ISSUE-$SLUG" >/dev/null 2>&1; then
+  BRANCH_PRESENT=1
   git fetch origin "t$ISSUE-$SLUG" --quiet 2>/dev/null || true
   BRANCH_INFO="$(git log --oneline "origin/main..FETCH_HEAD" 2>/dev/null | head -10 || true)"
 fi
@@ -239,11 +263,10 @@ gh issue comment "$ISSUE" --body "$(printf '%s\n' \
   "${RESULT_LINE:-_агент не надрукував SWARM-RESULT_}" \
   "" \
   '```' "$BRANCH_INFO" '```' \
+  "Резервування: $([ "$BRANCH_PRESENT" -eq 1 ] && echo 'лишається — гілка є, чекає огляду й мерджу' || echo 'знято — роботи на origin не зʼявилося')." \
   "Повна лога: \`$LOG\`")" >/dev/null
 
-if [ "$RC" -ne 0 ] || [ -z "$RESULT_LINE" ]; then
-  release_claim
-fi
+# Звільнення робить EXIT-пастка (див. вище) — тут лише вихідний код.
 
 if [ "$RC" -eq 255 ]; then say "воркер недоступний (ssh 255)"; exit 3; fi
 exit "$RC"

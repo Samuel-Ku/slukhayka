@@ -150,6 +150,10 @@ class SwarmPromptContractTest(unittest.TestCase):
         self.assertIn("scripts/build-slot-guard.py", prompt)
         self.assertIn("--floor-mb 3500", prompt)
         self.assertIn("$REPO_DIR/.worktrees/.build-slot", prompt)
+        # cwd мусить бути КОПІЯ СМУГИ: `scripts/test-changed.sh` визначає корінь
+        # репо від власного шляху, тож копія з клона аналізувала б незмінений
+        # main і «зелений цільовий прогін» нічого не доводив (огляд #1351, п.2).
+        self.assertIn("cd \"$REPO_DIR/.worktrees/w4242\"", prompt)
 
     def test_worker_key_and_github_key_are_separate(self):
         # Новий ключ `stealth@omarchy` не зареєстрований на GitHub: підмінити ним
@@ -174,7 +178,46 @@ class SwarmPromptContractTest(unittest.TestCase):
         script = (REPO_ROOT / "scripts" / "swarm" / "run-issue.sh").read_text()
         self.assertIn("release_claim()", script)
         self.assertIn('.ownerThread == $o and .reservation == $r', script)
-        self.assertIn('if [ "$RC" -ne 0 ] || [ -z "$RESULT_LINE" ]; then', script)
+        # Звільнення висить на EXIT-пастці, бо hub, убитий сигналом посеред
+        # диспетчу, до хвоста скрипта не дійде (огляд #1351, п.1). Змінні на той
+        # момент можуть бути не встановлені — тому `${RC:-1}` і `${BRANCH_PRESENT:-0}`.
+        trap = script.split('trap \'kill "$HB_PID"', 1)[1].split("' EXIT", 1)[0]
+        self.assertIn("release_claim", trap)
+        self.assertIn("${RC:-1}", trap)
+        self.assertIn("${BRANCH_PRESENT:-0}", trap)
+        # Адреса реєстру — спільний каталог через git, а не $REPO_ROOT/.git:
+        # у звʼязаній смузі .git це файл (огляд #1351, п.4).
+        self.assertIn("--path-format=absolute --git-common-dir", script)
+        # `--plan` не передається: бриф не існує в origin/main, і запис мусить
+        # лишатись `null` (огляд #1351, п.7 — цю мутацію ніщо не ловило).
+        self.assertNotIn('--plan "$PROMPT"', script)
+        self.assertNotIn("--plan ", script.split("agent-work-claim.py acquire", 1)[1].split("\n", 2)[1])
+
+    def test_the_runner_actually_invokes_the_backstop(self):
+        # Слабший варіант («рядок на верхньому рівні») не ловив навіть власну
+        # мутацію: `if false; then` не зсуває рядок. Тому ВИКОНУЄМО хвіст
+        # раннера (від кроку backstop до кінця) зі stub-`ssh`, який лишає слід, і
+        # перевіряємо, що виклик СТАВСЯ. Загорнутий в умову — сліду не буде.
+        script = (REPO_ROOT / "scripts" / "swarm" / "run-issue.sh").read_text()
+        tail = "# --- 4a. backstop" + script.split("# --- 4a. backstop", 1)[1]
+        harness = "\n".join([
+            "set -u",
+            "SSH_BASE=(-F /dev/null); WORKER=stub; REMOTE_STOP='echo ok'",
+            "ISSUE=4242; SLUG=probe; LOG=/dev/null; RC=0; RESULT_LINE='SWARM-RESULT: ok'",
+            "BRANCH_INFO=x; BRANCH_PRESENT=1; HB_PID=0",
+            "say(){ :; }; release_claim(){ :; }; gh(){ :; }; git(){ return 1; }",
+            'ssh(){ printf "%s\\n" "$*" >> "$MARKER"; }',
+            tail,
+        ])
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = pathlib.Path(tmp) / "ssh-called"
+            subprocess.run(["bash", "-s"], input=harness, text=True, check=False,
+                           env=dict(os.environ, MARKER=str(marker)),
+                           capture_output=True)
+            self.assertTrue(marker.exists(),
+                            "раннер не викликав backstop (вимкнено умовою?)")
+            # stub друкує РОЗКРИТІ аргументи: значення REMOTE_STOP — 'echo ok'.
+            self.assertIn("echo ok", marker.read_text())
 
     def test_backstop_really_kills_its_group_and_spares_a_foreign_one(self):
         # Стрічкові перевірки тут нічого не доводять: мутація «обгорнути backstop

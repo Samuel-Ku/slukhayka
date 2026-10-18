@@ -231,14 +231,17 @@ class WorkFeedPageQueryCountTest {
         return Observed(counted, bookkeeping)
     }
 
-    private fun refresh(loadSize: Int = pageSize, placeholders: Boolean = false) =
+    private fun refresh(
+        loadSize: Int = pageSize,
+        placeholders: Boolean = false
+    ): PagingSource.LoadParams.Refresh<Int> =
         PagingSource.LoadParams.Refresh(
             key = null,
             loadSize = loadSize,
             placeholdersEnabled = placeholders
         )
 
-    private fun append(key: Int, loadSize: Int = pageSize) =
+    private fun append(key: Int, loadSize: Int = pageSize): PagingSource.LoadParams.Append<Int> =
         PagingSource.LoadParams.Append(
             key = key,
             loadSize = loadSize,

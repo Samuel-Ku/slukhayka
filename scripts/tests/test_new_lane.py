@@ -158,26 +158,29 @@ class LaneTest(unittest.TestCase):
     def create_lane(self, *args, expect=0, env=None):
         return self.lane(ISSUE, SLUG, *args, expect=expect, env=env)
 
-    def keep_the_lane_on_disk(self, exit_code=1, complaint="fatal: копію замкнено"):
+    def keep_the_lane_on_disk(self):
         """Фікстура `git`: `worktree remove` НЕ прибирає теку — і звітує як названо.
 
         Це та сама ін'єкція відмови, з якої народився #1343: повідомлення казало
-        «копію прибрано», а тека лишалася. `exit_code=0` — гірший бік тієї самої
-        межі: команда вийшла НУЛЕМ і теки не прибрала. Решта викликів `git` іде
-        справжньому `git` (ім'я фікстури не `git`: інакше `exec git` у ній
-        покликав би саму себе).
+        «копію прибрано», а тека лишалася. Решта викликів `git` іде справжньому
+        `git` (ім'я фікстури не `git`: інакше `exec git` у ній покликав би саму
+        себе). Код виходу й слова причини приходять із оточення — так один текст
+        покриває обидва боки тієї самої межі: відмову (`... REMOVE_EXIT=1`, і тоді
+        повідомлення називає причину словами самої команди) і «успіх», який теки
+        не прибрав (`... REMOVE_EXIT=0`). Нульовий код виходу — гірший бік:
+        повідомлення вірило йому, а не диску.
         """
         stub = self.bin / "git-lane-stays"
-        lines = [
-            "#!/bin/sh\n",
-            "if [ \"$1\" = '-C' ] && [ \"$3\" = worktree ] && [ \"$4\" = remove ]; then\n",
-        ]
-        if complaint:
-            lines.append("  printf '%%s\\n' \"%s\" >&2\n" % complaint)
-        lines.append("  exit %d\n" % exit_code)
-        lines.append("fi\n")
-        lines.append("exec git \"$@\"\n")
-        stub.write_text("".join(lines), encoding="utf-8")
+        stub.write_text(
+            "#!/bin/sh\n"
+            "# Фікстура `git` для #1343: `worktree remove` теку не чіпає.\n"
+            "if [ \"$1\" = '-C' ] && [ \"$3\" = worktree ] && [ \"$4\" = remove ]; then\n"
+            "  printf '%s\\n' \"${NEW_LANE_TEST_REMOVE_COMPLAINT:-}\" >&2\n"
+            "  exit \"${NEW_LANE_TEST_REMOVE_EXIT:-1}\"\n"
+            "fi\n"
+            "exec git \"$@\"\n",
+            encoding="utf-8",
+        )
         stub.chmod(0o755)
         return str(stub)
 
@@ -502,10 +505,14 @@ class RollbackTest(LaneTest):
         своїми словами — і саме вони мусять бути у виводі, а не переказ.
         """
         self.break_the_base()
-        stub = self.keep_the_lane_on_disk(
-            exit_code=1, complaint="fatal: копію замкнено іншим процесом")
+        stub = self.keep_the_lane_on_disk()
 
-        result = self.create_lane(expect=2, env={"NEW_LANE_GIT": stub})
+        result = self.create_lane(expect=2, env={
+            "NEW_LANE_GIT": stub,
+            "NEW_LANE_TEST_REMOVE_EXIT": "1",
+            "NEW_LANE_TEST_REMOVE_COMPLAINT":
+                "fatal: копію замкнено іншим процесом",
+        })
 
         self.assertIn("копія ЛИШИЛАСЯ", result.stderr)
         self.assertIn(str(self.lane_path()), result.stderr)
@@ -523,9 +530,12 @@ class RollbackTest(LaneTest):
         вердикт ставить не він: повідомлення мусить називати те, що є на диску.
         """
         self.break_the_base()
-        stub = self.keep_the_lane_on_disk(exit_code=0, complaint="")
+        stub = self.keep_the_lane_on_disk()
 
-        result = self.create_lane(expect=2, env={"NEW_LANE_GIT": stub})
+        result = self.create_lane(expect=2, env={
+            "NEW_LANE_GIT": stub,
+            "NEW_LANE_TEST_REMOVE_EXIT": "0",
+        })
 
         self.assertIn("копія ЛИШИЛАСЯ", result.stderr)
         self.assertIn(str(self.lane_path()), result.stderr)
@@ -760,10 +770,12 @@ class ReleaseTest(LaneTest):
         підмінений — рівно та ін'єкція, з якої народився тікет.
         """
         self.create_lane()
-        stub = self.keep_the_lane_on_disk(exit_code=0, complaint="")
+        stub = self.keep_the_lane_on_disk()
 
-        result = self.lane("--release", ISSUE, expect=2,
-                           env={"NEW_LANE_GIT": stub})
+        result = self.lane("--release", ISSUE, expect=2, env={
+            "NEW_LANE_GIT": stub,
+            "NEW_LANE_TEST_REMOVE_EXIT": "0",
+        })
 
         self.assertIn("лишилася", result.stderr)
         self.assertIn(str(self.lane_path()), result.stderr)

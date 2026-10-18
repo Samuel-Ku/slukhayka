@@ -158,6 +158,12 @@ GUARD_TESTS = (
     ".test_a_rollback_with_a_plain_reservation_removes_the_claim",
     "test_new_lane.RollbackTest"
     ".test_a_claim_that_cannot_be_removed_is_named_not_hidden",
+    "test_new_lane.RollbackTest"
+    ".test_a_copy_that_survives_the_rollback_is_named_with_the_reason",
+    "test_new_lane.RollbackTest"
+    ".test_a_quiet_remove_that_leaves_the_copy_is_still_named",
+    "test_new_lane.ReleaseTest"
+    ".test_release_names_a_copy_that_survived_the_removal",
     "test_review_clone.NormalCaseTest"
     ".test_the_printed_diff_is_the_branch_and_not_the_working_tree",
     "test_review_clone.NormalCaseTest"

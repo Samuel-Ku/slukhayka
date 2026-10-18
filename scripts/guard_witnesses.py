@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 99 записів, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 102 записи, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -1716,6 +1716,63 @@ GUARDS = (
                      '    fi\n',
                 replace='    ROLLBACK_CLAIM_FACT="резервування прибрано"  '
                         '# mutated: наявність не перевіряємо\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest"
+             ".test_a_copy_that_survives_the_rollback_is_named_with_the_reason",
+        protects="факт про ТЕКУ смуги у відкаті (#1343): повідомлення мусить "
+                 "називати те, що лишилося на диску, а не код виходу `git worktree "
+                 "remove`. З ін'єкцією відмови воно казало «копію прибрано», а "
+                 "тека `…/w1321` лишалася — і координатор вважав місце вільним. "
+                 "Мутація не питає диск, тож «прибрано» звучить і тоді, коли "
+                 "теки прибрати не вдалося",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='  if lane_present "$LANE"; then\n'
+                     '    if [ "$WORKTREE_CREATED" != true ]; then\n',
+                replace='  if false; then  # mutated: стан диска не питаємо\n'
+                        '    if [ "$WORKTREE_CREATED" != true ]; then\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.RollbackTest"
+             ".test_a_quiet_remove_that_leaves_the_copy_is_still_named",
+        protects="другий бік тієї самої межі (#1343): НУЛЬОВИЙ код виходу "
+                 "`worktree remove` теж не є станом — команда може «впоратися» й "
+                 "лишити теку. Мутація читає нульовий вихід як «прибрано», і "
+                 "повідомлення знову розходиться з диском",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='      ROLLBACK_LANE_FACT="копія ЛИШИЛАСЯ: $LANE — '
+                     'git worktree remove вийшов без помилки, але тека лишилася '
+                     'на диску; прибери її руками: $GIT -C $REPO worktree remove '
+                     '--force $LANE"\n',
+                replace='      ROLLBACK_LANE_FACT="копію прибрано"  '
+                        '# mutated: нульовий код виходу = прибрано\n',
+            ),
+        ),
+    ),
+    Guard(
+        test="test_new_lane.ReleaseTest"
+             ".test_release_names_a_copy_that_survived_the_removal",
+        protects="той самий код виходу в `--release` (#1343): «OK копію прибрано» "
+                 "там теж стояло після `worktree remove`, а не після перевірки "
+                 "диска. Мутація знімає перевірку — і прибирання звітує про "
+                 "копію, якої не прибрало",
+        edits=(
+            Edit(
+                file="scripts/new-lane.sh",
+                find='    if lane_present "$LANE"; then\n'
+                     '      fail "git worktree remove вийшов без помилки, але '
+                     'тека $LANE лишилася на диску — прибери її руками: $GIT -C '
+                     '$REPO worktree remove --force $LANE"\n'
+                     '    fi\n',
+                replace="",
             ),
         ),
     ),

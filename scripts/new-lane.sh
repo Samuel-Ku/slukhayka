@@ -116,6 +116,23 @@
 #     лишився (чужий, нерозібраний або його не вдалося прибрати), це НАЗВАНО,
 #     а не замовчано. Примусового звільнення тут немає: чужий запис лишається
 #     чужим;
+#   * ТЕКУ смуги відкат перевіряє тим самим способом (#1343). До цього факт про
+#     запис був, а факт про теку — ні: шість повідомлень казали «копію
+#     прибрано», ще два — «копії й гілки немає», і всі вісім спиралися на код
+#     виходу `git worktree remove`. Координатор, який їх бачив, вважав місце
+#     вільним, хоч тека лишалася. Fail-closed (друга смуга в ту саму теку не
+#     сяде), але той самий клас, що закрив #1340. Тепер `ROLLBACK_LANE_FACT`
+#     ставить сам відкат ПІСЛЯ спроби, питаючи ДИСК (`lane_present`), а кожне
+#     місце виклику друкує ОБИДВА факти. Заміряно ін'єкцією: `git worktree
+#     remove`, який виходить нулем і не прибирає теку, і відмова з кодом —
+#     обидва названі «копія ЛИШИЛАСЯ» з причиною. Межа лишається названою:
+#     відкат прибирає ЛИШЕ теку, яку створив він сам (`WORKTREE_CREATED`), а
+#     теку, створену не ним, він не чіпає й каже це. `--release` теж питає диск
+#     після `worktree remove` — там повідомлення було з того самого коду виходу.
+#     Поза цим у файлі лишаються ще три повідомлення, які спираються на код
+#     виходу: `worktree prune` (двоє місць у `--release`) і `rmdir` порожньої
+#     незареєстрованої теки — вони названі, а не замовчані, і цим тікетом не
+#     закриті;
 #   * факти збираються з КОПІЇ (вона ж і є свіжий `origin/main`), а не з тієї
 #     робочої копії, з якої скрипт запущено: саме так число належить базі
 #     смуги, а не дереву координатора, яке могло відстати. Це саме тому й
@@ -441,6 +458,12 @@ if [ "$RELEASE" = true ]; then
     if ! "$GIT" -C "$REPO" worktree remove "$LANE"; then
       fail "git worktree remove не прибрав $LANE"
     fi
+    # «Прибрано» тут — теж факт про ДИСК, а не про код виходу (#1343): та сама
+    # межа, що в `rollback`. `worktree remove` може вийти нулем і лишити теку —
+    # і «OK копію прибрано» було б обіцянкою без копії за нею.
+    if lane_present "$LANE"; then
+      fail "git worktree remove вийшов без помилки, але тека $LANE лишилася на диску — прибери її руками: $GIT -C $REPO worktree remove --force $LANE"
+    fi
     printf 'OK    копію прибрано: %s\n' "$LANE"
   elif [ -e "$LANE" ]; then
     # Шлях Є, але чекаутом смуги НЕ є: незареєстрована тека або ЗАСТАРІЛИЙ
@@ -580,7 +603,7 @@ CLAIM_CREATED=true
 
 if ! "$GIT" -C "$REPO" worktree add --detach "$LANE" origin/main; then
   rollback
-  fail "git worktree add не вдався — смугу не зареєстровано (перевір $LANE, чи не лишився слід); $ROLLBACK_CLAIM_FACT"
+  fail "git worktree add не вдався — смугу не зареєстровано; $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT"
 fi
 WORKTREE_CREATED=true
 
@@ -597,7 +620,7 @@ WORKTREE_CREATED=true
 if [ -f "$LOCAL_PROPERTIES" ]; then
   if ! cp -- "$LOCAL_PROPERTIES" "$LANE/local.properties"; then
     rollback
-    fail "local.properties є в $LOCAL_PROPERTIES, але перенести його в копію не вдалося — копію прибрано; $ROLLBACK_CLAIM_FACT"
+    fail "local.properties є в $LOCAL_PROPERTIES, але перенести його в копію не вдалося — $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT"
   fi
   LOCAL_PROPERTIES_FACT="є — перенесено в копію з $LOCAL_PROPERTIES"
 else
@@ -685,7 +708,7 @@ set -e
 # вгаданий.
 if [ -z "$PREMISE_REPORT" ]; then
   rollback
-  fail "тікет #$ISSUE не прочитано: issue_premise.py не дав вердикту (gh не відповів?) — премису перевірити не вдалося, копії й гілки немає; $ROLLBACK_CLAIM_FACT"
+  fail "тікет #$ISSUE не прочитано: issue_premise.py не дав вердикту (gh не відповів?) — премису перевірити не вдалося; $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT; гілку $BRANCH цей прогін не створював (її створює останній крок)"
 fi
 
 case "$PREMISE_CODE" in
@@ -694,7 +717,7 @@ case "$PREMISE_CODE" in
   2) PREMISE_FACT="НЕВІДОМІСТЬ (код 2) — перевірити не вдалося; смугу створено, і «все гаразд» тут не сказано" ;;
   *)
     rollback
-    fail "issue_premise.py віддав код $PREMISE_CODE, якого контракт не знає — вердикт незрозумілий, копії й гілки немає; $ROLLBACK_CLAIM_FACT"
+    fail "issue_premise.py віддав код $PREMISE_CODE, якого контракт не знає — вердикт незрозумілий; $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT; гілку $BRANCH цей прогін не створював (її створює останній крок)"
     ;;
 esac
 
@@ -702,24 +725,24 @@ esac
 # відповісти; інакше це невідомість (2), а не бриф із вигаданим числом.
 if ! WITNESSES="$(cd "$LANE" && "$PYTHON" scripts/guard_witnesses.py --count)"; then
   rollback
-  fail "не вдалося прочитати реєстр сторожів із копії (scripts/guard_witnesses.py --count) — копію прибрано; $ROLLBACK_CLAIM_FACT"
+  fail "не вдалося прочитати реєстр сторожів із копії (scripts/guard_witnesses.py --count) — $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT"
 fi
 case "$WITNESSES" in
   '' | *[!0-9]*)
     rollback
-    fail "guard_witnesses.py --count віддав не число: '$WITNESSES' — копію прибрано; $ROLLBACK_CLAIM_FACT"
+    fail "guard_witnesses.py --count віддав не число: '$WITNESSES' — $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT"
     ;;
 esac
 
 if ! JOB_LIST="$(cd "$LANE" && "$PYTHON" scripts/ci_job_time.py --list --root "$LANE")"; then
   rollback
-  fail "не вдалося прочитати ліміт джоби з копії (scripts/ci_job_time.py --list) — копію прибрано; $ROLLBACK_CLAIM_FACT"
+  fail "не вдалося прочитати ліміт джоби з копії (scripts/ci_job_time.py --list) — $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT"
 fi
 JOB_NAME="$(printf '%s\n' "$JOB_LIST" | sed -n 's/^джоба: \([^ ]*\).*/\1/p')"
 JOB_LIMIT="$(printf '%s\n' "$JOB_LIST" | sed -n 's/^ліміт: //p')"
 if [ -z "$JOB_NAME" ] || [ -z "$JOB_LIMIT" ] || [ "${JOB_LIMIT#НЕВІДОМО}" != "$JOB_LIMIT" ]; then
   rollback
-  fail "ліміт джоби не прочитано з копії ('$JOB_NAME' / '$JOB_LIMIT') — копію прибрано; $ROLLBACK_CLAIM_FACT"
+  fail "ліміт джоби не прочитано з копії ('$JOB_NAME' / '$JOB_LIMIT') — $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT"
 fi
 
 # Гілку смуги створюємо ОСТАННІМ кроком, коли все вже перевірено: якщо факти не
@@ -729,7 +752,7 @@ fi
 # `git status` бреше про базу — та сама хибна база, тільки тихіша.
 if ! "$GIT" -C "$LANE" switch -q --no-track -c "$BRANCH"; then
   rollback
-  fail "не вдалося створити гілку $BRANCH у копії — копію прибрано; $ROLLBACK_CLAIM_FACT"
+  fail "не вдалося створити гілку $BRANCH у копії — $ROLLBACK_LANE_FACT; $ROLLBACK_CLAIM_FACT"
 fi
 
 # --------------------------------------------------------------------------

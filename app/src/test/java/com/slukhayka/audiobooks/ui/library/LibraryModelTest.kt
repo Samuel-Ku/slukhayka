@@ -263,7 +263,10 @@ class LibraryModelTest {
             progress("local", position = 120L, lastListenedAt = 100L),
             progress("online-c", isCompleted = true)
         ),
-        emptyMap()
+        emptyMap(),
+        // #1163 — «На пристрої» follows the readable copy on disk, so the set is
+        // an input. Only the local import has one here; the source books do not.
+        onDeviceBookIds = setOf("local")
     )
 
     @Test
@@ -312,7 +315,9 @@ class LibraryModelTest {
                 book("favorite-new", "Обрана нова", isFavorite = true)
             ),
             listOf(progress("downloaded-started", position = 10L)),
-            emptyMap()
+            emptyMap(),
+            // The two downloaded books have their copies on disk (#1163).
+            onDeviceBookIds = setOf("downloaded-new", "downloaded-started")
         )
 
         // «Нові» cares only about progress: both untouched books qualify, the
@@ -329,6 +334,33 @@ class LibraryModelTest {
             setOf("favorite-new"),
             idSet(filterAndSortLibrary(items, LibraryFilter.FAVORITE, LibrarySort.TITLE, ""))
         )
+    }
+
+    // #1163 — the fourth status chip is «На пристрої», and the predicate behind
+    // it is the readable copy, not the historical isDownloaded flag: a book
+    // whose directory was cleared is not on the device however loudly its flag
+    // says otherwise, and a copy that IS there counts even with the flag off.
+    // The owner decision of 2026-10-11 also made this chip the home of the
+    // local imports' readable files, which is why «copy-only» is local here.
+    @Test
+    fun `on device means a readable copy, not the historical downloaded flag`() {
+        val items = buildLibraryBooks(
+            listOf(
+                book("flag-only", "Лише прапорець", isDownloaded = true),
+                book("copy-only", "Лише копія", sourceUrl = "", isDownloaded = false)
+            ),
+            emptyList(),
+            emptyMap(),
+            onDeviceBookIds = setOf("copy-only")
+        )
+
+        val onDevice = filterAndSortLibrary(items, LibraryFilter.DOWNLOADED, LibrarySort.TITLE, "")
+        assertEquals(setOf("copy-only"), idSet(onDevice))
+        assertTrue(onDevice.single().isOnDevice)
+        assertFalse(items.first { it.book.id == "flag-only" }.isOnDevice)
+        // Its own flag is still readable off the card — the filter just does not
+        // trust it for «на пристрої».
+        assertTrue(items.first { it.book.id == "flag-only" }.book.isDownloaded)
     }
 
     @Test

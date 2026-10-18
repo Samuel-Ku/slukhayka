@@ -70,7 +70,7 @@ import kotlin.math.roundToInt
 
 /**
  * spec-28 #193 — the Медіатека filter chrome, split into a visible segmented
- * status row (Усі / Нові / Слухаю / Завершені / Завантажені, one tap each)
+ * status row (Усі / Нові / Слухаю / Завершені / На пристрої, one tap each)
  * and a filter sheet holding the rare filters (Обрані / Локальні / Онлайн)
  * plus sorting and the view toggle. Both are stateless: the screen owns the
  * single [LibraryFilter] / [LibrarySort] / grid state and hands it down, so
@@ -148,10 +148,11 @@ private class StatusRowGeometry {
  * guide §6.3). A plain `Row` + `horizontalScroll` (not a `LazyRow`) so every
  * chip is always composed — taps and snapshots see all five statuses.
  *
- * UI (v1.5 review): the FlowRow detour is gone. Wrapping «Завантажені» onto a
- * second line and «Фільтр» onto a third was exactly the stacked chrome the
- * design guide forbids; a chip left half-visible at an edge is the scroll
- * affordance, not a broken chip.
+ * UI (v1.5 review): the FlowRow detour is gone. Wrapping the last status chip
+ * («Завантажені» then, «На пристрої» since #1163) onto a second line and
+ * «Фільтр» onto a third was exactly the stacked chrome the design guide
+ * forbids; a chip left half-visible at an edge is the scroll affordance, not a
+ * broken chip.
  *
  * #1165 — that affordance has ONE exception: the chip that carries the
  * selection. The row is wider than the window, so a selected last chip would

@@ -12307,17 +12307,6 @@
 
     <issue
         id="MissingTranslation"
-        message="&quot;storage_stat_audio_on_device&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;storage_stat_audio_on_device&quot;>Аудіо на пристрої&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings_accessibility_settings.xml"
-            line="96"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="MissingTranslation"
         message="&quot;storage_stat_free&quot; is not translated in &quot;pl&quot; (Polish)"
         errorLine1="    &lt;string name=&quot;storage_stat_free&quot;>Вільно&lt;/string>"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">

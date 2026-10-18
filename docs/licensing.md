@@ -176,7 +176,7 @@ com.github.TeamNewPipe:nanojson:e9d656ddb49a412a5a0a5d5ef20ca7ef09549996
 ```
 app/libs/tdlib-1.8.67-d1085f9.aar   ~40 МБ   НЕ закомічений — качає downloadTdlib,
                                              sha256 закріплено; усередині ЖОДНОГО LICENSE/NOTICE
-app/libs/protolite-googleapis.jar   ~777 КБ  закомічений, усередині жодного LICENSE/NOTICE, єдиний META-INF-запис — MANIFEST.
+app/libs/protolite-googleapis.jar   ~777 КБ  закомічений, усередині жодного LICENSE/NOTICE, єдиний META-INF-запис — MANIFEST.MF.
 ```
 
 **40-мегабайтний бінарник без ліцензії всередині — не дрібниця й не «потім».**

@@ -246,7 +246,11 @@ class App : Application() {
             )
         }
 
-    /** #876 — the write path of reading progress (journal, finish, re-read). */
+    /**
+     * ADR-0046 / #1286 — the ONE reading-progress module: the write path
+     * (journal, finish, re-read) and the read projections (active passes and
+     * «Мій рік») from the same snapshot.
+     */
     val readingProgressRecorder: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder
         by lazy { com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder(audiobookDao) }
 

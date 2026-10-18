@@ -37,7 +37,7 @@ import java.util.concurrent.Executor
  * inside one method; a statement log cannot be.
  *
  * The surface is the endless Overview feed, and its shape is
- * `MainViewModel.workFeed` (`MainViewModel.kt:3706-3712`):
+ * `MainViewModel.workFeed` (`MainViewModel.kt:3706-3714`):
  * `PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders =
  * false)` over `SourceCatalog.pagedWorkFeedRecent` / `pagedWorkFeedByTitle`.
  * The app does not override `initialLoadSize`, so the first refresh asks for
@@ -132,7 +132,7 @@ class WorkFeedPageQueryCountTest {
     }
 
     /**
-     * `MainViewModel.kt:3709` — the app's page size. `initialLoadSize` is left
+     * `MainViewModel.kt:3707` — the app's page size. `initialLoadSize` is left
      * at Paging's default, `pageSize * 3`: the first refresh asks for 90 rows.
      */
     private val pageSize = 30

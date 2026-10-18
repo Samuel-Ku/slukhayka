@@ -158,7 +158,7 @@ class WorkFeedPageQueryCountTest {
 
     private fun String.isRoomMachinery(): Boolean {
         val sql = trim()
-        return sql.contains("room_table_modification_log") || sql in transactionControl
+        return sql.contains("room_table_modification") || sql in transactionControl
     }
 
     /** What one load cost, split into the surface's statements and Room's own. */

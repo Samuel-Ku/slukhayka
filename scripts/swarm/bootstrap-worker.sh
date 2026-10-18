@@ -56,13 +56,35 @@ fi
 export JAVA_HOME="$JDK_DIR"
 export PATH="$JDK_DIR/bin:$PATH"
 
+# 1b) передумови, без яких контракт задачі не виконується ----------------
+# Контракт вимагає від воркера автентифікований `gh` (коментар у тікеті — перший
+# і останній крок задачі) і утиліти, які вживають раннер (`flock`, `nice`,
+# `ionice`, `timeout`) та `new-lane.sh` (`jq`, `python3`). Без них задача впаде
+# не відразу й не там, де причина: на голій Fedora відсутність `gh` виявилася
+# саме так (перевірено на dragonborn).
+missing=""
+for c in python3 jq flock nice ionice timeout git npm; do
+  command -v "$c" >/dev/null 2>&1 || missing="$missing $c"
+done
+[ -n "$missing" ] && die "немає обов'язкових утиліт:$missing (постав їх у PATH воркера)"
+command -v gh >/dev/null 2>&1 \
+  || die "немає gh: контракт вимагає коментарів у тікеті; постав gh у PATH воркера"
+gh auth status >/dev/null 2>&1 \
+  || die "gh не залогований: коментар у тікеті й push не працюватимуть"
+log "передумови: утиліти на місці, gh залогований"
+
 # 2) Android SDK ----------------------------------------------------------
 # Беремо найновіші 36.x платформу й build-tools, які реально пропонує
 # sdkmanager: compileSdk у репо — release(36) з minorApiLevel 1, і вгадувати
 # точний пакет руками означає зламати збірку на першій же невідповідності.
 if [ -x "$SDKMANAGER" ]; then
-  if [ -d "$SDK_DIR/platforms" ] && [ -n "$(ls -A "$SDK_DIR/platforms" 2>/dev/null)" ]; then
-    log "Android SDK уже має платформи: $(ls "$SDK_DIR/platforms" | tr '\n' ' ')"
+  # Перевіряємо САМЕ потрібний пакет, а не будь-яку теку в platforms/: машина з
+  # android-35 (або взагалі без build-tools) пройшла б таку перевірку й зламала
+  # збірку пізніше — саме тому питання не «чи є платформи», а «чи є 36».
+  have_platform="$(ls -d "$SDK_DIR"/platforms/android-36* 2>/dev/null | head -1 || true)"
+  have_tools="$(ls -d "$SDK_DIR"/build-tools/36* 2>/dev/null | head -1 || true)"
+  if [ -n "$have_platform" ] && [ -n "$have_tools" ]; then
+    log "Android SDK уже має потрібне: $(basename "$have_platform"), $(basename "$have_tools")"
   else
     log "ставлю Android SDK 36 -> $SDK_DIR"
     list="$LOG_DIR/sdkmanager-available.txt"
@@ -205,4 +227,17 @@ export SLUKHAYKA_JAVA_HOME="$JDK_DIR"
 EOF
 
 log "env: $SWARM_ROOT/env.sh"
+
+# 8) димовий прогін: ключ провайдера мусить працювати ДО диспетчу -----------
+# Найдешевша перевірка, яка ловить найдорожчу відмову: без робочого ключа
+# воркер спалить увесь 90-хвилинний lease й упаде на першому зверненні до
+# моделі (у пілоті #1286 так і сталося — `401 api_key_expired` за 0 хвилин,
+# але вже після резервування тікета).
+smoke="$(env -i HOME="$HOME" PATH="$PATH" bash -lc \
+  "source '$SWARM_ROOT/env.sh' && cd '$REPO_DIR' && DSH_PERMISSION_MODE=danger-full-access timeout 150 dsh --profile headless 'Reply with exactly: READY'" 2>&1 | tail -1 || true)"
+case "$smoke" in
+  *READY*) log "димовий прогін: ключ працює" ;;
+  *) die "димовий прогін не дав READY (вивід: ${smoke:-порожній}) — перевір ~/.dsh/.credentials.yaml" ;;
+esac
+
 log "готово"

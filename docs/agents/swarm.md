@@ -107,7 +107,11 @@ heartbeat, а після завершення коментує результа�
 
 1. створити смугу наявним `scripts/new-lane.sh <номер> <slug>` (свіжий
    `origin/main`, `.worktrees/w<номер>`, гілка `t<номер>-<slug>`);
-2. прочитати `AGENTS.md`, `GLOSSARY.md`, `CODING_STANDARDS.md` і дотичні ADR;
+2. прочитати `AGENTS.md`, `CONTEXT.md` (глосарій репозиторію), `CONTRIBUTING.md`
+   і дотичні ADR. `GLOSSARY.md` і `CODING_STANDARDS.md` у цьому репозиторії
+   немає (перший замінено на `CONTEXT.md`, другий живе лише в дереві
+   координатора як незакомічена робота) — контракт називає це прямо, щоб
+   виконавець не витрачав час на пошук;
 3. довести зміни `scripts/test-changed.sh` і пушити **тільки** при зеленому
    цільовому прогоні;
 4. не чіпати спільні файли (`build.gradle.kts`, `gradle/`, `scripts/`,

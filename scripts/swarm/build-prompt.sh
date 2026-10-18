@@ -75,8 +75,15 @@ $BODY
    свідома правка з причиною в тому ж коміті, а не «зробити зелено».
    Якщо .worktrees/gt (машино-локальна обгортка слота з
    docs/agents/local-environment.md) у цьому клоні відсутня — не вигадуй її
-   вміст і не запускай ./gradlew голим: візьми той самий слот сам,
-     flock -w 7200 .worktrees/.build-slot python3 scripts/build-slot-guard.py --floor-mb 2000 -- scripts/test-changed.sh
+   вміст і не запускай ./gradlew голим: візьми той самий слот сам. Обидві
+   команди нижче — з кореня КЛОНА (там, де лежить .worktrees/), а не з копії
+   смуги: у самій смузі шляху .worktrees/ немає.
+     cd "\$REPO_DIR" && flock -w 7200 "\$REPO_DIR/.worktrees/.build-slot" \
+       python3 "\$REPO_DIR/scripts/build-slot-guard.py" --floor-mb 3500 -- \
+       "\$REPO_DIR/scripts/test-changed.sh"
+   Поріг 3500 МБ — не «зручний», а той, що його бере обгортка для всього, що
+   стартує Gradle (docs/agents/local-environment.md: «wedge line, not a comfort
+   line»); 2000 МБ пропустив би збірку в машину, яка вже на межі.
    і назви в коментарі, що обгортки не було (це факт середовища, а не твій збій).
 4. Пуш лише своєї гілки: git push -u origin t$ISSUE-$SLUG
 

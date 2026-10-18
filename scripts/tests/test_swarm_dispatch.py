@@ -1,5 +1,11 @@
+import contextlib
 import json
+import os
+import pathlib
+import signal
 import subprocess
+import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -89,6 +95,15 @@ class SwarmPromptContractTest(unittest.TestCase):
         self.assertIn("CONTEXT.md", prompt)
         self.assertIn("CONTRIBUTING.md", prompt)
         self.assertIn("НЕМАЄ", prompt)
+        # Пінимо САМ РЯДОК читання, а не наявність підрядків деінде: огляд #1351
+        # показав, що самосуперечний контракт («прочитай CONTEXT.md» + «прочитай
+        # GLOSSARY.md», поруч із попередженням) проходив зеленим. Рядок, який
+        # виконавець читає першим, не має називати файлів, яких у репо немає.
+        reading = [l for l in prompt.splitlines() if l.strip().startswith("2. Прочитай")]
+        self.assertEqual(1, len(reading), prompt)
+        self.assertIn("CONTEXT.md", reading[0])
+        self.assertNotIn("GLOSSARY.md", reading[0])
+        self.assertNotIn("CODING_STANDARDS.md", reading[0])
 
     def test_autonomy_rule_is_stated_because_there_is_no_answerer(self):
         result = build(
@@ -132,17 +147,88 @@ class SwarmPromptContractTest(unittest.TestCase):
         )
         prompt = result.stdout
         self.assertIn(".worktrees/gt", prompt)
-        self.assertIn("scripts/build-slot-guard.py --floor-mb 2000", prompt)
-        self.assertIn("flock -w 7200 .worktrees/.build-slot", prompt)
+        self.assertIn("scripts/build-slot-guard.py", prompt)
+        self.assertIn("--floor-mb 3500", prompt)
+        self.assertIn("$REPO_DIR/.worktrees/.build-slot", prompt)
 
     def test_worker_key_and_github_key_are_separate(self):
         # Новий ключ `stealth@omarchy` не зареєстрований на GitHub: підмінити ним
         # git означало б зламати fetch/push. Тому раннер мусить тримати ДВА
-        # ключі — свій для воркера і ключ акаунта для GitHub.
+        # ключі — свій для воркера і ключ акаунта для GitHub. Перевіряємо саме
+        # ПРОВОДКУ: обмін ключів місцями має валити тест, а не проходити зеленим.
         script = (REPO_ROOT / "scripts" / "swarm" / "run-issue.sh").read_text()
-        self.assertIn("SWARM_SSH_KEY", script)
-        self.assertIn("SWARM_GIT_SSH_KEY", script)
+        self.assertIn('-i "$SWARM_SSH_KEY"', script)
+        self.assertIn("-i $SWARM_GIT_SSH_KEY", script)
         self.assertIn("id_ed25519_omarchy", script)
+        # SSH_BASE — масив для ssh до воркера; GIT_SSH_COMMAND — рядок для git.
+        ssh_base = script.split("SSH_BASE=(", 1)[1].split(")", 1)[0]
+        self.assertNotIn("GIT_SSH_KEY", ssh_base)
+        git_line = [l for l in script.splitlines() if l.startswith("export GIT_SSH_COMMAND")][0]
+        self.assertNotIn("SWARM_SSH_KEY", git_line)
+
+    def test_a_failed_dispatch_releases_its_reservation(self):
+        # Резервування, яке ніщо не знімає, назавжди блокує тікет: у пілоті
+        # невдала диспетчеризація #1286 лишила запис, і повторний запуск упав на
+        # власній перевірці «уже зарезервований». Тому невдача мусить звільняти
+        # запис — і ЛИШЕ свій.
+        script = (REPO_ROOT / "scripts" / "swarm" / "run-issue.sh").read_text()
+        self.assertIn("release_claim()", script)
+        self.assertIn('.ownerThread == $o and .reservation == $r', script)
+        self.assertIn('if [ "$RC" -ne 0 ] || [ -z "$RESULT_LINE" ]; then', script)
+
+    def test_backstop_really_kills_its_group_and_spares_a_foreign_one(self):
+        # Стрічкові перевірки тут нічого не доводять: мутація «обгорнути backstop
+        # у `if false`» лишала ВЕСЬ набір зеленим (перевірено оглядом #1351).
+        # Тому виконуємо сам фрагмент `REMOTE_STOP`, як його друкує dry-run, на
+        # справжній групі процесів — і перевіряємо обидва боки: свою групу
+        # гасить, чужу (cmdline без `dsh`) не чіпає.
+        # Фрагмент беремо З ДЖЕРЕЛА, а не з `--dry-run`: dry-run у CI вимагав би
+        # мережі та `gh`, а цей набір мусить бігти офлайн. Виконуємо те саме
+        # присвоєння, яке робить раннер, із підставленим тегом.
+        lines = (REPO_ROOT / "scripts" / "swarm" / "run-issue.sh").read_text().splitlines()
+        start = next(i for i, l in enumerate(lines) if l.startswith("REMOTE_STOP="))
+        end = start
+        while not lines[end].rstrip().endswith("fi'"):
+            end += 1
+        block = "\n".join(lines[start:end + 1])
+        snippet = subprocess.run(
+            ["bash", "-c", 'JOB_TAG=4242-worker-a\n%s\nprintf %%s "$REMOTE_STOP"' % block],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        self.assertIn("kill -TERM", snippet)
+
+        def decoy(argv0):
+            proc = subprocess.Popen(
+                ["bash", "-c", 'exec -a %s sleep 300' % argv0],
+                start_new_session=True,  # PGID == PID, як у `exec` віддаленого запуску
+            )
+            return proc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = pathlib.Path(tmp) / "home"
+            (home / ".swarm-jobs").mkdir(parents=True)
+            env = dict(os.environ, HOME=str(home))
+
+            ours = decoy("dsh")
+            foreign = decoy("notdsh")
+            (home / ".swarm-jobs" / "4242-worker-a.pid").write_text(str(ours.pid) + "\n")
+            try:
+                proc = subprocess.run(["bash", "-c", snippet], env=env,
+                                      capture_output=True, text=True, check=False)
+                self.assertIn("swarm-stop", proc.stdout + proc.stderr)
+                # Наша група мусить зникнути.
+                deadline = time.time() + 5
+                while time.time() < deadline and ours.poll() is None:
+                    time.sleep(0.1)
+                self.assertIsNotNone(ours.poll(), "backstop не погасив СВОЮ групу")
+                # Чужа — мусить лишитись життєздатною (перевірка «не наш»).
+                self.assertIsNone(foreign.poll(), "backstop зачепив чужий процес")
+            finally:
+                for p in (ours, foreign):
+                    with contextlib.suppress(ProcessLookupError, PermissionError):
+                        os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        p.wait(timeout=5)
 
     def test_runner_has_a_backstop_that_kills_the_remote_group(self):
         # Дослід на воркері: локальний кеп гасить лише ssh, а віддалений `dsh`

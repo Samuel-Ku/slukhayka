@@ -136,6 +136,9 @@ fun LibraryScreen(
     // (import, cache) and navigation stay on the ViewModel.
     libraryEntries: LibraryEntries,
     listeningState: ListeningStateStore,
+    // ADR-0046 / #1286 — reading progress: the module owns the writes AND the
+    // active/year projections from one snapshot, so this screen maps no rows.
+    readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder,
     // #401: person bookmarks — Flows read directly (ADR-0008).
     personBookmarks: PersonBookmarks,
     onBookClick: (String) -> Unit,
@@ -209,6 +212,10 @@ fun LibraryScreen(
 
     // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
     val snackbarHostState = remember { SnackbarHostState() }
+    // #1286 — the outcome of the last Readthrough record/finish, shown beside
+    // the passes. Every branch (Recorded, Finished, Refused, Failed) is mapped,
+    // so a refusal can never be read as a success.
+    var progressMessageRes by remember { mutableStateOf<Int?>(null) }
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
     // #837 — the honest per-book submission badge (state, not a promise).
@@ -291,14 +298,10 @@ fun LibraryScreen(
     // after every action), so the list is never a stale promise.
     LaunchedEffect(activeTab) {
         if (activeTab == 3) viewModel.refreshImportedEntries()
-        // #885 — the books tab shows the «Мій рік» hero, so the year must be
-        // loaded for it too; otherwise the card stays hidden until the listener
-        // happens to open the separate year view.
-        if (activeTab == 0) viewModel.refreshReadingYear()
-        if (activeTab == 4) {
-            viewModel.refreshReadingYear()
-            viewModel.refreshActiveReadings()
-        }
+        // #885 / #1286 — the books tab shows the «Мій рік» hero and the year
+        // tab shows the passes; both read the module's one snapshot. The module
+        // supersedes its own older refresh, so this is not two racing reads.
+        if (activeTab == 0 || activeTab == 4) readingProgress.refresh()
     }
     val sectionTitle = when (activeTab) {
         1 -> stringResource(R.string.lib_section_saved)
@@ -322,7 +325,12 @@ fun LibraryScreen(
     val browsing = filter == LibraryFilter.ALL && query.isBlank()
     // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
     // block of the screen, so the state is read here and not inside the tab body.
-    val yearGoal by viewModel.readingYear.collectAsState()
+    // #1286 — the module owns the projections; the hero reads the last good
+    // year from the SAME state the year tab renders. A failed read keeps the
+    // known value (the tab shows the retry), never a fake empty year.
+    val progressState by readingProgress.state.collectAsState()
+    val yearGoal = (progressState as? com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready)
+        ?.projection?.year
     val continueBook = remember(libraryBooks) {
         libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
     }
@@ -794,67 +802,29 @@ fun LibraryScreen(
                 }
 
                 4 -> {
-                    // #876 — «Мій рік»: the yearly goal, counted in PASSES and
-                    // reported per format, because pages, percent and seconds
-                    // cannot be summed into one number (ADR-0046 §5).
-                    val goal by viewModel.readingYear.collectAsState()
-                    val activeReadings by viewModel.activeReadings.collectAsState()
-                    val current = goal
-                    if (current == null) {
-                        EmptyState(
-                            icon = Icons.Default.CalendarMonth,
-                            title = stringResource(R.string.lib_year_empty_title),
-                            body = stringResource(R.string.lib_year_empty_body)
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .testTag("library_year"),
-                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
-                        ) {
-                            item {
-                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.lib_year_heading, current.year),
-                                        style = MaterialTheme.typography.titleMedium
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.lib_year_total, current.totalFinished),
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                    current.finishedByFormat.toSortedMap().forEach { (format, count) ->
-                                        Text(
-                                            text = stringResource(
-                                                R.string.lib_year_format,
-                                                readingFormatLabel(format),
-                                                count
-                                            ),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Text(
-                                        text = stringResource(R.string.lib_year_rule),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                    // #876 / #1286 — «Мій рік»: the module publishes the yearly
+                    // goal AND the active passes from ONE snapshot, so the two
+                    // can never disagree here; this surface only renders them.
+                    // The tab keeps the weight so the list takes the leftover
+                    // height the way the original body did.
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        LibraryReadingYearSection(
+                            state = progressState,
+                            message = progressMessageRes?.let { stringResource(it) },
+                            onRecord = { pass, value ->
+                                scope.launch {
+                                    progressMessageRes =
+                                        readingProgressMessageRes(readingProgress.record(pass.id, value = value))
                                 }
-                            }
-                            // #876 — the passes still in the listener's hands:
-                            // ONE journal record per action, in the format's own
-                            // unit, and finishing belongs to that pass alone.
-                            items(activeReadings, key = { it.id }) { pass ->
-                                ReadingProgressRow(
-                                    pass = pass,
-                                    onRecord = { value ->
-                                        viewModel.recordReadingProgress(pass.id, value)
-                                    },
-                                    onFinish = { viewModel.finishReading(pass.id) }
-                                )
-                            }
-                        }
+                            },
+                            onFinish = { pass ->
+                                scope.launch {
+                                    progressMessageRes =
+                                        readingProgressMessageRes(readingProgress.finish(pass.id))
+                                }
+                            },
+                            onRetry = { scope.launch { readingProgress.refresh() } }
+                        )
                     }
                 }
 
@@ -3462,6 +3432,170 @@ private fun ReadingProgressRow(
             }
         }
     }
+}
+
+/**
+ * #1286 — the «Мій рік» surface, rendered from the module's ONE state.
+ *
+ * `Loading` is not the empty state: nothing has been read yet. A first read
+ * failure gets an explicit retry instead of the «no finished passes» lie; a
+ * later failure keeps the known projection and only adds the retry line. The
+ * active passes and the year come from the SAME snapshot, so the list the
+ * listener can still move and the goal above it cannot disagree.
+ */
+@Composable
+fun LibraryReadingYearSection(
+    state: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State,
+    message: String?,
+    onRecord: (com.slukhayka.audiobooks.data.entries.Readthrough, Int) -> Unit,
+    onFinish: (com.slukhayka.audiobooks.data.entries.Readthrough) -> Unit,
+    onRetry: () -> Unit
+) {
+    when (state) {
+        com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Loading -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("reading_year_loading"),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+
+        is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Failed -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .testTag("reading_year_failed"),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                EmptyState(
+                    icon = Icons.Default.CalendarMonth,
+                    title = stringResource(R.string.lib_year_error_title),
+                    body = stringResource(R.string.lib_year_error_body)
+                )
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("reading_year_retry")
+                ) {
+                    Text(stringResource(R.string.feedback_retry))
+                }
+            }
+        }
+
+        is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready -> {
+            val projection = state.projection
+            // A successful read with nothing to show keeps the original empty
+            // words — this is a real empty library, not a failed read.
+            if (projection.year.totalFinished == 0 && projection.active.isEmpty()) {
+                EmptyState(
+                    icon = Icons.Default.CalendarMonth,
+                    title = stringResource(R.string.lib_year_empty_title),
+                    body = stringResource(R.string.lib_year_empty_body)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("library_year"),
+                    contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
+                ) {
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.lib_year_heading, projection.year.year),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.testTag("reading_year_heading")
+                        )
+                        Text(
+                            text = stringResource(R.string.lib_year_total, projection.year.totalFinished),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.testTag("reading_year_total")
+                        )
+                        projection.year.finishedByFormat.toSortedMap().forEach { (format, count) ->
+                            Text(
+                                text = stringResource(
+                                    R.string.lib_year_format,
+                                    readingFormatLabel(format),
+                                    count
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.lib_year_rule),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        // #1286 — the honest outcome of the last action, INCLUDING
+                        // the refusal and the storage failure; never only a success.
+                        if (message != null) {
+                            Text(
+                                text = message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .testTag("reading_progress_message")
+                            )
+                        }
+                        if (state.refreshFailed) {
+                            Text(
+                                text = stringResource(R.string.lib_year_refresh_failed),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .testTag("reading_year_stale")
+                            )
+                            OutlinedButton(
+                                onClick = onRetry,
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("reading_year_retry")
+                            ) {
+                                Text(stringResource(R.string.feedback_retry))
+                            }
+                        }
+                    }
+                }
+                // #876 — the passes still in the listener's hands: ONE journal
+                // record per action, in the format's own unit, and finishing
+                // belongs to that pass alone.
+                items(projection.active, key = { it.id }) { pass ->
+                    ReadingProgressRow(
+                        pass = pass,
+                        onRecord = { value -> onRecord(pass, value) },
+                        onFinish = { onFinish(pass) }
+                    )
+                }
+                }
+            }
+        }
+    }
+}
+
+/** #1286 — every mutation outcome has its own words; a refusal is not a success. */
+internal fun readingProgressMessageRes(
+    result: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result
+): Int = when (result) {
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Recorded ->
+        R.string.lib_year_recorded
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Finished ->
+        R.string.lib_year_finished
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Failed ->
+        R.string.lib_year_save_failed
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Refused ->
+        when (result.reason) {
+            com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.REASON_UNKNOWN_PASS ->
+                R.string.lib_year_refused_unknown
+            else -> R.string.lib_year_refused_closed
+        }
 }
 
 /**

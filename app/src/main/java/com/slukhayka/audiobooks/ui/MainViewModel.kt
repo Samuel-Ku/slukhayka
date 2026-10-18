@@ -239,6 +239,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
 
     /**
+     * ADR-0046 / #1286 — the reading-progress module. The screen reads its
+     * [com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.state]
+     * directly (ADR-0008): the active list and the yearly goal are computed
+     * inside the module from one snapshot, so the ViewModel no longer maps rows
+     * or refreshes two separate flows after every action.
+     */
+    val readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder =
+        App.instance.readingProgressRecorder
+
+    /**
      * ADR-0047 / #867 — the «Імпортоване» queue: rows whose origin the data does
      * not recover. It is a TEMPORARY home, not a second library: the listener
      * either confirms a row as personal or removes the link.
@@ -281,79 +291,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     com.slukhayka.audiobooks.data.entries.TrackedWorkPolicy.REASON_NO_IDENTITY
                 )
             }
-
-    /**
-     * #876 — «Мій рік»: the yearly reading goal, computed by the pure policy
-     * from every pass. Formats are reported separately: their units cannot be
-     * summed, and the goal counts PASSES, not pages or minutes.
-     */
-    private val _readingYear = MutableStateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?>(null)
-    val readingYear: StateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?> =
-        _readingYear.asStateFlow()
-
-    /**
-     * #876 — the passes the listener can still move: the progress-entry surface
-     * shows exactly these, and every action goes through the policy.
-     */
-    private val _activeReadings =
-        MutableStateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>>(emptyList())
-    val activeReadings: StateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>> =
-        _activeReadings.asStateFlow()
-
-    fun refreshActiveReadings() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _activeReadings.value = runCatching {
-                with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
-                    App.instance.audiobookDao.allReadthroughs()
-                        .mapNotNull { it.toModelOrNull() }
-                        .filter {
-                            it.state == com.slukhayka.audiobooks.data.entries.ReadingState.IN_PROGRESS ||
-                                it.state == com.slukhayka.audiobooks.data.entries.ReadingState.PLANNED
-                        }
-                        .sortedByDescending { it.startedAt }
-                }
-            }.getOrDefault(emptyList())
-        }
-    }
-
-    /** One journal record; the queue is re-read so the surface shows the truth. */
-    fun recordReadingProgress(readthroughId: String, value: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                App.instance.readingProgressRecorder.record(
-                    readthroughId,
-                    at = System.currentTimeMillis(),
-                    value = value
-                )
-            }
-            refreshActiveReadings()
-            refreshReadingYear()
-        }
-    }
-
-    fun finishReading(readthroughId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                App.instance.readingProgressRecorder.finish(
-                    readthroughId,
-                    at = System.currentTimeMillis()
-                )
-            }
-            refreshActiveReadings()
-            refreshReadingYear()
-        }
-    }
-
-    fun refreshReadingYear(year: Int = java.time.LocalDate.now().year) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _readingYear.value = runCatching {
-                val passes = with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
-                    App.instance.audiobookDao.allReadthroughs().mapNotNull { it.toModelOrNull() }
-                }
-                com.slukhayka.audiobooks.data.entries.ReadingProgressPolicy.yearlyGoal(passes, year)
-            }.getOrNull()
-        }
-    }
 
     /**
      * spec-52 US28 / #1174 — the books the listener abandoned. One flow feeds

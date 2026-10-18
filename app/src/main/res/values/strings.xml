@@ -574,6 +574,14 @@
     <string name="lib_year_record_hint">Сторінки або відсоток</string>
     <string name="lib_year_record">Записати</string>
     <string name="lib_year_finish">Завершити</string>
+    <string name="lib_year_recorded">Запис додано до журналу проходу.</string>
+    <string name="lib_year_finished">Прохід завершено.</string>
+    <string name="lib_year_refused_unknown">Цього проходу немає у сховищі — запис не додано.</string>
+    <string name="lib_year_refused_closed">Прохід уже завершено або закрито — запис не додано.</string>
+    <string name="lib_year_save_failed">Не вдалося зберегти запис. Спробуйте ще раз.</string>
+    <string name="lib_year_error_title">Не вдалося прочитати поступ</string>
+    <string name="lib_year_error_body">Відомий показ лишається, доки читання не вдасться. Спробуйте ще раз.</string>
+    <string name="lib_year_refresh_failed">Не вдалося перечитати поступ — показ може бути застарілим.</string>
     <string name="manual_add_menu">Додати книгу вручну</string>
     <string name="manual_add_title">Додати книгу</string>
     <string name="manual_add_name">Назва</string>

@@ -731,6 +731,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             // module fields — the playerManager precedent).
             libraryEntries = viewModel.libraryEntries,
             listeningState = viewModel.listeningState,
+            // ADR-0046 / #1286 — reading progress: writes AND projections.
+            readingProgress = viewModel.readingProgress,
             // #401: person bookmarks module (ADR-0008).
             personBookmarks = App.instance.personBookmarks,
             onBookClick = { id ->

@@ -513,6 +513,14 @@
     <string name="lib_year_record_hint">Pages or percent</string>
     <string name="lib_year_record">Record</string>
     <string name="lib_year_finish">Finish</string>
+    <string name="lib_year_recorded">Saved to the pass journal.</string>
+    <string name="lib_year_finished">Pass finished.</string>
+    <string name="lib_year_refused_unknown">That pass is not in storage — nothing was saved.</string>
+    <string name="lib_year_refused_closed">That pass is already finished or closed — nothing was saved.</string>
+    <string name="lib_year_save_failed">Could not save the record. Try again.</string>
+    <string name="lib_year_error_title">Could not read progress</string>
+    <string name="lib_year_error_body">The last known view stays until the read succeeds. Try again.</string>
+    <string name="lib_year_refresh_failed">Could not re-read progress — the view may be stale.</string>
     <string name="manual_add_menu">Add a book by hand</string>
     <string name="manual_add_title">Add a book</string>
     <string name="manual_add_name">Title</string>

@@ -3,6 +3,21 @@
 The facts a lane needs on this machine. Commands are the source of truth; this
 file says which ones exist and why they are shaped that way.
 
+## At a glance
+
+The rules that decide whether a command runs at all. Each one has cost a run;
+each links to the section that explains it.
+
+| before you… | the rule | see |
+|---|---|---|
+| run anything heavy | the slot wants **3500 MB free** and **swap growth ≤ 2000 MB** | [The memory guard](#the-memory-guard) |
+| run anything heavy | **kill the idle Gradle daemon first, by PID**: `jps -l \| grep GradleDaemon`, then `kill <pid>`. **Never `pkill -f 'GradleDaemon'`** — that pattern also matches the shell invoking it and kills the caller | [Mutations](#mutations) |
+| run a mutation | **lower the daemon's heap, not the client's**: `GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx3g"`. `GRADLE_OPTS="-Xmx3g"` leaves the build at `-Xmx4g` and only raises the client ceiling | [Mutations](#mutations) |
+| check a build's result | **write the exit code to a file**, not through a pipe: `(cmd > log 2>&1; echo $? > exit)`. `cmd \| tail` reports `tail`'s status, so `exit 0` can sit beside `BUILD FAILED` | [Mutations](#mutations) |
+| compile anything | a lane **inherits** `local.properties` from the copy that created it — a stale `sdk.dir` (this machine has seen `/opt/android-sdk`, which does not exist) makes Gradle answer `SDK location not found`. The SDK here is `/home/stealth/android-sdk`, or set `ANDROID_HOME` | [Worktrees](#worktrees) |
+| trust a mutation | `outcome: killed` is caught; `no-verdict` and `interrupted` are **not** verdicts | [Mutations](#mutations) |
+| run Gradle | only through `.worktrees/gt` — **a file**, not a directory, not on `PATH` | [The build slot](#the-build-slot) |
+
 ## Worktrees
 
 The main checkout is **not** `main`: it sits on whatever branch another chat
@@ -525,8 +540,8 @@ mechanism will name every number that moves.
 Its named limits are in its docstring, and the first one is the price of the
 whole idea: **the mechanism sees only the shapes and files it lists.** A scan
 that demanded a command beside *every* number would drown — `python3
-scripts/doc_numbers.py --audit` counts 186 figures of "number + unit" across
-`docs/agents/*.md` and `scripts/**/*.py`, and 179 of them sit on a line with no
+scripts/doc_numbers.py --audit` counts 188 figures of "number + unit" across
+`docs/agents/*.md` and `scripts/**/*.py`, and 181 of them sit on a line with no
 date, most being records of the past (the seconds and gigabytes of one build on
 one machine on 2026-10-12) that no command reproduces at HEAD. So
 bytes and seconds are outside `SCANNED`; where such a number must stay, what is

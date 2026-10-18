@@ -41,6 +41,10 @@ import guard_witnesses as w  # noqa: E402
 # воно потрібне: `GUARDS = ()` дав би зелений набір, який нічого не перевірив.
 # Зникнення запису мусить бути видимим, а не тихим.
 GUARD_TESTS = (
+    "test_app_dependency_licenses.RepositoryPomTest"
+    ".test_the_gpl_license_comes_from_the_jitpack_pom",
+    "test_app_dependency_licenses.UnknownTest"
+    ".test_an_unverified_license_is_named_unknown_not_none",
     "test_branch_hygiene.CollectIntegrationTest.test_cleanup_refuses_a_branch_that_moved_after_the_facts",
     "test_branch_hygiene.DecideTest.test_pr_merged_into_a_release_lane_is_not_proof",
     "test_branch_hygiene.LocalDecideTest.test_reserved_branch_is_left_alone",

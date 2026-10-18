@@ -74,7 +74,7 @@
 розібрано, базовий прогін червоний або без вердикту, механізм усередині себе,
 місця немає на копії).
 
-Ціна реєстру, і саме тому він не стає галасливим: разом 102 записи, і кожен
+Ціна реєстру, і саме тому він не стає галасливим: разом 104 записи, і кожен
 коштує ДВА прогони одного тесту (базовий і мутант) у копії дерева. Форму
 іменника вибирають ГРАМАТИЧНИЙ клас числа і МОВА форми, і таблиця цих форм —
 `NOUNS_DATA` у `doc_numbers.py` (#1315): вона знає українську однину (21/41/101
@@ -1950,6 +1950,36 @@ GUARDS = (
                      "    if result.returncode != 0:\n",
                 replace='    result = git(root, ["merge-tree", "--write-tree", base, head])\n'
                         "    if False:  # mutated: конфлікт не названо\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_app_dependency_licenses.RepositoryPomTest"
+             ".test_the_gpl_license_comes_from_the_jitpack_pom",
+        protects="POM із РЕПОЗИТОРІЮ (#1355): кеш Gradle 9 тримає jar/aar, а не "
+                 "POM-и, тож пошук лише в кеші давав «без POM» на весь граф і "
+                 "`GPL-family: none` про NewPipeExtractor під GPL. Мутація не "
+                 "питає жодного репозиторію — і ліцензія знову стає невідомою",
+        edits=(
+            Edit(
+                file="scripts/app_dependency_licenses.py",
+                find="        for repository in repositories_for(coordinate.group):\n",
+                replace="        for repository in ():  # mutated: репозиторії не питаються\n",
+            ),
+        ),
+    ),
+    Guard(
+        test="test_app_dependency_licenses.UnknownTest"
+             ".test_an_unverified_license_is_named_unknown_not_none",
+        protects="НЕВІДОМІСТЬ замість нуля (#1355): коли ліцензію не визначено, "
+                 "секція мусить сказати UNKNOWN, а не `none`. Мутація глушить цю "
+                 "гілку — і неперевірений граф знову виглядає як висновок",
+        edits=(
+            Edit(
+                file="scripts/app_dependency_licenses.py",
+                find="    elif unknown:\n        lines.append(\n",
+                replace="    elif False:  # mutated: невідомість не названа\n"
+                        "        lines.append(\n",
             ),
         ),
     ),

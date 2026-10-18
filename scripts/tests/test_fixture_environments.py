@@ -467,6 +467,13 @@ CASES = (
             # названо. Читає лише власні аргументи, тож ні префікса, ні входів.
             Program("RollbackTest.refuse_removing_the_claim: fake_rm",
                     "agent-work-claims"),
+            # Підставний `git`, чий `worktree remove` теку НЕ прибирає (#1343):
+            # ним піниться ПРАВДА повідомлення про копію — тека лишається, і це
+            # названо. Код виходу й слова причини приходять із оточення (префікс
+            # запису), тож один текст покриває і відмову, і «успіх», який теки не
+            # прибрав.
+            Program("LaneTest.keep_the_lane_on_disk: stub",
+                    "NEW_LANE_TEST_REMOVE_EXIT"),
         ),
     ),
     StandIn(

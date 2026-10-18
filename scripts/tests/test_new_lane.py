@@ -158,6 +158,32 @@ class LaneTest(unittest.TestCase):
     def create_lane(self, *args, expect=0, env=None):
         return self.lane(ISSUE, SLUG, *args, expect=expect, env=env)
 
+    def keep_the_lane_on_disk(self):
+        """Фікстура `git`: `worktree remove` НЕ прибирає теку — і звітує як названо.
+
+        Це та сама ін'єкція відмови, з якої народився #1343: повідомлення казало
+        «копію прибрано», а тека лишалася. Решта викликів `git` іде справжньому
+        `git` (ім'я фікстури не `git`: інакше `exec git` у ній покликав би саму
+        себе). Код виходу й слова причини приходять із оточення — так один текст
+        покриває обидва боки тієї самої межі: відмову (`... REMOVE_EXIT=1`, і тоді
+        повідомлення називає причину словами самої команди) і «успіх», який теки
+        не прибрав (`... REMOVE_EXIT=0`). Нульовий код виходу — гірший бік:
+        повідомлення вірило йому, а не диску.
+        """
+        stub = self.bin / "git-lane-stays"
+        stub.write_text(
+            "#!/bin/sh\n"
+            "# Фікстура `git` для #1343: `worktree remove` теку не чіпає.\n"
+            "if [ \"$1\" = '-C' ] && [ \"$3\" = worktree ] && [ \"$4\" = remove ]; then\n"
+            "  printf '%s\\n' \"${NEW_LANE_TEST_REMOVE_COMPLAINT:-}\" >&2\n"
+            "  exit \"${NEW_LANE_TEST_REMOVE_EXIT:-1}\"\n"
+            "fi\n"
+            "exec git \"$@\"\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        return str(stub)
+
 
 class CreateTest(LaneTest):
     """Смуга створюється від свіжого `origin/main`, а факти беруться командою."""
@@ -427,6 +453,8 @@ class RollbackTest(LaneTest):
         self.assertIn("резервування прибрано", result.stderr)
         self.assertFalse(self.claim_path().exists(),
                          "відкат мусить прибрати власний запис")
+        self.assertFalse(self.lane_path().exists(),
+                         "«копію прибрано» мусить мати теку, якої справді немає")
 
     def test_a_quoted_reservation_is_removed_too(self):
         """Бік (б), і він ЧЕРВОНИЙ на старій поведінці.
@@ -462,6 +490,58 @@ class RollbackTest(LaneTest):
         self.assertNotIn("резервування прибрано", result.stderr)
         self.assertTrue(self.claim_path().is_file(),
                         "файл справді лишився — і саме це названо")
+
+    def test_a_copy_that_survives_the_rollback_is_named_with_the_reason(self):
+        """Червоний на СТАРІЙ поведінці: «копію прибрано», хоч тека лишилася.
+
+        Живий приклад із тікета (#1343): з ін'єкцією відмови `git worktree
+        remove` повідомлення казало «… — копію прибрано; резервування
+        прибрано», а тека `…/w1321` ЛИШАЛАСЯ на диску. Це той самий клас, який
+        #1340 закрив для запису резервування, — і координатор, який бачить
+        «прибрано», вважає місце вільним.
+
+        Факт мусить ставитися ПІСЛЯ спроби й питати ДИСК, а не код виходу; тому
+        тут `worktree remove` не тільки не прибирає теку, а й НАЗИВАЄ причину
+        своїми словами — і саме вони мусять бути у виводі, а не переказ.
+        """
+        self.break_the_base()
+        stub = self.keep_the_lane_on_disk()
+
+        result = self.create_lane(expect=2, env={
+            "NEW_LANE_GIT": stub,
+            "NEW_LANE_TEST_REMOVE_EXIT": "1",
+            "NEW_LANE_TEST_REMOVE_COMPLAINT":
+                "fatal: копію замкнено іншим процесом",
+        })
+
+        self.assertIn("копія ЛИШИЛАСЯ", result.stderr)
+        self.assertIn(str(self.lane_path()), result.stderr)
+        self.assertIn("fatal: копію замкнено іншим процесом", result.stderr,
+                      "причину дає сама команда, а не здогад")
+        self.assertNotIn("копію прибрано", result.stderr)
+        self.assertTrue(self.lane_path().is_dir(),
+                        "тека справді лишилася — і саме це названо")
+
+    def test_a_quiet_remove_that_leaves_the_copy_is_still_named(self):
+        """Другий бік тієї самої межі: «успіх» із текою на диску — теж ЛИШИЛАСЯ.
+
+        `worktree remove` може вийти НУЛЕМ і не прибрати теку (підмінений `git`,
+        права, чужий процес). Код виходу тут каже «впорався», і саме тому
+        вердикт ставить не він: повідомлення мусить називати те, що є на диску.
+        """
+        self.break_the_base()
+        stub = self.keep_the_lane_on_disk()
+
+        result = self.create_lane(expect=2, env={
+            "NEW_LANE_GIT": stub,
+            "NEW_LANE_TEST_REMOVE_EXIT": "0",
+        })
+
+        self.assertIn("копія ЛИШИЛАСЯ", result.stderr)
+        self.assertIn(str(self.lane_path()), result.stderr)
+        self.assertNotIn("копію прибрано", result.stderr)
+        self.assertTrue(self.lane_path().is_dir(),
+                        "нульовий код виходу не робить теку прибраною")
 
 
 class LocalPropertiesTest(LaneTest):
@@ -680,6 +760,28 @@ class ReleaseTest(LaneTest):
         self.assertIn(str(self.lane_path()), result.stderr)
         self.assertTrue(self.lane_path().is_dir(), "копію втрачати не можна")
         self.assertTrue(scratch.is_file())
+
+    def test_release_names_a_copy_that_survived_the_removal(self):
+        """`--release` каже «копію прибрано» лише після перевірки ДИСКА (#1343).
+
+        Тут теж стояв код виходу, а не стан: `worktree remove`, який вийшов
+        нулем і теку не прибрав, лишав «OK копію прибрано», і місце виглядало
+        вільним. Копію створює справжній `git` (перший виклик), а прибирає вже
+        підмінений — рівно та ін'єкція, з якої народився тікет.
+        """
+        self.create_lane()
+        stub = self.keep_the_lane_on_disk()
+
+        result = self.lane("--release", ISSUE, expect=2, env={
+            "NEW_LANE_GIT": stub,
+            "NEW_LANE_TEST_REMOVE_EXIT": "0",
+        })
+
+        self.assertIn("лишилася", result.stderr)
+        self.assertIn(str(self.lane_path()), result.stderr)
+        self.assertNotIn("копію прибрано", result.stdout + result.stderr)
+        self.assertTrue(self.lane_path().is_dir(),
+                        "тека справді лишилася — і саме це названо")
 
     def test_release_of_a_missing_lane_is_an_unknown(self):
         result = self.lane("--release", ISSUE, expect=2)

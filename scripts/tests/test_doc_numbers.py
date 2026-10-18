@@ -336,21 +336,21 @@ class FindingTest(FixtureMixin):
         рядок не бачив ніхто, і заміна проходила зеленим.
         """
         self.edit("scripts/issue_premise.py",
-                  "«будь-який збіг-дерево» — 132", "«будь-який збіг-дерево» — 133")
+                  "«будь-який збіг-дерево» — 133", "«будь-який збіг-дерево» — 134")
         code, out, _ = self.check()
         self.assertEqual(1, code)
-        self.assertIn("рядок каже «133»", out)
-        self.assertIn("132", out)
+        self.assertIn("рядок каже «134»", out)
+        self.assertIn("133", out)
 
     def test_the_same_price_in_the_tracker_is_a_finding_too(self):
         """Другий файл тієї самої щілини: `docs/agents/issue-tracker.md`."""
         self.edit("docs/agents/issue-tracker.md",
-                  "«без крапки, будь-який збіг-дерево» — 131",
-                  "«без крапки, будь-який збіг-дерево» — 130")
+                  "«без крапки, будь-який збіг-дерево» — 132",
+                  "«без крапки, будь-який збіг-дерево» — 131")
         code, out, _ = self.check()
         self.assertEqual(1, code)
-        self.assertIn("рядок каже «130»", out)
-        self.assertIn("131", out)
+        self.assertIn("рядок каже «131»", out)
+        self.assertIn("132", out)
 
     def test_a_case_word_in_the_premise_header_is_now_a_finding(self):
         """Критерій #1308: файл у `SCANNED` — і число класу в ньому вже видно."""
@@ -532,7 +532,7 @@ class NumberShapeTest(FixtureMixin):
     def test_a_record_line_with_two_numbers_is_an_unknown(self):
         """Шапка обіцяє «рівно одне число» — і для запису виміру теж."""
         self.edit("docs/agents/issue-tracker.md",
-                  "«ціна правила про теку» — 75", "«ціна правила про теку» — 75 і 200")
+                  "«ціна правила про теку» — 76", "«ціна правила про теку» — 76 і 200")
         code, _, err = self.check()
         self.assertEqual(2, code)
         self.assertIn("а мусить рівно одне", err)

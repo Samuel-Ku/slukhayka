@@ -2526,21 +2526,31 @@ private fun LibraryBookGridContent(
             // duration is unknown. The slot stays reserved either way, so the
             // provenance chip below does not jump.
             if (book.knownPercent != null) {
-                LinearProgressIndicator(
-                    progress = { book.percent },
+                // The tag lives on a WRAPPER: `clearAndSetSemantics` below clears
+                // the bar's own semantics, so a tag placed on the indicator is
+                // invisible to the test tree — and the absence test would then
+                // pass for the wrong reason (#1187 review).
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                        .clearAndSetSemantics { }
-                        .testTag("library_tile_progress_${book.book.id}"),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant,
-                    // #292 carried to the shelf: the M3 stop dot read as a stray
-                    // amber marker crowding the provenance chip right below it
-                    // (device review, 2026-09-16).
-                    drawStopIndicator = {}
-                )
+                        .testTag("library_tile_progress_${book.book.id}")
+                ) {
+                    LinearProgressIndicator(
+                        progress = { book.percent },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                            .clearAndSetSemantics { },
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant,
+                        // #292 carried to the shelf: the M3 stop dot read as a stray
+                        // amber marker crowding the provenance chip right below it
+                        // (device review, 2026-09-16).
+                        drawStopIndicator = {}
+                    )
+                }
             } else {
                 Spacer(modifier = Modifier.height(4.dp))
             }

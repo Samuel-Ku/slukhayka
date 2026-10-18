@@ -45,14 +45,17 @@ import java.util.concurrent.Executor
  *
  * ## The numbers, measured by a run of this class
  *
- *   - ONE page refresh costs **two** statements: the page `SELECT` and Room's
- *     service `SELECT COUNT(*) FROM (<page query>)`. The count is NOT the app's
- *     query and NOT optional — `RoomPaging.LimitOffsetPagingSource.initialLoad`
- *     runs it on every `LoadParams.Refresh` (decoded from the room-paging
- *     artifact: `initialLoad` / `nonInitialLoad`), even with
- *     `enablePlaceholders = false`. Both numbers are pinned so the statement
- *     total is never read as "one query" by accident.
- *   - The appending page costs **one**: `nonInitialLoad` does not count.
+ *   - The FIRST page of a feed generation costs **two** statements: the page
+ *     `SELECT` and Room's service `SELECT COUNT(*) FROM (<page query>)`. Both
+ *     are pinned by name, so the total is never read as "one query" by
+ *     accident. The count is not the app's query and not the app's flag: it
+ *     belongs to the GENERATION — Room resolves it once per `PagingSource`
+ *     instance (`CommonLimitOffsetImpl`'s `itemCount`) and it appears with
+ *     `enablePlaceholders` both off and on.
+ *   - Every page AFTER the first of the same generation costs **one** (the
+ *     `SELECT` alone), and a NEW `PagingSource` instance pays the count again.
+ *     All three numbers are pinned in the second-page test, because "how many
+ *     statements does this screen send" has three honest answers.
  *   - The «Лише зі спільної бібліотеки» flag costs **zero** extra: the same two
  *     statements, the same SQL text, only the `:sharedLibraryOnly` bind
  *     argument moves. Provenance lives inside the page statement
@@ -221,16 +224,30 @@ class WorkFeedPageQueryCountTest {
         params: PagingSource.LoadParams<Int>,
         filter: WorkFacetFilter = WorkFacetFilter(),
         byTitle: Boolean = false
+    ): Pair<Observed, PagingSource.LoadResult.Page<Int, WorkFeedRow>> =
+        loadOn(feedSource(filter, byTitle), params)
+
+    /**
+     * The feed's `PagingSource` — ONE instance per generation, the shape Paging
+     * itself uses: `Pager` calls the factory once and drives every refresh and
+     * append of that generation through the same instance. That matters here:
+     * Room's `LimitOffsetPagingSource` carries its service COUNT in the instance
+     * (an `AtomicInteger` in `CommonLimitOffsetImpl`), so a FRESH instance pays
+     * the count again even for an `Append` — measured, and the reason the
+     * second-page test below reuses this instance instead of making a new one.
+     */
+    private fun feedSource(
+        filter: WorkFacetFilter = WorkFacetFilter(),
+        byTitle: Boolean = false
+    ): PagingSource<Int, WorkFeedRow> =
+        if (byTitle) catalog.pagedWorkFeedByTitle(filter) else catalog.pagedWorkFeedRecent(filter)
+
+    private fun loadOn(
+        source: PagingSource<Int, WorkFeedRow>,
+        params: PagingSource.LoadParams<Int>
     ): Pair<Observed, PagingSource.LoadResult.Page<Int, WorkFeedRow>> {
         statements.clear()
-        val result = runBlocking {
-            val source = if (byTitle) {
-                catalog.pagedWorkFeedByTitle(filter)
-            } else {
-                catalog.pagedWorkFeedRecent(filter)
-            }
-            source.load(params)
-        }
+        val result = runBlocking { source.load(params) }
         val page = result as? PagingSource.LoadResult.Page
             ?: throw AssertionError("сторінка стрічки не завантажилась: $result")
         return classify() to page
@@ -260,7 +277,7 @@ class WorkFeedPageQueryCountTest {
         )
 
     @Test
-    fun `one feed page costs two statements — the page SELECT and Room's service COUNT`() {
+    fun `the first page of a feed generation costs two statements — the SELECT and Room's COUNT`() {
         seedWorks(total = 30, withGroupSource = 10)
 
         val (observed, page) = load(refresh(loadSize = initialLoadSize))
@@ -269,7 +286,7 @@ class WorkFeedPageQueryCountTest {
         // query would make a small count true for the wrong reason.
         assertEquals("сторінка мусить нести всі 30 книжок", 30, page.data.size)
         assertEquals(
-            "одна сторінка стрічки = SELECT сторінки + службовий COUNT Room:\n" + observed.describe(),
+            "перша сторінка генерації = SELECT сторінки + службовий COUNT Room:\n" + observed.describe(),
             2,
             observed.counted.size
         )
@@ -322,26 +339,45 @@ class WorkFeedPageQueryCountTest {
         )
     }
 
+    /**
+     * One generation = one `PagingSource` instance (see [feedSource]), and Room
+     * resolves its service COUNT inside that instance: the FIRST page of a
+     * generation pays it, every page after that does not. A second PagingSource
+     * — a new generation — pays it again, which is a fact about Room's
+     * `LimitOffsetPagingSource`, not about the number of pages a listener reads.
+     */
     @Test
-    fun `a second page costs one statement — Room counts only the initial load`() {
+    fun `a second page of the same generation costs one statement — the count belongs to the generation`() {
         seedWorks(total = 60, withGroupSource = 20)
 
-        val (first, firstPage) = load(refresh(loadSize = pageSize))
+        val source = feedSource()
+        val (first, firstPage) = loadOn(source, refresh(loadSize = pageSize))
         assertEquals("перша сторінка — два statement-и:\n" + first.describe(), 2, first.counted.size)
+        assertTrue("перша сторінка несе SELECT і службовий COUNT:\n" + first.describe(),
+            first.counted.any { it.isFeedPageSelect() } && first.counted.any { it.isFeedServiceCount() })
         val nextKey = firstPage.nextKey
             ?: throw AssertionError("у 60 рядків мусить бути друга сторінка, nextKey=null")
 
-        val (second, secondPage) = load(append(nextKey))
+        val (second, secondPage) = loadOn(source, append(nextKey))
         assertTrue("друга сторінка мусить бути непорожня", secondPage.data.isNotEmpty())
         assertEquals(
-            "друга сторінка = один statement, без службового COUNT:\n" + second.describe(),
+            "друга сторінка тієї самої генерації = сам SELECT, без службового COUNT:\n" + second.describe(),
             1,
             second.counted.size
         )
         assertTrue("це SELECT сторінки:\n" + second.describe(), second.counted.single().isFeedPageSelect())
 
-        // 3 for 2 pages is per PAGE; N+1 for 30 rows would be 60+.
+        // 3 for 2 pages is per GENERATION; N+1 for 30 rows would be 60+.
         assertEquals("дві сторінки разом:", 3, first.counted.size + second.counted.size)
+
+        // ...and a NEW generation pays the count again. Named, because it is
+        // what a fresh instance costs, not what a page costs.
+        val (freshGeneration, _) = load(append(nextKey))
+        assertEquals(
+            "нова генерація (новий PagingSource) знову платить службовий COUNT:\n" + freshGeneration.describe(),
+            2,
+            freshGeneration.counted.size
+        )
     }
 
     @Test
@@ -384,7 +420,7 @@ class WorkFeedPageQueryCountTest {
     }
 
     @Test
-    fun `enablePlaceholders changes nothing — Room's count is the initial load's, not the flag's`() {
+    fun `enablePlaceholders changes nothing — the service COUNT is not the flag's`() {
         seedWorks(total = 30, withGroupSource = 10)
 
         val (off, offPage) = load(refresh(loadSize = pageSize, placeholders = false))

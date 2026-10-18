@@ -253,6 +253,33 @@ would make the tree dirty for the next run. stderr is the proof, stdout is the
 record. Exit codes: `0` caught · `1` survived · `2` refused · `3` no verdict ·
 `128+N` interrupted.
 
+Three rules decide whether a mutation run reaches a verdict at all. All three are
+measured on the shared slot, and each has already cost a run:
+
+- **Lower the *daemon's* heap, not the client's.** `mutate.sh` reaches gradlew
+  through `test-all.sh`, which runs `--no-daemon`, while `gradle.properties`
+  asks for `-Xmx4g`. In Gradle 9 a `--no-daemon` run still forks a single-use
+  daemon, and that daemon takes its heap from `org.gradle.jvmargs` — **not** from
+  `GRADLE_OPTS`, which only sizes the client launcher. Override the property:
+
+  ```sh
+  env TMPDIR=/tmp GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx3g" ../gt \
+      scripts/mutate.sh --patch .mutations/patches/<name>.patch --class <FQCN>
+  ```
+
+  `GRADLE_OPTS="-Xmx3g"` on its own leaves the build heap at `-Xmx4g` and only
+  raises the client ceiling.
+
+- **Kill the idle Gradle daemon first, by PID.** A sleeping daemon holds
+  2.4–3.4 GB RSS, so `MemAvailable` never reaches the guard's 3500 MB floor and
+  the run is refused before it starts. `jps -l | grep GradleDaemon`, then
+  `kill <pid>` — **not `pkill -f 'GradleDaemon'`**: that pattern also matches the
+  shell invoking it, so it kills the caller.
+
+- **Write the exit code to a file, not through a pipe.** `cmd | tail` reports
+  `tail`'s status, so an `exit 0` can sit next to `BUILD FAILED` in the log.
+  Use `(cmd > log 2>&1; echo $? > exit)`.
+
 `scripts/**` goes through the same tool with `--python`, which takes one target
 from the set the `script-tests` CI job discovers: a whole file, or one class in
 it.
@@ -498,8 +525,8 @@ mechanism will name every number that moves.
 Its named limits are in its docstring, and the first one is the price of the
 whole idea: **the mechanism sees only the shapes and files it lists.** A scan
 that demanded a command beside *every* number would drown — `python3
-scripts/doc_numbers.py --audit` counts 184 figures of "number + unit" across
-`docs/agents/*.md` and `scripts/**/*.py`, and 177 of them sit on a line with no
+scripts/doc_numbers.py --audit` counts 186 figures of "number + unit" across
+`docs/agents/*.md` and `scripts/**/*.py`, and 179 of them sit on a line with no
 date, most being records of the past (the seconds and gigabytes of one build on
 one machine on 2026-10-12) that no command reproduces at HEAD. So
 bytes and seconds are outside `SCANNED`; where such a number must stay, what is

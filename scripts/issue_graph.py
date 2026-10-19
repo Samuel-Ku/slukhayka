@@ -116,7 +116,10 @@ def mark(nodes: dict[int, Node]) -> None:
             return 0
         live = [b for b in node.blockers if nodes.get(b) and nodes[b].state == "OPEN"]
         if not live:
-            return 1
+            # Немає ЖИВИХ блокерів — тікет вільний. Глибина 0, не 1: інакше
+            # «вільно» й «один крок до вільного» не відрізнялись би, і #1284
+            # показувався б заблокованим на порожньому списку блокерів.
+            return 0
         return 1 + min(depth(b, seen | {number}) for b in live)
 
     for node in nodes.values():

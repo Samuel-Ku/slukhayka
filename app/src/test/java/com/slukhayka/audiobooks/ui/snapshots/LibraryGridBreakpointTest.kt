@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.ui.snapshots
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -20,8 +22,11 @@ import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.library.LibraryFilter
+import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
-import com.slukhayka.audiobooks.ui.library.libraryGridEntries
+import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
+import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.screens.LibraryBookGrid
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import kotlin.math.roundToInt
@@ -181,17 +186,86 @@ class LibraryGridBreakpointTest {
     }
 
     /**
+     * #1284 — the viewport mapping, read off the REAL grid.
+     *
+     * The projection says which Works each entry index stands for; the grid is
+     * the one that decides which indices are in the viewport. Reading those
+     * indices back off the production grid and asking the projection for their
+     * keys is what proves the availability queue describes the cards on screen
+     * — an emptied header or a merged Work must not shift it onto a different
+     * Work.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
+    fun theVisibleIndicesResolveToExactlyTheWorksTheGridDraws() {
+        val projection = projectLibraryBooks(
+            books = keyedFixtureLibrary,
+            filter = LibraryFilter.ALL,
+            sort = LibrarySort.TITLE,
+            query = "",
+            gridMode = true,
+            denseTitle = "Усі"
+        )
+        val entries = projection.entries("")
+        lateinit var gridState: LazyGridState
+        composeTestRule.setContent {
+            gridState = rememberLazyGridState()
+            AudiobookTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    LibraryBookGrid(
+                        entries = entries,
+                        shape = projection.shape,
+                        availability = emptyMap(),
+                        downloadCounts = emptyMap(),
+                        restoreFocusBookId = null,
+                        bookReturnFocusRequester = remember { FocusRequester() },
+                        awaitingSubmissionBookIds = emptySet(),
+                        watchingSubmissionBookIds = emptySet(),
+                        deferredPublicationBookIds = emptySet(),
+                        onBookClick = {},
+                        onPlayClick = {},
+                        onRecheck = {},
+                        modifier = Modifier.fillMaxSize(),
+                        gridState = gridState
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        val indices = gridState.layoutInfo.visibleItemsInfo.map { it.index }
+        // The fixture's own cards plus the one dense section header.
+        assertEquals(keyedFixtureLibrary.size + 1, indices.size)
+
+        val keys = libraryWorkKeysAt(entries, indices)
+        val drawnIds = drawnBookIds().toSet()
+        assertEquals(
+            "the queue's Works are exactly the cards the grid drew",
+            keyedFixtureLibrary.filter { it.book.id in drawnIds }.map { it.book.mergeKey }.toSet(),
+            keys.toSet()
+        )
+        assertEquals(
+            "the header is chrome and contributes no Work",
+            keyedFixtureLibrary.size,
+            keys.size
+        )
+    }
+
+    /**
      * The screen's own book area, inside the list pane of a wide window — the
      * same two composables `MainActivity` wires together, so the geometry
      * measured here is the geometry the app ships.
      */
     private fun showLibraryPane() {
-        val entries = libraryGridEntries(
-            // The «Книги» tab always builds this shape (LibraryScreen.kt).
-            browsing = false,
+        // #1284 — the pane is driven by the projection the screen itself uses,
+        // so the entries and the shape the renderer draws come from ONE source
+        // (the tab always builds the dense form, #885).
+        val projection = projectLibraryBooks(
+            books = fixtureLibrary,
+            filter = LibraryFilter.ALL,
+            sort = LibrarySort.RECENTLY_LISTENED,
+            query = "",
             gridMode = true,
-            visible = fixtureLibrary,
-            continueBook = null,
             denseTitle = "Усі"
         )
         composeTestRule.setContent {
@@ -200,9 +274,8 @@ class LibraryGridBreakpointTest {
                     WideDetailPane(
                         list = {
                             LibraryBookGrid(
-                                entries = entries,
-                                browsing = false,
-                                gridMode = true,
+                                entries = projection.entries(""),
+                                shape = projection.shape,
                                 availability = emptyMap(),
                                 downloadCounts = emptyMap(),
                                 restoreFocusBookId = null,
@@ -238,6 +311,21 @@ class LibraryGridBreakpointTest {
                 composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
                     .getUnclippedBoundsInRoot()
             }
+    }
+
+    /**
+     * The ids of the book cards the grid really composed — the drawn half of
+     * the #1284 viewport assertion.
+     */
+    private fun drawnBookIds(): List<String> {
+        val matcher = SemanticsMatcher("testTag starts with library_book_item_") { node ->
+            node.config.getOrNull(SemanticsProperties.TestTag)
+                ?.startsWith("library_book_item_") == true
+        }
+        return composeTestRule.onAllNodes(matcher, useUnmergedTree = true)
+            .fetchSemanticsNodes()
+            .mapNotNull { it.config.getOrNull(SemanticsProperties.TestTag) }
+            .map { it.removePrefix("library_book_item_") }
     }
 
     /**
@@ -279,6 +367,19 @@ class LibraryGridBreakpointTest {
 
         /** The contrast frame: the same grid where a second column DOES fit. */
         const val Frame840Dp = "src/test/snapshots/library-grid-840dp.png"
+    }
+}
+
+/**
+ * The same four books, each with its OWN Work key, so the #1284 viewport
+ * mapping has Works to name. Copies on purpose: the geometry fixture must keep
+ * the blank keys it was measured with.
+ */
+private val keyedFixtureLibrary: List<LibraryBook> by lazy {
+    fixtureLibrary.mapIndexed { index, row ->
+        row.copy(
+            book = row.book.copy(id = "keyed-fixture-$index").apply { mergeKey = "work-$index" }
+        )
     }
 }
 

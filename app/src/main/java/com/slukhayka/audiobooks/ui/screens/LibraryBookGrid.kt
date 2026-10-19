@@ -24,6 +24,7 @@ import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookDownloadCount
 import com.slukhayka.audiobooks.ui.SubmissionBadge
+import com.slukhayka.audiobooks.ui.library.LibraryBooksShape
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
@@ -44,17 +45,16 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * a second copy of that arithmetic.
  *
  * [entries] arrive already built, because the screen remembers them for its
- * focus-return and availability queues. That is sound only for the shape the
- * screen builds: on «Книги» (`browsing = false`) the entry list does not depend
- * on the view mode, so the mode can still be read here, after it. A caller that
- * ever wants `browsing = true` — where the mode picks a shelf instead of tiles
- * — must build its entries from the same mode it passes here.
+ * focus-return and availability queues. They come from [shape] — the caller
+ * takes both off the SAME projection (#1284) — so the entry list and the layout
+ * cannot disagree about the mode they were built in. Before that, `browsing` was
+ * passed twice, once to the entries builder and once here, and the two had to be
+ * kept in step by hand.
  */
 @Composable
 internal fun LibraryBookGrid(
     entries: List<LibraryGridEntry>,
-    browsing: Boolean,
-    gridMode: Boolean,
+    shape: LibraryBooksShape,
     availability: Map<String, AvailabilityView>,
     downloadCounts: Map<String, BookDownloadCount>,
     restoreFocusBookId: String?,
@@ -75,7 +75,7 @@ internal fun LibraryBookGrid(
         // width the book area was actually handed. `maxWidth` is the incoming
         // constraint, so it answers for the list pane of a wide window exactly
         // as it answers for a whole phone window.
-        val columns = libraryGridColumns(gridMode)
+        val columns = libraryGridColumns(shape.gridMode)
         val density = LocalDensity.current
         // `calculateCrossAxisCellSizes` is the very call `LazyVerticalGrid`
         // makes to place its columns, with the same content width (the grid's
@@ -107,7 +107,7 @@ internal fun LibraryBookGrid(
             // purpose: `LibraryScreen` maps a grid INDEX back to a
             // `LibraryGridEntry` for its availability queue and its focus
             // return, so an extra leading item would shift every one of them.
-            if (gridMode && columnCount < 2) {
+            if (shape.gridMode && columnCount < 2) {
                 Text(
                     text = stringResource(R.string.lib_grid_pane_too_narrow),
                     style = MaterialTheme.typography.labelSmall,
@@ -147,12 +147,12 @@ internal fun LibraryBookGrid(
             ) {
                 libraryGridContent(
                     entries = entries,
-                    // #885 — must match the shape the caller built its entries
-                    // with (always the dense rows on «Книги»), otherwise the
-                    // renderer falls back to the wall of cards and none of the
-                    // row work shows up.
-                    browsing = browsing,
-                    gridMode = gridMode,
+                    // #1284 — the shape the entries were built with, from the
+                    // projection; #885 — the Книги tab always builds the dense
+                    // form, so the renderer must not fall back to the wall of
+                    // cards and hide the row work.
+                    browsing = shape.browsing,
+                    gridMode = shape.gridMode,
                     availability = availability,
                     downloadCounts = downloadCounts,
                     restoreFocusBookId = restoreFocusBookId,

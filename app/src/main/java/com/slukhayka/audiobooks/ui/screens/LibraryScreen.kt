@@ -101,14 +101,14 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
-import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
-import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
-import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.libraryIndexOfBook
+import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
+import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
@@ -320,9 +320,10 @@ fun LibraryScreen(
         else -> R.string.lib_statistics
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
-    // Browsing the whole library vs narrowing it down: the sections (and the
-    // «Продовжити» card) only make sense while nothing is filtering.
-    val browsing = filter == LibraryFilter.ALL && query.isBlank()
+    // #1284 — whether this is "the whole library" vs "narrowed down" is no
+    // longer a screen variable: the projection owns both rules it used to name
+    // (the entry form and whether the dense header summarises), so they cannot
+    // drift apart here.
     // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
     // block of the screen, so the state is read here and not inside the tab body.
     // #1286 — the module owns the projections; the hero reads the last good
@@ -331,9 +332,6 @@ fun LibraryScreen(
     val progressState by readingProgress.state.collectAsState()
     val yearGoal = (progressState as? com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready)
         ?.projection?.year
-    val continueBook = remember(libraryBooks) {
-        libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
-    }
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
     // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
@@ -393,57 +391,50 @@ fun LibraryScreen(
         returnFocusRequester = importFocusRequester
     )
 
-    val visibleBooks = remember(libraryBooks, filter, sort, query) {
-        filterAndSortLibrary(libraryBooks, filter, sort, query)
-    }
-
-    // spec-54 T14 (#869) — the listener owns a WORK: the list renders ONE card
-    // per Work, fronted by the narration they are furthest along in, and the
-    // other narrations (with their own progress, bookmarks, downloads and
-    // speed) stay reachable from the card's details.
-    val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
-    val shownCards = remember(workCards) { workCards.map { it.primary } }
-
-    // The grid as data (v1.5 review): the structure carries the resume card,
-    // the section headers and the shelf, so a lazy-grid index must be mapped
-    // back to a book through these entries — never through `visibleBooks`
-    // (the two stopped aligning the moment the hero and the headers appeared).
-    val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     // spec-46 T08 (#569) — resolved outside `remember`: stringResource is a
-    // composable read, the entries builder is a plain function.
+    // composable read, the projection builder is a plain function.
     val denseTitle = if (query.isNotBlank()) {
         stringResource(R.string.lib_search_section_title)
     } else {
         stringResource(filter.labelRes)
     }
-    val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing, denseTitle) {
-        libraryGridEntries(
-            // #885 — the prototype's «Книги» is a VERTICAL list of rows with a
-            // progress line, not a wall of shelves: shelves belong to «Полиці»
-            // (their own tab above). So the books tab always builds the dense
-            // section+rows shape.
-            browsing = false,
+    // #1284 — ONE projection owns the whole book area: the filter/sort order,
+    // the Work grouping and each card's primary narration, the shape of the
+    // entry list, and both index mappings. The screen reads it and passes the
+    // shape on to the renderer, so the entries and the layout can never be
+    // built from two different assumptions (the old `browsing = false` had to
+    // be written twice and kept in step by hand).
+    val libraryProjection = remember(libraryBooks, filter, sort, query, gridMode, denseTitle) {
+        projectLibraryBooks(
+            books = libraryBooks,
+            filter = filter,
+            sort = sort,
+            query = query,
             gridMode = gridMode,
-            visible = shownCards,
-            continueBook = continueBook,
-            denseTitle = denseTitle,
-            denseTrailing = denseTrailing
+            denseTitle = denseTitle
         )
+    }
+    // The dense header's total is CHROME (a composable read of the string
+    // table); WHICH books it describes and WHETHER it appears are the
+    // projection's rules (spec-46 T08 keeps the words out of the model).
+    val denseTrailing = if (libraryProjection.summarisesRemaining) {
+        libraryRemainingTotal(libraryProjection.shownBooks)
+    } else {
+        ""
+    }
+    val gridEntries = remember(libraryProjection, denseTrailing) {
+        libraryProjection.entries(denseTrailing)
     }
 
     // Spec-56 T3 (#730) — tell the view model which Works are visible so their
-    // availability checks jump the queue; the daily backlog waits.
+    // availability checks jump the queue; the daily backlog waits. The keys come
+    // from the entries THE GRID DRAWS (the projection's own mapping), never from
+    // the pre-grouping book list.
     LaunchedEffect(activeTab, gridEntries) {
         if (activeTab != 0) return@LaunchedEffect
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.map { it.index } }
             .collectLatest { indices ->
-                val keys = indices
-                    .mapNotNull { index ->
-                        // The hero card is a book too — it must join the queue.
-                        gridEntries.getOrNull(index)?.shownBook?.book?.mergeKey
-                    }
-                    .filter { it.isNotBlank() }
-                viewModel.onAvailabilityVisible(keys)
+                viewModel.onAvailabilityVisible(libraryWorkKeysAt(gridEntries, indices))
             }
     }
 
@@ -456,8 +447,9 @@ fun LibraryScreen(
     ) {
         val bookId = restoreFocusBookId ?: return@LaunchedEffect
         if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        // The book may be the hero card rather than a row — ask the entry.
-        val visibleIndex = gridEntries.indexOfFirst { it.showsBook(bookId) }
+        // The book may be the hero card rather than a row: the projection's own
+        // mapping asks every entry.
+        val visibleIndex = libraryIndexOfBook(gridEntries, bookId)
         when {
             visibleIndex >= 0 -> {
                 libraryGridState.scrollToItem(visibleIndex)
@@ -626,7 +618,7 @@ fun LibraryScreen(
                             )
                         }
 
-                        visibleBooks.isEmpty() -> EmptyState(
+                        libraryProjection.shownBooks.isEmpty() -> EmptyState(
                             icon = Icons.Default.Search,
                             title = stringResource(R.string.lib_no_results_title),
                             body = stringResource(R.string.lib_no_results_body)
@@ -636,14 +628,12 @@ fun LibraryScreen(
                         // composable the snapshot test drives: the screen and
                         // the harness must not be able to disagree about the
                         // shape of the book area.
+                        // #1284 — and the shape comes from the SAME projection
+                        // that built the entries, so this call site no longer
+                        // restates `browsing = false`.
                         else -> LibraryBookGrid(
                             entries = gridEntries,
-                            // #885 — must match the shape `libraryGridEntries`
-                            // built above (always the dense rows on «Книги»),
-                            // otherwise the renderer falls back to the wall of
-                            // cards and none of the row work shows up.
-                            browsing = false,
-                            gridMode = gridMode,
+                            shape = libraryProjection.shape,
                             availability = libraryAvailability,
                             downloadCounts = bookDownloadCounts,
                             restoreFocusBookId = restoreFocusBookId,

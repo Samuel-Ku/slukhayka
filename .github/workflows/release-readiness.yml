@@ -51,5 +51,14 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # #487 — `pre-release.sh` checks that `assembleRelease` would succeed,
+      # and that check fails without the E5 model assets, which are gitignored
+      # (a clean runner never has them). `release.yml` downloads them before
+      # its build and `ci.yml` does it in three places; this readiness gate runs
+      # EARLIER than either and did not — so it could never pass, with any
+      # version. Same step, same reason, now where it belongs.
+      - name: Download the E5 model assets
+        run: ./gradlew :app:downloadE5Model --no-daemon
+
       - name: Run the pre-release gate
         run: ./scripts/pre-release.sh

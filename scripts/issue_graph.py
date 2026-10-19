@@ -2,16 +2,23 @@
 """Граф залежностей тікетів: `## Blocked by` у тілах issue — ОБИДВІ форми (#1369).
 
 Тікет #1285 має секцію `## Blocked by` з посиланням у формі URL
-(`https://github.com/Samuel-Ku/slukhayka/issues/1284`), а не `#1284`. Тікет
-#1241 такої секції не має взагалі — його блокада виражена в тілі #1240.
+(`https://github.com/Samuel-Ku/slukhayka/issues/1284`), а не `#1284`; тікет
+#1241 має таку саму URL-форму на #1240.
 
 `grep '#[0-9]\\{3,4\\}'` по тілу не бачить URL-форми, і я назвав `#1285` та
 `#1241` вільними, маючи перед очима `## Blocked by`. Обидва твердження були
-хибні, і друге — транзитивно: `#1241 ← #1240 ← #1185 ← відкритий чужий PR`.
+хибні, і друге — транзитивно: `#1241 ← #1240`.
 
 Механізм читає секцію, а не шукає символи `#`, тому URL-форма не губиться.
-Далі він резолвить кожен блокер у стан тікета і його PR-стан і показує, що
-РЕАЛЬНО вільно, а що стоїть — на якій глибині й через кого.
+Далі він резолвить кожен блокер у стан тікета і показує, що РЕАЛЬНО вільно,
+а що стоїть — на якій глибині.
+
+Секція може містити вердикт «Немає — можна починати одразу», за яким іде
+проза з номерами суміжної роботи (#1242, #1283). Це НЕ блокери: якщо секція
+починається з «Немає», вона порожня, хоч би які номери йшли далі.
+
+Порожній, непарсабельний або невідомий стан — ВІДМОВА (код 2), не «немає» і
+не «вільно»: інакше збій `gh` читався б як «можна починати».
 
 Коди виходу (як у сусідніх механізмів):
     0 — граф побудовано, тікети, названі в аргументах, вільні;
@@ -32,6 +39,9 @@ from dataclasses import dataclass, field
 # `#1284` або `…/issues/1284`. URL-форма — та, що вбила grep-підхід.
 BLOCKED_BY_HEADING = re.compile(r"^##\s+Blocked by\s*$", re.MULTILINE)
 NEXT_HEADING = re.compile(r"^##\s+", re.MULTILINE)
+# «Немає …» — вердикт секції, а не перелік. Після нього в прозі стоять номери
+# суміжної роботи (#1242, #1283), і вони блоками НЕ є.
+NO_BLOCKERS = re.compile(r"^\s*Немає\b", re.MULTILINE)
 TICKET_REF = re.compile(r"#(\d{3,5})|/issues/(\d{3,5})")
 
 
@@ -44,7 +54,6 @@ class Node:
     body: str = ""
     blockers: list[int] = field(default_factory=list)
     depth: int | None = None
-    via_open_pr: int | None = None
 
 
 def extract_blocked_by(body: str) -> list[int]:
@@ -59,6 +68,8 @@ def extract_blocked_by(body: str) -> list[int]:
     rest = body[match.end():]
     nxt = NEXT_HEADING.search(rest)
     section = rest[: nxt.start()] if nxt else rest
+    if NO_BLOCKERS.search(section):
+        return []
     found: list[int] = []
     for m in TICKET_REF.finditer(section):
         number = int(m.group(1) or m.group(2))
@@ -140,6 +151,12 @@ def main() -> int:
     missing = [n for n, node in nodes.items() if node.state == "MISSING"]
     if missing:
         print(f"ВІДМОВА — тікетів немає: {missing}", file=sys.stderr)
+        return 2
+    # Невідомий стан — теж відмова: інакше непарсабельний вивід `gh` давав би
+    # `depth 0`, тобто «ВІЛЬНИЙ» і код 0. Це був fail-open (знахідка огляду).
+    unknown = [n for n, node in nodes.items() if node.state == "UNKNOWN"]
+    if unknown:
+        print(f"ВІДМОВА — стан невідомий: {unknown}", file=sys.stderr)
         return 2
     mark(nodes)
 

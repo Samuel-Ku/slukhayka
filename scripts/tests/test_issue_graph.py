@@ -48,6 +48,27 @@ class ExtractBlockedByTest(unittest.TestCase):
         body = "## Blocked by\n\n- #1240\n\n## Acceptance criteria\n\n- #9999\n"
         self.assertEqual(graph.extract_blocked_by(body), [1240])
 
+    def test_no_blockers_verdict_with_prose_refs_is_empty(self) -> None:
+        """«Немає — можна починати одразу» + номери суміжної роботи ≠ блокери.
+
+        Регресія з огляду #1369: #1242 і #1283 кажуть «Немає …», а далі в
+        прозі стоять #1185/#1188 і #1240/#1241/#620 як «суміжна робота для
+        узгодження». Парсер витягував їх як блокери — тобто 2 з 8 вердиктів
+        були хибно «заблокований», інверсія того класу, проти якого механізм
+        існує.
+        """
+        body = (
+            "## Blocked by\n\n"
+            "Немає — можна починати одразу. #1185 і #1188 — суміжна робота "
+            "для узгодження, а не технічні блокери цього зрізу.\n"
+        )
+        self.assertEqual(graph.extract_blocked_by(body), [])
+
+    def test_a_real_list_after_heading_is_still_a_list(self) -> None:
+        """«Немає» всередині пункту списку не робить усю секцію порожньою."""
+        body = "## Blocked by\n\n- #1240 — можна починати, Немає перешкод\n"
+        self.assertEqual(graph.extract_blocked_by(body), [1240])
+
     def test_no_section_is_empty(self) -> None:
         self.assertEqual(graph.extract_blocked_by("## What to build\n\nбез блокерів\n"), [])
 

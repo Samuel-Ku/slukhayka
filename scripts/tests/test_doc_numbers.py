@@ -351,7 +351,7 @@ class FindingTest(FixtureMixin):
         code, out, _ = self.check()
         self.assertEqual(1, code)
         self.assertIn("рядок каже «132»", out)
-        self.assertIn("132", out)
+        self.assertIn("133", out)
 
     def test_a_case_word_in_the_premise_header_is_now_a_finding(self):
         """Критерій #1308: файл у `SCANNED` — і число класу в ньому вже видно."""

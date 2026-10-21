@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.BookRow
+import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.metadata.DurationProvenance
 import com.slukhayka.audiobooks.data.metadata.DurationSanity
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
@@ -48,6 +49,18 @@ import kotlinx.coroutines.withContext
  * #349 adds the sibling targeted probe [probeBookNow]: fired detached by the
  * import doors so a fresh card is filled in seconds, bypassing the sweep's
  * throttle with its own per-book single-flight.
+ *
+ * #1187 — local imports are no longer skipped. A local book's chapters are
+ * measured from the files themselves through [LocalFileDurationReader]
+ * ([MediaMetadataRetrieverLocalFileDuration] in production: the container's
+ * metadata, offline, without reading the audio bytes), by the sweep and by the
+ * targeted post-import probe alike — the same door that repairs books imported
+ * before this existed, without asking anyone to re-listen. Without a reader a
+ * local book keeps its old no-op path; either way the library no longer takes
+ * the partial sum for the book's total
+ * ([com.slukhayka.audiobooks.data.listening.knownBookTotalSeconds] refuses it),
+ * so an unmeasured local book shows the honest unknown state instead of a
+ * length that climbs as it is listened to.
  */
 class ChapterDurationProbe(
     private val dao: AudiobookDao,
@@ -57,7 +70,17 @@ class ChapterDurationProbe(
     // becomes known from probed chapters contributes it to the shared base.
     // Null without Firebase keys: probing behaves exactly as before.
     // Best-effort by contract — a failing write never breaks a pass.
-    private val sharedStore: SharedBookMetaStore? = null
+    private val sharedStore: SharedBookMetaStore? = null,
+    // #1187 — how long the audio in one LOCAL file is. Local imports have no
+    // stream, so before this seam their chapters only got a duration from
+    // playback; the book's total therefore grew with what had been heard, and
+    // the library finished a book nobody had finished. The default is the
+    // production retriever (it needs no Context) rather than an argument wired
+    // in App.kt: `App.kt` sits in the root package, so any diff there maps the
+    // WHOLE test matrix (docs/agents/local-environment.md). Null turns the
+    // local half off — the pre-#1187 no-op path, kept for tests and for a
+    // platform without a retriever.
+    private val localDurations: LocalFileDurationReader? = MediaMetadataRetrieverLocalFileDuration()
 ) {
 
     /** Timestamp of the last completed pass, as an atomic CAS gate. */
@@ -75,6 +98,12 @@ class ChapterDurationProbe(
      * the same book loses the race and probes nothing. Best-effort like the
      * pass: any failure leaves rows untouched.
      *
+     * #1187 — a LOCAL import reaches it too, and that is the repair door for
+     * books imported before the local reader existed: the reader measures the
+     * copied files themselves, without the listener playing anything. Without a
+     * [LocalFileDurationReader] a local book has no probe target and the call
+     * is a no-op, exactly as it was.
+     *
      * @return how many chapters received a duration.
      */
     suspend fun probeBookNow(bookId: String): Int = withContext(Dispatchers.IO) {
@@ -82,7 +111,6 @@ class ChapterDurationProbe(
         try {
             val book = dao.getAllAudiobooksOnce().firstOrNull { it.id == bookId }
                 ?: return@withContext 0
-            if (book.sourceUrl.isBlank()) return@withContext 0 // local copy — nothing to probe
             probeBook(book)
         } catch (e: Exception) {
             Log.w(TAG, "Targeted duration probe failed for $bookId", e)
@@ -107,13 +135,14 @@ class ChapterDurationProbe(
         if (!lastProbeRunEpochMs.compareAndSet(lastRun, runAt)) return@withContext 0
 
         // Candidates: books with at least one unknown-duration chapter (0 is
-        // the unknown placeholder) and a stream URL — local imports (blank
-        // sourceUrl, nothing to probe) never reach the transport.
+        // the unknown placeholder). A streamed book goes to the transport; a
+        // local import (#1187) goes to the file reader, and without a reader it
+        // has no probe target at all and stays out.
         // #350: newest books first — a freshly imported card must not sit at
         // the tail of the batch behind stale ones.
         val unknownBookIds = dao.getBookIdsWithUnknownChapterDurations().toSet()
         val candidates = dao.getAllAudiobooksOnce()
-            .filter { it.id in unknownBookIds && it.sourceUrl.isNotBlank() }
+            .filter { it.id in unknownBookIds && (it.sourceUrl.isNotBlank() || localDurations != null) }
             .sortedByDescending { it.createdAt }
             .take(batchLimit.coerceAtLeast(1))
 
@@ -135,6 +164,10 @@ class ChapterDurationProbe(
         // long book converges in minutes, not a quarter of an hour. Each
         // launch stays failure-isolated: an unexpected throw kills only its
         // own probe, never the sibling chapters or the sweep.
+        // #1187 — a local import is measured from its own files; everything
+        // else goes to the transport. Which one is the book's, not the
+        // chapter's, decision: a local import's tracks are all files.
+        val local = book.sourceUrl.isBlank()
         val pairsToProbe = playableChapters(book.id).filter { pair ->
             // #812 — не лише «невідома», а й «підозріло коротка».
             //
@@ -143,13 +176,16 @@ class ChapterDurationProbe(
             // врізка, яку колись виміряли як тривалість розділу, лишалася
             // назавжди. Проба нижче пише виміряне БЕЗУМОВНО, тож справді
             // короткий розділ просто отримає своє справжнє значення.
-            (
+            val track = pair.track ?: return@filter false // no stream for this chapter
+            val unknownOrSuspect =
                 pair.chapter.durationSeconds <= 0L ||
                     pair.chapter.durationSeconds <
                     com.slukhayka.audiobooks.data.metadata.DurationSanity.MIN_SHARED_SECONDS
-                ) &&
-                pair.track != null && // no stream for this chapter
-                pair.track.url.isNotBlank() // local copy / no probe target
+            unknownOrSuspect && if (local) {
+                localDurations != null && localPathOf(track).isNotBlank()
+            } else {
+                track.url.isNotBlank() // no probe target
+            }
         }
         val limiter = Semaphore(DEFAULT_PROBE_CONCURRENCY)
         val probed = AtomicInteger(0)
@@ -159,13 +195,22 @@ class ChapterDurationProbe(
                 launch {
                     try {
                         limiter.withPermit {
-                            // #516 — the source identity rides the probe so the
-                            // per-source header seam (Referer-gated CDNs) applies.
-                            val sourceId = pair.sourceId
-                                ?: com.slukhayka.audiobooks.data.source.sourceIdForUrl(book.sourceUrl)
-                            val result = prober.probe(sourceId, track.url) ?: return@withPermit
-                            val durationSeconds =
+                            val durationSeconds = if (local) {
+                                // #1187 — the file's own container, never a
+                                // guess from its size: the byte arithmetic
+                                // belongs to streams, where a CBR frame header
+                                // proves the bitrate.
+                                localDurations?.durationSeconds(localPathOf(track))
+                                    ?: return@withPermit
+                            } else {
+                                // #516 — the source identity rides the probe so
+                                // the per-source header seam (Referer-gated
+                                // CDNs) applies.
+                                val sourceId = pair.sourceId
+                                    ?: com.slukhayka.audiobooks.data.source.sourceIdForUrl(book.sourceUrl)
+                                val result = prober.probe(sourceId, track.url) ?: return@withPermit
                                 result.contentLength * 8L / (result.frame.bitrateKbps * 1000L)
+                            }
                             if (durationSeconds <= 0L) return@withPermit
                             dao.updateChapterDuration(pair.chapter.id, durationSeconds)
                             probed.incrementAndGet()
@@ -187,7 +232,11 @@ class ChapterDurationProbe(
                 // Spec-30 T4 (#219): a book total derived from probed chapters
                 // contributes to the shared base (sanity-gated) — the most
                 // expensive derivation, so the one that must never repeat.
-                if (DurationSanity.isPlausible(total)) {
+                // #1187 — except for a LOCAL total: it is this device's
+                // measurement of its own copied files, and the EditionId it
+                // would be filed under carries the local book id, so no other
+                // listener could ever read it back. Streams still contribute.
+                if (book.sourceUrl.isNotBlank() && DurationSanity.isPlausible(total)) {
                     runCatching {
                         sharedStore?.putDuration(
                             editionId = EditionId.forBook(book.mergeKey ?: "", book.id, book.narrator),
@@ -204,6 +253,15 @@ class ChapterDurationProbe(
         }
         return probedCount
     }
+
+    /**
+     * #1187 — the file that plays one LOCAL chapter: the import stores the
+     * copied file in [SourceTrackEntity.localFilePath], where it doubles as the
+     * track's url (the entity's own note). A row that carries only one of the
+     * two is still measured; a blank answer means there is nothing to open.
+     */
+    private fun localPathOf(track: SourceTrackEntity): String =
+        track.localFilePath?.takeIf { it.isNotBlank() } ?: track.url
 
     companion object {
         /**

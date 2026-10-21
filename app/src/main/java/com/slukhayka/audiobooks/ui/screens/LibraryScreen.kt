@@ -101,14 +101,14 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
-import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
-import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
-import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.libraryIndexOfBook
+import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
+import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
@@ -320,9 +320,10 @@ fun LibraryScreen(
         else -> R.string.lib_statistics
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
-    // Browsing the whole library vs narrowing it down: the sections (and the
-    // «Продовжити» card) only make sense while nothing is filtering.
-    val browsing = filter == LibraryFilter.ALL && query.isBlank()
+    // #1284 — whether this is "the whole library" vs "narrowed down" is no
+    // longer a screen variable: the projection owns both rules it used to name
+    // (the entry form and whether the dense header summarises), so they cannot
+    // drift apart here.
     // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
     // block of the screen, so the state is read here and not inside the tab body.
     // #1286 — the module owns the projections; the hero reads the last good
@@ -331,9 +332,6 @@ fun LibraryScreen(
     val progressState by readingProgress.state.collectAsState()
     val yearGoal = (progressState as? com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready)
         ?.projection?.year
-    val continueBook = remember(libraryBooks) {
-        libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
-    }
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
     // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
@@ -393,57 +391,50 @@ fun LibraryScreen(
         returnFocusRequester = importFocusRequester
     )
 
-    val visibleBooks = remember(libraryBooks, filter, sort, query) {
-        filterAndSortLibrary(libraryBooks, filter, sort, query)
-    }
-
-    // spec-54 T14 (#869) — the listener owns a WORK: the list renders ONE card
-    // per Work, fronted by the narration they are furthest along in, and the
-    // other narrations (with their own progress, bookmarks, downloads and
-    // speed) stay reachable from the card's details.
-    val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
-    val shownCards = remember(workCards) { workCards.map { it.primary } }
-
-    // The grid as data (v1.5 review): the structure carries the resume card,
-    // the section headers and the shelf, so a lazy-grid index must be mapped
-    // back to a book through these entries — never through `visibleBooks`
-    // (the two stopped aligning the moment the hero and the headers appeared).
-    val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     // spec-46 T08 (#569) — resolved outside `remember`: stringResource is a
-    // composable read, the entries builder is a plain function.
+    // composable read, the projection builder is a plain function.
     val denseTitle = if (query.isNotBlank()) {
         stringResource(R.string.lib_search_section_title)
     } else {
         stringResource(filter.labelRes)
     }
-    val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing, denseTitle) {
-        libraryGridEntries(
-            // #885 — the prototype's «Книги» is a VERTICAL list of rows with a
-            // progress line, not a wall of shelves: shelves belong to «Полиці»
-            // (their own tab above). So the books tab always builds the dense
-            // section+rows shape.
-            browsing = false,
+    // #1284 — ONE projection owns the whole book area: the filter/sort order,
+    // the Work grouping and each card's primary narration, the shape of the
+    // entry list, and both index mappings. The screen reads it and passes the
+    // shape on to the renderer, so the entries and the layout can never be
+    // built from two different assumptions (the old `browsing = false` had to
+    // be written twice and kept in step by hand).
+    val libraryProjection = remember(libraryBooks, filter, sort, query, gridMode, denseTitle) {
+        projectLibraryBooks(
+            books = libraryBooks,
+            filter = filter,
+            sort = sort,
+            query = query,
             gridMode = gridMode,
-            visible = shownCards,
-            continueBook = continueBook,
-            denseTitle = denseTitle,
-            denseTrailing = denseTrailing
+            denseTitle = denseTitle
         )
+    }
+    // The dense header's total is CHROME (a composable read of the string
+    // table); WHICH books it describes and WHETHER it appears are the
+    // projection's rules (spec-46 T08 keeps the words out of the model).
+    val denseTrailing = if (libraryProjection.summarisesRemaining) {
+        libraryRemainingTotal(libraryProjection.shownBooks)
+    } else {
+        ""
+    }
+    val gridEntries = remember(libraryProjection, denseTrailing) {
+        libraryProjection.entries(denseTrailing)
     }
 
     // Spec-56 T3 (#730) — tell the view model which Works are visible so their
-    // availability checks jump the queue; the daily backlog waits.
+    // availability checks jump the queue; the daily backlog waits. The keys come
+    // from the entries THE GRID DRAWS (the projection's own mapping), never from
+    // the pre-grouping book list.
     LaunchedEffect(activeTab, gridEntries) {
         if (activeTab != 0) return@LaunchedEffect
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.map { it.index } }
             .collectLatest { indices ->
-                val keys = indices
-                    .mapNotNull { index ->
-                        // The hero card is a book too — it must join the queue.
-                        gridEntries.getOrNull(index)?.shownBook?.book?.mergeKey
-                    }
-                    .filter { it.isNotBlank() }
-                viewModel.onAvailabilityVisible(keys)
+                viewModel.onAvailabilityVisible(libraryWorkKeysAt(gridEntries, indices))
             }
     }
 
@@ -456,8 +447,9 @@ fun LibraryScreen(
     ) {
         val bookId = restoreFocusBookId ?: return@LaunchedEffect
         if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        // The book may be the hero card rather than a row — ask the entry.
-        val visibleIndex = gridEntries.indexOfFirst { it.showsBook(bookId) }
+        // The book may be the hero card rather than a row: the projection's own
+        // mapping asks every entry.
+        val visibleIndex = libraryIndexOfBook(gridEntries, bookId)
         when {
             visibleIndex >= 0 -> {
                 libraryGridState.scrollToItem(visibleIndex)
@@ -626,7 +618,7 @@ fun LibraryScreen(
                             )
                         }
 
-                        visibleBooks.isEmpty() -> EmptyState(
+                        libraryProjection.shownBooks.isEmpty() -> EmptyState(
                             icon = Icons.Default.Search,
                             title = stringResource(R.string.lib_no_results_title),
                             body = stringResource(R.string.lib_no_results_body)
@@ -636,14 +628,12 @@ fun LibraryScreen(
                         // composable the snapshot test drives: the screen and
                         // the harness must not be able to disagree about the
                         // shape of the book area.
+                        // #1284 — and the shape comes from the SAME projection
+                        // that built the entries, so this call site no longer
+                        // restates `browsing = false`.
                         else -> LibraryBookGrid(
                             entries = gridEntries,
-                            // #885 — must match the shape `libraryGridEntries`
-                            // built above (always the dense rows on «Книги»),
-                            // otherwise the renderer falls back to the wall of
-                            // cards and none of the row work shows up.
-                            browsing = false,
-                            gridMode = gridMode,
+                            shape = libraryProjection.shape,
                             availability = libraryAvailability,
                             downloadCounts = bookDownloadCounts,
                             restoreFocusBookId = restoreFocusBookId,
@@ -1489,33 +1479,42 @@ internal fun LibraryContinueCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
-                    LinearProgressIndicator(
-                        progress = { book.percent },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant,
-                        // #292: the M3 stop dot sat at the track's end like a
-                        // second, unexplained marker (device review, 2026-09-16).
-                        drawStopIndicator = {}
-                    )
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                    // The remaining time lives in the CTA right below — repeating
-                    // it here made the two labels fight for one line on a phone
-                    // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
-                    Text(
-                        text = stringResource(
-                            R.string.lib_progress_percent,
-                            (book.percent * 100f).roundToInt()
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    // #1187 — ADR-0014: an unknown duration renders as NOTHING.
+                    // `knownPercent` is null when no total proves one, and the
+                    // card drew an empty bar plus «Прослухано 0%» for such a
+                    // book — the sentinel read as a reading. The bar keeps
+                    // `percent` (unchanged for the totals that ARE known); only
+                    // its visibility is gated here.
+                    val knownPercent = book.knownPercent
+                    if (knownPercent != null) {
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+                        LinearProgressIndicator(
+                            progress = { book.percent },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.outlineVariant,
+                            // #292: the M3 stop dot sat at the track's end like a
+                            // second, unexplained marker (device review, 2026-09-16).
+                            drawStopIndicator = {}
+                        )
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                        // The remaining time lives in the CTA right below — repeating
+                        // it here made the two labels fight for one line on a phone
+                        // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
+                        Text(
+                            text = stringResource(
+                                R.string.lib_progress_percent,
+                                knownPercent
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
@@ -1825,10 +1824,13 @@ internal fun LibraryDenseRow(
             book.book.displayAuthor
         )
     }
+    // #1187 — ADR-0014: an unknown duration renders as NOTHING. `knownPercent`
+    // is null exactly when no total proves one, so «0%» never appears for a
+    // book whose files were never measured; the row says nothing instead.
     val progressLabel = when {
         book.isCompleted -> stringResource(R.string.lib_progress_done)
         book.isNew -> stringResource(R.string.lib_progress_new)
-        else -> "${(book.percent * 100f).roundToInt()}%"
+        else -> book.knownPercent?.let { "$it%" }
     }
     Row(
         modifier = Modifier
@@ -1972,11 +1974,13 @@ internal fun LibraryDenseRow(
                     }
                 )
             }
-            Text(
-                text = progressLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (progressLabel != null) {
+                Text(
+                    text = progressLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         LibraryInlineOfflineBadge(book, downloadCount)
     }
@@ -2476,20 +2480,40 @@ private fun LibraryBookGridContent(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { book.percent },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                    .clearAndSetSemantics { },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant,
-                // #292 carried to the shelf: the M3 stop dot read as a stray
-                // amber marker crowding the provenance chip right below it
-                // (device review, 2026-09-16).
-                drawStopIndicator = {}
-            )
+            // #1187 — an unknown book length must not be drawn as a bar. At
+            // `percent == 0f` an empty track reads exactly like "nothing
+            // listened", while the same tile's a11y description says the
+            // duration is unknown. The slot stays reserved either way, so the
+            // provenance chip below does not jump.
+            if (book.knownPercent != null) {
+                // The tag lives on a WRAPPER: `clearAndSetSemantics` below clears
+                // the bar's own semantics, so a tag placed on the indicator is
+                // invisible to the test tree — and the absence test would then
+                // pass for the wrong reason (#1187 review).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .testTag("library_tile_progress_${book.book.id}")
+                ) {
+                    LinearProgressIndicator(
+                        progress = { book.percent },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                            .clearAndSetSemantics { },
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant,
+                        // #292 carried to the shelf: the M3 stop dot read as a stray
+                        // amber marker crowding the provenance chip right below it
+                        // (device review, 2026-09-16).
+                        drawStopIndicator = {}
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             // The provenance chip sits directly under this bar. 4 dp merged
             // the two amber elements into one smudge; the chip needs air.
             Spacer(modifier = Modifier.height(10.dp))

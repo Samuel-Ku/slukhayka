@@ -18,7 +18,9 @@ import kotlin.math.max
  * honest.
  *
  * Callers without an authoritative total (locally imported books) pass 0 and
- * get the raw known-sum behaviour back.
+ * get the raw known-sum behaviour back — for POSITIONS. The book's own TOTAL is
+ * a different question, answered by [knownBookTotalSeconds]: a local book with
+ * only some chapters measured has no total at all (#1187).
  */
 fun effectiveChapterDurations(
     chapters: List<ChapterEntity>,
@@ -90,11 +92,83 @@ fun isBookFinished(
     (totalDurationSeconds > 0L && cumulativePositionSeconds >= totalDurationSeconds)
 
 /**
+ * #1187 — the book's own total, as ADR-0014 defines knowledge: the
+ * site-provided value when there is one, otherwise the sum of the chapters
+ * **only when every one of them has been measured**. A partial sum is not a
+ * shorter book — it is a count of what happened to be played or probed so far,
+ * and it grows while the listener listens.
+ *
+ * This is the line the local import crossed. A local book has no site total, so
+ * the card took the sum of the KNOWN chapters: three 45-second chapters with
+ * one played made the whole book "45 seconds long", and a listener 60 s into
+ * the third chapter read as `60 >= 45` → «Завершена», even though two thirds of
+ * the book had never been heard. The same partial sum fed the player's
+ * re-listen rule.
+ *
+ * The price of the refusal is paid in the open, and it is deliberate: a local
+ * book whose files cannot be measured — a deleted folder, an unreadable
+ * container, a codec [android.media.MediaMetadataRetriever] does not know —
+ * has no total at all. ADR-0014 then makes the card render NO number: no
+ * percent, no bar, and no remaining-time line, because 0 % there would be this
+ * function's sentinel read as a reading. Only the a11y state names the state
+ * honestly, through
+ * [com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown]
+ * («Тривалість невідома»), and the book is never called finished by position.
+ * Nothing else may be invented from file size or bitrate for a local file:
+ * those are streams' arithmetic, and
+ * [com.slukhayka.audiobooks.data.duration.ChapterDurationProbe] measures real
+ * local containers instead.
+ */
+fun knownBookTotalSeconds(
+    chapters: List<ChapterEntity>,
+    bookTotalDurationSeconds: Long
+): Long {
+    if (bookTotalDurationSeconds > 0L) return bookTotalDurationSeconds
+    if (chapters.isEmpty()) return 0L
+    if (chapters.any { it.durationSeconds <= 0L }) return 0L
+    return chapters.sumOf { it.durationSeconds }
+}
+
+/**
+ * #1187 — whether a LOAD starts at the end of the book, for the ONE completion
+ * rule ([isBookFinished]): the chapters before [chapterIndex] plus the
+ * in-chapter [positionSeconds] against [knownBookTotalSeconds].
+ *
+ * The player used to answer this by comparing the in-chapter position with the
+ * sum of the loaded chapters — two different rulers. For a local book with one
+ * played 45-second chapter, a listener 60 s into the third chapter "started at
+ * the end" and was thrown back to chapter 0 while two thirds of the book were
+ * still unheard. A load is a re-listen only when the book's own end is known
+ * and the start actually sits there; an unknown total never triggers it.
+ */
+fun startsAtBookEnd(
+    chapters: List<ChapterEntity>,
+    chapterIndex: Int,
+    positionSeconds: Long,
+    bookTotalDurationSeconds: Long
+): Boolean {
+    if (chapters.isEmpty()) return false
+    val index = chapterIndex.coerceIn(chapters.indices)
+    val durations = effectiveChapterDurations(
+        chapters = chapters,
+        currentChapterIndex = index,
+        currentChapterDurationMs = 0L,
+        bookTotalDurationSeconds = bookTotalDurationSeconds
+    )
+    return isBookFinished(
+        completedManually = false,
+        cumulativePositionSeconds = durations.take(index).sum() + positionSeconds.coerceAtLeast(0L),
+        totalDurationSeconds = knownBookTotalSeconds(chapters, bookTotalDurationSeconds)
+    )
+}
+
+/**
  * The book-level position and total of one Listening State row: the same
  * computation the library card has always shown (unknown chapter durations are
  * spread over the authoritative book total, ADR-0014 keeps the real one
  * authoritative). `progress == null` is an untouched book: no position, and the
- * total still comes from the book row's own claim.
+ * total still comes from the book row's own claim — or, for a local import
+ * whose chapters were all measured, from their sum ([knownBookTotalSeconds]).
  */
 fun bookProgress(
     chapters: List<ChapterEntity>,
@@ -108,7 +182,7 @@ fun bookProgress(
         currentChapterDurationMs = 0L,
         bookTotalDurationSeconds = bookTotalDurationSeconds
     )
-    val total = bookTotalDurationSeconds.takeIf { it > 0L } ?: chapterDurations.sum()
+    val total = knownBookTotalSeconds(chapters, bookTotalDurationSeconds)
     val beforeChapter = chapterDurations.take(currentChapterIndex).sum()
     return BookProgress(
         cumulativePositionSeconds = if (progress == null) 0L else beforeChapter + progress.currentPositionSeconds,

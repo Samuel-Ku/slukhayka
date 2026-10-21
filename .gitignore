@@ -50,7 +50,8 @@ google-services.json
 # unit tests use an inline mini fixture; the real tokenizer only loads
 # together with the model at runtime / in the eval gate.
 /app/src/main/assets/models/e5/
-/app/libs/tdlib-
+# The pinned TDLib AAR is fetched by downloadTdlib and must never be committed.
+/app/libs/tdlib-*
 
 # Stray JVM/Robolectric test reports dumped in the repo root (#269).
 /TEST-*.xml
@@ -63,3 +64,6 @@ scripts/rules-matrix/node_modules/
 scripts/rules-matrix/firestore.rules
 scripts/rules-matrix/results-*.json
 scripts/rules-matrix/*-debug.log
+
+# робочі теки сварму (логи, промпти, TMPDIR) — не вміст репозиторію
+/.cache-tmp/

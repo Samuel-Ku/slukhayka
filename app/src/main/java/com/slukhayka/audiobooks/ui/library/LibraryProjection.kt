@@ -56,11 +56,12 @@ data class LibraryBooksShape(val browsing: Boolean, val gridMode: Boolean) {
  *
  * [summarisesRemaining] is a SECOND rule, not the entry form: the dense header
  * carries the remaining-time total only once the listener narrowed the list down
- * (a status filter or a search). The screen used to hold that rule as the same
- * `false` literal written out twice — once for `denseTrailing`, once among the
- * `remember` keys — while the entry form came from a different source; two copies
- * of one fact, free to disagree. That is exactly what this module removes: the
- * default «Усі» header must not grow a total it never had.
+ * (a status filter or a search). The screen used to keep that rule in the same
+ * `browsing` variable that `denseTrailing` and the `remember` keys consumed,
+ * while the entry form was a `false` literal written out twice — in the entries
+ * builder and again in the renderer. Two facts, one name, and a literal repeated
+ * in two places, each free to drift from the other; that is exactly what this
+ * module removes. The default «Усі» header must not grow a total it never had.
  */
 class LibraryProjection internal constructor(
     /** The Work-level cards, in the listener's order. */

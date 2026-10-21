@@ -139,6 +139,13 @@ class LibraryImport(
     // edition_facets the moment the Edition row is written.
     private val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
 
+    // ADR-0004 + ADR-0007: the shared write module of Edition / Chapter /
+    // SourceTrack. The explicit import and the on-open preparation of a
+    // chapter-less Edition both persist through it, so a resolved page's
+    // Source provenance is the adapter's own at every door. Same Room
+    // transaction seam as the other batched writes of this module.
+    private val editionSourceWriter = EditionSourceWriter(dao, writeBatchRunner)
+
     /**
      * Writes the edition_facets projection of an Edition just inserted by an
      * import/cataloguing write (R1 #508) — one shared helper (the same seam
@@ -324,15 +331,25 @@ class LibraryImport(
                 }
                 // ADR-0010: the Edition id carries the narrator — two
                 // narrations of the same Work keep distinct listening state.
-                dao.insertEdition(
-                    EditionEntity(
-                        id = editionId,
-                        workId = bookId,
-                        narrator = book.narrator,
-                        language = language,
-                        totalChapters = detail.chapters.size,
-                        totalDurationSeconds = book.totalDurationSeconds
-                    )
+                // ADR-0004 + ADR-0007: the Edition, its logical Chapters and
+                // the Source's physical Tracks land through the shared write
+                // module; the page's own sourceId is the stored provenance.
+                val draftEdition = EditionEntity(
+                    id = editionId,
+                    workId = bookId,
+                    narrator = book.narrator,
+                    language = language,
+                    totalChapters = detail.chapters.size,
+                    totalDurationSeconds = book.totalDurationSeconds
+                )
+                editionSourceWriter.writeResolvedPage(
+                    bookId = bookId,
+                    bookTitle = book.title,
+                    sourceId = sourceId,
+                    pageUrl = detail.url,
+                    detail = detail,
+                    existingEdition = null,
+                    draftEdition = draftEdition
                 )
                 // R1 (#508): the Edition's facet projection (language +
                 // narrator) lands in the same transactional write seam the
@@ -343,19 +360,6 @@ class LibraryImport(
                     narrator = book.narrator,
                     language = language,
                     chapterCount = detail.chapters.size
-                )
-                val materialized = MetadataAssertions.materializeChaptersAndTracks(
-                    editionId = editionId,
-                    sourceId = sourceId,
-                    bookId = bookId,
-                    bookTitle = book.title,
-                    chapters = detail.chapters
-                )
-                dao.insertChapters(materialized.chapters)
-                val source = sourceRow(sourceId, bookId, editionId, detail.url)
-                dao.insertSources(listOf(source))
-                dao.insertTracks(
-                    materialized.tracks.map { it.copy(sourceId = source.id, id = MetadataAssertions.trackId(source.id, it.trackIndex)) }
                 )
                 // An explicit import is a user action: any tombstone of the
                 // work is cleared so a re-added book never stays hidden.
@@ -369,23 +373,36 @@ class LibraryImport(
             } else {
                 // Merge: attach the new source (unless it is already known)
                 // and give it its physical tracks. The Edition's logical
-                // chapter list stays the FIRST source's list (ADR-0007) —
-                // no chapter re-materialization on merge.
+                // chapter list stays the FIRST source's list (ADR-0007); the
+                // shared write module only materializes it when the Edition
+                // still has none, never replacing an existing order (ADR-0056).
                 val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
                 if (!known) {
                     val storedEdition = dao.getEditionForWork(existing.id)
                     val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator, language)
-                    if (storedEdition == null) {
-                        dao.insertEdition(
-                            EditionEntity(
-                                id = editionId,
-                                workId = existing.id,
-                                narrator = existing.narrator,
-                                language = language,
-                                totalChapters = existing.totalChapters,
-                                totalDurationSeconds = existing.totalDurationSeconds
-                            )
+                    // ADR-0004 + ADR-0007: attaching a physical Source goes
+                    // through the SAME write module as the new-book import.
+                    // An Edition that already owns logical Chapters keeps
+                    // them (ADR-0056 manual order survives); one that does
+                    // not materializes them from this page — the rule lives
+                    // in the module, not at the door.
+                    val written = editionSourceWriter.writeResolvedPage(
+                        bookId = existing.id,
+                        bookTitle = existing.title,
+                        sourceId = sourceId,
+                        pageUrl = detail.url,
+                        detail = detail,
+                        existingEdition = storedEdition,
+                        draftEdition = EditionEntity(
+                            id = editionId,
+                            workId = existing.id,
+                            narrator = existing.narrator,
+                            language = language,
+                            totalChapters = existing.totalChapters,
+                            totalDurationSeconds = existing.totalDurationSeconds
                         )
+                    )
+                    if (storedEdition == null) {
                         // R1 (#508): the Edition's facet projection — the
                         // domain Work id anchors the facet row (the same
                         // anchor the feed and the shared sync read).
@@ -397,14 +414,9 @@ class LibraryImport(
                             domainWorkId = domainWorkId,
                             narrator = existing.narrator,
                             language = language,
-                            chapterCount = existing.totalChapters
+                            chapterCount = written.chapters.size
                         )
                     }
-                    val source = sourceRow(sourceId, existing.id, editionId, detail.url)
-                    dao.insertSources(listOf(source))
-                    dao.insertTracks(
-                        MetadataAssertions.materializeTracks(source.id, detail.chapters)
-                    )
                 }
                 dao.deleteTombstone(existing.id)
                 // #581 W0.3 — an explicit re-add over a tombstone is a user
@@ -418,17 +430,6 @@ class LibraryImport(
                 existing.toAudiobookEntity()
             }
         }
-
-    private fun sourceRow(sourceId: String, bookId: String, editionId: String, url: String) = SourceEntity(
-        // ADR-0007: source ids are deterministic per (type, edition).
-        id = "$sourceId-$editionId",
-        bookId = bookId,
-        editionId = editionId,
-        type = sourceId,
-        url = url,
-        streamOnly = streamOnlyFor(sourceId),
-        addedAt = System.currentTimeMillis()
-    )
 
     /**
      * Spec-14 T5 — the book id for an import door: the source's adapter owns

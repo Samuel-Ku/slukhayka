@@ -48,7 +48,7 @@ sealed interface NetworkRoute {
          * this function never inspects or alters [targetUrl] itself.
          */
         fun rewrite(targetUrl: String): String =
-            baseUrl + QUERY_PARAM_URL + URLEncoder.encode(targetUrl, Charsets.UTF_8)
+            baseUrl + QUERY_PARAM_URL + URLEncoder.encode(targetUrl, "UTF-8")
 
         private companion object {
             const val QUERY_PARAM_URL = "?url="

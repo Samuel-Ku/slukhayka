@@ -31,13 +31,13 @@ enum class AbandonOffer {
  *
  * Completion arrives as [BookProgress] — the ONE shared rule
  * (`data.listening.isBookFinished`): the manual «Прослухано» flag, or a position
- * that reached the book's own end. This slice only HIDES the mark of a
- * finished book: the stored pass keeps ABANDONED, and the write that clears it
- * belongs to the reward slice of #1174 (after #1160), which has to see the mark
- * at the moment of completion to award «Друге дихання». Until that lands, a
- * finished book simply never reads as abandoned anywhere — no badge and no
- * cancel offer — which is honest: a finished book is not an abandoned one, and
- * nothing in the UI claims a write that does not exist yet.
+ * that reached the book's own end. The mark of a finished book is not only
+ * hidden here: the moment a book is finished takes the stored pass back to
+ * FINISHED ([AbandonedBooks.finish], #1174 друга смуга), so a cancelled
+ * «Прослухано» cannot bring a stale «Покинуто» badge back. The hiding below
+ * stays as the honest answer for a row that still carries the mark — one the
+ * completion never saw, either because it was written before that write existed
+ * or because the completion arrived from another device.
  */
 object AbandonBookPolicy {
 

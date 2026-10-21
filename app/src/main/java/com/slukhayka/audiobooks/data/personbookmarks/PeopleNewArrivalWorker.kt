@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
@@ -69,11 +70,15 @@ class PeopleNewArrivalWorker(
             ) ?: return
             val context = app.applicationContext
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
-            val manager = context.getSystemService(NotificationManager::class.java)
-            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-                manager.createNotificationChannel(NotificationChannel(
-                    CHANNEL_ID, "Новинки від людей", NotificationManager.IMPORTANCE_DEFAULT
-                ))
+            // Channels exist from API 26 only; API 24–25 posts the same
+            // notification the old way, without one.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val manager = context.getSystemService(NotificationManager::class.java)
+                if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+                    manager.createNotificationChannel(NotificationChannel(
+                        CHANNEL_ID, "Новинки від людей", NotificationManager.IMPORTANCE_DEFAULT
+                    ))
+                }
             }
             // ADR-0052 §6 — the alert carries the identity of the first
             // person it is about so its tap opens THAT page, not the feed.

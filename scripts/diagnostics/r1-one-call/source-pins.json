@@ -1,0 +1,10 @@
+{
+  "OnnxEmbedder.kt": "8bc959005598d65935f197def4f7cc5fe2a94a80685c3a826d7bc02d7f9b4d9b",
+  "TextEmbedder.kt": "95f5f35f9b599754171fd2d134c605fae2a32da2740a6ff51c884f43d4f1c878",
+  "UnigramTokenizer.kt": "29d044344c61fb16460e537072319185786cd738de4441da1c42c2481c6b948c",
+  "UnigramTextNormalizer.kt": "0bdd73974736795b8ac2118d534db9442124c69276370947cc376a66449d2ba6",
+  "UnigramPreTokenizer.kt": "2a3db513fdeea7342857f9bc7d458c3669b03806f0ac0f644270fa1dd8c568f7",
+  "E5RecommendationInput.kt": "1786f70b9918dd44e5ac631fe45cf1abc8cc38663aab8c99e2a3ddc6fae5384f",
+  "UnicodeGraphemes.kt": "ef253ab36fb92f32d1c1ec62b91b32653ee43468b478326d2aca25686b2eaa8f",
+  "UnicodeGraphemeTables.kt": "a4e2ebbdc1cdbb8207b77ee258e564ad51f73212ef087f0b2e09979bbf6540fe"
+}

@@ -548,6 +548,65 @@ class AudioPlayerManagerTest {
         assertEquals("no chapter after the last one", 1, factory.engines.size)
     }
 
+    // ---------------------------------------------------------------------
+    // #1187 — where a load starts is judged against a KNOWN book total, never
+    // against the sum of the chapters that happened to be listened to. The old
+    // rule compared the in-chapter position with that partial sum: a local book
+    // with one played 45-second chapter was "45 seconds long", so a listener
+    // 60 s into its third chapter was sent back to the beginning.
+    // ---------------------------------------------------------------------
+
+    /** A local import's chapters: measured ones carry seconds, the rest 0. */
+    private fun fixtureChapters(id: String, durations: List<Long>): List<ChapterEntity> =
+        durations.mapIndexed { index, duration ->
+            ChapterEntity(
+                id = "$id-ch$index",
+                bookId = id,
+                chapterIndex = index,
+                title = "Розділ ${index + 1}",
+                durationSeconds = duration
+            )
+        }
+
+    @Test
+    fun `a position in a later chapter of a partly measured local book is not a relisten`() =
+        playerTest { manager, _ ->
+            val local = book.copy(id = "local-1187", sourceUrl = "", totalDurationSeconds = 0L)
+            val fixture = fixtureChapters(local.id, listOf(45L, 0L, 0L))
+
+            manager.loadAndPlayBook(
+                local,
+                fixture,
+                playable = fixture.map { SourceCatalog.PlayableChapter(it, null) },
+                initialChapterIndex = 2,
+                initialPositionSeconds = 60L,
+                autoPlay = true
+            )
+
+            val state = manager.playerState.value
+            assertEquals("the load starts where it was asked to", 2, state.currentChapterIndex)
+            assertEquals(60L * MILLIS_PER_SECOND, state.currentPositionMs)
+        }
+
+    @Test
+    fun `starting a fully measured local book at its end is a relisten`() = playerTest { manager, _ ->
+        val local = book.copy(id = "local-1187-complete", sourceUrl = "", totalDurationSeconds = 0L)
+        val fixture = fixtureChapters(local.id, listOf(45L, 45L, 45L))
+
+        manager.loadAndPlayBook(
+            local,
+            fixture,
+            playable = fixture.map { SourceCatalog.PlayableChapter(it, null) },
+            initialChapterIndex = 2,
+            initialPositionSeconds = 45L,
+            autoPlay = true
+        )
+
+        val state = manager.playerState.value
+        assertEquals("a finished book starts from the beginning", 0, state.currentChapterIndex)
+        assertEquals(0L, state.currentPositionMs)
+    }
+
     @Test
     fun `stopAndClear stops playback and resets the state`() = playerTest { manager, factory ->
         // Arrange -- a playing book
@@ -1201,6 +1260,82 @@ class AudioPlayerManagerTest {
             awaitLedgerRows(1)
         }
 
+    /**
+     * #701 (US45) — «Відновлювач» is written from the ONE point where the heal
+     * turns into a remedy, so this callback IS the stream half's write door: if
+     * it fired on a heal that produced nothing, the award would claim a rescue
+     * that never happened (ADR-0014); if it stopped firing on a real remedy,
+     * the award would silently become unreachable and nothing else would
+     * notice.
+     *
+     * Every refusal the manager itself makes is a case here: no fresh URL, the
+     * SAME URL, audio the app blocks — plus the 403, which heals exactly like
+     * the 404.
+     */
+    @Test
+    fun `the stream heal reports a rescue once and only for a real fresh URL`() {
+        val cases = listOf(
+            "a 404 with a fresh URL" to Triple(HealerSeam { _, _, _ -> HEALED_URL }, 404, 1),
+            "a 403 with a fresh URL" to Triple(HealerSeam { _, _, _ -> HEALED_URL }, 403, 1),
+            "a heal that yields nothing" to Triple(HealerSeam { _, _, _ -> null }, 404, 0),
+            "a heal that returns the same URL" to Triple(HealerSeam { _, _, failed -> failed }, 404, 0),
+            "a heal that returns blocked audio" to Triple(HealerSeam { _, _, _ -> BLOCKED_URL }, 404, 0)
+        )
+        for ((name, case) in cases) {
+            val (healer, status, expected) = case
+            var healed = 0
+            playerTest(healer = healer, onStreamHealed = { healed++ }) { manager, factory ->
+                manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+                factory.current.simulateError(streamErrorOf(status))
+                runCurrent()
+                assertEquals(name, expected, healed)
+            }
+        }
+    }
+
+    /**
+     * The heal budget is one retry per chapter prepare, so ONE rescue cannot be
+     * reported twice: the fresh URL is dead too and the second failure never
+     * reaches the healer at all.
+     */
+    @Test
+    fun `a second failure in the same prepare is not a second rescue`() {
+        var healed = 0
+        playerTest(healer = HealerSeam { _, _, _ -> HEALED_URL }, onStreamHealed = { healed++ }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+            assertEquals("the first heal is a rescue", 1, healed)
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+            assertEquals("the budget is spent — no second rescue", 1, healed)
+        }
+    }
+
+    /**
+     * A YouTube watch URL never changes, so that branch only re-asks the
+     * resolver: it cannot tell a rescue from a second failure, and recording it
+     * would record an attempt as a success (ADR-0014). The award's stream door
+     * therefore stays silent there.
+     */
+    @Test
+    fun `a YouTube heal is not a rescue - nothing there proves a fresh URL`() {
+        var healed = 0
+        val youTubePlayable = playable.mapIndexed { index, chapter ->
+            if (index == 0) chapter.copy(track = chapter.track!!.copy(url = YOUTUBE_WATCH_URL)) else chapter
+        }
+        playerTest(healer = HealerSeam { _, _, _ -> HEALED_URL }, onStreamHealed = { healed++ }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = youTubePlayable, initialChapterIndex = 0, autoPlay = true)
+            factory.current.simulateError(streamErrorOf(404))
+            runCurrent()
+
+            assertEquals("watch-URL re-resolution proves no rescue", 0, healed)
+        }
+    }
+
     @Test
     fun `selecting a missing track stops old audio and retains requested chapter position`() = playerTest { manager, factory ->
         val incomplete = playable.mapIndexed { index, item ->
@@ -1699,6 +1834,9 @@ class AudioPlayerManagerTest {
         // URLs). Null keeps the identity resolver (plain URL pass-through).
         resolver: (suspend (String) -> String?)? = null,
         onBookCompleted: (String) -> Unit = {},
+        // #701 (US45): the self-heal success door «Відновлювач» reads. Null
+        // keeps the pre-award behaviour for every other test here.
+        onStreamHealed: (() -> Unit)? = null,
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
@@ -1722,7 +1860,8 @@ class AudioPlayerManagerTest {
             // Spec-22 T4: widget sync is a forever-running sampled collector;
             // keep it off the test scheduler.
             widgetSyncEnabled = false,
-            onBookCompleted = onBookCompleted
+            onBookCompleted = onBookCompleted,
+            onStreamHealed = onStreamHealed
         )
         try {
             body(manager, factory)
@@ -1809,6 +1948,12 @@ class AudioPlayerManagerTest {
         const val HEALED_URL = "https://cdn.sound-books.net/kobzar/healed-1.mp3"
         const val HEALED_URL_2 = "https://cdn.sound-books.net/kobzar/healed-2.mp3"
         const val FALLBACK_URL = "https://sound-books.net/kobzar/fallback-1.mp3"
+
+        /** #701 (US45): audio the app refuses — never a rescue. */
+        const val BLOCKED_URL = "https://4read.org/m3u/blocked-1.mp3"
+
+        /** #701 (US45): the watch URL whose branch only re-asks the resolver. */
+        const val YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v=6XIPkMFZf-0"
     }
 
     /**

@@ -239,6 +239,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
 
     /**
+     * ADR-0046 / #1286 — the reading-progress module. The screen reads its
+     * [com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.state]
+     * directly (ADR-0008): the active list and the yearly goal are computed
+     * inside the module from one snapshot, so the ViewModel no longer maps rows
+     * or refreshes two separate flows after every action.
+     */
+    val readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder =
+        App.instance.readingProgressRecorder
+
+    /**
      * ADR-0047 / #867 — the «Імпортоване» queue: rows whose origin the data does
      * not recover. It is a TEMPORARY home, not a second library: the listener
      * either confirms a row as personal or removes the link.
@@ -283,85 +293,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
     /**
-     * #876 — «Мій рік»: the yearly reading goal, computed by the pure policy
-     * from every pass. Formats are reported separately: their units cannot be
-     * summed, and the goal counts PASSES, not pages or minutes.
-     */
-    private val _readingYear = MutableStateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?>(null)
-    val readingYear: StateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?> =
-        _readingYear.asStateFlow()
-
-    /**
-     * #876 — the passes the listener can still move: the progress-entry surface
-     * shows exactly these, and every action goes through the policy.
-     */
-    private val _activeReadings =
-        MutableStateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>>(emptyList())
-    val activeReadings: StateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>> =
-        _activeReadings.asStateFlow()
-
-    fun refreshActiveReadings() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _activeReadings.value = runCatching {
-                with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
-                    App.instance.audiobookDao.allReadthroughs()
-                        .mapNotNull { it.toModelOrNull() }
-                        .filter {
-                            it.state == com.slukhayka.audiobooks.data.entries.ReadingState.IN_PROGRESS ||
-                                it.state == com.slukhayka.audiobooks.data.entries.ReadingState.PLANNED
-                        }
-                        .sortedByDescending { it.startedAt }
-                }
-            }.getOrDefault(emptyList())
-        }
-    }
-
-    /** One journal record; the queue is re-read so the surface shows the truth. */
-    fun recordReadingProgress(readthroughId: String, value: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                App.instance.readingProgressRecorder.record(
-                    readthroughId,
-                    at = System.currentTimeMillis(),
-                    value = value
-                )
-            }
-            refreshActiveReadings()
-            refreshReadingYear()
-        }
-    }
-
-    fun finishReading(readthroughId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                App.instance.readingProgressRecorder.finish(
-                    readthroughId,
-                    at = System.currentTimeMillis()
-                )
-            }
-            refreshActiveReadings()
-            refreshReadingYear()
-        }
-    }
-
-    fun refreshReadingYear(year: Int = java.time.LocalDate.now().year) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _readingYear.value = runCatching {
-                val passes = with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
-                    App.instance.audiobookDao.allReadthroughs().mapNotNull { it.toModelOrNull() }
-                }
-                com.slukhayka.audiobooks.data.entries.ReadingProgressPolicy.yearlyGoal(passes, year)
-            }.getOrNull()
-        }
-    }
-
-    /**
      * spec-52 US28 / #1174 — the books the listener abandoned. One flow feeds
      * both surfaces: the «Покинуто» badge in the library and the book page's
      * cancel, so the mark appears and disappears everywhere at once.
+     *
+     * #1174 (друга смуга): the flow is the LIVE marks — the same one the
+     * «Не кидаю» award reads. A mark on a book whose completion is already
+     * proven (one that arrived from another device, say) is not a mark any
+     * surface can show, so it is not one the award may count either.
      */
     val abandonedBookIds: StateFlow<Set<String>> = App.instance.abandonedBooks
-        .observeAbandonedBookIds()
+        .observeLiveAbandonedBookIds()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     /**
@@ -1285,6 +1227,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // source announces exactly once). Zero-request rides: the
                 // watch reads the verdict the resolver already produced.
                 if (match != null) {
+                    // #701 (US44) — «Резолвер»: the cross-resolve really found
+                    // a direct counterpart. This gateway is the ONE success
+                    // point of the mechanism, and Room records nothing about
+                    // the verdict afterwards, so the fact is captured here.
+                    App.instance.recordAchievementFact(
+                        com.slukhayka.audiobooks.data.achievements.AchievementFact.CROSS_RESOLVED
+                    )
                     runCatching {
                         SourceWatchNotifier.notifyMappingVerdict(
                             App.instance,
@@ -1354,6 +1303,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _cacheSizeFormatted = MutableStateFlow("0 МБ")
     val cacheSizeFormatted: StateFlow<String> = _cacheSizeFormatted.asStateFlow()
+
+    // #1163 — the private copies of local imports (`filesDir/local_imports`) are
+    // app data too, but they are NOT downloads: the storage screen shows them as
+    // their own figure instead of letting a downloads-only number answer «куди
+    // поділися 3,23 ГБ» with «0 МБ».
+    private val _localCopyBytes = MutableStateFlow(0L)
+    val localCopyBytes: StateFlow<Long> = _localCopyBytes.asStateFlow()
+
+    /**
+     * #1163 — the books whose audio is readable on disk right now, re-read from
+     * the filesystem (not from the historical `isDownloaded` flag) so the
+     * library's «На пристрої» filter and the storage screen agree on one fact.
+     * Initial value is empty: the filter shows nothing until the first read
+     * lands, never a book whose copy may be gone.
+     */
+    private val _onDeviceBookIds = MutableStateFlow<Set<String>>(emptySet())
 
     // Spec-40: these fields must be initialized before the init block starts
     // identity resolution on Dispatchers.IO. Keeping them below init made a
@@ -1499,11 +1464,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * #1163 — the three facts only the filesystem can answer, read together so
+     * the storage card, the destructive confirmation and the library's «На
+     * пристрої» filter can never quote three different moments:
+     *
+     * - the SOURCE downloads' bytes;
+     * - the private local copies' bytes (their own figure, never added to the
+     *   downloads' — the owner decision of 2026-10-11 names them separately);
+     * - the books that really have a readable copy on disk.
+     */
     fun refreshCacheSize() {
         viewModelScope.launch(Dispatchers.IO) {
-            val bytes = offlineDownloads.getAudioCacheSizeBytes()
-            _cacheSizeBytes.value = bytes
-            _cacheSizeFormatted.value = formatBytes(bytes)
+            val usage = offlineDownloads.getAppStorageUsage()
+            _cacheSizeBytes.value = usage.downloadedBytes
+            _cacheSizeFormatted.value = formatBytes(usage.downloadedBytes)
+            _localCopyBytes.value = usage.localCopyBytes
+            _onDeviceBookIds.value = offlineDownloads.bookIdsOnDevice()
         }
     }
 
@@ -1517,12 +1494,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Wayfinder #39: the unified Медіатека list — every book with its playback
     // state and chapter-derived metrics. Filtering and sorting happen in the
     // screen via the pure filterAndSortLibrary; this flow only combines.
+    //
+    // #1163 — the readable-copy ids ride along: «На пристрої» must be decided by
+    // what is on the disk right now, and the filesystem is not a Room table, so
+    // the answer arrives as [refreshCacheSize]'s fourth flow. A change to it
+    // re-derives the list, which is exactly the moment the filter's set changes.
     val libraryBooks: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> = combine(
         libraryEntries.allBooks,
         libraryEntries.recentProgress,
-        libraryEntries.allChapters
-    ) { books, progress, chapters ->
-        com.slukhayka.audiobooks.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
+        libraryEntries.allChapters,
+        _onDeviceBookIds
+    ) { books, progress, chapters, onDeviceIds ->
+        com.slukhayka.audiobooks.ui.library.buildLibraryBooks(
+            books,
+            progress,
+            chapters.groupBy { it.bookId },
+            onDeviceIds
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
@@ -1694,10 +1682,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Issue #752 — the manual «Прослухано» toggle. Sets the completion flag on
      * the Edition's Listening State (no new entity, no position change) and
      * pushes it so it mirrors across the listener's linked devices.
+     *
+     * #1174 (друга смуга): a finished book is not an abandoned one, so marking
+     * one takes the «покинуто» mark away through the same door the player's
+     * completion uses. This door deliberately captures NO
+     * «завершив після покинутого» fact — ADR-0060 reads completion for the
+     * awards as the end-of-book event, never as a hand-set flag. The mark goes
+     * because the state would otherwise contradict itself (and a cancelled
+     * «Прослухано» would bring a stale badge back), not because the listener
+     * proved they finished the book.
+     *
+     * The write is best-effort, like every other abandon door here: a failure
+     * must not take the completion flag, the sync push or the process down with
+     * it — the mark then stays for the next completion to take away.
      */
     fun setCompleted(bookId: String, completed: Boolean) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             listeningState.setCompleted(bookId, completed)
+            if (completed) {
+                runCatching { App.instance.abandonedBooks.finish(bookId) }
+                    .onFailure { android.util.Log.w("MainViewModel", "позначку «покинуто» не знято для $bookId", it) }
+            }
             progressSync.pushAfterSave(bookId, immediate = true)
         }
     }
@@ -2241,6 +2246,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // LibraryImport. Ordinary URL recovery has a factual
                         // playback verdict; keep that opened track installed.
                         _showFullPlayer.value = true
+                        // #701 (US45) — «Відновлювач», the browser-recovery
+                        // door. A SUCCESS is not by itself a rescue: an
+                        // ordinary URL recovery carries a factual playback
+                        // verdict, while an automatic topology repair
+                        // (`autoRepairedStructure`) is published paused and has
+                        // none — both still restored a source the listener
+                        // already had, which is what the award is about. A
+                        // success that is a NEW import is the browser door doing
+                        // its ordinary job, so it writes nothing
+                        // (`Outcome.Success.isRescue` owns that reading). The
+                        // stream self-heal writes the SAME fact (App.kt), and
+                        // one award reads both.
+                        if (outcome.isRescue) {
+                            App.instance.recordAchievementFact(
+                                com.slukhayka.audiobooks.data.achievements.AchievementFact.SOURCE_RECOVERED
+                            )
+                        }
                         if (sourceId == "4read") {
                             offlineDownloads.confirmBrowserRefresh(outcome.book.id)
                         }
@@ -5957,6 +5979,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Local import failed", e)
                 _importMessage.value = "Не вдалося імпортувати файл"
+            } finally {
+                // #1163 — the new private copy IS the «На пристрої» proof, and
+                // the filesystem is not a Room table: without this read the
+                // filter would not see the book until the next app start.
+                refreshCacheSize()
             }
         }
     }
@@ -6001,6 +6028,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Preview import failed", e)
                 _importMessage.value = "Не вдалося імпортувати папку"
+            } finally {
+                // #1163 — the applied plan's private copies are now on disk, so
+                // «На пристрої» can include them on the very next frame.
+                refreshCacheSize()
             }
         }
     }
@@ -6112,6 +6143,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Re-scan failed", e)
                 _importMessage.value = "Не вдалося пересканувати папки"
+            } finally {
+                // #1163 — a re-scan adds and loses private copies; the readable
+                // set and the local-copies figure must follow it.
+                refreshCacheSize()
             }
         }
     }

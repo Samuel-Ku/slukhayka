@@ -1,0 +1,949 @@
+#!/usr/bin/env python3
+"""Час джоби міряється ТАМ, ДЕ ЛІМІТ ДІЄ, і відтворюється командою (#1299).
+
+Що було не так. Серія міряла час набору `scripts/tests` ЛОКАЛЬНО й діставала
+159–239 с проти ліміту джоби `timeout-minutes: 5` (300 с). Звідси «запас 61 с
+(20 %)» і розмови про підняття ліміту. Справжній час тієї самої джоби
+(`Script unit tests`) на CI — 128–137 с на п'яти прогонах 2026-10-13/14, тобто
+запас ≈2.2×, а не 20 %. Локальні числа не «трохи інші»: вони міряні на машині,
+яка ділить RAM і CPU із сусідніми смугами (13/15 ГБ, load 5.4), тож міряють
+навантаження машини, а не джобу. Запас міряли не на тій машині — і кожна смуга
+серії чесно писала «час із тікета не відтворюється», не знаючи, чому.
+
+Механізм робить дві речі, і обидві — дані, а не проза:
+
+  * **міряє** джобу там, де ліміт діє. `gh api` віддає останні N завершених
+    прогонів `main` (подія `push`) воркфлоу `WORKFLOW`, а для кожного —
+    `started_at` і `completed_at` джоби, названої в `ci.yml`. Ліміт — не
+    константа тут: `timeout-minutes` читається з ТОГО САМОГО блоку `ci.yml`, і
+    звідти ж беруться імʼя джоби та команда, яку вона виконує. Число, яке не
+    виводиться (немає `gh`, немає прогонів `main`, джоби немає в прогоні, коду
+    виходу `gh` не розібрано, API віддав прогін не з `main`, прогін не несе
+    ревізії, жоден прогін вікна не будував це дерево), — невідомість
+    (2), а не «нуль»;
+  * **тримає числа доку**. `CLAIMS` — рядки в дереві, які щось кажуть про час
+    цієї джоби. Кожне число-секунда на такому рядку мусить бути ЛИБО лімітом,
+    виведеним із `ci.yml`, ЛИБО частиною локального виміру, ПОЗНАЧЕНОГО разом
+    із навантаженням машини. І літерал `timeout-minutes: N` на тому самому
+    рядку мусить дорівнювати тому самому лімітові: ліміт стоїть у прозі двічі,
+    і гейт, який читав би лише секунди, змушував би правити лише їх — а копія
+    хвилинами пережила б ту правку брехнею (#1319). Замороженого числа джоби в
+    доку бути не може: воно розійдеться з CI на наступному ж прогоні, і не
+    почервоніє ніщо. Те, що не дрейфує, — ВІДНОШЕННЯ (`HEADROOM_RATIO`), і
+    його міряє прогін.
+
+Чому саме CI-число, а не локальне. `timeout-minutes` застосовується до джоби на
+раннері, а `started_at`/`completed_at` з API — це ті самі дві точки, між якими
+ліміт і діє. Локальний `python3 -m unittest` міряє інше: ту саму роботу ПЛЮС
+конкуренцію за машину. Тому локальне число не сміє видаватися за час джоби:
+`--local` друкує його РАЗОМ із навантаженням і прямо каже, що це не час джоби, а
+правило `CLAIMS` приймає локальне число лише з цим позначенням. Межа — в коді:
+непоміченого локального числа не приймає ні CLI, ні перевірка.
+
+Межі названі тут, у коді, а не лише в звіті:
+
+  * **вікно — останні `WINDOW` завершених прогонів `main` (подія `push`), і це
+    не «завжди».** Історія прогонів у GitHub обмежена, а API віддає вікно, а не
+    всю історію; тому механізм питає `per_page` із запасом (`FETCH_SLACK`) і бере
+    перші `WINDOW` ЗАВЕРШЕНИХ. Прогін, який ще біжить, у вікно не входить —
+    інакше число джоби залежало б від того, коли його спитали. Чому саме пʼять:
+    пʼяти вистачає, щоб побачити розкид, і задосить мало, щоб зелений день не
+    виглядав як зелений тиждень. «Останні N» — не «завжди», і `--list` друкує
+    N разом із причиною;
+  * **вікно прив'язане до ДЕРЕВА, а не лише до `main`.** Прогони `main` — це
+    різні дерева: злиття змінює код, і час джоби разом із ним (#1313 зрізав
+    його вдвічі), тож «останні N» без ревізії подають час джоби ІНШОГО дерева —
+    й механізм не має способу це сказати. Кожен прогін несе `head_sha`, і в
+    підлогу входять лише ті, чия ревізія дорівнює ревізії цього дерева
+    (`git rev-parse HEAD`). Межа зміни видима: прогін про це дерево позначений,
+    а решта названі — «ІНШЕ дерево» — разом зі своєю ревізією, і їхні секунди в
+    підлогу не входять. Коли ж усі прогони вікна про це дерево, поведінка
+    незмінна: ті самі прогони, ті самі числа, той самий вердикт — гейт не стає
+    галасливим там, де межа не перетнута. Якщо жоден прогін вікна не будував це
+    дерево (або `gh` не дав `head_sha`), числа немає — це невідомість (2), а не
+    найновіше число з чужого дерева. Межа названа й тут: прогін, який ще біжить,
+    у вікно не входить, тож дерево, чий прогін ще не завершився, — теж
+    невідомість (2), а не число з попереднього дерева;
+  * **джерело вікна — ОДНЕ: `main` (подія `push`), і це фільтр у ЗАПИТІ.**
+    Підлога — твердження про `main`, тож міряються прогони `main`, а не «всі
+    прогони воркфлоу» (#1307). Прогін чужого PR у вікно не входить тому, що
+    його НЕ ПИТАЮТЬ (`branch=`, `event=` у запиті) — а не тому, що його
+    відкинуто після виміру: відкидання лишало б код, здатний змішати джерела, і
+    саме так повільний PR-прогін ламав підлогу `main` (#1307): у вікні,
+    зібраному з усіх гілок, найповільнішим виявився чужий прогін, і механізм
+    повідомив про порушення, якого на `main` не було. Другий бік того самого —
+    відмова: прогін, який API віддав ПОПРИ фільтр (не `main` або не `push`), не
+    міряється й не відкидається тихо, а робить вікно невідомістю (2). Межа
+    названа прямо: прогонів `main` у запитаній сторінці може бути менше за
+    `WINDOW` (у вікні були лише PR) — тоді це 2, а не менше вікно і не вигадане
+    число;
+  * **міряється те, що записав GitHub.** Число — це `completed_at − started_at`
+    тієї джоби, яку API назвав цим імʼям. Воно НЕ включає чергу до призначення
+    раннера (її в цих двох точках немає) і не включає час ретраю: ретрай — це
+    другий запис джоби з тим самим імʼям, і кілька таких записів механізм
+    відмовляється вгадувати (невідомість, а не «взяли перший»);
+  * **`gh` — це вимір, а не істина.** Механізм не має власної думки про те, що
+    сталося на CI: він читає два поля. Тому «джоба зелена» тут не означає
+    нічого — міряється ЧАС, а не вердикт прогону, і прогін, що впав на 130-й
+    секунді, дасть те саме число, що й зелений;
+  * **зарахування рядка — руками.** Жодне статичне правило не відрізняє
+    «рядок, який щось стверджує про час джоби» від «рядка, де слово `с` — не
+    секунда»; тому `CLAIMS` явний, як `FIGURES` і `GUARDS`, і питання огляду
+    звужується до одного — «де його запис?». Незарахований рядок механізм не
+    бачить, і цього не вдає;
+  * **локальне число механізм не ПЕРЕВІРЯЄ — він вимагає позначку.** Скільки
+    саме тривав той прогін і яким було навантаження тієї хвилини, з дерева не
+    видно: `--local` називає навантаження (більше з двох семплів — до й після
+    прогону) і памʼять, але брехню в позначці ловить око оглядача, не код.
+    Розділити «локальний вимір» і «число CI, підшите під локальне» за значенням
+    нема чим — тому в доку немає жодного замороженого числа CI: місце
+    виміряного числа — вивід механізму, а місце того, що не дрейфує, — ліміт і
+    відношення;
+  * **позначка — це СЛОВО, а не підрядок.** `local` і `load` читаються за
+    межами слова, тож `download` і `upload` позначки не дають: рядок «the local
+    build downloads 240 s» проходив як локальний вимір, доки читався підрядок
+    (це знайшов огляд PR #1302 прогоном, не автор). Лишається назване: рядок,
+    який справді каже `local` і `load` про різні речі, позначку дає —
+    розрізнити «позначив» і «сказав два потрібні слова» структурно нема чим;
+  * **рядок благополуччя — свій у кожного режиму.** `--local` не питає `gh` і не
+    міряє джобу, тож і не каже, що міряв: «час джоби міряно» лишається рядком
+    того режиму, який справді питав `gh api`. Рядок, який суперечив би позначці
+    просто над ним, — те саме, проти чого цей механізм написаний (знайшов огляд
+    PR #1302);
+  * **позначений рядок приймає БУДЬ-ЯКЕ число на собі** (правило лінійне:
+    рядок локальний — усі його секунди локальні). Це ціна того, що правило
+    читає рядок, а не думку автора; тому зараховані рядки й лежать у `CLAIMS`
+    поіменно, а не шукаються по корпусу;
+  * **ліміт читається, а не правиться.** `ci.yml` механізм не чіпає: підняти
+    `timeout-minutes` — рішення власника, а не ліки від червоного. Якщо ліміт
+    змінити, числа в документах розійдуться з ним, і `--check-docs` це назве;
+  * **обидва числа ліміту на рядку — під гейтом, а не лише секунди.** Той самий
+    ліміт стоїть у прозі двічі: секундами (вони виводяться з `ci.yml`) і
+    літералом `timeout-minutes: N`. Гейт, який читав би лише секунди, змушував
+    би правити лише їх, і копія хвилинами пережила б ту правку брехнею — саме
+    так рядок «`timeout-minutes: 5` при правильних секундах (480 с)» був
+    зелений (#1319). Тому `claim_findings` читає ОБИДВА числа того самого
+    рядка: секунди мусять дорівнювати лімітові, і літерал хвилинами — теж
+    (`N * 60`). Без цієї половини гейт вимагав би правки, яка лишає документ
+    неправдивим.
+
+Коди виходу: 0 — час джоби міряно на N прогонах `main`, які будували ЦЕ дерево,
+відношення тримається, і кожне число в документах виводиться; 1 — знахідка
+(прогін дійшов до ліміту або перевищив його, відношення більше не тримається,
+число в доку не виводиться й не позначене, літерал `timeout-minutes` не
+дорівнює лімітові); 2 — перевірити не вдалося (немає
+`gh` або він не відповів, немає завершених прогонів `main` у вікні, API віддав
+прогін не з `main`, джоби немає в прогоні, кілька джоб із тим імʼям, `ci.yml` не
+розібрано, немає `timeout-minutes`, немає `origin`, немає `git` або `HEAD` не
+прочитано, API не дав `head_sha`, жоден прогін вікна не будував це дерево, файлу
+немає, якір не один, рядок більше не несе числа, `/proc` не прочитано).
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+# Джоба, чий час міряється. Ключ — те, що стоїть у `ci.yml` перед двокрапкою;
+# імʼя, ліміт і команду механізм читає з її ж блоку, а не пише вдруге.
+WORKFLOW = ".github/workflows/ci.yml"
+JOB_KEY = "script-tests"
+
+# Скільки завершених прогонів входить у вікно і скільки зайвих питати в API,
+# щоб незавершені прогони не зʼїли вікно. Обидва числа — межа, названа в шапці.
+WINDOW = 5
+FETCH_SLACK = 3
+
+# Джерело вікна: підлога — про `main`, і міряється вона на прогонах `main`
+# (подія `push`). Це не «фільтр після виміру»: гілка й подія стоять у САМОМУ
+# запиті до API, тож прогін чужого PR у вікно не потрапляє — його не питають
+# (#1307). Змішане вікно міряло б не ту підлогу, про яку каже документ, і
+# повідомляло б про порушення, якого на `main` немає.
+MAIN_BRANCH = "main"
+MAIN_EVENT = "push"
+
+# Ревізія дерева, до якої прив'язується вікно. Джерело — git, а не константа:
+# вікно міряє різні дерева (злиття міняє код, і час джоби разом із ним), тож
+# число про час джоби існує лише для того дерева, чия ревізія стоїть на прогоні
+# (`head_sha`). Скільки знаків ревізії показувати — це межа рядка звіту, не
+# джерела: порівнюється повна ревізія.
+REVISION_COMMAND = ("rev-parse", "HEAD")
+REVISION_LENGTH = 8
+
+# Відношення, яке тримає доку: ліміт мусить бути не меншим за це число, помножене
+# на найповільніший виміряний прогін `main`. Це ПІДЛОГА, не прогноз: раннер, який
+# уповільниться вдвічі, почервонить механізм — і це буде правдою про ліміт.
+HEADROOM_RATIO = 2
+
+# Рядки, які щось стверджують про час цієї джоби: (файл, якір рядка). Якір
+# мусить траплятися у файлі рівно раз. Розширюють руками, як `FIGURES`.
+CLAIMS = (
+    ("docs/agents/local-environment.md",
+     "is capped by"),
+    ("docs/agents/local-environment.md",
+     "shared machine under load"),
+    ("docs/agents/local-environment.md",
+     "locally under load"),
+    ("CONTRIBUTING.md",
+     "ліміт тієї ж джоби"),
+)
+
+# Число-секунда: `300 s`, `176 с`. Межі `(?<![\w.,])` не дають зійти за число
+# хвосту десяткового дробу; `×` сюди не входить навмисно — відношення це не час.
+SECONDS = re.compile(r"(?<![\w.,])(\d+(?:\.\d+)?)\s*(?:s|с)\b")
+
+# Літерал ліміту хвилинами на зарахованому рядку: `timeout-minutes: 8`. Це ДРУГЕ
+# число того самого ліміту на тому самому рядку, і воно мусить виводитися так
+# само, як секунди: гейт за секундами змушує правити лише їх, і неперевірена
+# копія хвилинами пережила б ту правку брехнею (#1319). Читається з рядка, а не
+# з `ci.yml`, бо саме рядок і треба перевірити.
+TIMEOUT_MINUTES = re.compile(r"timeout-minutes\s*:\s*(\d+)")
+
+# Позначки локального виміру — це СЛОВА, а не підрядки. Локальне число
+# приймається лише тоді, коли на тому самому рядку названо І те, що воно локальне,
+# І навантаження машини: без цього воно виглядає як час джоби — а це рівно те, за
+# що заплатила серія #1299. Межі слова тут не прикраса: підрядкове читання
+# («load» у `download`/`upload`) давало позначку рядкові, який навантаження не
+# називає, — і це знайшов огляд PR #1302 прогоном, не автор.
+LOCAL_MARK = ("local", "locally", "локально", "локальне", "локальний", "локальна",
+              "локальні", "локальним", "локальних", "локальній")
+LOAD_MARK = ("load", "loaded", "loading", "loads", "навантаження", "навантаженням",
+             "навантаженні")
+
+# Те, що `--local` виконує: команда береться з блоку джоби в `ci.yml`. Якщо її
+# там немає або вона не одна — локальний вимір неможливий (невідомість), а не
+# «схожа команда».
+LOCAL_TIMEOUT_SECONDS = 1800
+
+
+class JobTimeError(Exception):
+    """Те, що механізм не розібрав. Невідомість, а не «час джоби є»."""
+
+
+class Measurement:
+    """Один виміряний прогін: номер, коли почався, секунди джоби.
+
+    `branch` і `event` несуться разом із числом навмисно: рядок звіту, який не
+    називає джерело, не дає побачити, з чого зібране вікно, — а саме на цьому
+    згоріла підлога, поки вікно мішало `main` із чужими PR (#1307).
+
+    `revision` несе те саме, тільки про дерево: джерело вікна — не лише гілка й
+    подія, а й те, ЯКИЙ код прогін будував. Число без ревізії не дає побачити,
+    що воно про ІНШЕ дерево, — і саме на цьому підлога подала час джоби чотири
+    правки тому за сьогоднішній (#1317).
+    """
+
+    def __init__(self, run_id: str, created_at: str, seconds: int,
+                 branch: str, event: str, revision: str):
+        self.run_id = run_id
+        self.created_at = created_at
+        self.seconds = seconds
+        self.branch = branch
+        self.event = event
+        self.revision = revision
+
+
+# --------------------------------------------------------------------------
+# ci.yml: імʼя джоби, ліміт і команда — з одного блоку
+# --------------------------------------------------------------------------
+
+
+def job_block(text: str, key: str = JOB_KEY) -> list[str]:
+    """Рядки блоку джоби `key` у воркфлоу.
+
+    Ключі джобів стоять на двох пробілах, їхні поля — на чотирьох, тому кінець
+    блоку — перший непорожній рядок, відступ якого менший за чотири пробіли.
+    Коментарі на рівні ключів (їх у `ci.yml` багато) блоком не вважаються.
+    """
+    lines = text.splitlines()
+    hits = [index for index, line in enumerate(lines) if line.rstrip() == "  %s:" % key]
+    if len(hits) != 1:
+        raise JobTimeError(
+            "джоба %r трапляється у воркфлоу %d раз(и), а мусить рівно раз"
+            % (key, len(hits))
+        )
+    block: list[str] = []
+    for line in lines[hits[0] + 1:]:
+        if line.strip() and not line.startswith("  #") and not line.startswith("    "):
+            break
+        block.append(line)
+    return block
+
+
+def workflow_lines(root: Path = ROOT, workflow: str = WORKFLOW) -> list[str]:
+    """Рядки воркфлоу; немає файлу — невідомість (2), а не непійманий виняток."""
+    try:
+        return (root / workflow).read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise JobTimeError("немає %s — джобу не прочитати (%s)" % (workflow, error))
+
+
+def job_field(block: list[str], name: str) -> str:
+    """Поле джоби, оголошене рівно на чотирьох пробілах (не крок і не матриця)."""
+    pattern = re.compile(r"^    %s:\s*(\S.*?)\s*$" % re.escape(name))
+    found = [match.group(1) for line in block if (match := pattern.match(line))]
+    if len(found) != 1:
+        raise JobTimeError(
+            "поле %r оголошене %d раз(и), а мусить рівно раз" % (name, len(found))
+        )
+    return found[0]
+
+
+def limit_seconds(root: Path = ROOT, workflow: str = WORKFLOW,
+                  key: str = JOB_KEY) -> int:
+    """Ліміт джоби в секундах — із `timeout-minutes`, а не з константи тут."""
+    try:
+        minutes = int(job_field(job_block("\n".join(workflow_lines(root, workflow)), key),
+                                "timeout-minutes"))
+    except ValueError:
+        raise JobTimeError("timeout-minutes у блоці %s — не ціле число" % key)
+    if minutes <= 0:
+        raise JobTimeError("timeout-minutes у блоці %s — %d" % (key, minutes))
+    return minutes * 60
+
+
+def job_name(root: Path = ROOT, workflow: str = WORKFLOW, key: str = JOB_KEY) -> str:
+    """Імʼя джоби, яким її називає API, — теж із блоку, а не з прози."""
+    return job_field(job_block("\n".join(workflow_lines(root, workflow)), key), "name")
+
+
+def local_command(root: Path = ROOT, workflow: str = WORKFLOW,
+                  key: str = JOB_KEY) -> tuple[str, ...]:
+    """Команда, яку виконує джоба, — з `run:` її блоку.
+
+    Кілька `run:` — невідомість: джоба з двома кроками міряється не однією
+    командою, і взяти першу означало б міряти не те, що міряє CI.
+    """
+    block = job_block("\n".join(workflow_lines(root, workflow)), key)
+    runs = [line.strip()[len("run:"):].strip() for line in block
+            if re.match(r"^\s*run:\s*\S", line)]
+    if len(runs) != 1:
+        raise JobTimeError(
+            "кроків `run:` у блоці %s — %d, а локальний вимір мусить знати рівно "
+            "один" % (key, len(runs))
+        )
+    return tuple(shlex.split(runs[0]))
+
+
+# --------------------------------------------------------------------------
+# Вимір: gh api, останні N завершених прогонів
+# --------------------------------------------------------------------------
+
+
+def gh_executable() -> str:
+    """Шлях до `gh`; його відсутність — невідомість, а не «нуль прогонів»."""
+    found = shutil.which("gh")
+    if found is None:
+        raise JobTimeError(
+            "немає `gh` — час джоби міряється на CI, і взяти його більше нізвідки"
+        )
+    return found
+
+
+def repository(root: Path = ROOT) -> str:
+    """`owner/name` із `origin` цього дерева — щоб не питати не той репозиторій."""
+    git = shutil.which("git")
+    if git is None:
+        raise JobTimeError("немає `git` — репозиторій із `origin` не взяти")
+    result = subprocess.run(
+        [git, "-C", str(root), "remote", "get-url", "origin"],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        raise JobTimeError("немає `origin`: %s" % result.stderr.strip())
+    match = re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?$", result.stdout.strip())
+    if match is None:
+        raise JobTimeError("`origin` не з github.com: %r" % result.stdout.strip())
+    return match.group(1)
+
+
+def tree_revision(root: Path = ROOT) -> str:
+    """Ревізія ЦЬОГО дерева — `git rev-parse HEAD` у його корені.
+
+    Джерело — git, а не константа: ревізія мусить рухатися разом із деревом, бо
+    саме нею вікно відрізняє прогони про сьогоднішній код від прогонів про
+    вчорашній. Немає `git`, немає репозиторію, `HEAD` не прочитано — невідомість
+    (2): без ревізії вікно не прив'язати, а число про інше дерево — це рівно те,
+    що цей механізм і виправляє.
+    """
+    git = shutil.which("git")
+    if git is None:
+        raise JobTimeError(
+            "немає `git` — ревізію дерева не взяти, а без неї вікно не прив'язати "
+            "до дерева"
+        )
+    result = subprocess.run(
+        [git, "-C", str(root), *REVISION_COMMAND],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        tail = result.stderr.strip().splitlines()
+        raise JobTimeError(
+            "`git %s` у %s не вдався: %s"
+            % (" ".join(REVISION_COMMAND), root, tail[-1] if tail else "без пояснення")
+        )
+    revision = result.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
+        raise JobTimeError(
+            "`git %s` віддав не ревізію: %r"
+            % (" ".join(REVISION_COMMAND), result.stdout.strip())
+        )
+    return revision
+
+
+def gh_api(endpoint: str, gh: str | None = None) -> dict:
+    """Один виклик `gh api` — і чесна відмова, коли він не віддав JSON."""
+    executable = gh or gh_executable()
+    try:
+        result = subprocess.run(
+            [executable, "api", endpoint], capture_output=True, text=True, check=False,
+        )
+    except OSError as error:
+        raise JobTimeError("`gh api %s` не вдався: %s" % (endpoint, error))
+    if result.returncode != 0:
+        raise JobTimeError(
+            "`gh api %s` вийшов із кодом %d: %s"
+            % (endpoint, result.returncode, "\n".join(result.stderr.strip().splitlines()[-3:]))
+        )
+    try:
+        return json.loads(result.stdout)
+    except ValueError as error:
+        raise JobTimeError("`gh api %s` віддав не JSON: %s" % (endpoint, error))
+
+
+def timestamp(value: object, where: str) -> datetime.datetime:
+    if not isinstance(value, str) or not value:
+        raise JobTimeError("%s: часу немає (%r)" % (where, value))
+    try:
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise JobTimeError("%s: час не розібрано (%r)" % (where, value))
+
+
+def completed_runs(repo: str, window: int, gh: str | None = None) -> list[dict]:
+    """Останні завершені прогони `main` (подія `push`) — не більше `window`.
+
+    Гілка й подія — у САМОМУ запиті (`branch=`, `event=`), а не у фільтрі після
+    виміру: прогін чужого PR у вікно не входить тому, що його не питають
+    (#1307). Межа названа: якщо в запитаній сторінці завершених прогонів `main`
+    менше за `window` — це НЕ «нуль прогонів» і не менше вікно, а невідомість
+    (2), бо прогін `main` може бути відсутній у вікні зовсім.
+    """
+    workflow = Path(WORKFLOW).name
+    payload = gh_api(
+        "repos/%s/actions/workflows/%s/runs?per_page=%d&branch=%s&event=%s"
+        % (repo, workflow, window * (1 + FETCH_SLACK), MAIN_BRANCH, MAIN_EVENT),
+        gh,
+    )
+    runs = payload.get("workflow_runs")
+    if not isinstance(runs, list):
+        raise JobTimeError("відповідь API не має `workflow_runs`")
+    # Другий бік того самого фільтра: якщо API віддав прогін не з `main` (запит
+    # проігноровано, форму `branch` змінено), він не міряється й не відкидається
+    # тихо — це невідомість. Так змішати джерела нема чим: або вікно одне, або
+    # числа немає.
+    foreign = [run for run in runs
+               if run.get("head_branch") != MAIN_BRANCH or run.get("event") != MAIN_EVENT]
+    if foreign:
+        raise JobTimeError(
+            "вікно мусить бути з прогонів `%s` (подія `%s`), а API віддав прогін "
+            "з гілки %r і події %r — час джоби з такого вікна не міряється"
+            % (MAIN_BRANCH, MAIN_EVENT, foreign[0].get("head_branch"),
+               foreign[0].get("event"))
+        )
+    done = [run for run in runs if run.get("status") == "completed"]
+    if len(done) < window:
+        raise JobTimeError(
+            "завершених прогонів `%s` (подія `%s`) у вікні — %d, а треба %d: число "
+            "джоби взяти нема з чого. Прогін `main` може бути відсутній у вікні — "
+            "тоді це невідомість (2), а не менше вікно"
+            % (MAIN_BRANCH, MAIN_EVENT, len(done), window)
+        )
+    return done[:window]
+
+
+def run_revision(entry: dict, run_id: str) -> str:
+    """Ревізія, яку прогін будував, — або відмова: без неї вікно не прив'язати.
+
+    `gh` віддає `head_sha` на прогін; якщо поле зникло або порожнє, прив'язати
+    вікно до дерева нема чим, і час джоби з такого прогону не міряється. Це
+    невідомість (2), а не «приймемо прогін як є»: прийняти означало б мовчки
+    повернути стару поведінку — число без дерева.
+    """
+    revision = entry.get("head_sha")
+    if not isinstance(revision, str) or not revision.strip():
+        raise JobTimeError(
+            "прогін %s: API не дав `head_sha` — вікно до дерева не прив'язати, і "
+            "число джоби з нього не міряється" % run_id
+        )
+    return revision.strip()
+
+
+def measured(entry: dict, name: str, repo: str, gh: str | None = None) -> Measurement:
+    """Час однієї джоби в одному прогоні: `completed_at − started_at`."""
+    run_id = str(entry.get("id"))
+    revision = run_revision(entry, run_id)
+    payload = gh_api("repos/%s/actions/runs/%s/jobs?per_page=100" % (repo, run_id), gh)
+    jobs = payload.get("jobs")
+    if not isinstance(jobs, list):
+        raise JobTimeError("прогін %s: відповідь API не має `jobs`" % run_id)
+    found = [job for job in jobs if job.get("name") == name]
+    if not found:
+        raise JobTimeError(
+            "прогін %s: джоби %r немає — час не взяти" % (run_id, name)
+        )
+    if len(found) > 1:
+        raise JobTimeError(
+            "прогін %s: джоб із імʼям %r — %d (ретрай або матриця); яку міряти, "
+            "механізм не вгадує" % (run_id, name, len(found))
+        )
+    job = found[0]
+    started = timestamp(job.get("started_at"), "прогін %s: started_at" % run_id)
+    finished = timestamp(job.get("completed_at"), "прогін %s: completed_at" % run_id)
+    seconds = int((finished - started).total_seconds())
+    if seconds < 0:
+        raise JobTimeError("прогін %s: completed_at раніше за started_at" % run_id)
+    return Measurement(run_id, str(entry.get("created_at") or ""), seconds,
+                       str(entry.get("head_branch") or "?"), str(entry.get("event") or "?"),
+                       revision)
+
+
+def tree_window(runs: list[Measurement],
+                revision: str) -> tuple[list[Measurement], list[Measurement]]:
+    """Вікно, поділене межею зміни: (про ЦЕ дерево, про ІНШІ дерева).
+
+    Підлога — твердження про час джоби на ЦЬОМУ дереві, тож у неї входять лише
+    прогони, чия ревізія дорівнює ревізії дерева. Решта не відкидається тихо:
+    вони повертаються другим списком і друкуються НАЗВАНИМИ — «ІНШЕ дерево» —
+    разом зі своєю ревізією, бо саме їхнє число й сходило за сьогоднішнє
+    (#1317). Порожній перший список — невідомість (2): числа про це дерево
+    немає, а підставити найновіше число з іншого дерева — це та сама тиха
+    неправда, від якої механізм і написаний.
+
+    Чому межа не стоїть у САМОМУ запиті (як `branch=`/`event=` у #1307).
+    Прогони про інші дерева — не чуже джерело, а той самий `main`; механізм
+    мусить їх ПОКАЗАТИ, щоб межу було видно, тож відкинути їх у запиті означало
+    б зробити межу невидимою. Фільтр у запиті лишається для чужого джерела, а
+    межа зміни — тут, названа.
+    """
+    about = [run for run in runs if run.revision == revision]
+    if not about:
+        raise JobTimeError(
+            "жоден із %d прогонів вікна не будував це дерево (%s): у вікні — %s. "
+            "Числа про час джоби на цьому дереві немає"
+            % (len(runs), revision,
+               ", ".join(sorted({run.revision for run in runs})))
+        )
+    return about, [run for run in runs if run.revision != revision]
+
+
+# --------------------------------------------------------------------------
+# Числа в документах: ліміт або позначений локальний вимір
+# --------------------------------------------------------------------------
+
+
+def line_with_anchor(text: str, anchor: str, where: str) -> tuple[int, str]:
+    """Рядок, у якому якір трапляється рівно один раз (як у `doc_numbers`)."""
+    if text.count(anchor) != 1:
+        raise JobTimeError(
+            "%s: якір мусить траплятися рівно раз, а трапляється %d: %r"
+            % (where, text.count(anchor), anchor)
+        )
+    number = text.count("\n", 0, text.index(anchor)) + 1
+    return number, text.splitlines()[number - 1]
+
+
+def marked(line: str, marks) -> bool:
+    """Чи трапляється хоч одна позначка як СЛОВО.
+
+    `download` і `upload` містять `load`, але навантаження не називають; рядок,
+    який забороняє локальне число («this is not local»), теж не позначка. Тому
+    межа слова — в коді, а не в побажанні до автора.
+    """
+    return any(
+        re.search(r"(?<!\w)%s(?!\w)" % re.escape(mark), line, re.IGNORECASE)
+        for mark in marks
+    )
+
+
+def labelled_local(line: str) -> bool:
+    """Чи позначений рядок як локальний вимір — і чи названо навантаження."""
+    return marked(line, LOCAL_MARK) and marked(line, LOAD_MARK)
+
+
+def claim_findings(root: Path = ROOT, claims=CLAIMS,
+                   limit: int | None = None) -> tuple[list[str], list[str]]:
+    """Що механізм побачив у зарахованих рядках: (знахідки, невідомості).
+
+    Кожне число-секунда на рядку мусить бути або лімітом із `ci.yml`, або
+    частиною позначеного локального виміру. І літерал `timeout-minutes: N` на
+    тому самому рядку мусить дорівнювати лімітові (`N * 60`): ліміт стоїть у
+    прозі двічі, і половина, якої гейт не бачить, пережила б правку, яку він
+    вимагає за секундами. Це не «причіпка до цифри»: число
+    джоби, заморожене в доку, розходиться з CI на наступному прогоні, і ніщо не
+    червоніє — саме тому в доку живе ліміт (він з дерева) і відношення (його
+    міряє прогін), а не секунди.
+    """
+    findings: list[str] = []
+    unknowns: list[str] = []
+    for relative, anchor in claims:
+        path = root / relative
+        if not path.is_file():
+            unknowns.append("немає файлу: %s" % relative)
+            continue
+        try:
+            number, line = line_with_anchor(path.read_text(encoding="utf-8"), anchor, relative)
+        except JobTimeError as error:
+            unknowns.append(str(error))
+            continue
+        figures = SECONDS.findall(line)
+        if not figures:
+            unknowns.append(
+                "%s:%d: рядок більше не несе числа-секунди — запис застарів" % (relative, number)
+            )
+            continue
+        if limit is None:
+            try:
+                limit = limit_seconds(root)
+            except JobTimeError as error:
+                unknowns.append(str(error))
+                continue
+        for figure in figures:
+            if int(float(figure)) == limit or labelled_local(line):
+                continue
+            findings.append(
+                "%s:%d — рядок каже %s с, а це ні ліміт джоби (%d с із %s), ні "
+                "позначений локальний вимір (немає названого навантаження): число "
+                "джоби в доку розійдеться з CI, і не почервоніє ніщо. Лиши ліміт "
+                "або познач локальне число навантаженням машини"
+                % (relative, number, figure, limit, WORKFLOW)
+            )
+        for minutes in TIMEOUT_MINUTES.findall(line):
+            if int(minutes) * 60 == limit:
+                continue
+            findings.append(
+                "%s:%d — рядок називає `timeout-minutes: %s` (це %d с), а ліміт "
+                "джоби — %d с із %s: копія хвилинами переживе правку, яку гейт "
+                "вимагає за секундами, і лишиться неправдою. Постав ліміт із %s "
+                "або прибери значення з прози"
+                % (relative, number, minutes, int(minutes) * 60, limit,
+                   WORKFLOW, WORKFLOW)
+            )
+    return findings, unknowns
+
+
+# --------------------------------------------------------------------------
+# Локальний вимір: число, яке НЕ сміє видаватися за час джоби
+# --------------------------------------------------------------------------
+
+
+def machine_facts(proc: Path = Path("/proc")) -> tuple[float, float, float]:
+    """Навантаження й памʼять машини — те, чим локальний вимір мусить бути названий."""
+    try:
+        load = float((proc / "loadavg").read_text(encoding="utf-8").split()[0])
+        memory = (proc / "meminfo").read_text(encoding="utf-8")
+    except (OSError, ValueError, IndexError) as error:
+        raise JobTimeError("навантаження машини не прочитано: %s" % error)
+    total = available = 0.0
+    for line in memory.splitlines():
+        if line.startswith("MemTotal:"):
+            total = int(line.split()[1]) / 1048576
+        elif line.startswith("MemAvailable:"):
+            available = int(line.split()[1]) / 1048576
+    if total <= 0:
+        raise JobTimeError("MemTotal не прочитано — локальний вимір не назвати")
+    return load, available, total
+
+
+def local_label(seconds: float, load: float, available_gb: float, total_gb: float) -> str:
+    """Локальний вимір РАЗОМ із навантаженням — і з прямою відмовою зватися часом джоби.
+
+    Цей рядок — не прикраса: `labelled_local` приймає рівно таку форму, тож
+    єдиний спосіб провести локальне число в доку — провести його разом із
+    навантаженням. Форма позначки — дані (`LOCAL_MARK`, `LOAD_MARK`), а не
+    побажання до автора.
+    """
+    return (
+        "ЛОКАЛЬНО %.1f с на цій машині під навантаженням %.2f "
+        "(RAM %.1f/%.1f ГБ) — це НЕ час джоби: ліміт діє на раннері, і міряє його "
+        "`python3 scripts/ci_job_time.py`" % (seconds, load, available_gb, total_gb)
+    )
+
+
+def local_measurement(command: tuple[str, ...], runner=subprocess.run,
+                      now=time.monotonic) -> float:
+    """Скільки триває команда джоби ТУТ. Число без позначки назовні не виходить."""
+    started = now()
+    try:
+        result = runner(list(command), capture_output=True, text=True,
+                        check=False, timeout=LOCAL_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise JobTimeError("локальний прогін не вдався: %s" % error)
+    if result.returncode != 0:
+        raise JobTimeError(
+            "локальний прогін вийшов із кодом %d — міряти час невдалого прогону "
+            "немає сенсу:\n%s"
+            % (result.returncode, "\n".join(result.stderr.strip().splitlines()[-3:]))
+        )
+    return now() - started
+
+
+# --------------------------------------------------------------------------
+# Звіт
+# --------------------------------------------------------------------------
+
+
+def headroom(limit: int, seconds: int) -> tuple[int, float, float]:
+    """Запас, його частка від ліміту й відношення ліміту до часу."""
+    spare = limit - seconds
+    return spare, spare * 100.0 / limit, (limit / seconds if seconds else float("inf"))
+
+
+def measurement_lines(name: str, limit: int, runs: list[Measurement],
+                      about: list[Measurement], revision: str) -> list[str]:
+    """Рядок на прогін плюс підсумок — і межа зміни, коли вікно її перетинає.
+
+    У підсумок і в підлогу входять лише `about` — прогони, чия ревізія дорівнює
+    ревізії цього дерева. Решта друкуються названими, зі своєю ревізією й
+    секундами, і прямо сказано, що в підлогу вони не входять: саме їхнє число й
+    сходило за час джоби на цьому дереві (#1317).
+
+    Коли `about` — це все вікно (усі прогони будували це дерево), рядки й
+    підсумок ті самі, що були до прив'язки: гейт не стає галасливим там, де
+    межа не перетнута. Межа зміни тут — не прикраса рядка, а різниця між
+    числом про ЦЕ дерево і числом про інше.
+    """
+    mixed = len(about) != len(runs)
+    lines = []
+    for run in runs:
+        spare, percent, ratio = headroom(limit, run.seconds)
+        if not mixed:
+            lines.append(
+                "  #%s  %s  %s/%s  %d с · запас %d с (%.0f %%) · %.2f×"
+                % (run.run_id, run.created_at or "?", run.branch, run.event,
+                   run.seconds, spare, percent, ratio)
+            )
+            continue
+        if run.revision == revision:
+            lines.append(
+                "  #%s  %s  %s/%s  %s ← це дерево  %d с · запас %d с (%.0f %%) · %.2f×"
+                % (run.run_id, run.created_at or "?", run.branch, run.event,
+                   run.revision[:REVISION_LENGTH], run.seconds, spare, percent, ratio)
+            )
+        else:
+            lines.append(
+                "  #%s  %s  %s/%s  %s ← ІНШЕ дерево, у підлогу не входять: %d с"
+                % (run.run_id, run.created_at or "?", run.branch, run.event,
+                   run.revision[:REVISION_LENGTH], run.seconds)
+            )
+    times = sorted(run.seconds for run in about)
+    slowest = times[-1]
+    median = times[len(times) // 2]
+    spare, percent, ratio = headroom(limit, slowest)
+    if mixed:
+        lines.append(
+            "  межа зміни: %d з %d прогонів вікна будували ІНШЕ дерево — їхні "
+            "секунди не про це дерево і в підлогу не входять"
+            % (len(runs) - len(about), len(runs))
+        )
+        lines.append(
+            "  разом (про це дерево, %d): найповільніший %d с · медіана %d с · "
+            "найшвидший %d с" % (len(about), slowest, median, times[0])
+        )
+    else:
+        lines.append(
+            "  разом: %d · найповільніший %d с · медіана %d с · найшвидший %d с"
+            % (len(about), slowest, median, times[0])
+        )
+    lines.append(
+        "  запас найповільнішого (про це дерево %s): %d с (%.0f %%), %.2f× — "
+        "підлога %.1f× на прогонах `%s` (подія `%s`) %s"
+        % (revision[:REVISION_LENGTH], spare, percent, ratio, HEADROOM_RATIO,
+           MAIN_BRANCH, MAIN_EVENT,
+           "тримається" if ratio >= HEADROOM_RATIO else "БІЛЬШЕ НЕ ТРИМАЄТЬСЯ")
+    )
+    return lines
+
+
+def verdict(runs: list[Measurement], limit: int) -> list[str]:
+    """Що з виміряного — знахідка, а не зелень.
+
+    `runs` — лише прогони про ЦЕ дерево (`tree_window`): підлога — твердження
+    про сьогоднішній код, і число з іншого дерева її не рухає — ні в червоне
+    (вигадана регресія), ні в зелене (пропущена).
+    """
+    findings = []
+    for run in runs:
+        if run.seconds >= limit:
+            findings.append(
+                "прогін #%s — %d с проти ліміту %d с: джоба дійшла до ліміту або "
+                "перевищила його (запас %d с)"
+                % (run.run_id, run.seconds, limit, limit - run.seconds)
+            )
+    slowest = max(run.seconds for run in runs)
+    if limit < HEADROOM_RATIO * slowest:
+        findings.append(
+            "відношення, назване в документах, більше не тримається: ліміт %d с "
+            "менший за %.1f× від найповільнішого прогону `%s` (подія `%s`) про це "
+            "дерево (%d с). "
+            "Або число в доку переміряти, або ліміт підняти — і те, й те вирішує не "
+            "механізм"
+            % (limit, HEADROOM_RATIO, MAIN_BRANCH, MAIN_EVENT, slowest)
+        )
+    return findings
+
+
+def success_line(mode: str, runs: int, revision: str = "") -> str:
+    """Рядок благополуччя — СВІЙ у кожного режиму, бо міряно різне.
+
+    `--local` не питає `gh` і не міряє джобу. Рядок, який сказав би тут «час
+    джоби міряно», суперечив би позначці просто над ним — і це рівно та
+    плутанина, проти якої цей механізм написаний; знайшов її огляд PR #1302
+    прогоном, не автор.
+    """
+    if mode == "docs":
+        return ("OK    числа про час джоби в документах виводяться: ліміт — із %s, "
+                "локальні числа позначені навантаженням" % WORKFLOW)
+    if mode == "local":
+        return ("OK    локальний вимір надруковано ПОЗНАЧЕНИМ (навантаження й "
+                "памʼять машини); ЧАС ДЖОБИ тут не міряно — його міряє "
+                "`python3 scripts/ci_job_time.py` на CI, через `gh api`")
+    return ("OK    час джоби міряно на прогонах `%s` (подія `%s`), які будували це "
+            "дерево (%s); виміряно %d; зараховані рядки виводяться"
+            % (MAIN_BRANCH, MAIN_EVENT, revision[:REVISION_LENGTH], runs))
+
+
+def listing(root: Path = ROOT, window: int = WINDOW) -> list[str]:
+    """Що механізм покриває — без `gh` і без мережі."""
+    lines = [
+        "джоба: %s (`%s`)" % (JOB_KEY, WORKFLOW),
+        "вікно: останні %d завершених прогонів `%s` (подія `%s`) — не «всі прогони "
+        "воркфлоу» і не «завжди»: історія API обмежена, і `--runs` його рухає"
+        % (window, MAIN_BRANCH, MAIN_EVENT),
+        "межа зміни: у підлогу входять лише прогони, чия ревізія (`head_sha`) "
+        "дорівнює ревізії цього дерева (`git %s`); решта друкуються названими — "
+        "«ІНШЕ дерево» — і в підлогу не входять"
+        % " ".join(REVISION_COMMAND),
+    ]
+    for what, value in (("імʼя", lambda: job_name(root)),
+                        ("ліміт", lambda: "%d с" % limit_seconds(root)),
+                        ("команда", lambda: " ".join(local_command(root))),
+                        ("ревізія дерева", lambda: tree_revision(root))):
+        try:
+            lines.append("%s: %s" % (what, value()))
+        except (JobTimeError, OSError) as error:
+            lines.append("%s: НЕВІДОМО (%s)" % (what, error))
+    lines.append("підлога запасу: %.1f× від найповільнішого прогону `%s` (подія `%s`)"
+                 % (HEADROOM_RATIO, MAIN_BRANCH, MAIN_EVENT))
+    for relative, anchor in CLAIMS:
+        lines.append("зарахований рядок: %s — «%s»" % (relative, anchor))
+    return lines
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Час джоби `script-tests` там, де діє її ліміт (CI), і числа "
+                    "про нього в документах.",
+    )
+    parser.add_argument("--root", type=Path, default=ROOT, help="корінь дерева")
+    parser.add_argument("--runs", type=int, default=WINDOW,
+                        help="скільки останніх завершених прогонів `%s` (подія `%s`) "
+                             "міряти (типово %d)" % (MAIN_BRANCH, MAIN_EVENT, WINDOW))
+    parser.add_argument("--repo", default=None,
+                        help="owner/name; типово — `origin` цього дерева")
+    parser.add_argument("--check-docs", action="store_true",
+                        help="лише числа в документах: без `gh` і без мережі")
+    parser.add_argument("--local", action="store_true",
+                        help="зміряти команду джоби ТУТ і надрукувати її "
+                             "ПОЗНАЧЕНОЮ (навантаження й памʼять машини)")
+    parser.add_argument("--list", action="store_true",
+                        help="лише назвати джобу, ліміт, вікно й зараховані рядки")
+    arguments = parser.parse_args(argv)
+    root = arguments.root.resolve()
+
+    if arguments.runs < 1:
+        print("НЕВІДОМО: --runs %d — вікно мусить бути додатним" % arguments.runs,
+              file=sys.stderr)
+        return 2
+
+    if arguments.list:
+        for line in listing(root, arguments.runs):
+            print(line)
+        return 0
+
+    findings, unknowns = claim_findings(root, CLAIMS)
+
+    # Невідомість обох половин іде в ОДНЕ місце — епілог: код виходу ухвалюється
+    # рівно раз, і жодна гілка не може повернути «нуль» повз нього. Саме тому
+    # мутація «невідомість → 0» червенить сторожа, а не лишається невидимою.
+    if arguments.local:
+        try:
+            command = local_command(root)
+            # Навантаження семплиться ДО і ПІСЛЯ прогону, і в позначку йде більше
+            # з двох: один семпл після прогону назвав би стан машини, коли робота
+            # вже скінчилася, — а мірявся саме час під нею.
+            load_before = machine_facts()[0]
+            seconds = local_measurement(command)
+            load, available, total = machine_facts()
+        except JobTimeError as error:
+            unknowns.append(str(error))
+        else:
+            print(local_label(seconds, max(load, load_before), available, total))
+
+    elif not arguments.check_docs:
+        try:
+            repo = arguments.repo or repository(root)
+            name = job_name(root)
+            limit = limit_seconds(root)
+            # `gh` питається ПЕРЕД `git`: без `gh` часу джоби немає взагалі, і
+            # відмова мусить назвати саме його, а не похідну від нього причину.
+            runs = [measured(entry, name, repo)
+                    for entry in completed_runs(repo, arguments.runs)]
+            revision = tree_revision(root)
+            about, other = tree_window(runs, revision)
+        except JobTimeError as error:
+            unknowns.append(str(error))
+        else:
+            print("джоба: %s (`%s` у %s)" % (name, JOB_KEY, WORKFLOW))
+            print("ліміт: %d с" % limit)
+            print("вікно: останні %d завершених прогонів `%s` (подія `%s`)"
+                  % (arguments.runs, MAIN_BRANCH, MAIN_EVENT))
+            print("дерево: %s (`git %s`) — про це дерево %d з %d прогонів%s"
+                  % (revision[:REVISION_LENGTH], " ".join(REVISION_COMMAND),
+                     len(about), len(runs),
+                     "" if not other else ": %s"
+                     % ", ".join("#%s" % run.run_id for run in about)))
+            for line in measurement_lines(name, limit, runs, about, revision):
+                print(line)
+            findings.extend(verdict(about, limit))
+
+    for finding in findings:
+        print(finding, file=sys.stderr)
+    for unknown in unknowns:
+        print("НЕВІДОМО: %s" % unknown, file=sys.stderr)
+    if unknowns:
+        return 2
+    if findings:
+        return 1
+    if arguments.check_docs or arguments.local:
+        print(success_line("docs" if arguments.check_docs else "local", arguments.runs))
+        return 0
+    # Рядок благополуччя називає, СКІЛЬКИ прогонів про це дерево й яке саме
+    # дерево: без цього «міряно на N прогонах» знову не відрізняло б сьогоднішнє
+    # дерево від учорашнього.
+    print(success_line("ci", len(about), revision))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

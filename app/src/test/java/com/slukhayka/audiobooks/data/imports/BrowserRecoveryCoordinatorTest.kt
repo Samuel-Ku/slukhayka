@@ -190,6 +190,11 @@ class BrowserRecoveryCoordinatorTest {
         assertEquals(0, succ.resumeChapterIndex)
         assertEquals(0L, succ.resumePositionMs)
         assertTrue(succ.isNewImport)
+        // #701 (US45) — a first import is the browser door doing its ordinary
+        // job: nothing was broken, so «Відновлювач» must not be handed out for
+        // it. The decision is the outcome's own `isRescue`, which MainViewModel
+        // reads when it writes the fact.
+        assertFalse("новий імпорт — не порятунок", succ.isRescue)
         assertNotNull(dao.getAudiobookById(succ.book.id))
     }
 
@@ -228,6 +233,11 @@ class BrowserRecoveryCoordinatorTest {
         assertTrue(succ.shouldCloseBrowser)
         assertEquals(1, succ.resumeChapterIndex)
         assertEquals(30_000L, succ.resumePositionMs)
+        // #701 (US45) — the OTHER side of the same decision: an existing book's
+        // source was just restored, so this success IS a rescue and writes the
+        // fact «Відновлювач» reads.
+        assertFalse("відновлення наявної книги не є новим імпортом", succ.isNewImport)
+        assertTrue("відновлення наявної книги — порятунок", succ.isRescue)
         // Tracks updated
         val tracks = dao.getTracksForBookSync(bookId).sortedBy { it.trackIndex }
         assertEquals("https://s1.reasd.org/kobzar/new1.mp3", tracks[0].url)

@@ -71,27 +71,39 @@ class AndroidHistoricalProcessExitSource(
     override val supported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
+    /**
+     * The newest recorded exit, or null.
+     *
+     * API 24–29 keeps no process-exit history at all — the door itself
+     * arrived in API 30 — so there the honest answer is "nothing recorded":
+     * the diagnostic degrades instead of crashing, and every caller already
+     * reads null as "no exit to report" ([UnexpectedExitReporter] returns on
+     * it, the cursor is simply never advanced).
+     */
     override fun latest(): ProcessExitSnapshot? {
-        if (!supported) return null
         return runCatching { readLatest() }.getOrNull()
     }
 
+    /** The API-30 door and its getters, behind a check in the same method. */
     private fun readLatest(): ProcessExitSnapshot? {
-        val info = activityManager.getHistoricalProcessExitReasons(null, 0, 1).firstOrNull()
-            ?: return null
-        val summary = info.processStateSummary ?: return null
-        val storedState = ProcessStateSummaryCodec.decode(summary) ?: return null
-        return ProcessExitSnapshot(
-            timestampMillis = info.timestamp,
-            reason = info.reason.toBoundedReason(),
-            status = info.status,
-            importance = info.importance.toBoundedImportance(),
-            rssKb = info.rss,
-            pssKb = info.pss,
-            appVersionCode = storedState.appVersionCode,
-            androidApi = storedState.androidApi,
-            state = storedState.context
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val info = activityManager.getHistoricalProcessExitReasons(null, 0, 1).firstOrNull()
+                ?: return null
+            val summary = info.processStateSummary ?: return null
+            val storedState = ProcessStateSummaryCodec.decode(summary) ?: return null
+            return ProcessExitSnapshot(
+                timestampMillis = info.timestamp,
+                reason = info.reason.toBoundedReason(),
+                status = info.status,
+                importance = info.importance.toBoundedImportance(),
+                rssKb = info.rss,
+                pssKb = info.pss,
+                appVersionCode = storedState.appVersionCode,
+                androidApi = storedState.androidApi,
+                state = storedState.context
+            )
+        }
+        return null
     }
 
     override fun set(context: CrashContext) {

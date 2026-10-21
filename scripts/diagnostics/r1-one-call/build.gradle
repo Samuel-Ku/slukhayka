@@ -1,0 +1,73 @@
+import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
+import java.security.MessageDigest
+
+// Standalone diagnostic producer. Compile the eight unchanged production files
+// from the frozen checkout; never mirror their source or replace inference.
+repositories { mavenCentral() }
+configurations {
+  compiler { canBeConsumed = false; transitive = false }
+  diagnosticRuntime { canBeConsumed = false; transitive = false }
+}
+def pins = new JsonSlurper().parse(file('dependency-pins.json'))
+pins.each { pin -> pin.configurations.each { name -> dependencies.add(name, pin.coordinate) } }
+def sourceRoot = file(providers.gradleProperty('sourceRoot').get())
+def productionDir = new File(sourceRoot, 'app/src/main/java/com/slukhayka/audiobooks/data/recommend')
+def sourcePins = new JsonSlurper().parse(file('source-pins.json'))
+def sourceFiles = sourcePins.keySet().collect { new File(productionDir, it) }
+def backend = layout.buildDirectory.dir('backend-classes').get().asFile
+
+String sha(File input) {
+  def md = MessageDigest.getInstance('SHA-256')
+  input.withInputStream { stream ->
+    byte[] buffer = new byte[65536]
+    int n
+    while ((n = stream.read(buffer)) != -1) md.update(buffer, 0, n)
+  }
+  return md.digest().encodeHex().toString()
+}
+
+tasks.register('verifyInputs') {
+  doLast {
+    sourcePins.each { name, expected ->
+      def actual = new File(productionDir, name)
+      if (!actual.isFile() || sha(actual) != expected) throw new GradleException("Production source pin mismatch: ${name}")
+    }
+    def actualFiles = (configurations.compiler.files + configurations.diagnosticRuntime.files).unique()
+    if (actualFiles*.name.toSet() != pins*.file.toSet()) throw new GradleException('Unexpected diagnostic dependency set')
+    actualFiles.each { actual ->
+      def pin = pins.find { it.file == actual.name }
+      if (!pin || sha(actual) != pin.sha256) throw new GradleException("Dependency pin mismatch: ${actual.name}")
+    }
+  }
+}
+
+tasks.register('compileBackend', JavaExec) {
+  dependsOn 'verifyInputs'
+  classpath = configurations.compiler
+  mainClass = 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler'
+  maxHeapSize = '1g'
+  args '-no-stdlib', '-no-reflect', '-jvm-target', '17', '-classpath', configurations.diagnosticRuntime.asPath,
+       '-d', backend.absolutePath
+  args sourceFiles*.absolutePath
+  doFirst {
+    if (backend.exists()) throw new GradleException('Refuse reuse of existing backend output')
+    backend.mkdirs()
+  }
+}
+
+tasks.register('prepareDiagnostic') {
+  dependsOn 'compileBackend'
+  doLast {
+    def expected = new JsonSlurper().parse(file('backend-class-pins.json'))
+    def actual = [:]
+    fileTree(backend).matching { include '**/*.class' }.files.sort().each { f ->
+      actual[backend.toPath().relativize(f.toPath()).toString()] = sha(f)
+    }
+    if (actual != expected) throw new GradleException('Backend class bytes differ from successful MacV2; STOP before inference')
+    def cp = ([backend.absolutePath] + configurations.diagnosticRuntime.files.collect { it.absolutePath }).join(File.pathSeparator)
+    layout.buildDirectory.file('runtime-classpath.txt').get().asFile.text = cp + '\n'
+    def receipt = [sourceCommit: '022c786f33e860579fab78c7f91413c9b0b5325e', producer: 'Gradle JavaExec/K2JVMCompiler 2.2.10 JVM17, unchanged production sources', sourcePins: sourcePins, dependencyPins: pins, actualClassPins: actual, nativeExecution: false]
+    layout.buildDirectory.file('producer.json').get().asFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(receipt)) + '\n'
+  }
+}

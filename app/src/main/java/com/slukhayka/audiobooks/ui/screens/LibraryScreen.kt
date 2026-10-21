@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -94,6 +93,7 @@ import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -101,14 +101,14 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
-import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
-import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
-import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.libraryIndexOfBook
+import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
+import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
@@ -120,7 +120,7 @@ import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
  * books live side by side; the segmented status row (Усі / Нові / Слухаю /
- * Завершені / Завантажені, spec-28 #193) plus a filter sheet (Обрані /
+ * Завершені / На пристрої, spec-28 #193, #1163) plus a filter sheet (Обрані /
  * Локальні / Онлайн, six sort modes, grid/list toggle) and client-side
  * search sit above a single book card that always shows author,
  * series+volume, progress, remaining time, download status and a small
@@ -136,6 +136,9 @@ fun LibraryScreen(
     // (import, cache) and navigation stay on the ViewModel.
     libraryEntries: LibraryEntries,
     listeningState: ListeningStateStore,
+    // ADR-0046 / #1286 — reading progress: the module owns the writes AND the
+    // active/year projections from one snapshot, so this screen maps no rows.
+    readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder,
     // #401: person bookmarks — Flows read directly (ADR-0008).
     personBookmarks: PersonBookmarks,
     onBookClick: (String) -> Unit,
@@ -209,6 +212,10 @@ fun LibraryScreen(
 
     // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
     val snackbarHostState = remember { SnackbarHostState() }
+    // #1286 — the outcome of the last Readthrough record/finish, shown beside
+    // the passes. Every branch (Recorded, Finished, Refused, Failed) is mapped,
+    // so a refusal can never be read as a success.
+    var progressMessageRes by remember { mutableStateOf<Int?>(null) }
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
     // #837 — the honest per-book submission badge (state, not a promise).
@@ -291,14 +298,10 @@ fun LibraryScreen(
     // after every action), so the list is never a stale promise.
     LaunchedEffect(activeTab) {
         if (activeTab == 3) viewModel.refreshImportedEntries()
-        // #885 — the books tab shows the «Мій рік» hero, so the year must be
-        // loaded for it too; otherwise the card stays hidden until the listener
-        // happens to open the separate year view.
-        if (activeTab == 0) viewModel.refreshReadingYear()
-        if (activeTab == 4) {
-            viewModel.refreshReadingYear()
-            viewModel.refreshActiveReadings()
-        }
+        // #885 / #1286 — the books tab shows the «Мій рік» hero and the year
+        // tab shows the passes; both read the module's one snapshot. The module
+        // supersedes its own older refresh, so this is not two racing reads.
+        if (activeTab == 0 || activeTab == 4) readingProgress.refresh()
     }
     val sectionTitle = when (activeTab) {
         1 -> stringResource(R.string.lib_section_saved)
@@ -317,15 +320,18 @@ fun LibraryScreen(
         else -> R.string.lib_statistics
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
-    // Browsing the whole library vs narrowing it down: the sections (and the
-    // «Продовжити» card) only make sense while nothing is filtering.
-    val browsing = filter == LibraryFilter.ALL && query.isBlank()
+    // #1284 — whether this is "the whole library" vs "narrowed down" is no
+    // longer a screen variable: the projection owns both rules it used to name
+    // (the entry form and whether the dense header summarises), so they cannot
+    // drift apart here.
     // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
     // block of the screen, so the state is read here and not inside the tab body.
-    val yearGoal by viewModel.readingYear.collectAsState()
-    val continueBook = remember(libraryBooks) {
-        libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
-    }
+    // #1286 — the module owns the projections; the hero reads the last good
+    // year from the SAME state the year tab renders. A failed read keeps the
+    // known value (the tab shows the retry), never a fake empty year.
+    val progressState by readingProgress.state.collectAsState()
+    val yearGoal = (progressState as? com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready)
+        ?.projection?.year
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
     // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
@@ -385,57 +391,50 @@ fun LibraryScreen(
         returnFocusRequester = importFocusRequester
     )
 
-    val visibleBooks = remember(libraryBooks, filter, sort, query) {
-        filterAndSortLibrary(libraryBooks, filter, sort, query)
-    }
-
-    // spec-54 T14 (#869) — the listener owns a WORK: the list renders ONE card
-    // per Work, fronted by the narration they are furthest along in, and the
-    // other narrations (with their own progress, bookmarks, downloads and
-    // speed) stay reachable from the card's details.
-    val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
-    val shownCards = remember(workCards) { workCards.map { it.primary } }
-
-    // The grid as data (v1.5 review): the structure carries the resume card,
-    // the section headers and the shelf, so a lazy-grid index must be mapped
-    // back to a book through these entries — never through `visibleBooks`
-    // (the two stopped aligning the moment the hero and the headers appeared).
-    val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     // spec-46 T08 (#569) — resolved outside `remember`: stringResource is a
-    // composable read, the entries builder is a plain function.
+    // composable read, the projection builder is a plain function.
     val denseTitle = if (query.isNotBlank()) {
         stringResource(R.string.lib_search_section_title)
     } else {
         stringResource(filter.labelRes)
     }
-    val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing, denseTitle) {
-        libraryGridEntries(
-            // #885 — the prototype's «Книги» is a VERTICAL list of rows with a
-            // progress line, not a wall of shelves: shelves belong to «Полиці»
-            // (their own tab above). So the books tab always builds the dense
-            // section+rows shape.
-            browsing = false,
+    // #1284 — ONE projection owns the whole book area: the filter/sort order,
+    // the Work grouping and each card's primary narration, the shape of the
+    // entry list, and both index mappings. The screen reads it and passes the
+    // shape on to the renderer, so the entries and the layout can never be
+    // built from two different assumptions (the old `browsing = false` had to
+    // be written twice and kept in step by hand).
+    val libraryProjection = remember(libraryBooks, filter, sort, query, gridMode, denseTitle) {
+        projectLibraryBooks(
+            books = libraryBooks,
+            filter = filter,
+            sort = sort,
+            query = query,
             gridMode = gridMode,
-            visible = shownCards,
-            continueBook = continueBook,
-            denseTitle = denseTitle,
-            denseTrailing = denseTrailing
+            denseTitle = denseTitle
         )
+    }
+    // The dense header's total is CHROME (a composable read of the string
+    // table); WHICH books it describes and WHETHER it appears are the
+    // projection's rules (spec-46 T08 keeps the words out of the model).
+    val denseTrailing = if (libraryProjection.summarisesRemaining) {
+        libraryRemainingTotal(libraryProjection.shownBooks)
+    } else {
+        ""
+    }
+    val gridEntries = remember(libraryProjection, denseTrailing) {
+        libraryProjection.entries(denseTrailing)
     }
 
     // Spec-56 T3 (#730) — tell the view model which Works are visible so their
-    // availability checks jump the queue; the daily backlog waits.
+    // availability checks jump the queue; the daily backlog waits. The keys come
+    // from the entries THE GRID DRAWS (the projection's own mapping), never from
+    // the pre-grouping book list.
     LaunchedEffect(activeTab, gridEntries) {
         if (activeTab != 0) return@LaunchedEffect
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.map { it.index } }
             .collectLatest { indices ->
-                val keys = indices
-                    .mapNotNull { index ->
-                        // The hero card is a book too — it must join the queue.
-                        gridEntries.getOrNull(index)?.shownBook?.book?.mergeKey
-                    }
-                    .filter { it.isNotBlank() }
-                viewModel.onAvailabilityVisible(keys)
+                viewModel.onAvailabilityVisible(libraryWorkKeysAt(gridEntries, indices))
             }
     }
 
@@ -448,8 +447,9 @@ fun LibraryScreen(
     ) {
         val bookId = restoreFocusBookId ?: return@LaunchedEffect
         if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        // The book may be the hero card rather than a row — ask the entry.
-        val visibleIndex = gridEntries.indexOfFirst { it.showsBook(bookId) }
+        // The book may be the hero card rather than a row: the projection's own
+        // mapping asks every entry.
+        val visibleIndex = libraryIndexOfBook(gridEntries, bookId)
         when {
             visibleIndex >= 0 -> {
                 libraryGridState.scrollToItem(visibleIndex)
@@ -618,53 +618,42 @@ fun LibraryScreen(
                             )
                         }
 
-                        visibleBooks.isEmpty() -> EmptyState(
+                        libraryProjection.shownBooks.isEmpty() -> EmptyState(
                             icon = Icons.Default.Search,
                             title = stringResource(R.string.lib_no_results_title),
                             body = stringResource(R.string.lib_no_results_body)
                         )
 
-                        else -> LazyVerticalGrid(
-                            columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
-                            state = libraryGridState,
-                            // #962 — the grid takes what is LEFT of the column
-                            // rather than claiming everything: `fillMaxSize`
-                            // inside a Column is measured against the whole
-                            // window, so it both over-reported its height and
-                            // pushed the rows it did lay out past the bottom
-                            // edge. `weight(1f)` is the honest ask — "the rest
-                            // of the screen" — and it is what makes the list
-                            // scrollable in a 411 dp landscape window.
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .testTag("library_grid"),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            libraryGridContent(
-                                entries = gridEntries,
-                                // #885 — must match the shape `libraryGridEntries`
-                                // built above (always the dense rows on «Книги»),
-                                // otherwise the renderer falls back to the wall of
-                                // cards and none of the row work shows up.
-                                browsing = false,
-                                gridMode = gridMode,
-                                availability = libraryAvailability,
-                                downloadCounts = bookDownloadCounts,
-                                restoreFocusBookId = restoreFocusBookId,
-                                bookReturnFocusRequester = bookReturnFocusRequester,
-                                awaitingSubmissionBookIds = awaitingSubmissionBookIds,
-                                submissionBadges = submissionBadges,
-                                watchingSubmissionBookIds = watchingSubmissionBookIds,
-                                deferredPublicationBookIds = deferredPublicationBookIds,
-                                abandonedBookIds = abandonedBookIds,
-                                onBookClick = onBookClick,
-                                onPlayClick = onPlayClick,
-                                onRecheck = { viewModel.recheckAvailability(it) }
-                            )
-                        }
+                        // #1206 — the book area is `LibraryBookGrid`, the same
+                        // composable the snapshot test drives: the screen and
+                        // the harness must not be able to disagree about the
+                        // shape of the book area.
+                        // #1284 — and the shape comes from the SAME projection
+                        // that built the entries, so this call site no longer
+                        // restates `browsing = false`.
+                        else -> LibraryBookGrid(
+                            entries = gridEntries,
+                            shape = libraryProjection.shape,
+                            availability = libraryAvailability,
+                            downloadCounts = bookDownloadCounts,
+                            restoreFocusBookId = restoreFocusBookId,
+                            bookReturnFocusRequester = bookReturnFocusRequester,
+                            awaitingSubmissionBookIds = awaitingSubmissionBookIds,
+                            submissionBadges = submissionBadges,
+                            watchingSubmissionBookIds = watchingSubmissionBookIds,
+                            deferredPublicationBookIds = deferredPublicationBookIds,
+                            abandonedBookIds = abandonedBookIds,
+                            onBookClick = onBookClick,
+                            onPlayClick = onPlayClick,
+                            onRecheck = { viewModel.recheckAvailability(it) },
+                            gridState = libraryGridState,
+                            // #962 — `weight(1f)` is the honest ask, "the rest
+                            // of the screen": `fillMaxSize` inside a Column is
+                            // measured against the whole window, so it both
+                            // over-reported its height and pushed the rows it
+                            // did lay out past the bottom edge.
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
 
@@ -803,67 +792,29 @@ fun LibraryScreen(
                 }
 
                 4 -> {
-                    // #876 — «Мій рік»: the yearly goal, counted in PASSES and
-                    // reported per format, because pages, percent and seconds
-                    // cannot be summed into one number (ADR-0046 §5).
-                    val goal by viewModel.readingYear.collectAsState()
-                    val activeReadings by viewModel.activeReadings.collectAsState()
-                    val current = goal
-                    if (current == null) {
-                        EmptyState(
-                            icon = Icons.Default.CalendarMonth,
-                            title = stringResource(R.string.lib_year_empty_title),
-                            body = stringResource(R.string.lib_year_empty_body)
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .testTag("library_year"),
-                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
-                        ) {
-                            item {
-                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.lib_year_heading, current.year),
-                                        style = MaterialTheme.typography.titleMedium
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.lib_year_total, current.totalFinished),
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                    current.finishedByFormat.toSortedMap().forEach { (format, count) ->
-                                        Text(
-                                            text = stringResource(
-                                                R.string.lib_year_format,
-                                                readingFormatLabel(format),
-                                                count
-                                            ),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Text(
-                                        text = stringResource(R.string.lib_year_rule),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                    // #876 / #1286 — «Мій рік»: the module publishes the yearly
+                    // goal AND the active passes from ONE snapshot, so the two
+                    // can never disagree here; this surface only renders them.
+                    // The tab keeps the weight so the list takes the leftover
+                    // height the way the original body did.
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        LibraryReadingYearSection(
+                            state = progressState,
+                            message = progressMessageRes?.let { stringResource(it) },
+                            onRecord = { pass, value ->
+                                scope.launch {
+                                    progressMessageRes =
+                                        readingProgressMessageRes(readingProgress.record(pass.id, value = value))
                                 }
-                            }
-                            // #876 — the passes still in the listener's hands:
-                            // ONE journal record per action, in the format's own
-                            // unit, and finishing belongs to that pass alone.
-                            items(activeReadings, key = { it.id }) { pass ->
-                                ReadingProgressRow(
-                                    pass = pass,
-                                    onRecord = { value ->
-                                        viewModel.recordReadingProgress(pass.id, value)
-                                    },
-                                    onFinish = { viewModel.finishReading(pass.id) }
-                                )
-                            }
-                        }
+                            },
+                            onFinish = { pass ->
+                                scope.launch {
+                                    progressMessageRes =
+                                        readingProgressMessageRes(readingProgress.finish(pass.id))
+                                }
+                            },
+                            onRetry = { scope.launch { readingProgress.refresh() } }
+                        )
                     }
                 }
 
@@ -1528,33 +1479,42 @@ internal fun LibraryContinueCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
-                    LinearProgressIndicator(
-                        progress = { book.percent },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant,
-                        // #292: the M3 stop dot sat at the track's end like a
-                        // second, unexplained marker (device review, 2026-09-16).
-                        drawStopIndicator = {}
-                    )
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                    // The remaining time lives in the CTA right below — repeating
-                    // it here made the two labels fight for one line on a phone
-                    // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
-                    Text(
-                        text = stringResource(
-                            R.string.lib_progress_percent,
-                            (book.percent * 100f).roundToInt()
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    // #1187 — ADR-0014: an unknown duration renders as NOTHING.
+                    // `knownPercent` is null when no total proves one, and the
+                    // card drew an empty bar plus «Прослухано 0%» for such a
+                    // book — the sentinel read as a reading. The bar keeps
+                    // `percent` (unchanged for the totals that ARE known); only
+                    // its visibility is gated here.
+                    val knownPercent = book.knownPercent
+                    if (knownPercent != null) {
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+                        LinearProgressIndicator(
+                            progress = { book.percent },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.outlineVariant,
+                            // #292: the M3 stop dot sat at the track's end like a
+                            // second, unexplained marker (device review, 2026-09-16).
+                            drawStopIndicator = {}
+                        )
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                        // The remaining time lives in the CTA right below — repeating
+                        // it here made the two labels fight for one line on a phone
+                        // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
+                        Text(
+                            text = stringResource(
+                                R.string.lib_progress_percent,
+                                knownPercent
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
@@ -1586,6 +1546,36 @@ internal fun LibraryContinueCard(
         }
     }
 }
+
+/**
+ * #1205 (review S1) — how many tile columns the Медіатека's grid may draw.
+ *
+ * `Adaptive`, not `Fixed(2)`: the width the book area gets is not the window's,
+ * it is whatever container the screen was handed — and since #1205 a wide window
+ * can hand the Library's list pane as little as 192 dp. The mini-player's
+ * leading column is 360 dp WIDE and the rail sits INSIDE it, not beside it, so
+ * an 840 dp window gives the content 840 − 360 = 480 dp and the list pane
+ * 0.4 × 480 = 192 dp.
+ *
+ * Two FIXED columns in that pane gave each tile ≈74 dp — under the canonical
+ * [PosterWidth] poster (ADR-0033) and a column of truncated titles, which is the
+ * defect the #900 audit warned about. An adaptive column keeps every tile at
+ * least [PosterWidth] wide and draws fewer of them instead: at 192 dp it is ONE
+ * tile of ≈160 dp rather than two squeezed 74 dp ones. On a roomy pane the tile
+ * count follows the room the same way; on a phone window (411 dp, ≈184 dp per
+ * tile) the two columns are byte-identical to the fixed pair this replaces.
+ *
+ * The listener's grid/list CHOICE is untouched — only the count follows the
+ * width. `GridCells.Adaptive(minSize)` guarantees cells of at least `minSize`
+ * for every container of at least that width, and the narrowest pane the app can
+ * produce is 192 dp, so the tiles can no longer be squeezed below the poster.
+ * That is also why there is no separate `widthIn(min = PosterWidth)` floor
+ * (review of #1217): `Adaptive` already IS the floor for every reachable width,
+ * and in the one container narrower than a poster, where such a floor would
+ * fire, it would clip the tile where fitting it is the point.
+ */
+internal fun libraryGridColumns(gridMode: Boolean): GridCells =
+    if (gridMode) GridCells.Adaptive(minSize = PosterWidth) else GridCells.Fixed(1)
 
 /**
  * The stateless renderer of the Медіатека grid (v1.5 review).
@@ -1799,6 +1789,10 @@ internal fun LibraryShelf(
  * The dense row of a narrowed-down library (no cover, a timeline rail, the
  * honest time left on the right). Same a11y contract as [LibraryBookCard]:
  * one node for the row body, one real play node next to the offline badge.
+ *
+ * #1165 — that one node spans the WHOLE row: the timeline rail and the
+ * trailing column («новий»/«18 хв» + the offline badge) are inside the
+ * interaction area, so its indication never draws an edge through the title.
  */
 @Composable
 internal fun LibraryDenseRow(
@@ -1830,15 +1824,51 @@ internal fun LibraryDenseRow(
             book.book.displayAuthor
         )
     }
+    // #1187 — ADR-0014: an unknown duration renders as NOTHING. `knownPercent`
+    // is null exactly when no total proves one, so «0%» never appears for a
+    // book whose files were never measured; the row says nothing instead.
     val progressLabel = when {
         book.isCompleted -> stringResource(R.string.lib_progress_done)
         book.isNew -> stringResource(R.string.lib_progress_new)
-        else -> "${(book.percent * 100f).roundToInt()}%"
+        else -> book.knownPercent?.let { "$it%" }
     }
     Row(
         modifier = Modifier
+            // #885 — the card attaches the return-focus requester FIRST in
+            // the chain; the row must do the same, otherwise the focus never
+            // lands and the a11y journey times out waiting for `Focused`.
+            .then(
+                if (bookReturnFocusRequester != null) {
+                    Modifier.focusRequester(bookReturnFocusRequester)
+                } else {
+                    Modifier
+                }
+            )
             .fillMaxWidth()
-            .height(IntrinsicSize.Min),
+            .height(IntrinsicSize.Min)
+            // #1165 — the interaction area is the WHOLE row, not the text
+            // column: the clip used to sit on the title/author block, so the
+            // press/focus indication stopped exactly where the trailing column
+            // («новий»/«18 хв» + the cloud) begins and the listener read that
+            // hard edge as the title being cut off by the badge. The row's
+            // boundary is the row's own box now, so the indication can only
+            // ever end where the row does.
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .focusProperties { canFocus = true }
+            .clickable(onClick = onOpen)
+            // #885 — the dense row IS the library book item: keep the
+            // long-standing contract tag the journeys click, so the
+            // accessibility and playback tests keep their anchor.
+            .testTag("library_book_item_${book.book.id}")
+            .clearAndSetSemantics {
+                contentDescription = description
+                stateDescription = state
+                role = Role.Button
+                onClick(label = openLabel) {
+                    onOpen()
+                    true
+                }
+            },
         verticalAlignment = Alignment.CenterVertically
     ) {
         // The timeline thread: one continuous hairline per row, a fill dot on
@@ -1871,38 +1901,8 @@ internal fun LibraryDenseRow(
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
         Column(
             modifier = Modifier
-                // #885 — the card attaches the return-focus requester FIRST in
-                // the chain; the row must do the same, otherwise the focus never
-                // lands and the a11y journey times out waiting for `Focused`.
-                .then(
-                    if (bookReturnFocusRequester != null) {
-                        Modifier.focusRequester(bookReturnFocusRequester)
-                    } else {
-                        Modifier
-                    }
-                )
                 .weight(1f)
                 .padding(vertical = AppDimens.SpaceMd)
-                // #885 — the focus/ripple indication painted a hard square box
-                // behind the row (clearly visible on the focused book right
-                // after returning from it). The prototype's shapes are soft, so
-                // the indication is clipped to a rounded rectangle.
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                .focusProperties { canFocus = true }
-                .clickable(onClick = onOpen)
-                // #885 — the dense row IS the library book item: keep the
-                        // long-standing contract tag the journeys click, so the
-                        // accessibility and playback tests keep their anchor.
-                        .testTag("library_book_item_${book.book.id}")
-                .clearAndSetSemantics {
-                    contentDescription = description
-                    stateDescription = state
-                    role = Role.Button
-                    onClick(label = openLabel) {
-                        onOpen()
-                        true
-                    }
-                }
         ) {
             Text(
                 text = book.book.title,
@@ -1974,11 +1974,13 @@ internal fun LibraryDenseRow(
                     }
                 )
             }
-            Text(
-                text = progressLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (progressLabel != null) {
+                Text(
+                    text = progressLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         LibraryInlineOfflineBadge(book, downloadCount)
     }
@@ -2478,20 +2480,40 @@ private fun LibraryBookGridContent(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { book.percent },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                    .clearAndSetSemantics { },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant,
-                // #292 carried to the shelf: the M3 stop dot read as a stray
-                // amber marker crowding the provenance chip right below it
-                // (device review, 2026-09-16).
-                drawStopIndicator = {}
-            )
+            // #1187 — an unknown book length must not be drawn as a bar. At
+            // `percent == 0f` an empty track reads exactly like "nothing
+            // listened", while the same tile's a11y description says the
+            // duration is unknown. The slot stays reserved either way, so the
+            // provenance chip below does not jump.
+            if (book.knownPercent != null) {
+                // The tag lives on a WRAPPER: `clearAndSetSemantics` below clears
+                // the bar's own semantics, so a tag placed on the indicator is
+                // invisible to the test tree — and the absence test would then
+                // pass for the wrong reason (#1187 review).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .testTag("library_tile_progress_${book.book.id}")
+                ) {
+                    LinearProgressIndicator(
+                        progress = { book.percent },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                            .clearAndSetSemantics { },
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outlineVariant,
+                        // #292 carried to the shelf: the M3 stop dot read as a stray
+                        // amber marker crowding the provenance chip right below it
+                        // (device review, 2026-09-16).
+                        drawStopIndicator = {}
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             // The provenance chip sits directly under this bar. 4 dp merged
             // the two amber elements into one smudge; the chip needs air.
             Spacer(modifier = Modifier.height(10.dp))
@@ -3437,6 +3459,170 @@ private fun ReadingProgressRow(
 }
 
 /**
+ * #1286 — the «Мій рік» surface, rendered from the module's ONE state.
+ *
+ * `Loading` is not the empty state: nothing has been read yet. A first read
+ * failure gets an explicit retry instead of the «no finished passes» lie; a
+ * later failure keeps the known projection and only adds the retry line. The
+ * active passes and the year come from the SAME snapshot, so the list the
+ * listener can still move and the goal above it cannot disagree.
+ */
+@Composable
+fun LibraryReadingYearSection(
+    state: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State,
+    message: String?,
+    onRecord: (com.slukhayka.audiobooks.data.entries.Readthrough, Int) -> Unit,
+    onFinish: (com.slukhayka.audiobooks.data.entries.Readthrough) -> Unit,
+    onRetry: () -> Unit
+) {
+    when (state) {
+        com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Loading -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("reading_year_loading"),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+
+        is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Failed -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .testTag("reading_year_failed"),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                EmptyState(
+                    icon = Icons.Default.CalendarMonth,
+                    title = stringResource(R.string.lib_year_error_title),
+                    body = stringResource(R.string.lib_year_error_body)
+                )
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("reading_year_retry")
+                ) {
+                    Text(stringResource(R.string.feedback_retry))
+                }
+            }
+        }
+
+        is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready -> {
+            val projection = state.projection
+            // A successful read with nothing to show keeps the original empty
+            // words — this is a real empty library, not a failed read.
+            if (projection.year.totalFinished == 0 && projection.active.isEmpty()) {
+                EmptyState(
+                    icon = Icons.Default.CalendarMonth,
+                    title = stringResource(R.string.lib_year_empty_title),
+                    body = stringResource(R.string.lib_year_empty_body)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("library_year"),
+                    contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
+                ) {
+                    item {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                text = stringResource(R.string.lib_year_heading, projection.year.year),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.testTag("reading_year_heading")
+                            )
+                            Text(
+                                text = stringResource(R.string.lib_year_total, projection.year.totalFinished),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.testTag("reading_year_total")
+                            )
+                            projection.year.finishedByFormat.toSortedMap().forEach { (format, count) ->
+                                Text(
+                                    text = stringResource(
+                                        R.string.lib_year_format,
+                                        readingFormatLabel(format),
+                                        count
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.lib_year_rule),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            // #1286 — the honest outcome of the last action, INCLUDING
+                            // the refusal and the storage failure; never only a success.
+                            if (message != null) {
+                                Text(
+                                    text = message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("reading_progress_message")
+                                )
+                            }
+                            if (state.refreshFailed) {
+                                Text(
+                                    text = stringResource(R.string.lib_year_refresh_failed),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("reading_year_stale")
+                                )
+                                OutlinedButton(
+                                    onClick = onRetry,
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("reading_year_retry")
+                                ) {
+                                    Text(stringResource(R.string.feedback_retry))
+                                }
+                            }
+                        }
+                    }
+                    // #876 — the passes still in the listener's hands: ONE journal
+                    // record per action, in the format's own unit, and finishing
+                    // belongs to that pass alone.
+                    items(projection.active, key = { it.id }) { pass ->
+                        ReadingProgressRow(
+                            pass = pass,
+                            onRecord = { value -> onRecord(pass, value) },
+                            onFinish = { onFinish(pass) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** #1286 — every mutation outcome has its own words; a refusal is not a success. */
+internal fun readingProgressMessageRes(
+    result: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result
+): Int = when (result) {
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Recorded ->
+        R.string.lib_year_recorded
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Finished ->
+        R.string.lib_year_finished
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Failed ->
+        R.string.lib_year_save_failed
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Refused ->
+        when (result.reason) {
+            com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.REASON_UNKNOWN_PASS ->
+                R.string.lib_year_refused_unknown
+            else -> R.string.lib_year_refused_closed
+        }
+}
+
+/**
  * #962 — the ceiling the chrome band may take in a wide-and-short window.
  *
  * The band is the ONLY scrollable thing above the list, so it must never be
@@ -3530,16 +3716,15 @@ private fun libraryChrome(
     // second row. The rare-filter launcher (Обрані / Локальні /
     // Онлайн) rides the same line and keeps its accent + its own
     // name while active, so a non-default filter stays visible.
+    //
+    // #1165 — the row itself reveals whichever chip carries the
+    // selection (the active status, or this launcher while a rare
+    // filter is active). The screen used to scroll the line here,
+    // and for every one-tap status that meant «back to the start»:
+    // the LAST chip — «Завантажені» when #1165 was filed, «На пристрої»
+    // since #1163 — stayed under the right window edge while selected: the
+    // #390 defect the #885 redesign brought back.
     val isSheetFilterActive = filter in SHEET_FILTERS
-    LaunchedEffect(filter) {
-        // The rare-filter launcher lives at the far end of the row:
-        // scroll it into view while it is the active filter, and
-        // back to the statuses when a one-tap status takes over.
-        withFrameNanos { }
-        statusRowScrollState.animateScrollTo(
-            if (isSheetFilterActive) statusRowScrollState.maxValue else 0
-        )
-    }
     LibraryStatusRow(
         selected = filter,
         onSelect = onFilterChange,

@@ -75,6 +75,24 @@ object ListeningRhythm {
     fun mondays(days: List<Day>): Int = qualifying(days).count { it.date.dayOfWeek == DayOfWeek.MONDAY }
 
     /**
+     * #1166 (T8) — «Слухацький рік» (story 13): how many DIFFERENT days with
+     * listening, ever.
+     *
+     * CUMULATIVE, never one calendar year. The spec words the award as «за
+     * рік», but read literally that year is both unreachable and non-monotone:
+     * a listener who heard a book every day for two years would still start
+     * from zero every 1 January, and an earned award could be taken back by the
+     * calendar. The owner's decision (#1166) is the running count of distinct
+     * days, so this number only ever grows.
+     *
+     * The unit is the day, and the honesty bar is the one every regularity
+     * award here already reads ([DAY_MILLIS]): a sub-minute day and a pre-v51
+     * row with zero verified millis are rows, not days of listening, and
+     * counting ROWS instead would hand out the year early.
+     */
+    fun listeningDays(days: List<Day>): Int = qualifying(days).size
+
+    /**
      * The days that count, each date ONCE.
      *
      * The one-row-per-day invariant belongs here rather than in one caller:

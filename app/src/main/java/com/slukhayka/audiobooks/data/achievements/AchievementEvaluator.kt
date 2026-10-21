@@ -45,6 +45,22 @@ data class AchievementProgress(
      */
     val browserBooks: Long = 0,
     /**
+     * #1175 (US42) — «Нова хвиля»: books that arrived through a source while
+     * that source was still NEW, i.e. inside the thirty days that follow its
+     * own recorded appearance date.
+     *
+     * The window runs FROM the appearance date and joins two recorded facts:
+     * the registry's `SourceFacts.appearedOn` and `sources.addedAt` — the
+     * instant this book's row appeared through that door. Nothing reads "now",
+     * so a book that qualified yesterday qualifies tomorrow.
+     *
+     * An UNDATED source contributes nothing at all: an unknown date is unknown,
+     * never today (ADR-0014). The fifteen sources that predate the decision
+     * stay undated on purpose, which is why the award sits in «Попереду» until
+     * the first dated source arrives.
+     */
+    val newWaveBooks: Long = 0,
+    /**
      * #702 (T4) — library Works per normalized genre id.
      *
      * A MAP rather than a dozen counters: the genre vocabulary is open
@@ -92,6 +108,17 @@ data class AchievementProgress(
     /** #1166 (T8) — how many different Mondays carried listening. */
     val mondaysListened: Long = 0,
     /**
+     * #1166 (T8, story 13) — «Слухацький рік»: how many DIFFERENT days carried
+     * listening, counted over the whole history.
+     *
+     * Deliberately CUMULATIVE rather than one calendar year, which the owner
+     * decided in #1166: the literal «за рік» is unreachable for a real
+     * listener and, worse, would start from zero every 1 January and could take
+     * an earned award back. The running count of distinct days with at least
+     * one verified minute (`ListeningRhythm.DAY_MILLIS`) only ever grows.
+     */
+    val listeningDays: Long = 0,
+    /**
      * #700 (T2) — books the listener FINISHED A SECOND TIME («Друге дихання»).
      *
      * Two `COMPLETED` events on the same book, i.e. two separate listening
@@ -109,6 +136,32 @@ data class AchievementProgress(
      */
     val booksFinishedTwice: Long = 0,
     /**
+     * #1174 (друга смуга, US22) — «Друге дихання», the SECOND honest path: the
+     * listener finished a book that still carried the «покинуто» mark when it
+     * ended.
+     *
+     * A recorded fact, never an inference: the completion moment is captured
+     * while the mark is still readable, and taking the mark away is what makes
+     * the fact unrecoverable afterwards (`AbandonedBooks.finish`). 0 or 1 is
+     * all it can be — the fact table holds one row per fact, and the award asks
+     * whether a return happened at all, not how many times.
+     */
+    val booksFinishedAfterAbandon: Long = 0,
+    /**
+     * #1174 (друга смуга, US28) — «Не кидаю»: how many books carry a LIVE
+     * «покинуто» mark right now — an AUDIO pass in state ABANDONED whose book is
+     * still not finished by the ONE completion rule (owner's decision on
+     * 2026-10-09).
+     *
+     * The mark is the listener's own declared act, and the award reads it for
+     * exactly one thing: while a live mark stands, the metric is zero. The
+     * filter is not this module's own idea of "finished" — it is the mark
+     * owner's answer (`AbandonedBooks.observeLiveAbandonedBookIds`), the very
+     * flow the library badge and the book page read, so the award can never
+     * stay shut over a mark no surface shows.
+     */
+    val abandonedBooks: Long = 0,
+    /**
      * #701 — «П'ять поспіль»: the longest run of consecutive completions (in
      * time) whose Works belong to ONE series, counted in DISTINCT books.
      *
@@ -124,6 +177,137 @@ data class AchievementProgress(
      */
     val englishStartBooks: Long = 0,
     val verifiedListeningMillis: Long = 0,
+    /**
+     * #1183 (T9b) — verified milliseconds really played from a local file or a
+     * downloaded content URI (`listening_stats.offlineListenedMillis`).
+     *
+     * STRONG evidence only: the player confirmed the LOCAL source was playing,
+     * never `book.isDownloaded` and never the mere absence of a network
+     * (ADR-0014, ADR-0060). The column starts at zero in v54, so nothing heard
+     * before the measurement layer existed can open an offline award.
+     */
+    val offlineMillis: Long = 0,
+    /**
+     * #1183 (T9b) — verified milliseconds really played on a Cast receiver
+     * (`castListenedMillis`). The receiver's own confirmed PLAYING state, never
+     * the `isCasting` flag and never a transport command (ADR-0060).
+     */
+    val castMillis: Long = 0,
+    /**
+     * #1183 (T9b) — verified milliseconds written inside the 00:00–04:00 local
+     * window, summed over days (`nightListenedMillis`).
+     *
+     * The window itself and the whole-tick attribution belong to the writer
+     * (`NightWindow`, `ListeningStateStore`); this snapshot only sums what was
+     * recorded, so no session is split or stretched into the night here.
+     */
+    val nightMillis: Long = 0,
+    /**
+     * #1183 (T9b) — the longest single session, in verified milliseconds
+     * (`playback_sessions.verifiedMillis`).
+     *
+     * One session is one continuous interval: a pause of fifteen minutes or
+     * more, a stop, or another book closes it (`PlaybackSessionPolicy`).
+     * Sessions are never pruned, so the longest one is monotone.
+     */
+    val longestSessionMillis: Long = 0,
+    /**
+     * #1183 (T9b) — the longest single session measured by the OFFLINE
+     * milliseconds inside it («Літак»).
+     *
+     * Not the same metric as [offlineMillis]: ten offline hours spread over ten
+     * short sessions are a download habit, not one long trip.
+     */
+    val longestOfflineSessionMillis: Long = 0,
+    /**
+     * #1183 (T9b) — how many times the «до кінця розділу» mode was ARMED
+     * (`AchievementCounter.END_OF_CHAPTER_ARM`), not how many chapters ended.
+     *
+     * At a chapter boundary the timer re-arms for the next chapter and a
+     * `TIMER_STOP` event may never be written, so the armed moment is the only
+     * honest fact (#700, ADR-0060).
+     */
+    val endOfChapterArms: Long = 0,
+    /**
+     * #1183 (T9b) — how many DIFFERENT local mornings carried a session that
+     * STARTED between 06:00 and 08:00.
+     *
+     * The unit is the morning — a calendar date — not the session: five breaks
+     * inside one dawn are still one morning (owner's decision, #1166).
+     */
+    val morningDays: Long = 0,
+    /**
+     * #701 — «У циклі» / «Серієман»: series the listener owns AND has finished
+     * entirely — every own book of the series carries a recorded completion.
+     *
+     * The full membership of a series is not in the database (it lives online),
+     * so the owner's reading (#701) is the own-books one. The series IDENTITY is
+     * the cycles shelf's (`PersonalCycles.finished` groups by the normalized
+     * title, ADR-0012), but the COMPLETION here is STRICTER: the recorded
+     * end-of-book event, never `playback_progress.isCompleted` — ADR-0060
+     * accepts only the event, and a hand-set «Прослухано» must not finish a
+     * series. See [PersonalSeries].
+     */
+    val completedSeries: Long = 0,
+    /**
+     * #701 — «По порядку»: series whose own NUMBERED tomes were finished in
+     * numeric order, read from `works.seriesIndex` where it is known.
+     *
+     * The award is about order, not completeness (#701): a tome without a
+     * number proves nothing and is not counted, and an unfinished tome has no
+     * instant to sort by. See [PersonalSeries.inOrder].
+     */
+    val orderedSeries: Long = 0,
+    /**
+     * #701 — «Один всесвіт»: the most own books belonging to ONE curated
+     * universe (`universes/` assets, resolved through `UniverseMatcher`).
+     *
+     * The unit is the Work, and completion is not required: the award is about
+     * three books of one world, not about three finished ones. See
+     * [UniverseBreadth].
+     */
+    val universeBooks: Long = 0,
+    /**
+     * #701 — «Колекціонер»: curated collections (`collections/` assets) whose
+     * EVERY entry is covered by an own book the listener finished. See
+     * [CollectionCompletion].
+     */
+    val passedCollections: Long = 0,
+    /**
+     * #701 — «Усі двері»: 1 when every registered source except the scam ones
+     * was really used, 0 otherwise.
+     *
+     * Derived from the registry at read time, so a new source raises the bar
+     * without a code change (#701's acceptance criterion); an already earned
+     * award is never taken back. See [SourceDoors].
+     */
+    val allDoorsReached: Long = 0,
+    /**
+     * #701 (US44) — «Резолвер»: the listener's Work was really cross-resolved
+     * onto a direct counterpart. A recorded fact, written only where the
+     * mapping returned a match (`MainViewModel.crossResolveDirectSource`), so a
+     * tap that found nothing cannot open the award.
+     */
+    val crossResolves: Long = 0,
+    /**
+     * #701 (US45) — «Відновлювач»: a book was really recovered. ONE fact with
+     * TWO honest doors — the stream self-heal that obtained a fresh URL
+     * (`AudioPlayerManager`) and the browser recovery that ended in
+     * `Outcome.Success` — because both are the same story: a broken source was
+     * rescued (owner's decision, #701).
+     */
+    val sourceRecoveries: Long = 0,
+    /**
+     * #701 (US46) — «Той самий голос»: how many renditions the listener holds
+     * in TWO OR MORE sources.
+     *
+     * No fact is written for this one (owner's decision, #701): the same
+     * narration already IS a row — `editions.id` hashes
+     * `mergeKey|narrator|language`, so two `sources` rows pointing at one
+     * editionId are the same voice from two doors, and the database has said so
+     * since the first import.
+     */
+    val sharedNarrations: Long = 0,
     val registeredSourceIds: Set<String> = emptySet(),
     val knownSeriesMemberships: Set<AchievementSeriesMembership> = emptySet()
 )
@@ -134,11 +318,32 @@ enum class AchievementMetric {
     EXPLICIT_BOOKS, PLAYBACK_STARTS, ACCEPTED_REVIEWS, NOT_INTERESTED,
     SEARCH_IMPORTS, OFFLINE_PLAYBACK_STARTS, DOWNLOADED_BOOKS, COMPLETED_BOOKS, LISTENING_MILLIS,
     SHORT_COMPLETED_BOOKS, EPIC_COMPLETED_BOOKS, FAST_BOOKS, SLOW_BOOKS, BOOKMARKS, NOTES,
-    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS,
+    TIMER_STOPS, RELISTENS, USED_SOURCE_DOORS, KNOWN_LANGUAGES, BROWSER_BOOKS, NEW_WAVE_BOOKS,
     DISTINCT_GENRES, MAX_GENRE_BOOKS, GENRE_BOOKS, NIGHT_COMPLETIONS, OWL_LARK, HOLIDAY_COMPLETIONS,
-    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS, BOOKS_FINISHED_TWICE,
+    VINTAGE_COMPLETIONS, RETURNS_AFTER_BREAK, LATE_COMPLETIONS,
+    // #1174 (друга смуга, US22) — «Друге дихання»: ONE award with TWO honest
+    // paths, so ONE metric. Either a book finished a second time
+    // ([AchievementProgress.booksFinishedTwice]) or a book finished after the
+    // listener had marked it «покинуто»
+    // ([AchievementProgress.booksFinishedAfterAbandon]) proves the return the
+    // award is about; two catalogue entries would fire two notices for one
+    // story, the same reason «Ювілей години» is absent.
+    SECOND_WIND,
     LONGEST_SERIES_RUN, ENGLISH_STARTS, BEST_DAY_MILLIS, LONGEST_DAY_STREAK,
-    BEST_MONTH_DAYS, MONDAY_DAYS;
+    BEST_MONTH_DAYS, MONDAY_DAYS, LISTENING_DAYS,
+    // #1183 (T9b) — the awards built on the measurement layer (#1173): the
+    // recorded day columns, the session table and the durable counter.
+    OFFLINE_MILLIS, CAST_MILLIS, NIGHT_MILLIS, LONGEST_SESSION_MILLIS,
+    LONGEST_OFFLINE_SESSION_MILLIS, END_OF_CHAPTER_ARMS, MORNING_DAYS,
+    // #1174 (друга смуга, US28) — «Не кидаю»: the completed count itself while
+    // no «покинуто» mark stands, and 0 the moment one does.
+    COMPLETED_BOOKS_WITHOUT_ABANDON,
+    // #701 — the rest of T3, now that the owner's readings (#701, 2026-10-07)
+    // turned each gap into a decision: the series pair and «По порядку», the
+    // curated universe and collection, the dynamic «Усі двері», and the two
+    // mechanism facts plus the narration already recorded in the database.
+    COMPLETED_SERIES, ORDERED_SERIES, UNIVERSE_BOOKS, PASSED_COLLECTIONS, ALL_DOORS,
+    CROSS_RESOLVES, SOURCE_RECOVERIES, SHARED_NARRATIONS;
 
     /**
      * [genreId] is read by [GENRE_BOOKS] alone — the one metric that asks about
@@ -165,6 +370,7 @@ enum class AchievementMetric {
         USED_SOURCE_DOORS -> snapshot.usedSourceDoors
         KNOWN_LANGUAGES -> snapshot.knownLanguages
         BROWSER_BOOKS -> snapshot.browserBooks
+        NEW_WAVE_BOOKS -> snapshot.newWaveBooks
         DISTINCT_GENRES -> snapshot.genreCounts.size.toLong()
         MAX_GENRE_BOOKS -> snapshot.genreCounts.values.maxOrNull() ?: 0L
         // #702 (T4, зріз 2) — books of ONE NAMED genre. A genre the snapshot
@@ -181,10 +387,30 @@ enum class AchievementMetric {
         LONGEST_DAY_STREAK -> snapshot.longestDayStreak
         BEST_MONTH_DAYS -> snapshot.bestMonthDays
         MONDAY_DAYS -> snapshot.mondaysListened
-        BOOKS_FINISHED_TWICE -> snapshot.booksFinishedTwice
+        LISTENING_DAYS -> snapshot.listeningDays
+        SECOND_WIND -> maxOf(snapshot.booksFinishedTwice, snapshot.booksFinishedAfterAbandon)
         LONGEST_SERIES_RUN -> snapshot.longestSeriesRun
         ENGLISH_STARTS -> snapshot.englishStartBooks
         LISTENING_MILLIS -> snapshot.verifiedListeningMillis
+        OFFLINE_MILLIS -> snapshot.offlineMillis
+        CAST_MILLIS -> snapshot.castMillis
+        NIGHT_MILLIS -> snapshot.nightMillis
+        LONGEST_SESSION_MILLIS -> snapshot.longestSessionMillis
+        LONGEST_OFFLINE_SESSION_MILLIS -> snapshot.longestOfflineSessionMillis
+        END_OF_CHAPTER_ARMS -> snapshot.endOfChapterArms
+        MORNING_DAYS -> snapshot.morningDays
+        COMPLETED_BOOKS_WITHOUT_ABANDON ->
+            if (snapshot.abandonedBooks == 0L) snapshot.completedBooks else 0L
+        // #701 — one metric per reading the owner accepted; the snapshot
+        // already carries the arithmetic (see each field's own note).
+        COMPLETED_SERIES -> snapshot.completedSeries
+        ORDERED_SERIES -> snapshot.orderedSeries
+        UNIVERSE_BOOKS -> snapshot.universeBooks
+        PASSED_COLLECTIONS -> snapshot.passedCollections
+        ALL_DOORS -> snapshot.allDoorsReached
+        CROSS_RESOLVES -> snapshot.crossResolves
+        SOURCE_RECOVERIES -> snapshot.sourceRecoveries
+        SHARED_NARRATIONS -> snapshot.sharedNarrations
     }
 }
 
@@ -269,25 +495,60 @@ object AchievementCatalog {
         // are RECORDED events (`TIMER_STOP`, `RELISTEN`), not inferred from
         // anything else — the app already writes them.
         AchievementDefinition("sleep_timer_20", "habits", 4, AchievementMetric.TIMER_STOPS, 20),
+        // #1183 (T9b) — «До кінця розділу»: ten times the mode was ARMED, the
+        // moment the listener turned it on. `TIMER_STOP` would undercount, and
+        // is a different fact (#700).
+        AchievementDefinition("chapter_end_10", "habits", 5, AchievementMetric.END_OF_CHAPTER_ARMS, 10),
+        // #1174 (друга смуга, US28) — «Не кидаю»: ten FINISHED books and not a
+        // single «покинуто» mark standing. The threshold is the ticket's, and
+        // the count is the same real end-of-book event the book ladder reads —
+        // a hand-set «Прослухано» never adds a book (ADR-0060). The metric
+        // reads the completed count while no LIVE mark exists and 0 as soon as
+        // one does, so a listener who comes back and clears the abandoned
+        // passes opens the SAME award instead of a second one — and a mark only
+        // the database still carries (a completion that arrived from another
+        // device) cannot close it for good.
+        AchievementDefinition("never_abandon_10", "habits", 6, AchievementMetric.COMPLETED_BOOKS_WITHOUT_ABANDON, 10),
         AchievementDefinition("relisten_1", "relisten", 1, AchievementMetric.RELISTENS, 1),
         AchievementDefinition("relisten_5", "relisten", 2, AchievementMetric.RELISTENS, 5),
-        // #700 (T2) — «Друге дихання»: the SAME book finished twice. The ticket
-        // words it as «завершення після повернення»; the recorded proof is the
-        // narrower fact — two `COMPLETED` cycles on one book, since the player's
-        // `completionLogged` resets only when a cycle ends, not inside one. A
-        // RELISTEN pairing would misfire: «Почати спочатку» writes RELISTEN on
-        // an unfinished book.
-        AchievementDefinition("second_wind", "relisten", 3, AchievementMetric.BOOKS_FINISHED_TWICE, 1),
+        // #700 (T2) + #1174 (друга смуга) — «Друге дихання»: ONE award, TWO
+        // honest paths. The first is the recorded one — two `COMPLETED` cycles
+        // on the same book, since the player's `completionLogged` resets only
+        // when a cycle ends and a fresh load at the very end goes through the
+        // relisten rule instead of logging a second completion. A RELISTEN
+        // pairing would misfire: «Почати спочатку» writes RELISTEN on an
+        // unfinished book. The second path is a book finished while it still
+        // carried the «покинуто» mark — the fact is captured at that moment and
+        // cannot be read afterwards, because clearing the mark is what makes it
+        // unrecoverable (`AbandonedBooks.finish`).
+        AchievementDefinition("second_wind", "relisten", 3, AchievementMetric.SECOND_WIND, 1),
         // #700 (T2) — «Глибокий запас»: ten books actually downloaded for
         // offline use. Built on the same real proof T1 already uses for
         // `first_download` (a track row that is downloaded AND whose file is
         // really on disk), so a row alone cannot claim it.
-        //
-        // The other three offline awards («Автономний», «Літак», «Гурман
-        // завантажень») need offline HOURS, which nothing records yet — they
-        // are deliberately absent rather than approximated from the count of
-        // offline starts, which is a different fact.
         AchievementDefinition("deep_reserve_10", "offline", 1, AchievementMetric.DOWNLOADED_BOOKS, 10),
+        // #1183 (T9b) — the rest of the offline group. The three awards #700
+        // left out because nothing recorded offline HOURS are here now: the
+        // measurement layer from #1173 writes that column per day from the
+        // STRONG evidence of a local source really playing. They read the
+        // column, never the count of offline starts — a start is a different
+        // fact and would open «Автономний» on the first minute (ADR-0014).
+        AchievementDefinition("autonomous_10h", "offline", 2, AchievementMetric.OFFLINE_MILLIS, 10 * 3_600_000L),
+        AchievementDefinition("download_gourmet_100h", "offline", 3, AchievementMetric.OFFLINE_MILLIS, 100 * 3_600_000L),
+        // «Літак» is the LONGEST offline session, not the FIRST one: the first
+        // offline session already has its own award (`first_offline_playback`),
+        // and two notices for one fact are not two achievements (#700).
+        AchievementDefinition("airplane_2h", "offline", 4, AchievementMetric.LONGEST_OFFLINE_SESSION_MILLIS, 2 * 3_600_000L),
+        // #1183 (T9b) — «Великий екран»: hours on a receiver, which only its
+        // own confirmed PLAYING state proves (ADR-0060).
+        AchievementDefinition("big_screen_10h", "cast", 1, AchievementMetric.CAST_MILLIS, 10 * 3_600_000L),
+        // #1183 (T9b) — the shape of a SESSION, from the recorded sessions and
+        // day rows: one long sitting, the night hours actually played, and the
+        // dawns that opened a session. Every metric is monotone, so no award
+        // here can be taken back.
+        AchievementDefinition("sync_4h", "sessions", 1, AchievementMetric.LONGEST_SESSION_MILLIS, 4 * 3_600_000L),
+        AchievementDefinition("night_shift_2h", "sessions", 2, AchievementMetric.NIGHT_MILLIS, 2 * 3_600_000L),
+        AchievementDefinition("dawn_5", "sessions", 3, AchievementMetric.MORNING_DAYS, 5),
         // #701 (T3) — «Чотири двері»: listening from four DIFFERENT sources.
         // Counts doors the listener actually used (library rows), never the
         // set the app merely offers — those are different facts.
@@ -307,12 +568,44 @@ object AchievementCatalog {
         // (`LibraryImport.importSubmittedYouTube`), so this counts that path
         // rather than any book that merely lives on YouTube.
         AchievementDefinition("browser_guest", "doors", 2, AchievementMetric.BROWSER_BOOKS, 1),
+        // #1175 (US42) — «Нова хвиля»: a book from a source that had just
+        // appeared. The date lives in the Source Registry (ADR-0038), and the
+        // window runs FROM it, so the award reads two recorded facts and never
+        // "now". An undated source contributes nothing at all; the fifteen
+        // registered sources stay undated on purpose, which is why this stays
+        // in «Попереду» until a dated source arrives.
+        AchievementDefinition("new_wave", "doors", 3, AchievementMetric.NEW_WAVE_BOOKS, 1),
+        // #701 (US40) — «Усі двері»: EVERY registered source except the scam
+        // ones. The required set is the registry's own answer, so adding a
+        // source makes the award harder without a code change; a scam source is
+        // never required, because its audio is not the book and no listener
+        // passes that door honestly (ADR-0038). One metric at threshold 1
+        // because the snapshot already answers the whole question: it is 1 only
+        // while every required door was really used, so an earned award can
+        // never be taken back by a source appearing later.
+        AchievementDefinition("all_doors", "doors", 4, AchievementMetric.ALL_DOORS, 1),
         // #701 (T3) — «Глибокий пошук»: a book found through GLOBAL search. The
         // fact already exists and is written only when the import really came
         // from that path (`MainViewModel` records SEARCH_IMPORTED when
         // `target.fromGlobalSearch`), so this rewards the mechanism rather than
         // any import that happens to follow a search.
         AchievementDefinition("deep_search", "mechanisms", 1, AchievementMetric.SEARCH_IMPORTS, 1),
+        // #701 (US44) — «Резолвер»: the cross-resolve really found a direct
+        // counterpart for the Work. The fact is written at the one success
+        // point (`MainViewModel.crossResolveDirectSource`, where the mapping
+        // verdict is non-null), so a tap that resolved nothing cannot open it.
+        AchievementDefinition("resolver", "mechanisms", 2, AchievementMetric.CROSS_RESOLVES, 1),
+        // #701 (US45) — «Відновлювач»: ONE award, TWO honest doors. A stream
+        // heal that obtained a fresh URL and a browser recovery that ended in
+        // success are the same story — a broken source was rescued — so they
+        // write ONE fact (`SOURCE_RECOVERED`) and this reads it. Two catalogue
+        // entries would fire two notices for one story.
+        AchievementDefinition("recoverer", "mechanisms", 3, AchievementMetric.SOURCE_RECOVERIES, 1),
+        // #701 (US46) — «Той самий голос»: the same narration in two sources.
+        // Deliberately needs NO recorded fact: `editions.id` hashes
+        // `mergeKey|narrator|language`, so two `sources` rows pointing at one
+        // editionId already prove the same voice came through two doors.
+        AchievementDefinition("same_voice", "mechanisms", 4, AchievementMetric.SHARED_NARRATIONS, 1),
         // #701 — «П'ять поспіль» (spec story 35): five consecutive completions
         // that belong to Works of ONE series. Read LITERALLY as a run in time,
         // never as «томи за порядком номерів» — `works.seriesIndex` exists, but
@@ -321,6 +614,31 @@ object AchievementCatalog {
         // series breaks the run, and a relisten of one book adds no tome; see
         // `SeriesRun`.
         AchievementDefinition("five_in_a_row", "series", 1, AchievementMetric.LONGEST_SERIES_RUN, 5),
+        // #701 (US33, US34) — «У циклі» / «Серієман»: a series the listener owns
+        // and has finished ENTIRELY. The owner's reading (#701) is the own-books
+        // one — the full membership of a series lives online, so "every volume
+        // in the world" is not a promise local data can keep. See
+        // `PersonalSeries.finished`.
+        AchievementDefinition("in_cycle", "series", 2, AchievementMetric.COMPLETED_SERIES, 1),
+        AchievementDefinition("series_man", "series", 3, AchievementMetric.COMPLETED_SERIES, 5),
+        // #701 (US36) — «По порядку»: the own NUMBERED tomes of a series were
+        // finished in numeric order. Re-read by the owner as an award about
+        // ORDER, not about completeness: `works.seriesIndex` is incomplete and a
+        // real full membership would need a persisted online list. A tome
+        // without a number proves nothing and is not counted. See
+        // `PersonalSeries.inOrder`.
+        AchievementDefinition("in_order", "series", 4, AchievementMetric.ORDERED_SERIES, 1),
+        // #701 (US37) — «Один всесвіт»: three books of ONE curated universe
+        // (`universes/`, resolved through `UniverseMatcher`). The unit is the
+        // Work; completion is not required, because the award is about the
+        // connections between the books, not about finishing them.
+        AchievementDefinition("one_universe", "series", 5, AchievementMetric.UNIVERSE_BOOKS, 3),
+        // #701 (US38) — «Колекціонер»: ONE curated collection passed entirely
+        // (`collections/`), by own records. The curated asset carries the whole
+        // composition, so "every entry" is a set the data can actually answer —
+        // and reading it as "the entries I happen to own" would hand out a
+        // collection on a single finished book. See `CollectionCompletion`.
+        AchievementDefinition("collector", "series", 6, AchievementMetric.PASSED_COLLECTIONS, 1),
         // #701 — «Англомовний старт»: a book the listener STARTED whose
         // rendition really claims English. The ticket names the award but sets
         // no threshold, and the spec does not mention it at all, so the
@@ -371,7 +689,15 @@ object AchievementCatalog {
         AchievementDefinition("marathon_3h", "regularity", 1, AchievementMetric.BEST_DAY_MILLIS, 3 * 3_600_000L),
         AchievementDefinition("week_in_earphones", "regularity", 2, AchievementMetric.LONGEST_DAY_STREAK, 7),
         AchievementDefinition("month_in_earphones", "regularity", 3, AchievementMetric.BEST_MONTH_DAYS, 20),
-        AchievementDefinition("mondays_10", "regularity", 4, AchievementMetric.MONDAY_DAYS, 10)
+        AchievementDefinition("mondays_10", "regularity", 4, AchievementMetric.MONDAY_DAYS, 10),
+        // #1166 (T8, story 13) — «Слухацький рік»: 365 DIFFERENT days with
+        // listening, counted cumulatively. The owner's decision in #1166 reads
+        // «за рік» as a running total rather than one calendar year: the
+        // literal year is unreachable and would fall back to zero on 1 January.
+        // The name is «Слухацький рік» on purpose — «Рік у навушниках» would
+        // promise the calendar year this award does NOT measure, and it is the
+        // one name the owner explicitly ruled out.
+        AchievementDefinition("listening_year_365", "regularity", 5, AchievementMetric.LISTENING_DAYS, 365)
         // NOTE: «Ювілей години» (the hundredth hour) is deliberately ABSENT. The
         // hour ladder from T1 already has `hours_100` on the SAME metric at the
         // SAME threshold, so adding it would fire two awards — and two notices —

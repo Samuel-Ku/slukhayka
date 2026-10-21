@@ -3,11 +3,29 @@ set -u
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 gradlew=${SLUKHAYKA_GRADLEW:-"$repo_root/gradlew"}
+# Свою теку прогону створює спільний прибиральник (`scripts/tmp_budget.py`), а не
+# `mktemp`: він же прибирає теку, лишену SIGKILL'ом попереднього прогону, і кладе
+# маркер власника, щоб сусідній прогін не зніс живу (#1305). Прибирання тут
+# лишається як було — у пастці; SIGKILL її не виконує, і саме тому прибиральник
+# мусить бути на СТАРТІ. Своя тека тут — це `TMPDIR` для всього Gradle, тож
+# лишена вона не порожня.
+budget_module=$repo_root/scripts/tmp_budget.py
+
+# Прибирання стоїть ДО перевірок, які можуть відмовити (JDK, аргументи Gradle):
+# тека, лишена SIGKILL'ом, мусить зникнути й тоді, коли цей прогін не відбудеться,
+# — інакше відмова одного прогону лишала б чужу теку в tmpfs назавжди (#1305).
+# Невдача самого прибирання прогін не валить: причина йде в stderr, а робота — далі.
+python3 "$budget_module" sweep --prefix slukhayka-tests. ||
+  printf '%s\n' "test-all.sh: прибирання застарілих тек прогону не вдалося (причина вище)" >&2
 
 is_jdk_21() {
   local candidate=$1
   [[ -x "$candidate/bin/java" ]] || return 1
-  "$candidate/bin/java" -version 2>&1 | head -n 1 | grep -Eq 'version "21([.]|\")'
+  # `JAVA_TOOL_OPTIONS` makes every JVM print "Picked up JAVA_TOOL_OPTIONS: …"
+  # BEFORE the version line, so reading line 1 makes this probe answer "not 21"
+  # on a machine whose wrapper sets it — and the caller then exits 2 having run
+  # no tests at all. Read the first line that is actually the version.
+  "$candidate/bin/java" -version 2>&1 | grep -v '^Picked up ' | head -n 1 | grep -Eq 'version "21([.]|\")'
 }
 
 resolve_jdk_21() {
@@ -53,8 +71,8 @@ resolve_jdk_21() {
 }
 
 jdk_home=$(resolve_jdk_21) || exit 2
-temp_base=${TMPDIR:-${TMP:-/tmp}}
-run_temp=$(mktemp -d "$temp_base/slukhayka-tests.XXXXXX") || exit 2
+run_temp=$(python3 "$budget_module" claim --prefix slukhayka-tests. --owner-pid $$) ||
+  { printf '%s\n' "test-all.sh: cannot create a run temp directory (the reason is above)" >&2; exit 2; }
 cleanup() {
   rm -rf -- "$run_temp"
 }

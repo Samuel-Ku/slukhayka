@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
@@ -15,6 +17,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -53,6 +56,7 @@ class AdaptiveNavigationLayoutTest {
     private fun Harness(
         layout: WindowLayout,
         selectedTab: SelectedTab = SelectedTab.LISTEN,
+        miniPlayer: (@Composable () -> Unit)? = null,
         onSelect: (SelectedTab) -> Unit = {}
     ) {
         AudiobookTheme(darkTheme = true) {
@@ -62,7 +66,8 @@ class AdaptiveNavigationLayoutTest {
                         layout = layout,
                         selectedTab = selectedTab,
                         bookDetailOpen = false,
-                        onSelect = onSelect
+                        onSelect = onSelect,
+                        miniPlayer = miniPlayer
                     ) {
                         Box(modifier = Modifier.fillMaxSize().testTag("pane_content"))
                     }
@@ -177,5 +182,120 @@ class AdaptiveNavigationLayoutTest {
                 .assertIsDisplayed()
                 .assertHeightIsAtLeast(24.dp)
         }
+    }
+
+    // ---------------------------------------------------------------- #1205
+
+    /**
+     * #1205 — the mini-player's SECOND slot: under the rail, inside the same
+     * leading column, with the content rectangle starting only after it.
+     *
+     * The frame is an 840 dp window because that is the window the slot exists
+     * for (`WindowLayout.PlayerPaneMinWidthDp`); the harness still passes the
+     * layout explicitly, so this test is about the SLOT, not about the width
+     * line — the line itself is pinned in `WindowLayoutTest`.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
+    fun theMiniPlayerSlotSitsInTheLeadingColumnUnderTheRail() {
+        composeTestRule.setContent {
+            Harness(
+                layout = WindowLayout.EXPANDED,
+                miniPlayer = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .testTag("mini_player_slot")
+                    )
+                }
+            )
+        }
+
+        val rail = composeTestRule.onNodeWithTag("navigation_rail")
+            .getUnclippedBoundsInRoot()
+        val slot = composeTestRule.onNodeWithTag("mini_player_slot")
+            .getUnclippedBoundsInRoot()
+        val content = composeTestRule.onNodeWithTag("pane_content")
+            .getUnclippedBoundsInRoot()
+
+        assertTrue(
+            "the bar must sit UNDER the rail (rail bottom=${rail.bottom}, " +
+                "slot top=${slot.top})",
+            slot.top.value >= rail.bottom.value - 1f
+        )
+        assertTrue(
+            "the bar must sit in the leading column, left of the content " +
+                "(slot right=${slot.right}, content left=${content.left})",
+            slot.right.value <= content.left.value + 1f
+        )
+        assertTrue("the bar was not laid out: $slot", (slot.bottom.value - slot.top.value) > 0f)
+    }
+
+    /**
+     * #1205 — the point the owner named: with the bar in the leading column the
+     * CONTENT rectangle keeps the window's whole height, so starting or
+     * stopping playback no longer pushes the screen up and down. The bar pays
+     * for itself out of the navigation column.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
+    fun theBarInTheLeadingColumnDoesNotShortenTheContentRectangle() {
+        composeTestRule.setContent {
+            Harness(
+                layout = WindowLayout.EXPANDED,
+                miniPlayer = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .testTag("mini_player_slot")
+                    )
+                }
+            )
+        }
+
+        val content = composeTestRule.onNodeWithTag("pane_content")
+            .getUnclippedBoundsInRoot()
+        val rail = composeTestRule.onNodeWithTag("navigation_rail")
+            .getUnclippedBoundsInRoot()
+        val window = composeTestRule.onRoot().getUnclippedBoundsInRoot()
+
+        assertEquals(
+            "the content column must keep the WINDOW's full height",
+            window.bottom.value - window.top.value,
+            content.bottom.value - content.top.value,
+            1f
+        )
+        assertTrue(
+            "the bar must take its height from the navigation column, not " +
+                "from the content (rail=${rail.bottom.value - rail.top.value} dp, " +
+                "content=${content.bottom.value - content.top.value} dp)",
+            (rail.bottom.value - rail.top.value) <
+                (content.bottom.value - content.top.value) - 1f
+        )
+    }
+
+    /**
+     * The phone contract is untouched: [AdaptiveNavigationLayout] draws no
+     * leading column at COMPACT, so a mini-player handed to it is not placed
+     * there — the app keeps that bar in the Scaffold's `bottomBar`, which is
+     * where every phone has always had it.
+     */
+    @Test
+    fun aCompactWindowPlacesNoMiniPlayerInANavigationColumn() {
+        composeTestRule.setContent {
+            Harness(
+                layout = WindowLayout.COMPACT,
+                miniPlayer = {
+                    Box(modifier = Modifier.fillMaxSize().testTag("mini_player_slot"))
+                }
+            )
+        }
+
+        composeTestRule.onNodeWithTag("mini_player_slot").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("navigation_rail").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("navigation_column").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("pane_content").assertExists()
     }
 }

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.slukhayka.audiobooks.MainActivity
@@ -74,20 +75,31 @@ class DownloadNotificationService : Service() {
         return START_NOT_STICKY
     }
 
+    /**
+     * Creates the progress channel once on API 26+. API 24–25 has no channels
+     * at all, so there the same notification is published the only way the
+     * platform offers — no channel, no per-channel description or badge.
+     */
+    private fun ensureChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(NotificationManager::class.java)
+            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                nm.createNotificationChannel(NotificationChannel(
+                    CHANNEL_ID, getString(R.string.download_notification_channel_name),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = getString(R.string.download_notification_channel_description)
+                    setShowBadge(false)
+                })
+            }
+        }
+    }
+
     private fun buildNotification(
         bookId: String, completed: Int, total: Int,
         totalBytes: Long?, isApproximate: Boolean
     ): Notification {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-            nm.createNotificationChannel(NotificationChannel(
-                CHANNEL_ID, getString(R.string.download_notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.download_notification_channel_description)
-                setShowBadge(false)
-            })
-        }
+        ensureChannel()
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("bookId", bookId)
@@ -127,16 +139,7 @@ class DownloadNotificationService : Service() {
     }
 
     private fun buildPausedNotification(bookId: String): Notification {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-            nm.createNotificationChannel(NotificationChannel(
-                CHANNEL_ID, getString(R.string.download_notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.download_notification_channel_description)
-                setShowBadge(false)
-            })
-        }
+        ensureChannel()
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("bookId", bookId)
@@ -227,10 +230,18 @@ class DownloadNotificationService : Service() {
         private var isPaused = false
 
         fun start(ctx: Context, bookId: String, title: String, author: String) {
-            ctx.startForegroundService(Intent(ctx, DownloadNotificationService::class.java).apply {
+            val intent = Intent(ctx, DownloadNotificationService::class.java).apply {
                 action = ACTION_START; putExtra(EXTRA_BOOK_ID, bookId)
                 putExtra(EXTRA_TITLE, title); putExtra(EXTRA_AUTHOR, author)
-            })
+            }
+            // API 26+ bans a background startService and wants the foreground
+            // entry point; API 24–25 predates it and takes the same intent
+            // through startService — never a silent no-op.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(intent)
+            } else {
+                ctx.startService(intent)
+            }
         }
         fun updateProgress(ctx: Context, bookId: String, completed: Int, total: Int, totalBytes: Long?, isApprox: Boolean) {
             ctx.startService(Intent(ctx, DownloadNotificationService::class.java).apply {

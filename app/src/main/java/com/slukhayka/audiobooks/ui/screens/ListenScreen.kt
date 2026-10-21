@@ -742,15 +742,20 @@ fun ListenHeroCard(
                 // because the panel is not a themed surface. It sits at
                 // `z-index:-1` in the prototype, i.e. the rotated cover may
                 // pass over it — faithful, not a collision.
-                LinearProgressIndicator(
-                    progress = { progressFraction },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = AppHeroTrack
-                )
+                if (hasDuration) {
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = AppHeroTrack
+                    )
+                } else {
+                    // #1353 — an unknown total is not "0 %": no bar at all.
+                    Spacer(modifier = Modifier.weight(1f).height(4.dp))
+                }
                 if (hasDuration) {
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
@@ -907,15 +912,20 @@ fun RecentlyListenedRow(
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                color = MaterialTheme.colorScheme.secondary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant
-            )
+            if (hasDuration) {
+                LinearProgressIndicator(
+                    progress = { progressFraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                    color = MaterialTheme.colorScheme.secondary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant
+                )
+            } else {
+                // #1353 — same rule as the hero: no bar without a known total.
+                Spacer(modifier = Modifier.fillMaxWidth().height(4.dp))
+            }
         }
     }
 }

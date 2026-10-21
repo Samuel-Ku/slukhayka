@@ -22,6 +22,12 @@ import java.io.File
  *
  * Lihtar у захоплених фікстурах цього слова не заявляє, тому докази — лише
  * з 4read і sound-books; вигаданий lihtar-рядок був би вигаданим жанром.
+ *
+ * #1053 тримає тут другу заяву — «Попаданці» з жанрового індексу chitaka
+ * (`chitaka-zhanryi-2026-10-10.html`). Застосунок поки не читає жанрів із
+ * chitaka (ні адаптер, ні worker не звуть жодного), тож фікстура пінить саме
+ * ЗАЯВУ джерела: щойно адаптер її читатиме, id `portal-fantasy` уже чекає, а
+ * зникнення полиці з джерела падає тут, не тихо в коментарі.
  */
 class GenreSourceClaimTest {
 
@@ -80,5 +86,38 @@ class GenreSourceClaimTest {
             GenreIdentity.canonicalIdentities["horror"]
         )
         assertEquals("horror", GenreIdentity.fromSourceText("жахи").single().id)
+    }
+
+    /**
+     * #1053 — chitaka справді заявляє полицю «Попаданці», і це заява, а не
+     * побажання: жанровий індекс тримає її під Фантастикою окремим піджанром.
+     * Доказ — тримований слaйс живої сторінки, тож зникнення полиці з джерела
+     * падає тут, а не тихо лишає коментар неправдою.
+     */
+    @Test
+    fun `the captured chitaka genre index still claims Попаданці under Фантастика`() {
+        val html = readRepoFile("app/src/test/resources/fixtures/chitaka-zhanryi-2026-10-10.html")
+
+        val parent = Regex("""<span class="zhanr-title">[^<]*Фантастика</span>""").find(html)
+        val shelf = Regex(
+            """href="https://chitaka\.com\.ua/zhanryi/fantastika/popadancy/"[^>]*title="Попаданці">Попаданці</a>"""
+        ).find(html)
+
+        assertTrue(
+            "chitaka прибрав блок «Фантастика» з жанрового індексу — спершу оновіть доказ, потім перегляньте заяву",
+            parent != null
+        )
+        assertTrue(
+            "chitaka прибрав піджанр «Попаданці» (/zhanryi/fantastika/popadancy/) — спершу оновіть доказ, потім перегляньте заяву",
+            shelf != null
+        )
+        assertTrue(
+            "«Попаданці» мусить лишатися ПІД Фантастикою: саме так джерело вкладає полицю",
+            parent!!.range.first < shelf!!.range.first
+        )
+        assertEquals(
+            listOf(NormalizedGenre("portal-fantasy", "Попаданці")),
+            GenreIdentity.fromSourceText("Попаданці")
+        )
     }
 }

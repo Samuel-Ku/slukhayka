@@ -413,6 +413,59 @@ class SnapshotGoldenBytesGuardTest {
          * `TabHeadersSnapshotTest`, so the Listen, Library and Friends headers
          * have NO golden covering their wordmark. That coverage hole is
          * recorded on #885 rather than papered over here.
+         *
+         * ## One re-pinned on 2026-10-10 (#1165 — the dense row's interaction box)
+         *
+         * The dense library row's clip + `clickable` moved off the title column
+         * and onto the row itself, so the press/focus indication covers the
+         * WHOLE row instead of ending where the trailing «новий»/time column
+         * begins — a listener read that hard edge as a cut-off title.
+         *
+         * Exactly ONE of the nine moved, and the visible delta is the row's own
+         * progress hairline: `.padding(vertical)` sits BEFORE `.clip()` in the
+         * old chain, so the clip box WAS the content box and the 3 dp bar lay
+         * exactly on its bottom edge, inside the 12 dp corner arc — its left
+         * end (the fill) and its right end (the track) were sliced diagonally.
+         * With the clip on the whole row the bar sits 32 dp right of the row's
+         * left edge and 16 dp above its bottom, so it draws its designed 2 dp
+         * caps. The timeline hairline's ends are tapered by ~0.4 dp where the
+         * row's corner now rounds them (a 5x2 px blob per row) — sub-pixel.
+         *
+         * Measured, not eyeballed: 312 differing pixels, bounding box
+         * `750x756+66+771` — the four dense rows' frames. The header, the
+         * search field, the status row and the footer are byte-identical, so
+         * nothing in the frame moved. A forced re-record
+         * (`--rerun --no-build-cache`) reproduced the new bytes exactly, and a
+         * full-partition record left every OTHER golden byte-identical — which
+         * is why this pin moved alone: the change reaches the dense row and
+         * nothing else in the suite (the player, the Explore header and the
+         * home feed are untouched by it).
+         *
+         * ## Three re-pinned on 2026-10-17 (#1163 — the status chip reads «На пристрої»)
+         *
+         * The library's fourth status chip was «Завантажені» / "Downloaded", yet
+         * the set behind it was never only downloads: a local import's private
+         * copy is not a download, and the download manager deliberately does not
+         * list it (a local import is not a download — the manager's own scope).
+         * #1163 renamed the LABEL to «На пристрої» / "On device" and moved the
+         * predicate off the historical `isDownloaded` flag, which can survive a
+         * cleared directory, onto the readable copy — so the chip now says what
+         * it holds. No filter was added or removed; the enum id stayed
+         * `DOWNLOADED`, deliberately, because it is not user-visible.
+         *
+         * Exactly the three `library_redesign_*` goldens show that chip, and
+         * exactly those three moved. Measured, not eyeballed: all three are
+         * still 1078x2399, and the WHOLE delta is 1943 differing pixels inside a
+         * 124x35 box at `+954+479` — the label glyphs of the last chip, in the
+         * same pill, in the same place. Header, search field, rows and footer are
+         * byte-identical.
+         *
+         * The other six pins did not move, and the status row's own goldens
+         * (`library_status_row*`) are not in this list: the guard pins the
+         * drift-prone frames, not every image the chip appears in. A full
+         * `:app:testComposeRoborazzi` compare against the re-recorded set left
+         * all 133 goldens byte-identical — which is why this re-pin is the label
+         * change and nothing else.
          */
         val PINS = listOf(
             Pin(
@@ -433,17 +486,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "79d05d13c1887cbc9e1e150e42605fb4" + "0d6ebe0033864802baaff45c010a75a8"
+                "2c0d094f174c715749b20cae3cc94882" + "d3c4055a43ae82a473e1e0fb5b3d7e56"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "35f82b14b6380bd01e35e587445179ce" + "373120021a73cf33fb52ef76be14e47b"
+                "0db0ce84fac973a96536724b0fc2237d" + "faef4859cc546b2e046e81fb570334f4"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "86268f78b89aca9656a6bc7b51813c71" + "7fd2d53eb6ed6fd93f7b84fe3db3864c"
+                "26fd25f9e19596db54b1e9c8925c5e93" + "c0eb1b2aa084a62686739346f1813889"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

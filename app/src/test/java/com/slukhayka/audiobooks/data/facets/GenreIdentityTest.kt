@@ -69,6 +69,71 @@ class GenreIdentityTest {
     }
 
     /**
+     * #1053 — «Попаданці»: одна полиця, одне написання, один id.
+     *
+     * Заява спостережена на chitaka.com.ua: жанровий індекс `/zhanryi/` несе
+     * `title="Попаданці"` на `/zhanryi/fantastika/popadancy/`, і сторінка
+     * полиці називає «Попаданці» у власному `<title>` та `<h1>` (захоплено
+     * 2026-10-10). 4read має те саме слово як теґ — окремий регістр, те саме
+     * написання. Регістр і пробіли не роблять з нього другу полицю, тож усі
+     * рядки нижче мусять упасти на `portal-fantasy`.
+     */
+    @Test
+    fun `the portal fantasy shelf a source claims keeps one identity across its spellings`() {
+        val observed = listOf(
+            "Попаданці",          // chitaka, жанровий індекс і сторінка полиці
+            "попаданці",          // 4read, теґ
+            "  ПОПАДАНЦІ ",       // той самий текст у іншому регістрі
+            "Попаданці · попаданці"
+        )
+
+        for (raw in observed) {
+            assertEquals(
+                "написання «$raw» мусить упасти на portal-fantasy",
+                listOf(NormalizedGenre("portal-fantasy", "Попаданці")),
+                GenreIdentity.fromSourceText(raw)
+            )
+        }
+        assertEquals(
+            NormalizedGenre("portal-fantasy", "Попаданці"),
+            GenreIdentity.canonicalIdentities["portal-fantasy"]
+        )
+        // Реальна форма заяви chitaka: полиця вкладена ПІД Фантастику, а
+        // трейл джерела склеюється в один рядок (SourceCatalog.kt:1576) —
+        // обидві полиці мусять вижити окремо, жодного злиття в один facet.
+        assertEquals(
+            listOf(
+                NormalizedGenre("science-fiction", "Фантастика"),
+                NormalizedGenre("portal-fantasy", "Попаданці")
+            ),
+            GenreIdentity.fromSourceText("Фантастика · Попаданці")
+        )
+    }
+
+    /**
+     * Межа тієї самої заяви. Джерело заявляє не лише назву полиці: 4read має
+     * теґ «попаданці в інші світи» (захоплено 2026-10-10). Це довший текст, а
+     * не інше написання тієї самої назви, тож він лишається ПОХІДНИМ — як і
+     * будь-який невідомий текст, хешований id (ADR-0014, #1053). Злити його в
+     * `portal-fantasy` означало б курувати, а не нормалізувати.
+     */
+    @Test
+    fun `a longer tag that only mentions the shelf keeps a derived identity`() {
+        val derived = GenreIdentity.fromSourceText("попаданці в інші світи").single()
+
+        assertEquals("Попаданці в інші світи", derived.label)
+        assertEquals(
+            "незнайомий текст мусить лишитися хешованим",
+            FacetIdentity.boundedId("genre", "попаданці в інші світи"),
+            derived.id
+        )
+        assertTrue(
+            "вигаданого канонічного id бути не має: ${derived.id}",
+            derived.id !in GenreIdentity.canonicalIdentities
+        )
+    }
+
+    /**
      * The honesty guard of the same change: a genre no source claims stays
      * DERIVED, never canonical. «Класика» and «нон-фікшн» are named by the
      * achievements ticket, but no captured source page claims either word, so

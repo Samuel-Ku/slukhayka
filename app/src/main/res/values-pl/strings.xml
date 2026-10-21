@@ -10,6 +10,14 @@
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
     <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
     <string name="lib_year_hero_units">ukończonych podejść</string>
+    <string name="lib_year_recorded">Zapisano w dzienniku podejścia.</string>
+    <string name="lib_year_finished">Podejście ukończone.</string>
+    <string name="lib_year_refused_unknown">Tego podejścia nie ma w magazynie — nic nie zapisano.</string>
+    <string name="lib_year_refused_closed">To podejście jest już ukończone lub zamknięte — nic nie zapisano.</string>
+    <string name="lib_year_save_failed">Nie udało się zapisać rekordu. Spróbuj ponownie.</string>
+    <string name="lib_year_error_title">Nie udało się odczytać postępu</string>
+    <string name="lib_year_error_body">Ostatni znany widok pozostaje, dopóki odczyt się nie powiedzie. Spróbuj ponownie.</string>
+    <string name="lib_year_refresh_failed">Nie udało się ponownie odczytać postępu — widok może być nieaktualny.</string>
     <string name="lib_section_books">Książki</string>
     <string name="lib_import_folder_unknown">Wybrany folder</string>
     <string name="lib_import_folder_name">Folder „%1$s”</string>
@@ -29,4 +37,8 @@
     <string name="lib_import_split_here">Podziel przed tym rozdziałem</string>
     <string name="metadata_edit_series">Seria</string>
     <string name="metadata_edit_series_index">Numer w serii</string>
+    <!-- #1163 — the storage card's two figures, so the new labels cost no
+         MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
+    <string name="storage_stat_downloads">Pobrane</string>
+    <string name="storage_stat_local_copies">Kopie lokalne</string>
 </resources>

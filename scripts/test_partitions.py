@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Classify JVM tests and select the narrowest safe verification scope."""
+"""Classify JVM tests and select the narrowest safe verification scope.
+
+`select` answers with the JVM partitions a diff touches and the non-JVM checks
+it needs — `web/**` maps to the web check, not to the full Android matrix.
+"""
 
 from __future__ import annotations
 
@@ -39,6 +43,56 @@ SHARED_FILES = {
     "gradle.properties",
     "settings.gradle.kts",
 }
+WEB_CHECK_PREFIX = "web/"
+WEB_CHECK = "web"
+# The steps the web check runs, READ FROM THE SCRIPT THAT RUNS THEM (#1276).
+#
+# They used to be a literal here with a note that `scripts/test-changed.sh`
+# "executes exactly these" — a record declaring a fact about another file that
+# nothing checked. Adding or dropping a step in the wrapper would have left this
+# tuple naming a check that no longer exists, and `select`'s `reason` would have
+# costed it wrong. The executor is the source, so the executor is read: the
+# command the wrapper runs for the web check — `(cd "$repo_root/web" && …) ||
+# exit`. A tree whose wrapper has no such command is a refusal (2), not a guess —
+# `web_check_steps` is called only when a web path is actually selected, so the
+# copied trees the fixtures build never need it.
+#
+# What is NOT verified here: the wrapper's own note says its steps mirror the
+# `web` job in `.github/workflows/ci.yml`. That mirror is a claim about a second
+# executor, and nothing in this repository compares the two; the steps below are
+# the wrapper's, and only the wrapper's.
+#
+# A named limit of the derivation: swapping the read back for a literal that
+# happens to name the same steps changes no behaviour today, so nothing reddens.
+# What does redden is the read BREAKING — a regex that never matches turns the
+# selector into a refusal (2), and `test_test_partitions` fails on it. And what
+# is read is the command's BODY, not the arm's own label: renaming `web)` to
+# `web-check)` leaves this selector green while the wrapper itself would refuse
+# the unknown check — `test_test_wrappers.py` catches that one, this does not.
+WEB_CHECK_SCRIPT = Path("scripts/test-changed.sh")
+WEB_CHECK_ARM = re.compile(
+    r'\(cd\s+"\$repo_root/web"\s*&&\s*(?P<steps>.+?)\)\s*\|\|\s*exit', re.DOTALL
+)
+
+
+def web_check_steps(root: Path | None = None) -> tuple[str, ...]:
+    """The web check's steps, taken from the wrapper that executes them."""
+    script = (root or Path(__file__).resolve().parents[1]) / WEB_CHECK_SCRIPT
+    try:
+        text = script.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ValueError(f"cannot read the web check's executor: {error}")
+    match = WEB_CHECK_ARM.search(text)
+    if match is None:
+        raise ValueError(
+            f"{WEB_CHECK_SCRIPT} no longer runs the web check in a shape this "
+            "selector can read — the check's cost would be a guess"
+        )
+    return tuple(step.strip() for step in match.group("steps").split("&&"))
+
+
+def web_check_description(root: Path | None = None) -> str:
+    return f"{WEB_CHECK} check ({', '.join(web_check_steps(root))})"
 
 
 @dataclass(frozen=True)
@@ -151,6 +205,23 @@ def execution_partition(test_class: TestClass) -> str:
     return test_class.partition
 
 
+def contains_tests(test_classes: list[TestClass], package: str) -> bool:
+    return any(
+        test_class.package == package or test_class.package.startswith(f"{package}.")
+        for test_class in test_classes
+    )
+
+
+def ancestor_packages(package: str) -> list[str]:
+    """The changed package and every package above it, deepest first."""
+    result: list[str] = []
+    candidate = package
+    while candidate:
+        result.append(candidate)
+        candidate = candidate.rpartition(".")[0]
+    return result
+
+
 def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str, object]:
     if not changed_files:
         return {"fullSuite": True, "partitions": {}, "reason": "no changed files"}
@@ -158,6 +229,7 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
         return {"fullSuite": True, "partitions": {}, "reason": "shared infrastructure changed"}
 
     selected: dict[str, set[str]] = {}
+    checks: set[str] = set()
     by_fqcn = {test_class.fqcn: test_class for test_class in test_classes}
     for path in changed_files:
         exact_fqcn = changed_test_fqcn(path)
@@ -168,27 +240,69 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
             selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
             continue
 
+        if path.startswith(WEB_CHECK_PREFIX):
+            # A web-only diff used to drag the whole Android matrix in through
+            # the unknown-path fallback, which is the one answer a lane cannot
+            # afford when nothing below web/ needs the JDK. The web tree has
+            # its own check in CI; name that check instead.
+            checks.add(WEB_CHECK)
+            continue
+
         package = production_package(path)
         if package is None:
+            # A Roborazzi golden is the product of exactly one partition — the
+            # one whose tests render it. Without this case the path counts as
+            # unknown and every golden change drags the whole matrix in
+            # locally, which is the one thing a lane cannot afford here.
+            if path.startswith("app/src/test/snapshots/"):
+                rendered_by = [
+                    test_class.fqcn
+                    for test_class in test_classes
+                    if execution_partition(test_class) == "compose-roborazzi"
+                ]
+                if rendered_by:
+                    selected.setdefault("compose-roborazzi", set()).update(rendered_by)
+                    continue
             return {"fullSuite": True, "partitions": {}, "reason": "unmapped changed path"}
 
-        matches: list[TestClass] = []
-        candidate = package
-        while candidate:
-            matches = [
-                test_class
-                for test_class in test_classes
-                if test_class.package == candidate or test_class.package.startswith(f"{candidate}.")
-            ]
-            if matches:
-                break
-            candidate = candidate.rpartition(".")[0]
-        if not matches:
+        # A change in package P can break a test declared in P or in any
+        # package below it, and also one declared in a package above it: a
+        # test in `ui` names classes from `ui.components` without importing
+        # across the module. The walk used to stop at the deepest ancestor
+        # with tests anywhere below it, so `ui/components/PlayerPane.kt`
+        # reached its own 4 tests and never `ui`'s 100 — `WidePlayerPaneTest`
+        # among them — and the lane had to name the missing classes by hand.
+        # Every package-ancestor now contributes: the deepest one with tests
+        # keeps its whole subtree, and each package above it adds the tests
+        # declared directly in it. Only the direct tests count above that
+        # subtree — taking the whole subtree of every ancestor would select
+        # the entire suite.
+        ancestors = ancestor_packages(package)
+        nearest = next(
+            (ancestor for ancestor in ancestors if contains_tests(test_classes, ancestor)),
+            None,
+        )
+        if nearest is None:
             return {"fullSuite": True, "partitions": {}, "reason": "no tests for changed module"}
+        matches = [
+            test_class
+            for test_class in test_classes
+            if test_class.package == nearest or test_class.package.startswith(f"{nearest}.")
+        ]
+        for ancestor in ancestors[ancestors.index(nearest) + 1 :]:
+            matches.extend(
+                test_class for test_class in test_classes if test_class.package == ancestor
+            )
         for test_class in matches:
             selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
 
-    return {
+    if checks and not selected:
+        reason = f"changed paths map to the {web_check_description()}"
+    elif checks:
+        reason = f"matched changed logical modules and the {web_check_description()}"
+    else:
+        reason = "matched changed logical modules"
+    result: dict[str, object] = {
         "fullSuite": False,
         "partitions": {
             partition: sorted(selected[partition])
@@ -202,8 +316,11 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
             )
             if partition in selected
         },
-        "reason": "matched changed logical modules",
+        "reason": reason,
     }
+    if checks:
+        result["checks"] = sorted(checks)
+    return result
 
 
 def parser() -> argparse.ArgumentParser:

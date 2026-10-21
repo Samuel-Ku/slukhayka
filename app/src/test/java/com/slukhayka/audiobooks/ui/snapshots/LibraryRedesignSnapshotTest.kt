@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,6 +40,7 @@ import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.screens.LibraryHeaderActions
 import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
+import com.slukhayka.audiobooks.ui.screens.libraryGridColumns
 import com.slukhayka.audiobooks.ui.screens.libraryGridContent
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -205,7 +205,9 @@ private fun LibraryRedesignScreen(
                 }
             )
             LazyVerticalGrid(
-                columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
+                // The SHIPPED column rule (#1205), not a copy of it: a golden
+                // must not be able to document a layout the app does not draw.
+                columns = libraryGridColumns(gridMode),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = AppDimens.PageSides,

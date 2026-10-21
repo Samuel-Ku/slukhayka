@@ -42,6 +42,7 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.listening.ListeningObservation
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.ProgressSyncController
+import com.slukhayka.audiobooks.data.listening.startsAtBookEnd
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -266,7 +267,23 @@ class AudioPlayerManager(
      * TIMER_STOP event: at a chapter boundary the timer re-arms and that event
      * may never be written (#700).
      */
-    private val onEndOfChapterArmed: () -> Unit = {}
+    private val onEndOfChapterArmed: () -> Unit = {},
+    /**
+     * #701 (US45) — «Відновлювач»: the self-heal really obtained a fresh URL
+     * for the failed chapter and re-prepared with it.
+     *
+     * Called at the ONE point the heal turns into a remedy — after the fresh
+     * URL passed the same-URL and blocked-audio refusals — because that is what
+     * the mechanism's success IS: the page was re-read and a usable URL came
+     * back. A heal that yields nothing reports the honest failure instead
+     * ([reportHealFailed]) and never reaches this callback.
+     *
+     * The YouTube branch is deliberately NOT a caller: a watch URL never
+     * changes, so that path only re-asks the resolver and cannot tell a rescue
+     * from a second failure — recording it would record an attempt, not a
+     * success (ADR-0014).
+     */
+    private val onStreamHealed: (() -> Unit)? = null
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -1198,6 +1215,11 @@ class AudioPlayerManager(
                 failed()
                 return@launch
             }
+            // #701 (US45) — the heal really produced a remedy, so the
+            // «Відновлювач» fact is captured HERE: further down the re-prepare
+            // may still fail, but the mechanism itself did its job, and this is
+            // the last point that can tell the two apart.
+            onStreamHealed?.invoke()
             // ADR-0007: swap the physical track's URL (the pairing the next
             // prepare resolves chapter → track by), then re-prepare the same
             // chapter from the last known position. The budget stays spent so
@@ -1345,13 +1367,23 @@ class AudioPlayerManager(
         var positionSeconds = initialPositionSeconds
         // Spec-16 T4: starting playback of a finished book is a re-listen — it
         // resets to the beginning (chapter 0, position 0) and logs RELISTEN
-        // instead of RESUME. Completion is derived from position, the same rule
-        // the library card uses (AC4): only a start at/after the very end of
-        // the book triggers it, so explicit chapter or bookmark navigation
-        // (which never asks to start at the end) is untouched.
-        val totalDurationSeconds = loadChapters.sumOf { it.durationSeconds }
-        val relisten = forceRelisten ||
-            (autoPlay && totalDurationSeconds > 0L && positionSeconds >= totalDurationSeconds)
+        // instead of RESUME. Completion is derived from the position in the
+        // BOOK, through the very rule the library card uses
+        // ([com.slukhayka.audiobooks.data.listening.startsAtBookEnd] →
+        // isBookFinished, AC4): only a start at/after the very end of a book
+        // whose total is KNOWN triggers it, so explicit chapter or bookmark
+        // navigation (which never asks to start at the end) is untouched.
+        // #1187 — the old rule compared the in-chapter position with the sum of
+        // the loaded chapters, which for a local book was only the chapters
+        // already listened to: 60 s into the third chapter of a book whose one
+        // played chapter is 45 s read as "past the end" and reset a book that
+        // was two thirds unheard.
+        val relisten = forceRelisten || (autoPlay && startsAtBookEnd(
+            chapters = loadChapters,
+            chapterIndex = chapterIdx,
+            positionSeconds = positionSeconds,
+            bookTotalDurationSeconds = book.totalDurationSeconds
+        ))
         if (relisten) {
             chapterIdx = 0
             positionSeconds = 0L

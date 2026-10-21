@@ -36,6 +36,7 @@ import { setUiLocale, useTranslate, useUiLocale } from './i18n/locale'
 import { translate } from './i18n/strings'
 import type { StringKey } from './i18n/strings'
 import { loadSelectedTab, saveSelectedTab, SELECTED_TAB_ORDER, type SelectedTab } from './ui/selectedTab'
+import { useAppLayout } from './ui/adaptiveLayout'
 
 /**
  * #583 W1.1 (R-W7) — the bottom bar is Android's `SelectedTab` verbatim:
@@ -286,8 +287,12 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       .then(() => relationships.pushAfterChange(work.mergeKey))
       .catch(() => undefined)
   }
+  // #1207 — compact or expanded, decided in ui/adaptiveLayout.ts (600 px, the
+  // line Android draws at ExpandedMinWidthDp). theme.css spells everything the
+  // expanded layout changes under this one attribute, and nothing else reads it.
+  const layout = useAppLayout()
   return (
-    <>
+    <div className="app" data-layout={layout}>
       <audio ref={audioRef} preload="metadata" style={{ display: 'none' }} />
       <header className="app-header">
         {bookUrl !== null ? (
@@ -397,6 +402,6 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
           ))}
         </nav>
       )}
-    </>
+    </div>
   )
 }

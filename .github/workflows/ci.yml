@@ -125,6 +125,187 @@ jobs:
           set -euo pipefail
           scripts/check-base-sync.sh "origin/$BASE_REF" "HEAD"
 
+  # #1227: two ADRs can claim ONE number and `git` will not notice, because the
+  # filenames differ — the text merge is clean and the merge result simply
+  # carries both files. Live, not hypothetical: #1139 and #1186 each add a
+  # different 0061, and #1139's 0062 already exists on main. Like `base-sync`
+  # above, the guard reads the TRIAL-MERGE tree (`git merge-tree --write-tree`:
+  # object store only, worktree and index untouched) and fails when one number
+  # arrives twice. PR-only, same as `migration-slot` and `base-sync`: on push to
+  # main there is no base to compare against.
+  #
+  # The cross-PR half (`scripts/adr_numbers.py --open-prs`, read-only `gh`) is
+  # deliberately NOT called here: this job carries no token, and a green run of
+  # a check that never asked would be the silent green this guard exists
+  # against. It runs locally, where a token exists.
+  #
+  # #1335: the GATE is read out of the BASE ref, not out of the tree it judges
+  # (see the last step). Running the checkout's own `scripts/adr_numbers.py`
+  # failed in both directions: a branch cut before #1227 merged carries no
+  # script at all — PR #1334 died on `can't open file .../adr_numbers.py`,
+  # exit 2, a red check no commit on that branch could fix — and any PR could
+  # edit the script to "always 0" and pass the gate it was subject to.
+  #
+  # What this job still does NOT check, named here and not only in a report:
+  #   * the PR's own copy of `scripts/adr_numbers.py` — unread by design: a PR
+  #     that neuters the script is judged by the base copy, so the duplicate it
+  #     brings still reddens (that is the point of reading the gate from base);
+  #   * `ci.yml` itself. GitHub runs a `pull_request` job in the merge commit's
+  #     context (unlike `pull_request_target`, which runs in the base's), so a
+  #     PR that rewrites THIS step — rather than the script — still runs the
+  #     rewritten step. Reading the gate from base closes the script-shaped
+  #     door, not the workflow-shaped one — and NOTHING IN THIS REPOSITORY
+  #     CLOSES THAT ONE TODAY. It is named here so the gap is not mistaken for
+  #     a guard: `gh api repos/.../branches/main` answers `protected: false`,
+  #     there are no repository rulesets, and `merge-pr.sh` does not read this
+  #     file. So a PR that rewrites this step — or its `if:` — still gets a
+  #     green "ADR number guard". Closing it takes a required workflow in a
+  #     repository ruleset (a ruleset is taken from the default branch, so a PR
+  #     cannot edit it) or CODEOWNERS; both are administrative and neither
+  #     lives in this file. The same gap covers `base-sync` and
+  #     `lint-baseline`, which also run their scripts from the PR's tree;
+  #   * numbers that entered `main` without a PR (direct push or a merge that
+  #     already happened), and the cross-PR half above.
+  adr-numbers:
+    name: ADR number guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # The PR's OWN head commit (same reasoning as `base-sync` above): the
+          # default `refs/pull/N/merge` ref already contains the base tip, so
+          # every number main brings would read as the PR's own.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Refresh the base ref
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -eu
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+      - name: Fail when the trial merge carries two ADRs with one number
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # The gate is the base ref's blob, read through the object store, and
+          # it runs from $RUNNER_TEMP — out of the PR's tree. `python3
+          # scripts/adr_numbers.py` here would run the PR's own copy: a gate the
+          # checked side can switch off is not a gate. The TREE under judgement
+          # is still the PR checkout: `--root` is the workspace, `--head` HEAD.
+          gate="$RUNNER_TEMP/adr_numbers_gate.py"
+          if ! git show "origin/$BASE_REF:scripts/adr_numbers.py" >"$gate" 2>"$RUNNER_TEMP/adr_numbers_gate.err"; then
+            detail="$(tail -n 1 "$RUNNER_TEMP/adr_numbers_gate.err" 2>/dev/null || true)"
+            echo "НЕВІДОМО: origin/$BASE_REF не дає scripts/adr_numbers.py — ${detail:-без подробиць}"
+            echo "НЕВІДОМО: довіреного гейта немає, копію з PR не запускаю — «колізій немає» сказати нема про що"
+            exit 2
+          fi
+          # An empty blob runs green and asks nothing: the silent pass this
+          # guard exists against.
+          if [ ! -s "$gate" ]; then
+            echo "НЕВІДОМО: origin/$BASE_REF:scripts/adr_numbers.py порожній — порожній гейт виходить із кодом 0"
+            exit 2
+          fi
+          echo "ГЕЙТ: origin/$BASE_REF:scripts/adr_numbers.py, blob $(git hash-object "$gate"), $(wc -c <"$gate") байт — дерево з PR"
+          python3 "$gate" --root "$GITHUB_WORKSPACE" --base "origin/$BASE_REF" --head HEAD
+
+  lint:
+    name: Android Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: timing-start
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # HEAD^ is the baseline-growth comparison base on push and
+          # workflow_dispatch, where there is no base_ref to fetch.
+          fetch-depth: 2
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: wrapper
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # `updateLintBaseline` writes the path of the checkout it runs in, so a
+      # baseline regenerated inside a lane worktree pins `.worktrees/<lane>/…`
+      # (or a `$HOME/…` checkout path) into entries that then match nothing —
+      # on CI, and on any other machine. `$GRADLE_USER_HOME/…` is the same trap
+      # one layer down: it points at a transformed artifact in one machine's
+      # Gradle cache, keyed by a hash that the next machine need not share.
+      # Fail loudly instead of letting dead entries accumulate.
+      - name: Refuse a baseline that cites a machine path
+        run: |
+          if grep -qE 'file="[^"]*(\.worktrees/|\$HOME/|\$GRADLE_USER_HOME/)' app/lint-baseline.xml; then
+            echo "::error::app/lint-baseline.xml cites a worktree, home or Gradle-cache path — regenerate it from the repository root, and drop entries that point outside the module"
+            exit 1
+          fi
+
+      # #1222: the step above is about DEAD entries, this one is about a list
+      # that only grows. A new issue outside the baseline already fails the lint
+      # run; nothing failed the 1083 MissingTranslation records that grew by one
+      # hand-written entry per new UI string. The guard counts entries per rule
+      # — MissingTranslation on its own line, every other rule on its own — and
+      # fails when any rule gained one, so growth has to be deliberate.
+      #
+      # A deliberate increase (a new uk string with no translation yet) is the
+      # owner's call, through the repository variable
+      # LINT_BASELINE_GROWTH_ALLOWANCE=MissingTranslation=+3@1222. The variable
+      # lives OUTSIDE git and has no expiry while the comparison base moves, so
+      # the value MUST name the issue it belongs to, and the guard prints the
+      # active allowance on EVERY run — log and step summary, even when nothing
+      # grew ("0 із 3 — НЕ витрачено (@1222)"). Remove the variable once the
+      # issue it names is closed; an unused grant is exactly as visible as a
+      # spent one.
+      #
+      # It needs no Gradle, so it runs BEFORE the 30-minute lint: growth is
+      # visible in a minute.
+      - name: Fail when the lint baseline grew
+        env:
+          # Empty on push and workflow_dispatch: there the base is HEAD^.
+          BASE_REF: ${{ github.base_ref }}
+          LINT_BASELINE_GROWTH_ALLOWANCE: ${{ vars.LINT_BASELINE_GROWTH_ALLOWANCE }}
+        run: |
+          set -eu
+          if [ -n "$BASE_REF" ]; then
+            # The base tip this PR is built on. `git show` needs that commit's
+            # tree and nothing else, so a depth-1 fetch of the branch is enough
+            # — the same shape the migration-slot guard uses.
+            git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+            BASE="origin/$BASE_REF"
+          else
+            BASE="HEAD^"
+          fi
+          python3 scripts/lint_baseline.py check-growth "$BASE" HEAD
+
+      # #386 configured Android Lint with a checked-in baseline so that
+      # `lintDebug` passes and CI can adopt it — this job is that adoption. The
+      # baseline absorbs the inherited debt; a NEW issue outside it fails here,
+      # which is the point: mechanical violations stop reaching review.
+      - name: Run Android Lint
+        run: ./gradlew :app:lintDebug
+
   timing-start:
     name: Start workflow timer
     runs-on: ubuntu-latest
@@ -538,6 +719,29 @@ jobs:
         working-directory: web
         run: npx vitest run
 
+  # #1219: `scripts/` carried 64 unit tests and no step that ran them, so the
+  # class-to-partition map could rot with every check green — and a map nobody
+  # executes proves nothing, which is what that ticket was about. They are
+  # plain Python on the standard library (no JDK, no Android SDK, no Gradle),
+  # so this is a bare-runner job of its own, like `web` above and for the same
+  # reason: folded into `lint` they would pay that job's JDK and SDK setup and
+  # report under its name, where a red lint baseline would hide them. The job
+  # reports its own check, so whether a red script test blocks a merge is
+  # decided by the repository's required-checks configuration, not by this
+  # file.
+  script-tests:
+    name: Script unit tests
+    needs: timing-start
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run the script unit tests
+        run: python3 -m unittest discover -s scripts/tests -p "test_*.py"
+
   # Back on PRs (2026-09): the journey failed 6/6 and was made push-only to
   # stop a constant red mark on pull requests. The cause is fixed — the 40dp
   # author/narrator touch targets (an -8dp row overlap clipping them) and the
@@ -604,7 +808,14 @@ jobs:
           # The action invokes a multiline script one line at a time, so shell
           # variables do not survive between lines. Keep status capture and
           # logcat collection in one repository script instead.
-          script: bash .github/scripts/run-accessibility-test.sh
+          #
+          # This leg fails before the tests now and then — the runner's `adb`
+          # never comes up and `connectedDebugAndroidTest` dies with it — and
+          # every such failure blocks a merge while telling you nothing about
+          # the diff. One retry on the already-booted emulator is cheap; a
+          # failure that happens while BOOTING the AVD still needs a rerun,
+          # because nothing here can reboot it.
+          script: bash .github/scripts/run-accessibility-test.sh || { echo "::warning::first attempt failed — retrying once (this leg flakes before the tests start)"; bash .github/scripts/run-accessibility-test.sh; }
 
       - name: Upload API 35 accessibility results
         if: always()

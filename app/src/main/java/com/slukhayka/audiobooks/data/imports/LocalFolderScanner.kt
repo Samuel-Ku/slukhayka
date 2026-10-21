@@ -21,6 +21,13 @@ data class LocalAudioEntry(
      * same-named folders in different branches never merge into one book.
      */
     val parentFolder: String?,
+    /**
+     * The SAF document URI of the file itself (ADR-0061). When the folder is
+     * the storage, this URI is the track's playable address — the import
+     * writes it instead of copying bytes into app storage. Null only for
+     * entries built without a document (legacy seams).
+     */
+    val uri: String? = null,
     val openStream: () -> InputStream
 )
 
@@ -49,14 +56,31 @@ object LocalFolderScanner {
             val name = root.name ?: return emptyList()
             if (name.substringAfterLast('.', "").lowercase() !in AUDIO_EXTENSIONS) return emptyList()
             val uri = root.uri
-            return listOf(LocalAudioEntry(fileName = name, parentFolder = null) {
-                resolver.openInputStream(uri)!!
-            })
+            return listOf(
+                LocalAudioEntry(fileName = name, parentFolder = null, uri = uri.toString()) {
+                    openOrFail(resolver, uri)
+                }
+            )
         }
         val result = mutableListOf<LocalAudioEntry>()
         collect(dir = root, relativePath = null, resolver = resolver, out = result)
         return result
     }
+
+    /**
+     * Opens a SAF document, turning a vanished file or a revoked grant into a
+     * NAMED refusal instead of a bare NPE.
+     *
+     * #1186 — `openInputStream` returns null when the document is gone or the
+     * permission has been revoked since the scan. `!!` turned that into
+     * `NullPointerException` with no uri, no file, no cause: a crash the user
+     * cannot act on and a bug report that cannot be diagnosed. The stream is
+     * still non-null by contract, so the fix is not a nullable return — it is
+     * refusing with a message that names the document.
+     */
+    private fun openOrFail(resolver: ContentResolver, uri: Uri): InputStream =
+        resolver.openInputStream(uri)
+            ?: throw IllegalStateException("SAF document is no longer readable: $uri")
 
     private fun collect(
         dir: DocumentFile,
@@ -73,9 +97,15 @@ object LocalFolderScanner {
                 }
                 child.isFile && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS -> {
                     val uri = child.uri
-                    out.add(LocalAudioEntry(fileName = name, parentFolder = relativePath) {
-                        resolver.openInputStream(uri)!!
-                    })
+                    out.add(
+                        LocalAudioEntry(
+                            fileName = name,
+                            parentFolder = relativePath,
+                            uri = uri.toString()
+                        ) {
+                            openOrFail(resolver, uri)
+                        }
+                    )
                 }
             }
         }

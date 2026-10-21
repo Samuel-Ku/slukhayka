@@ -58,7 +58,7 @@ object LocalFolderScanner {
             val uri = root.uri
             return listOf(
                 LocalAudioEntry(fileName = name, parentFolder = null, uri = uri.toString()) {
-                    resolver.openInputStream(uri)!!
+                    openOrFail(resolver, uri)
                 }
             )
         }
@@ -66,6 +66,21 @@ object LocalFolderScanner {
         collect(dir = root, relativePath = null, resolver = resolver, out = result)
         return result
     }
+
+    /**
+     * Opens a SAF document, turning a vanished file or a revoked grant into a
+     * NAMED refusal instead of a bare NPE.
+     *
+     * #1186 — `openInputStream` returns null when the document is gone or the
+     * permission has been revoked since the scan. `!!` turned that into
+     * `NullPointerException` with no uri, no file, no cause: a crash the user
+     * cannot act on and a bug report that cannot be diagnosed. The stream is
+     * still non-null by contract, so the fix is not a nullable return — it is
+     * refusing with a message that names the document.
+     */
+    private fun openOrFail(resolver: ContentResolver, uri: Uri): InputStream =
+        resolver.openInputStream(uri)
+            ?: throw IllegalStateException("SAF document is no longer readable: $uri")
 
     private fun collect(
         dir: DocumentFile,
@@ -88,7 +103,7 @@ object LocalFolderScanner {
                             parentFolder = relativePath,
                             uri = uri.toString()
                         ) {
-                            resolver.openInputStream(uri)!!
+                            openOrFail(resolver, uri)
                         }
                     )
                 }

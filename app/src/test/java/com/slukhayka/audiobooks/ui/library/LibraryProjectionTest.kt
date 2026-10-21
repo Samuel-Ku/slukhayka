@@ -340,4 +340,38 @@ class LibraryProjectionTest {
         assertTrue(projection.entries("").isEmpty())
         assertTrue(libraryWorkKeysAt(emptyList(), listOf(0, 1)).isEmpty())
     }
+
+    /**
+     * #1372 — where `continueBook` comes from once the filter hides it.
+     *
+     * The rule arrived with the whole-library projection (spec-56 T3, #730) and
+     * moved into this module without a test. The resume card is the LIBRARY's
+     * resume, not the narrowed view's: it is computed from every row, so a
+     * status filter or a search that hides that book must not blank the card.
+     *
+     * Pinned deliberately, not assumed: an untested move is where behaviour
+     * changes without anyone noticing.
+     */
+    @Test
+    fun `continueBook stays the library's resume even when the filter hides it`() {
+        val rows = listOf(
+            row("a", "k1", title = "А", position = 90, lastListenedAt = 100),
+            row("b", "k2", title = "Б", started = false)
+        )
+
+        val all = project(rows)
+        assertEquals("a", all.continueBook?.book?.id)
+
+        val searched = project(rows, query = "Б")
+        assertEquals(listOf("b"), searched.shownBooks.map { it.book.id })
+        assertEquals(
+            "a filter that hides the resume card's book does not change whose resume it is",
+            "a",
+            searched.continueBook?.book?.id
+        )
+
+        val empty = project(rows, query = "нічого не збігається")
+        assertTrue("the narrowed view has nothing to show", empty.shownBooks.isEmpty())
+        assertEquals("the resume card survives an empty result", "a", empty.continueBook?.book?.id)
+    }
 }

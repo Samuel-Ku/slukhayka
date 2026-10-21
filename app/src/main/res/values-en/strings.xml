@@ -513,6 +513,14 @@
     <string name="lib_year_record_hint">Pages or percent</string>
     <string name="lib_year_record">Record</string>
     <string name="lib_year_finish">Finish</string>
+    <string name="lib_year_recorded">Saved to the pass journal.</string>
+    <string name="lib_year_finished">Pass finished.</string>
+    <string name="lib_year_refused_unknown">That pass is not in storage — nothing was saved.</string>
+    <string name="lib_year_refused_closed">That pass is already finished or closed — nothing was saved.</string>
+    <string name="lib_year_save_failed">Could not save the record. Try again.</string>
+    <string name="lib_year_error_title">Could not read progress</string>
+    <string name="lib_year_error_body">The last known view stays until the read succeeds. Try again.</string>
+    <string name="lib_year_refresh_failed">Could not re-read progress — the view may be stale.</string>
     <string name="manual_add_menu">Add a book by hand</string>
     <string name="manual_add_title">Add a book</string>
     <string name="manual_add_name">Title</string>
@@ -578,6 +586,9 @@
     <string name="lib_filter">Filter</string>
     <string name="lib_no_results_title">Nothing found</string>
     <string name="lib_no_results_body">Try another filter or change your search query.</string>
+    <!-- #1206 — parity for the one-column reason the pane shows when the
+         adaptive grid cannot open a second column (see values/strings.xml). -->
+    <string name="lib_grid_pane_too_narrow">The pane is too narrow for two columns — tiles in one</string>
     <string name="lib_audiobook_fallback">Audiobook</string>
     <string name="lib_source_local">Local</string>
     <string name="lib_continue_label">CONTINUE</string>
@@ -641,7 +652,9 @@
     <string name="lib_filter_new">New</string>
     <string name="lib_filter_listening">Listening</string>
     <string name="lib_filter_completed">Finished</string>
-    <string name="lib_filter_downloaded">Downloaded</string>
+    <!-- #1163 — see the UK twin: the chip is about what is readable on this
+         device, not only about what was downloaded. -->
+    <string name="lib_filter_downloaded">On device</string>
     <string name="lib_filter_local">Local</string>
     <string name="lib_filter_online">Online</string>
     <string name="lib_filter_favorite">Favourites</string>

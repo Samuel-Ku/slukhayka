@@ -1,0 +1,13 @@
+[Unit]
+Description=Нічний порядок у гілках (таймер)
+Documentation=file:%h/Projects/slukhayka/docs/runbooks/branch-hygiene.md
+
+[Timer]
+# 02:40 — після нічного прогону CI (той біжить за cron у GitHub, машини не
+# торкається). Persistent=true доганяє пропущений запуск, якщо машина спала.
+OnCalendar=*-*-* 02:40:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

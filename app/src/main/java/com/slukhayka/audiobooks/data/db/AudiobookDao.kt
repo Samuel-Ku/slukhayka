@@ -240,8 +240,9 @@ interface AudiobookDao {
     /**
      * Spec-24 T8 (#169) — the candidate pool of the chapter-duration probe:
      * every book with at least one unknown-duration chapter (0 is the
-     * unknown placeholder written at import). The pass filters the stream
-     * gate (non-blank sourceUrl) on top.
+     * unknown placeholder written at import). The pass filters on top by the
+     * probe target it has: a stream URL for a streamed book, a local reader
+     * plus a file path for a local import (#1187).
      */
     @Query("SELECT DISTINCT bookId FROM chapters WHERE durationSeconds <= 0")
     suspend fun getBookIdsWithUnknownChapterDurations(): List<String>
@@ -394,9 +395,6 @@ interface AudiobookDao {
             "(SELECT id FROM sources WHERE bookId = :bookId)"
     )
     suspend fun clearTracksDownloadStateForBook(bookId: String)
-
-    @Query("UPDATE source_tracks SET isDownloaded = 0, localFilePath = NULL")
-    suspend fun clearAllTracksDownloadState()
 
     @Query(
         "DELETE FROM source_tracks WHERE sourceId IN " +
@@ -1241,23 +1239,17 @@ interface AudiobookDao {
     @Query("UPDATE library_entries SET downloadProgress = 0 WHERE id = :bookId")
     suspend fun resetEntryDownloadProgress(bookId: String)
 
-    @Query("UPDATE library_entries SET downloadProgress = 0")
-    suspend fun resetAllEntryDownloadProgress()
-
     @Transaction
     suspend fun markBookNotDownloaded(bookId: String) {
         updateBookDownloadState(bookId, false)
         resetEntryDownloadProgress(bookId)
     }
 
-    @Query("UPDATE audiobooks SET isDownloaded = 0")
-    suspend fun clearAllBookDownloadState()
-
-    @Transaction
-    suspend fun markAllNotDownloaded() {
-        clearAllBookDownloadState()
-        resetAllEntryDownloadProgress()
-    }
+    // #1163 — the global «clear every download» pair (clearAllBookDownloadState /
+    // resetAllEntryDownloadProgress / clearAllTracksDownloadState) is gone: it
+    // reset local imports too, whose private copy is not a download. The one
+    // destructive clear now scopes the reset per book in OfflineDownloads, by
+    // the source its tracks belong to.
 
     // Listening Stats
     @Query("SELECT * FROM listening_stats ORDER BY dateIso DESC")

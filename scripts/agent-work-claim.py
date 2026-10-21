@@ -26,7 +26,10 @@ def main():
     acquire.add_argument("issue", type=int)
     acquire.add_argument("--owner", required=True)
     acquire.add_argument("--reservation", required=True)
-    acquire.add_argument("--plan", required=True)
+    # Необов'язковий (#1337): пропущений `--plan` пише в запис `null` — чесне
+    # «плану немає» замість вигаданого шляху, який нікуди не веде. Хто назве
+    # шлях, той відповідає за те, що він існує; `new-lane.sh` це перевіряє.
+    acquire.add_argument("--plan", default=None)
     args = parser.parse_args()
     if args.issue is not None and args.issue <= 0:
         parser.error("issue must be positive")

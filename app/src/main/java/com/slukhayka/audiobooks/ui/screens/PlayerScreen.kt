@@ -82,6 +82,7 @@ import com.slukhayka.audiobooks.ui.components.formatSpeedForSpeech
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.data.listening.effectiveChapterDurations
+import com.slukhayka.audiobooks.data.listening.knownBookTotalSeconds
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -109,6 +110,31 @@ enum class PlayerQuickTool {
 
 
 
+/**
+ * #1187 — the CHAPTER/BOOK boundary of the player's two rulers.
+ *
+ * [effectiveChapterDurations] answers POSITIONS: it places every chapter on the
+ * timeline, filling unmeasured ones with a share of a known book total, and the
+ * playing chapter's freshly measured length overrides its row. That is
+ * legitimate for the chapter ruler — where a chapter starts, where inside it
+ * the listener is, where its marker sits.
+ *
+ * The BOOK's own length is a different question, and the player used to answer
+ * it with the same sum: `effectiveDurations.sum()`. For a local book whose
+ * chapters only get a duration by being played, that sum is the count of what
+ * has been heard so far — three 300-second chapters with the first played and
+ * the third only 60 s in made the whole book 360 seconds, and a listener 60 s
+ * into that third chapter sat exactly at the fabricated "end"
+ * (`bookFraction == 1f`) while two thirds of the book had never been heard.
+ * [knownBookTotalSeconds] answers instead: the site total when there is one, a
+ * sum only when EVERY chapter is measured, and 0 ("unknown") otherwise.
+ *
+ * So when the book's total is unknown this returns `null`: the book seek does
+ * not pretend to know where the book's end is. In the UI this is unreachable by
+ * construction — the book slider is `enabled = progress.bookDurationSeconds > 0L`
+ * and [calculatePlayerProgress] reports the same unknown 0 — and it is here so
+ * the rule holds at the door too, not only in the view that happens to close it.
+ */
 fun calculateBookSeekTarget(
     chapters: List<ChapterEntity>,
     currentChapterIndex: Int,
@@ -117,8 +143,11 @@ fun calculateBookSeekTarget(
     bookTotalDurationSeconds: Long = 0L
 ): BookSeekTarget? {
     if (chapters.isEmpty()) return null
+    // The chapter ruler: chapters are placed on the timeline by the best
+    // duration known for each (spread over the site total when it exists).
     val durations = effectiveChapterDurations(chapters, currentChapterIndex, currentChapterDurationMs, bookTotalDurationSeconds)
-    val totalSeconds = durations.sum()
+    // The book ruler: the honest total, never the partial sum (#1187).
+    val totalSeconds = knownBookTotalSeconds(chapters, bookTotalDurationSeconds)
     if (totalSeconds <= 0L) return null
 
     val targetSeconds = (fraction.coerceIn(0f, 1f) * totalSeconds)
@@ -138,6 +167,31 @@ fun calculateBookSeekTarget(
  * Converts chapter-relative playback and bookmarks into one book timeline.
  * Zero-duration imports degrade to evenly-spaced chapter markers rather than
  * producing NaN values (the same class of crash guarded against by the old UI).
+ *
+ * #1187 — two rulers, deliberately, and this is where the defect lived.
+ *
+ * [effectiveDurations] is the CHAPTER ruler and stays as it is: the playing
+ * chapter's measured length, the position inside it, [chapterFraction], and
+ * where the chapter/bookmark markers sit are all positions on that timeline. A
+ * chapter measured only by being played is placed with what is known about it —
+ * that is honest, and it is what keeps the current chapter's own progress
+ * working.
+ *
+ * `bookDurationSeconds` is the BOOK ruler, and it may NOT be the same sum. For
+ * a local book (no site total) whose chapters are only measured one by one as
+ * they are played, `effectiveDurations.sum()` is the count of what has been
+ * heard so far: three 300-second chapters with the first played and the third
+ * only 60 s in summed to 360, and the listener 60 s into that third chapter read
+ * as sitting at the end of the book (`bookFraction == 1f`) — the player said
+ * "100 %" while the library card honestly said «Тривалість невідома». Two
+ * screens, two answers, one book. The book ruler is [knownBookTotalSeconds]: the
+ * site total when there is one, the chapters' sum only when EVERY one of them is
+ * measured, and 0 ("unknown") otherwise.
+ *
+ * With an unknown total the book fraction stays 0f (the `else` branch) and the
+ * UI shows the honest unknown state — the slider is disabled by
+ * `bookDurationSeconds > 0L`, and `bookPositionSeconds` is simply not displayed
+ * as a fraction of a length nothing has proven.
  */
 fun calculatePlayerProgress(
     chapters: List<ChapterEntity>,
@@ -152,9 +206,12 @@ fun calculatePlayerProgress(
     }
 
     val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
+    // Chapter ruler: positions only (see the KDoc above — this is the line that
+    // must NOT be reused as the book's length).
     val effectiveDurations = effectiveChapterDurations(chapters, selectedIndex, currentChapterDurationMs, bookTotalDurationSeconds)
     val currentDurationSeconds = effectiveDurations[selectedIndex]
-    val totalSeconds = effectiveDurations.sum()
+    // Book ruler: the honest total, 0 when no chapter sum proves one (#1187).
+    val totalSeconds = knownBookTotalSeconds(chapters, bookTotalDurationSeconds)
     val positionInChapter = (currentPositionMs / 1000L).coerceIn(0L, currentDurationSeconds)
     val elapsedBefore = effectiveDurations.take(selectedIndex).sum()
     val bookPosition = elapsedBefore + positionInChapter
@@ -164,6 +221,10 @@ fun calculatePlayerProgress(
     } else 0f
     val bookFraction = if (totalSeconds > 0L) bookPosition.toFloat() / totalSeconds else 0f
 
+    // Markers are BOOK-level, so they divide by the book's own length: an
+    // unknown total falls to the evenly-spaced shell (an honest "no scale"),
+    // and bookmarks have no fraction to sit at (null, dropped) — the same
+    // refusal as the fraction above.
     val chapterMarkers = if (totalSeconds > 0L) {
         var elapsed = 0L
         effectiveDurations.dropLast(1).map { duration ->

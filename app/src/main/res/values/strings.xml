@@ -574,6 +574,14 @@
     <string name="lib_year_record_hint">Сторінки або відсоток</string>
     <string name="lib_year_record">Записати</string>
     <string name="lib_year_finish">Завершити</string>
+    <string name="lib_year_recorded">Запис додано до журналу проходу.</string>
+    <string name="lib_year_finished">Прохід завершено.</string>
+    <string name="lib_year_refused_unknown">Цього проходу немає у сховищі — запис не додано.</string>
+    <string name="lib_year_refused_closed">Прохід уже завершено або закрито — запис не додано.</string>
+    <string name="lib_year_save_failed">Не вдалося зберегти запис. Спробуйте ще раз.</string>
+    <string name="lib_year_error_title">Не вдалося прочитати поступ</string>
+    <string name="lib_year_error_body">Відомий показ лишається, доки читання не вдасться. Спробуйте ще раз.</string>
+    <string name="lib_year_refresh_failed">Не вдалося перечитати поступ — показ може бути застарілим.</string>
     <string name="manual_add_menu">Додати книгу вручну</string>
     <string name="manual_add_title">Додати книгу</string>
     <string name="manual_add_name">Назва</string>
@@ -639,6 +647,10 @@
     <string name="lib_filter">Фільтр</string>
     <string name="lib_no_results_title">Нічого не знайдено</string>
     <string name="lib_no_results_body">Спробуйте інший фільтр або змініть пошуковий запит.</string>
+    <!-- #1206 — the adaptive grid opens a second column from 284 dp of pane;
+         a wide window's list pane at 600 dp has only 240, so the pane says
+         why it is showing one column of tiles. -->
+    <string name="lib_grid_pane_too_narrow">Панель завузька для двох колонок — плитки в один стовпчик</string>
     <string name="lib_audiobook_fallback">Аудіокнига</string>
     <string name="lib_source_local">Локальна</string>
     <string name="lib_continue_label">ПРОДОВЖИТИ</string>
@@ -702,7 +714,11 @@
     <string name="lib_filter_new">Нові</string>
     <string name="lib_filter_listening">Слухаю</string>
     <string name="lib_filter_completed">Завершені</string>
-    <string name="lib_filter_downloaded">Завантажені</string>
+    <!-- #1163 — «На пристрої», not «Завантажені»: the chip holds the books whose
+         audio is readable on this device (source downloads AND readable local
+         copies), while the download manager stays the surface for network
+         downloads only (owner decision 2026-10-11). -->
+    <string name="lib_filter_downloaded">На пристрої</string>
     <string name="lib_filter_local">Локальні</string>
     <string name="lib_filter_online">Онлайн</string>
     <string name="lib_filter_favorite">Обрані</string>

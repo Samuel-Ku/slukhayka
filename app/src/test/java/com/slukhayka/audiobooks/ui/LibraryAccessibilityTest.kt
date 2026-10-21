@@ -76,6 +76,8 @@ import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -131,6 +133,24 @@ class LibraryAccessibilityTest {
         ).first()
     }
 
+    /**
+     * #1187 — a local book being listened to whose files were never measured:
+     * no total, but a progress row, so it is the reachable «Продовжити» card
+     * with no duration at all. `percent` is 0f there, a sentinel.
+     */
+    private val unknownDurationBook = run {
+        val books = TestDataFactory.dataBooks().take(1).map { it.copy(totalDurationSeconds = 0L) }
+        buildLibraryBooks(
+            books = books,
+            progressList = TestDataFactory.seedPlaybackProgress(
+                books,
+                chapterIndex = 0,
+                positionSeconds = 3L
+            ),
+            chaptersByBook = mapOf(books.first().id to emptyList())
+        ).first()
+    }
+
     @Test
     fun libraryEntryIsOneContextualActionWithHonestState() {
         composeTestRule.setContent {
@@ -158,6 +178,28 @@ class LibraryAccessibilityTest {
                         "Завантажено для прослуховування без інтернету"
                 )
             )
+    }
+
+    @Test
+    fun anUnknownDurationIsSpokenAsUnknownNotAsZeroPercent() {
+        // #1187 / ADR-0014 — the a11y half of the honesty rule: with no total
+        // the card must announce «Тривалість невідома», never «Прослухано 0%».
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibraryBookCard(book = unknownDurationBook, grid = false, onClick = {})
+            }
+        }
+
+        val state = composeTestRule
+            .onNodeWithTag("library_book_item_${unknownDurationBook.book.id}")
+            .fetchSemanticsNode()
+            .config
+            .getOrNull(SemanticsProperties.StateDescription)
+            .orEmpty()
+
+        assertTrue(state.startsWith("Тривалість невідома"))
+        assertFalse(state.contains("Прослухано"))
+        assertFalse(state.contains("0%"))
     }
 
     @Test

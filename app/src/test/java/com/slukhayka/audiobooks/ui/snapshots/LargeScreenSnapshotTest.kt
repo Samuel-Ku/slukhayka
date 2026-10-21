@@ -2,16 +2,25 @@ package com.slukhayka.audiobooks.ui.snapshots
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -33,10 +42,17 @@ import com.slukhayka.audiobooks.ui.components.AppSettingsGear
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.PlayerPane
+import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.screens.PlayerScreenContent
 import com.slukhayka.audiobooks.ui.screens.calculatePlayerProgress
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
+import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
+import com.slukhayka.audiobooks.ui.library.libraryGridEntries
+import com.slukhayka.audiobooks.ui.screens.libraryGridColumns
+import com.slukhayka.audiobooks.ui.screens.libraryGridContent
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -243,21 +259,28 @@ class LargeScreenSnapshotTest {
     }
 
     /**
-     * #1205 decision 2 — the mini-player's own delta: with room beside the
-     * content the bar is NOT the full-width strip under the rail any more, it
-     * sits in the leading column under the rail, and the content column keeps
-     * the window's whole height.
+     * #1205 decision 2 — the mini-player's own delta, and the interaction the
+     * first version of this frame could not show (review S1): the bar in the
+     * leading column AND the wide two-pane Медіатека in the SAME window.
+     *
+     * The bar's 360 dp column — the rail sits INSIDE it, not beside it — leaves
+     * the Library's list pane 0.4 × (840 − 360) = 192 dp, far under the 284 dp
+     * two tile columns need. The frame shows
+     * what the app does about it — an adaptive grid draws ONE tile per row
+     * instead of two squeezed ones — and the assertions pin what an image
+     * cannot: every tile keeps at least the canonical poster's width and none
+     * leaves the pane it was given.
      */
     @Test
     @Config(qualifiers = "uk-rUA-w840dp-h1000dp-420dpi", sdk = [36])
-    fun large_leading_mini_player() {
+    fun large_leading_mini_player_two_pane_library() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     AdaptiveNavigationLayout(
                         layout = WindowLayout.EXPANDED,
                         selectedTab = SelectedTab.LIBRARY,
-                        bookDetailOpen = false,
+                        bookDetailOpen = true,
                         onSelect = {},
                         miniPlayer = {
                             MiniPlayerBar(
@@ -270,7 +293,10 @@ class LargeScreenSnapshotTest {
                             )
                         }
                     ) {
-                        PanePlaceholder("Мої книги", "840 dp · смуга під рейлом")
+                        WideDetailPane(
+                            list = { LibraryTilesFrame() },
+                            detail = { PanePlaceholder("Сторінка книги", "заглушка") }
+                        )
                     }
                 }
             }
@@ -278,8 +304,90 @@ class LargeScreenSnapshotTest {
 
         composeTestRule.onNodeWithTag("mini_player_bar", useUnmergedTree = true)
             .assertIsDisplayed()
+
+        val pane = composeTestRule.onNodeWithTag("wide_detail_list", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val tiles = composeTestRule.onAllNodes(
+            SemanticsMatcher("testTag starts with library_book_item_") { node ->
+                node.config.getOrNull(SemanticsProperties.TestTag)
+                    ?.startsWith("library_book_item_") == true
+            },
+            useUnmergedTree = true
+        ).fetchSemanticsNodes()
+
+        assertTrue("no Медіатека tile was laid out in the pane at all", tiles.isNotEmpty())
+        with(composeTestRule.density) {
+            val posterPx = PosterWidth.toPx()
+            val paneRightPx = pane.right.toPx()
+            tiles.forEach { tile ->
+                val bounds = tile.boundsInRoot
+                assertTrue(
+                    "a tile was squeezed to ${bounds.width} px, under the " +
+                        "$posterPx px canonical poster, in a ${pane.left}..${pane.right} pane",
+                    bounds.width >= posterPx - 1f
+                )
+                assertTrue(
+                    "a tile left the list pane: tile=$bounds, pane right=${pane.right}",
+                    bounds.right <= paneRightPx + 1f
+                )
+            }
+        }
+
         composeTestRule.onRoot().captureRoboImage(
-            filePath = "$frameDir/large-leading-mini-player.png"
+            filePath = "$frameDir/large-leading-mini-player-library.png"
+        )
+    }
+
+    /**
+     * The real Медіатека tiles, drawn through the SHIPPED column rule
+     * ([libraryGridColumns]) and the same content seam the screen calls — so the
+     * frame cannot show a grid the app does not draw.
+     */
+    @Composable
+    private fun LibraryTilesFrame() {
+        val returnFocus = remember { FocusRequester() }
+        LazyVerticalGrid(
+            columns = libraryGridColumns(gridMode = true),
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("library_grid"),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            libraryGridContent(
+                entries = libraryGridEntries(
+                    browsing = false,
+                    gridMode = true,
+                    visible = frameLibrary,
+                    continueBook = null,
+                    denseTitle = "Усі"
+                ),
+                browsing = false,
+                gridMode = true,
+                availability = emptyMap(),
+                downloadCounts = emptyMap(),
+                restoreFocusBookId = null,
+                bookReturnFocusRequester = returnFocus,
+                awaitingSubmissionBookIds = emptySet(),
+                watchingSubmissionBookIds = emptySet(),
+                deferredPublicationBookIds = emptySet(),
+                onBookClick = {},
+                onPlayClick = {},
+                onRecheck = {}
+            )
+        }
+    }
+
+    /**
+     * The books the Медіатека frame shows as tiles: the shared fixture's own,
+     * capped so a growing fixture cannot turn the frame into a shelf list.
+     */
+    private val frameLibrary: List<LibraryBook> by lazy {
+        buildLibraryBooks(
+            books = TestDataFactory.dataBooks().take(4),
+            progressList = emptyList(),
+            chaptersByBook = emptyMap()
         )
     }
 

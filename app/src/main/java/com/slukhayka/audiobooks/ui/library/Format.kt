@@ -86,6 +86,11 @@ fun removeCompletedConfirmText(bookCount: Int): String {
  * dialog: how many downloaded books and how much space the action removes,
  * and what survives. Pure so the acceptance criterion («діалог з точною
  * цифрою обсягу») is testable without a screen.
+ *
+ * #1163 — the count is the SOURCE downloads (the caller excludes local imports)
+ * and the copy says so: the private copy that came from a local folder is not a
+ * download and is not emptied by this action, so the listener is told what
+ * stays instead of inferring it from a sentence about re-downloading.
  */
 fun clearCacheConfirmText(bookCount: Int, bytes: Long): String {
     val books = ukPlural(
@@ -95,5 +100,5 @@ fun clearCacheConfirmText(bookCount: Int, bytes: Long): String {
         many = "завантажених книг"
     )
     return "Видалити $bookCount $books, ${formatBytes(bytes)}? " +
-        "Книги залишаться в медіатеці — доведеться завантажити знову."
+        "Книги залишаться в медіатеці — доведеться завантажити знову. Локальні копії лишаються."
 }

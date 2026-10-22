@@ -66,11 +66,40 @@ class BookDisplayTest {
         assertFalse(isRealPersonName("4read.org"))
         assertFalse(isRealPersonName("4read Voice Narrator"))
         assertFalse(isRealPersonName("Аудиокнига 4read.org"))
-        // The per-source placeholder `<sourceId> narrator` (no real name ends
-        // in a lowercase « narrator»).
+        // The per-source placeholder `<sourceId> narrator`.
         assertFalse(isRealPersonName("audiobookmp3 narrator"))
         assertFalse(isRealPersonName("soundbooks narrator"))
         assertFalse(isRealPersonName("sluhay narrator"))
+    }
+
+    @Test
+    fun `a real name ending in narrator is not swallowed`() {
+        // #1382 — the rule used to be "ends with « narrator»", a substring
+        // GUESS about the data. A real name that happens to end that way was
+        // blanked, and because the book page hides the whole narrator row when
+        // the name is blank, it disappeared without a trace and without a
+        // failing test. The placeholder is only `<registered source id>
+        // narrator`, so a real person can no longer be eaten by it.
+        assertTrue(isRealPersonName("Іван narrator"))
+        assertTrue(isRealPersonName("Mike narrator"))
+        // A source id this build does NOT register is not a placeholder either:
+        // an unknown source must not silently blank a name. A stale placeholder
+        // stays visible, which is the honest failure.
+        assertTrue(isRealPersonName("some-removed-source narrator"))
+    }
+
+    @Test
+    fun `the placeholder is recognised by the registered source ids only`() {
+        // Every registered id, not a hard-coded few — a source added later is
+        // covered without touching this rule.
+        com.slukhayka.audiobooks.data.source.SourceRegistry.ids().forEach { id ->
+            assertTrue(
+                isPlaceholderNarrator("$id narrator"),
+                "registered id '$id' must be recognised as the placeholder",
+            )
+        }
+        assertFalse(isPlaceholderNarrator("Іван narrator"))
+        assertFalse(isPlaceholderNarrator("audiobookmp3"))
     }
 
     // ------------------------------------------------------------------

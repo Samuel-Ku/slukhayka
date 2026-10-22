@@ -497,7 +497,9 @@ class SourceCatalog(
                 _liveCollections.value = liveCollectionsFor()
                 collectionsMatchCorpus =
                     com.slukhayka.audiobooks.data.collections.libraryMatchCorpus(
-                        dao.getAllAudiobooksOnce().map { it.toAudiobookEntity() }
+                        // ADR-0063 §5 — collections are the listener's own
+                        // shelf; a technical anchor is not a collection member.
+                        dao.getPersonalAudiobooksOnce().map { it.toAudiobookEntity() }
                     )
                 _smartCollections.value =
                     com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(

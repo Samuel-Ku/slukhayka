@@ -254,8 +254,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * either confirms a row as personal or removes the link.
      */
     private val _importedEntries =
-        MutableStateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>>(emptyList())
-    val importedEntries: StateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>> =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.db.TriageRow>>(emptyList())
+    val importedEntries: StateFlow<List<com.slukhayka.audiobooks.data.db.TriageRow>> =
         _importedEntries.asStateFlow()
 
     /**
@@ -356,6 +356,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * One explicit triage action; the queue is re-read afterwards, so the
      * subsection reflects what the listener actually decided.
      */
+    /**
+     * ADR-0063 §3 — the explicit «Зберегти в бібліотеку» action from the book
+     * page. A technical materialization becomes a personal link; a personal
+     * one is a no-op (favourite/createdAt/download state survive).
+     */
+    fun saveToLibrary(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { libraryEntries.saveToLibrary(bookId) }
+                .onFailure { android.util.Log.w("MainViewModel", "saveToLibrary failed for $bookId", it) }
+        }
+    }
+
     fun triageImported(
         bookId: String,
         action: com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction
@@ -372,23 +384,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
 
-    // Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): the bounded
-    // verified catalogue pass, same module field idiom as the probes above.
-    val librarySeeder: com.slukhayka.audiobooks.data.catalog.LibrarySeeder = App.instance.librarySeeder
-
-    /**
-     * Один обмежений прохід на добу: каталог → перевірка стріму → імпорт.
-     * Від'єднаний, ніколи не блокує Огляд; throttle по SharedPreferences.
-     */
-    fun seedLibraryIfDue() {
-        val prefs = App.instance.getSharedPreferences("library_seeder", android.content.Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        if (now - prefs.getLong("last_run_at", 0L) < 24 * 60 * 60 * 1000L) return
-        prefs.edit().putLong("last_run_at", now).apply()
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { librarySeeder.seedOnce() }
-        }
-    }
     // Spec-42 #431: shared metadata store for verified profile publish
     val sharedMetaStore: FirestoreBookMetaStore? = App.instance.sharedMetaStore
     val playerManager: AudioPlayerManager = App.instance.playerManager

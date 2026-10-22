@@ -868,21 +868,20 @@ fun LibraryScreen(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                 )
                             }
-                            items(importedEntries, key = { it.id }) { entry ->
-                                val title = allBooks.firstOrNull { it.id == entry.id }?.title ?: entry.id
+                            items(importedEntries, key = { it.bookId }) { entry ->
                                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(text = title, style = MaterialTheme.typography.titleSmall)
+                                    Text(text = entry.title, style = MaterialTheme.typography.titleSmall)
                                     Row {
                                         OutlinedButton(
                                             onClick = {
                                                 viewModel.triageImported(
-                                                    entry.id,
+                                                    entry.bookId,
                                                     com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.CONFIRM_PERSONAL
                                                 )
                                             },
                                             modifier = Modifier
                                                 .heightIn(min = 48.dp)
-                                                .testTag("library_imported_confirm_${entry.id}")
+                                                .testTag("library_imported_confirm_${entry.bookId}")
                                         ) {
                                             Text(stringResource(R.string.lib_imported_confirm))
                                         }
@@ -890,13 +889,13 @@ fun LibraryScreen(
                                         OutlinedButton(
                                             onClick = {
                                                 viewModel.triageImported(
-                                                    entry.id,
+                                                    entry.bookId,
                                                     com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.REMOVE_LINK
                                                 )
                                             },
                                             modifier = Modifier
                                                 .heightIn(min = 48.dp)
-                                                .testTag("library_imported_remove_${entry.id}")
+                                                .testTag("library_imported_remove_${entry.bookId}")
                                         ) {
                                             Text(stringResource(R.string.lib_imported_remove))
                                         }

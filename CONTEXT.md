@@ -374,8 +374,10 @@ _Avoid_: попередження, вимикальне службове спо�
 A listener's personal relationship to one Work — the one place a book becomes
 "mine". It exists only when the relationship began with Personal Intent
 (ADR-0047/ADR-0063); an automatic pass — the catalogue seed, a catalogue sync,
-or a technical card open — writes no Entry at all. It carries how the
-relationship began (the origin fact), the favourite flag, and Metadata
+or a technical card open — creates no personal link. (The automatic pass may
+keep a hidden anchor row in the same table so the Work stays reachable; that
+anchor is not a Library Entry and no personal surface reads it.) It carries how
+the relationship began (the origin fact), the favourite flag, and Metadata
 Overrides. It carries no position: audio position stays in the Listening State,
 reading progress in a Readthrough. Removing a Library Entry does not erase the
 underlying Work, Editions, or Sources.

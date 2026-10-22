@@ -26,7 +26,7 @@ class ImportedLibraryEntriesTest {
         dao.seedLibraryEntry(entry("saved", LibraryEntryOrigin.EXPLICIT_SAVE, 200))
         dao.seedLibraryEntry(entry("auto", LibraryEntryOrigin.AUTO_SEED, 400))
 
-        assertEquals(listOf("new", "old"), queue.pending().map { it.id })
+        assertEquals(listOf("new", "old"), queue.pending().map { it.bookId })
     }
 
     @Test

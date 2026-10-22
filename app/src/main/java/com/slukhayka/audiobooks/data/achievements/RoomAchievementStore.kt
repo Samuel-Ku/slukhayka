@@ -24,6 +24,19 @@ class RoomAchievementStore(private val dao: AchievementDao, private val now: () 
 
     override suspend fun claimNotice(knownIds: Set<String>, seenAt: Long) = dao.claimNotice(knownIds, seenAt)?.external()
 
+    /** ADR-0063 §7 — the startup backfill: record awards, announce nothing. */
+    override suspend fun silencePending(knownIds: Set<String>, seenAt: Long) { dao.markPendingSeen(knownIds, seenAt) }
+
+    /** The historical snapshot lands already seen — one insert, no race. */
+    override suspend fun awardSilently(
+        definitions: List<AchievementDefinition>,
+        earnedAt: Long,
+        seenAt: Long
+    ) {
+        if (definitions.isEmpty()) return
+        dao.insertAwards(definitions.map { AchievementEntity(it.id, earnedAt, seenAt) })
+    }
+
     // --- #704 (T6) showcase -------------------------------------------------
 
     override fun observeShowcase() = dao.observePinned().map { rows -> rows.map { it.external() } }

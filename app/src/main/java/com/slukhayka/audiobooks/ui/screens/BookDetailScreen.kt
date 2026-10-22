@@ -232,7 +232,10 @@ fun BookDetailScreen(
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
     // block. Cold flow collected once per composition; the pure filter is
     // JVM-tested (siblingNarrations).
-    val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
+    // ADR-0063 — the detail's sibling renditions come from every materialized
+    // book, not only the personal shelf: a mirror card can have several
+    // narrations the listener has not saved yet.
+    val allBooks by libraryEntries.materializedBooks.collectAsState(initial = emptyList())
     val siblingCards = remember(currentBook.id, currentBook.mergeKey, allBooks) {
         siblingNarrations(allBooks, currentBook.id, currentBook.mergeKey ?: "")
     }
@@ -656,6 +659,16 @@ fun BookDetailScreen(
                     // page itself — the place where the user decides a book is
                     // worth keeping at hand.
                     val isFavoriteThis = favoriteBooks.any { it.id == currentBook.id }
+                    // ADR-0063 — a book opened from the catalogue mirror is
+                    // only materialized technically. «Зберегти в бібліотеку»
+                    // is the explicit act that makes it personal; a personal
+                    // book hides this item.
+                    val bookOrigin by remember(currentBook.id) {
+                        libraryEntries.observeOrigin(currentBook.id)
+                    }.collectAsState(initial = null)
+                    val isPersonalBook = bookOrigin
+                        ?.let(com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy::isPersonal)
+                        ?: false
                     // Issue #752: the manual «Прослухано» state is the stored
                     // Listening State flag (not the percent-derived finish).
                     val isListenedThis = progress?.isCompleted == true
@@ -785,6 +798,17 @@ fun BookDetailScreen(
                                             currentBook.author,
                                             currentBook.narrator
                                         )
+                                    }
+                                )
+                            }
+                            if (!isPersonalBook) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_detail_save_to_library)) },
+                                    leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
+                                    modifier = Modifier.testTag("book_detail_save_to_library"),
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.saveToLibrary(currentBook.id)
                                     }
                                 )
                             }

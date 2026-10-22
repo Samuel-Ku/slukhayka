@@ -67,16 +67,14 @@ class AchievementImportProvenanceTest {
         // one AND the «Глибокий пошук» mechanism award (the spec asks for both,
         // and they have different meanings). Assert both are present and that
         // nothing ELSE appeared, which is the contract this test protects.
-        //
-        // #701 (T3 tail) — «Усі двері» joins them for an honest reason: the
-        // registry injected into this fixture holds exactly ONE door ("sluhay")
-        // and the import really came through it, so every door of THAT registry
-        // was used. The production registry has fourteen non-scam doors, which
-        // is why the award is hard on a phone and trivial in this fixture.
+        // #701 (T3 tail) — «Усі двері» does NOT join them here: the injected
+        // registry holds one door ("sluhay") and the import really came through
+        // it, but ADR-0063 credits a door only for a PERSONAL book, and this
+        // import is a technical materialization. The award is pinned by the
+        // explicit-save cases in the rest of this file, not by this snapshot.
         val earnedFromSearch = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }.sorted()
         // ADR-0063 — the technical search import is not Personal Intent, so no
-        // source door is credited yet; «Усі двері» opens on the first SAVED
-        // book below, not on a mirror materialization.
+        // source door is credited yet.
         assertEquals(listOf("deep_search", "first_search_import"), earnedFromSearch)
         adapter.page=detail("Браузер прямо")
         val direct=imports.importBrowserSourceDirectPage("sluhay",adapter.page.url,onNewBookImported={ accepted+=it.id })!!

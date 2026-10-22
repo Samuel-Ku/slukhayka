@@ -153,11 +153,15 @@ class LibraryEntries(
         when {
             existing == null -> {
                 val workId = row.workId?.takeIf { it.isNotBlank() } ?: bookId
-                dao.insertLibraryEntryWithOrigin(
+                dao.upsertLibraryEntry(
                     id = bookId,
                     workId = workId,
-                    origin = LibraryEntryOrigin.EXPLICIT_SAVE.name,
-                    createdAt = System.currentTimeMillis()
+                    isFavorite = false,
+                    createdAt = System.currentTimeMillis(),
+                    // A book that is already downloaded must not drop to 0%
+                    // just because it became personal (ADR-0014).
+                    downloadProgress = if (row.isDownloaded) 1f else 0f,
+                    origin = LibraryEntryOrigin.EXPLICIT_SAVE.name
                 )
             }
             existing.origin == LibraryEntryOrigin.EXPLICIT_SAVE.name -> Unit

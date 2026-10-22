@@ -180,7 +180,8 @@ interface AchievementDao {
     @Query(
         "SELECT COUNT(DISTINCT w.seriesTitle) FROM works w " +
             "JOIN library_entries le ON le.workId = w.id " +
-            "WHERE w.seriesTitle IS NOT NULL AND w.seriesTitle != ''"
+            "WHERE w.seriesTitle IS NOT NULL AND w.seriesTitle != '' " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)"
     )
     fun observeSeriesInLibrary(): Flow<Long>
 
@@ -253,6 +254,7 @@ interface AchievementDao {
     @Query(
         "SELECT wg.genreId AS genreId, COUNT(DISTINCT wg.workId) AS works " +
             "FROM work_genres wg JOIN library_entries le ON le.workId = wg.workId " +
+            "WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
             "GROUP BY wg.genreId"
     )
     fun observeGenreBookCounts(): Flow<List<com.slukhayka.audiobooks.data.achievements.GenreBookCount>>
@@ -264,7 +266,11 @@ interface AchievementDao {
      * evaluator's threshold is 1, so a larger count would carry no more truth.
      * The `type` is what `LibraryImport.importSubmittedYouTube` writes.
      */
-    @Query("SELECT MIN(COUNT(*), 1) FROM sources WHERE type = 'youtube'")
+    @Query(
+        "SELECT MIN(COUNT(*), 1) FROM sources s WHERE s.type = 'youtube' AND EXISTS (" +
+            "SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST))"
+    )
     fun observeBrowserBooks(): Flow<Long>
 
     /**
@@ -277,8 +283,12 @@ interface AchievementDao {
      */
     @Query(
         "SELECT COUNT(DISTINCT language) FROM (" +
-            "SELECT language FROM edition_facets WHERE language != '' " +
-            "UNION SELECT language FROM editions WHERE language != '')"
+            "SELECT ef.language AS language FROM edition_facets ef " +
+            "JOIN library_entries le ON le.workId = ef.workId " +
+            "WHERE ef.language != '' AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
+            "UNION SELECT e.language AS language FROM editions e " +
+            "JOIN library_entries le ON le.id = e.workId " +
+            "WHERE e.language != '' AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST))"
     )
     fun observeKnownLanguages(): Flow<Long>
 
@@ -289,7 +299,11 @@ interface AchievementDao {
      * one door. A source row only exists once a book was imported through it,
      * so this counts use rather than availability.
      */
-    @Query("SELECT COUNT(DISTINCT type) FROM sources")
+    @Query(
+        "SELECT COUNT(DISTINCT type) FROM sources s WHERE EXISTS (" +
+            "SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST))"
+    )
     fun observeUsedSourceDoors(): Flow<Long>
 
     /**
@@ -304,7 +318,11 @@ interface AchievementDao {
      * so the thirty-day window is decided in
      * [com.slukhayka.audiobooks.data.achievements.NewWave].
      */
-    @Query("SELECT s.bookId AS bookId, s.type AS sourceType, s.addedAt AS addedAt FROM sources s")
+    @Query(
+        "SELECT s.bookId AS bookId, s.type AS sourceType, s.addedAt AS addedAt FROM sources s " +
+            "WHERE EXISTS (SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST))"
+    )
     fun observeSourceArrivals(): Flow<List<com.slukhayka.audiobooks.data.achievements.SourceArrival>>
 
     /** #700 (T2) — every bookmark the listener placed, notes or not. */
@@ -413,7 +431,11 @@ interface AchievementDao {
      * exists once a book came through it, so these are doors really used, not
      * doors merely offered.
      */
-    @Query("SELECT DISTINCT type FROM sources")
+    @Query(
+        "SELECT DISTINCT s.type FROM sources s WHERE EXISTS (" +
+            "SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST))"
+    )
     fun observeUsedSourceTypes(): Flow<List<String>>
 
     /**
@@ -428,9 +450,11 @@ interface AchievementDao {
      */
     @Query(
         "SELECT COUNT(*) FROM (" +
-            "SELECT editionId FROM sources " +
-            "WHERE editionId IS NOT NULL AND editionId != '' " +
-            "GROUP BY editionId HAVING COUNT(DISTINCT type) >= 2)"
+            "SELECT s.editionId FROM sources s " +
+            "WHERE s.editionId IS NOT NULL AND s.editionId != '' " +
+            "AND EXISTS (SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)) " +
+            "GROUP BY s.editionId HAVING COUNT(DISTINCT s.type) >= 2)"
     )
     fun observeSharedNarrations(): Flow<Long>
 
@@ -440,7 +464,9 @@ interface AchievementDao {
         "MAX((SELECT COUNT(*) FROM chapters c WHERE c.bookId=s.bookId), " +
         "COALESCE((SELECT b.totalChapters FROM audiobooks b WHERE b.id=s.bookId),0), " +
         "COALESCE((SELECT e.totalChapters FROM editions e WHERE e.id=s.editionId),0)) AS chapterCount, " +
-        "t.trackIndex, t.localFilePath, t.isDownloaded FROM sources s LEFT JOIN source_tracks t ON t.sourceId=s.id")
+        "t.trackIndex, t.localFilePath, t.isDownloaded FROM sources s LEFT JOIN source_tracks t ON t.sourceId=s.id " +
+        "WHERE EXISTS (SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+        "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST))")
     fun observeDownloadedTracks(): Flow<List<com.slukhayka.audiobooks.data.achievements.DownloadedTrackProof>>
 
     @Query("SELECT * FROM achievements ORDER BY earnedAt, id")
@@ -545,6 +571,10 @@ interface AchievementDao {
     suspend fun pendingNotice(knownIds: Set<String>): AchievementEntity?
     @Query("UPDATE achievements SET seenAt = :seenAt WHERE id = :id AND seenAt IS NULL")
     suspend fun markSeen(id: String, seenAt: Long): Int
+
+    /** ADR-0063 §7 — silence the startup/upgrade backlog in one write. */
+    @Query("UPDATE achievements SET seenAt = :seenAt WHERE seenAt IS NULL AND id IN (:knownIds)")
+    suspend fun markPendingSeen(knownIds: Set<String>, seenAt: Long): Int
     @Transaction
     suspend fun claimNotice(knownIds: Set<String>, seenAt: Long): AchievementEntity? {
         val pending = pendingNotice(knownIds) ?: return null

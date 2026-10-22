@@ -60,8 +60,16 @@ class LibraryEntries(
 
     // ADR-0009: the DAO reads return the JOINed [BookRow]; the module maps it
     // back to the single shaped [AudiobookEntity] the UI keeps reading.
+    //
+    // ADR-0063 — [allBooks] is the PERSONAL library: only links the listener
+    // began with intent. Technical materializations and catalogue anchors are
+    // deliberately absent; [materializedBooks] is the wider set for details
+    // that must still show a rendition's siblings.
     val allBooks: Flow<List<AudiobookEntity>> =
+        dao.getPersonalAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
+    val materializedBooks: Flow<List<AudiobookEntity>> =
         dao.getAllAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
+
     val downloadedBooks: Flow<List<AudiobookEntity>> =
         dao.getDownloadedAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
     val allBookmarks: Flow<List<BookmarkEntity>> =
@@ -112,11 +120,69 @@ class LibraryEntries(
     // ---------------------------------------------------------------------
 
     suspend fun toggleFavorite(bookId: String, isFavorite: Boolean) {
+        // ADR-0063 — a heart is an explicit act too: it would be a dead toggle
+        // on a technical card, so marking a book favourite ALSO saves it to
+        // the personal library (and the removal path stays the book page's
+        // «Прибрати з бібліотеки»).
+        if (isFavorite) saveToLibrary(bookId)
         dao.setFavorite(bookId, isFavorite)
     }
 
     fun getFavoriteAudiobooks(): Flow<List<AudiobookEntity>> =
         dao.getFavoriteAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
+
+    // ---------------------------------------------------------------------
+    // Personal intent (ADR-0063)
+    // ---------------------------------------------------------------------
+
+    /** The book page's save/remove decision: the stored origin, if any. */
+    fun observeOrigin(bookId: String): Flow<LibraryEntryOrigin?> =
+        dao.observeLibraryEntryById(bookId).map { row ->
+            row?.origin?.let { name -> LibraryEntryOrigin.entries.firstOrNull { it.name == name } }
+        }
+
+    /**
+     * ADR-0063 §3 — the explicit «Зберегти в бібліотеку» action. Creates the
+     * personal link if the book was only materialized technically, and
+     * upgrades a legacy non-personal origin. A personal link is left exactly
+     * as it was (favourite, createdAt and download state survive).
+     */
+    suspend fun saveToLibrary(bookId: String): Boolean = withContext(Dispatchers.IO) {
+        val row = dao.getAudiobookById(bookId) ?: return@withContext false
+        val existing = dao.libraryEntryById(bookId)
+        when {
+            existing == null -> {
+                val workId = row.workId?.takeIf { it.isNotBlank() } ?: bookId
+                dao.insertLibraryEntryWithOrigin(
+                    id = bookId,
+                    workId = workId,
+                    origin = LibraryEntryOrigin.EXPLICIT_SAVE.name,
+                    createdAt = System.currentTimeMillis()
+                )
+            }
+            existing.origin == LibraryEntryOrigin.EXPLICIT_SAVE.name -> Unit
+            existing.origin == LibraryEntryOrigin.EXPLICIT_IMPORT.name -> Unit
+            else -> dao.updateLibraryEntryOrigin(bookId, LibraryEntryOrigin.EXPLICIT_SAVE.name)
+        }
+        dao.deleteTombstone(bookId)
+        row.mergeKey?.takeIf { it.isNotBlank() }?.let { key ->
+            runCatching { workRelationshipsSync?.pushEntry(key, row.title, row.author) }
+        }
+        true
+    }
+
+    /**
+     * ADR-0063 §4 — actual playback is Personal Intent. A book materialized
+     * from the mirror becomes the listener's when the engine really starts
+     * playing it, so «Продовжити» keeps it after a restart. Merely opening
+     * the page never calls this.
+     */
+    suspend fun markPlaybackStarted(bookId: String): Boolean = withContext(Dispatchers.IO) {
+        val current = dao.libraryEntryById(bookId)?.origin
+            ?.let { name -> LibraryEntryOrigin.entries.firstOrNull { it.name == name } }
+        if (current != null && LibraryEntryOriginPolicy.isPersonal(current)) return@withContext true
+        saveToLibrary(bookId)
+    }
 
     // ---------------------------------------------------------------------
     // Metadata

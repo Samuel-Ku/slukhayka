@@ -142,6 +142,7 @@
     <string name="book_detail_metadata_narrator">Начитка</string>
     <string name="book_detail_metadata_cover">Обкладинка (URL)</string>
     <string name="book_detail_metadata_save">Зберегти</string>
+    <string name="book_detail_save_to_library">Зберегти в бібліотеку</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
     <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
     <!-- spec-52 US28 (#1174) — «покинути книгу»: дія лише для книг із поступом,

@@ -372,10 +372,14 @@ _Avoid_: попередження, вимикальне службове спо�
 
 **Library Entry**:
 A listener's personal relationship to one Work — the one place a book becomes
-"mine". It carries how the relationship began (the listener's own explicit act
-or an automatic pass — ADR-0047), the favourite flag, and Metadata Overrides.
-It carries no position: audio position stays in the Listening State, reading
-progress in a Readthrough. Removing a Library Entry does not erase the
+"mine". It exists only when the relationship began with Personal Intent
+(ADR-0047/ADR-0063); an automatic pass — the catalogue seed, a catalogue sync,
+or a technical card open — creates no personal link. (The automatic pass may
+keep a hidden anchor row in the same table so the Work stays reachable; that
+anchor is not a Library Entry and no personal surface reads it.) It carries how
+the relationship began (the origin fact), the favourite flag, and Metadata
+Overrides. It carries no position: audio position stays in the Listening State,
+reading progress in a Readthrough. Removing a Library Entry does not erase the
 underlying Work, Editions, or Sources.
 _Avoid_: Book, collection item, a relationship created by opening a card or by a catalogue sync
 
@@ -415,9 +419,19 @@ _Avoid_: Медіатека як синонім локальної бази, а�
 
 **Personal Intent** (особистий намір):
 Явна дія слухача, яка починає Library Entry: збереження книжки, вибір стану
-«Хочу прочитати», власний імпорт файлу чи папки. Саме вона, а не поява рядка
-в локальній базі, робить твір особистим (ADR-0047).
-_Avoid_: імпорт як намір, автосід, технічне відкриття картки
+«Хочу прочитати», власний імпорт файлу чи папки, фактичний початок
+відтворення твору. Саме вона, а не поява рядка в локальній базі, робить
+твір особистим (ADR-0047/ADR-0063).
+_Avoid_: імпорт як намір, автосід, технічне відкриття картки, перегляд
+сторінки як збереження
+
+**Технічна матеріалізація** (Technical Open):
+Тимчасове матеріальне втілення Твору з Дзеркала каталогу — `audiobooks`,
+Edition, Chapter і Source — щоб сторінка книги та плеєр працювали для
+книжки, якої слухач ще не зберіг. Особистого зв'язку не створює й не
+потрапляє в «Імпортоване»: це не вибір, а механіка перегляду (ADR-0063).
+Фактичний початок відтворення перетворює її на Personal Intent.
+_Avoid_: Library Entry, «моя книга», кандидат на тріаж
 
 **«Імпортоване»** (Unclassified Import):
 Тимчасовий підрозділ «Моїх книг» для Library Entries, чиє походження не

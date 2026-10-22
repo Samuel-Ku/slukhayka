@@ -144,6 +144,7 @@
     <string name="book_detail_metadata_narrator">Narrator</string>
     <string name="book_detail_metadata_cover">Cover (URL)</string>
     <string name="book_detail_metadata_save">Save</string>
+    <string name="book_detail_save_to_library">Save to library</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
     <string name="book_detail_listened_state_off">Not marked as listened</string>
     <!-- spec-52 US28 (#1174) — «abandon book»: only for a book with progress

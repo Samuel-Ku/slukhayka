@@ -33,7 +33,32 @@ class AchievementEngineTest {
         runCurrent()
         advanceTimeBy(1_001)
         runCurrent()
-        assertEquals(listOf(EarnedAchievement("first_book", 500L)), engine.earned.first())
+        // ADR-0063 §7 — the first successful snapshot is the silent backfill.
+        assertEquals(listOf(EarnedAchievement("first_book", 500L, 500L)), engine.earned.first())
+    }
+
+    @Test fun `the startup backfill awards but never announces the historical queue`() = runTest {
+        val store = MemoryAchievementStore()
+        val source = AchievementProgressSource { flowOf(AchievementProgress(explicitBooks = 1)) }
+        val engine = AchievementEngine(source, store) { 700L }
+        engine.start(backgroundScope)
+        runCurrent()
+        assertEquals(listOf(EarnedAchievement("first_book", 700L, 700L)), engine.earned.first())
+        assertNull(engine.takeNotice())
+    }
+
+    @Test fun `a live action after the backfill still gets its quiet notice`() = runTest {
+        val store = MemoryAchievementStore()
+        val source = LocalAchievementProgressSource(flowOf(AchievementProgress()), store.observeFacts())
+        val engine = AchievementEngine(source, store) { 800L }
+        engine.start(backgroundScope)
+        runCurrent()
+        store.recordFact(AchievementFact.PLAYBACK_STARTED)
+        runCurrent()
+        assertEquals(
+            EarnedAchievement("first_playback", 800L, 800L),
+            engine.takeNotice()
+        )
     }
 
     @Test fun `concurrent evaluators report only the one committed winner`() = runTest {
@@ -94,5 +119,12 @@ internal class MemoryAchievementStore : AchievementStore {
         val claimed = row.copy(seenAt = seenAt)
         awards.value = awards.value.map { if (it.id == row.id) claimed else it }
         claimed
+    }
+    override suspend fun silencePending(knownIds: Set<String>, seenAt: Long) {
+        mutex.withLock {
+            awards.value = awards.value.map {
+                if (it.seenAt == null && it.id in knownIds) it.copy(seenAt = seenAt) else it
+            }
+        }
     }
 }

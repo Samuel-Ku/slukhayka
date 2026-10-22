@@ -75,6 +75,10 @@ class FakeAudiobookDao(
     books: List<AudiobookEntity> = emptyList(),
     chapters: List<ChapterEntity> = emptyList()
 ) : AudiobookDao {
+    private companion object {
+        val PERSONAL_ORIGINS = setOf("EXPLICIT_SAVE", "EXPLICIT_IMPORT")
+    }
+
 
     private val popularityState = MutableStateFlow(emptyList<PopularityAssertionEntity>())
     private val booksState = MutableStateFlow(books)
@@ -152,6 +156,14 @@ class FakeAudiobookDao(
     val savedLibraryEntries: List<LibraryEntryEntity> get() = libraryEntriesState.value
 
     // --- Audiobooks (ADR-0009: the fake returns the JOINed [BookRow] shape) -
+
+    override fun getPersonalAudiobooks(): Flow<List<BookRow>> =
+        booksState.map { books ->
+            val personal = libraryEntriesState.value
+                .filter { it.origin in PERSONAL_ORIGINS }
+                .mapTo(mutableSetOf()) { it.id }
+            books.filter { it.id in personal }.sortedBy { it.title }.map { it.toBookRow() }
+        }
 
     override fun getAllAudiobooks(): Flow<List<BookRow>> =
         booksState.map { books -> books.sortedBy { it.title }.map { it.toBookRow() } }
@@ -773,24 +785,28 @@ class FakeAudiobookDao(
         createdAt: Long,
         downloadProgress: Float,
         downloadState: String,
-        preserveExistingDownloads: Boolean
+        preserveExistingDownloads: Boolean,
+        origin: String
     ) {
         libraryEntriesState.update { current ->
             val existing = current.firstOrNull { it.id == id }
             if (existing != null) {
                 // True upsert: only the link and progress update on an
-                // existing row (isFavorite/createdAt never reset on re-sync).
+                // existing row (isFavorite/createdAt never reset on re-sync),
+                // and a personal origin is never downgraded (ADR-0063).
                 current.map {
                     if (it.id != id) it else it.copy(
                         workId = workId,
                         downloadProgress = if (preserveExistingDownloads) it.downloadProgress else downloadProgress,
-                        downloadState = if (preserveExistingDownloads) it.downloadState else downloadState
+                        downloadState = if (preserveExistingDownloads) it.downloadState else downloadState,
+                        origin = if (it.origin in PERSONAL_ORIGINS) it.origin else origin
                     )
                 }
             } else {
                 current + LibraryEntryEntity(
                     id = id, workId = workId, isFavorite = isFavorite,
-                    createdAt = createdAt, downloadProgress = downloadProgress, downloadState = downloadState
+                    createdAt = createdAt, downloadProgress = downloadProgress,
+                    downloadState = downloadState, origin = origin
                 )
             }
         }
@@ -1780,6 +1796,20 @@ class FakeAudiobookDao(
         bookId: String
     ): com.slukhayka.audiobooks.data.db.LibraryEntryEntity? =
         libraryEntriesState.value.firstOrNull { it.id == bookId }
+
+    override fun observeLibraryEntryById(
+        bookId: String
+    ): Flow<com.slukhayka.audiobooks.data.db.LibraryEntryEntity?> =
+        libraryEntriesState.map { rows -> rows.firstOrNull { it.id == bookId } }
+
+    override suspend fun triageRowsWithOrigin(origin: String): List<com.slukhayka.audiobooks.data.db.TriageRow> =
+        libraryEntriesState.value.filter { it.origin == origin }.sortedByDescending { it.createdAt }
+            .map { entry ->
+                com.slukhayka.audiobooks.data.db.TriageRow(
+                    bookId = entry.id,
+                    title = booksState.value.firstOrNull { it.id == entry.id }?.title.orEmpty()
+                )
+            }
 
     // Spec-53 T8 (#715) — drops one deferred row.
     override suspend fun deleteSubmissionState(sourceId: String) {

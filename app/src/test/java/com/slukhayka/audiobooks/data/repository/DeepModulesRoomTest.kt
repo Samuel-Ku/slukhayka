@@ -2521,7 +2521,13 @@ class DeepModulesRoomTest {
                 com.slukhayka.audiobooks.data.source.SourceChapter("Розділ 1", "https://fixtures.invalid/1.mp3")
             )
         )
-        mods.imports.importBookFromSource(sourceId = "4read", detail = detail)
+        // ADR-0063 — clearing a deletion marker is Personal Intent: only an
+        // explicit save may resurrect a book the listener deleted.
+        mods.imports.importBookFromSource(
+            sourceId = "4read",
+            detail = detail,
+            origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE
+        )
 
         assertFalse("tombstone must clear on explicit import", dao.getTombstoneBookIds().contains(book.id))
     }

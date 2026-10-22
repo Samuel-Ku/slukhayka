@@ -414,7 +414,12 @@ class SourceCatalog(
      */
     val discoverableWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeDiscoverableWorks()
 
-    /** The local Edition projection paired with [allWorks]. */
+    /**
+     * Every materialized card→Work link, technical anchors included. Discovery
+     * projections (person arrivals, source watch) use it to map a mirror Work
+     * to an openable card; it is NOT the listener's shelf — that is
+     * `LibraryEntries.allBooks` (ADR-0063).
+     */
     val allLibraryEntries = dao.observeLibraryEntries()
 
     val allEditions: kotlinx.coroutines.flow.Flow<List<EditionEntity>> = dao.observeEditions()
@@ -1297,9 +1302,15 @@ class SourceCatalog(
      * construction: the browser surface that exposes it is debug-gated, T2).
      * Crawls a WebView-source's catalogue through the live session
      * ([SourceAdapter.fetchCatalog] — session cookies past Cloudflare),
-     * fetches each book page with the same session and imports through the
-     * shared [LibraryImport.importBookFromSource] path (MergeKey dedup —
-     * re-hydration adds new books without duplicating existing Works).
+     * fetches each book page with the same session and writes it into the
+     * catalogue MIRROR (`works`/`editions`, merge-on-write — re-hydration adds
+     * new Works without duplicating existing ones).
+     *
+     * ADR-0063 — one write only: the mirror. Hydration is an automatic pass,
+     * so it creates NO Library Entry and never touches the listener's
+     * personal library. Opening a hydrated card materializes it technically;
+     * saving or playing it makes it personal.
+     *
      * Best-effort per book: a failing book simply counts as failed, never
      * aborts the crawl.
      */
@@ -1326,22 +1337,15 @@ class SourceCatalog(
                         failed++
                         continue
                     }
-                    // Count honestly: a book whose Work already exists (same
-                    // merge key) is a merge — the new source is attached to
-                    // the existing card, never a duplicate Work.
-                    // ADR-0010: the Work key is bibliographic — the narrator
-                    // distinguishes Editions, never Works.
-                    val mergeKey = MergeKey.keyFor(detail.title, detail.author)
-                    val alreadyKnown = mergeKey.isNotBlank() && dao.findByMergeKey(mergeKey) != null
+                    // Spec-23 T3: the hydrated row lands in the persisted
+                    // browse layer (works/editions) via merge-on-write — the
+                    // endless feed's source of truth. Idempotent: the edition
+                    // id is deterministic, so re-hydration never duplicates.
+                    // The per-source policy rides along (stream-only flags),
+                    // and playback already routes Referer/UA via headersFor.
+                    var written: WorkWriteResult? = null
                     writeBatchRunner {
-                        libraryImport.importBookFromSource(sourceId, detail, origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC)
-                        // Spec-23 T3: the hydrated row ALSO lands in the persisted
-                        // browse layer (works/editions) via merge-on-write — the
-                        // endless feed's source of truth. Idempotent: the edition
-                        // id is deterministic, so re-hydration never duplicates.
-                        // The per-source policy rides along (stream-only flags),
-                        // and playback already routes Referer/UA via headersFor.
-                        writeWorkEdition(
+                        written = writeWorkEdition(
                             sourceId = sourceId,
                             title = detail.title,
                             author = detail.author,
@@ -1355,7 +1359,9 @@ class SourceCatalog(
                             genreTexts = detail.genres.ifEmpty { listOf(book.genre) }
                         )
                     }
-                    if (alreadyKnown) merged++ else imported++
+                    // Count honestly: a Work that already existed is a merge
+                    // (the new source was attached to the mirror card).
+                    if (written?.workCreated == true) imported++ else merged++
                 } catch (e: Exception) {
                     failed++
                 }
@@ -1365,10 +1371,12 @@ class SourceCatalog(
 
     /**
      * Outcome of a [hydrateWebSourceCatalog] run: how many books the crawl
-     * found, how many were imported as NEW Works, how many merged into
-     * existing Works (same merge key — the new source was attached, no
-     * duplicate), and how many failed to fetch/parse. The UI surfaces these
-     * counts so the debug tool reports, never silently no-ops.
+     * found, how many became NEW Works in the catalogue mirror, how many
+     * merged into existing Works (same merge key — the new source was
+     * attached, no duplicate), and how many failed to fetch/parse. Counts are
+     * mirror rows only — hydration never writes the personal library
+     * (ADR-0063). The UI surfaces these counts so the debug tool reports,
+     * never silently no-ops.
      */
     data class HydrationResult(
         val sourceId: String,

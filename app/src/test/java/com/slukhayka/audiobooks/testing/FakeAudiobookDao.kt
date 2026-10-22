@@ -158,8 +158,10 @@ class FakeAudiobookDao(
     // --- Audiobooks (ADR-0009: the fake returns the JOINed [BookRow] shape) -
 
     override fun getPersonalAudiobooks(): Flow<List<BookRow>> =
-        booksState.map { books ->
-            val personal = libraryEntriesState.value
+        // combine, not a snapshot: an entry-only change (save / origin
+        // upgrade) must re-emit the personal projection.
+        kotlinx.coroutines.flow.combine(booksState, libraryEntriesState) { books, entries ->
+            val personal = entries
                 .filter { it.origin in PERSONAL_ORIGINS }
                 .mapTo(mutableSetOf()) { it.id }
             books.filter { it.id in personal }.sortedBy { it.title }.map { it.toBookRow() }
@@ -169,6 +171,13 @@ class FakeAudiobookDao(
         booksState.map { books -> books.sortedBy { it.title }.map { it.toBookRow() } }
 
     override suspend fun getAllAudiobooksOnce(): List<BookRow> = booksState.value.map { it.toBookRow() }
+
+    override suspend fun getPersonalAudiobooksOnce(): List<BookRow> {
+        val personal = libraryEntriesState.value
+            .filter { it.origin in PERSONAL_ORIGINS }
+            .mapTo(mutableSetOf()) { it.id }
+        return booksState.value.filter { it.id in personal }.sortedBy { it.title }.map { it.toBookRow() }
+    }
 
     override fun getDownloadedAudiobooks(): Flow<List<BookRow>> =
         booksState.map { books -> books.filter { it.isDownloaded }.sortedBy { it.title }.map { it.toBookRow() } }

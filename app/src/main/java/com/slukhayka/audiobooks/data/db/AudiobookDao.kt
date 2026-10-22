@@ -74,6 +74,10 @@ interface AudiobookDao {
     @Query(BOOK_SELECT + " ORDER BY a.title ASC")
     fun getAllAudiobooks(): Flow<List<BookRow>>
 
+    /** ADR-0063 §5 — the personal corpus for the smart collections. */
+    @Query(BOOK_SELECT + " WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC")
+    suspend fun getPersonalAudiobooksOnce(): List<BookRow>
+
     /** One-shot read of every book — the #54 merge-suggestion pool. */
     @Query(BOOK_SELECT)
     suspend fun getAllAudiobooksOnce(): List<BookRow>
@@ -1200,8 +1204,13 @@ interface AudiobookDao {
             "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, " +
             "downloadProgress = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadProgress ELSE excluded.downloadProgress END, " +
             "downloadState = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadState ELSE excluded.downloadState END, " +
-            "origin = CASE WHEN library_entries.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
-            "THEN library_entries.origin ELSE excluded.origin END"
+            // ADR-0063 §9 — an AUTOMATIC pass may never rewrite a row it did
+            // not create: only an incoming PERSONAL origin changes the fact
+            // (upgrade on explicit intent). Without this, a catalogue refresh
+            // would flip a legacy UNKNOWN row to CATALOG_SYNC and drop it out
+            // of «Імпортоване» without the listener deciding.
+            "origin = CASE WHEN excluded.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
+            "THEN excluded.origin ELSE library_entries.origin END"
     )
     suspend fun upsertLibraryEntry(
         id: String,

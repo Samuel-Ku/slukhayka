@@ -116,8 +116,6 @@ fun BookDetailIdentityHeader(
     canRateNarration: Boolean = false,
     /** #1383 — why rating is unavailable, or null when it is possible. */
     narrationRateUnavailableReason: Int? = null,
-    /** #1383 — why rating is unavailable, or null when it is possible. */
-    narrationRateUnavailableReason: Int? = null,
     onRateNarration: (Int) -> Unit = {},
     onDeleteNarrationRating: (() -> Unit)? = null,
     narrationRatingDeleteFocusRequester: FocusRequester? = null,
@@ -261,6 +259,8 @@ fun BookDetailCanonicalSummary(
     narrationVoteCount: Int = 0,
     ownNarrationRating: Int? = null,
     canRateNarration: Boolean = false,
+    /** #1383 — why rating is unavailable, or null when it is possible. */
+    narrationRateUnavailableReason: Int? = null,
     onRateNarration: (Int) -> Unit = {},
     onDeleteNarrationRating: (() -> Unit)? = null,
     narrationRatingDeleteFocusRequester: FocusRequester? = null,

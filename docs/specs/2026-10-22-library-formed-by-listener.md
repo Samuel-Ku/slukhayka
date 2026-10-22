@@ -22,7 +22,7 @@ ADR-0047 це вже забороняв; бракувало другої пол�
 |---|---|---|
 | 1 | Прибрати авто-сід бібліотеки: `LibrarySeeder`, `seedLibraryIfDue`, виклик зі `HomeScreen`, wiring в `App` | `data/catalog/LibrarySeeder.kt`, `ui/MainViewModel.kt`, `ui/screens/HomeScreen.kt`, `App.kt` |
 | 2 | Каталог-гідратація пише лише Дзеркало, без Library Entry | `data/catalog/SourceCatalog.kt` |
-| 3 | `LibraryEntryOrigin.TECHNICAL_OPEN`; `writeLibraryEntry = origin.isPersonal` в ядрі імпорту (неособистий імпорт пише лише прихований якір для зв'язку з Work); дефолт технічного імпорту | `data/entries/LibraryEntryOrigin.kt`, `data/imports/LibraryImport.kt` |
+| 3 | `LibraryEntryOrigin.TECHNICAL_OPEN`; `writesLibraryEntry(origin) = origin.isPersonal` в ядрі імпорту (неособистий імпорт пише лише прихований якір для зв'язку з Work); дефолт технічного імпорту | `data/entries/LibraryEntryOrigin.kt`, `data/imports/LibraryImport.kt` |
 | 4 | Особисті читання: `allBooks`, завантаження, обране, серії, люди, колекції, перший вибір мови — лише `EXPLICIT_SAVE`/`EXPLICIT_IMPORT`; тріаж — лише `UNKNOWN` з назвами | `data/db/AudiobookDao.kt`, `data/entries/LibraryEntries.kt`, `data/entries/ImportedLibraryEntries.kt` |
 | 5 | Явна дія «Зберегти в бібліотеку» на сторінці книги; фактичний початок відтворення робить технічну книгу особистою | `LibraryEntries.kt`, `MainViewModel.kt`, `ui/screens/BookDetailScreen.kt`, `App.kt` |
 | 6 | Нагороди: особисті фільтри в метриках, тихий бекфіл при старті | `data/db/AchievementDao.kt`, `data/achievements/AchievementEngine.kt`, `AchievementStore.kt` |
@@ -30,10 +30,11 @@ ADR-0047 це вже забороняв; бракувало другої пол�
 
 ## Правила
 
-1. **Library Entry створює лише намір.** `EXPLICIT_SAVE` (збереження,
-   відтворення) або `EXPLICIT_IMPORT` (власні файли/тека). Автоматичний
-   прохід особистого запису не створює; технічній матеріалізації він лишає
-   прихований якір із неособистим `origin` для зв'язку з Work.
+1. **ОСОБИСТИЙ Library Entry створює лише намір.** `EXPLICIT_SAVE`
+   (збереження, відтворення) або `EXPLICIT_IMPORT` (власні файли/тека).
+   Автоматичний прохід особистого запису не створює; технічній матеріалізації
+   він лишає прихований якір із неособистим `origin` для зв'язку з Work, і
+   жодна особиста поверхня цей якір не читає.
 2. **Технічна матеріалізація** (`TECHNICAL_OPEN`) дає сторінці книги й
    плеєру повні рядки (Edition, Chapter, Source), але не особистий зв'язок.
    Вона не показується в «Моїх книгах» і не потрапляє в «Імпортоване».

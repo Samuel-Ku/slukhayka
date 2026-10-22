@@ -594,6 +594,28 @@ fun LibraryScreen(
                 chromeContent()
             }
 
+            // #1384 — the status strip is PINNED here, between the chrome band
+            // and the book list, so the five statuses never slide up and down
+            // with the header. Its own horizontal scroll is untouched (#885 /
+            // #1165 keep the edge chip as the scroll affordance), and the
+            // vertical padding gives it room to breathe from the band above and
+            // the list below.
+            if (activeTab == 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    libraryStatusStrip(
+                        filter = filter,
+                        onFilterChange = { filter = it },
+                        scrollState = statusRowScrollState,
+                        filterFocusRequester = filterFocusRequester,
+                        onShowFilterSheet = { showFilterSheet = true }
+                    )
+                }
+            }
+
             when (activeTab) {
                 0 -> {
                     when {
@@ -3649,6 +3671,87 @@ private val ChromeMaxHeight: Dp = 280.dp
  * full-screen collection pages, which stay in the screen's scope.
  */
 @Composable
+/**
+ * #1384 — the status strip, PINNED outside the scrolling chrome band.
+ *
+ * The row used to live inside `libraryChrome`, which sits in a 280 dp
+ * `verticalScroll` band (#962). That made the five statuses slide up and down
+ * with the rest of the chrome — a horizontal control that visibly moves
+ * vertically when the listener scrolls the header, which reads as the row
+ * drifting rather than the page scrolling.
+ *
+ * The row is now rendered by the screen AFTER the chrome band and BEFORE the
+ * book list: it never moves vertically, while the horizontal scroll of the
+ * chips themselves is unchanged (the half-visible chip at the edge stays the
+ * scroll affordance #885/#1165 documented).
+ */
+@Composable
+private fun libraryStatusStrip(
+    filter: LibraryFilter,
+    onFilterChange: (LibraryFilter) -> Unit,
+    scrollState: androidx.compose.foundation.ScrollState,
+    filterFocusRequester: FocusRequester,
+    onShowFilterSheet: () -> Unit
+) {
+    // Spec-28 #193 + design guide §6.3: the five one-tap statuses
+    // on ONE horizontally scrolled line — never wrapped onto a
+    // second row. The rare-filter launcher (Обрані / Локальні /
+    // Онлайн) rides the same line and keeps its accent + its own
+    // name while active, so a non-default filter stays visible.
+    //
+    // #1165 — the row itself reveals whichever chip carries the
+    // selection (the active status, or this launcher while a rare
+    // filter is active). The screen used to scroll the line here,
+    // and for every one-tap status that meant «back to the start»:
+    // the LAST chip — «Завантажені» when #1165 was filed, «На пристрої»
+    // since #1163 — stayed under the right window edge while selected: the
+    // #390 defect the #885 redesign brought back.
+    val isSheetFilterActive = filter in SHEET_FILTERS
+    LibraryStatusRow(
+        selected = filter,
+        onSelect = onFilterChange,
+        scrollState = scrollState,
+        trailing = {
+            FilterChip(
+                selected = isSheetFilterActive,
+                onClick = onShowFilterSheet,
+                label = {
+                    Text(
+                        if (isSheetFilterActive) {
+                            stringResource(filter.labelRes)
+                        } else {
+                            stringResource(R.string.lib_filter)
+                        }
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(FilterChipDefaults.IconSize)
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    labelColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isSheetFilterActive,
+                    borderColor = MaterialTheme.colorScheme.outlineVariant,
+                    selectedBorderColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier
+                    .heightIn(min = 36.dp)
+                    .focusRequester(filterFocusRequester)
+                    .testTag("library_filter_button")
+            )
+        }
+    )
+}
+
 private fun libraryChrome(
     activeTab: Int,
     sectionTitleRes: Int,
@@ -3711,63 +3814,6 @@ private fun libraryChrome(
         onQueryChange = onQueryChange
     )
 
-    // Spec-28 #193 + design guide §6.3: the five one-tap statuses
-    // on ONE horizontally scrolled line — never wrapped onto a
-    // second row. The rare-filter launcher (Обрані / Локальні /
-    // Онлайн) rides the same line and keeps its accent + its own
-    // name while active, so a non-default filter stays visible.
-    //
-    // #1165 — the row itself reveals whichever chip carries the
-    // selection (the active status, or this launcher while a rare
-    // filter is active). The screen used to scroll the line here,
-    // and for every one-tap status that meant «back to the start»:
-    // the LAST chip — «Завантажені» when #1165 was filed, «На пристрої»
-    // since #1163 — stayed under the right window edge while selected: the
-    // #390 defect the #885 redesign brought back.
-    val isSheetFilterActive = filter in SHEET_FILTERS
-    LibraryStatusRow(
-        selected = filter,
-        onSelect = onFilterChange,
-        scrollState = statusRowScrollState,
-        trailing = {
-            FilterChip(
-                selected = isSheetFilterActive,
-                onClick = onShowFilterSheet,
-                label = {
-                    Text(
-                        if (isSheetFilterActive) {
-                            stringResource(filter.labelRes)
-                        } else {
-                            stringResource(R.string.lib_filter)
-                        }
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = null,
-                        modifier = Modifier.size(FilterChipDefaults.IconSize)
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    labelColor = MaterialTheme.colorScheme.onSurface
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
-                    selected = isSheetFilterActive,
-                    borderColor = MaterialTheme.colorScheme.outlineVariant,
-                    selectedBorderColor = MaterialTheme.colorScheme.primary
-                ),
-                modifier = Modifier
-                    .heightIn(min = 36.dp)
-                    .focusRequester(filterFocusRequester)
-                    .testTag("library_filter_button")
-            )
-        }
-    )
 
     // Spec-51 (#690) — the listener's own collections, right in the
     // Library. Local-first, and honestly empty when there are none.

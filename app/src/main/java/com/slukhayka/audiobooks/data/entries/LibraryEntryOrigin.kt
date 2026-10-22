@@ -7,10 +7,11 @@ package com.slukhayka.audiobooks.data.entries
  * The distinction that matters: an EXPLICIT action by the listener (a save, a
  * deliberate import of their own file or folder, actually starting playback)
  * versus an AUTOMATIC pass (a catalogue sync, a technical card open). An
- * automatic pass writes NO Entry at all (ADR-0063): [AUTO_SEED], [CATALOG_SYNC]
- * and [TECHNICAL_OPEN] exist only as legacy facts for rows written before that
- * rule. And, for rows that predate the fact itself, an honest [UNKNOWN]: the
- * data simply does not say, so nothing is guessed.
+ * automatic pass creates NO PERSONAL link (ADR-0063): [AUTO_SEED],
+ * [CATALOG_SYNC] and [TECHNICAL_OPEN] mark hidden anchors or legacy rows, and
+ * no personal surface or award metric reads them. And, for rows that predate
+ * the fact itself, an honest [UNKNOWN]: the data simply does not say, so
+ * nothing is guessed.
  */
 enum class LibraryEntryOrigin {
     /** The listener saved the book on purpose. */
@@ -92,10 +93,13 @@ object LibraryEntryOriginPolicy {
     }
 
     /**
-     * ADR-0063 §2 — does an import door with this origin write a Library Entry?
+     * ADR-0063 §2 — does an import door with this origin make the link
+     * PERSONAL? (A technical door still writes the hidden anchor so the Work
+     * stays reachable; this rule answers only where the listener's shelf
+     * reads from.)
      *
-     * This is the ONE rule the import core reads (`writeLibraryEntry = origin
-     * writes an Entry`), so a new door cannot mean personal by accident.
+     * This is the ONE rule the import core reads, so a new door cannot mean
+     * personal by accident.
      */
     fun writesLibraryEntry(origin: LibraryEntryOrigin): Boolean = isPersonal(origin)
 

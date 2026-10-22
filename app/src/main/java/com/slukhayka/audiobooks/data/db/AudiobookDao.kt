@@ -1186,10 +1186,11 @@ interface AudiobookDao {
     // --- Library Entries (ADR-0009) ----------------------------------------
 
     /**
-     * True upsert: on a fresh row everything lands; on an existing row only
-     * the link and the download progress update — the user's isFavorite and
-     * the original createdAt never reset on a re-sync. Catalogue enrichment
-     * preserves download state atomically, including concurrent queue writes.
+     * True upsert: on a fresh row everything lands; on an existing row the
+     * link, the download columns and — for an incoming PERSONAL origin only —
+     * the origin update, while the user's isFavorite and the original createdAt
+     * never reset on a re-sync. Catalogue enrichment preserves download state
+     * atomically, including concurrent queue writes.
      *
      * ADR-0063 — the "this book is in the library" write. Its default origin is
      * Personal Intent because the three doorways that call it
@@ -1204,11 +1205,11 @@ interface AudiobookDao {
             "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, " +
             "downloadProgress = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadProgress ELSE excluded.downloadProgress END, " +
             "downloadState = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadState ELSE excluded.downloadState END, " +
-            // ADR-0063 §9 — an AUTOMATIC pass may never rewrite a row it did
-            // not create: only an incoming PERSONAL origin changes the fact
-            // (upgrade on explicit intent). Without this, a catalogue refresh
-            // would flip a legacy UNKNOWN row to CATALOG_SYNC and drop it out
-            // of «Імпортоване» without the listener deciding.
+            // ADR-0063 §2/§9 — an AUTOMATIC pass may never rewrite a row it
+            // did not create: only an incoming PERSONAL origin changes the
+            // fact (the §4 upgrade on explicit intent). Without this, a
+            // catalogue refresh would flip a legacy UNKNOWN row to CATALOG_SYNC
+            // and drop it out of «Імпортоване» without the listener deciding.
             "origin = CASE WHEN excluded.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
             "THEN excluded.origin ELSE library_entries.origin END"
     )

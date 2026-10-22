@@ -216,4 +216,35 @@ class PersonalLibraryRoomTest {
         )
         assertTrue("and it is still not personal", dao.getPersonalAudiobooksOnce().isEmpty())
     }
+
+    /**
+     * #1397 — saving an already downloaded technical book must not report 0 %:
+     * the entry is created with `downloadProgress = 1f` when the audiobooks row
+     * is downloaded (ADR-0014 — honest numbers).
+     */
+    @Test
+    fun `saving a downloaded book keeps an honest 100 percent`() = withDatabase { database ->
+        seedBook(database, "downloaded", LibraryEntryOrigin.TECHNICAL_OPEN, isDownloaded = true)
+        val entries = LibraryEntries(database.audiobookDao(), emptyList())
+
+        assertTrue(entries.saveToLibrary("downloaded"))
+
+        val row = database.audiobookDao().libraryEntryById("downloaded")!!
+        assertEquals("EXPLICIT_SAVE", row.origin)
+        assertEquals(1f, row.downloadProgress, 0.0001f)
+    }
+
+    /**
+     * #1397 — the smart-collections corpus (ADR-0063 §5) is the personal shelf,
+     * so a hidden technical anchor must not join a collection.
+     */
+    @Test
+    fun `the personal corpus excludes a technical anchor`() = withDatabase { database ->
+        seedBook(database, "mine", LibraryEntryOrigin.EXPLICIT_SAVE)
+        seedBook(database, "mirror", LibraryEntryOrigin.TECHNICAL_OPEN)
+
+        val corpus = database.audiobookDao().getPersonalAudiobooksOnce().map { it.id }
+
+        assertEquals(listOf("mine"), corpus)
+    }
 }

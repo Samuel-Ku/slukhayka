@@ -800,15 +800,17 @@ class FakeAudiobookDao(
         libraryEntriesState.update { current ->
             val existing = current.firstOrNull { it.id == id }
             if (existing != null) {
-                // True upsert: only the link and progress update on an
-                // existing row (isFavorite/createdAt never reset on re-sync),
-                // and a personal origin is never downgraded (ADR-0063).
+                // True upsert, mirroring the production SQL: only the link and
+                // progress update on an existing row (isFavorite/createdAt
+                // never reset on re-sync), and ONLY an incoming personal origin
+                // may change the stored origin — an automatic pass never
+                // rewrites a row it did not create (ADR-0063 §2/§9).
                 current.map {
                     if (it.id != id) it else it.copy(
                         workId = workId,
                         downloadProgress = if (preserveExistingDownloads) it.downloadProgress else downloadProgress,
                         downloadState = if (preserveExistingDownloads) it.downloadState else downloadState,
-                        origin = if (it.origin in PERSONAL_ORIGINS) it.origin else origin
+                        origin = if (origin in PERSONAL_ORIGINS) origin else it.origin
                     )
                 }
             } else {

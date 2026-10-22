@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
+import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
@@ -331,7 +332,7 @@ class LibraryImport(
                     isFavorite = false,
                     createdAt = System.currentTimeMillis(),
                     downloadProgress = 0f,
-                    downloadState = com.slukhayka.audiobooks.data.db.DownloadState.IDLE,
+                    downloadState = DownloadState.IDLE,
                     preserveExistingDownloads = true,
                     origin = origin.name
                 )

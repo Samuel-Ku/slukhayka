@@ -1196,7 +1196,7 @@ interface AudiobookDao {
      * (submitted link, YouTube submission, local import) are explicit; the ONE
      * automatic caller (the catalogue-section mirror) passes
      * [com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC],
-     * and the conflict arm above can never downgrade a personal row.
+     * and the conflict arm below can never downgrade a personal row.
      */
     @Query(
         "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState, origin) " +

@@ -67,6 +67,23 @@ class AchievementEngineTest {
         )
     }
 
+    @Test fun `a legacy unseen award is silenced before any notice can be claimed`() = runTest {
+        val store = MemoryAchievementStore()
+        val legacy = AchievementCatalog.definitions.first()
+        // Written by an older build: earned, never shown.
+        store.award(listOf(legacy), earnedAt = 10L)
+        val source = AchievementProgressSource { flowOf(AchievementProgress()) }
+        val engine = AchievementEngine(source, store) { 900L }
+        assertFalse(engine.backfilled)
+
+        engine.start(backgroundScope)
+        runCurrent()
+
+        assertTrue(engine.backfilled)
+        assertNull("the upgrade queue is history, not news", engine.takeNotice())
+        assertEquals(900L, store.earned().first { it.id == legacy.id }.seenAt)
+    }
+
     @Test fun `concurrent evaluators report only the one committed winner`() = runTest {
         val store = MemoryAchievementStore()
         val source = AchievementProgressSource { flowOf(AchievementProgress(explicitBooks = 1)) }

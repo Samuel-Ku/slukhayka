@@ -353,10 +353,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * One explicit triage action; the queue is re-read afterwards, so the
-     * subsection reflects what the listener actually decided.
-     */
-    /**
      * ADR-0063 §3 — the explicit «Зберегти в бібліотеку» action from the book
      * page. A technical materialization becomes a personal link; a personal
      * one is a no-op (favourite/createdAt/download state survive).
@@ -368,6 +364,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * One explicit triage action; the queue is re-read afterwards, so the
+     * subsection reflects what the listener actually decided.
+     */
     fun triageImported(
         bookId: String,
         action: com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction

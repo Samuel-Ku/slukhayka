@@ -431,7 +431,11 @@ interface AchievementDao {
      * exists once a book came through it, so these are doors really used, not
      * doors merely offered.
      */
-    @Query("SELECT DISTINCT type FROM sources")
+    @Query(
+        "SELECT DISTINCT s.type FROM sources s WHERE EXISTS (" +
+            "SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST))"
+    )
     fun observeUsedSourceTypes(): Flow<List<String>>
 
     /**
@@ -446,9 +450,11 @@ interface AchievementDao {
      */
     @Query(
         "SELECT COUNT(*) FROM (" +
-            "SELECT editionId FROM sources " +
-            "WHERE editionId IS NOT NULL AND editionId != '' " +
-            "GROUP BY editionId HAVING COUNT(DISTINCT type) >= 2)"
+            "SELECT s.editionId FROM sources s " +
+            "WHERE s.editionId IS NOT NULL AND s.editionId != '' " +
+            "AND EXISTS (SELECT 1 FROM library_entries le WHERE le.id = s.bookId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)) " +
+            "GROUP BY s.editionId HAVING COUNT(DISTINCT s.type) >= 2)"
     )
     fun observeSharedNarrations(): Flow<Long>
 

@@ -785,24 +785,28 @@ class FakeAudiobookDao(
         createdAt: Long,
         downloadProgress: Float,
         downloadState: String,
-        preserveExistingDownloads: Boolean
+        preserveExistingDownloads: Boolean,
+        origin: String
     ) {
         libraryEntriesState.update { current ->
             val existing = current.firstOrNull { it.id == id }
             if (existing != null) {
                 // True upsert: only the link and progress update on an
-                // existing row (isFavorite/createdAt never reset on re-sync).
+                // existing row (isFavorite/createdAt never reset on re-sync),
+                // and a personal origin is never downgraded (ADR-0063).
                 current.map {
                     if (it.id != id) it else it.copy(
                         workId = workId,
                         downloadProgress = if (preserveExistingDownloads) it.downloadProgress else downloadProgress,
-                        downloadState = if (preserveExistingDownloads) it.downloadState else downloadState
+                        downloadState = if (preserveExistingDownloads) it.downloadState else downloadState,
+                        origin = if (it.origin in PERSONAL_ORIGINS) it.origin else origin
                     )
                 }
             } else {
                 current + LibraryEntryEntity(
                     id = id, workId = workId, isFavorite = isFavorite,
-                    createdAt = createdAt, downloadProgress = downloadProgress, downloadState = downloadState
+                    createdAt = createdAt, downloadProgress = downloadProgress,
+                    downloadState = downloadState, origin = origin
                 )
             }
         }

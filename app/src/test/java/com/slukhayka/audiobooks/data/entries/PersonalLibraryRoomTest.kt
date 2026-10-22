@@ -13,6 +13,7 @@ import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -149,7 +150,8 @@ class PersonalLibraryRoomTest {
         val snapshot: AchievementProgress = RoomAchievementProgressSource(
             database.achievementDao(),
             RoomAchievementStore(database.achievementDao()),
-            emptySet()
+            emptySet(),
+            abandonedBookIds = flowOf(emptySet())
         ).observe().first()
 
         assertEquals("one own book", 1L, snapshot.explicitBooks)

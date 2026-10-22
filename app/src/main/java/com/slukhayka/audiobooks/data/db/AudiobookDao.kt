@@ -1264,7 +1264,14 @@ interface AudiobookDao {
         createdAt: Long
     )
 
-    @Query("SELECT * FROM library_entries WHERE origin IN ($PERSONAL_ORIGIN_SQL_LIST)")
+    /**
+     * Every materialized row, hidden technical anchors included. This is an
+     * INFRASTRUCTURE read for the catalogue mirror (which Work owns which
+     * card), never a personal shelf: «Мої книги» and every award metric go
+     * through [getPersonalAudiobooks] and the
+     * personal filters instead (ADR-0063).
+     */
+    @Query("SELECT * FROM library_entries")
     fun observeLibraryEntries(): Flow<List<LibraryEntryEntity>>
 
     @Query("SELECT COUNT(*) FROM library_entries")

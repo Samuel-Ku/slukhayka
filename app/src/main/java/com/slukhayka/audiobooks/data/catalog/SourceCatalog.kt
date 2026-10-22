@@ -414,7 +414,12 @@ class SourceCatalog(
      */
     val discoverableWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeDiscoverableWorks()
 
-    /** The local Edition projection paired with [allWorks]. */
+    /**
+     * Every materialized card→Work link, technical anchors included. Discovery
+     * projections (person arrivals, source watch) use it to map a mirror Work
+     * to an openable card; it is NOT the listener's shelf — that is
+     * `LibraryEntries.allBooks` (ADR-0063).
+     */
     val allLibraryEntries = dao.observeLibraryEntries()
 
     val allEditions: kotlinx.coroutines.flow.Flow<List<EditionEntity>> = dao.observeEditions()

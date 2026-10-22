@@ -283,7 +283,9 @@ class LibraryProfileSyncTest {
             onNewBookImported={ accepted+=it.id })!!
         assertEquals(expectedFetches,adapter.fetchCalls)
         assertEquals(listOf(first.id),accepted)
-        assertEquals("UNKNOWN",dao.libraryEntryById(first.id)!!.origin)
+        // ADR-0063 — a search/read-skip import is a technical materialization,
+        // not the listener's own link.
+        assertEquals("TECHNICAL_OPEN",dao.libraryEntryById(first.id)!!.origin)
         val repeated=imports.importFromSourceUrl("soundbooks","https://sound-books.net/kobzar.html",identity,
             onNewBookImported={ accepted+=it.id })!!
         assertEquals(first.id,repeated.id)

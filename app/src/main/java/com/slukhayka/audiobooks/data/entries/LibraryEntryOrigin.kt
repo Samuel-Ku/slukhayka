@@ -67,9 +67,9 @@ object LibraryEntryOriginPolicy {
     fun isPersonal(origin: LibraryEntryOrigin): Boolean = when (origin) {
         LibraryEntryOrigin.EXPLICIT_SAVE,
         LibraryEntryOrigin.EXPLICIT_IMPORT -> true
+        LibraryEntryOrigin.TECHNICAL_OPEN -> true
         LibraryEntryOrigin.AUTO_SEED,
         LibraryEntryOrigin.CATALOG_SYNC,
-        LibraryEntryOrigin.TECHNICAL_OPEN,
         LibraryEntryOrigin.UNKNOWN -> false
     }
 

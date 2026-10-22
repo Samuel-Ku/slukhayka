@@ -99,7 +99,10 @@ class AchievementImportProvenanceTest {
         assertNull(imports.importFromSourceUrl("sluhay",adapter.page.url,origin=LibraryEntryOrigin.EXPLICIT_SAVE,onNewBookImported={ accepted+=it.id }))
         assertEquals(3,accepted.size)
         val incomplete=db.audiobookDao().getAllAudiobooks().first().first { it.title==adapter.page.title }
-        assertEquals("TECHNICAL_OPEN",db.audiobookDao().libraryEntryById(incomplete.id)!!.origin)
+        // The failing import was called with an EXPLICIT origin, so the row
+        // that survived the partial failure is the listener's own — not a
+        // technical anchor.
+        assertEquals("EXPLICIT_SAVE",db.audiobookDao().libraryEntryById(incomplete.id)!!.origin)
     }
     @Test fun `new explicit local and submitted books have recorded intent without invented playback`() = verify { db,context ->
         val imports=LibraryImport(db.audiobookDao(),context,emptyList())

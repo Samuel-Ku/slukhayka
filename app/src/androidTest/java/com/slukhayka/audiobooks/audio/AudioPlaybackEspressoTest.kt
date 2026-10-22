@@ -309,18 +309,21 @@ class AudioPlaybackEspressoTest {
             .onNodeWithTag("player_play_pause_button")
             .assertIsDisplayed()
 
-        // 5. Golden record: capture the Player root BEFORE the assertion so
-        //    that the screenshot always shows the screen, regardless of
-        //    whether the assertion succeeds. Encoding to PNG is ~10–20 ms for
-        //    a single screen on a modern emulator and never blocks the audio
-        //    pipeline.
-        captureGoldenScreenshot()
-
-        // 6. The hard assertion: AudioPlayerManager.playerState.isPlaying
-        //    must be `true` within ~3 seconds of the chapter tap.
+        // 5. The hard assertion: AudioPlayerManager.playerState.isPlaying
+        //    must be `true` within ~3 seconds of the chapter tap. It runs
+        //    BEFORE the golden capture on purpose: the fixture MP3 is a
+        //    three-second file, and a cold-JIT `captureToImage()` can outlast
+        //    it, so capturing first turned a slow screenshot into a false
+        //    "playback never started". The screenshot is best-effort and the
+        //    player screen is still on screen afterwards.
         composeTestRule.waitUntil(timeoutMillis = PLAY_TIMEOUT_MS) {
             currentIsPlaying()
         }
+
+        // 6. Golden record: captured after the assertion so the screenshot
+        //    shows the player with the real playback state, never a stalled
+        //    one caused by the capture itself.
+        captureGoldenScreenshot()
     }
 
     /**

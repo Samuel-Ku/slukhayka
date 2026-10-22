@@ -3656,22 +3656,6 @@ internal fun readingProgressMessageRes(
 private val ChromeMaxHeight: Dp = 280.dp
 
 /**
- * #962 — the Library's CHROME: everything above the book list, and nothing
- * else.
- *
- * Extracted from [LibraryScreen] so the wide-and-short (landscape phone)
- * window can put it in its own bounded, scrollable band without a second copy
- * of the header, the year hero, the section switch, the search field, the
- * status chips and the collections blocks. The screen keeps ownership of the
- * state ([yearGoal], [query], [filter], the scroll state and the focus
- * requesters); this composable only draws it, so the portrait path and the
- * landscape path can never drift apart.
- *
- * Collections state comes in as values because the SAME state also drives the
- * full-screen collection pages, which stay in the screen's scope.
- */
-@Composable
-/**
  * #1384 — the status strip, PINNED outside the scrolling chrome band.
  *
  * The row used to live inside `libraryChrome`, which sits in a 280 dp
@@ -3752,6 +3736,22 @@ private fun libraryStatusStrip(
     )
 }
 
+/**
+ * #962 — the Library's CHROME: everything above the book list, and nothing
+ * else.
+ *
+ * Extracted from [LibraryScreen] so the wide-and-short (landscape phone)
+ * window can put it in its own bounded, scrollable band without a second copy
+ * of the header, the year hero, the section switch, the search field, the
+ * status chips and the collections blocks. The screen keeps ownership of the
+ * state ([yearGoal], [query], [filter], the scroll state and the focus
+ * requesters); this composable only draws it, so the portrait path and the
+ * landscape path can never drift apart.
+ *
+ * Collections state comes in as values because the SAME state also drives the
+ * full-screen collection pages, which stay in the screen's scope.
+ */
+@Composable
 private fun libraryChrome(
     activeTab: Int,
     sectionTitleRes: Int,

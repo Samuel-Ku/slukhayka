@@ -24,7 +24,8 @@ class AchievementEngine(
      * caused by a live action and gets its quiet one-line notice.
      */
     @Volatile
-    private var backfilled = false
+    var backfilled: Boolean = false
+        private set
     val earned get() = store.observeEarned()
 
     /**

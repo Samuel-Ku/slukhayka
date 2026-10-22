@@ -403,6 +403,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         if (allowAchievementNotices) lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             // collect, not collectLatest: committing seenAt must not cancel this snackbar.
             App.instance.achievements.earned.collect {
+                // ADR-0063 §7 — nothing is announced before the historical
+                // snapshot has been recorded and silenced. The gate is the
+                // engine's own fact, not a timing assumption: without it a
+                // legacy unseen award could be claimed while `silencePending`
+                // is still in flight, and §7 would hold by luck.
+                if (!App.instance.achievements.backfilled) return@collect
                 while (true) {
                     val earned = App.instance.achievements.takeNotice() ?: break
                     achievementSnackbar.showSnackbar(

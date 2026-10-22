@@ -94,8 +94,8 @@ class BookDisplayTest {
         // covered without touching this rule.
         com.slukhayka.audiobooks.data.source.SourceRegistry.ids().forEach { id ->
             assertTrue(
-                isPlaceholderNarrator("$id narrator"),
                 "registered id '$id' must be recognised as the placeholder",
+                isPlaceholderNarrator("$id narrator"),
             )
         }
         assertFalse(isPlaceholderNarrator("Іван narrator"))

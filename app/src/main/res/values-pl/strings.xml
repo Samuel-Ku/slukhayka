@@ -1,44 +1,60 @@
 <resources>
-    <!-- fix(accessibility): #371 — override Material3 Polish strings so TalkBack
-         voices the filter sheet in Ukrainian even on a Polish-system device.
-         The app's UI is Ukrainian (CONTEXT.md) and the sheet is decorative;
-         Polish "Zamknij arkusz / Uchwyt do przeciągania" must never be voiced. -->
+    <!-- THIS IS NOT A POLISH TRANSLATION. Every value here is UKRAINIAN.
+
+         The app's UI is Ukrainian (CONTEXT.md). This directory exists for one
+         reason: on a Polish-system device Android would otherwise voice
+         Material3's own Polish strings ("Zamknij arkusz", "Uchwyt do
+         przeciągania") through TalkBack. A `pl` qualifier holding Ukrainian
+         text wins over the library's Polish and keeps the spoken language
+         coherent — that is the whole purpose (#371).
+
+         #1385 — it used to be a MIXTURE: five such Ukrainian overrides plus 31
+         genuine Polish translations added for app features. The result on a
+         Polish device was half Ukrainian, half Polish on the same screen
+         («Książki» beside «Полиці», «Mój rok w książkach» beside «Збережене»).
+         A partially translated language is worse than an untranslated one: the
+         untranslated one falls back to one coherent language.
+
+         So: do NOT add Polish translations here. If Polish is ever wanted as a
+         real language, it must be complete — see #1387/#1388/#1389 — and it
+         would need its own qualifier strategy, not this override file. -->
+
     <string name="m3c_bottom_sheet_collapse_description">Згорнути аркуш</string>
     <string name="m3c_bottom_sheet_dismiss_description">Закрити аркуш</string>
     <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
     <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
-    <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
-    <string name="lib_year_hero_units">ukończonych podejść</string>
-    <string name="lib_year_recorded">Zapisano w dzienniku podejścia.</string>
-    <string name="lib_year_finished">Podejście ukończone.</string>
-    <string name="lib_year_refused_unknown">Tego podejścia nie ma w magazynie — nic nie zapisano.</string>
-    <string name="lib_year_refused_closed">To podejście jest już ukończone lub zamknięte — nic nie zapisano.</string>
-    <string name="lib_year_save_failed">Nie udało się zapisać rekordu. Spróbuj ponownie.</string>
-    <string name="lib_year_error_title">Nie udało się odczytać postępu</string>
-    <string name="lib_year_error_body">Ostatni znany widok pozostaje, dopóki odczyt się nie powiedzie. Spróbuj ponownie.</string>
-    <string name="lib_year_refresh_failed">Nie udało się ponownie odczytać postępu — widok może być nieaktualny.</string>
-    <string name="lib_section_books">Książki</string>
-    <string name="lib_import_folder_unknown">Wybrany folder</string>
-    <string name="lib_import_folder_name">Folder „%1$s”</string>
-    <string name="lib_import_folder_grouping_hint">Ten wybór dotyczy plików bezpośrednio w folderze. Podfoldery pozostają osobnymi książkami.</string>
-    <string name="lib_import_grouping_reset_title">Zmienić grupowanie?</string>
-    <string name="lib_import_grouping_reset_message">Nazwy, kolejność rozdziałów, podziały i połączenia książek zawierających pliki w głównym folderze zostaną zresetowane. Zmiany w innych podfolderach pozostaną.</string>
-    <string name="lib_import_grouping_reset_confirm">Zmień i zresetuj zmiany</string>
-    <string name="lib_import_merge_planned">Połącz z inną książką</string>
-    <string name="lib_import_merge_choose_title">Do której książki dodać rozdziały?</string>
-    <string name="lib_import_merge_choose_hint">Wybrana książka zachowa tytuł i pozostałe dane. Te rozdziały zostaną dodane na końcu.</string>
-    <string name="lib_import_title_required">Podaj tytuł książki przed importem.</string>
-    <string name="chapter_order_edit">Edytuj kolejność rozdziałów</string>
-    <string name="chapter_order_reverse">Odwróć kolejność</string>
-    <string name="chapter_order_saving">Zapisywanie…</string>
-    <string name="chapter_order_changed">Lista rozdziałów się zmieniła. Zamknij edytor i otwórz go ponownie.</string>
-    <string name="chapter_order_failed">Nie udało się zapisać kolejności rozdziałów. Spróbuj ponownie.</string>
-    <string name="lib_import_split_here">Podziel przed tym rozdziałem</string>
-    <string name="metadata_edit_series">Seria</string>
-    <string name="metadata_edit_series_index">Numer w serii</string>
+    <string name="lib_year_hero_title">Мій рік у книжках, %1$d</string>
+    <string name="lib_year_hero_units">завершених проходів</string>
+    <string name="lib_year_recorded">Запис додано до журналу проходу.</string>
+    <string name="lib_year_finished">Прохід завершено.</string>
+    <string name="lib_year_refused_unknown">Цього проходу немає у сховищі — запис не додано.</string>
+    <string name="lib_year_refused_closed">Прохід уже завершено або закрито — запис не додано.</string>
+    <string name="lib_year_save_failed">Не вдалося зберегти запис. Спробуйте ще раз.</string>
+    <string name="lib_year_error_title">Не вдалося прочитати поступ</string>
+    <string name="lib_year_error_body">Відомий показ лишається, доки читання не вдасться. Спробуйте ще раз.</string>
+    <string name="lib_year_refresh_failed">Не вдалося перечитати поступ — показ може бути застарілим.</string>
+    <string name="lib_section_books">Книги</string>
+    <string name="lib_import_folder_unknown">Вибрана папка</string>
+    <string name="lib_import_folder_name">Папка «%1$s»</string>
+    <string name="lib_import_folder_grouping_hint">Цей вибір стосується файлів безпосередньо в папці. Підпапки — окремі книги.</string>
+    <string name="lib_import_grouping_reset_title">Змінити групування?</string>
+    <string name="lib_import_grouping_reset_message">Назви, порядок розділів, поділ і об’єднання книг із файлами в корені буде скинуто. Правки інших підпапок збережуться.</string>
+    <string name="lib_import_grouping_reset_confirm">Змінити й скинути правки</string>
+    <string name="lib_import_merge_planned">Об’єднати з іншою книгою</string>
+    <string name="lib_import_merge_choose_title">До якої книги додати розділи?</string>
+    <string name="lib_import_merge_choose_hint">Вибрана книга збереже назву й інші дані. Розділи цієї книги додадуться в кінець.</string>
+    <string name="lib_import_title_required">Вкажи назву книги перед імпортом.</string>
+    <string name="chapter_order_edit">Редагувати порядок розділів</string>
+    <string name="chapter_order_reverse">Зворотний порядок</string>
+    <string name="chapter_order_saving">Зберігаємо…</string>
+    <string name="chapter_order_changed">Список розділів змінився. Закрийте редактор і відкрийте його знову.</string>
+    <string name="chapter_order_failed">Не вдалося зберегти порядок розділів. Спробуйте ще раз.</string>
+    <string name="lib_import_split_here">Розділити перед цим розділом</string>
+    <string name="metadata_edit_series">Серія</string>
+    <string name="metadata_edit_series_index">Номер у серії</string>
     <!-- #1163 — the storage card's two figures, so the new labels cost no
          MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
-    <string name="storage_stat_downloads">Pobrane</string>
-    <string name="storage_stat_local_copies">Kopie lokalne</string>
+    <string name="storage_stat_downloads">Завантаження</string>
+    <string name="storage_stat_local_copies">Локальні копії</string>
 </resources>

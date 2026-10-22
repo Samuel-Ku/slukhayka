@@ -52,15 +52,14 @@ interface AudiobookDao {
     }
 
     /**
-     * ADR-0009: every read returns the JOINed [BookRow] — Room does not
+     * ADR-0009 — every read returns the JOINed [BookRow]; Room does not
      * hydrate `@Ignore` projections, so the modules map the row back to
      * [AudiobookEntity] at their read boundary.
-     */
-    /**
-     * ADR-0063 — the personal library projection. Only links the listener
-     * began with Personal Intent are "my books"; a technical materialization
-     * or an automatic catalogue row keeps its anchor but never renders here.
-     * The origin names come from the ONE SQL constant beside
+     *
+     * ADR-0063 — this projection is the PERSONAL library: only links the
+     * listener began with Personal Intent are "my books". A technical
+     * materialization or an automatic catalogue row keeps its anchor but never
+     * renders here. The origin names come from the ONE SQL constant beside
      * [com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy].
      */
     @Query(BOOK_SELECT + " WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC")
@@ -1187,14 +1186,13 @@ interface AudiobookDao {
      * the link and the download progress update — the user's isFavorite and
      * the original createdAt never reset on a re-sync. Catalogue enrichment
      * preserves download state atomically, including concurrent queue writes.
-     */
-    /**
+     *
      * ADR-0063 — the "this book is in the library" write. Its default origin is
      * Personal Intent because the three doorways that call it
      * (submitted link, YouTube submission, local import) are explicit; the ONE
      * automatic caller (the catalogue-section mirror) passes
-     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC]
-     * and can never downgrade a personal row.
+     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC],
+     * and the conflict arm above can never downgrade a personal row.
      */
     @Query(
         "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState, origin) " +

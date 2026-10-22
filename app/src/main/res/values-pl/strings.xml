@@ -57,4 +57,7 @@
          MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
     <string name="storage_stat_downloads">Завантаження</string>
     <string name="storage_stat_local_copies">Локальні копії</string>
+    <string name="book_detail_rate_unavailable_no_backend">Оцінка начитки недоступна: сервіс оцінок не налаштований.</string>
+    <string name="book_detail_rate_unavailable_no_profile">Оцінка начитки недоступна: потрібен профіль слухача.</string>
+    <string name="book_detail_rate_unavailable_no_edition">Оцінка начитки недоступна: у цієї книги немає видання, яке можна оцінити.</string>
 </resources>

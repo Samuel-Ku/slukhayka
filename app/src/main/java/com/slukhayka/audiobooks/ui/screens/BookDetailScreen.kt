@@ -847,6 +847,16 @@ fun BookDetailScreen(
                         ownNarrationRating = ownNarrationRating?.rating,
                         canRateNarration = viewModel.narrationRatingsStore != null &&
                             listenerProfile != null && currentEditionId != null,
+                        // #1383 — same three gates, one source of truth: the
+                        // reason comes from the pure helper, so the screen can
+                        // never claim the rating is possible while refusing it
+                        // (or the reverse). When it is null the listener can
+                        // rate and no message is drawn.
+                        narrationRateUnavailableReason = narrationRateUnavailableReason(
+                            hasRatingsBackend = viewModel.narrationRatingsStore != null,
+                            hasListenerIdentity = listenerProfile != null,
+                            hasEdition = currentEditionId != null
+                        ),
                         onRateNarration = { stars ->
                             val editionId = currentEditionId
                             if (editionId != null && ownNarrationRating?.rating != stars) {

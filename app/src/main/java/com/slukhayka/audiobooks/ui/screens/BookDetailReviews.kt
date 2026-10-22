@@ -349,6 +349,12 @@ fun NarrationRatingRow(
     onRate: (Int) -> Unit,
     onDeleteOwn: (() -> Unit)? = null,
     deleteFocusRequester: FocusRequester? = null,
+    /**
+     * #1383 — WHY rating is unavailable, as a string resource; null when it is
+     * available. Rendered only when there is an average to show, because that
+     * is the case where the stars above look tappable but are read-only.
+     */
+    unavailableReasonRes: Int? = null,
     modifier: Modifier = Modifier
 ) {
     if (average == null && !canRate) return
@@ -378,6 +384,22 @@ fun NarrationRatingRow(
                     modifier = Modifier.testTag("narration_rating_average")
                 )
             }
+        }
+        // #1383 — the defect the listener reported: "the stars are there but
+        // tapping does nothing". The average row above draws the SAME stars
+        // the rater block uses, but read-only, and nothing said so. Rather
+        // than make the average look untappable by guesswork, name the missing
+        // condition — the message also tells the next diagnosis which of the
+        // three gates failed.
+        val reasonRes = unavailableReasonRes
+        if (!canRate && average != null && reasonRes != null) {
+            Text(
+                text = stringResource(reasonRes),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.testTag("narration_rating_unavailable_reason")
+            )
         }
         if (canRate) {
             // The rater block always names itself («Оцінити начитку») — with
@@ -419,6 +441,32 @@ fun NarrationRatingRow(
             }
         }
     }
+}
+
+/**
+ * #1383 — which gate stopped the narration rating, as a string resource, or
+ * `null` when every gate is open and the listener CAN rate.
+ *
+ * Pure on purpose: the three gates are booleans the screen already knows
+ * (a ratings backend, a listener identity, the open Work's edition), so the
+ * decision is testable in the JVM partition without a Compose rule — and the
+ * screen can never drift from the reason it shows.
+ *
+ * Precedence is deliberate and matches the ticket's diagnosis: a missing
+ * backend makes the other two irrelevant (nothing could be stored), so it is
+ * named first; a missing identity is second; a Work without an edition is
+ * last, because it is the only one about THIS book rather than the build.
+ */
+@androidx.annotation.StringRes
+fun narrationRateUnavailableReason(
+    hasRatingsBackend: Boolean,
+    hasListenerIdentity: Boolean,
+    hasEdition: Boolean
+): Int? = when {
+    !hasRatingsBackend -> R.string.book_detail_rate_unavailable_no_backend
+    !hasListenerIdentity -> R.string.book_detail_rate_unavailable_no_profile
+    !hasEdition -> R.string.book_detail_rate_unavailable_no_edition
+    else -> null
 }
 
 /**

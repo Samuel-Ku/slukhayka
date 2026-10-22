@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui
 
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 
 /**
  * Author label for the UI. The repository seeds several placeholder authors
@@ -28,14 +29,41 @@ val AudiobookEntity.displayNarrator: String
  * when it is present and not the fabricated fallback; the page otherwise
  * shows the line as plain text. Mirrors the scrub of [displayAuthor].
  *
- * The per-source placeholder is `<sourceId> narrator` (e.g. «audiobookmp3
- * narrator», «soundbooks narrator») — it ALWAYS ends with a lowercase
- * « narrator», which no real name does, so a suffix scrub blanks it.
+ * #1382 — the placeholder is `<sourceId> narrator` (e.g. «audiobookmp3
+ * narrator»), created by the cross-source search when a source claims no
+ * narrator at all. It MUST stay in the data: it feeds the edition-id hash
+ * (`hash(mergeKey|narrator|language)`, R1/#508), so dropping it would change
+ * rendition identity. It must simply never be DISPLAYED as a person.
+ *
+ * The previous rule blanked ANY name ending with « narrator». That was a
+ * substring guess about the data, not a fact about it: a real name that
+ * happened to end that way vanished from the book page — and because the page
+ * hides the whole narrator row (with its bookmark button) when the name is
+ * blank, it vanished without a trace and without a failing test.
+ *
+ * The precise rule is [isPlaceholderNarrator]: the prefix before « narrator»
+ * must be an id this build actually registers as a source. A real name is
+ * never a registered source id, so it can no longer be swallowed.
  */
 fun isRealPersonName(name: String): Boolean =
     name.isNotBlank() &&
         !name.contains("4read", ignoreCase = true) &&
-        !name.endsWith(" narrator", ignoreCase = true)
+        !isPlaceholderNarrator(name)
+
+/**
+ * #1382 — true only for the fabricated `<registered source id> narrator`.
+ *
+ * Deliberately stricter than "ends with « narrator»": a name is a placeholder
+ * only when its prefix is a known source id, so an unknown/renamed source (or
+ * a person) is never silently blanked. A source id that is not registered is
+ * not invented here either — an unknown placeholder stays visible rather than
+ * disappearing, which is the whole point of the ticket.
+ */
+fun isPlaceholderNarrator(name: String): Boolean {
+    val suffix = " narrator"
+    if (!name.endsWith(suffix, ignoreCase = true)) return false
+    return name.dropLast(suffix.length) in SourceRegistry.ids()
+}
 
 /**
  * #40: the fresh person-books path mirrors the site's own URL shape —

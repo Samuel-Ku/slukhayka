@@ -341,6 +341,9 @@
     <string name="book_detail_review_pending_sync">we will send it when you are online</string>
     <string name="book_detail_review_rate_narration">Rate the narration</string>
     <string name="book_detail_review_narration_tag">Narration: %1$s</string>
+    <string name="book_detail_rate_unavailable_no_backend">Narration rating is unavailable: no connection to the ratings service.</string>
+    <string name="book_detail_rate_unavailable_no_profile">Narration rating is unavailable: a listener profile is required.</string>
+    <string name="book_detail_rate_unavailable_no_edition">Narration rating is unavailable: this book has no edition to rate.</string>
     <string name="book_detail_review_edition_line">Narration:</string>
     <string name="book_detail_review_edition_none">Do not specify</string>
     <string name="book_detail_visitor_comments">Visitor comments from %1$s</string>

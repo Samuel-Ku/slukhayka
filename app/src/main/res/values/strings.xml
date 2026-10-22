@@ -369,6 +369,9 @@
     <string name="book_detail_review_pending_sync">надішлемо при мережі</string>
     <string name="book_detail_review_rate_narration">Оцінити начитку</string>
     <string name="book_detail_review_narration_tag">Начитка: %1$s</string>
+    <string name="book_detail_rate_unavailable_no_backend">Оцінка начитки недоступна: немає з'єднання з сервісом оцінок.</string>
+    <string name="book_detail_rate_unavailable_no_profile">Оцінка начитки недоступна: потрібен профіль слухача.</string>
+    <string name="book_detail_rate_unavailable_no_edition">Оцінка начитки недоступна: у цієї книги немає видання, яке можна оцінити.</string>
     <string name="book_detail_review_edition_line">Начитка:</string>
     <string name="book_detail_review_edition_none">Не вказувати</string>
     <string name="book_detail_visitor_comments">Коментарі відвідувачів %1$s</string>

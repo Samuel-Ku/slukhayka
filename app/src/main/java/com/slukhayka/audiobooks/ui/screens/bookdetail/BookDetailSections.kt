@@ -114,6 +114,10 @@ fun BookDetailIdentityHeader(
     narrationVoteCount: Int = 0,
     ownNarrationRating: Int? = null,
     canRateNarration: Boolean = false,
+    /** #1383 — why rating is unavailable, or null when it is possible. */
+    narrationRateUnavailableReason: Int? = null,
+    /** #1383 — why rating is unavailable, or null when it is possible. */
+    narrationRateUnavailableReason: Int? = null,
     onRateNarration: (Int) -> Unit = {},
     onDeleteNarrationRating: (() -> Unit)? = null,
     narrationRatingDeleteFocusRequester: FocusRequester? = null,
@@ -227,6 +231,7 @@ fun BookDetailIdentityHeader(
                 narrationVoteCount = narrationVoteCount,
                 ownNarrationRating = ownNarrationRating,
                 canRateNarration = canRateNarration,
+                narrationRateUnavailableReason = narrationRateUnavailableReason,
                 onRateNarration = onRateNarration,
                 onDeleteNarrationRating = onDeleteNarrationRating,
                 narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
@@ -402,6 +407,7 @@ fun BookDetailCanonicalSummary(
         voteCount = narrationVoteCount,
         ownRating = ownNarrationRating,
         canRate = canRateNarration,
+        unavailableReasonRes = narrationRateUnavailableReason,
         onRate = onRateNarration,
         onDeleteOwn = onDeleteNarrationRating,
         deleteFocusRequester = narrationRatingDeleteFocusRequester,

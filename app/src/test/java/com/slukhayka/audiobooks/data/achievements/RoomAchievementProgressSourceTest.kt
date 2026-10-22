@@ -40,7 +40,10 @@ class RoomAchievementProgressSourceTest {
             val book=TestDataFactory.dataBooks().first().copy(totalChapters=2)
             val chapters=TestDataFactory.dataChapters().filter { it.bookId==book.id }.take(2)
             dao.insertAudiobooks(listOf(book)); dao.insertChapters(chapters)
+            // ADR-0063 — a materialized-but-unsaved book is TECHNICAL_OPEN:
+            // it has rows and can play, but it is not Personal Intent yet.
             dao.upsertLibraryEntry(book.id,book.id,false,123L,0f)
+            dao.updateLibraryEntryOrigin(book.id, "TECHNICAL_OPEN")
             dao.savePlaybackProgress(PlaybackProgressEntity("edition",book.id,0,0,123L,true))
             dao.upsertSeriesMember(SeriesMemberEntity(book.id,"partial-series",2))
             val sources=listOf("a","b").map { SourceEntity(it,book.id,type="sluhay",url="https://sluhay.com/$it") }
@@ -210,6 +213,8 @@ class RoomAchievementProgressSourceTest {
             val achievementDao = database.achievementDao()
             val books = TestDataFactory.dataBooks()
             dao.insertAudiobooks(books)
+            // ADR-0063 — a door is counted only for the listener's OWN books.
+            books.forEach { dao.upsertLibraryEntry(it.id, it.id, false, 1L, 0f) }
             dao.insertSources(listOf(
                 SourceEntity(id = "s1", bookId = books[0].id, type = "sluhayua", url = "https://a/1"),
                 SourceEntity(id = "s2", bookId = books[0].id, type = "sluhayua", url = "https://a/2"),
@@ -250,6 +255,13 @@ class RoomAchievementProgressSourceTest {
         try {
             val achievementDao = database.achievementDao()
             val dao = database.audiobookDao()
+            // ADR-0063 — languages count for the listener's own renditions.
+            for (id in listOf("w1", "w2", "w3")) {
+                dao.insertAudiobooks(
+                    listOf(TestDataFactory.dataBooks().first().copy(id = id, title = "Книга $id"))
+                )
+                dao.upsertLibraryEntry(id, id, false, 1L, 0f)
+            }
             dao.insertEdition(EditionEntity(id = "ed-uk", workId = "w1", language = "uk"))
             dao.insertEdition(EditionEntity(id = "ed-empty", workId = "w2", language = ""))
             dao.insertEdition(EditionEntity(id = "ed-empty2", workId = "w3", language = ""))
@@ -281,6 +293,8 @@ class RoomAchievementProgressSourceTest {
             val achievementDao = database.achievementDao()
             val books = TestDataFactory.dataBooks()
             dao.insertAudiobooks(books)
+            // ADR-0063 — the browser door is counted for the listener's own books.
+            books.forEach { dao.upsertLibraryEntry(it.id, it.id, false, 1L, 0f) }
             dao.insertSources(listOf(
                 SourceEntity(id = "reg-1", bookId = books[0].id, type = "sluhay", url = "https://a/1"),
                 SourceEntity(id = "reg-2", bookId = books[1].id, type = "librivox", url = "https://b/1")

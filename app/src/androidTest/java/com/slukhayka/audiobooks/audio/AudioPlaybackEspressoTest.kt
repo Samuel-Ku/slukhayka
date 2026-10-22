@@ -205,6 +205,16 @@ class AudioPlaybackEspressoTest {
                 isDownloaded = true
             )
             dao.insertAudiobooks(listOf(book))
+            // ADR-0063 — the library shows PERSONAL links only. The fixture is
+            // the listener's own saved book, so it carries the explicit link;
+            // a technical anchor would be invisible here.
+            dao.upsertLibraryEntry(
+                id = fixtureBookId,
+                workId = fixtureBookId,
+                isFavorite = true,
+                createdAt = 1L,
+                downloadProgress = 1f
+            )
             dao.insertEdition(
                 com.slukhayka.audiobooks.data.db.EditionEntity(
                     id = editionId,

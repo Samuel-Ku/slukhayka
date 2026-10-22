@@ -74,7 +74,10 @@ class AchievementImportProvenanceTest {
         // was used. The production registry has fourteen non-scam doors, which
         // is why the award is hard on a phone and trivial in this fixture.
         val earnedFromSearch = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }.sorted()
-        assertEquals(listOf("all_doors", "deep_search", "first_search_import"), earnedFromSearch)
+        // ADR-0063 — the technical search import is not Personal Intent, so no
+        // source door is credited yet; «Усі двері» opens on the first SAVED
+        // book below, not on a mirror materialization.
+        assertEquals(listOf("deep_search", "first_search_import"), earnedFromSearch)
         adapter.page=detail("Браузер прямо")
         val direct=imports.importBrowserSourceDirectPage("sluhay",adapter.page.url,onNewBookImported={ accepted+=it.id })!!
         assertEquals("TECHNICAL_OPEN",db.audiobookDao().libraryEntryById(direct.id)!!.origin)

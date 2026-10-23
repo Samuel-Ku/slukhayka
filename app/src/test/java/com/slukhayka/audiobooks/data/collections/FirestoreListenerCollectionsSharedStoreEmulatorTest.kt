@@ -81,6 +81,24 @@ class FirestoreListenerCollectionsSharedStoreEmulatorTest {
         )
     )
 
+    /**
+     * #1405 — the store-level guard, witnessed against the real Firestore.
+     * Without this case the guard could be deleted and every CI test would stay
+     * green (the factory then refuses with a generic reason).
+     */
+    @Test
+    fun `an empty collection is refused before any write`() = runBlocking {
+        val store = FirestoreListenerCollectionsSharedStore(firestore)
+        val author = CuratorIdentity.authorId("empty-collection-uid")
+        val empty = collection("empty").copy(items = emptyList())
+
+        assertEquals(
+            PublishResult.Refused("no-books"),
+            store.publish(empty, author, "Слухач")
+        )
+        assertTrue(store.publishedBy(author).isEmpty())
+    }
+
     /** Every field a published document must still carry after a partial write. */
     private val collectionFields = setOf(
         "authorId", "collectionId", "pseudonym", "title", "description",

@@ -138,6 +138,13 @@ const VALID_COLLECTION = {
   publishedAt: 1700000000000
 };
 const COLLECTION_BAD_REASONS = { ...VALID_COLLECTION, reasons: "не список" };
+// #1405 — a published collection is never empty, and `reasons` stays parallel.
+const EMPTY_BOOKS_COLLECTION = { ...VALID_COLLECTION, bookIds: [], reasons: [] };
+const COLLECTION_UNPARALLEL_REASONS = { ...VALID_COLLECTION, reasons: ["бо раз"] };
+// #1405 — the LEGACY shape v1.4.0–v1.4.2 clients wrote: no reasons at all.
+// It must stay creatable/updatable/deletable, and the empty-books document a
+// pre-#1405 build could have produced must stay repairable by its author.
+const LEGACY_COLLECTION = { ...VALID_COLLECTION, reasons: [] };
 const COLLECTION_WITH_QUERY = { ...VALID_COLLECTION, query: "магія" };
 const OVERLONG_COLLECTION = { ...VALID_COLLECTION, title: "т".repeat(81) };
 const RAW_UID_COLLECTION = { ...VALID_COLLECTION, authorId: "test-uid-1" };
@@ -434,6 +441,13 @@ const MATRIX = [
   ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
   ["M8", "curator_collections/qa_m8", "create", "uid-alice", COLLECTION_BAD_REASONS, "DENY", "reasons не список"],
   ["M9", "curator_collections/qa_m9", "create", "uid-alice", COLLECTION_WITH_RATINGS, "ALLOW", "#694 — агрегат оцінок дозволений"],
+  ["M17", "curator_collections/qa_m17", "create", "uid-alice", EMPTY_BOOKS_COLLECTION, "DENY", "#1405 — порожня добірка не публікується"],
+  ["M18", "curator_collections/qa_m18", "create", "uid-alice", COLLECTION_UNPARALLEL_REASONS, "DENY", "#1405 — reasons не паралельні bookIds"],
+  ["M19", "curator_collections/qa_m19", "create", "uid-alice", LEGACY_COLLECTION, "ALLOW", "#1405 — легасі-форма без reasons лишається створюваною"],
+  ["M20", "curator_collections/qa_m20", "update", "uid-alice", LEGACY_COLLECTION, "ALLOW", "#1405 — легасі-документ лишається оновлюваним"],
+  ["M21", "curator_collections/qa_m21", "update", "uid-alice", EMPTY_BOOKS_COLLECTION, "ALLOW", "#1405 — порожній легасі-документ можна виправити"],
+  ["M22", "curator_collections/qa_m22", "delete", "uid-alice", null, "ALLOW", "#1405 — порожній легасі-документ можна видалити"],
+  ["M23", "curator_collections/qa_m19", "update", "uid-alice", COLLECTION_UNPARALLEL_REASONS, "DENY", "#1405 — оновлення не робить reasons непаралельними"],
   ["M14", "curator_collections/qa_m14", "create", "uid-alice", COLLECTION_WITH_SHOWCASE, "ALLOW", "#705 — вітрина до 3 нагород дозволена"],
   ["M15", "curator_collections/qa_m15", "create", "uid-alice", COLLECTION_OVERLONG_SHOWCASE, "DENY", "#705 — 4 нагороди поза межею 3"],
   ["M16", "curator_collections/qa_m16", "create", "uid-alice", COLLECTION_BAD_SHOWCASE, "DENY", "#705 — вітрина не список"],
@@ -464,11 +478,12 @@ const EVIDENCE = {
   // the shape/limit/auth rows are proven with the gate open.
   M1: "as-is", M7: "as-is",
   M2: "open", M3: "open", M4: "open", M5: "open", M6: "open", M8: "open",
-  // #694/#696 — the rating aggregate, the vote and the report shapes (M9–M17):
+  // #694/#696 — the rating aggregate and the vote shapes (M9–M13):
   // allowed/denied shapes are proven with the App Check gate OPEN; the
   // "no auth" rows (M13, M16) are proven there too, like M6.
   M9: "open", M10: "open", M11: "open", M12: "open", M13: "open",
-  M14: "open", M15: "open", M16: "open", M17: "open",
+  M14: "open", M15: "open", M16: "open", M17: "open", M18: "open",
+  M19: "open", M20: "open", M21: "open", M22: "open", M23: "open",
   // #835 — the queue's public read and the App Check gate are proven as-is;
   // the shape/auth/closed-catalogue rows need the gate OPEN to be meaningful.
   P1: "as-is", P8: "as-is", P11: "as-is",
@@ -565,6 +580,11 @@ async function runPass(gateLabel) {
       for (const id of [WORK_FACET_ID]) {
         await setDoc(doc(collection(seedDb, "book_facets"), id), VALID_WORK_FACET);
       }
+      // #1405 — legacy shapes for the update/delete rows (M20–M23).
+      await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m20"), LEGACY_COLLECTION);
+      await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m21"), EMPTY_BOOKS_COLLECTION);
+      await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m22"), EMPTY_BOOKS_COLLECTION);
+      await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m19"), LEGACY_COLLECTION);
     });
   }
 

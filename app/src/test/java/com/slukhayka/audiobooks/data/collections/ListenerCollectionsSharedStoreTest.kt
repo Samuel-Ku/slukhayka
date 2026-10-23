@@ -24,24 +24,24 @@ class ListenerCollectionsSharedStoreTest {
     fun `publishing needs an identity and a pseudonym`() = runBlocking {
         val store = InMemorySharedCollections()
 
-        assertTrue(store.publish(collection("c1"), CuratorIdentity.authorId(""), "Слухач") is PublishResult.Refused)
-        assertTrue(store.publish(collection("c1"), authorId, "   ") is PublishResult.Refused)
-        assertEquals(PublishResult.Published, store.publish(collection("c1"), authorId, "Слухач"))
+        assertTrue(store.publish(collection("c1", "book-a"), CuratorIdentity.authorId(""), "Слухач") is PublishResult.Refused)
+        assertTrue(store.publish(collection("c1", "book-a"), authorId, "   ") is PublishResult.Refused)
+        assertEquals(PublishResult.Published, store.publish(collection("c1", "book-a"), authorId, "Слухач"))
         assertEquals(1, store.publishedBy(authorId).size)
     }
 
     @Test
     fun `offline refuses honestly and publishes nothing`() = runBlocking {
         val store = InMemorySharedCollections(online = false)
-        assertEquals(PublishResult.Refused("offline"), store.publish(collection("c1"), authorId, "Слухач"))
+        assertEquals(PublishResult.Refused("offline"), store.publish(collection("c1", "book-a"), authorId, "Слухач"))
         assertTrue(store.publishedBy(authorId).isEmpty())
     }
 
     @Test
     fun `renaming the pseudonym updates every own collection`() = runBlocking {
         val store = InMemorySharedCollections()
-        store.publish(collection("c1"), authorId, "Старий")
-        store.publish(collection("c2"), authorId, "Старий")
+        store.publish(collection("c1", "book-a"), authorId, "Старий")
+        store.publish(collection("c2", "book-b"), authorId, "Старий")
 
         assertEquals(PublishResult.Published, store.renameAuthor(authorId, "Новий"))
         assertEquals(listOf("Новий", "Новий"), store.publishedBy(authorId).map { it.pseudonym })
@@ -70,7 +70,7 @@ class ListenerCollectionsSharedStoreTest {
     @Test
     fun `an empty showcase clears the profile`() = runBlocking {
         val store = InMemorySharedCollections()
-        store.publish(collection("c1"), authorId, "Слухач")
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
         store.publishShowcase(authorId, listOf(award("first_book", "Перша книга")))
         assertTrue(store.publishedBy(authorId).single().showcase.isNotEmpty())
 
@@ -82,7 +82,7 @@ class ListenerCollectionsSharedStoreTest {
     @Test
     fun `the published showcase can never exceed three awards`() = runBlocking {
         val store = InMemorySharedCollections()
-        store.publish(collection("c1"), authorId, "Слухач")
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
         val four = (1..4).map { award("a$it", "Нагорода $it") }
 
         store.publishShowcase(authorId, four)
@@ -121,10 +121,10 @@ class ListenerCollectionsSharedStoreTest {
     @Test
     fun `deleting the profile removes the author and all their collections`() = runBlocking {
         val store = InMemorySharedCollections()
-        store.publish(collection("c1"), authorId, "Слухач")
-        store.publish(collection("c2"), authorId, "Слухач")
+        store.publish(collection("c1", "book-a"), authorId, "Слухач")
+        store.publish(collection("c2", "book-b"), authorId, "Слухач")
         val otherAuthor = CuratorIdentity.authorId("someone-else")
-        store.publish(collection("c3"), otherAuthor, "Інший")
+        store.publish(collection("c3", "book-c"), otherAuthor, "Інший")
 
         assertEquals(PublishResult.Published, store.deleteAuthorProfile(authorId))
         assertTrue(store.publishedBy(authorId).isEmpty())

@@ -1205,7 +1205,7 @@ interface AudiobookDao {
             "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, " +
             "downloadProgress = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadProgress ELSE excluded.downloadProgress END, " +
             "downloadState = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadState ELSE excluded.downloadState END, " +
-            // ADR-0063 §2/§9 — an AUTOMATIC pass may never rewrite a row it
+            // ADR-0063 §9 — an AUTOMATIC pass may never rewrite a row it
             // did not create: only an incoming PERSONAL origin changes the
             // fact (the §4 upgrade on explicit intent). Without this, a
             // catalogue refresh would flip a legacy UNKNOWN row to CATALOG_SYNC

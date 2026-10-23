@@ -71,7 +71,7 @@ class AchievementImportProvenanceTest {
         // registry holds one door ("sluhay") and the import really came through
         // it, but ADR-0063 credits a door only for a PERSONAL book, and this
         // import is a technical materialization. The award is pinned by the
-        // explicit-save cases in the rest of this file, not by this snapshot.
+        // explicit-save cases in DoorsAndMechanismAwardsTest, not by this snapshot.
         val earnedFromSearch = AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }.sorted()
         // ADR-0063 — the technical search import is not Personal Intent, so no
         // source door is credited yet.

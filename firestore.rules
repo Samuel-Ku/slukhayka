@@ -606,8 +606,11 @@ service cloud.firestore {
         && d.pseudonym is string && d.pseudonym.size() > 0 && d.pseudonym.size() <= 40
         && d.title is string && d.title.size() > 0 && d.title.size() <= 80
         && d.description is string && d.description.size() <= 600
-        && d.bookIds is list && d.bookIds.size() <= 500
+        // #1405 — a published collection is never empty: an empty document is
+        // invisible on every honest surface and could never be repaired.
+        && d.bookIds is list && d.bookIds.size() > 0 && d.bookIds.size() <= 500
         && d.reasons is list && d.reasons.size() <= 500
+        && d.reasons.size() == d.bookIds.size()
         // #694 — the rating aggregate is optional on legacy documents; when
         // present it is a real number, never a string or a list.
         && (!d.keys().hasAny(['ratingSum', 'ratingCount'])

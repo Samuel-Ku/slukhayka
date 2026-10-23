@@ -138,6 +138,9 @@ const VALID_COLLECTION = {
   publishedAt: 1700000000000
 };
 const COLLECTION_BAD_REASONS = { ...VALID_COLLECTION, reasons: "не список" };
+// #1405 — a published collection is never empty, and `reasons` stays parallel.
+const COLLECTION_EMPTY = { ...VALID_COLLECTION, bookIds: [], reasons: [] };
+const COLLECTION_UNPARALLEL_REASONS = { ...VALID_COLLECTION, reasons: ["бо раз"] };
 const COLLECTION_WITH_QUERY = { ...VALID_COLLECTION, query: "магія" };
 const OVERLONG_COLLECTION = { ...VALID_COLLECTION, title: "т".repeat(81) };
 const RAW_UID_COLLECTION = { ...VALID_COLLECTION, authorId: "test-uid-1" };
@@ -434,6 +437,8 @@ const MATRIX = [
   ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
   ["M8", "curator_collections/qa_m8", "create", "uid-alice", COLLECTION_BAD_REASONS, "DENY", "reasons не список"],
   ["M9", "curator_collections/qa_m9", "create", "uid-alice", COLLECTION_WITH_RATINGS, "ALLOW", "#694 — агрегат оцінок дозволений"],
+  ["M17", "curator_collections/qa_m17", "create", "uid-alice", COLLECTION_EMPTY, "DENY", "#1405 — порожня добірка не публікується"],
+  ["M18", "curator_collections/qa_m18", "create", "uid-alice", COLLECTION_UNPARALLEL_REASONS, "DENY", "#1405 — reasons не паралельні bookIds"],
   ["M14", "curator_collections/qa_m14", "create", "uid-alice", COLLECTION_WITH_SHOWCASE, "ALLOW", "#705 — вітрина до 3 нагород дозволена"],
   ["M15", "curator_collections/qa_m15", "create", "uid-alice", COLLECTION_OVERLONG_SHOWCASE, "DENY", "#705 — 4 нагороди поза межею 3"],
   ["M16", "curator_collections/qa_m16", "create", "uid-alice", COLLECTION_BAD_SHOWCASE, "DENY", "#705 — вітрина не список"],
@@ -468,7 +473,7 @@ const EVIDENCE = {
   // allowed/denied shapes are proven with the App Check gate OPEN; the
   // "no auth" rows (M13, M16) are proven there too, like M6.
   M9: "open", M10: "open", M11: "open", M12: "open", M13: "open",
-  M14: "open", M15: "open", M16: "open", M17: "open",
+  M14: "open", M15: "open", M16: "open", M17: "open", M18: "open",
   // #835 — the queue's public read and the App Check gate are proven as-is;
   // the shape/auth/closed-catalogue rows need the gate OPEN to be meaningful.
   P1: "as-is", P8: "as-is", P11: "as-is",

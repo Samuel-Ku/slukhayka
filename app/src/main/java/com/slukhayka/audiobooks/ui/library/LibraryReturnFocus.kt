@@ -4,7 +4,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.withFrameNanos
+import androidx.compose.runtime.withFrameNanos
 
 /**
  * #1285 — the UI adapter that performs the focus/scroll effects for the return

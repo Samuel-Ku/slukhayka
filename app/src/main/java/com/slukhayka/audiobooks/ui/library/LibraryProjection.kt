@@ -102,7 +102,32 @@ class LibraryProjection internal constructor(
         denseTitle = denseTitle,
         denseTrailing = denseTrailing
     )
+
+    /**
+     * #1285 — the index of the entry that represents [bookId]'s Work card.
+     *
+     * The fast path is the exact book: it is still the card's voice, so its own
+     * entry is the anchor. When the primary narration changed while the details
+     * were open (the listener started another narration of the same Work), the
+     * opened book is no longer the one the card SHOWS — but its Work card is
+     * still here. The card owns the book through its narrations, so the same
+     * card is found by that membership, never by guessing a narration id or
+     * rebuilding the Work grouping in the screen.
+     *
+     * @return -1 when the Work is not in this projection at all (filtered out,
+     * deleted, or hidden by the search): the caller keeps its heading fallback
+     * and the filter stays as the listener set it.
+     */
+    fun indexOfReturnAnchor(entries: List<LibraryGridEntry>, bookId: String): Int {
+        val direct = entries.indexOfFirst { it.showsBook(bookId) }
+        if (direct >= 0) return direct
+        val card = cards.firstOrNull { card ->
+            card.narrations.any { narration -> narration.book.id == bookId }
+        } ?: return -1
+        return entries.indexOfFirst { it.showsBook(card.primary.book.id) }
+    }
 }
+
 
 /**
  * Projects the library's rows into the Книги tab's one [LibraryProjection].

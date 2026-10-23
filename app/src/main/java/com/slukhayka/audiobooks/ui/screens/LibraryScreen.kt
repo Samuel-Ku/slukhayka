@@ -106,7 +106,7 @@ import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
-import com.slukhayka.audiobooks.ui.library.libraryIndexOfBook
+import com.slukhayka.audiobooks.ui.library.LibraryReturnFocusEffect
 import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
 import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
@@ -438,32 +438,21 @@ fun LibraryScreen(
             }
     }
 
-    LaunchedEffect(
-        restoreFocusBookId,
-        gridEntries,
-        libraryBooks,
-        activeTab,
-        modalVisible
-    ) {
-        val bookId = restoreFocusBookId ?: return@LaunchedEffect
-        if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        // The book may be the hero card rather than a row: the projection's own
-        // mapping asks every entry.
-        val visibleIndex = libraryIndexOfBook(gridEntries, bookId)
-        when {
-            visibleIndex >= 0 -> {
-                libraryGridState.scrollToItem(visibleIndex)
-                withFrameNanos { }
-                bookReturnFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-            libraryBooks.isNotEmpty() -> {
-                withFrameNanos { }
-                libraryHeadingFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-        }
-    }
+    // #1285 — the effects stay in the UI adapter; the RULES (which entry is
+    // the anchor, including a Work whose primary narration changed) live in
+    // the projection module.
+    LibraryReturnFocusEffect(
+        projection = libraryProjection,
+        entries = gridEntries,
+        restoreFocusBookId = restoreFocusBookId,
+        activeTab = activeTab,
+        modalVisible = modalVisible,
+        hasBooks = libraryBooks.isNotEmpty(),
+        gridState = libraryGridState,
+        bookFocusRequester = bookReturnFocusRequester,
+        headingFocusRequester = libraryHeadingFocusRequester,
+        onBookFocusRestored = onBookFocusRestored
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         LibraryModalUnderlay(

@@ -136,11 +136,22 @@ _Avoid_: editable title as folder identity, logical Chapter title as physical fi
 
 **Series**:
 A named bibliographic sequence or cycle containing ordered Works.
-_Avoid_: Collection, shelf
+_Avoid_: Collection, Shelf
 
 **Series Membership**:
 A Work's place in a Series, including its position when known. One Work may have more than one Series Membership.
 _Avoid_: Series, volume file
+
+**Полиця** (Shelf):
+Особиста добірка Library Entries, яку слухач створює сам: власна назва,
+необов'язковий опис і порядок, який задає людина. Членство — лише особисті
+зв'язки (`EXPLICIT_SAVE`/`EXPLICIT_IMPORT`, ADR-0063), тож технічна картка чи
+автоматичний якір у полицю не потрапляє; додавання книжки поза бібліотекою —
+явний жест, що спершу створює Personal Intent, а тоді членство. Полиця не
+володіє книжкою: видалення полиці прибирає лише групування, видалення Library
+Entry — членство в усіх полицях. Це не Колекція, не Series, не фільтр і не
+черга відтворення (ADR-0064).
+_Avoid_: колекція, тег, папка, плейлист, «розумна полиця», нагорода за полиці
 
 ## Source access (spec #425/#426, v1.3.7)
 
@@ -459,8 +470,8 @@ Library Entry над Work без жодного Source: твір живе в М�
 _Avoid_: полиця прочитаного, Goodreads-трекер, текстова книжка як каталог, аудіо-поля ззовні
 
 **«Прослухано» (Listened)**:
-Стан завершення одного Listening State, який слухач може виставити й прибрати вручну, а не лише автоматично дійти до кінця. Це аудіо-обличчя Reading State «Прочитано» для аудіо-Readthrough цього Work, а не друга правда й не окремий стан: ручна позначка виставляє той самий прапорець завершення, а не другий маркер поруч. Поверхня «Прослухано» — це «Мої книги», відфільтровані за завершенням; це не «Добірка слухача» й не кураторська колекція.
-_Avoid_: окремий ручний маркер прослуханого, `listened` поруч із `isCompleted`, друга правда завершення, плутання з «Добіркою слухача»
+Стан завершення одного Listening State, який слухач може виставити й прибрати вручну, а не лише автоматично дійти до кінця. Це аудіо-обличчя Reading State «Прочитано» для аудіо-Readthrough цього Work, а не друга правда й не окремий стан: ручна позначка виставляє той самий прапорець завершення, а не другий маркер поруч. Поверхня «Прослухано» — це «Мої книги», відфільтровані за завершенням; це не «Полиця» й не кураторська колекція.
+_Avoid_: окремий ручний маркер прослуханого, `listened` поруч із `isCompleted`, друга правда завершення, плутання з «Полицею»
 
 **Smart Rewind**:
 The Listening State rule that a resume position steps back by how long the pause lasted. One rule serves both in-session resume and resume across restarts.

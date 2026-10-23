@@ -46,13 +46,24 @@ data class ListenerReviewState(
     val failedSave: Map<String, ListenerReview> = emptyMap(),
     /** Document ids whose last FAILED mutation was a delete. */
     val failedDelete: Set<String> = emptySet(),
+    /**
+     * Document ids successfully deleted in this listener epoch. A read that
+     * was already in flight when the delete was acknowledged may still carry
+     * the old document; this set keeps the stale row out of [confirmed] and
+     * [visible] without a second refresh.
+     */
+    val deletedDocuments: Set<String> = emptySet(),
     /** True when the last read failed: [confirmed] is the last good snapshot. */
     val readFailed: Boolean = false
 ) {
     /** Confirmed server truth plus the pending cards, minus locally deleted ones. */
     val visible: List<ListenerReview>
         get() = (
-            confirmed.filterNot { documentIdOf(it) in pending || documentIdOf(it) in deleting } +
+            confirmed.filterNot {
+                documentIdOf(it) in pending ||
+                    documentIdOf(it) in deleting ||
+                    documentIdOf(it) in deletedDocuments
+            } +
                 pending.values
             ).sortedByDescending { it.createdAt }
 
@@ -137,7 +148,8 @@ class ListenerReviewLifecycle(
                     pending = emptyMap(),
                     deleting = emptySet(),
                     failedSave = emptyMap(),
-                    failedDelete = emptySet()
+                    failedDelete = emptySet(),
+                    deletedDocuments = emptySet()
                 )
             }
         }
@@ -156,7 +168,14 @@ class ListenerReviewLifecycle(
         if (workId != _state.value.workId || !loads.isLatest(request)) return
         when (result) {
             is ReviewReadResult.Data ->
-                _state.update { it.copy(confirmed = result.reviews, readFailed = false) }
+                _state.update {
+                    it.copy(
+                        confirmed = result.reviews.filterNot { review ->
+                            ListenerReviewCodec.documentId(review.workId, review.uid) in it.deletedDocuments
+                        },
+                        readFailed = false
+                    )
+                }
             ReviewReadResult.Empty ->
                 _state.update { it.copy(confirmed = emptyList(), readFailed = false) }
             ReviewReadResult.Failure ->
@@ -301,7 +320,8 @@ class ListenerReviewLifecycle(
                 pending = it.pending + (documentId to review),
                 deleting = it.deleting - documentId,
                 failedSave = it.failedSave - documentId,
-                failedDelete = it.failedDelete - documentId
+                failedDelete = it.failedDelete - documentId,
+                deletedDocuments = it.deletedDocuments - documentId
             )
         }
 
@@ -430,10 +450,19 @@ class ListenerReviewLifecycle(
                     },
                     // A failed delete must not hide the review: the last
                     // confirmed card comes back until the listener retries.
+                    // A successful one must survive a stale confirmed snapshot
+                    // that a read returned before the acknowledgement.
                     confirmed = if (succeeded) {
-                        current.confirmed
+                        current.confirmed.filterNot {
+                            ListenerReviewCodec.documentId(it.workId, it.uid) == documentId
+                        }
                     } else {
                         restoreInto(current.confirmed, restore)
+                    },
+                    deletedDocuments = if (succeeded) {
+                        current.deletedDocuments + documentId
+                    } else {
+                        current.deletedDocuments
                     }
                 )
             }

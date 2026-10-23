@@ -136,11 +136,48 @@ _Avoid_: editable title as folder identity, logical Chapter title as physical fi
 
 **Series**:
 A named bibliographic sequence or cycle containing ordered Works.
-_Avoid_: Collection, shelf
+_Avoid_: Кураторська колекція, Добірка слухача, Shelf
 
 **Series Membership**:
 A Work's place in a Series, including its position when known. One Work may have more than one Series Membership.
 _Avoid_: Series, volume file
+
+**Добірка слухача** (Listener Collection):
+Локально створена слухачем добірка книжок: назва, необов'язковий опис і
+книжки в порядку додавання, з необов'язковою короткою причиною на кожну
+(поле причини є і подорожує в публікацію/форк; вводу причини в UI ще немає).
+Локально кількість не обмежена; публікація не приймає порожню добірку,
+порожній псевдонім або відсутній shared-шар, а публікуються перші 500
+книжок. Чернетка живе лише на пристрої; публікація під псевдонімом — окрема
+явна дія, після якої добірку видно іншим, можна оцінити, поскаржитись або
+форкнути з атрибуцією. Порядок книжок — порядок додавання, тобто подача
+належить слухачеві. Член добірки — `bookId`, а не Library Entry: книжка поза
+локальною бібліотекою теж допустима й на опублікованій поверхні чесно
+позначається як така (локальна сторінка поки показує сирий id — відома
+прогалина). Це не кураторська колекція, не Recommendation Set (алгоритмічні
+персональні добірки), не Series і не Listening State (спека «добірки
+слухачів», 2026-09-10).
+_Avoid_: Полиця, Shelf, тег, папка, плейлист, «розумна добірка», кураторська
+колекція, персональна добірка
+
+**Кураторська колекція** (Curated Collection):
+Збірний термін для двох типів зовнішніх списків, які слухач не створює й не
+редагує: **Smart collections** — тематичні асети, які шипить проєкт
+(Нобелівські лауреати, Шевченківська премія, Букер); **Live collections** —
+рейтинги, які тягнуться з джерел на оновленні каталогу (spec-37). Означення й
+поведінка кожного типу — в їхніх статтях нижче; тут лише спільна межа.
+Обидва локально матчаться до Медіатеки (ADR-0041): результати матчингу не
+зберігаються, порожня колекція не показується. Рангові сигнали живих списків
+можуть зберігатися як popularity assertions (#485). Це не «Добірка слухача» й
+не Recommendation Set.
+_Avoid_: добірка слухача, редагована колекція, «моя колекція», збережені
+результати матчингу
+
+У коді `curator*` (`curator_collections`, `CuratorIdentity`, «профіль
+куратора») — це ОПУБЛІКОВАНІ добірки слухача, інший сенс; кураторські
+колекції живуть у `CollectionAssets`/`CollectionMatcher`, а живі — у
+`LiveCollectionSource`. Третій, не
+пов'язаний сенс — «куратор» як модератор надходжень у «Черзі модерації».
 
 ## Source access (spec #425/#426, v1.3.7)
 
@@ -561,12 +598,12 @@ Import dedup is per RENDITION (Edition id), not per Work — the same narration 
 _Avoid_: one card per Work with unreachable second narrations
 
 **Smart collections**:
-The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
+The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing about the match itself is persisted — no schema change (ADR-0012).
 _Avoid_: network lists, Room persistence of match results, a collection row for a book the listener does not have
 
 **Live collections**:
 The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll` against the Media Library; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
-_Avoid_: raw connections in live sources, live lists persisted to Room
+_Avoid_: raw connections in live sources, live lists persisted to Room as a collection row
 
 ## Discovery surfaces (spec-28)
 
@@ -631,7 +668,7 @@ A pushed screen listing every Series present in the Media Library, deduplicated;
 _Avoid_: inline-only series row, new series data source, a series row with no library book
 
 **«Колекції» index screen**:
-A pushed screen listing every smart collection matched against the Media Library (Нобелівські лауреати, Шевченківська премія, Букер, live lists); a collection shows only Works the listener already has, and tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
+A pushed screen listing every curated collection (smart + live) matched against the Media Library (Нобелівські лауреати, Шевченківська премія, Букер, live lists); a collection shows only Works the listener already has, and tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
 _Avoid_: duplicated collection behaviour, new collection data source, a collection row for a book the listener does not have
 
 **Content Language Preference**:

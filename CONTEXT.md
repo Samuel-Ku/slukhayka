@@ -144,7 +144,8 @@ _Avoid_: Series, volume file
 
 **Добірка слухача** (Listener Collection):
 Локально створена слухачем добірка книжок: назва, необов'язковий опис і
-книжки в порядку додавання, з необов'язковою короткою причиною на кожну.
+книжки в порядку додавання, з необов'язковою короткою причиною на кожну
+(поле причини є і подорожує в публікацію/форк; вводу причини в UI ще немає).
 Локально кількість не обмежена; публікація не приймає порожню добірку,
 порожній псевдонім або відсутній shared-шар, а публікуються перші 500
 книжок. Чернетка живе лише на пристрої; публікація під псевдонімом — окрема
@@ -171,9 +172,11 @@ _Avoid_: Полиця, Shelf, тег, папка, плейлист, «розум
 не Recommendation Set.
 _Avoid_: добірка слухача, редагована колекція, «моя колекція», збережені
 результати матчингу
+
 У коді `curator*` (`curator_collections`, `CuratorIdentity`, «профіль
 куратора») — це ОПУБЛІКОВАНІ добірки слухача, інший сенс; кураторські
-колекції живуть у `CollectionAssets`/`CollectionMatcher`. Третій, не
+колекції живуть у `CollectionAssets`/`CollectionMatcher`, а живі — у
+`LiveCollectionSource`. Третій, не
 пов'язаний сенс — «куратор» як модератор надходжень у «Черзі модерації».
 
 ## Source access (spec #425/#426, v1.3.7)
@@ -665,7 +668,7 @@ A pushed screen listing every Series present in the Media Library, deduplicated;
 _Avoid_: inline-only series row, new series data source, a series row with no library book
 
 **«Колекції» index screen**:
-A pushed screen listing every smart collection matched against the Media Library (Нобелівські лауреати, Шевченківська премія, Букер, live lists); a collection shows only Works the listener already has, and tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
+A pushed screen listing every curated collection (smart + live) matched against the Media Library (Нобелівські лауреати, Шевченківська премія, Букер, live lists); a collection shows only Works the listener already has, and tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
 _Avoid_: duplicated collection behaviour, new collection data source, a collection row for a book the listener does not have
 
 **Content Language Preference**:

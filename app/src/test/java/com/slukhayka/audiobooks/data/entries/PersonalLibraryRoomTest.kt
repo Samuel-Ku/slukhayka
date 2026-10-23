@@ -218,13 +218,37 @@ class PersonalLibraryRoomTest {
     }
 
     /**
-     * #1397 — saving an already downloaded technical book must not report 0 %:
-     * the entry is created with `downloadProgress = 1f` when the audiobooks row
-     * is downloaded (ADR-0014 — honest numbers).
+     * #1399 (review of #1398) — saving an already downloaded book must not
+     * report 0 %: the NEW entry is created with `downloadProgress = 1f`
+     * (ADR-0014 — honest numbers).
+     *
+     * The fixture deliberately seeds ONLY the audiobooks row: seeding an entry
+     * first (as `seedBook` does) sends `saveToLibrary` down the existing-row
+     * branch, which never reaches the line under test — the previous version of
+     * this pin survived reverting it.
      */
+    /**
+     * Only the materialized row, NO library entry — the state a technical card
+     * has before the listener saves it. Saving must take the new-book branch.
+     */
+    private suspend fun seedBookRowOnly(
+        database: AudiobookDatabase,
+        bookId: String,
+        isDownloaded: Boolean
+    ) {
+        val dao = database.audiobookDao()
+        val row = TestDataFactory.dataBooks().first().copy(
+            id = bookId,
+            title = "Книга $bookId",
+            isDownloaded = isDownloaded
+        )
+        dao.insertAudiobooks(listOf(row))
+        dao.upsertWork(WorkEntity(id = bookId, mergeKey = "key-$bookId", title = row.title, author = "Автор"))
+    }
+
     @Test
     fun `saving a downloaded book keeps an honest 100 percent`() = withDatabase { database ->
-        seedBook(database, "downloaded", LibraryEntryOrigin.TECHNICAL_OPEN, isDownloaded = true)
+        seedBookRowOnly(database, "downloaded", isDownloaded = true)
         val entries = LibraryEntries(database.audiobookDao(), emptyList())
 
         assertTrue(entries.saveToLibrary("downloaded"))
@@ -232,6 +256,19 @@ class PersonalLibraryRoomTest {
         val row = database.audiobookDao().libraryEntryById("downloaded")!!
         assertEquals("EXPLICIT_SAVE", row.origin)
         assertEquals(1f, row.downloadProgress, 0.0001f)
+    }
+
+    /** The same shape, not downloaded: the new entry starts honestly at 0 %. */
+    @Test
+    fun `saving a book that is not downloaded starts at zero percent`() = withDatabase { database ->
+        seedBookRowOnly(database, "streamed", isDownloaded = false)
+        val entries = LibraryEntries(database.audiobookDao(), emptyList())
+
+        assertTrue(entries.saveToLibrary("streamed"))
+
+        val row = database.audiobookDao().libraryEntryById("streamed")!!
+        assertEquals("EXPLICIT_SAVE", row.origin)
+        assertEquals(0f, row.downloadProgress, 0.0001f)
     }
 
     /**

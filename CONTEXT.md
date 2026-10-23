@@ -145,28 +145,33 @@ _Avoid_: Series, volume file
 **Добірка слухача** (Listener Collection):
 Локально створена слухачем добірка книжок: назва, необов'язковий опис і
 книжки в порядку додавання, з необов'язковою короткою причиною на кожну.
-Локально кількість не обмежена; публікація відмовляє лише порожню добірку, а
-опублікована добірка вміщає до 500 книжок. Чернетка живе лише на пристрої;
-публікація під псевдонімом — окрема явна дія, після якої добірку видно іншим,
-можна оцінити, поскаржитись або форкнути з атрибуцією. Порядок книжок —
-порядок додавання, тобто подача належить слухачеві. Член добірки — `bookId`,
-а не Library Entry: книжка поза локальною бібліотекою теж допустима й чесно
-позначається як така. Це не кураторська колекція, не Personal Recommendation,
-не Series і не стан плеєра (spec-51).
+Локально кількість не обмежена; публікація відмовляє порожню добірку, порожній
+псевдонім або недоступний shared-шар, а з опублікованої публікуються перші 500
+книжок. Чернетка живе лише на пристрої; публікація під псевдонімом — окрема
+явна дія, після якої добірку видно іншим, можна оцінити, поскаржитись або
+форкнути з атрибуцією. Порядок книжок — порядок додавання, тобто подача
+належить слухачеві. Член добірки — `bookId`, а не Library Entry: книжка поза
+локальною бібліотекою теж допустима й чесно позначається як така. Це не
+кураторська колекція, не Recommendation Set (алгоритмічні персональні
+добірки), не Series і не Listening State (spec-51).
 _Avoid_: Полиця, Shelf, тег, папка, плейлист, «розумна добірка», кураторська
-колекція
+колекція, персональна добірка
 
 **Кураторська колекція** (Curated Collection):
 Збірний термін для двох типів зовнішніх списків, які слухач не створює й не
-редагує: **Smart collection** — тематичні асети, які шипить проєкт
-(Нобелівські лауреати, Шевченківська премія, Букер); **Live collection** —
-рейтинги, які тягнуться з джерел на оновленні каталогу (spec-37). Обидва
-локально відмачуються до Медіатеки; результати матчингу не зберігаються,
-порожня колекція не показується. Рангові сигнали живих списків можуть
-зберігатися як popularity assertions (ADR-0041; живі списки — spec-37).
-Це не «Добірка слухача» й не Personal Recommendation.
+редагує: **Smart collections** — тематичні асети, які шипить проєкт
+(Нобелівські лауреати, Шевченківська премія, Букер); **Live collections** —
+рейтинги, які тягнуться з джерел на оновленні каталогу (spec-37). Означення й
+поведінка кожного типу — в їхніх статтях нижче; тут лише спільна межа.
+Обидва локально відмачуються до Медіатеки (ADR-0041): результати матчингу не
+зберігаються, порожня колекція не показується. Рангові сигнали живих списків
+можуть зберігатися як popularity assertions (#485). Це не «Добірка слухача» й
+не Recommendation Set.
 _Avoid_: добірка слухача, редагована колекція, «моя колекція», збережені
 результати матчингу
+_Note_: у коді `curator*` (`curator_collections`, `CuratorIdentity`, «профіль
+куратора») — це ОПУБЛІКОВАНІ добірки слухача, інший сенс; кураторські
+колекції живуть у `CollectionAssets`/`CollectionMatcher`.
 
 ## Source access (spec #425/#426, v1.3.7)
 
@@ -587,7 +592,7 @@ Import dedup is per RENDITION (Edition id), not per Work — the same narration 
 _Avoid_: one card per Work with unreachable second narrations
 
 **Smart collections**:
-The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
+The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing about the match itself is persisted — no schema change (ADR-0012).
 _Avoid_: network lists, Room persistence of match results, a collection row for a book the listener does not have
 
 **Live collections**:

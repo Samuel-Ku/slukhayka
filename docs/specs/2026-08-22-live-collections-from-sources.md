@@ -76,9 +76,11 @@ sluhay.com.ua).
 - **Zero SourceCatalog changes.** The per-source TTL cache and best-effort loop
   are already generic by sourceId; a failing or shape-changed source yields no
   collection, never throws, never breaks the union refresh.
-- **No persistence, no UI changes.** Live lists are matched against the catalog
-  union on the same triggers as today; nothing lands in Room; empty
-  collections are dropped by the matcher (ADR-0012/0013 semantics).
+- **No match persistence, no UI changes.** Live lists are matched against the
+  Медіатека (ADR-0041) on the same triggers as today; match results land nowhere
+  in Room; empty collections are dropped by the matcher. Rank signals from the
+  fetched lists are persisted as popularity assertions (#485) — that is ranking
+  evidence, not a stored collection.
 - **Recorded rejections.** 4read «Популярне» as a collection (already an Огляд
   section row — duplicate affordance), sluhay.com (challenge wall,
   session-bound), lihtar.in.ua (no top page found), OpenLibrary monthly
@@ -106,7 +108,8 @@ sluhay.com.ua).
 
 - New screens, components or per-collection affordances (refresh button,
   follow/subscribe, notifications about a changed list).
-- Persisting live lists to Room or syncing them across devices.
+- Persisting live match results to Room or syncing them across devices
+  (rank signals as popularity assertions are in scope, #485).
 - Fetching beyond page 1 of either endpoint.
 - New static award assets; a 4read «Популярне» collection; sluhay.com and
   lihtar sources; OpenLibrary monthly/hourly variants; API-key providers

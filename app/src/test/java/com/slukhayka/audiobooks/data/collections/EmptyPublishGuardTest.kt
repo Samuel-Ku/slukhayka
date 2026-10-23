@@ -65,11 +65,13 @@ class EmptyPublishGuardTest {
     }
 
     @Test
-    fun `the gate refuses through the same store seam`() = runBlocking {
-        val gate = PublicCollectionsGate(InMemorySharedCollections())
+    fun `the gate returns the store refusal unchanged, it invents no document`() = runBlocking {
+        val store = InMemorySharedCollections()
+        val gate = PublicCollectionsGate(store)
 
         val result = gate.publish(collection(emptyList()), author, "Читач")
 
         assertEquals(PublishResult.Refused("no-books"), result)
+        assertTrue(store.publishedBy(author).isEmpty())
     }
 }

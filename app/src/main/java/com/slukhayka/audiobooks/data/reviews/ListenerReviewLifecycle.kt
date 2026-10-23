@@ -60,9 +60,7 @@ data class ListenerReviewState(
     val visible: List<ListenerReview>
         get() = (
             confirmed.filterNot {
-                documentIdOf(it) in pending ||
-                    documentIdOf(it) in deleting ||
-                    documentIdOf(it) in deletedDocuments
+                documentIdOf(it) in pending || documentIdOf(it) in deleting
             } +
                 pending.values
             ).sortedByDescending { it.createdAt }
@@ -92,6 +90,9 @@ data class ListenerReviewState(
  *   editor, and a FAILED delete restores the confirmed card and stays visible;
  * - retry resends the EXACT failed payload and never a newer local draft;
  * - a failed read keeps the last confirmed snapshot; a genuine empty clears it;
+ * - a successfully deleted document stays invisible to reads that were already
+ *   in flight (a session tombstone), and a PUBLISHED replacement clears that
+ *   tombstone while a FAILED one keeps the deleted card hidden;
  * - cancellation of the awaiting coroutine never revokes a write that was
  *   already accepted locally — Firestore local persistence stays the only
  *   durable queue, and no second outbox is introduced.
@@ -320,8 +321,7 @@ class ListenerReviewLifecycle(
                 pending = it.pending + (documentId to review),
                 deleting = it.deleting - documentId,
                 failedSave = it.failedSave - documentId,
-                failedDelete = it.failedDelete - documentId,
-                deletedDocuments = it.deletedDocuments - documentId
+                failedDelete = it.failedDelete - documentId
             )
         }
 
@@ -378,6 +378,9 @@ class ListenerReviewLifecycle(
                 _state.update { current ->
                     current.copy(
                         pending = current.pending - documentId,
+                        // #1226 — the replacement review is now the truth; a
+                        // stale read may no longer resurrect the deleted one.
+                        deletedDocuments = current.deletedDocuments - documentId,
                         confirmed = (
                             current.confirmed.filterNot {
                                 ListenerReviewCodec.documentId(it.workId, it.uid) == documentId

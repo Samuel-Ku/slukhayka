@@ -396,6 +396,57 @@ class ListenerReviewLifecycleTest {
         assertTrue(lifecycle.state.value.visible.isEmpty())
     }
 
+    /**
+     * #1407 follow-up (review nit 1) — a FAILED save after a delete must not
+     * release the tombstone: a stale read would otherwise restore the ghost.
+     */
+    @Test
+    fun `a failed save after a delete cannot be resurrected by a stale read`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L))
+        store.acknowledgements.add(CompletableDeferred(ReviewRemoteResult.FAILED))
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+        assertEquals(ReviewDeleteResult.DELETED, lifecycle.delete("w1", "u1"))
+
+        assertEquals(
+            ReviewSaveResult.FAILED,
+            lifecycle.save("w1", "u1", "Читач", 5, null, null, null)
+        )
+
+        // A read started before the save verdict still carries the old row.
+        store.seed(review("u1", createdAt = 10L))
+        lifecycle.refresh("w1")
+
+        assertTrue(lifecycle.state.value.confirmed.isEmpty())
+        assertTrue(lifecycle.state.value.visible.isEmpty())
+        assertEquals(setOf(documentId), lifecycle.state.value.deletedDocuments)
+    }
+
+    /**
+     * #1407 follow-up (review nit 1) — a PUBLISHED replacement is the new truth,
+     * so the tombstone is released for that document.
+     */
+    @Test
+    fun `a published replacement clears the delete tombstone`() = runTest {
+        val store = FakeStore()
+        store.seed(review("u1", createdAt = 10L))
+        val lifecycle = ListenerReviewLifecycle(store, now = { 100L })
+        lifecycle.open("w1", "u1")
+        lifecycle.refresh("w1")
+        assertEquals(ReviewDeleteResult.DELETED, lifecycle.delete("w1", "u1"))
+
+        assertEquals(
+            ReviewSaveResult.PUBLISHED,
+            lifecycle.save("w1", "u1", "Читач", 4, "Новий відгук", null, null)
+        )
+
+        assertTrue(lifecycle.state.value.deletedDocuments.isEmpty())
+        assertEquals(listOf(4), lifecycle.state.value.confirmed.map { it.rating })
+        assertEquals(listOf(4), lifecycle.state.value.visible.map { it.rating })
+    }
+
     @Test
     fun `a failed delete restores the confirmed card and stays retryable`() = runTest {
         val store = FakeStore()

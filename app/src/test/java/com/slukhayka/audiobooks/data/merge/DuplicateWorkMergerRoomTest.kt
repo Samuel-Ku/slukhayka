@@ -113,7 +113,7 @@ class DuplicateWorkMergerRoomTest {
         dao.insertPlaybackEvent(PlaybackEventEntity(bookId = RAW_ID, kind = "RESUME", timestamp = 1L))
     }
 
-    private fun merger() = DuplicateWorkMerger(dao) { block -> db.withTransaction { block() } }
+    private fun merger() = DuplicateWorkMerger(dao, ManualWorkMergeGate(db)) { block -> db.withTransaction { block() } }
 
     private suspend fun assertPairPreserved() {
         val ids = dao.getAllAudiobooksOnce().map { it.id }.toSet()
@@ -192,7 +192,7 @@ class DuplicateWorkMergerRoomTest {
     fun `download proof is reread inside the merge transaction`() = runBlocking {
         seedDuplicatePair()
         val saved = dao.getTracksForBookSync(RAW_ID).single().copy(localFilePath = "/late/chapter.mp3")
-        val guarded = DuplicateWorkMerger(dao) { block ->
+        val guarded = DuplicateWorkMerger(dao, ManualWorkMergeGate(db)) { block ->
             dao.insertTracks(listOf(saved))
             db.withTransaction { block() }
         }

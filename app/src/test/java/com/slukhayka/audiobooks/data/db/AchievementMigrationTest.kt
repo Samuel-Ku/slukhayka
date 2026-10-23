@@ -52,7 +52,7 @@ class AchievementMigrationTest {
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
             .addMigrations(
                 AudiobookDatabase.MIGRATION_50_51, AudiobookDatabase.MIGRATION_51_52,
-                AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54
+                AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55
             )
             .allowMainThreadQueries().build()
         try {

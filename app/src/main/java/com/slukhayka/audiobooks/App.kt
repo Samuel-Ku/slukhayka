@@ -80,6 +80,7 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationPreferences
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
+import com.slukhayka.audiobooks.data.merge.ManualWorkMergeGate
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
@@ -1445,6 +1446,9 @@ class App : Application() {
         LibraryCoverResolver(database.audiobookDao(), sharedMetaStore)
     }
 
+    /** Manual commands and the automatic merger share the same live-Room Book gate. */
+    val manualWorkMergeGate: ManualWorkMergeGate by lazy { ManualWorkMergeGate(database) }
+
     /**
      * Spec-27 (#184) BUG-002 — the one-time duplicate-Work merge runner.
      * Collapses library rows that share a hardened merge key (SEO-suffix
@@ -1452,7 +1456,7 @@ class App : Application() {
      * surviving card. Idempotent by construction and best-effort.
      */
     val duplicateWorkMerger: DuplicateWorkMerger by lazy {
-        DuplicateWorkMerger(database.audiobookDao()) { block ->
+        DuplicateWorkMerger(database.audiobookDao(), manualWorkMergeGate) { block ->
             database.withTransaction { block() }
         }
     }

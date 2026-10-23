@@ -52,15 +52,14 @@ interface AudiobookDao {
     }
 
     /**
-     * ADR-0009: every read returns the JOINed [BookRow] — Room does not
+     * ADR-0009 — every read returns the JOINed [BookRow]; Room does not
      * hydrate `@Ignore` projections, so the modules map the row back to
      * [AudiobookEntity] at their read boundary.
-     */
-    /**
-     * ADR-0063 — the personal library projection. Only links the listener
-     * began with Personal Intent are "my books"; a technical materialization
-     * or an automatic catalogue row keeps its anchor but never renders here.
-     * The origin names come from the ONE SQL constant beside
+     *
+     * ADR-0063 — this projection is the PERSONAL library: only links the
+     * listener began with Personal Intent are "my books". A technical
+     * materialization or an automatic catalogue row keeps its anchor but never
+     * renders here. The origin names come from the ONE SQL constant beside
      * [com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy].
      */
     @Query(BOOK_SELECT + " WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC")
@@ -74,6 +73,10 @@ interface AudiobookDao {
      */
     @Query(BOOK_SELECT + " ORDER BY a.title ASC")
     fun getAllAudiobooks(): Flow<List<BookRow>>
+
+    /** ADR-0063 §5 — the personal corpus for the smart collections. */
+    @Query(BOOK_SELECT + " WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC")
+    suspend fun getPersonalAudiobooksOnce(): List<BookRow>
 
     /** One-shot read of every book — the #54 merge-suggestion pool. */
     @Query(BOOK_SELECT)
@@ -1183,18 +1186,18 @@ interface AudiobookDao {
     // --- Library Entries (ADR-0009) ----------------------------------------
 
     /**
-     * True upsert: on a fresh row everything lands; on an existing row only
-     * the link and the download progress update — the user's isFavorite and
-     * the original createdAt never reset on a re-sync. Catalogue enrichment
-     * preserves download state atomically, including concurrent queue writes.
-     */
-    /**
+     * True upsert: on a fresh row everything lands; on an existing row the
+     * link, the download columns and — for an incoming PERSONAL origin only —
+     * the origin update, while the user's isFavorite and the original createdAt
+     * never reset on a re-sync. Catalogue enrichment preserves download state
+     * atomically, including concurrent queue writes.
+     *
      * ADR-0063 — the "this book is in the library" write. Its default origin is
      * Personal Intent because the three doorways that call it
      * (submitted link, YouTube submission, local import) are explicit; the ONE
      * automatic caller (the catalogue-section mirror) passes
-     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC]
-     * and can never downgrade a personal row.
+     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC],
+     * and the conflict arm below can never downgrade a personal row.
      */
     @Query(
         "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState, origin) " +
@@ -1202,8 +1205,13 @@ interface AudiobookDao {
             "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, " +
             "downloadProgress = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadProgress ELSE excluded.downloadProgress END, " +
             "downloadState = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadState ELSE excluded.downloadState END, " +
-            "origin = CASE WHEN library_entries.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
-            "THEN library_entries.origin ELSE excluded.origin END"
+            // ADR-0063 §2/§9 — an AUTOMATIC pass may never rewrite a row it
+            // did not create: only an incoming PERSONAL origin changes the
+            // fact (the §4 upgrade on explicit intent). Without this, a
+            // catalogue refresh would flip a legacy UNKNOWN row to CATALOG_SYNC
+            // and drop it out of «Імпортоване» without the listener deciding.
+            "origin = CASE WHEN excluded.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
+            "THEN excluded.origin ELSE library_entries.origin END"
     )
     suspend fun upsertLibraryEntry(
         id: String,

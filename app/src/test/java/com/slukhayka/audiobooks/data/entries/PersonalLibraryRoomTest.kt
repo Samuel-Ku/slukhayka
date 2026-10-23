@@ -186,4 +186,65 @@ class PersonalLibraryRoomTest {
             LibraryEntryOriginPolicy.isPersonal(LibraryEntryOrigin.CATALOG_SYNC)
         )
     }
+
+    /**
+     * ADR-0063 §9 — an automatic catalogue write must never rewrite a legacy
+     * row's origin. Before the fix, `upsertLibraryEntry`'s conflict arm reset
+     * any non-personal origin to the incoming one, so the next Огляд refresh
+     * flipped `UNKNOWN` to `CATALOG_SYNC` and dropped the row out of
+     * «Імпортоване» without the listener deciding.
+     */
+    @Test
+    fun `a catalogue upsert never rewrites a legacy UNKNOWN row`() = withDatabase { database ->
+        seedBook(database, "legacy", LibraryEntryOrigin.UNKNOWN)
+        val dao = database.audiobookDao()
+
+        dao.upsertLibraryEntry(
+            id = "legacy",
+            workId = "legacy",
+            isFavorite = false,
+            createdAt = 9L,
+            downloadProgress = 0f,
+            origin = LibraryEntryOrigin.CATALOG_SYNC.name
+        )
+
+        assertEquals("UNKNOWN", dao.libraryEntryById("legacy")!!.origin)
+        assertEquals(
+            "the row still waits for the listener in «Імпортоване»",
+            listOf("legacy"),
+            dao.triageRowsWithOrigin("UNKNOWN").map { it.bookId }
+        )
+        assertTrue("and it is still not personal", dao.getPersonalAudiobooksOnce().isEmpty())
+    }
+
+    /**
+     * #1397 — saving an already downloaded technical book must not report 0 %:
+     * the entry is created with `downloadProgress = 1f` when the audiobooks row
+     * is downloaded (ADR-0014 — honest numbers).
+     */
+    @Test
+    fun `saving a downloaded book keeps an honest 100 percent`() = withDatabase { database ->
+        seedBook(database, "downloaded", LibraryEntryOrigin.TECHNICAL_OPEN, isDownloaded = true)
+        val entries = LibraryEntries(database.audiobookDao(), emptyList())
+
+        assertTrue(entries.saveToLibrary("downloaded"))
+
+        val row = database.audiobookDao().libraryEntryById("downloaded")!!
+        assertEquals("EXPLICIT_SAVE", row.origin)
+        assertEquals(1f, row.downloadProgress, 0.0001f)
+    }
+
+    /**
+     * #1397 — the smart-collections corpus (ADR-0063 §5) is the personal shelf,
+     * so a hidden technical anchor must not join a collection.
+     */
+    @Test
+    fun `the personal corpus excludes a technical anchor`() = withDatabase { database ->
+        seedBook(database, "mine", LibraryEntryOrigin.EXPLICIT_SAVE)
+        seedBook(database, "mirror", LibraryEntryOrigin.TECHNICAL_OPEN)
+
+        val corpus = database.audiobookDao().getPersonalAudiobooksOnce().map { it.id }
+
+        assertEquals(listOf("mine"), corpus)
+    }
 }

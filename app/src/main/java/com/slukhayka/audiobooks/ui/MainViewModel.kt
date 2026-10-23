@@ -5526,7 +5526,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     val catalogDownloadProgress: StateFlow<Map<String, Float>> = combine(
         _catalogDownloadingKeys,
-        libraryEntries.allBooks
+        // ADR-0063 — a catalogue card may be a TECHNICAL materialization, so
+        // this mirror-facing flow reads every materialized book, not the
+        // personal shelf.
+        libraryEntries.materializedBooks
     ) { keys, books ->
         keys.associateWith { key ->
             books.firstOrNull { book ->
@@ -5540,7 +5543,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * CloudDone instead of the download affordance). Matched on the same
      * identity the union cards use — merge key, else source url.
      */
-    val catalogDownloadedKeys: StateFlow<Set<String>> = libraryEntries.allBooks
+    val catalogDownloadedKeys: StateFlow<Set<String>> = libraryEntries.materializedBooks
         .map { books ->
             books.asSequence()
                 .filter { it.isDownloaded }

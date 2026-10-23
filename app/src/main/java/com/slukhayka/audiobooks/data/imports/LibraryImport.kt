@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
+import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
@@ -319,12 +320,21 @@ class LibraryImport(
                 // ADR-0063 — the anchor row links the book to its Work and
                 // carries the origin fact. A non-personal origin keeps it
                 // hidden from every personal surface (and out of «Імпортоване»);
-                // it is a relational anchor, not a library choice.
-                dao.insertLibraryEntryWithOrigin(
+                // it is a relational anchor, not a library choice. It goes
+                // through the UPSERT, not `INSERT OR REPLACE`: when the Edition
+                // lookup missed but the bookId is the same (blank merge key, a
+                // changed narrator/language claim), the conflict arm preserves
+                // the listener's isFavorite/createdAt/download columns and never
+                // downgrades a personal origin.
+                dao.upsertLibraryEntry(
                     id = bookId,
                     workId = workId,
-                    origin = origin.name,
-                    createdAt = System.currentTimeMillis()
+                    isFavorite = false,
+                    createdAt = System.currentTimeMillis(),
+                    downloadProgress = 0f,
+                    downloadState = DownloadState.IDLE,
+                    preserveExistingDownloads = true,
+                    origin = origin.name
                 )
                 if (writesEntry) {
                     // #581 W0.3 — the honest moment for the cloud: the Work

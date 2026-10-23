@@ -383,7 +383,7 @@ interface AchievementDao {
      * universe and collection rules read.
      *
      * OWN means the listener really saved or imported the row (ADR-0060): an
-     * AUTO_SEED / CATALOG_SYNC / UNKNOWN entry is a mirror of the catalogue,
+     * AUTO_SEED / CATALOG_SYNC / TECHNICAL_OPEN / UNKNOWN entry is a mirror of the catalogue,
      * not a choice, so it can neither complete a series nor cover a curated
      * collection. The filter is [PERSONAL_ORIGIN_SQL_LIST] — the same rule
      * [observeExplicitBooks] counts, spelled once beside

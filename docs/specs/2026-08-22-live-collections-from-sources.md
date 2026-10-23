@@ -21,7 +21,7 @@ sluhay.com.ua).
 колекцій (ADR-0013): «ТОП-100 sound-books» із серверно відрендереної топ-
 сторінки sound-books.net та «Популярне у sluhay.com.ua» з ендпоінта каталогу,
 відсортованого за завантаженнями. Обидві їдуть спільним HTTP-транспортом,
-годують той самий `CollectionMatcher` проти каталожного union на тих самих
+годують той самий `CollectionMatcher` проти Медіатеки (ADR-0041) на тих самих
 тригерах оновлення, з'являються на екрані «Колекції» й блоці Огляду без жодних
 змін UI; контракт best-effort (збій → нема колекції) і TTL-кеш per source —
 як в існуючого живого списка.
@@ -124,6 +124,7 @@ sluhay.com.ua).
   `bookAuthor` JSON behind the XHR gate — the same gate as the adapter's other
   endpoints, documented since spec-11.
 - The lists are provenance-bearing Metadata Assertions about Works: they claim
-  membership, the local matcher decides against the union, nothing is stored.
+  membership, the local matcher decides against the Медіатека; only rank signals
+  are stored, as popularity assertions (#485).
 - On landing, CONTEXT.md's «Live collections» paragraph gains the two new
   sources' names — domain doc updated together with code per CONTRIBUTING.

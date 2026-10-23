@@ -145,15 +145,17 @@ _Avoid_: Series, volume file
 **Добірка слухача** (Listener Collection):
 Локально створена слухачем добірка книжок: назва, необов'язковий опис і
 книжки в порядку додавання, з необов'язковою короткою причиною на кожну.
-Локально кількість не обмежена; публікація відмовляє порожню добірку, порожній
-псевдонім або недоступний shared-шар, а з опублікованої публікуються перші 500
+Локально кількість не обмежена; публікація не приймає порожню добірку,
+порожній псевдонім або відсутній shared-шар, а публікуються перші 500
 книжок. Чернетка живе лише на пристрої; публікація під псевдонімом — окрема
 явна дія, після якої добірку видно іншим, можна оцінити, поскаржитись або
 форкнути з атрибуцією. Порядок книжок — порядок додавання, тобто подача
 належить слухачеві. Член добірки — `bookId`, а не Library Entry: книжка поза
-локальною бібліотекою теж допустима й чесно позначається як така. Це не
-кураторська колекція, не Recommendation Set (алгоритмічні персональні
-добірки), не Series і не Listening State (spec-51).
+локальною бібліотекою теж допустима й на опублікованій поверхні чесно
+позначається як така (локальна сторінка поки показує сирий id — відома
+прогалина). Це не кураторська колекція, не Recommendation Set (алгоритмічні
+персональні добірки), не Series і не Listening State (спека «добірки
+слухачів», 2026-09-10).
 _Avoid_: Полиця, Shelf, тег, папка, плейлист, «розумна добірка», кураторська
 колекція, персональна добірка
 
@@ -163,15 +165,16 @@ _Avoid_: Полиця, Shelf, тег, папка, плейлист, «розум
 (Нобелівські лауреати, Шевченківська премія, Букер); **Live collections** —
 рейтинги, які тягнуться з джерел на оновленні каталогу (spec-37). Означення й
 поведінка кожного типу — в їхніх статтях нижче; тут лише спільна межа.
-Обидва локально відмачуються до Медіатеки (ADR-0041): результати матчингу не
+Обидва локально матчаться до Медіатеки (ADR-0041): результати матчингу не
 зберігаються, порожня колекція не показується. Рангові сигнали живих списків
 можуть зберігатися як popularity assertions (#485). Це не «Добірка слухача» й
 не Recommendation Set.
 _Avoid_: добірка слухача, редагована колекція, «моя колекція», збережені
 результати матчингу
-_Note_: у коді `curator*` (`curator_collections`, `CuratorIdentity`, «профіль
+У коді `curator*` (`curator_collections`, `CuratorIdentity`, «профіль
 куратора») — це ОПУБЛІКОВАНІ добірки слухача, інший сенс; кураторські
-колекції живуть у `CollectionAssets`/`CollectionMatcher`.
+колекції живуть у `CollectionAssets`/`CollectionMatcher`. Третій, не
+пов'язаний сенс — «куратор» як модератор надходжень у «Черзі модерації».
 
 ## Source access (spec #425/#426, v1.3.7)
 
@@ -597,7 +600,7 @@ _Avoid_: network lists, Room persistence of match results, a collection row for 
 
 **Live collections**:
 The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll` against the Media Library; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
-_Avoid_: raw connections in live sources, live lists persisted to Room
+_Avoid_: raw connections in live sources, live lists persisted to Room as a collection row
 
 ## Discovery surfaces (spec-28)
 

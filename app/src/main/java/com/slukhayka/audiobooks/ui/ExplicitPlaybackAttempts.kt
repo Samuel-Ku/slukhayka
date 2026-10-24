@@ -51,6 +51,15 @@ class ExplicitPlaybackAttempts(
     fun isCurrent(attempt: Attempt): Boolean = current?.id == attempt.id
 
     /**
+     * #1241 — a player clear or a record deletion after preparation started
+     * invalidates it: its result must not reopen the player or restore deleted
+     * audio. A later gesture starts a new attempt and supersedes it anyway.
+     */
+    fun supersede() {
+        current = null
+    }
+
+    /**
      * A successful preparation installs [installedBookId] (the replacement
      * mapping may have swapped the Edition): only the current attempt may arm
      * recovery, and only for the book that was actually installed.

@@ -5394,6 +5394,11 @@ class MainViewModel @JvmOverloads constructor(
                     progressChapterId = anchoredProgress?.chapterId
                 )
             }
+            // #1241 — ownership covers the WHOLE preparation: a slower attempt
+            // that a newer gesture superseded must not consume the pause marker
+            // or install its queue.
+            if (attempt != null && !playbackStartSeam.isCurrent(attempt)) return
+
             // ADR-0007: the pause marker lives on the Edition's progress row;
             // cleared so the same pause never rewinds twice.
             if (progress?.lastPausedAtEpochMs != null) {
@@ -5401,6 +5406,9 @@ class MainViewModel @JvmOverloads constructor(
             }
 
             withContext(Dispatchers.Main) {
+                // #1241 — re-check on the install thread: a newer gesture may
+                // have won while the preparation finished.
+                if (attempt != null && !playbackStartSeam.isCurrent(attempt)) return@withContext
                 if (autoPlay) {
                     // #1240 — the failure was cleared at the gesture's start
                     // seam; here the successful preparation arms recovery for
@@ -5975,6 +5983,8 @@ class MainViewModel @JvmOverloads constructor(
      * catalogue. Requires an explicit confirmation dialog in the UI.
      */
     fun deleteBook(bookId: String) {
+        // #1241 — deleting the record invalidates any in-flight preparation.
+        playbackStartSeam.supersede()
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }
@@ -5993,6 +6003,8 @@ class MainViewModel @JvmOverloads constructor(
      * the action is reversible by re-adding the book.
      */
     fun removeFromLibrary(bookId: String) {
+        // #1241 — an in-flight preparation for this record must not resurrect it.
+        playbackStartSeam.supersede()
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }

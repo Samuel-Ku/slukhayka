@@ -61,6 +61,14 @@ class ExplicitPlaybackAttemptsTest {
     }
 
     @Test
+    fun `supersede invalidates an in-flight preparation`() {
+        val attempt = attempts.begin("book", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede()
+        assertFalse(attempts.isCurrent(attempt))
+        assertFalse(attempts.armOnSuccess(attempt, "book"))
+    }
+
+    @Test
     fun `the attempt records its kind and the book it was started for`() {
         val attempt = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.BOOKMARK)
         assertEquals("edition-a", attempt.bookId)

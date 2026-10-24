@@ -106,7 +106,7 @@ import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
-import com.slukhayka.audiobooks.ui.library.libraryIndexOfBook
+import com.slukhayka.audiobooks.ui.library.LibraryReturnFocusEffect
 import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
 import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
@@ -438,32 +438,30 @@ fun LibraryScreen(
             }
     }
 
-    LaunchedEffect(
-        restoreFocusBookId,
-        gridEntries,
-        libraryBooks,
-        activeTab,
-        modalVisible
-    ) {
-        val bookId = restoreFocusBookId ?: return@LaunchedEffect
-        if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        // The book may be the hero card rather than a row: the projection's own
-        // mapping asks every entry.
-        val visibleIndex = libraryIndexOfBook(gridEntries, bookId)
-        when {
-            visibleIndex >= 0 -> {
-                libraryGridState.scrollToItem(visibleIndex)
-                withFrameNanos { }
-                bookReturnFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-            libraryBooks.isNotEmpty() -> {
-                withFrameNanos { }
-                libraryHeadingFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-        }
+    // #1285 — ONE resolved anchor for both the effect and the renderer. The
+    // renderer attaches the focus requester to the card it draws, so it must be
+    // told the card's SHOWN narration id; the token may be a narration that is
+    // no longer drawn (the Work's primary changed while the details were open).
+    // Resolving here, once, keeps the attachment and the scroll target equal by
+    // construction instead of letting `requestFocus()` throw on an uninitialised
+    // requester.
+    val returnAnchorIndex = remember(restoreFocusBookId, gridEntries, libraryProjection) {
+        restoreFocusBookId?.let { libraryProjection.indexOfReturnAnchor(gridEntries, it) } ?: -1
     }
+    val returnAnchorBookId = gridEntries.getOrNull(returnAnchorIndex)?.shownBook?.book?.id
+    // The effects stay in the UI adapter; the RULES (which entry is the anchor,
+    // including a Work whose primary narration changed) live in the projection.
+    LibraryReturnFocusEffect(
+        anchorIndex = returnAnchorIndex,
+        restoreFocusBookId = restoreFocusBookId,
+        activeTab = activeTab,
+        modalVisible = modalVisible,
+        hasBooks = libraryBooks.isNotEmpty(),
+        gridState = libraryGridState,
+        bookFocusRequester = bookReturnFocusRequester,
+        headingFocusRequester = libraryHeadingFocusRequester,
+        onBookFocusRestored = onBookFocusRestored
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         LibraryModalUnderlay(
@@ -658,7 +656,9 @@ fun LibraryScreen(
                             shape = libraryProjection.shape,
                             availability = libraryAvailability,
                             downloadCounts = bookDownloadCounts,
-                            restoreFocusBookId = restoreFocusBookId,
+                            // #1285 — the RESOLVED card's shown narration, not
+                            // the raw token: see returnAnchorBookId above.
+                            restoreFocusBookId = returnAnchorBookId,
                             bookReturnFocusRequester = bookReturnFocusRequester,
                             awaitingSubmissionBookIds = awaitingSubmissionBookIds,
                             submissionBadges = submissionBadges,

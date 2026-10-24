@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -14,12 +15,20 @@ SHA = {
 }
 
 
+def clean_git_env():
+    """A pre-commit hook may export GIT_DIR/GIT_WORK_TREE; the temp clone must not see them."""
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
 def run(args, cwd=None):
+    # GIT_DIR from a pre-commit hook would point the script at the OUTER repo,
+    # not at the temp clone the remote-derivation test creates.
     return subprocess.run(
         ["python3", str(SCRIPT), *args],
         capture_output=True,
         text=True,
         cwd=cwd or REPO_ROOT,
+        env=clean_git_env(),
     )
 
 
@@ -187,10 +196,11 @@ class PrSnapshotTest(unittest.TestCase):
     def test_repo_is_derived_from_the_git_remote(self):
         work = self.root / "clone"
         work.mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+        env = clean_git_env()
+        subprocess.run(["git", "init", "-q"], cwd=work, check=True, env=env)
         subprocess.run(
             ["git", "remote", "add", "origin", "git@github.com:Owner/Name.git"],
-            cwd=work, check=True,
+            cwd=work, check=True, env=env,
         )
         fixture = self.fixture([pull(10)])
 

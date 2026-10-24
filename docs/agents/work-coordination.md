@@ -55,7 +55,8 @@ worktree та базовий commit; резервування лишається
 ## Знімок відкритих PR (#1228)
 
 Перед вибором роботи один read-only виклик показує всі відкриті PR, їхні точні
-SHA, стан checks, пов'язані issue, локальні резервування й останній коментар:
+base/head SHA, стан checks, пов'язані issue, локальні резервування й останній
+коментар:
 
 ```
 python3 scripts/pr-snapshot.py                       # компактний вивід
@@ -66,14 +67,19 @@ python3 scripts/pr-snapshot.py --expect-head 1415=<sha>    # чи не зруш�
 Приклад:
 
 ```
-snapshot: 2026-10-24T10:14:00+00:00 repo=Samuel-Ku/slukhayka prs=2
-#1412 ready base=main head=1c77ab5 checks=18ok/0fail/0pend/1skip issues=#1410 last-comment=Samuel-Ku@2026-10-24 reservation=absent
-#1415 draft base=main head=ab16926 checks=17ok/0fail/1pend issues=#1242 last-comment=alice@2026-10-24 reservation=alice:prepared-reserved flags=changes-requested
+snapshot: 2026-10-24T11:00:00+00:00 repo=Samuel-Ku/slukhayka prs=2
+#1412 ready base=main@3d32e9c1… head=1c77ab5a… checks=18ok/0fail/0pend/1skip issues=#1410 reservation=absent last-comment=#1410:Samuel-Ku@2026-10-24 divergence=comment-only
+#1415 draft base=main@85da0577… head=ab169264… checks=17ok/0fail/1pend issues=#1242 reservation=alice:prepared-reserved last-comment=#1242:alice@2026-10-24 divergence=both flags=changes-requested
 ```
+
+(SHA у прикладі скорочено для читабельності; скрипт друкує повні 40 символів.)
 
 - `checks=unknown` означає, що GitHub не віддав checks — це не «все зелене».
 - `reservation=absent` означає «локального запису немає», а не «тікет вільний»:
   перед стартом однаково перевір GitHub-коментарі (див. вище).
+- `divergence=comment-only` — GitHub уже має коментар про роботу, а локальний
+  реєстр мовчить; `local-only` — навпаки; `both` — обидва боки знають.
+- `truncated:` — `gh` повернув рівно ліміт (1000) PR, список може бути неповним.
 - `head-drift:` і код виходу 4 — кандидат зрушив після вашого рішення.
 - Код 3 — GitHub недоступний; порожній стан ніколи не видається за «PR немає».
 - Скрипт нічого не змінює: ні git, ні індекс, ні worktree, ні резервування,

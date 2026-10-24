@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "prepare": "git config core.hooksPath web/.husky || true"
   },
   "dependencies": {
     "css-select": "^7.0.0",

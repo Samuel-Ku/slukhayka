@@ -43,9 +43,9 @@ class ImportCorrectionsFlowTest {
         assertEquals(0, reads)
     }
 
-    @Test fun `an in-flight apply blocks confirm, cancel and edits`() {
+    private fun validPlan(): ImportPlan {
         val file = LocalAudioEntry("00.mp3", null) { ByteArrayInputStream(byteArrayOf(1)) }
-        val plan = ImportPlanner.editBook(
+        return ImportPlanner.editBook(
             ImportPlanner.buildPlan(
                 SourceRef.Folder("content://tree", grouping = LocalFolderGrouping.ONE_BOOK),
                 listOf(file)
@@ -53,15 +53,40 @@ class ImportCorrectionsFlowTest {
             "root-folder",
             title = "Моя книга"
         )
+    }
+
+    @Test fun `an in-flight apply blocks confirm and cancel`() {
+        val plan = validPlan()
+        var confirmed = 0
         compose.setContent { AudiobookTheme {
             ImportPreviewDialog(
                 MainViewModel.ImportPreviewState(plan, "content://tree", applying = true),
-                {}, {}, { _, _ -> }, { _, _ -> }, {}, {}
+                {}, {}, { _, _ -> }, { _, _ -> }, { confirmed++ }, {}
             )
         } }
-        compose.onNodeWithTag("library_import_preview_busy").assertExists()
-        compose.onNodeWithTag("library_import_preview_confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("library_import_preview_busy").assertIsDisplayed()
+        compose.onNodeWithTag("library_import_preview_confirm").assertIsNotEnabled().performClick()
         compose.onNodeWithTag("library_import_preview_cancel").assertIsNotEnabled()
+        assertEquals("a blocked confirm writes nothing", 0, confirmed)
+    }
+
+    @Test fun `a failed apply keeps the plan and offers an explicit retry`() {
+        val plan = validPlan()
+        var confirmed = 0
+        compose.setContent { AudiobookTheme {
+            ImportPreviewDialog(
+                MainViewModel.ImportPreviewState(
+                    plan,
+                    "content://tree",
+                    retryable = true,
+                    failureReason = "disk full"
+                ),
+                {}, {}, { _, _ -> }, { _, _ -> }, { confirmed++ }, {}
+            )
+        } }
+        compose.onNodeWithTag("library_import_preview_retry_body").assertIsDisplayed()
+        compose.onNodeWithTag("library_import_preview_confirm").assertIsEnabled().performClick()
+        assertEquals("the retry goes through the same confirm door", 1, confirmed)
     }
 
     @Test fun `planned merge requires an explicit target even when titles match and restores focus`() {

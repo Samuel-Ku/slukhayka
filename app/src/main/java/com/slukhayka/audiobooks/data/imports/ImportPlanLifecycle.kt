@@ -29,6 +29,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * `LibraryImport.applyImportPlan`, the only writer), and grouping/dedup/
  * transactions/rollback/rescan rules stay where they are. ADR-0008: the shared
  * ViewModel keeps the orchestration; this is a pure state module it reads.
+ *
+ * Callers are confined to the main thread today (UI callbacks and the shared
+ * ViewModel's main-thread entry points), and every transition is a compare-and-
+ * set anyway: a second concurrent [beginApply] loses the race instead of
+ * producing a second write, so the invariant does not depend on that accident.
  */
 class ImportPlanLifecycle(
     private val applyPlan: suspend (plan: ImportPlan, treeUri: String) -> LocalImportResult
@@ -92,12 +97,15 @@ class ImportPlanLifecycle(
      *
      * @return false while a confirmed write is in flight: that is not a cancel.
      */
-    fun dismiss(): Boolean = when (_state.value) {
-        is State.Editing, is State.Failed -> {
-            _state.value = State.Idle
-            true
+    fun dismiss(): Boolean {
+        while (true) {
+            val current = _state.value
+            when (current) {
+                is State.Editing, is State.Failed ->
+                    if (_state.compareAndSet(current, State.Idle)) return true
+                is State.Applying, State.Idle -> return false
+            }
         }
-        is State.Applying, State.Idle -> false
     }
 
     /**
@@ -107,22 +115,26 @@ class ImportPlanLifecycle(
      * @return null when no apply may start (already applying, or no plan).
      */
     fun beginApply(): ApplyRequest? {
-        val current = _state.value
-        val plan: ImportPlan
-        val treeUri: String
-        when (current) {
-            is State.Editing -> {
-                plan = current.plan
-                treeUri = current.treeUri
+        while (true) {
+            val current = _state.value
+            val plan: ImportPlan
+            val treeUri: String
+            when (current) {
+                is State.Editing -> {
+                    plan = current.plan
+                    treeUri = current.treeUri
+                }
+                is State.Failed -> {
+                    plan = current.plan
+                    treeUri = current.treeUri
+                }
+                is State.Applying, State.Idle -> return null
             }
-            is State.Failed -> {
-                plan = current.plan
-                treeUri = current.treeUri
+            if (_state.compareAndSet(current, State.Applying(plan, treeUri))) {
+                return ApplyRequest(plan, treeUri)
             }
-            is State.Applying, State.Idle -> return null
+            // Another caller won the transition; re-read and answer from it.
         }
-        _state.value = State.Applying(plan, treeUri)
-        return ApplyRequest(plan, treeUri)
     }
 
     /**

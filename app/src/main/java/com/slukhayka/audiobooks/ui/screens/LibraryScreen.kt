@@ -2928,6 +2928,15 @@ fun ImportPreviewDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (preview.retryable) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.lib_import_retry_body),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("library_import_preview_retry_body")
+                    )
+                }
                 if (folder != null && hasRootFiles) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -3091,7 +3100,9 @@ fun ImportPreviewDialog(
                     .testTag("library_import_preview_confirm")
             ) {
                 Text(
-                    if (mergedCount > 0) {
+                    if (preview.retryable) {
+                        stringResource(R.string.lib_import_retry)
+                    } else if (mergedCount > 0) {
                         stringResource(
                             R.string.lib_import_confirm_merged,
                             preview.plan.books.size - mergedCount,

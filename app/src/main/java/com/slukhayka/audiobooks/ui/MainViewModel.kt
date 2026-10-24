@@ -6036,6 +6036,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     _importMessage.value = OutcomeMessages.importOutcome(result)
                 }
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (e: Exception) {
+                // #1242 — the module turns a storage failure into its Failed
+                // state, but the grant store and the message builder run HERE:
+                // they must not escape the coroutine as an unhandled crash, and
+                // their stack trace must stay diagnosable (CODING_STANDARDS).
+                android.util.Log.w("MainViewModel", "Preview import failed", e)
+                _importMessage.value = "Не вдалося імпортувати папку"
             } finally {
                 // #1163 — the applied plan's private copies are now on disk, so
                 // «На пристрої» can include them on the very next frame.
@@ -6195,7 +6204,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is ImportPlanLifecycle.State.Applying ->
                     ImportPreviewState(plan = state.plan, treeUri = state.treeUri, applying = true)
                 is ImportPlanLifecycle.State.Failed ->
-                    ImportPreviewState(plan = state.plan, treeUri = state.treeUri, retryable = true)
+                    ImportPreviewState(
+                        plan = state.plan,
+                        treeUri = state.treeUri,
+                        retryable = true,
+                        failureReason = state.reason
+                    )
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -6223,7 +6237,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         /** #1242 — one confirmed write is in flight; every action is blocked. */
         val applying: Boolean = false,
         /** #1242 — the write failed without a result; the plan waits for a retry. */
-        val retryable: Boolean = false
+        val retryable: Boolean = false,
+        /** #1242 — why the write failed, shown inline in the preview. */
+        val failureReason: String? = null
     )
 
     companion object {

@@ -910,6 +910,29 @@ class AudioPlayerManager(
             val engine = mediaPlayer ?: return
             // Ignore stale callbacks queued by an earlier prepare/pause.
             if (engine.isPlaying != isPlaying) return
+
+            // #1413 — the ENGINE now has a voice in the transport state.
+            //
+            // play() sets `isPlaying = true` optimistically, BEFORE the engine
+            // starts. When the stream never actually starts — the usual case
+            // is an expired signed YouTube URL after a pause — nothing ever
+            // corrected it, so the button stuck on "playing" and the listener
+            // had to tap twice (the first tap turned into an unnoticed pause).
+            //
+            // Only a settled, non-transitioning engine may correct the state:
+            // buffering is a transition (seek / next chapter / re-prepare), not
+            // a stop, and flipping the button on every seek would be a worse
+            // defect than the one being fixed.
+            if (TransportStateReconciliation.shouldClearPlayback(
+                    engineIsPlaying = engine.isPlaying,
+                    transportIsPlaying = _playerState.value.isPlaying,
+                    transportIsBuffering = _playerState.value.isBuffering,
+                    enginePlaybackState = engine.playbackState
+                )
+            ) {
+                _playerState.value = _playerState.value.copy(isPlaying = false)
+            }
+
             if (!isPlaying) { stopActualListening(); return }
             if (!_playerState.value.isPlaying || _playerState.value.isBuffering) return
             val bookId = _playerState.value.currentBook?.id ?: return
@@ -1713,7 +1736,17 @@ class AudioPlayerManager(
                 // raw second count stays as the technical detail in brackets.
                 val timeoutMessage =
                     context.getString(R.string.a11y_player_error_timeout, PREPARE_TIMEOUT_MS / 1000L)
+                // #1413 — the timeout must also STOP CLAIMING PLAYBACK. It
+                // used to write only the error text, leaving `isBuffering`
+                // and the optimistic `isPlaying = true` that play() sets
+                // before the engine starts. The transport button then showed
+                // "playing / buffering" over silence forever — exactly the
+                // stuck-play report. `shouldAutoPlay` is deliberately NOT
+                // cleared: a stream that merely needs longer than 45 s must
+                // still start on its own if it does reach READY.
                 _playerState.value = _playerState.value.copy(
+                    isBuffering = false,
+                    isPlaying = false,
                     lastErrorMsg = timeoutMessage,
                     errorKind = PlaybackErrorKind.TRANSIENT
                 )
@@ -2722,4 +2755,37 @@ class AudioPlayerManager(
         const val SEEK_BACK_INCREMENT_MS: Long = 15_000L
         const val SEEK_FORWARD_INCREMENT_MS: Long = 30_000L
     }
+
+}
+
+/**
+ * #1413 — may the ENGINE correct the transport button's state?
+ *
+ * `play()` sets `isPlaying = true` optimistically, before the engine starts,
+ * so the button responds instantly. Nothing used to correct that optimism when
+ * the stream never started — the usual case being an expired signed YouTube
+ * URL after a pause. The button then read "playing" over silence, and the
+ * listener had to tap twice: the first tap silently turned into a pause.
+ *
+ * The decision is extracted here because the listener that uses it is
+ * entangled with Media3, so this rule can be pinned by a JVM test. It is
+ * narrow on purpose:
+ *
+ *  * only a genuinely settled, NOT-playing engine may correct the state;
+ *  * buffering is a transition (seek, next chapter, re-prepare), not a stop —
+ *    flipping the button on every seek would be a worse defect than the one
+ *    being fixed;
+ *  * a transport that already reads "paused" has nothing to correct.
+ */
+internal object TransportStateReconciliation {
+    fun shouldClearPlayback(
+        engineIsPlaying: Boolean,
+        transportIsPlaying: Boolean,
+        transportIsBuffering: Boolean,
+        enginePlaybackState: Int
+    ): Boolean =
+        !engineIsPlaying &&
+            transportIsPlaying &&
+            !transportIsBuffering &&
+            enginePlaybackState != Player.STATE_BUFFERING
 }

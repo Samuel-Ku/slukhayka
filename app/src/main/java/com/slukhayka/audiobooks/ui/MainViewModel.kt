@@ -5337,9 +5337,6 @@ class MainViewModel @JvmOverloads constructor(
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
             if (libraryEntries.getBookSync(updatedBook.id) == null) return
-            // #1241 — the replacement mapping may resolve to a different
-            // Edition; a record deleted meanwhile must not be installed later.
-            if (libraryEntries.getBookSync(playbackBook.id) == null) return
             // Spec-49 T2b — player preparation asks the replacement mapping
             // once per touch: resume/auto-play of a refused-only (or
             // sourceless) book self-heals through the same resolver the card
@@ -5361,6 +5358,9 @@ class MainViewModel @JvmOverloads constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             }
+            // #1241 — the replacement mapping may resolve to a different
+            // Edition; a record deleted meanwhile must not be installed later.
+            if (libraryEntries.getBookSync(playbackBook.id) == null) return
             if (playbackBook.id != updatedBook.id) {
                 chapterStructureVersion = playerManager.chapterStructureVersion(playbackBook.id)
                 playable = try {

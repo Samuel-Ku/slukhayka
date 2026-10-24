@@ -96,14 +96,14 @@ class ExplicitPlaybackAttemptsTest {
     @Test
     fun `a player clear invalidates the in-flight preparation`() {
         val attempt = attempts.begin("edition", ExplicitPlaybackAttempts.Kind.RESUME)
-        attempts.supersede()
+        attempts.supersede("edition")
         assertFalse(attempts.shouldInstall(attempt))
     }
 
     @Test
     fun `supersede invalidates an in-flight preparation`() {
         val attempt = attempts.begin("book", ExplicitPlaybackAttempts.Kind.RESUME)
-        attempts.supersede()
+        attempts.supersede("book")
         assertFalse(attempts.isCurrent(attempt))
         assertFalse(attempts.armOnSuccess(attempt, "book"))
     }

@@ -633,8 +633,8 @@ service cloud.firestore {
         && d.publishedAt is number;
     }
 
-    // #1405 — a NEW publication is never empty: an empty document would be
-    // invisible on every honest surface and could never be repaired. The
+    // #1405 — a NEW publication is never empty: readers render an empty
+    // collection as «0 книг», so the document must not exist at all. The
     // stricter clause is for CREATE only, so a legacy document stays
     // updatable/deletable by its author.
     function isWellFormedCuratorCollection(d) {
@@ -682,6 +682,10 @@ service cloud.firestore {
       // never carried the flag may still be updated normally.
       allow update: if isAppCheckValid() && request.auth != null
         && isCuratorCollectionShape(request.resource.data)
+        // #1410 — an update may not EMPTY a live collection; only a legacy
+        // document that was already empty may be repaired through an update.
+        && (request.resource.data.bookIds.size() > 0
+            || resource.data.bookIds.size() == 0)
         && (!resource.data.keys().hasAny(['hidden'])
             || resource.data.hidden == false
             || request.resource.data.hidden == true);

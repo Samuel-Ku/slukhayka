@@ -19,7 +19,6 @@ import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.ui.screens.LibraryBookGrid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -84,13 +83,14 @@ class LibraryReturnFocusTest {
 
     private fun projection(
         rows: List<LibraryBook>,
-        query: String = ""
+        query: String = "",
+        gridMode: Boolean = false
     ) = projectLibraryBooks(
         books = rows,
         filter = LibraryFilter.ALL,
         sort = LibrarySort.TITLE,
         query = query,
-        gridMode = false,
+        gridMode = gridMode,
         denseTitle = "Усі"
     )
 
@@ -104,9 +104,10 @@ class LibraryReturnFocusTest {
         query: String,
         token: String,
         modalVisible: Boolean,
+        gridMode: Boolean = false,
         onRestored: (String?) -> Unit
     ) {
-        val projection = remember(rows, query) { projection(rows, query) }
+        val projection = remember(rows, query, gridMode) { projection(rows, query, gridMode) }
         val entries = remember(projection) { projection.entries("") }
         val anchorIndex = remember(token, entries, projection) {
             projection.indexOfReturnAnchor(entries, token)
@@ -166,6 +167,31 @@ class LibraryReturnFocusTest {
 
         composeTestRule.setContent {
             Harness(rows = rows, query = "", token = "a", modalVisible = false) { restored = it }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("library_book_item_b").assertIsFocused()
+        assertEquals("the token is consumed for the opened book", "a", restored)
+    }
+
+    @Test
+    fun `a changed primary narration focuses the same Work card in grid mode`() {
+        // #1285 AC4 — the grid mode attaches the requester on the card root,
+        // the list on the dense row: both must receive the resolved card.
+        val rows = listOf(
+            row("a", "k", narrator = "Іван", position = 10),
+            row("b", "k", narrator = "Петро", position = 95)
+        )
+        var restored: String? = null
+
+        composeTestRule.setContent {
+            Harness(
+                rows = rows,
+                query = "",
+                token = "a",
+                modalVisible = false,
+                gridMode = true
+            ) { restored = it }
         }
 
         composeTestRule.waitForIdle()

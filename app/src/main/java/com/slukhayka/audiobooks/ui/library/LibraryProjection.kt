@@ -117,9 +117,10 @@ class LibraryProjection internal constructor(
      * entry is the anchor. When the primary narration changed while the details
      * were open (the listener started another narration of the same Work), the
      * opened book is no longer the one the card SHOWS — but its Work card is
-     * still here. The card owns the book through its narrations, so the same
-     * card is found by that membership, never by guessing a narration id or
-     * rebuilding the Work grouping in the screen.
+     * still here. The book's Work key is resolved over the WHOLE library and
+     * matched against the cards' grouping keys, so the same card is found even
+     * when a filter hides the opened narration itself; never by guessing a
+     * narration id or rebuilding the Work grouping in the screen.
      *
      * @return -1 when the Work is not in this projection at all (its card is
      * hidden by the filter/search or gone): the caller keeps its heading

@@ -5996,17 +5996,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * [confirmImportPreview] writes to Room.
      */
     fun importLocalAudioFolder(uri: android.net.Uri) {
+        // #1243 — the session is fixed BEFORE the asynchronous scan, so a scan
+        // that finishes late cannot replace a newer preview.
+        val scanSession = importPlanLifecycle.beginScan()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val plan = libraryImport.planLocalAudioFolder(uri)
                 if (plan.books.isEmpty()) {
-                    _importMessage.value = "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
+                    if (importPlanLifecycle.reportScanProblem(scanSession)) {
+                        _importMessage.value = "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
+                    }
                     return@launch
                 }
-                importPlanLifecycle.begin(plan = plan, treeUri = uri.toString())
+                importPlanLifecycle.completeScan(scanSession, plan, uri.toString())
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Folder import failed", e)
-                _importMessage.value = "Не вдалося імпортувати папку"
+                if (importPlanLifecycle.reportScanProblem(scanSession)) {
+                    _importMessage.value = "Не вдалося імпортувати папку"
+                }
             }
         }
     }
@@ -6027,14 +6034,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (result == null) {
                     // The write failed without a result: the plan is kept for an
                     // explicit retry, and the listener hears that honestly.
-                    _importMessage.value = "Не вдалося імпортувати папку"
+                    if (importPlanLifecycle.isCurrent(request)) {
+                        _importMessage.value = "Не вдалося імпортувати папку"
+                    }
                 } else {
                     // wayfinder #48: remember the tree so a future rescan can
                     // re-open it without asking the user to pick again.
                     if (result.booksImported > 0 || result.duplicateFiles > 0) {
                         ImportGrantStore(getApplication()).addTreeUri(request.treeUri)
                     }
-                    _importMessage.value = OutcomeMessages.importOutcome(result)
+                    // #1243 — a late success still records its own tree grant,
+                    // but its outcome text does not pose as the newer session's.
+                    if (importPlanLifecycle.isCurrent(request)) {
+                        _importMessage.value = OutcomeMessages.importOutcome(result)
+                    }
                 }
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
@@ -6044,7 +6057,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // they must not escape the coroutine as an unhandled crash, and
                 // their stack trace must stay diagnosable (CODING_STANDARDS).
                 android.util.Log.w("MainViewModel", "Preview import failed", e)
-                _importMessage.value = "Не вдалося імпортувати папку"
+                if (importPlanLifecycle.isCurrent(request)) {
+                    _importMessage.value = "Не вдалося імпортувати папку"
+                }
             } finally {
                 // #1163 — the applied plan's private copies are now on disk, so
                 // «На пристрої» can include them on the very next frame.

@@ -46,7 +46,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.sign
 
 /**
  * #1188 — the explicit drag handle that sits BESIDE the «Вгору»/«Вниз» buttons.

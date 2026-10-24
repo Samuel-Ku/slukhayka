@@ -3279,13 +3279,12 @@ private fun BookCorrectionRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            val dragDensity = androidx.compose.ui.platform.LocalDensity.current
             book.chapters.forEachIndexed { index, chapter ->
                 // #1188 — key by the file identity so a continuing drag
                 // follows the CHAPTER, not the list slot.
                 key(chapter.file.uri ?: chapter.file.fileName) {
-                var dragRowHeightPx by remember {
-                    mutableFloatStateOf(with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() })
-                }
+                var dragRowHeightPx by remember { mutableFloatStateOf(with(dragDensity) { 48.dp.toPx() }) }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.onGloballyPositioned { dragRowHeightPx = it.size.height.toFloat() }

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
@@ -253,8 +254,9 @@ class ReorderChaptersDialogTest {
             swipe(center, center + Offset(0f, with(compose.density) { 96.dp.toPx() }), durationMillis = 200)
         }
         compose.waitForIdle()
-        compose.onNodeWithTag("chapter_order_save").performClick()
-        compose.waitForIdle()
-        assertEquals("рядок мусить лишатися скролом, не drag-ціллю", listOf("ch-1", "ch-2", "ch-3"), confirmed)
+        // The order did not move, so Save stays disabled: the row body never
+        // started a drag (that is the assertion — not a Save round-trip).
+        compose.onNodeWithTag("chapter_order_save").assertIsNotEnabled()
+        assertEquals("рядок мусить лишатися скролом, не drag-ціллю", null, confirmed)
     }
 }

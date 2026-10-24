@@ -3280,7 +3280,16 @@ private fun BookCorrectionRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             book.chapters.forEachIndexed { index, chapter ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // #1188 — key by the file identity so a continuing drag
+                // follows the CHAPTER, not the list slot.
+                key(chapter.file.uri ?: chapter.file.fileName) {
+                var dragRowHeightPx by remember {
+                    mutableFloatStateOf(with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() })
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.onGloballyPositioned { dragRowHeightPx = it.size.height.toFloat() }
+                ) {
                     Text(
                         text = "${index + 1}. ${chapter.title.ifBlank { chapter.file.fileName }}",
                         style = MaterialTheme.typography.bodySmall,
@@ -3295,6 +3304,7 @@ private fun BookCorrectionRow(
                         onMove = onMoveChapter,
                         enabled = true,
                         autoScroll = autoScroll,
+                        rowHeightPx = dragRowHeightPx,
                         modifier = Modifier.testTag("import_preview_drag_${book.id}_$index")
                     )
                     TextButton(
@@ -3321,6 +3331,7 @@ private fun BookCorrectionRow(
                         onClick = { onSplit(index) },
                         modifier = Modifier.heightIn(min = 48.dp).testTag("import_preview_split_${book.id}_$index")
                     ) { Text(stringResource(R.string.lib_import_split_here)) }
+                }
                 }
             }
         }

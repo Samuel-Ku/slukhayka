@@ -55,7 +55,17 @@ fun ChapterOrderDialog(
                     modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_reverse")
                 ) { Text(stringResource(R.string.chapter_order_reverse)) }
                 order.forEachIndexed { index, chapter ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // #1188 — stable identity per chapter: without key() a
+                    // continuing multi-step drag would follow the SLOT and move
+                    // whatever chapter now occupies it.
+                    key(chapter.id) {
+                    var rowHeightPx by remember {
+                        mutableFloatStateOf(with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() })
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.onGloballyPositioned { rowHeightPx = it.size.height.toFloat() }
+                    ) {
                         Text("${index + 1}. ${chapter.title}", modifier = Modifier.weight(1f))
                         // #1188 — one shared handle/gesture language with the
                         // import preview; arrows below remain the second path.
@@ -65,6 +75,7 @@ fun ChapterOrderDialog(
                             onMove = { from, to -> order = movedOrder(order.size, from, to).map { order[it] } },
                             enabled = !saving,
                             autoScroll = autoScroll,
+                            rowHeightPx = rowHeightPx,
                             modifier = Modifier.testTag("chapter_order_drag_${chapter.id}")
                         )
                         TextButton(

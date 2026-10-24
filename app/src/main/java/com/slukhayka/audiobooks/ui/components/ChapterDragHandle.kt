@@ -1,20 +1,30 @@
 package com.slukhayka.audiobooks.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -32,7 +42,11 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.sign
 
 /**
  * #1188 — the explicit drag handle that sits BESIDE the «Вгору»/«Вниз» buttons.
@@ -43,10 +57,9 @@ import kotlin.math.abs
  * would not be accessible. The same composable is used by the import preview
  * and by [ChapterOrderDialog] so the two surfaces speak one language.
  *
- * [rowHeightPx] is the step: dragging one row-height past a neighbour swaps
- * positions live, so the list re-renders while the finger moves. [autoScroll]
- * lets the caller scroll its bounded, scrolled container when the pointer
- * reaches an edge — a long drag over dozens of chapters must not stall.
+ * The caller MUST key its rows by the chapter identity (or pass [rowHeightPx]
+ * matching the real row) — a positional loop would let a continuing multi-step
+ * gesture move the wrong chapter after the first live swap.
  */
 @Composable
 fun ChapterDragHandle(
@@ -55,27 +68,53 @@ fun ChapterDragHandle(
     onMove: (from: Int, to: Int) -> Unit,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    rowHeightPx: Float? = null,
     autoScroll: ChapterDragAutoScroll? = null,
-    testTag: String? = null,
 ) {
     val density = LocalDensity.current
-    val rowHeightPx = with(density) { 56.dp.toPx() }
+    val stepPx = rowHeightPx ?: with(density) { 48.dp.toPx() }
     val currentIndex by rememberUpdatedState(index)
     val currentCount by rememberUpdatedState(count)
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnMove by rememberUpdatedState(onMove)
     val currentAutoScroll by rememberUpdatedState(autoScroll)
+    val scope = rememberCoroutineScope()
     var accumulated by remember { mutableFloatStateOf(0f) }
     var handleBounds by remember { mutableStateOf(Rect.Zero) }
+    var pointerY by remember { mutableFloatStateOf(0f) }
+    var scrollJob by remember { mutableStateOf<Job?>(null) }
+    var focused by remember { mutableStateOf(false) }
 
     val handleLabel = stringResource(R.string.a11y_chapter_drag_handle)
     val moveUpLabel = stringResource(R.string.a11y_chapter_move_up)
     val moveDownLabel = stringResource(R.string.a11y_chapter_move_down)
 
-    Box(
+    // Auto-scroll must NOT depend on pointer movement: holding the finger in
+    // the edge zone keeps the frame loop scrolling until the drag ends.
+    fun startAutoScroll() {
+        scrollJob?.cancel()
+        scrollJob = scope.launch {
+            while (isActive) {
+                val scroll = currentAutoScroll
+                if (scroll == null) break
+                val direction = when {
+                    pointerY < scroll.viewportTop + scroll.edgePx -> -1
+                    pointerY > scroll.viewportBottom - scroll.edgePx -> 1
+                    else -> 0
+                }
+                if (direction == 0) break
+                scroll.scrollState.dispatchRawDelta(direction * scroll.stepPx)
+                withFrameNanos { }
+            }
+        }
+    }
+
+    Surface(
         modifier = modifier
             .size(48.dp)
             .onGloballyPositioned { handleBounds = it.boundsInWindow() }
+            .onFocusChanged { focused = it.isFocused }
+            .focusable(enabled = enabled)
             .semantics {
                 contentDescription = handleLabel
                 customActions = listOf(
@@ -101,45 +140,55 @@ fun ChapterDragHandle(
                     else -> false
                 }
             }
-            .pointerInput(currentCount) {
+            .pointerInput(currentCount, stepPx) {
                 detectDragGestures(
-                    onDragStart = { accumulated = 0f },
-                    onDragEnd = { accumulated = 0f },
-                    onDragCancel = { accumulated = 0f }
+                    onDragStart = { position ->
+                        accumulated = 0f
+                        pointerY = handleBounds.top + position.y
+                        startAutoScroll()
+                    },
+                    onDragEnd = {
+                        accumulated = 0f
+                        scrollJob?.cancel()
+                        scrollJob = null
+                    },
+                    onDragCancel = {
+                        accumulated = 0f
+                        scrollJob?.cancel()
+                        scrollJob = null
+                    }
                 ) { change, dragAmount ->
                     if (!currentEnabled) return@detectDragGestures
                     change.consume()
+                    pointerY = handleBounds.top + change.position.y
                     accumulated += dragAmount.y
-                    val steps = (accumulated / rowHeightPx).toInt()
+                    val steps = (accumulated / stepPx).toInt()
                     if (steps != 0) {
                         val from = currentIndex
                         val to = (from + steps).coerceIn(0, currentCount - 1)
                         if (to != from) {
                             currentOnMove(from, to)
-                            accumulated -= steps * rowHeightPx
+                            accumulated -= steps * stepPx
+                        } else {
+                            accumulated = 0f
                         }
                     }
-                    val scroll = currentAutoScroll
-                    if (scroll != null && abs(accumulated) < rowHeightPx) {
-                        val pointerY = handleBounds.top + change.position.y
-                        val direction = when {
-                            pointerY < scroll.viewportTop + scroll.edgePx -> -1
-                            pointerY > scroll.viewportBottom - scroll.edgePx -> 1
-                            else -> 0
-                        }
-                        if (direction != 0) {
-                            scroll.scrollState.dispatchRawDelta(direction * scroll.stepPx)
-                        }
-                    }
+                    // Re-evaluate the edge zone as the finger moves; the loop
+                    // itself keeps scrolling while the finger is still.
+                    if (abs(accumulated) < stepPx && currentAutoScroll != null) startAutoScroll()
                 }
             },
-        contentAlignment = androidx.compose.ui.Alignment.Center
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (focused) 0.9f else 0.35f),
+        border = if (focused) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
-        Icon(
-            imageVector = Icons.Filled.DragHandle,
-            contentDescription = null,
-            tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(12.dp)) {
+            Icon(
+                imageVector = Icons.Filled.DragHandle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

@@ -5552,8 +5552,25 @@ class MainViewModel @JvmOverloads constructor(
                 // must not reopen the player or a deleted record.
                 if (!playbackStartSeam.shouldInstall(bookmarkAttempt)) return@launch
                 playbackStartSeam.armOnSuccess(bookmarkAttempt, bookmark.bookId)
-                if (playerState.value.currentBook?.id != bookmark.bookId ||
-                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
+                val bookmarkLoads = playerState.value.currentBook?.id != bookmark.bookId ||
+                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)
+                if (playbackInstallAdapter != null) {
+                    // #1241 — engine adapter: the bookmark install is recorded
+                    // without constructing a real player.
+                    playbackInstallAdapter.invoke(
+                        PlaybackInstallRequest(
+                            bookId = book.id,
+                            chapterId = anchorId,
+                            chapterIndex = anchorChapter,
+                            positionSeconds = anchorPosition,
+                            autoPlay = true,
+                            forceRelisten = false
+                        )
+                    )
+                    _showFullPlayer.value = true
+                    return@launch
+                }
+                if (bookmarkLoads) {
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,

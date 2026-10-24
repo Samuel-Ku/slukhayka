@@ -2,7 +2,6 @@ package com.slukhayka.audiobooks.ui.components
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -13,7 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -34,7 +32,6 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -68,7 +65,6 @@ fun ChapterDragHandle(
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnMove by rememberUpdatedState(onMove)
     val currentAutoScroll by rememberUpdatedState(autoScroll)
-    val scope = rememberCoroutineScope()
     var accumulated by remember { mutableFloatStateOf(0f) }
     var handleBounds by remember { mutableStateOf(Rect.Zero) }
 
@@ -132,7 +128,7 @@ fun ChapterDragHandle(
                             else -> 0
                         }
                         if (direction != 0) {
-                            scope.launch { scroll.scrollState.scrollBy(direction * scroll.stepPx) }
+                            scroll.scrollState.dispatchRawDelta(direction * scroll.stepPx)
                         }
                     }
                 }

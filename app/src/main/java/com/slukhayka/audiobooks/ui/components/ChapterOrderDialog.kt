@@ -89,6 +89,7 @@ fun ChapterOrderDialog(
                             modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_down_${chapter.id}")
                         ) { Text(stringResource(R.string.lib_import_move_down)) }
                     }
+                    }
                 }
                 errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("chapter_order_error")) }
             }

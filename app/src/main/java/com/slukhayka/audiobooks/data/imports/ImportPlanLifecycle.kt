@@ -83,7 +83,7 @@ class ImportPlanLifecycle(
     /** The scan session that owns the current preview; bumped by every new scan/dismiss. */
     private val session = AtomicLong(0)
 
-    /** One write at a time across sessions (#1242) — a new scan cannot start a second one. */
+    /** One write at a time across sessions (#1242, #1243) — a new scan cannot start a second one. */
     private val writeInFlight = AtomicBoolean(false)
 
     /**
@@ -114,9 +114,11 @@ class ImportPlanLifecycle(
      * dropped and the current preview stays as the listener left it.
      */
     fun completeScan(token: Long, plan: ImportPlan, treeUri: String): Boolean {
-        if (!isCurrentScan(token)) return false
-        _state.value = State.Editing(plan, treeUri)
-        return true
+        while (true) {
+            if (!isCurrentScan(token)) return false
+            val current = _state.value
+            if (_state.compareAndSet(current, State.Editing(plan, treeUri))) return true
+        }
     }
 
     /**
@@ -126,8 +128,8 @@ class ImportPlanLifecycle(
     fun reportScanProblem(token: Long): Boolean = isCurrentScan(token)
 
     /**
-     * A scan produced a plan synchronously (tests and simple callers): a new
-     * session starts here too.
+     * A scan produced a plan synchronously (test/simple callers — production
+     * scans go through [beginScan]/[completeScan]): a new session starts here too.
      *
      * @return false while a confirmed write is in flight — that plan is frozen.
      */
@@ -214,20 +216,26 @@ class ImportPlanLifecycle(
      * @return the honest write result, or null when nothing was written.
      */
     suspend fun apply(request: ApplyRequest): LocalImportResult? {
-        val current = _state.value as? State.Applying ?: return null
-        if (current.plan !== request.plan || current.treeUri != request.treeUri) return null
-        val result = try {
-            applyPlan(request.plan, request.treeUri)
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (storage: Exception) {
-            publishOutcome(request) { State.Failed(request.plan, request.treeUri, storage.message ?: REASON_APPLY_FAILED) }
-            return null
+        try {
+            val current = _state.value as? State.Applying ?: return null
+            if (current.plan !== request.plan || current.treeUri != request.treeUri) return null
+            val result = try {
+                applyPlan(request.plan, request.treeUri)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (storage: Exception) {
+                publishOutcome(request) {
+                    State.Failed(request.plan, request.treeUri, storage.message ?: REASON_APPLY_FAILED)
+                }
+                return null
+            }
+            publishOutcome(request) { State.Idle }
+            return result
         } finally {
+            // Released on every path, including a superseded pre-start guard:
+            // otherwise a later import confirm would silently return null.
             writeInFlight.set(false)
         }
-        publishOutcome(request) { State.Idle }
-        return result
     }
 
     /**
@@ -235,9 +243,12 @@ class ImportPlanLifecycle(
      * session; a late result of a superseded session must not clear the newer
      * preview (#1243), though its caller still receives the honest write result.
      */
-    private inline fun publishOutcome(request: ApplyRequest, outcome: () -> State) {
-        if (request.session != session.get()) return
-        _state.value = outcome()
+    private fun publishOutcome(request: ApplyRequest, outcome: () -> State) {
+        while (true) {
+            if (request.session != session.get()) return
+            val current = _state.value
+            if (_state.compareAndSet(current, outcome())) return
+        }
     }
 
     companion object {

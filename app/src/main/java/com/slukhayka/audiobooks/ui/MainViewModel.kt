@@ -227,7 +227,11 @@ internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
 class MainViewModel @JvmOverloads constructor(
     application: Application,
     // #1240 — tests inject a recording seam; production uses the real player/gate.
-    private val explicitPlaybackAttempts: ExplicitPlaybackAttempts? = null
+    private val explicitPlaybackAttempts: ExplicitPlaybackAttempts? = null,
+    // #1241 — a controlled delayed-adapter hook for the ownership tests. It
+    // suspends at the preparation/install boundary so a test can finish a newer
+    // gesture first; production passes null and pays nothing.
+    private val playbackPreparationHook: (suspend (bookId: String) -> Unit)? = null
 ) : AndroidViewModel(application) {
 
     // Playback stack is application-scoped (see App.kt) so background playback
@@ -5398,6 +5402,10 @@ class MainViewModel @JvmOverloads constructor(
             // that a newer gesture superseded must not consume the pause marker
             // or install its queue.
             if (!playbackStartSeam.shouldInstall(attempt)) return
+
+            // #1241 — controlled delay point: the test adapter suspends here so
+            // a newer gesture can complete first; production has no hook.
+            playbackPreparationHook?.invoke(playbackBook.id)
 
             withContext(Dispatchers.Main) {
                 // #1241 — re-check on the install thread: a newer gesture may

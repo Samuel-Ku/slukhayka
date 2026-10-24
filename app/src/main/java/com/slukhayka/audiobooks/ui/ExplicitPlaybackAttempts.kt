@@ -70,6 +70,15 @@ class ExplicitPlaybackAttempts(
     }
 
     /**
+     * #1241 — invalidate only a preparation for [bookId] (record deletion):
+     * deleting an unrelated record must not silently abort another book's
+     * in-flight Play/Bookmark/relisten.
+     */
+    fun supersede(bookId: String) {
+        if (current?.bookId == bookId) current = null
+    }
+
+    /**
      * A successful preparation installs [installedBookId] (the replacement
      * mapping may have swapped the Edition): only the current attempt may arm
      * recovery, and only for the book that was actually installed.

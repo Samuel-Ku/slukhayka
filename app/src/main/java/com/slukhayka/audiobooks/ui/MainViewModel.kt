@@ -5399,16 +5399,16 @@ class MainViewModel @JvmOverloads constructor(
             // or install its queue.
             if (!playbackStartSeam.shouldInstall(attempt)) return
 
-            // ADR-0007: the pause marker lives on the Edition's progress row;
-            // cleared so the same pause never rewinds twice.
-            if (progress?.lastPausedAtEpochMs != null) {
-                listeningState.updatePausedAt(playbackBook.id, null)
-            }
-
             withContext(Dispatchers.Main) {
                 // #1241 — re-check on the install thread: a newer gesture may
                 // have won while the preparation finished.
                 if (!playbackStartSeam.shouldInstall(attempt)) return@withContext
+                // #1241 — the pause marker is consumed only AFTER the final
+                // ownership check, on the install thread: a supersede between
+                // the IO check and this point must not eat the marker.
+                if (progress?.lastPausedAtEpochMs != null) {
+                    listeningState.updatePausedAt(playbackBook.id, null)
+                }
                 if (autoPlay) {
                     // #1240 — the failure was cleared at the gesture's start
                     // seam; here the successful preparation arms recovery for
@@ -5983,8 +5983,8 @@ class MainViewModel @JvmOverloads constructor(
      * catalogue. Requires an explicit confirmation dialog in the UI.
      */
     fun deleteBook(bookId: String) {
-        // #1241 — deleting the record invalidates any in-flight preparation.
-        playbackStartSeam.supersede()
+        // #1241 — only THIS record's in-flight preparation is invalidated.
+        playbackStartSeam.supersede(bookId)
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }
@@ -6004,7 +6004,7 @@ class MainViewModel @JvmOverloads constructor(
      */
     fun removeFromLibrary(bookId: String) {
         // #1241 — an in-flight preparation for this record must not resurrect it.
-        playbackStartSeam.supersede()
+        playbackStartSeam.supersede(bookId)
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }

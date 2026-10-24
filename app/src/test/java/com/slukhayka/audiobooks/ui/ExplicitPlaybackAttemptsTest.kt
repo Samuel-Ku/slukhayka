@@ -80,6 +80,20 @@ class ExplicitPlaybackAttemptsTest {
     }
 
     @Test
+    fun `deleting an unrelated record does not cancel the preparation`() {
+        val attempt = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede("edition-b")
+        assertTrue("another record's deletion must not abort A", attempts.shouldInstall(attempt))
+    }
+
+    @Test
+    fun `deleting the prepared record invalidates it`() {
+        val attempt = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede("edition-a")
+        assertFalse(attempts.shouldInstall(attempt))
+    }
+
+    @Test
     fun `a player clear invalidates the in-flight preparation`() {
         val attempt = attempts.begin("edition", ExplicitPlaybackAttempts.Kind.RESUME)
         attempts.supersede()

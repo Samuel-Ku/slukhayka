@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.components.ChapterOrderDialog
 import com.slukhayka.audiobooks.data.db.ChapterEntity

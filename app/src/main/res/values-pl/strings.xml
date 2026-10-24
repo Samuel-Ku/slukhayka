@@ -15,44 +15,25 @@
          A partially translated language is worse than an untranslated one: the
          untranslated one falls back to one coherent language.
 
-         So: do NOT add Polish translations here. If Polish is ever wanted as a
-         real language, it must be complete — see #1387/#1388/#1389 — and it
-         would need its own qualifier strategy, not this override file. -->
+         So: do NOT add Polish translations here. The real Polish lives in
+         `values-pl/strings_app.xml` (batch 1 of 3, #1387); the keys that file
+         translates were REMOVED from here, and a key may live in exactly one
+         file of the `pl` qualifier. What stays here is Ukrainian on purpose:
+         the five Material3 overrides plus the app keys no batch has reached
+         yet. Until the last batch (#1389) turns Polish on, the app never
+         resolves the `pl` qualifier at all (#1387 — AppLocale gates SYSTEM to
+         complete languages), so this file cannot leak a mixture into the UI. -->
 
     <string name="m3c_bottom_sheet_collapse_description">Згорнути аркуш</string>
     <string name="m3c_bottom_sheet_dismiss_description">Закрити аркуш</string>
     <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
     <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
-    <string name="lib_year_hero_title">Мій рік у книжках, %1$d</string>
-    <string name="lib_year_hero_units">завершених проходів</string>
-    <string name="lib_year_recorded">Запис додано до журналу проходу.</string>
-    <string name="lib_year_finished">Прохід завершено.</string>
-    <string name="lib_year_refused_unknown">Цього проходу немає у сховищі — запис не додано.</string>
-    <string name="lib_year_refused_closed">Прохід уже завершено або закрито — запис не додано.</string>
-    <string name="lib_year_save_failed">Не вдалося зберегти запис. Спробуйте ще раз.</string>
-    <string name="lib_year_error_title">Не вдалося прочитати поступ</string>
-    <string name="lib_year_error_body">Відомий показ лишається, доки читання не вдасться. Спробуйте ще раз.</string>
-    <string name="lib_year_refresh_failed">Не вдалося перечитати поступ — показ може бути застарілим.</string>
-    <string name="lib_section_books">Книги</string>
-    <string name="lib_import_retry">Повторити</string>
-    <string name="lib_import_retry_body">Запис перервався. План збережено — спробуйте ще раз.</string>
-    <string name="lib_import_folder_unknown">Вибрана папка</string>
-    <string name="lib_import_folder_name">Папка «%1$s»</string>
-    <string name="lib_import_folder_grouping_hint">Цей вибір стосується файлів безпосередньо в папці. Підпапки — окремі книги.</string>
-    <string name="lib_import_grouping_reset_title">Змінити групування?</string>
-    <string name="lib_import_grouping_reset_message">Назви, порядок розділів, поділ і об’єднання книг із файлами в корені буде скинуто. Правки інших підпапок збережуться.</string>
-    <string name="lib_import_grouping_reset_confirm">Змінити й скинути правки</string>
-    <string name="lib_import_merge_planned">Об’єднати з іншою книгою</string>
-    <string name="lib_import_merge_choose_title">До якої книги додати розділи?</string>
-    <string name="lib_import_merge_choose_hint">Вибрана книга збереже назву й інші дані. Розділи цієї книги додадуться в кінець.</string>
-    <string name="lib_import_title_required">Вкажи назву книги перед імпортом.</string>
     <string name="chapter_order_edit">Редагувати порядок розділів</string>
     <string name="chapter_order_reverse">Зворотний порядок</string>
     <string name="chapter_order_saving">Зберігаємо…</string>
     <string name="chapter_order_changed">Список розділів змінився. Закрийте редактор і відкрийте його знову.</string>
     <string name="chapter_order_failed">Не вдалося зберегти порядок розділів. Спробуйте ще раз.</string>
-    <string name="lib_import_split_here">Розділити перед цим розділом</string>
     <string name="metadata_edit_series">Серія</string>
     <string name="metadata_edit_series_index">Номер у серії</string>
     <!-- #1163 — the storage card's two figures, so the new labels cost no

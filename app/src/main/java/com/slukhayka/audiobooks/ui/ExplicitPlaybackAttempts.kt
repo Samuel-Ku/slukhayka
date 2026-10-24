@@ -65,10 +65,6 @@ class ExplicitPlaybackAttempts(
      * invalidates it: its result must not reopen the player or restore deleted
      * audio. A later gesture starts a new attempt and supersedes it anyway.
      */
-    fun supersede() {
-        current = null
-    }
-
     /**
      * #1241 — invalidate only a preparation for [bookId] (record deletion):
      * deleting an unrelated record must not silently abort another book's

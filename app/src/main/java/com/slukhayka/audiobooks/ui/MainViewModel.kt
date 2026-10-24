@@ -231,7 +231,10 @@ class MainViewModel @JvmOverloads constructor(
     // #1241 — a controlled delayed-adapter hook for the ownership tests. It
     // suspends at the preparation/install boundary so a test can finish a newer
     // gesture first; production passes null and pays nothing.
-    private val playbackPreparationHook: (suspend (bookId: String) -> Unit)? = null
+    private val playbackPreparationHook: (suspend (bookId: String) -> Unit)? = null,
+    // #1241 — engine adapter: production passes null (real player); tests
+    // record installs without constructing ExoPlayer.
+    private val playbackInstallAdapter: (suspend (PlaybackInstallRequest) -> Unit)? = null
 ) : AndroidViewModel(application) {
 
     // Playback stack is application-scoped (see App.kt) so background playback
@@ -5334,6 +5337,9 @@ class MainViewModel @JvmOverloads constructor(
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
             if (libraryEntries.getBookSync(updatedBook.id) == null) return
+            // #1241 — the replacement mapping may resolve to a different
+            // Edition; a record deleted meanwhile must not be installed later.
+            if (libraryEntries.getBookSync(playbackBook.id) == null) return
             // Spec-49 T2b — player preparation asks the replacement mapping
             // once per touch: resume/auto-play of a refused-only (or
             // sourceless) book self-heals through the same resolver the card
@@ -5414,8 +5420,15 @@ class MainViewModel @JvmOverloads constructor(
                 // #1241 — the pause marker is consumed only AFTER the final
                 // ownership check, on the install thread: a supersede between
                 // the IO check and this point must not eat the marker.
-                if (progress?.lastPausedAtEpochMs != null) {
+                val pausedAt = progress?.lastPausedAtEpochMs
+                if (pausedAt != null) {
                     listeningState.updatePausedAt(playbackBook.id, null)
+                    // #1241 — the write suspends; a gesture may have superseded
+                    // the attempt meanwhile. Restore the marker and bail out.
+                    if (!playbackStartSeam.shouldInstall(attempt)) {
+                        listeningState.updatePausedAt(playbackBook.id, pausedAt)
+                        return@withContext
+                    }
                 }
                 if (autoPlay) {
                     // #1240 — the failure was cleared at the gesture's start
@@ -5423,6 +5436,18 @@ class MainViewModel @JvmOverloads constructor(
                     // the attempt it actually installed. A superseded attempt
                     // (#1241) cannot arm.
                     attempt?.let { playbackStartSeam.armOnSuccess(it, playbackBook.id) }
+                }
+                val installRequest = PlaybackInstallRequest(
+                    bookId = playbackBook.id,
+                    chapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
+                    chapterIndex = resume.chapterIndex,
+                    positionSeconds = resume.positionSeconds,
+                    autoPlay = autoPlay,
+                    forceRelisten = forceRelisten
+                )
+                if (playbackInstallAdapter != null) {
+                    playbackInstallAdapter.invoke(installRequest)
+                    return@withContext
                 }
                 playerManager.loadAndPlayBook(
                     book = playbackBook,
@@ -5432,7 +5457,7 @@ class MainViewModel @JvmOverloads constructor(
                     initialPositionSeconds = resume.positionSeconds,
                     autoPlay = autoPlay,
                     forceRelisten = forceRelisten,
-                    initialChapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
+                    initialChapterId = installRequest.chapterId,
                     expectedChapterStructureVersion = chapterStructureVersion
                 )
             }
@@ -5523,6 +5548,9 @@ class MainViewModel @JvmOverloads constructor(
                 // #1240 — arm only now that the anchor is installed; the stale
                 // error was cleared at the gesture, so no earlier emission can
                 // spend this allowance.
+                // #1241 — a slower Bookmark that a newer gesture superseded
+                // must not reopen the player or a deleted record.
+                if (!playbackStartSeam.shouldInstall(bookmarkAttempt)) return@launch
                 playbackStartSeam.armOnSuccess(bookmarkAttempt, bookmark.bookId)
                 if (playerState.value.currentBook?.id != bookmark.bookId ||
                     chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {

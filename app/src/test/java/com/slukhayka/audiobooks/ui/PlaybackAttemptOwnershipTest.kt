@@ -71,12 +71,12 @@ class PlaybackAttemptOwnershipTest {
         )
     }
 
-    private fun awaitPlayerBook(viewModel: MainViewModel, expected: String, deadlineMs: Long = 5_000) {
+    private fun awaitInstalled(installed: List<String>, expected: String, deadlineMs: Long = 5_000) {
         val deadline = System.currentTimeMillis() + deadlineMs
         while (System.currentTimeMillis() < deadline) {
             shadowOf(Looper.getMainLooper()).idle()
-            if (viewModel.playerState.value.currentBook?.id == expected) return
-            Thread.sleep(20)
+            if (installed.contains(expected)) return
+            Thread.sleep(10)
         }
     }
 
@@ -86,6 +86,7 @@ class PlaybackAttemptOwnershipTest {
         seed(app, "book-a")
         seed(app, "book-b")
 
+        val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
@@ -93,7 +94,8 @@ class PlaybackAttemptOwnershipTest {
             seam,
             playbackPreparationHook = { bookId ->
                 gates.getOrPut(bookId) { CompletableDeferred() }.await()
-            }
+            },
+            playbackInstallAdapter = { request -> installed += request.bookId }
         )
 
         viewModel.playAudiobook(book("book-a"))
@@ -101,7 +103,7 @@ class PlaybackAttemptOwnershipTest {
 
         // B is the listener's latest gesture: finish it first.
         gates.getOrPut("book-b") { CompletableDeferred() }.complete(Unit)
-        awaitPlayerBook(viewModel, "book-b")
+        awaitInstalled(installed, "book-b")
 
         // A finishes last — it must NOT replace B.
         gates.getOrPut("book-a") { CompletableDeferred() }.complete(Unit)
@@ -109,9 +111,9 @@ class PlaybackAttemptOwnershipTest {
         Thread.sleep(300)
 
         assertEquals(
-            "the superseded preparation must not steal the player",
-            "book-b",
-            viewModel.playerState.value.currentBook?.id
+            "only the newest gesture may install; the slow A must not steal the player",
+            listOf("book-b"),
+            installed.toList()
         )
     }
 }

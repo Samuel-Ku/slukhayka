@@ -162,13 +162,19 @@ def last_comment(repo, issue, gh="gh", fixture_comments=None):
     except (OSError, subprocess.CalledProcessError):
         return "unavailable"
     lines = [line for line in completed.stdout.splitlines() if line.strip()]
-    if not lines:
-        return "none"
-    try:
-        comment = json.loads(lines[-1])
-    except ValueError:
-        return "unavailable"
-    return _comment_text(comment)
+    # `--paginate` prints one JSON value per page; a trailing empty page yields
+    # `null`, which is not a comment and must not hide a real one before it.
+    parsed = []
+    for line in lines:
+        try:
+            parsed.append(json.loads(line))
+        except ValueError:
+            return "unavailable"
+    for comment in reversed(parsed):
+        if comment is None:
+            continue
+        return _comment_text(comment)
+    return "none"
 
 
 def divergence(claims_for_issues, comment_texts):
@@ -176,10 +182,13 @@ def divergence(claims_for_issues, comment_texts):
 
     The two records can only prove presence, not identity (the registry keeps a
     thread id, GitHub keeps a login), so the marker is about which side knows the
-    work: `local-only`, `comment-only`, `both` or `none`.
+    work: `local-only`, `comment-only`, `both`, `none`, or `unknown` when GitHub
+    could not be asked about a comment.
     """
     if not comment_texts:
         return None
+    if any(text == "unavailable" for text in comment_texts):
+        return "unknown"
     has_comment = any(text not in ("none", "unavailable") for text in comment_texts)
     has_local = bool(claims_for_issues)
     if has_local and has_comment:
@@ -309,7 +318,9 @@ def main(argv=None):
     if truncated:
         print(f"truncated: gh returned at least {PR_LIMIT} open PRs — the list may be incomplete")
     for pull in sorted(pulls, key=lambda item: item.get("number", 0)):
-        texts = [comment_for(issue) for issue in linked_issues(pull)]
+        texts = [] if args.no_comments else [
+            comment_for(issue) for issue in linked_issues(pull)
+        ]
         print(compact_line(pull, claims, comment_texts=texts))
 
     if args.full_json:

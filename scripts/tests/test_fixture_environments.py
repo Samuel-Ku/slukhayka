@@ -421,6 +421,11 @@ CASES = (
         programs=(Program("FAKE_BROKEN_GIT", "--cherry-mark"),),
     ),
     StandIn(
+        name="підставний gh фікстури test_pr_snapshot",
+        where=("scripts/tests/test_pr_snapshot.py",),
+        programs=(Program("FAKE_GH", "pr-snapshot fake gh"),),
+    ),
+    StandIn(
         name="підставний gh фікстури test_review_pass",
         where=("scripts/tests/test_review_pass.py",),
         prefix="FAKE_GH_",
@@ -864,6 +869,7 @@ class RegistryTest(unittest.TestCase):
              "scripts/tests/test_merge_pr.py",
              "scripts/tests/test_mutate.py",
              "scripts/tests/test_new_lane.py",
+             "scripts/tests/test_pr_snapshot.py",
              "scripts/tests/test_review_clone.py",
              "scripts/tests/test_review_pass.py",
              "scripts/tests/test_test_wrappers.py",

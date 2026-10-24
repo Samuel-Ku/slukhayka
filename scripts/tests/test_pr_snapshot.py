@@ -50,29 +50,29 @@ def pull(number, *, draft=False, rollup="default", issues=(), review=None):
     }
 
 
+# Підставний `gh` (#1228) — одна вбудована програма, яку бачить скан
+# scripts/tests/test_fixture_environments.py. Читає лише файли поруч із собою,
+# тож оточення раннера йому не потрібне.
+FAKE_GH = """#!/bin/sh
+# pr-snapshot fake gh
+here=$(dirname "$0")
+case "$1" in
+  pr) cat "$here/pulls.json" ;;
+  api) cat "$here/comment.json" 2>/dev/null; exit "$(cat "$here/exit.code" 2>/dev/null || echo 1)" ;;
+  *) exit 1 ;;
+esac
+"""
+
+
 def fake_gh(directory, pulls, *, comment_output=None, comment_exit=0):
     """A gh stand-in for the shapes the real CLI returns (fixtures cannot)."""
     path = Path(directory) / "fake-gh"
-    body = [
-        "#!/bin/sh",
-        'case "$1" in',
-        "  pr)",
-        "    cat <<'PULLS'",
-        json.dumps(pulls),
-        "PULLS",
-        "    ;;",
-        "  api)",
-    ]
-    if comment_output is not None:
-        body.append("    cat <<'COMMENT'")
-        body.append(comment_output)
-        body.append("COMMENT")
-        body.append(f"    exit {comment_exit}")
-    else:
-        body.append("    exit 1")
-    body += ["    ;;", "  *) exit 1 ;;", "esac"]
-    path.write_text("\n".join(body) + "\n", encoding="utf-8")
+    path.write_text(FAKE_GH, encoding="utf-8")
     path.chmod(0o755)
+    Path(directory, "pulls.json").write_text(json.dumps(pulls), encoding="utf-8")
+    if comment_output is not None:
+        Path(directory, "comment.json").write_text(comment_output, encoding="utf-8")
+    Path(directory, "exit.code").write_text(str(comment_exit), encoding="utf-8")
     return str(path)
 
 
@@ -280,6 +280,50 @@ class PrSnapshotTest(unittest.TestCase):
         broken = self.claims / "broken.json"
         broken.write_text("not a claim", encoding="utf-8")
         fixture = self.fixture([pull(11, issues=[1242])], comments={})
+
+        completed = run(self.base_args(fixture))
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("reservation=alice:prepared-reserved", completed.stdout)
+
+    def test_comments_can_be_skipped_on_request(self):
+        fixture = self.fixture([pull(1, issues=[1242])], comments={"1242": {
+            "user": {"login": "alice"},
+            "created_at": "2026-10-24T09:00:00Z",
+        }})
+
+        completed = run([*self.base_args(fixture), "--no-comments"])
+
+        self.assertNotIn("last-comment", completed.stdout)
+        self.assertNotIn("divergence", completed.stdout)
+
+    def test_a_trailing_empty_page_does_not_hide_the_last_comment(self):
+        # `gh api --paginate` prints one value per page; a real comment followed
+        # by an empty page must still read as that comment.
+        gh = fake_gh(
+            self.root,
+            [pull(12, issues=[1242])],
+            comment_output='{"user":{"login":"alice"},"created_at":"2026-10-24T09:00:00Z"}\nnull',
+        )
+
+        completed = run(["--repo", "Samuel-Ku/slukhayka",
+                         "--claims-dir", str(self.claims), "--gh", gh])
+
+        self.assertIn("last-comment=#1242:alice@2026-10-24", completed.stdout)
+
+    def test_unknown_comment_state_is_not_reported_as_no_comment(self):
+        gh = fake_gh(self.root, [pull(13, issues=[1242])], comment_exit=1)
+
+        completed = run(["--repo", "Samuel-Ku/slukhayka",
+                         "--claims-dir", str(self.claims), "--gh", gh])
+
+        self.assertIn("last-comment=#1242:unavailable", completed.stdout)
+        self.assertIn("divergence=unknown", completed.stdout)
+
+    def test_a_valid_but_non_object_registry_entry_does_not_crash(self):
+        broken = self.claims / "list.json"
+        broken.write_text("[1, 2, 3]", encoding="utf-8")
+        fixture = self.fixture([pull(14, issues=[1242])], comments={})
 
         completed = run(self.base_args(fixture))
 

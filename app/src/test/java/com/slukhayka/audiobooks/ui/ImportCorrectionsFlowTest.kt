@@ -43,6 +43,27 @@ class ImportCorrectionsFlowTest {
         assertEquals(0, reads)
     }
 
+    @Test fun `an in-flight apply blocks confirm, cancel and edits`() {
+        val file = LocalAudioEntry("00.mp3", null) { ByteArrayInputStream(byteArrayOf(1)) }
+        val plan = ImportPlanner.editBook(
+            ImportPlanner.buildPlan(
+                SourceRef.Folder("content://tree", grouping = LocalFolderGrouping.ONE_BOOK),
+                listOf(file)
+            ),
+            "root-folder",
+            title = "Моя книга"
+        )
+        compose.setContent { AudiobookTheme {
+            ImportPreviewDialog(
+                MainViewModel.ImportPreviewState(plan, "content://tree", applying = true),
+                {}, {}, { _, _ -> }, { _, _ -> }, {}, {}
+            )
+        } }
+        compose.onNodeWithTag("library_import_preview_busy").assertExists()
+        compose.onNodeWithTag("library_import_preview_confirm").assertIsNotEnabled()
+        compose.onNodeWithTag("library_import_preview_cancel").assertIsNotEnabled()
+    }
+
     @Test fun `planned merge requires an explicit target even when titles match and restores focus`() {
         var reads = 0
         fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }

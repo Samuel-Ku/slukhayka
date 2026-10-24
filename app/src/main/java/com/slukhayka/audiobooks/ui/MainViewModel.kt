@@ -22,6 +22,7 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.imports.ImportGrantStore
 import com.slukhayka.audiobooks.data.imports.ImportPlan
+import com.slukhayka.audiobooks.data.imports.ImportPlanLifecycle
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
 import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
@@ -6002,7 +6003,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _importMessage.value = "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
                     return@launch
                 }
-                _importPreview.value = ImportPreviewState(plan = plan, treeUri = uri.toString())
+                importPlanLifecycle.begin(plan = plan, treeUri = uri.toString())
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Folder import failed", e)
                 _importMessage.value = "Не вдалося імпортувати папку"
@@ -6010,22 +6011,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** The user confirmed the preview — apply the plan (the only writer). */
+    /**
+     * The user confirmed the preview — apply the plan (the only writer).
+     *
+     * #1242 — the lifecycle moves to Applying BEFORE this coroutine starts, so a
+     * double tap or a second programmatic call cannot start another write, and
+     * the module writes the frozen snapshot rather than whatever the preview
+     * shows later.
+     */
     fun confirmImportPreview() {
-        val preview = _importPreview.value ?: return
+        val request = importPlanLifecycle.beginApply() ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val result = libraryImport.applyImportPlan(preview.plan, preview.treeUri)
-                // wayfinder #48: remember the tree so a future rescan can
-                // re-open it without asking the user to pick again.
-                if (result.booksImported > 0 || result.duplicateFiles > 0) {
-                    ImportGrantStore(getApplication()).addTreeUri(preview.treeUri)
+                val result = importPlanLifecycle.apply(request)
+                if (result == null) {
+                    // The write failed without a result: the plan is kept for an
+                    // explicit retry, and the listener hears that honestly.
+                    _importMessage.value = "Не вдалося імпортувати папку"
+                } else {
+                    // wayfinder #48: remember the tree so a future rescan can
+                    // re-open it without asking the user to pick again.
+                    if (result.booksImported > 0 || result.duplicateFiles > 0) {
+                        ImportGrantStore(getApplication()).addTreeUri(request.treeUri)
+                    }
+                    _importMessage.value = OutcomeMessages.importOutcome(result)
                 }
-                _importPreview.value = null
-                _importMessage.value = OutcomeMessages.importOutcome(result)
-            } catch (e: Exception) {
-                android.util.Log.w("MainViewModel", "Preview import failed", e)
-                _importMessage.value = "Не вдалося імпортувати папку"
             } finally {
                 // #1163 — the applied plan's private copies are now on disk, so
                 // «На пристрої» can include them on the very next frame.
@@ -6036,19 +6046,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Dismisses the preview without applying — zero trace left (wayfinder #29). */
     fun dismissImportPreview() {
-        _importPreview.value = null
+        importPlanLifecycle.dismiss()
     }
 
     /** Accepts a T0/T2 merge suggestion in the preview. */
     fun acceptMergeInPreview(bookId: String) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.acceptMerge(preview.plan, bookId))
+        importPlanLifecycle.edit { plan -> ImportPlanner.acceptMerge(plan, bookId) }
     }
 
     /** Rejects a suggestion — the pair becomes a remembered NEVER_MATCH. */
     fun rejectMergeInPreview(bookId: String) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.rejectMerge(preview.plan, bookId))
+        importPlanLifecycle.edit { plan -> ImportPlanner.rejectMerge(plan, bookId) }
     }
 
     /** Applies the library mutation and preserves the playing Chapter, including a pending Play. */
@@ -6061,30 +6069,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Joins two explicit preview selections; the destination keeps its metadata. */
     fun mergePlannedBooksInPreview(sourceBookId: String, targetBookId: String) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.mergePlannedBooks(preview.plan, sourceBookId, targetBookId))
+        importPlanLifecycle.edit { plan ->
+            ImportPlanner.mergePlannedBooks(plan, sourceBookId, targetBookId)
+        }
     }
 
     /** Changes only the root-file grouping of the isolated preview. */
     fun changeFolderGroupingInPreview(grouping: com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.changeFolderGrouping(preview.plan, grouping))
+        importPlanLifecycle.edit { plan -> ImportPlanner.changeFolderGrouping(plan, grouping) }
     }
 
     /** Reorders the isolated import draft; [newOrder] contains its current indices. */
     fun reorderChaptersInPreview(bookId: String, newOrder: List<Int>) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(
-            plan = ImportPlanner.reorderChapters(preview.plan, bookId, newOrder)
-        )
+        importPlanLifecycle.edit { plan -> ImportPlanner.reorderChapters(plan, bookId, newOrder) }
     }
 
     /** Splits the chosen preview book at [chapterIndex] without reading audio. */
     fun splitBookInPreview(bookId: String, chapterIndex: Int) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(
-            plan = ImportPlanner.splitBook(preview.plan, bookId, chapterIndex)
-        )
+        importPlanLifecycle.edit { plan -> ImportPlanner.splitBook(plan, bookId, chapterIndex) }
     }
 
     /**
@@ -6102,10 +6104,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         seriesIndex: Int? = null,
         clearSeriesIndex: Boolean = false
     ) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(
-            plan = ImportPlanner.editBook(
-                plan = preview.plan,
+        importPlanLifecycle.edit { plan ->
+            ImportPlanner.editBook(
+                plan = plan,
                 bookId = bookId,
                 title = title,
                 author = author,
@@ -6114,7 +6115,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 seriesIndex = seriesIndex,
                 clearSeriesIndex = clearSeriesIndex
             )
-        )
+        }
     }
 
     /**
@@ -6175,9 +6176,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bookmarkChapterGoneMessage: String
         get() = getApplication<Application>().getString(R.string.bookmark_chapter_gone)
 
+    /**
+     * #1242 — the ONE import-plan lifecycle. The shared ViewModel keeps the
+     * orchestration (ADR-0008); the plan, its frozen confirmed snapshot and the
+     * allowed transitions live in the module.
+     */
+    private val importPlanLifecycle = ImportPlanLifecycle { plan, treeUri ->
+        libraryImport.applyImportPlan(plan, treeUri)
+    }
+
     /** The pending smart-import preview (wayfinder #29), null when none. */
-    private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)
-    val importPreview: StateFlow<ImportPreviewState?> = _importPreview.asStateFlow()
+    val importPreview: StateFlow<ImportPreviewState?> = importPlanLifecycle.state
+        .map { state ->
+            when (state) {
+                ImportPlanLifecycle.State.Idle -> null
+                is ImportPlanLifecycle.State.Editing ->
+                    ImportPreviewState(plan = state.plan, treeUri = state.treeUri)
+                is ImportPlanLifecycle.State.Applying ->
+                    ImportPreviewState(plan = state.plan, treeUri = state.treeUri, applying = true)
+                is ImportPlanLifecycle.State.Failed ->
+                    ImportPreviewState(plan = state.plan, treeUri = state.treeUri, retryable = true)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun consumeImportMessage() {
         _importMessage.value = null
@@ -6198,7 +6219,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** The pending smart-import preview (wayfinder #29) plus its tree uri. */
     data class ImportPreviewState(
         val plan: ImportPlan,
-        val treeUri: String
+        val treeUri: String,
+        /** #1242 — one confirmed write is in flight; every action is blocked. */
+        val applying: Boolean = false,
+        /** #1242 — the write failed without a result; the plan waits for a retry. */
+        val retryable: Boolean = false
     )
 
     companion object {

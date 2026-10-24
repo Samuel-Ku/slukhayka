@@ -227,7 +227,14 @@ internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
 class MainViewModel @JvmOverloads constructor(
     application: Application,
     // #1240 — tests inject a recording seam; production uses the real player/gate.
-    private val explicitPlaybackAttempts: ExplicitPlaybackAttempts? = null
+    private val explicitPlaybackAttempts: ExplicitPlaybackAttempts? = null,
+    // #1241 — a controlled delayed-adapter hook for the ownership tests. It
+    // suspends at the preparation/install boundary so a test can finish a newer
+    // gesture first; production passes null and pays nothing.
+    private val playbackPreparationHook: (suspend (attemptId: Long, bookId: String) -> Unit)? = null,
+    // #1241 — engine adapter: production passes null (real player); tests
+    // record installs without constructing ExoPlayer.
+    private val playbackInstallAdapter: (suspend (PlaybackInstallRequest) -> Unit)? = null
 ) : AndroidViewModel(application) {
 
     // Playback stack is application-scoped (see App.kt) so background playback
@@ -5351,6 +5358,9 @@ class MainViewModel @JvmOverloads constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             }
+            // #1241 — the replacement mapping may resolve to a different
+            // Edition; a record deleted meanwhile must not be installed later.
+            if (libraryEntries.getBookSync(playbackBook.id) == null) return
             if (playbackBook.id != updatedBook.id) {
                 chapterStructureVersion = playerManager.chapterStructureVersion(playbackBook.id)
                 playable = try {
@@ -5394,19 +5404,44 @@ class MainViewModel @JvmOverloads constructor(
                     progressChapterId = anchoredProgress?.chapterId
                 )
             }
-            // ADR-0007: the pause marker lives on the Edition's progress row;
-            // cleared so the same pause never rewinds twice.
-            if (progress?.lastPausedAtEpochMs != null) {
-                listeningState.updatePausedAt(playbackBook.id, null)
-            }
+            // #1241 — ownership covers the WHOLE preparation: a slower attempt
+            // that a newer gesture superseded must not consume the pause marker
+            // or install its queue.
+            if (!playbackStartSeam.shouldInstall(attempt)) return
+
+            // #1241 — controlled delay point: the test adapter suspends here so
+            // a newer gesture can complete first; production has no hook.
+            playbackPreparationHook?.invoke(attempt?.id ?: -1L, playbackBook.id)
 
             withContext(Dispatchers.Main) {
+                // #1241 — re-check on the install thread: a newer gesture may
+                // have won while the preparation finished.
+                if (!playbackStartSeam.shouldInstall(attempt)) return@withContext
+                // #1241 — the pause marker is consumed only by the winning
+                // attempt, and only AFTER its install; a loser never clears or
+                // restores it (same-Edition A1/A2 must not resurrect a marker
+                // the winner already read as null).
+                val pausedAt = progress?.lastPausedAtEpochMs
                 if (autoPlay) {
                     // #1240 — the failure was cleared at the gesture's start
                     // seam; here the successful preparation arms recovery for
                     // the attempt it actually installed. A superseded attempt
                     // (#1241) cannot arm.
                     attempt?.let { playbackStartSeam.armOnSuccess(it, playbackBook.id) }
+                }
+                val installRequest = PlaybackInstallRequest(
+                    bookId = playbackBook.id,
+                    attemptId = attempt?.id ?: -1L,
+                    chapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
+                    chapterIndex = resume.chapterIndex,
+                    positionSeconds = resume.positionSeconds,
+                    autoPlay = autoPlay,
+                    forceRelisten = forceRelisten
+                )
+                if (playbackInstallAdapter != null) {
+                    playbackInstallAdapter.invoke(installRequest)
+                    if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
+                    return@withContext
                 }
                 playerManager.loadAndPlayBook(
                     book = playbackBook,
@@ -5416,9 +5451,10 @@ class MainViewModel @JvmOverloads constructor(
                     initialPositionSeconds = resume.positionSeconds,
                     autoPlay = autoPlay,
                     forceRelisten = forceRelisten,
-                    initialChapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
+                    initialChapterId = installRequest.chapterId,
                     expectedChapterStructureVersion = chapterStructureVersion
                 )
+                if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
             }
 
             // Asynchronously refresh metadata/cover in background without delaying audio startup
@@ -5503,13 +5539,36 @@ class MainViewModel @JvmOverloads constructor(
             // (The preferred source is not resolved: the anchor the listener
             // chose IS the anchor — `(editionId, chapterIndex, time)` per the
             // ticket's «не вгадувати джерело чи розділ замість якоря».)
+            // #1241 — controlled delay point for the Bookmark door too.
+            playbackPreparationHook?.invoke(bookmarkAttempt.id, book.id)
+
             viewModelScope.launch(Dispatchers.Main) {
                 // #1240 — arm only now that the anchor is installed; the stale
                 // error was cleared at the gesture, so no earlier emission can
                 // spend this allowance.
+                // #1241 — a slower Bookmark that a newer gesture superseded
+                // must not reopen the player or a deleted record.
+                if (!playbackStartSeam.shouldInstall(bookmarkAttempt)) return@launch
                 playbackStartSeam.armOnSuccess(bookmarkAttempt, bookmark.bookId)
-                if (playerState.value.currentBook?.id != bookmark.bookId ||
-                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
+                val bookmarkLoads = playerState.value.currentBook?.id != bookmark.bookId ||
+                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)
+                if (playbackInstallAdapter != null) {
+                    // #1241 — engine adapter: the bookmark install is recorded
+                    // without constructing a real player.
+                    playbackInstallAdapter.invoke(
+                        PlaybackInstallRequest(
+                            bookId = book.id,
+                            chapterId = anchorId,
+                            chapterIndex = anchorChapter,
+                            positionSeconds = anchorPosition,
+                            autoPlay = true,
+                            forceRelisten = false
+                        )
+                    )
+                    _showFullPlayer.value = true
+                    return@launch
+                }
+                if (bookmarkLoads) {
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,
@@ -5975,6 +6034,8 @@ class MainViewModel @JvmOverloads constructor(
      * catalogue. Requires an explicit confirmation dialog in the UI.
      */
     fun deleteBook(bookId: String) {
+        // #1241 — only THIS record's in-flight preparation is invalidated.
+        playbackStartSeam.supersede(bookId)
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }
@@ -5993,6 +6054,8 @@ class MainViewModel @JvmOverloads constructor(
      * the action is reversible by re-adding the book.
      */
     fun removeFromLibrary(bookId: String) {
+        // #1241 — an in-flight preparation for this record must not resurrect it.
+        playbackStartSeam.supersede(bookId)
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }

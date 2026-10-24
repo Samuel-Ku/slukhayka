@@ -51,6 +51,30 @@ class ExplicitPlaybackAttempts(
     fun isCurrent(attempt: Attempt): Boolean = current?.id == attempt.id
 
     /**
+     * #1241 — may this prepared attempt install its queue?
+     *
+     * A null attempt means the caller never owned one (e.g. preparation
+     * without an explicit Play gesture) and keeps its old behaviour. A
+     * non-null attempt installs only while it is still the current gesture:
+     * a slow preparation A that a newer B superseded must not steal the player.
+     */
+    fun shouldInstall(attempt: Attempt?): Boolean = attempt == null || isCurrent(attempt)
+
+    /**
+     * #1241 — a player clear or a record deletion after preparation started
+     * invalidates it: its result must not reopen the player or restore deleted
+     * audio. A later gesture starts a new attempt and supersedes it anyway.
+     */
+    /**
+     * #1241 — invalidate only a preparation for [bookId] (record deletion):
+     * deleting an unrelated record must not silently abort another book's
+     * in-flight Play/Bookmark/relisten.
+     */
+    fun supersede(bookId: String) {
+        if (current?.bookId == bookId) current = null
+    }
+
+    /**
      * A successful preparation installs [installedBookId] (the replacement
      * mapping may have swapped the Edition): only the current attempt may arm
      * recovery, and only for the book that was actually installed.

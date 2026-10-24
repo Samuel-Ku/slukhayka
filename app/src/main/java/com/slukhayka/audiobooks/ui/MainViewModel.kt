@@ -224,7 +224,12 @@ internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+@JvmOverloads
+class MainViewModel(
+    application: Application,
+    // #1240 — tests inject a recording seam; production uses the real player/gate.
+    private val explicitPlaybackAttempts: ExplicitPlaybackAttempts? = null
+) : AndroidViewModel(application) {
 
     // Playback stack is application-scoped (see App.kt) so background playback
     // survives the Activity/ViewModel being destroyed by the system.
@@ -407,10 +412,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * the previous failure and sets the automatic-recovery allowance for the
      * intent, so a new door cannot skip one of them.
      */
-    private val explicitPlaybackAttempts = ExplicitPlaybackAttempts(
-        recoveryGate = automaticPlaybackRecoveryGate,
-        clearPreviousFailure = { playerManager.clearPlaybackFailureForNewAttempt() }
-    )
+    private val playbackStartSeam: ExplicitPlaybackAttempts =
+        explicitPlaybackAttempts ?: ExplicitPlaybackAttempts(
+            recoveryGate = automaticPlaybackRecoveryGate,
+            clearPreviousFailure = { playerManager.clearPlaybackFailureForNewAttempt() }
+        )
 
     // Closing the mini player hides the bar WITHOUT forgetting the book: the
     // listening position stays, playback merely pauses. Audio starting again
@@ -5246,8 +5252,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chapterId: String? = null
     ) {
         withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
-            if (autoPlay) {
-                explicitPlaybackAttempts.begin(book.id, ExplicitPlaybackAttempts.Kind.RESUME)
+            val attempt = if (autoPlay) {
+                playbackStartSeam.begin(book.id, ExplicitPlaybackAttempts.Kind.RESUME)
+            } else {
+                null
             }
             if (autoPlay && pendingRecommendationBookId.compareAndSet(book.id, null)) {
                 recommendationPersonalization.recordPlaybackStart()
@@ -5258,7 +5266,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 autoPlay = autoPlay,
                 forceRelisten = false,
                 preferredSource = preferredSource,
-                chapterId = chapterId
+                chapterId = chapterId,
+                attempt = attempt
             )
         }
     }
@@ -5267,8 +5276,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // position 0, logged as RELISTEN, no smart-rewind of a stale pause marker.
     fun relistenBook(book: AudiobookEntity) {
         withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
-            explicitPlaybackAttempts.begin(book.id, ExplicitPlaybackAttempts.Kind.RELISTEN)
-            startAudiobookPlayback(book, chapterIndex = null, autoPlay = true, forceRelisten = true)
+            val attempt = playbackStartSeam.begin(book.id, ExplicitPlaybackAttempts.Kind.RELISTEN)
+            startAudiobookPlayback(
+                book,
+                chapterIndex = null,
+                autoPlay = true,
+                forceRelisten = true,
+                attempt = attempt
+            )
         }
     }
 
@@ -5278,7 +5293,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoPlay: Boolean,
         forceRelisten: Boolean,
         preferredSource: SourceEntity? = null,
-        chapterId: String? = null
+        chapterId: String? = null,
+        attempt: ExplicitPlaybackAttempts.Attempt? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             startAudiobookPlaybackNow(
@@ -5287,7 +5303,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 autoPlay = autoPlay,
                 forceRelisten = forceRelisten,
                 preferredSource = preferredSource,
-                chapterId = chapterId
+                chapterId = chapterId,
+                attempt = attempt
             )
         }
     }
@@ -5298,7 +5315,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoPlay: Boolean,
         forceRelisten: Boolean,
         preferredSource: SourceEntity? = null,
-        chapterId: String? = null
+        chapterId: String? = null,
+        attempt: ExplicitPlaybackAttempts.Attempt? = null
     ) {
             var chapterStructureVersion = playerManager.chapterStructureVersion(book.id)
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
@@ -5387,8 +5405,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (autoPlay) {
                     // #1240 — the failure was cleared at the gesture's start
                     // seam; here the successful preparation arms recovery for
-                    // the attempt it actually installed.
-                    automaticPlaybackRecoveryGate.arm(playbackBook.id)
+                    // the attempt it actually installed. A superseded attempt
+                    // (#1241) cannot arm.
+                    if (attempt != null) {
+                        playbackStartSeam.armOnSuccess(attempt, playbackBook.id)
+                    } else {
+                        automaticPlaybackRecoveryGate.arm(playbackBook.id)
+                    }
                 }
                 playerManager.loadAndPlayBook(
                     book = playbackBook,
@@ -5432,6 +5455,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun jumpToBookmark(bookmark: BookmarkEntity) {
+        // #1240 — the gesture's start seam runs BEFORE the asynchronous
+        // preparation, so a stale error cannot stay on screen and the active-
+        // Edition seek path below cannot skip the clear/arm pair either.
+        playbackStartSeam.begin(bookmark.bookId, ExplicitPlaybackAttempts.Kind.BOOKMARK)
         viewModelScope.launch(Dispatchers.IO) {
             val chapterStructureVersion = playerManager.chapterStructureVersion(bookmark.bookId)
             val book = libraryEntries.getBookSync(bookmark.bookId)
@@ -5483,9 +5510,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch(Dispatchers.Main) {
                 if (playerState.value.currentBook?.id != bookmark.bookId ||
                     chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
-                    // #1240 — the same start seam as Play: no stale error, and
-                    // the deliberate bookmark gesture arms its own recovery.
-                    explicitPlaybackAttempts.begin(book.id, ExplicitPlaybackAttempts.Kind.BOOKMARK)
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,

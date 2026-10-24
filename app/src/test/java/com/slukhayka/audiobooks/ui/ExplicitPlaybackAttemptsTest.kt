@@ -28,10 +28,17 @@ class ExplicitPlaybackAttemptsTest {
     }
 
     @Test
-    fun `relisten and bookmark arm recovery up front`() {
-        attempts.begin("book", ExplicitPlaybackAttempts.Kind.RELISTEN)
-        assertTrue(gate.claimFailure("book"))
+    fun `relisten supersedes the old allowance and arms only on success`() {
+        gate.arm("book")
+        val attempt = attempts.begin("book", ExplicitPlaybackAttempts.Kind.RELISTEN)
+        assertFalse("preparation must not spend the new budget", gate.claimFailure("book"))
 
+        assertTrue(attempts.armOnSuccess(attempt, "book"))
+        assertTrue(gate.claimFailure("book"))
+    }
+
+    @Test
+    fun `bookmark arms recovery up front`() {
         attempts.begin("book", ExplicitPlaybackAttempts.Kind.BOOKMARK)
         assertTrue(gate.claimFailure("book"))
     }
@@ -45,16 +52,24 @@ class ExplicitPlaybackAttemptsTest {
     }
 
     @Test
-    fun `recovery is never claimed for a superseded attempt`() {
-        val first = attempts.begin("book", ExplicitPlaybackAttempts.Kind.BOOKMARK)
-        attempts.begin("book", ExplicitPlaybackAttempts.Kind.BOOKMARK)
-        assertFalse(attempts.claimAutomaticRecovery(first))
+    fun `a superseded attempt cannot arm recovery`() {
+        val first = attempts.begin("book", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.begin("book", ExplicitPlaybackAttempts.Kind.RESUME)
+        assertFalse(attempts.armOnSuccess(first, "book"))
     }
 
     @Test
-    fun `supersede ends the current attempt`() {
-        val attempt = attempts.begin("book", ExplicitPlaybackAttempts.Kind.RESUME)
-        attempts.supersede()
-        assertFalse(attempts.isCurrent(attempt))
+    fun `the attempt records its kind and the book it was started for`() {
+        val attempt = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.BOOKMARK)
+        assertEquals("edition-a", attempt.bookId)
+        assertEquals(ExplicitPlaybackAttempts.Kind.BOOKMARK, attempt.kind)
+    }
+
+    @Test
+    fun `armOnSuccess arms the installed book, not the started one`() {
+        val attempt = attempts.begin("edition-old", ExplicitPlaybackAttempts.Kind.RESUME)
+        assertTrue(attempts.armOnSuccess(attempt, "edition-imported"))
+        assertTrue(gate.claimFailure("edition-imported"))
+        assertFalse(gate.claimFailure("edition-old"))
     }
 }

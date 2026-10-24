@@ -12,10 +12,13 @@ import java.util.concurrent.atomic.AtomicLong
  * each entry point, so a new door could silently skip one of them.
  *
  * The differences between gestures stay explicit in [Kind]:
- *  - [Kind.RESUME] supersedes the previous allowance ([AutomaticPlaybackRecoveryGate.beginAttempt])
- *    and arms it only when the start actually succeeds;
- *  - [Kind.RELISTEN] and [Kind.BOOKMARK] are deliberate gestures: they arm
- *    recovery up front.
+ *  - [Kind.RESUME] and [Kind.RELISTEN] supersede the previous allowance
+ *    ([AutomaticPlaybackRecoveryGate.beginAttempt]) at the gesture and arm it
+ *    only when the start actually succeeds ([armOnSuccess]) — a previous
+ *    session's error arriving during asynchronous preparation must not spend
+ *    the new attempt's budget;
+ *  - [Kind.BOOKMARK] is a deliberate gesture whose preparation is a seek on
+ *    the active player, so it arms recovery up front.
  *
  * #1241 builds on the returned [Attempt]: later preparation results may only
  * publish if their attempt is still the current one.
@@ -38,8 +41,8 @@ class ExplicitPlaybackAttempts(
     fun begin(bookId: String, kind: Kind): Attempt {
         clearPreviousFailure()
         when (kind) {
-            Kind.RESUME -> recoveryGate.beginAttempt(bookId)
-            Kind.RELISTEN, Kind.BOOKMARK -> recoveryGate.arm(bookId)
+            Kind.RESUME, Kind.RELISTEN -> recoveryGate.beginAttempt(bookId)
+            Kind.BOOKMARK -> recoveryGate.arm(bookId)
         }
         return Attempt(nextId.incrementAndGet(), bookId, kind).also { current = it }
     }
@@ -47,12 +50,14 @@ class ExplicitPlaybackAttempts(
     /** True while [attempt] is still the gesture the listener last made. */
     fun isCurrent(attempt: Attempt): Boolean = current?.id == attempt.id
 
-    /** A later action superseded the attempt: its preparation must not publish. */
-    fun supersede() {
-        current = null
+    /**
+     * A successful preparation installs [installedBookId] (the replacement
+     * mapping may have swapped the Edition): only the current attempt may arm
+     * recovery, and only for the book that was actually installed.
+     */
+    fun armOnSuccess(attempt: Attempt, installedBookId: String): Boolean {
+        if (!isCurrent(attempt)) return false
+        recoveryGate.arm(installedBookId)
+        return true
     }
-
-    /** Claims the automatic-recovery budget only for the current attempt. */
-    fun claimAutomaticRecovery(attempt: Attempt): Boolean =
-        isCurrent(attempt) && recoveryGate.claimFailure(attempt.bookId)
 }

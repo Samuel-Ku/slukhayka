@@ -2878,8 +2878,11 @@ fun ImportPreviewDialog(
     var lastMergingBookId by remember { mutableStateOf<String?>(null) }
     val mergeFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val mergeHeadingFocusRequester = remember { FocusRequester() }
+    val applying = preview.applying
     if (renamingBookId == null && pendingGrouping == null && mergingBookId == null) AlertDialog(
-        onDismissRequest = onDismiss,
+        // #1242 — while the confirmed write is in flight, closing the window is
+        // not a cancel: the plan is frozen and the writes are not rolled back.
+        onDismissRequest = { if (!applying) onDismiss() },
         modifier = Modifier
             .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
             .testTag("library_import_preview_dialog"),
@@ -2909,6 +2912,8 @@ fun ImportPreviewDialog(
             )
         },
         text = {
+            Box {
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2923,6 +2928,15 @@ fun ImportPreviewDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (preview.retryable) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.lib_import_retry_body),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("library_import_preview_retry_body")
+                    )
+                }
                 if (folder != null && hasRootFiles) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -3060,17 +3074,35 @@ fun ImportPreviewDialog(
                     }
                 }
             }
+
+                if (applying) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f))
+                            .clickable(enabled = true) { }
+                            .testTag("library_import_preview_busy"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                enabled = preview.plan.books.isNotEmpty() && preview.plan.books.none { it.title.isBlank() && it.mergedIntoBookId == null },
+                enabled = !applying &&
+                    preview.plan.books.isNotEmpty() &&
+                    preview.plan.books.none { it.title.isBlank() && it.mergedIntoBookId == null },
                 modifier = Modifier
                     .heightIn(min = 48.dp)
                     .testTag("library_import_preview_confirm")
             ) {
                 Text(
-                    if (mergedCount > 0) {
+                    if (preview.retryable) {
+                        stringResource(R.string.lib_import_retry)
+                    } else if (mergedCount > 0) {
                         stringResource(
                             R.string.lib_import_confirm_merged,
                             preview.plan.books.size - mergedCount,
@@ -3085,7 +3117,10 @@ fun ImportPreviewDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.heightIn(min = 48.dp)
+                enabled = !applying,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_import_preview_cancel")
             ) {
                 Text(stringResource(R.string.action_cancel))
             }

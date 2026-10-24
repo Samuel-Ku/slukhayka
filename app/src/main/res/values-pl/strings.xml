@@ -35,6 +35,8 @@
     <string name="lib_year_error_body">Відомий показ лишається, доки читання не вдасться. Спробуйте ще раз.</string>
     <string name="lib_year_refresh_failed">Не вдалося перечитати поступ — показ може бути застарілим.</string>
     <string name="lib_section_books">Книги</string>
+    <string name="lib_import_retry">Повторити</string>
+    <string name="lib_import_retry_body">Запис перервався. План збережено — спробуйте ще раз.</string>
     <string name="lib_import_folder_unknown">Вибрана папка</string>
     <string name="lib_import_folder_name">Папка «%1$s»</string>
     <string name="lib_import_folder_grouping_hint">Цей вибір стосується файлів безпосередньо в папці. Підпапки — окремі книги.</string>

@@ -61,6 +61,32 @@ class ExplicitPlaybackAttemptsTest {
     }
 
     @Test
+    fun `a slow attempt that a newer gesture superseded must not install`() {
+        val slow = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.RESUME)
+        val newer = attempts.begin("edition-b", ExplicitPlaybackAttempts.Kind.BOOKMARK)
+
+        // The slow preparation finishes last: it may not install, the newer
+        // gesture's attempt still may. No sleep, no real network — the delay
+        // is expressed by the completion order alone.
+        assertFalse(attempts.shouldInstall(slow))
+        assertTrue(attempts.shouldInstall(newer))
+    }
+
+    @Test
+    fun `an attempt installs while it is still the current gesture`() {
+        val attempt = attempts.begin("edition", ExplicitPlaybackAttempts.Kind.RESUME)
+        assertTrue(attempts.shouldInstall(attempt))
+        assertTrue("no owned attempt keeps the old behaviour", attempts.shouldInstall(null))
+    }
+
+    @Test
+    fun `a player clear invalidates the in-flight preparation`() {
+        val attempt = attempts.begin("edition", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede()
+        assertFalse(attempts.shouldInstall(attempt))
+    }
+
+    @Test
     fun `supersede invalidates an in-flight preparation`() {
         val attempt = attempts.begin("book", ExplicitPlaybackAttempts.Kind.RESUME)
         attempts.supersede()

@@ -5397,7 +5397,7 @@ class MainViewModel @JvmOverloads constructor(
             // #1241 — ownership covers the WHOLE preparation: a slower attempt
             // that a newer gesture superseded must not consume the pause marker
             // or install its queue.
-            if (attempt != null && !playbackStartSeam.isCurrent(attempt)) return
+            if (!playbackStartSeam.shouldInstall(attempt)) return
 
             // ADR-0007: the pause marker lives on the Edition's progress row;
             // cleared so the same pause never rewinds twice.
@@ -5408,7 +5408,7 @@ class MainViewModel @JvmOverloads constructor(
             withContext(Dispatchers.Main) {
                 // #1241 — re-check on the install thread: a newer gesture may
                 // have won while the preparation finished.
-                if (attempt != null && !playbackStartSeam.isCurrent(attempt)) return@withContext
+                if (!playbackStartSeam.shouldInstall(attempt)) return@withContext
                 if (autoPlay) {
                     // #1240 — the failure was cleared at the gesture's start
                     // seam; here the successful preparation arms recovery for

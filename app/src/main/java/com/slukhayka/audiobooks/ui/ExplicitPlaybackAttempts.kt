@@ -51,6 +51,16 @@ class ExplicitPlaybackAttempts(
     fun isCurrent(attempt: Attempt): Boolean = current?.id == attempt.id
 
     /**
+     * #1241 — may this prepared attempt install its queue?
+     *
+     * A null attempt means the caller never owned one (e.g. preparation
+     * without an explicit Play gesture) and keeps its old behaviour. A
+     * non-null attempt installs only while it is still the current gesture:
+     * a slow preparation A that a newer B superseded must not steal the player.
+     */
+    fun shouldInstall(attempt: Attempt?): Boolean = attempt == null || isCurrent(attempt)
+
+    /**
      * #1241 — a player clear or a record deletion after preparation started
      * invalidates it: its result must not reopen the player or restore deleted
      * audio. A later gesture starts a new attempt and supersedes it anyway.

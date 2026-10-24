@@ -78,8 +78,7 @@ class ImportCorrectionsFlowTest {
                 MainViewModel.ImportPreviewState(
                     plan,
                     "content://tree",
-                    retryable = true,
-                    failureReason = "disk full"
+                    retryable = true
                 ),
                 {}, {}, { _, _ -> }, { _, _ -> }, { confirmed++ }, {}
             )

@@ -61,6 +61,54 @@ class ExplicitPlaybackAttemptsTest {
     }
 
     @Test
+    fun `a slow attempt that a newer gesture superseded must not install`() {
+        val slow = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.RESUME)
+        val newer = attempts.begin("edition-b", ExplicitPlaybackAttempts.Kind.BOOKMARK)
+
+        // The slow preparation finishes last: it may not install, the newer
+        // gesture's attempt still may. No sleep, no real network — the delay
+        // is expressed by the completion order alone.
+        assertFalse(attempts.shouldInstall(slow))
+        assertTrue(attempts.shouldInstall(newer))
+    }
+
+    @Test
+    fun `an attempt installs while it is still the current gesture`() {
+        val attempt = attempts.begin("edition", ExplicitPlaybackAttempts.Kind.RESUME)
+        assertTrue(attempts.shouldInstall(attempt))
+        assertTrue("no owned attempt keeps the old behaviour", attempts.shouldInstall(null))
+    }
+
+    @Test
+    fun `deleting an unrelated record does not cancel the preparation`() {
+        val attempt = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede("edition-b")
+        assertTrue("another record's deletion must not abort A", attempts.shouldInstall(attempt))
+    }
+
+    @Test
+    fun `deleting the prepared record invalidates it`() {
+        val attempt = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede("edition-a")
+        assertFalse(attempts.shouldInstall(attempt))
+    }
+
+    @Test
+    fun `a player clear invalidates the in-flight preparation`() {
+        val attempt = attempts.begin("edition", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede("edition")
+        assertFalse(attempts.shouldInstall(attempt))
+    }
+
+    @Test
+    fun `supersede invalidates an in-flight preparation`() {
+        val attempt = attempts.begin("book", ExplicitPlaybackAttempts.Kind.RESUME)
+        attempts.supersede("book")
+        assertFalse(attempts.isCurrent(attempt))
+        assertFalse(attempts.armOnSuccess(attempt, "book"))
+    }
+
+    @Test
     fun `the attempt records its kind and the book it was started for`() {
         val attempt = attempts.begin("edition-a", ExplicitPlaybackAttempts.Kind.BOOKMARK)
         assertEquals("edition-a", attempt.bookId)

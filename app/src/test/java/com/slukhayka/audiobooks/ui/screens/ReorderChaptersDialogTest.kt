@@ -8,7 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.components.ChapterOrderDialog
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -128,8 +128,9 @@ class ReorderChaptersDialogTest {
         // replacement (owner decision of 2026-10-11).
         compose.onNodeWithTag("chapter_order_up_ch-3").assertExists()
 
-        val actions = handle.fetchSemanticsNode()
-            .config[SemanticsProperties.CustomActions]
+        val actions = handle.fetchSemanticsNode().config
+            .getOrNull(SemanticsActions.CustomActions)
+            .orEmpty()
             .map { it.label }
         assertTrue("TalkBack needs a named move-up action", actions.any { it.contains("вгору", ignoreCase = true) })
         assertTrue("TalkBack needs a named move-down action", actions.any { it.contains("вниз", ignoreCase = true) })

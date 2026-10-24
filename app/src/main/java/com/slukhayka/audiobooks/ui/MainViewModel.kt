@@ -6207,8 +6207,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ImportPreviewState(
                         plan = state.plan,
                         treeUri = state.treeUri,
-                        retryable = true,
-                        failureReason = state.reason
+                        retryable = true
                     )
             }
         }
@@ -6237,9 +6236,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         /** #1242 — one confirmed write is in flight; every action is blocked. */
         val applying: Boolean = false,
         /** #1242 — the write failed without a result; the plan waits for a retry. */
-        val retryable: Boolean = false,
-        /** #1242 — why the write failed, shown inline in the preview. */
-        val failureReason: String? = null
+        val retryable: Boolean = false
     )
 
     companion object {

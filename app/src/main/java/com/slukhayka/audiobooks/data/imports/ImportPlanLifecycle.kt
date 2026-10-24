@@ -31,9 +31,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * ViewModel keeps the orchestration; this is a pure state module it reads.
  *
  * Callers are confined to the main thread today (UI callbacks and the shared
- * ViewModel's main-thread entry points), and every transition is a compare-and-
- * set anyway: a second concurrent [beginApply] loses the race instead of
- * producing a second write, so the invariant does not depend on that accident.
+ * ViewModel's main-thread entry points). The two transitions that decide whether
+ * a write may start — [beginApply] and [dismiss] — are compare-and-set loops, so
+ * two concurrent callers cannot both win: the second one re-reads the state and
+ * answers from it. The remaining transitions ([begin], [edit], the outcome
+ * writes in [apply]) rely on that same main-thread confinement.
  */
 class ImportPlanLifecycle(
     private val applyPlan: suspend (plan: ImportPlan, treeUri: String) -> LocalImportResult

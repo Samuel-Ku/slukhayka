@@ -84,10 +84,23 @@ class BookDisplayTest {
 
     @Test
     fun `the author scrub blanks exactly the ADR placeholders, not any brand mention`() {
-        BRAND_PLACEHOLDER_AUTHORS.forEach { placeholder ->
+        // The expected set is written out HERE, not read back from production:
+        // dropping an entry from BRAND_PLACEHOLDER_AUTHORS must redden this test.
+        val adrPlaceholders = setOf(
+            "4read.org",
+            "Аудиокнига 4read.org",
+            "4read Voice Narrator"
+        )
+        assertEquals("the production list is exactly ADR-0004", adrPlaceholders, BRAND_PLACEHOLDER_AUTHORS)
+        adrPlaceholders.forEach { placeholder ->
             assertTrue("ADR-0004 placeholder «$placeholder» is blanked", isBrandPlaceholderAuthor(placeholder))
             assertEquals("", bookWith(author = placeholder).displayAuthor)
         }
+        // Boundary, not example: a SUPERSTRING of a placeholder is not the
+        // placeholder — a startsWith/endsWith regression must redden here.
+        assertFalse(isBrandPlaceholderAuthor("4read.org extra"))
+        assertFalse(isBrandPlaceholderAuthor("Аудиокнига 4read.org (UA)"))
+        assertEquals("4read.org extra", bookWith(author = "4read.org extra").displayAuthor)
         assertFalse(
             "a name that merely mentions the brand is not a placeholder",
             isBrandPlaceholderAuthor("Іван 4read")

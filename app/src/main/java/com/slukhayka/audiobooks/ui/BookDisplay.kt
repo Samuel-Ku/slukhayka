@@ -38,11 +38,17 @@ internal fun isBrandPlaceholderAuthor(name: String): Boolean {
 }
 
 /**
- * Narrator label for the UI. Same scrub as [displayAuthor]: the repository
- * seeds fabricated narrators ("4read Voice Narrator") for books without a
- * real one — rendering them is noise, so blank them here. #40 renders the
- * narrator as a tappable person link when this is non-blank and as plain
- * text otherwise.
+ * Narrator label for the UI. The repository seeds fabricated narrators
+ * ("4read Voice Narrator") for books without a real one — rendering them is
+ * noise, so blank them here. #40 renders the narrator as a tappable person
+ * link when this is non-blank and as plain text otherwise.
+ *
+ * #1386 — the scrub is intentionally ASYMMETRIC, and that is a decision, not
+ * drift: the author label uses the exact ADR-0004 list, while the narrator
+ * label keeps the brand substring (#1382 AC3) plus the registered-source-id
+ * boundary. The write path ([MetadataAssertions.normalizeClaimedText]) still
+ * treats any brand mention as absent per ADR-0004, so this exact author rule
+ * governs the DISPLAY of stored/legacy rows, not the import decision.
  */
 val AudiobookEntity.displayNarrator: String
     get() = narrator.takeIf { isRealPersonName(it) }.orEmpty()

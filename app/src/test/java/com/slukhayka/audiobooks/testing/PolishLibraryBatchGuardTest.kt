@@ -77,7 +77,7 @@ class PolishLibraryBatchGuardTest {
             .filter { it.isFile && it.name.endsWith(".xml") }
             .sortedBy { it.name }
             .forEach { file ->
-                val text = file.readText(encoding = Charsets.UTF_8)
+                val text = file.readText(charset = Charsets.UTF_8)
                 stringNode.findAll(text).forEach { out[it.groupValues[1]] = it.groupValues[2] }
                 pluralNode.findAll(text).forEach { out[it.groupValues[1]] = it.groupValues[2] }
             }
@@ -91,7 +91,7 @@ class PolishLibraryBatchGuardTest {
     private fun area(): Map<String, String> {
         val found = LinkedHashMap<String, String>()
         areaSources.forEach { source ->
-            val text = source.readText(encoding = Charsets.UTF_8)
+            val text = source.readText(charset = Charsets.UTF_8)
             reference.findAll(text).forEach { match ->
                 val kind = match.groupValues[1]
                 val key = match.groupValues[2]
@@ -166,7 +166,7 @@ class PolishLibraryBatchGuardTest {
         (res.resolve("values-pl").listFiles() ?: emptyArray())
             .filter { it.isFile && it.name.endsWith(".xml") }
             .forEach { file ->
-                val text = file.readText(encoding = Charsets.UTF_8)
+                val text = file.readText(charset = Charsets.UTF_8)
                 Regex("""<(string|plurals)\s+name="([^"]+)"""").findAll(text).forEach { match ->
                     owners.getOrPut(match.groupValues[2]) { mutableListOf() }.add(file.name)
                 }

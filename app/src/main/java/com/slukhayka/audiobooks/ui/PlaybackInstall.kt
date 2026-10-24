@@ -11,6 +11,7 @@ package com.slukhayka.audiobooks.ui
  */
 data class PlaybackInstallRequest(
     val bookId: String,
+    val attemptId: Long = -1L,
     val chapterId: String?,
     val chapterIndex: Int,
     val positionSeconds: Long,

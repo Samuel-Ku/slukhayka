@@ -89,19 +89,65 @@ class PlaybackAttemptOwnershipTest {
     )
 
     @Test
+    fun `two requests to the same Edition install only the newer and consume the marker once`() {
+        val app = ApplicationProvider.getApplicationContext<App>()
+        seed(app, "book-a")
+        runBlocking {
+            AudiobookDatabase.getDatabase(app).audiobookDao().savePlaybackProgress(
+                com.slukhayka.audiobooks.data.db.PlaybackProgressEntity(
+                    editionId = "edition-book-a",
+                    bookId = "book-a",
+                    currentChapterIndex = 0,
+                    currentPositionSeconds = 1200L,
+                    lastPausedAtEpochMs = 1_700_000_000_000L
+                )
+            )
+        }
+
+        val installed = java.util.Collections.synchronizedList(mutableListOf<Long>())
+        val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
+        val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
+        val viewModel = MainViewModel(
+            app,
+            seam,
+            playbackPreparationHook = { attemptId, _ ->
+                gates.getOrPut(attemptId) { CompletableDeferred() }.await()
+            },
+            playbackInstallAdapter = { request -> installed += request.attemptId }
+        )
+
+        viewModel.playAudiobook(book("book-a"))
+        viewModel.playAudiobook(book("book-a"))
+
+        // A2 (attempt 2) is the listener's latest gesture.
+        gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
+        awaitInstalled(installed.map { it.toString() }, "2")
+        gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
+        shadowOf(Looper.getMainLooper()).idle()
+        Thread.sleep(300)
+
+        assertEquals("only the newer same-Edition request may install", listOf(2L), installed.toList())
+        assertEquals(
+            "the winning attempt consumed the pause marker exactly once",
+            null,
+            runBlocking { AudiobookDatabase.getDatabase(app).audiobookDao().getPlaybackProgressSync("book-a")?.lastPausedAtEpochMs }
+        )
+    }
+
+    @Test
     fun `a slow Bookmark superseded by a newer Play does not install`() {
         val app = ApplicationProvider.getApplicationContext<App>()
         seed(app, "book-a")
         seed(app, "book-b")
 
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
-        val gates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+        val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
             seam,
-            playbackPreparationHook = { bookId ->
-                gates.getOrPut(bookId) { CompletableDeferred() }.await()
+            playbackPreparationHook = { attemptId, _ ->
+                gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
             playbackInstallAdapter = { request -> installed += request.bookId }
         )
@@ -109,10 +155,10 @@ class PlaybackAttemptOwnershipTest {
         viewModel.jumpToBookmark(bookmark("book-a"))
         viewModel.playAudiobook(book("book-b"))
 
-        gates.getOrPut("book-b") { CompletableDeferred() }.complete(Unit)
+        gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
         awaitInstalled(installed, "book-b")
 
-        gates.getOrPut("book-a") { CompletableDeferred() }.complete(Unit)
+        gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
         shadowOf(Looper.getMainLooper()).idle()
         Thread.sleep(300)
 
@@ -130,13 +176,13 @@ class PlaybackAttemptOwnershipTest {
         seed(app, "book-b")
 
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
-        val gates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+        val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
             seam,
-            playbackPreparationHook = { bookId ->
-                gates.getOrPut(bookId) { CompletableDeferred() }.await()
+            playbackPreparationHook = { attemptId, _ ->
+                gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
             playbackInstallAdapter = { request -> installed += request.bookId }
         )
@@ -144,10 +190,10 @@ class PlaybackAttemptOwnershipTest {
         viewModel.relistenBook(book("book-a"))
         viewModel.playAudiobook(book("book-b"))
 
-        gates.getOrPut("book-b") { CompletableDeferred() }.complete(Unit)
+        gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
         awaitInstalled(installed, "book-b")
 
-        gates.getOrPut("book-a") { CompletableDeferred() }.complete(Unit)
+        gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
         shadowOf(Looper.getMainLooper()).idle()
         Thread.sleep(300)
 
@@ -165,13 +211,13 @@ class PlaybackAttemptOwnershipTest {
         seed(app, "book-b")
 
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
-        val gates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+        val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
             seam,
-            playbackPreparationHook = { bookId ->
-                gates.getOrPut(bookId) { CompletableDeferred() }.await()
+            playbackPreparationHook = { attemptId, _ ->
+                gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
             playbackInstallAdapter = { request -> installed += request.bookId }
         )
@@ -180,11 +226,11 @@ class PlaybackAttemptOwnershipTest {
         viewModel.playAudiobook(book("book-b"))
 
         // B is the listener's latest gesture: finish it first.
-        gates.getOrPut("book-b") { CompletableDeferred() }.complete(Unit)
+        gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
         awaitInstalled(installed, "book-b")
 
         // A finishes last — it must NOT replace B.
-        gates.getOrPut("book-a") { CompletableDeferred() }.complete(Unit)
+        gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
         shadowOf(Looper.getMainLooper()).idle()
         Thread.sleep(300)
 

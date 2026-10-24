@@ -231,7 +231,7 @@ class MainViewModel @JvmOverloads constructor(
     // #1241 — a controlled delayed-adapter hook for the ownership tests. It
     // suspends at the preparation/install boundary so a test can finish a newer
     // gesture first; production passes null and pays nothing.
-    private val playbackPreparationHook: (suspend (bookId: String) -> Unit)? = null,
+    private val playbackPreparationHook: (suspend (attemptId: Long, bookId: String) -> Unit)? = null,
     // #1241 — engine adapter: production passes null (real player); tests
     // record installs without constructing ExoPlayer.
     private val playbackInstallAdapter: (suspend (PlaybackInstallRequest) -> Unit)? = null
@@ -5411,25 +5411,17 @@ class MainViewModel @JvmOverloads constructor(
 
             // #1241 — controlled delay point: the test adapter suspends here so
             // a newer gesture can complete first; production has no hook.
-            playbackPreparationHook?.invoke(playbackBook.id)
+            playbackPreparationHook?.invoke(attempt?.id ?: -1L, playbackBook.id)
 
             withContext(Dispatchers.Main) {
                 // #1241 — re-check on the install thread: a newer gesture may
                 // have won while the preparation finished.
                 if (!playbackStartSeam.shouldInstall(attempt)) return@withContext
-                // #1241 — the pause marker is consumed only AFTER the final
-                // ownership check, on the install thread: a supersede between
-                // the IO check and this point must not eat the marker.
+                // #1241 — the pause marker is consumed only by the winning
+                // attempt, and only AFTER its install; a loser never clears or
+                // restores it (same-Edition A1/A2 must not resurrect a marker
+                // the winner already read as null).
                 val pausedAt = progress?.lastPausedAtEpochMs
-                if (pausedAt != null) {
-                    listeningState.updatePausedAt(playbackBook.id, null)
-                    // #1241 — the write suspends; a gesture may have superseded
-                    // the attempt meanwhile. Restore the marker and bail out.
-                    if (!playbackStartSeam.shouldInstall(attempt)) {
-                        listeningState.updatePausedAt(playbackBook.id, pausedAt)
-                        return@withContext
-                    }
-                }
                 if (autoPlay) {
                     // #1240 — the failure was cleared at the gesture's start
                     // seam; here the successful preparation arms recovery for
@@ -5439,6 +5431,7 @@ class MainViewModel @JvmOverloads constructor(
                 }
                 val installRequest = PlaybackInstallRequest(
                     bookId = playbackBook.id,
+                    attemptId = attempt?.id ?: -1L,
                     chapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
                     chapterIndex = resume.chapterIndex,
                     positionSeconds = resume.positionSeconds,
@@ -5447,6 +5440,7 @@ class MainViewModel @JvmOverloads constructor(
                 )
                 if (playbackInstallAdapter != null) {
                     playbackInstallAdapter.invoke(installRequest)
+                    if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
                     return@withContext
                 }
                 playerManager.loadAndPlayBook(
@@ -5460,6 +5454,7 @@ class MainViewModel @JvmOverloads constructor(
                     initialChapterId = installRequest.chapterId,
                     expectedChapterStructureVersion = chapterStructureVersion
                 )
+                if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
             }
 
             // Asynchronously refresh metadata/cover in background without delaying audio startup
@@ -5545,7 +5540,7 @@ class MainViewModel @JvmOverloads constructor(
             // chose IS the anchor — `(editionId, chapterIndex, time)` per the
             // ticket's «не вгадувати джерело чи розділ замість якоря».)
             // #1241 — controlled delay point for the Bookmark door too.
-            playbackPreparationHook?.invoke(book.id)
+            playbackPreparationHook?.invoke(bookmarkAttempt.id, book.id)
 
             viewModelScope.launch(Dispatchers.Main) {
                 // #1240 — arm only now that the anchor is installed; the stale

@@ -449,6 +449,7 @@ const MATRIX = [
   ["M22", "curator_collections/qa_m22", "delete", "uid-alice", null, "ALLOW", "#1405 — порожній легасі-документ можна видалити"],
   ["M23", "curator_collections/qa_m23", "update", "uid-alice", COLLECTION_UNPARALLEL_REASONS, "DENY", "#1405 — оновлення не робить reasons непаралельними"],
   ["M24", "curator_collections/qa_m20", "update", "uid-alice", EMPTY_BOOKS_COLLECTION, "DENY", "#1410 — живу добірку не можна спорожнити"],
+  ["M25", "curator_collections/qa_m25", "update", "uid-alice", EMPTY_BOOKS_COLLECTION, "ALLOW", "#1410 — легасі-порожній документ лишається оновлюваним"],
   ["M14", "curator_collections/qa_m14", "create", "uid-alice", COLLECTION_WITH_SHOWCASE, "ALLOW", "#705 — вітрина до 3 нагород дозволена"],
   ["M15", "curator_collections/qa_m15", "create", "uid-alice", COLLECTION_OVERLONG_SHOWCASE, "DENY", "#705 — 4 нагороди поза межею 3"],
   ["M16", "curator_collections/qa_m16", "create", "uid-alice", COLLECTION_BAD_SHOWCASE, "DENY", "#705 — вітрина не список"],
@@ -485,6 +486,7 @@ const EVIDENCE = {
   M9: "open", M10: "open", M11: "open", M12: "open", M13: "open",
   M14: "open", M15: "open", M16: "open", M17: "open", M18: "open",
   M19: "open", M20: "open", M21: "open", M22: "open", M23: "open", M24: "open",
+  M25: "open",
   // #835 — the queue's public read and the App Check gate are proven as-is;
   // the shape/auth/closed-catalogue rows need the gate OPEN to be meaningful.
   P1: "as-is", P8: "as-is", P11: "as-is",
@@ -587,6 +589,9 @@ async function runPass(gateLabel) {
       await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m21"), EMPTY_BOOKS_COLLECTION);
       await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m22"), EMPTY_BOOKS_COLLECTION);
       await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m23"), LEGACY_COLLECTION);
+      // M25 pins the OTHER half of the update clause: an already-empty legacy
+      // document stays updatable even when the update keeps it empty.
+      await setDoc(doc(collection(seedDb, "curator_collections"), "qa_m25"), EMPTY_BOOKS_COLLECTION);
     });
   }
 

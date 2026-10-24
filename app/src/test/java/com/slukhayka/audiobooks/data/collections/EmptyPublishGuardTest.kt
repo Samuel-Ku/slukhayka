@@ -37,7 +37,7 @@ class EmptyPublishGuardTest {
     @Test
     fun `the factory never builds a document from an empty collection`() {
         assertNull(
-            "an empty published document would be invisible on every honest surface",
+            "an empty published document renders as «Книг у добірці: 0», so the factory must refuse it",
             PublishedCollectionFactory.of(collection(emptyList()), author, "Читач", 1L)
         )
     }

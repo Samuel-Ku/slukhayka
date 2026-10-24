@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.ui
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.App
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -43,6 +44,32 @@ class PlaybackStartSeamWiringTest {
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals("the gesture's start seam runs synchronously", 1, cleared)
+    }
+
+    private fun book(id: String) = AudiobookEntity(
+        id = id,
+        title = "Книга",
+        author = "Автор",
+        narrator = "Читач",
+        description = "",
+        coverDrawableRes = 0,
+        sourceUrl = "",
+        genre = ""
+    )
+
+    @Test
+    fun `play and relisten pass the same start seam`() {
+        val app = ApplicationProvider.getApplicationContext<App>()
+        val gate = AutomaticPlaybackRecoveryGate()
+        var cleared = 0
+        val seam = ExplicitPlaybackAttempts(gate) { cleared++ }
+        val viewModel = MainViewModel(app, seam)
+
+        viewModel.playAudiobook(book("gone-play"))
+        assertEquals("Play passes the seam synchronously", 1, cleared)
+        viewModel.relistenBook(book("gone-relisten"))
+        assertEquals("relisten passes the same seam", 2, cleared)
+        shadowOf(Looper.getMainLooper()).idle()
     }
 
     @Test

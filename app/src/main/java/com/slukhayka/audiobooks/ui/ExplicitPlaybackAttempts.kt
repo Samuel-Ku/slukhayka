@@ -17,8 +17,9 @@ import java.util.concurrent.atomic.AtomicLong
  *    only when the start actually succeeds ([armOnSuccess]) — a previous
  *    session's error arriving during asynchronous preparation must not spend
  *    the new attempt's budget;
- *  - [Kind.BOOKMARK] is a deliberate gesture whose preparation is a seek on
- *    the active player, so it arms recovery up front.
+ *  - [Kind.BOOKMARK] also arms only when its preparation installs the anchor:
+ *    its preparation is asynchronous too, so arming at the gesture would let a
+ *    previous session's error spend the new gesture's allowance.
  *
  * #1241 builds on the returned [Attempt]: later preparation results may only
  * publish if their attempt is still the current one.
@@ -41,8 +42,7 @@ class ExplicitPlaybackAttempts(
     fun begin(bookId: String, kind: Kind): Attempt {
         clearPreviousFailure()
         when (kind) {
-            Kind.RESUME, Kind.RELISTEN -> recoveryGate.beginAttempt(bookId)
-            Kind.BOOKMARK -> recoveryGate.arm(bookId)
+            Kind.RESUME, Kind.RELISTEN, Kind.BOOKMARK -> recoveryGate.beginAttempt(bookId)
         }
         return Attempt(nextId.incrementAndGet(), bookId, kind).also { current = it }
     }

@@ -224,8 +224,7 @@ internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
-@JvmOverloads
-class MainViewModel(
+class MainViewModel @JvmOverloads constructor(
     application: Application,
     // #1240 — tests inject a recording seam; production uses the real player/gate.
     private val explicitPlaybackAttempts: ExplicitPlaybackAttempts? = null
@@ -5407,11 +5406,7 @@ class MainViewModel(
                     // seam; here the successful preparation arms recovery for
                     // the attempt it actually installed. A superseded attempt
                     // (#1241) cannot arm.
-                    if (attempt != null) {
-                        playbackStartSeam.armOnSuccess(attempt, playbackBook.id)
-                    } else {
-                        automaticPlaybackRecoveryGate.arm(playbackBook.id)
-                    }
+                    attempt?.let { playbackStartSeam.armOnSuccess(it, playbackBook.id) }
                 }
                 playerManager.loadAndPlayBook(
                     book = playbackBook,
@@ -5458,7 +5453,8 @@ class MainViewModel(
         // #1240 — the gesture's start seam runs BEFORE the asynchronous
         // preparation, so a stale error cannot stay on screen and the active-
         // Edition seek path below cannot skip the clear/arm pair either.
-        playbackStartSeam.begin(bookmark.bookId, ExplicitPlaybackAttempts.Kind.BOOKMARK)
+        val bookmarkAttempt =
+            playbackStartSeam.begin(bookmark.bookId, ExplicitPlaybackAttempts.Kind.BOOKMARK)
         viewModelScope.launch(Dispatchers.IO) {
             val chapterStructureVersion = playerManager.chapterStructureVersion(bookmark.bookId)
             val book = libraryEntries.getBookSync(bookmark.bookId)
@@ -5508,6 +5504,10 @@ class MainViewModel(
             // chose IS the anchor — `(editionId, chapterIndex, time)` per the
             // ticket's «не вгадувати джерело чи розділ замість якоря».)
             viewModelScope.launch(Dispatchers.Main) {
+                // #1240 — arm only now that the anchor is installed; the stale
+                // error was cleared at the gesture, so no earlier emission can
+                // spend this allowance.
+                playbackStartSeam.armOnSuccess(bookmarkAttempt, bookmark.bookId)
                 if (playerState.value.currentBook?.id != bookmark.bookId ||
                     chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
                     playerManager.loadAndPlayBook(

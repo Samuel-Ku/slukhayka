@@ -38,8 +38,10 @@ class ExplicitPlaybackAttemptsTest {
     }
 
     @Test
-    fun `bookmark arms recovery up front`() {
-        attempts.begin("book", ExplicitPlaybackAttempts.Kind.BOOKMARK)
+    fun `bookmark arms only when its anchor is installed`() {
+        val attempt = attempts.begin("book", ExplicitPlaybackAttempts.Kind.BOOKMARK)
+        assertFalse("preparation must not spend the new budget", gate.claimFailure("book"))
+        assertTrue(attempts.armOnSuccess(attempt, "book"))
         assertTrue(gate.claimFailure("book"))
     }
 

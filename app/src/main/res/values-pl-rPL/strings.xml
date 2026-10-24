@@ -1,0 +1,8 @@
+<resources>
+    <!-- СПРАВЖНЯ ПОЛЬСЬКА. Не плутати з values-pl: той файл — УКРАЇНСЬКИЙ
+         оверрайд, який перебиває польські рядки Material3 (див. шапку
+         scripts/tests/test_locale_overrides.py). Цей файл конкретніший за
+         `pl` (кваліфікатор `pl-rPL`), тож на польському пристрої він
+         перемагає values-pl. -->
+    <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
+</resources>

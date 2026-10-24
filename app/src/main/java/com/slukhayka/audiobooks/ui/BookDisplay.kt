@@ -4,22 +4,51 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.source.SourceRegistry
 
 /**
- * Author label for the UI. The repository seeds several placeholder authors
- * for books without a real one ("4read.org", "Аудиокнига 4read.org");
- * rendering them under every title makes screens repeat "4read" over and
- * over. Blank any of them here — the source badge / pill already tells the
- * user where the book came from. Safe to match on "4read": no real author
- * name contains it.
+ * #1386 — the author placeholders ADR-0004 names as the legacy brand seeds.
+ *
+ * Kept as an exact list rather than a substring rule: a rule that blanks ANY
+ * author containing «4read» is the same class of defect as the suffix guess
+ * that hid a real narrator (#1382) — it decides about the data from a guess
+ * about its shape. A name outside this list stays visible even if it mentions
+ * the brand; the badge already says where the book came from.
  */
-val AudiobookEntity.displayAuthor: String
-    get() = author.takeUnless { it.contains("4read", ignoreCase = true) }.orEmpty()
+internal val BRAND_PLACEHOLDER_AUTHORS: Set<String> = setOf(
+    "4read.org",
+    "Аудиокнига 4read.org",
+    "4read Voice Narrator"
+)
 
 /**
- * Narrator label for the UI. Same scrub as [displayAuthor]: the repository
- * seeds fabricated narrators ("4read Voice Narrator") for books without a
- * real one — rendering them is noise, so blank them here. #40 renders the
- * narrator as a tappable person link when this is non-blank and as plain
- * text otherwise.
+ * Author label for the UI. The repository seeds several placeholder authors
+ * for books without a real one (ADR-0004: «4read.org», «Аудиокнига
+ * 4read.org»); rendering them under every title makes screens repeat "4read"
+ * over and over. Blank exactly those — the source badge / pill already tells
+ * the user where the book came from.
+ */
+val AudiobookEntity.displayAuthor: String
+    get() = author.takeUnless { isBrandPlaceholderAuthor(it) }.orEmpty()
+
+/**
+ * #1386 — the exact boundary of the author scrub: a placeholder is one of the
+ * ADR-0004 values, never a name that merely contains the brand.
+ */
+internal fun isBrandPlaceholderAuthor(name: String): Boolean {
+    val trimmed = name.trim()
+    return BRAND_PLACEHOLDER_AUTHORS.any { it.equals(trimmed, ignoreCase = true) }
+}
+
+/**
+ * Narrator label for the UI. The repository seeds fabricated narrators
+ * ("4read Voice Narrator") for books without a real one — rendering them is
+ * noise, so blank them here. #40 renders the narrator as a tappable person
+ * link when this is non-blank and as plain text otherwise.
+ *
+ * #1386 — the scrub is intentionally ASYMMETRIC, and that is a decision, not
+ * drift: the author label uses the exact ADR-0004 list, while the narrator
+ * label keeps the brand substring (#1382 AC3) plus the registered-source-id
+ * boundary. The write path ([MetadataAssertions.normalizeClaimedText]) still
+ * treats any brand mention as absent per ADR-0004, so this exact author rule
+ * governs the DISPLAY of stored/legacy rows, not the import decision.
  */
 val AudiobookEntity.displayNarrator: String
     get() = narrator.takeIf { isRealPersonName(it) }.orEmpty()

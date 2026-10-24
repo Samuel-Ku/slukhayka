@@ -26,11 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -52,8 +47,8 @@ import kotlin.math.abs
  *
  * The decision of 2026-10-11 keeps both paths: only this handle starts a drag
  * (the rest of the row keeps scrolling as before), the arrows stay, and
- * TalkBack/keyboard get named "move up"/"move down" actions — a gesture alone
- * would not be accessible. The same composable is used by the import preview
+ * TalkBack gets named "move up"/"move down" actions and the arrow buttons stay the
+ * keyboard path — a gesture alone would not be accessible. The same composable is used by the import preview
  * and by [ChapterOrderDialog] so the two surfaces speak one language.
  *
  * The caller MUST key its rows by the chapter identity (or pass [rowHeightPx]
@@ -126,18 +121,6 @@ fun ChapterDragHandle(
                         true
                     }
                 )
-            }
-            .onKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown || !currentEnabled) return@onKeyEvent false
-                when (event.key) {
-                    Key.DirectionUp -> {
-                        if (currentIndex > 0) currentOnMove(currentIndex, currentIndex - 1); true
-                    }
-                    Key.DirectionDown -> {
-                        if (currentIndex < currentCount - 1) currentOnMove(currentIndex, currentIndex + 1); true
-                    }
-                    else -> false
-                }
             }
             .pointerInput(currentCount, stepPx) {
                 detectDragGestures(

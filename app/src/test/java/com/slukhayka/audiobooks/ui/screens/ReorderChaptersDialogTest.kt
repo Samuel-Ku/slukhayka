@@ -9,9 +9,6 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.requestFocus
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.components.ChapterOrderDialog
@@ -200,35 +197,6 @@ class ReorderChaptersDialogTest {
         assertEquals(
             "multi-step drag мусить рухати саму главу, а не слот списку",
             listOf("ch-2", "ch-3", "ch-1"),
-            confirmed
-        )
-    }
-
-    @Test
-    fun `the focused handle moves the chapter with the keyboard`() {
-        var confirmed: List<String>? = null
-        compose.setContent {
-            AudiobookTheme {
-                ChapterOrderDialog(
-                    chapters = chapters(),
-                    saving = false,
-                    errorMessage = null,
-                    onDismiss = {},
-                    onSave = { confirmed = it }
-                )
-            }
-        }
-
-        compose.onNodeWithTag("chapter_order_drag_ch-1").requestFocus()
-        compose.onNodeWithTag("chapter_order_drag_ch-1").performKeyInput {
-            pressKey(Key.DirectionDown)
-        }
-        compose.waitForIdle()
-        compose.onNodeWithTag("chapter_order_save").performClick()
-        compose.waitForIdle()
-        assertEquals(
-            "клавіатура мусить мати той самий шлях, що стрілки й TalkBack",
-            listOf("ch-2", "ch-1", "ch-3"),
             confirmed
         )
     }

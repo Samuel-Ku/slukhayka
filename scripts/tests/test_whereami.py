@@ -138,6 +138,39 @@ class WhereamiTest(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout)
         self.assertIn("файлів лише тут:    1", result.stdout)
 
+    def test_the_both_sides_are_counted_separately(self):
+        """Розбіжність: скільки комітів ПОЗАДУ і скільки ПОПЕРЕДУ — різні числа.
+
+        Саме заради цих двох цифр скрипт і існує. Тест будує СПРАВЖНЮ
+        розбіжність, бо на однобокій історії (лише попереду) обидві форми
+        `..` і `...` дають однакове `0 N` — і мутація лишається зеленою,
+        хоч ламає підрахунок. Перевірено прогоном: з `"$BASE..HEAD"`
+        (дві крапки) числа міняються місцями, і цей тест червоніє.
+        """
+        root = self.repo.commit("перший")
+        self.repo._git("checkout", "-q", "-b", "side", root)
+        (self.repo.work / "side.txt").write_text("s", encoding="utf-8")
+        self.repo._git("add", "-A")
+        self.repo._git(
+            "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+            "commit", "-q", "-m", "бік",
+        )
+        # origin/main — коміт з ІНШОЇ лінії, якого в HEAD немає.
+        self.repo._git("checkout", "-q", "-b", "other", root)
+        (self.repo.work / "other.txt").write_text("o", encoding="utf-8")
+        self.repo._git("add", "-A")
+        other = self.repo._git(
+            "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+            "commit", "-q", "-m", "інший",
+        )
+        other_sha = self.repo._git("rev-parse", "HEAD").stdout.strip()
+        self.repo._git("update-ref", "refs/remotes/origin/main", other_sha)
+        self.repo._git("checkout", "-q", "side")
+        result = self.repo.whereami()
+        self.assertIn("позаду 1", result.stdout, result.stdout)
+        self.assertIn("попереду 1", result.stdout, result.stdout)
+
+
     def test_a_missing_origin_main_is_an_error(self):
         """Немає origin/main → код 2, а не тихе «все гаразд»."""
         self.repo.commit("перший")

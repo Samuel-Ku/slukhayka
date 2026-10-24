@@ -408,6 +408,7 @@ SCANNED = (
     "scripts/review-clone.sh",
     "scripts/review-pass.sh",
     "scripts/run-instrumented-suites.sh",
+    "scripts/whereami.sh",
     "scripts/source-budget-snapshot.sh",
     "scripts/telegram-login-spike.sh",
     "scripts/test-all.sh",

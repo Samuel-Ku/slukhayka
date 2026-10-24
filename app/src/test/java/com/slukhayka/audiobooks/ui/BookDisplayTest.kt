@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui
 
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -47,6 +48,52 @@ class BookDisplayTest {
     fun `fabricated 4read placeholder author is blanked`() {
         val book = bookWith(author = "Аудиокнига 4read.org")
         assertEquals("", book.displayAuthor)
+    }
+
+    // ------------------------------------------------------------------
+    // #1386 — guards for the class «the scrub rule eats a real value»
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a real narrator name ending with the placeholder suffix stays visible`() {
+        // The pre-#1382 rule blanked ANY name ending with « narrator». This is
+        // the class, not one example: a real person whose name happens to end
+        // that way must survive the scrub.
+        val book = bookWith(narrator = "Іван Narrator")
+        assertEquals("Іван Narrator", book.displayNarrator)
+        assertTrue(isRealPersonName("Іван Narrator"))
+    }
+
+    @Test
+    fun `the narrator placeholder boundary is an exact registered source id`() {
+        // The boundary is checked against EVERY registered source, so a source
+        // added later is covered without editing the rule or this test.
+        val ids = SourceRegistry.ids()
+        assertTrue("the source registry must not be empty", ids.isNotEmpty())
+        ids.forEach { id ->
+            assertTrue("registered placeholder «$id narrator»", isPlaceholderNarrator("$id narrator"))
+            assertFalse(
+                "a longer prefix is not the placeholder «$id narrator»",
+                isPlaceholderNarrator("$id-other narrator")
+            )
+        }
+        assertFalse("an unregistered source id is not guessed", isPlaceholderNarrator("legacy-source narrator"))
+        assertFalse(isPlaceholderNarrator("Narrator"))
+        assertFalse(isPlaceholderNarrator("Іван Narrator"))
+    }
+
+    @Test
+    fun `the author scrub blanks exactly the ADR placeholders, not any brand mention`() {
+        BRAND_PLACEHOLDER_AUTHORS.forEach { placeholder ->
+            assertTrue("ADR-0004 placeholder «$placeholder» is blanked", isBrandPlaceholderAuthor(placeholder))
+            assertEquals("", bookWith(author = placeholder).displayAuthor)
+        }
+        assertFalse(
+            "a name that merely mentions the brand is not a placeholder",
+            isBrandPlaceholderAuthor("Іван 4read")
+        )
+        assertEquals("Іван 4read", bookWith(author = "Іван 4read").displayAuthor)
+        assertFalse(isBrandPlaceholderAuthor("Реальний Автор"))
     }
 
     // ------------------------------------------------------------------

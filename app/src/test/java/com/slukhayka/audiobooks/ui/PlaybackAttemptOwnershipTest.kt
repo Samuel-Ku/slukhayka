@@ -80,6 +80,84 @@ class PlaybackAttemptOwnershipTest {
         }
     }
 
+    private fun bookmark(bookId: String) = com.slukhayka.audiobooks.data.db.BookmarkEntity(
+        bookId = bookId,
+        chapterIndex = 0,
+        chapterTitle = "Розділ 1",
+        timestampSeconds = 60,
+        note = ""
+    )
+
+    @Test
+    fun `a slow Bookmark superseded by a newer Play does not install`() {
+        val app = ApplicationProvider.getApplicationContext<App>()
+        seed(app, "book-a")
+        seed(app, "book-b")
+
+        val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val gates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+        val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
+        val viewModel = MainViewModel(
+            app,
+            seam,
+            playbackPreparationHook = { bookId ->
+                gates.getOrPut(bookId) { CompletableDeferred() }.await()
+            },
+            playbackInstallAdapter = { request -> installed += request.bookId }
+        )
+
+        viewModel.jumpToBookmark(bookmark("book-a"))
+        viewModel.playAudiobook(book("book-b"))
+
+        gates.getOrPut("book-b") { CompletableDeferred() }.complete(Unit)
+        awaitInstalled(installed, "book-b")
+
+        gates.getOrPut("book-a") { CompletableDeferred() }.complete(Unit)
+        shadowOf(Looper.getMainLooper()).idle()
+        Thread.sleep(300)
+
+        assertEquals(
+            "the superseded Bookmark must not steal the player",
+            listOf("book-b"),
+            installed.toList()
+        )
+    }
+
+    @Test
+    fun `a slow relisten superseded by a newer Play does not install`() {
+        val app = ApplicationProvider.getApplicationContext<App>()
+        seed(app, "book-a")
+        seed(app, "book-b")
+
+        val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val gates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+        val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
+        val viewModel = MainViewModel(
+            app,
+            seam,
+            playbackPreparationHook = { bookId ->
+                gates.getOrPut(bookId) { CompletableDeferred() }.await()
+            },
+            playbackInstallAdapter = { request -> installed += request.bookId }
+        )
+
+        viewModel.relistenBook(book("book-a"))
+        viewModel.playAudiobook(book("book-b"))
+
+        gates.getOrPut("book-b") { CompletableDeferred() }.complete(Unit)
+        awaitInstalled(installed, "book-b")
+
+        gates.getOrPut("book-a") { CompletableDeferred() }.complete(Unit)
+        shadowOf(Looper.getMainLooper()).idle()
+        Thread.sleep(300)
+
+        assertEquals(
+            "the superseded relisten must not steal the player",
+            listOf("book-b"),
+            installed.toList()
+        )
+    }
+
     @Test
     fun `a slow preparation A cannot steal the player from a newer B`() {
         val app = ApplicationProvider.getApplicationContext<App>()

@@ -5544,6 +5544,9 @@ class MainViewModel @JvmOverloads constructor(
             // (The preferred source is not resolved: the anchor the listener
             // chose IS the anchor — `(editionId, chapterIndex, time)` per the
             // ticket's «не вгадувати джерело чи розділ замість якоря».)
+            // #1241 — controlled delay point for the Bookmark door too.
+            playbackPreparationHook?.invoke(book.id)
+
             viewModelScope.launch(Dispatchers.Main) {
                 // #1240 — arm only now that the anchor is installed; the stale
                 // error was cleared at the gesture, so no earlier emission can

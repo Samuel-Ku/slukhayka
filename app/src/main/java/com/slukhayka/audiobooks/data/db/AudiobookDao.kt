@@ -4,6 +4,7 @@ import androidx.paging.PagingSource
 import androidx.room.*
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
+import com.slukhayka.audiobooks.data.entries.PERSONAL_ORIGIN_SQL_LIST
 import com.slukhayka.audiobooks.data.source.SourceRegistry
 import kotlinx.coroutines.flow.Flow
 import com.slukhayka.audiobooks.data.imports.ChapterOrder
@@ -51,18 +52,40 @@ interface AudiobookDao {
     }
 
     /**
-     * ADR-0009: every read returns the JOINed [BookRow] — Room does not
+     * ADR-0009 — every read returns the JOINed [BookRow]; Room does not
      * hydrate `@Ignore` projections, so the modules map the row back to
      * [AudiobookEntity] at their read boundary.
+     *
+     * ADR-0063 — this projection is the PERSONAL library: only links the
+     * listener began with Personal Intent are "my books". A technical
+     * materialization or an automatic catalogue row keeps its anchor but never
+     * renders here. The origin names come from the ONE SQL constant beside
+     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy].
+     */
+    @Query(BOOK_SELECT + " WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC")
+    fun getPersonalAudiobooks(): Flow<List<BookRow>>
+
+    /**
+     * Every materialized book, personal or not — the DAO's honest "all" read:
+     * import/merge tests, the merge-suggestion pool and the detail screen's
+     * sibling narrations need it. Library surfaces must use
+     * [getPersonalAudiobooks] instead (ADR-0063).
      */
     @Query(BOOK_SELECT + " ORDER BY a.title ASC")
     fun getAllAudiobooks(): Flow<List<BookRow>>
+
+    /** ADR-0063 §5 — the personal corpus for the smart collections. */
+    @Query(BOOK_SELECT + " WHERE le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC")
+    suspend fun getPersonalAudiobooksOnce(): List<BookRow>
 
     /** One-shot read of every book — the #54 merge-suggestion pool. */
     @Query(BOOK_SELECT)
     suspend fun getAllAudiobooksOnce(): List<BookRow>
 
-    @Query(BOOK_SELECT + " WHERE a.isDownloaded = 1 ORDER BY a.title ASC")
+    @Query(
+        BOOK_SELECT + " WHERE a.isDownloaded = 1 " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC"
+    )
     fun getDownloadedAudiobooks(): Flow<List<BookRow>>
 
     @Query(BOOK_SELECT + " WHERE a.id = :id")
@@ -683,12 +706,13 @@ interface AudiobookDao {
             "SELECT w.seriesTitle AS title, w.seriesUrl AS url " +
             "FROM works w JOIN library_entries le ON le.workId = w.id " +
             "WHERE w.seriesTitle IS NOT NULL AND w.seriesTitle != '' " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
             "UNION " +
             "SELECT s.title AS title, s.url AS url " +
             "FROM series s " +
             "JOIN series_members sm ON sm.seriesId = s.id " +
             "JOIN library_entries le ON le.workId = sm.workId " +
-            "WHERE s.title != ''" +
+            "WHERE s.title != '' AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)" +
             ") ORDER BY title COLLATE NOCASE ASC"
     )
     suspend fun ownedSeriesIndexRows(): List<SeriesIndexRow>
@@ -700,7 +724,8 @@ interface AudiobookDao {
             "LEFT JOIN works w ON w.id = le.workId " +
             "LEFT JOIN series_members sm ON sm.workId = le.workId " +
             "LEFT JOIN series s ON s.id = sm.seriesId " +
-            "WHERE w.seriesTitle = :title OR s.title = :title " +
+            "WHERE (w.seriesTitle = :title OR s.title = :title) " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
             "ORDER BY w.seriesIndex IS NULL, w.seriesIndex ASC, a.title COLLATE NOCASE ASC, a.id ASC"
     )
     suspend fun libraryBooksForSeries(title: String): List<AudiobookEntity>
@@ -786,7 +811,7 @@ interface AudiobookDao {
         FROM works w
         JOIN library_entries le ON le.workId = w.id
         JOIN audiobooks a ON a.id = le.id
-        WHERE w.mergeKey != ''
+        WHERE w.mergeKey != '' AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)
         GROUP BY w.mergeKey
         """
     )
@@ -1149,7 +1174,10 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun savePlaybackProgress(progress: PlaybackProgressEntity)
 
-    @Query(BOOK_SELECT + " WHERE le.isFavorite = 1 ORDER BY a.title ASC")
+    @Query(
+        BOOK_SELECT + " WHERE le.isFavorite = 1 " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) ORDER BY a.title ASC"
+    )
     fun getFavoriteAudiobooks(): Flow<List<BookRow>>
 
     @Query("UPDATE library_entries SET isFavorite = :isFavorite WHERE id = :bookId")
@@ -1158,17 +1186,32 @@ interface AudiobookDao {
     // --- Library Entries (ADR-0009) ----------------------------------------
 
     /**
-     * True upsert: on a fresh row everything lands; on an existing row only
-     * the link and the download progress update — the user's isFavorite and
-     * the original createdAt never reset on a re-sync. Catalogue enrichment
-     * preserves download state atomically, including concurrent queue writes.
+     * True upsert: on a fresh row everything lands; on an existing row the
+     * link, the download columns and — for an incoming PERSONAL origin only —
+     * the origin update, while the user's isFavorite and the original createdAt
+     * never reset on a re-sync. Catalogue enrichment preserves download state
+     * atomically, including concurrent queue writes.
+     *
+     * ADR-0063 — the "this book is in the library" write. Its default origin is
+     * Personal Intent because the three doorways that call it
+     * (submitted link, YouTube submission, local import) are explicit; the ONE
+     * automatic caller (the catalogue-section mirror) passes
+     * [com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC],
+     * and the conflict arm below can never downgrade a personal row.
      */
     @Query(
-        "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState) " +
-            "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress, :downloadState) " +
+        "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState, origin) " +
+            "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress, :downloadState, :origin) " +
             "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, " +
             "downloadProgress = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadProgress ELSE excluded.downloadProgress END, " +
-            "downloadState = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadState ELSE excluded.downloadState END"
+            "downloadState = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadState ELSE excluded.downloadState END, " +
+            // ADR-0063 §9 — an AUTOMATIC pass may never rewrite a row it
+            // did not create: only an incoming PERSONAL origin changes the
+            // fact (the §4 upgrade on explicit intent). Without this, a
+            // catalogue refresh would flip a legacy UNKNOWN row to CATALOG_SYNC
+            // and drop it out of «Імпортоване» without the listener deciding.
+            "origin = CASE WHEN excluded.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
+            "THEN excluded.origin ELSE library_entries.origin END"
     )
     suspend fun upsertLibraryEntry(
         id: String,
@@ -1177,7 +1220,8 @@ interface AudiobookDao {
         createdAt: Long,
         downloadProgress: Float,
         downloadState: String = com.slukhayka.audiobooks.data.db.DownloadState.IDLE,
-        preserveExistingDownloads: Boolean = false
+        preserveExistingDownloads: Boolean = false,
+        origin: String = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE.name
     )
 
     @Query("DELETE FROM library_entries WHERE id = :bookId")
@@ -1188,11 +1232,30 @@ interface AudiobookDao {
     @Query("SELECT * FROM library_entries WHERE origin = :origin ORDER BY createdAt DESC")
     suspend fun libraryEntriesWithOrigin(origin: String): List<LibraryEntryEntity>
 
+    /**
+     * ADR-0047 §4 / ADR-0063 — the «Імпортоване» queue with the title the
+     * screen renders, so the triage tab never reaches into the personal
+     * library flow (which no longer contains these rows) for a label.
+     */
+    @Query(
+        "SELECT le.id AS bookId, " +
+            "COALESCE(NULLIF(w.title, ''), a.title, '') AS title " +
+            "FROM library_entries le " +
+            "LEFT JOIN works w ON w.id = le.workId " +
+            "LEFT JOIN audiobooks a ON a.id = le.id " +
+            "WHERE le.origin = :origin ORDER BY le.createdAt DESC"
+    )
+    suspend fun triageRowsWithOrigin(origin: String): List<TriageRow>
+
     @Query("UPDATE library_entries SET origin = :origin WHERE id = :bookId")
     suspend fun updateLibraryEntryOrigin(bookId: String, origin: String)
 
     @Query("SELECT * FROM library_entries WHERE id = :bookId LIMIT 1")
     suspend fun libraryEntryById(bookId: String): LibraryEntryEntity?
+
+    /** ADR-0063 — does this book currently carry a personal link? */
+    @Query("SELECT * FROM library_entries WHERE id = :bookId LIMIT 1")
+    fun observeLibraryEntryById(bookId: String): Flow<LibraryEntryEntity?>
 
     // ADR-0047 / #870 — the origin MUST be recorded by the write that creates
     // the link (a manual add is an explicit action), so it cannot fall back to
@@ -1209,6 +1272,13 @@ interface AudiobookDao {
         createdAt: Long
     )
 
+    /**
+     * Every materialized row, hidden technical anchors included. This is an
+     * INFRASTRUCTURE read for the catalogue mirror (which Work owns which
+     * card), never a personal shelf: «Мої книги» and every award metric go
+     * through [getPersonalAudiobooks] and the
+     * personal filters instead (ADR-0063).
+     */
     @Query("SELECT * FROM library_entries")
     fun observeLibraryEntries(): Flow<List<LibraryEntryEntity>>
 
@@ -1720,7 +1790,8 @@ interface AudiobookDao {
     @Query(
         "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
             "FROM author_facets a JOIN work_facets wf ON wf.canonicalAuthorId=a.id " +
-            "WHERE EXISTS (SELECT 1 FROM library_entries le WHERE le.workId = wf.workId) " +
+            "WHERE EXISTS (SELECT 1 FROM library_entries le WHERE le.workId = wf.workId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)) " +
             "GROUP BY a.id, a.displayName, a.normalizedName " +
             "ORDER BY a.normalizedName ASC, a.id ASC"
     )
@@ -1774,7 +1845,8 @@ interface AudiobookDao {
     @Query(
         "SELECT w.id FROM works w JOIN work_facets wf ON wf.workId=w.id " +
             "JOIN library_entries le ON le.workId=w.id " +
-            "WHERE wf.canonicalAuthorId=:authorId"
+            "WHERE wf.canonicalAuthorId=:authorId " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)"
     )
     suspend fun ownedWorkIdsForAuthor(authorId: String): List<String>
 
@@ -1787,7 +1859,8 @@ interface AudiobookDao {
     @Query(
         "SELECT DISTINCT w.id FROM works w JOIN editions e ON e.workId=w.id " +
             "JOIN library_entries le ON le.workId=w.id " +
-            "WHERE e.narrator = :narrator COLLATE NOCASE"
+            "WHERE e.narrator = :narrator COLLATE NOCASE " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST)"
     )
     suspend fun ownedWorkIdsForNarrator(narrator: String): List<String>
 
@@ -1800,6 +1873,7 @@ interface AudiobookDao {
         "SELECT e.narrator AS displayName, COUNT(DISTINCT e.workId) AS workCount " +
             "FROM editions e JOIN library_entries le ON le.workId = e.workId " +
             "WHERE e.narrator IS NOT NULL AND e.narrator != '' " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
             "GROUP BY e.narrator ORDER BY e.narrator COLLATE NOCASE ASC"
     )
     fun observeLibraryNarrators(): Flow<List<com.slukhayka.audiobooks.data.people.NarratorSummary>>
@@ -1810,6 +1884,7 @@ interface AudiobookDao {
             "JOIN library_entries le ON le.id = a.id " +
             "JOIN editions e ON e.workId = le.workId " +
             "WHERE e.narrator = :narrator " +
+            "AND le.origin IN ($PERSONAL_ORIGIN_SQL_LIST) " +
             "ORDER BY a.title COLLATE NOCASE ASC, a.id ASC"
     )
     suspend fun libraryBooksForNarrator(narrator: String): List<AudiobookEntity>
@@ -2061,3 +2136,7 @@ interface AudiobookDao {
     )
     suspend fun updateSubmissionState(sourceId: String, state: String, reason: String?, updatedAt: Long)
 }
+
+
+/** ADR-0047 §4 / ADR-0063 — one «Імпортоване» row: the link id and its title. */
+data class TriageRow(val bookId: String, val title: String)

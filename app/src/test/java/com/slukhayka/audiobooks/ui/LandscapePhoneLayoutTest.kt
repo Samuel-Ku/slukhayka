@@ -113,6 +113,18 @@ class LandscapePhoneLayoutTest {
                         }
                     }
                 )
+                // ADR-0063 — «Мої книги» shows PERSONAL links only. A fixture
+                // that seeds bare audiobook rows would render an empty grid and
+                // this layout regression test would fail for the wrong reason.
+                (1..12).forEach { index ->
+                    upsertLibraryEntry(
+                        id = "landscape-book-$index",
+                        workId = "landscape-book-$index",
+                        isFavorite = false,
+                        createdAt = index.toLong(),
+                        downloadProgress = 0f
+                    )
+                }
             }
         }
     }

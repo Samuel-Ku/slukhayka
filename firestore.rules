@@ -595,7 +595,10 @@ service cloud.firestore {
     // positionally parallel to `bookIds` (#695) — it is here so a fork of
     // someone else's collection keeps its reasons. authorId is
     // sha256(uid) — the raw uid is never a field here.
-    function isWellFormedCuratorCollection(d) {
+    // #1405 — shape shared by create and by the stored document. It tolerates
+    // the legacy `reasons: []` that v1.4.0–v1.4.2 clients wrote (the decoder
+    // pads it), but when reasons are present they stay positionally parallel.
+    function isCuratorCollectionShape(d) {
       return d.keys().hasOnly([
           'authorId', 'collectionId', 'pseudonym', 'title', 'description',
           'bookIds', 'reasons', 'ratingSum', 'ratingCount',
@@ -608,6 +611,9 @@ service cloud.firestore {
         && d.description is string && d.description.size() <= 600
         && d.bookIds is list && d.bookIds.size() <= 500
         && d.reasons is list && d.reasons.size() <= 500
+        // Legacy v1.4.x documents carry no reasons at all; a modern document
+        // must keep the lists parallel (#695).
+        && (d.reasons.size() == 0 || d.reasons.size() == d.bookIds.size())
         // #694 — the rating aggregate is optional on legacy documents; when
         // present it is a real number, never a string or a list.
         && (!d.keys().hasAny(['ratingSum', 'ratingCount'])
@@ -625,6 +631,14 @@ service cloud.firestore {
         && (!d.keys().hasAny(['showcase'])
             || (d.showcase is list && d.showcase.size() <= 3))
         && d.publishedAt is number;
+    }
+
+    // #1405 — a NEW publication is never empty: readers render an empty
+    // collection as «0 книг», so the document must not exist at all. The
+    // stricter clause is for CREATE only, so a legacy document stays
+    // updatable/deletable by its author.
+    function isWellFormedCuratorCollection(d) {
+      return isCuratorCollectionShape(d) && d.bookIds.size() > 0;
     }
 
     // #835 — the shared catalogue is written ONLY by the curator's bot (Admin
@@ -667,12 +681,16 @@ service cloud.firestore {
       // client call can bring it back (`false -> true` only). A document that
       // never carried the flag may still be updated normally.
       allow update: if isAppCheckValid() && request.auth != null
-        && isWellFormedCuratorCollection(request.resource.data)
+        && isCuratorCollectionShape(request.resource.data)
+        // #1410 — an update may not EMPTY a live collection; only a legacy
+        // document that was already empty may be repaired through an update.
+        && (request.resource.data.bookIds.size() > 0
+            || resource.data.bookIds.size() == 0)
         && (!resource.data.keys().hasAny(['hidden'])
             || resource.data.hidden == false
             || request.resource.data.hidden == true);
       allow delete: if isAppCheckValid() && request.auth != null
-        && isWellFormedCuratorCollection(resource.data);
+        && isCuratorCollectionShape(resource.data);
     }
 
     // #696 — one anonymous complaint per (person, collection), addressed by

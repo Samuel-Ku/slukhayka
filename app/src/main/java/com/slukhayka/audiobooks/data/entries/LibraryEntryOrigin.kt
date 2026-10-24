@@ -5,10 +5,13 @@ package com.slukhayka.audiobooks.data.entries
  * fact about the record, never a judgement about the book.
  *
  * The distinction that matters: an EXPLICIT action by the listener (a save, a
- * deliberate import of their own file or folder) versus an AUTOMATIC pass (the
- * catalogue seed, a catalogue sync). And, for rows that predate the fact
- * itself, an honest [UNKNOWN]: the data simply does not say, so nothing is
- * guessed.
+ * deliberate import of their own file or folder, actually starting playback)
+ * versus an AUTOMATIC pass (a catalogue sync, a technical card open). An
+ * automatic pass creates NO PERSONAL link (ADR-0063): [AUTO_SEED],
+ * [CATALOG_SYNC] and [TECHNICAL_OPEN] mark hidden anchors or legacy rows, and
+ * no personal surface or award metric reads them. And, for rows that predate
+ * the fact itself, an honest [UNKNOWN]: the data simply does not say, so
+ * nothing is guessed.
  */
 enum class LibraryEntryOrigin {
     /** The listener saved the book on purpose. */
@@ -20,8 +23,18 @@ enum class LibraryEntryOrigin {
     /** The catalogue filled it in automatically (авто-сід). */
     AUTO_SEED,
 
-    /** A catalogue sync added it without the listener asking. */
+    /** A catalogue sync added it without the listener asking (legacy row). */
     CATALOG_SYNC,
+
+    /**
+     * ADR-0063 — a Work materialized from the catalogue mirror so its page
+     * and player can work before the listener saves it. Not a personal link
+     * and not a triage candidate: it is mechanics, not a choice. The import
+     * default writes this HIDDEN anchor (the Work link hangs on it), which no
+     * personal surface or award metric reads; an explicit save or actual
+     * playback upgrades it to `EXPLICIT_SAVE`.
+     */
+    TECHNICAL_OPEN,
 
     /**
      * The row predates the recorded origin and nothing in the data proves how
@@ -56,13 +69,15 @@ object LibraryEntryOriginPolicy {
         LibraryEntryOrigin.EXPLICIT_IMPORT -> true
         LibraryEntryOrigin.AUTO_SEED,
         LibraryEntryOrigin.CATALOG_SYNC,
+        LibraryEntryOrigin.TECHNICAL_OPEN,
         LibraryEntryOrigin.UNKNOWN -> false
     }
 
     /**
      * ADR-0047 §4 — the «Імпортоване» subsection holds exactly the links whose
-     * origin the data does NOT recover. An auto-seed is not "imported": it is
-     * a known automatic pass and simply is not personal.
+     * origin the data does NOT recover. An auto-seed or a technical open is
+     * not "imported": it is a known automatic state and simply is not
+     * personal (ADR-0063).
      */
     fun needsTriage(origin: LibraryEntryOrigin): Boolean =
         origin == LibraryEntryOrigin.UNKNOWN
@@ -73,9 +88,20 @@ object LibraryEntryOriginPolicy {
      * Source are untouched (ADR-0009).
      */
     fun confirmAsPersonal(origin: LibraryEntryOrigin): LibraryEntryOrigin = when (origin) {
-        LibraryEntryOrigin.UNKNOWN -> LibraryEntryOrigin.EXPLICIT_SAVE
-        else -> origin
+        LibraryEntryOrigin.EXPLICIT_SAVE, LibraryEntryOrigin.EXPLICIT_IMPORT -> origin
+        else -> LibraryEntryOrigin.EXPLICIT_SAVE
     }
+
+    /**
+     * ADR-0063 §2 — does an import door with this origin make the link
+     * PERSONAL? (A technical door still writes the hidden anchor so the Work
+     * stays reachable; this rule answers only where the listener's shelf
+     * reads from.)
+     *
+     * This is the ONE rule the import core reads, so a new door cannot mean
+     * personal by accident.
+     */
+    fun writesLibraryEntry(origin: LibraryEntryOrigin): Boolean = isPersonal(origin)
 
     /**
      * The triage bucket for a whole library, in the listener's own order.

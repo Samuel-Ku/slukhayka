@@ -106,7 +106,7 @@ import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
-import com.slukhayka.audiobooks.ui.library.libraryIndexOfBook
+import com.slukhayka.audiobooks.ui.library.LibraryReturnFocusEffect
 import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
 import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
@@ -438,32 +438,30 @@ fun LibraryScreen(
             }
     }
 
-    LaunchedEffect(
-        restoreFocusBookId,
-        gridEntries,
-        libraryBooks,
-        activeTab,
-        modalVisible
-    ) {
-        val bookId = restoreFocusBookId ?: return@LaunchedEffect
-        if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        // The book may be the hero card rather than a row: the projection's own
-        // mapping asks every entry.
-        val visibleIndex = libraryIndexOfBook(gridEntries, bookId)
-        when {
-            visibleIndex >= 0 -> {
-                libraryGridState.scrollToItem(visibleIndex)
-                withFrameNanos { }
-                bookReturnFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-            libraryBooks.isNotEmpty() -> {
-                withFrameNanos { }
-                libraryHeadingFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-        }
+    // #1285 — ONE resolved anchor for both the effect and the renderer. The
+    // renderer attaches the focus requester to the card it draws, so it must be
+    // told the card's SHOWN narration id; the token may be a narration that is
+    // no longer drawn (the Work's primary changed while the details were open).
+    // Resolving here, once, keeps the attachment and the scroll target equal by
+    // construction instead of letting `requestFocus()` throw on an uninitialised
+    // requester.
+    val returnAnchorIndex = remember(restoreFocusBookId, gridEntries, libraryProjection) {
+        restoreFocusBookId?.let { libraryProjection.indexOfReturnAnchor(gridEntries, it) } ?: -1
     }
+    val returnAnchorBookId = gridEntries.getOrNull(returnAnchorIndex)?.shownBook?.book?.id
+    // The effects stay in the UI adapter; the RULES (which entry is the anchor,
+    // including a Work whose primary narration changed) live in the projection.
+    LibraryReturnFocusEffect(
+        anchorIndex = returnAnchorIndex,
+        restoreFocusBookId = restoreFocusBookId,
+        activeTab = activeTab,
+        modalVisible = modalVisible,
+        hasBooks = libraryBooks.isNotEmpty(),
+        gridState = libraryGridState,
+        bookFocusRequester = bookReturnFocusRequester,
+        headingFocusRequester = libraryHeadingFocusRequester,
+        onBookFocusRestored = onBookFocusRestored
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         LibraryModalUnderlay(
@@ -594,6 +592,28 @@ fun LibraryScreen(
                 chromeContent()
             }
 
+            // #1384 — the status strip is PINNED here, between the chrome band
+            // and the book list, so the five statuses never slide up and down
+            // with the header. Its own horizontal scroll is untouched (#885 /
+            // #1165 keep the edge chip as the scroll affordance), and the
+            // vertical padding gives it room to breathe from the band above and
+            // the list below.
+            if (activeTab == 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    libraryStatusStrip(
+                        filter = filter,
+                        onFilterChange = { filter = it },
+                        scrollState = statusRowScrollState,
+                        filterFocusRequester = filterFocusRequester,
+                        onShowFilterSheet = { showFilterSheet = true }
+                    )
+                }
+            }
+
             when (activeTab) {
                 0 -> {
                     when {
@@ -636,7 +656,9 @@ fun LibraryScreen(
                             shape = libraryProjection.shape,
                             availability = libraryAvailability,
                             downloadCounts = bookDownloadCounts,
-                            restoreFocusBookId = restoreFocusBookId,
+                            // #1285 — the RESOLVED card's shown narration, not
+                            // the raw token: see returnAnchorBookId above.
+                            restoreFocusBookId = returnAnchorBookId,
                             bookReturnFocusRequester = bookReturnFocusRequester,
                             awaitingSubmissionBookIds = awaitingSubmissionBookIds,
                             submissionBadges = submissionBadges,
@@ -846,21 +868,20 @@ fun LibraryScreen(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                 )
                             }
-                            items(importedEntries, key = { it.id }) { entry ->
-                                val title = allBooks.firstOrNull { it.id == entry.id }?.title ?: entry.id
+                            items(importedEntries, key = { it.bookId }) { entry ->
                                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(text = title, style = MaterialTheme.typography.titleSmall)
+                                    Text(text = entry.title, style = MaterialTheme.typography.titleSmall)
                                     Row {
                                         OutlinedButton(
                                             onClick = {
                                                 viewModel.triageImported(
-                                                    entry.id,
+                                                    entry.bookId,
                                                     com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.CONFIRM_PERSONAL
                                                 )
                                             },
                                             modifier = Modifier
                                                 .heightIn(min = 48.dp)
-                                                .testTag("library_imported_confirm_${entry.id}")
+                                                .testTag("library_imported_confirm_${entry.bookId}")
                                         ) {
                                             Text(stringResource(R.string.lib_imported_confirm))
                                         }
@@ -868,13 +889,13 @@ fun LibraryScreen(
                                         OutlinedButton(
                                             onClick = {
                                                 viewModel.triageImported(
-                                                    entry.id,
+                                                    entry.bookId,
                                                     com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.REMOVE_LINK
                                                 )
                                             },
                                             modifier = Modifier
                                                 .heightIn(min = 48.dp)
-                                                .testTag("library_imported_remove_${entry.id}")
+                                                .testTag("library_imported_remove_${entry.bookId}")
                                         ) {
                                             Text(stringResource(R.string.lib_imported_remove))
                                         }
@@ -2857,8 +2878,11 @@ fun ImportPreviewDialog(
     var lastMergingBookId by remember { mutableStateOf<String?>(null) }
     val mergeFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val mergeHeadingFocusRequester = remember { FocusRequester() }
+    val applying = preview.applying
     if (renamingBookId == null && pendingGrouping == null && mergingBookId == null) AlertDialog(
-        onDismissRequest = onDismiss,
+        // #1242 — while the confirmed write is in flight, closing the window is
+        // not a cancel: the plan is frozen and the writes are not rolled back.
+        onDismissRequest = { if (!applying) onDismiss() },
         modifier = Modifier
             .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
             .testTag("library_import_preview_dialog"),
@@ -2888,6 +2912,8 @@ fun ImportPreviewDialog(
             )
         },
         text = {
+            Box {
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2902,6 +2928,15 @@ fun ImportPreviewDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (preview.retryable) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.lib_import_retry_body),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("library_import_preview_retry_body")
+                    )
+                }
                 if (folder != null && hasRootFiles) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -3039,17 +3074,35 @@ fun ImportPreviewDialog(
                     }
                 }
             }
+
+                if (applying) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f))
+                            .clickable(enabled = true) { }
+                            .testTag("library_import_preview_busy"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                enabled = preview.plan.books.isNotEmpty() && preview.plan.books.none { it.title.isBlank() && it.mergedIntoBookId == null },
+                enabled = !applying &&
+                    preview.plan.books.isNotEmpty() &&
+                    preview.plan.books.none { it.title.isBlank() && it.mergedIntoBookId == null },
                 modifier = Modifier
                     .heightIn(min = 48.dp)
                     .testTag("library_import_preview_confirm")
             ) {
                 Text(
-                    if (mergedCount > 0) {
+                    if (preview.retryable) {
+                        stringResource(R.string.lib_import_retry)
+                    } else if (mergedCount > 0) {
                         stringResource(
                             R.string.lib_import_confirm_merged,
                             preview.plan.books.size - mergedCount,
@@ -3064,7 +3117,10 @@ fun ImportPreviewDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.heightIn(min = 48.dp)
+                enabled = !applying,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_import_preview_cancel")
             ) {
                 Text(stringResource(R.string.action_cancel))
             }
@@ -3634,6 +3690,87 @@ internal fun readingProgressMessageRes(
 private val ChromeMaxHeight: Dp = 280.dp
 
 /**
+ * #1384 — the status strip, PINNED outside the scrolling chrome band.
+ *
+ * The row used to live inside `libraryChrome`, which sits in a 280 dp
+ * `verticalScroll` band (#962). That made the five statuses slide up and down
+ * with the rest of the chrome — a horizontal control that visibly moves
+ * vertically when the listener scrolls the header, which reads as the row
+ * drifting rather than the page scrolling.
+ *
+ * The row is now rendered by the screen AFTER the chrome band and BEFORE the
+ * book list: it never moves vertically, while the horizontal scroll of the
+ * chips themselves is unchanged (the half-visible chip at the edge stays the
+ * scroll affordance #885/#1165 documented).
+ */
+@Composable
+private fun libraryStatusStrip(
+    filter: LibraryFilter,
+    onFilterChange: (LibraryFilter) -> Unit,
+    scrollState: androidx.compose.foundation.ScrollState,
+    filterFocusRequester: FocusRequester,
+    onShowFilterSheet: () -> Unit
+) {
+    // Spec-28 #193 + design guide §6.3: the five one-tap statuses
+    // on ONE horizontally scrolled line — never wrapped onto a
+    // second row. The rare-filter launcher (Обрані / Локальні /
+    // Онлайн) rides the same line and keeps its accent + its own
+    // name while active, so a non-default filter stays visible.
+    //
+    // #1165 — the row itself reveals whichever chip carries the
+    // selection (the active status, or this launcher while a rare
+    // filter is active). The screen used to scroll the line here,
+    // and for every one-tap status that meant «back to the start»:
+    // the LAST chip — «Завантажені» when #1165 was filed, «На пристрої»
+    // since #1163 — stayed under the right window edge while selected: the
+    // #390 defect the #885 redesign brought back.
+    val isSheetFilterActive = filter in SHEET_FILTERS
+    LibraryStatusRow(
+        selected = filter,
+        onSelect = onFilterChange,
+        scrollState = scrollState,
+        trailing = {
+            FilterChip(
+                selected = isSheetFilterActive,
+                onClick = onShowFilterSheet,
+                label = {
+                    Text(
+                        if (isSheetFilterActive) {
+                            stringResource(filter.labelRes)
+                        } else {
+                            stringResource(R.string.lib_filter)
+                        }
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(FilterChipDefaults.IconSize)
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    labelColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isSheetFilterActive,
+                    borderColor = MaterialTheme.colorScheme.outlineVariant,
+                    selectedBorderColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier
+                    .heightIn(min = 36.dp)
+                    .focusRequester(filterFocusRequester)
+                    .testTag("library_filter_button")
+            )
+        }
+    )
+}
+
+/**
  * #962 — the Library's CHROME: everything above the book list, and nothing
  * else.
  *
@@ -3711,63 +3848,6 @@ private fun libraryChrome(
         onQueryChange = onQueryChange
     )
 
-    // Spec-28 #193 + design guide §6.3: the five one-tap statuses
-    // on ONE horizontally scrolled line — never wrapped onto a
-    // second row. The rare-filter launcher (Обрані / Локальні /
-    // Онлайн) rides the same line and keeps its accent + its own
-    // name while active, so a non-default filter stays visible.
-    //
-    // #1165 — the row itself reveals whichever chip carries the
-    // selection (the active status, or this launcher while a rare
-    // filter is active). The screen used to scroll the line here,
-    // and for every one-tap status that meant «back to the start»:
-    // the LAST chip — «Завантажені» when #1165 was filed, «На пристрої»
-    // since #1163 — stayed under the right window edge while selected: the
-    // #390 defect the #885 redesign brought back.
-    val isSheetFilterActive = filter in SHEET_FILTERS
-    LibraryStatusRow(
-        selected = filter,
-        onSelect = onFilterChange,
-        scrollState = statusRowScrollState,
-        trailing = {
-            FilterChip(
-                selected = isSheetFilterActive,
-                onClick = onShowFilterSheet,
-                label = {
-                    Text(
-                        if (isSheetFilterActive) {
-                            stringResource(filter.labelRes)
-                        } else {
-                            stringResource(R.string.lib_filter)
-                        }
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = null,
-                        modifier = Modifier.size(FilterChipDefaults.IconSize)
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    labelColor = MaterialTheme.colorScheme.onSurface
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
-                    selected = isSheetFilterActive,
-                    borderColor = MaterialTheme.colorScheme.outlineVariant,
-                    selectedBorderColor = MaterialTheme.colorScheme.primary
-                ),
-                modifier = Modifier
-                    .heightIn(min = 36.dp)
-                    .focusRequester(filterFocusRequester)
-                    .testTag("library_filter_button")
-            )
-        }
-    )
 
     // Spec-51 (#690) — the listener's own collections, right in the
     // Library. Local-first, and honestly empty when there are none.

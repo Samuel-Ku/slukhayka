@@ -13,7 +13,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -33,7 +35,53 @@ class AchievementEngineTest {
         runCurrent()
         advanceTimeBy(1_001)
         runCurrent()
-        assertEquals(listOf(EarnedAchievement("first_book", 500L)), engine.earned.first())
+        // ADR-0063 §7 — the first successful snapshot is the silent backfill.
+        assertEquals(listOf(EarnedAchievement("first_book", 500L, 500L)), engine.earned.first())
+    }
+
+    @Test fun `the startup backfill awards but never announces the historical queue`() = runTest {
+        val store = MemoryAchievementStore()
+        val source = AchievementProgressSource { flowOf(AchievementProgress(explicitBooks = 1)) }
+        val engine = AchievementEngine(source, store) { 700L }
+        // ADR-0063 §7 — the notice gate reads this flag: nothing may be
+        // announced before the historical snapshot has been silenced.
+        assertFalse("no backfill happened before start()", engine.backfilled)
+        engine.start(backgroundScope)
+        runCurrent()
+        assertTrue("the first snapshot completes the backfill", engine.backfilled)
+        assertEquals(listOf(EarnedAchievement("first_book", 700L, 700L)), engine.earned.first())
+        assertNull(engine.takeNotice())
+    }
+
+    @Test fun `a live action after the backfill still gets its quiet notice`() = runTest {
+        val store = MemoryAchievementStore()
+        val source = LocalAchievementProgressSource(flowOf(AchievementProgress()), store.observeFacts())
+        val engine = AchievementEngine(source, store) { 800L }
+        engine.start(backgroundScope)
+        runCurrent()
+        store.recordFact(AchievementFact.PLAYBACK_STARTED)
+        runCurrent()
+        assertEquals(
+            EarnedAchievement("first_playback", 800L, 800L),
+            engine.takeNotice()
+        )
+    }
+
+    @Test fun `a legacy unseen award is silenced before any notice can be claimed`() = runTest {
+        val store = MemoryAchievementStore()
+        val legacy = AchievementCatalog.definitions.first()
+        // Written by an older build: earned, never shown.
+        store.award(listOf(legacy), earnedAt = 10L)
+        val source = AchievementProgressSource { flowOf(AchievementProgress()) }
+        val engine = AchievementEngine(source, store) { 900L }
+        assertFalse(engine.backfilled)
+
+        engine.start(backgroundScope)
+        runCurrent()
+
+        assertTrue(engine.backfilled)
+        assertNull("the upgrade queue is history, not news", engine.takeNotice())
+        assertEquals(900L, store.earned().first { it.id == legacy.id }.seenAt)
     }
 
     @Test fun `concurrent evaluators report only the one committed winner`() = runTest {
@@ -94,5 +142,12 @@ internal class MemoryAchievementStore : AchievementStore {
         val claimed = row.copy(seenAt = seenAt)
         awards.value = awards.value.map { if (it.id == row.id) claimed else it }
         claimed
+    }
+    override suspend fun silencePending(knownIds: Set<String>, seenAt: Long) {
+        mutex.withLock {
+            awards.value = awards.value.map {
+                if (it.seenAt == null && it.id in knownIds) it.copy(seenAt = seenAt) else it
+            }
+        }
     }
 }

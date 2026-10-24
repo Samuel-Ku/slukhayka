@@ -13,7 +13,7 @@ import org.junit.Test
  *   registry already carries "Ukrainian"), an unknown language keeps an
  *   honest absent language rather than hiding the record (US17);
  * - the catalogue is PAGINATED through the api's own `offset` parameter,
- *   bounded by [LibrarySeeder]-style budgets — never an unbounded crawl.
+ *   bounded by an explicit page budget — never an unbounded crawl.
  */
 class LibriVoxCatalogTest {
 

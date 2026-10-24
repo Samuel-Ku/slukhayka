@@ -297,10 +297,17 @@ class FindingTest(FixtureMixin):
         self.assertEqual(1, code)
         self.assertIn("рядок каже «seventh»", out)
         self.assertIn("«eighth»", out)
-        # Рядок фігури — 33 у `gates.md`: абзац переїхав туди з `Mutations`
-        # (#1366). Число тут — МІСЦЕ, і воно мусить збігатися з деревом; зсув
-        # видно як знахідку, а не як тишу.
-        self.assertIn("docs/agents/gates.md:33", out)
+        # Рядок фігури — МІСЦЕ, і воно мусить збігатися з деревом; зсув видно як
+        # знахідку, а не як тишу. Тому очікуваний номер ВИВОДИТЬСЯ з тексту
+        # якоря, а не вписаний числом: ручна константа ламалась на кожному
+        # переїзді абзацу (чотири відкинуті спроби поділу #1366), і кожен раз це
+        # виглядало як дефект гейта, а не як застаріле число в тесті.
+        gates = (self.root / "docs/agents/gates.md").read_text(encoding="utf-8").splitlines()
+        anchor_line = next(
+            index for index, line in enumerate(gates, start=1)
+            if "The seventh case of" in line
+        )
+        self.assertIn("docs/agents/gates.md:%d" % anchor_line, out)
 
     def test_a_count_that_disagrees_with_the_registry_is_a_finding(self):
         self.edit("scripts/guard_witnesses.py",

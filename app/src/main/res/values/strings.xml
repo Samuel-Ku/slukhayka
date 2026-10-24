@@ -142,6 +142,7 @@
     <string name="book_detail_metadata_narrator">Начитка</string>
     <string name="book_detail_metadata_cover">Обкладинка (URL)</string>
     <string name="book_detail_metadata_save">Зберегти</string>
+    <string name="book_detail_save_to_library">Зберегти в бібліотеку</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
     <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
     <!-- spec-52 US28 (#1174) — «покинути книгу»: дія лише для книг із поступом,
@@ -369,6 +370,9 @@
     <string name="book_detail_review_pending_sync">надішлемо при мережі</string>
     <string name="book_detail_review_rate_narration">Оцінити начитку</string>
     <string name="book_detail_review_narration_tag">Начитка: %1$s</string>
+    <string name="book_detail_rate_unavailable_no_backend">Оцінка начитки недоступна: сервіс оцінок не налаштований.</string>
+    <string name="book_detail_rate_unavailable_no_profile">Оцінка начитки недоступна: потрібен профіль слухача.</string>
+    <string name="book_detail_rate_unavailable_no_edition">Оцінка начитки недоступна: у цієї книги немає видання, яке можна оцінити.</string>
     <string name="book_detail_review_edition_line">Начитка:</string>
     <string name="book_detail_review_edition_none">Не вказувати</string>
     <string name="book_detail_visitor_comments">Коментарі відвідувачів %1$s</string>
@@ -690,6 +694,8 @@
     <string name="lib_import_move_down">Вниз</string>
     <string name="lib_import_title_label">Назва</string>
     <string name="lib_import_save">Зберегти</string>
+    <string name="lib_import_retry">Повторити</string>
+    <string name="lib_import_retry_body">Запис перервався. План збережено — спробуйте ще раз.</string>
     <string name="lib_import_confirm">Імпортувати %1$d</string>
     <string name="lib_person_role_author">Автор</string>
     <string name="lib_person_role_narrator">Виконавець</string>

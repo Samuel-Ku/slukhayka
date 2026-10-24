@@ -21,6 +21,14 @@ fresh copy with `scripts/new-lane.sh`: a file missing here may exist there, and
 a count taken here may be stale. This has already produced a wrong "the file
 does not exist" once.
 
+## Continuity
+
+Do not stop early. A finished step is a reason to pick up the next one, not to
+end the turn. When something blocks a step, name the blocker and move to
+independent work instead of waiting on it — a blocker is a report, never a
+result. Stop only when the task is done, the user says so, or continuing would
+be irreversible.
+
 ## Voice
 
 Every text that leaves this repository (README, release notes, posts, issue

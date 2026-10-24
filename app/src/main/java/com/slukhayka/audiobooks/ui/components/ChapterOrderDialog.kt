@@ -5,6 +5,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -36,7 +38,18 @@ fun ChapterOrderDialog(
         onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(stringResource(R.string.chapter_order_edit), modifier = Modifier.focusRequester(headingFocus).focusable().semantics { heading() }.testTag("chapter_order_heading")) },
         text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            val scrollState = rememberScrollState()
+            val autoScroll = remember {
+                ChapterDragAutoScroll(scrollState, viewportTop = 0f, viewportBottom = 0f, edgePx = 72f, stepPx = 48f)
+            }
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 420.dp)
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInWindow()
+                        autoScroll.update(bounds.top, bounds.bottom)
+                    }
+                    .verticalScroll(scrollState)
+            ) {
                 TextButton(
                     onClick = { order = order.reversed() }, enabled = !saving,
                     modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_reverse")
@@ -44,6 +57,16 @@ fun ChapterOrderDialog(
                 order.forEachIndexed { index, chapter ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${index + 1}. ${chapter.title}", modifier = Modifier.weight(1f))
+                        // #1188 — one shared handle/gesture language with the
+                        // import preview; arrows below remain the second path.
+                        ChapterDragHandle(
+                            index = index,
+                            count = order.size,
+                            onMove = { from, to -> order = movedOrder(order.size, from, to).map { order[it] } },
+                            enabled = !saving,
+                            autoScroll = autoScroll,
+                            modifier = Modifier.testTag("chapter_order_drag_${chapter.id}")
+                        )
                         TextButton(
                             onClick = { order = movedOrder(order.size, index, index - 1).map { order[it] } },
                             enabled = !saving && index > 0,

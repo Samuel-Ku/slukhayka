@@ -36,6 +36,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -2914,11 +2916,25 @@ fun ImportPreviewDialog(
         text = {
             Box {
 
+            val previewScrollState = rememberScrollState()
+            val previewAutoScroll = remember {
+                ChapterDragAutoScroll(
+                    previewScrollState,
+                    viewportTop = 0f,
+                    viewportBottom = 0f,
+                    edgePx = 72f,
+                    stepPx = 48f
+                )
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState())
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInWindow()
+                        previewAutoScroll.update(bounds.top, bounds.bottom)
+                    }
+                    .verticalScroll(previewScrollState)
             ) {
                 Text(
                     text = stringResource(
@@ -3022,6 +3038,7 @@ fun ImportPreviewDialog(
                             // guess of ours.
                             BookCorrectionRow(
                                 book = book,
+                                autoScroll = previewAutoScroll,
                                 onMoveChapter = { from, to ->
                                     onReorderChapters(
                                         book.id,
@@ -3237,6 +3254,7 @@ fun ImportPreviewDialog(
 @Composable
 private fun BookCorrectionRow(
     book: com.slukhayka.audiobooks.data.imports.PlannedBook,
+    autoScroll: ChapterDragAutoScroll?,
     onMoveChapter: (Int, Int) -> Unit,
     onRename: () -> Unit,
     editFocusRequester: FocusRequester,
@@ -3266,6 +3284,16 @@ private fun BookCorrectionRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f)
+                    )
+                    // #1188 — drag starts only from this handle; the rest of
+                    // the row keeps scrolling, and the arrows stay.
+                    ChapterDragHandle(
+                        index = index,
+                        count = book.chapters.size,
+                        onMove = onMoveChapter,
+                        enabled = true,
+                        autoScroll = autoScroll,
+                        modifier = Modifier.testTag("import_preview_drag_${book.id}_$index")
                     )
                     TextButton(
                         onClick = { onMoveChapter(index, index - 1) },

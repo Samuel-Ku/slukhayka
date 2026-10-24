@@ -63,4 +63,7 @@
     <string name="book_detail_rate_unavailable_no_profile">Оцінка начитки недоступна: потрібен профіль слухача.</string>
     <string name="book_detail_rate_unavailable_no_edition">Оцінка начитки недоступна: у цієї книги немає видання, яке можна оцінити.</string>
     <string name="book_detail_save_to_library">Зберегти в бібліотеку</string>
+    <string name="a11y_chapter_drag_handle">Перетягнути розділ</string>
+    <string name="a11y_chapter_move_up">Перемістити розділ вгору</string>
+    <string name="a11y_chapter_move_down">Перемістити розділ вниз</string>
 </resources>

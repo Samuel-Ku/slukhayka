@@ -630,6 +630,9 @@
     <string name="lib_import_chapter_order">Chapter order</string>
     <string name="lib_import_move_up">Up</string>
     <string name="lib_import_move_down">Down</string>
+    <string name="a11y_chapter_drag_handle">Drag chapter</string>
+    <string name="a11y_chapter_move_up">Move chapter up</string>
+    <string name="a11y_chapter_move_down">Move chapter down</string>
     <string name="lib_import_title_label">Title</string>
     <string name="lib_import_save">Save</string>
     <string name="lib_import_retry">Retry</string>

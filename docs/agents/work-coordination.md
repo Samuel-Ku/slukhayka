@@ -52,6 +52,33 @@ worktree та базовий commit; резервування лишається
 Підготовлена група #699 / #487 / #934:
 `docs/plans/2026-10-04-parallel-699-487-934.md`.
 
+## Знімок відкритих PR (#1228)
+
+Перед вибором роботи один read-only виклик показує всі відкриті PR, їхні точні
+SHA, стан checks, пов'язані issue, локальні резервування й останній коментар:
+
+```
+python3 scripts/pr-snapshot.py                       # компактний вивід
+python3 scripts/pr-snapshot.py --full-json /tmp/prs.json   # повні API-дані окремо
+python3 scripts/pr-snapshot.py --expect-head 1415=<sha>    # чи не зрушив кандидат
+```
+
+Приклад:
+
+```
+snapshot: 2026-10-24T10:14:00+00:00 repo=Samuel-Ku/slukhayka prs=2
+#1412 ready base=main head=1c77ab5 checks=18ok/0fail/0pend/1skip issues=#1410 last-comment=Samuel-Ku@2026-10-24 reservation=absent
+#1415 draft base=main head=ab16926 checks=17ok/0fail/1pend issues=#1242 last-comment=alice@2026-10-24 reservation=alice:prepared-reserved flags=changes-requested
+```
+
+- `checks=unknown` означає, що GitHub не віддав checks — це не «все зелене».
+- `reservation=absent` означає «локального запису немає», а не «тікет вільний»:
+  перед стартом однаково перевір GitHub-коментарі (див. вище).
+- `head-drift:` і код виходу 4 — кандидат зрушив після вашого рішення.
+- Код 3 — GitHub недоступний; порожній стан ніколи не видається за «PR немає».
+- Скрипт нічого не змінює: ні git, ні індекс, ні worktree, ні резервування,
+  ні issue/PR. Єдиний запис — явно вказаний `--full-json`.
+
 ## Збірки в паралельній групі
 
 Важкі локальні Gradle-збірки мають одного власника слота. Координатор

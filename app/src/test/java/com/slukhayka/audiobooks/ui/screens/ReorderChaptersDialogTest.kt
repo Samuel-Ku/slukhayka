@@ -4,6 +4,12 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.components.ChapterOrderDialog
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -101,4 +107,66 @@ class ReorderChaptersDialogTest {
         assertTrue("скасування мусить закрити діалог", dismissed)
         assertEquals("скасування не пише нічого", null, confirmed)
     }
+
+    @Test
+    fun `the drag handle is a named accessibility path beside the arrows`() {
+        compose.setContent {
+            AudiobookTheme {
+                ChapterOrderDialog(
+                    chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
+                    onDismiss = {},
+                    onSave = {}
+                )
+            }
+        }
+
+        val handle = compose.onNodeWithTag("chapter_order_drag_ch-1")
+        handle.assertExists()
+        // The arrows are still present: the gesture is a second path, not a
+        // replacement (owner decision of 2026-10-11).
+        compose.onNodeWithTag("chapter_order_up_ch-3").assertExists()
+
+        val actions = handle.fetchSemanticsNode()
+            .config[SemanticsProperties.CustomActions]
+            .map { it.label }
+        assertTrue("TalkBack needs a named move-up action", actions.any { it.contains("вгору", ignoreCase = true) })
+        assertTrue("TalkBack needs a named move-down action", actions.any { it.contains("вниз", ignoreCase = true) })
+    }
+
+    @Test
+    fun `dragging the handle moves the chapter and Save returns the new order`() {
+        var confirmed: List<String>? = null
+        compose.setContent {
+            AudiobookTheme {
+                ChapterOrderDialog(
+                    chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
+                    onDismiss = {},
+                    onSave = { confirmed = it }
+                )
+            }
+        }
+
+        val rowHeightPx = with(compose.density) { 56.dp.toPx() }
+        compose.onNodeWithTag("chapter_order_drag_ch-1").performTouchInput {
+            swipe(
+                start = center,
+                end = center + Offset(0f, rowHeightPx * 1.2f),
+                durationMillis = 200
+            )
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("chapter_order_save").performClick()
+        compose.waitForIdle()
+        assertEquals(
+            "перетягування мусить віддати перестановку, а не втратити главу",
+            listOf("ch-2", "ch-1", "ch-3"),
+            confirmed
+        )
+    }
+
 }

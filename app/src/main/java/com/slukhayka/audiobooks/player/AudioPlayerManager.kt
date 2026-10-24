@@ -2756,6 +2756,7 @@ class AudioPlayerManager(
         const val SEEK_FORWARD_INCREMENT_MS: Long = 30_000L
     }
 
+}
 
 /**
  * #1413 — may the ENGINE correct the transport button's state?
@@ -2787,5 +2788,4 @@ internal object TransportStateReconciliation {
             transportIsPlaying &&
             !transportIsBuffering &&
             enginePlaybackState != Player.STATE_BUFFERING
-}
 }

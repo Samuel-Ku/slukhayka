@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.imports
 
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +25,10 @@ import kotlinx.coroutines.flow.asStateFlow
  *  - a failed apply keeps the confirmed plan and returns to a retryable state;
  *    cancellation is not an ordinary import error and is never swallowed;
  *  - a result that belongs to a superseded session cannot overwrite the state
- *    of the current one.
+ *    of the current one (#1243): scans and applies carry the session that
+ *    started them, and only that session's result may publish;
+ *  - one write at a time across sessions: a new scan may supersede the preview
+ *    while a write is still running, but it cannot start a second write.
  *
  * It owns no writer of its own: [applyPlan] is the injected door (the existing
  * `LibraryImport.applyImportPlan`, the only writer), and grouping/dedup/
@@ -65,19 +70,72 @@ class ImportPlanLifecycle(
      * asynchronous result comes back, so a result for another session can never
      * be applied to this one.
      */
-    data class ApplyRequest(val plan: ImportPlan, val treeUri: String)
+    data class ApplyRequest(
+        val plan: ImportPlan,
+        val treeUri: String,
+        /** The scan session that produced this plan; a late result may not publish over another. */
+        val session: Long
+    )
 
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /** The scan session that owns the current preview; bumped by every new scan/dismiss. */
+    private val session = AtomicLong(0)
+
+    /** One write at a time across sessions (#1242, #1243) — a new scan cannot start a second one. */
+    private val writeInFlight = AtomicBoolean(false)
+
     /**
-     * A scan produced a plan: the listener edits it from now on.
+     * Starts a new scan session and clears any previous preview.
      *
-     * @return false while a confirmed write is in flight — a late scan cannot
-     * replace the plan that is being written (#1243 builds on this).
+     * The token must be passed to [completeScan]/[reportScanProblem]; a result
+     * for a superseded token is dropped instead of replacing the newer preview
+     * (#1243). A scan does NOT start a write, so it may supersede the preview
+     * while a write is still in flight — the write's result simply no longer
+     * belongs to the visible session.
+     */
+    fun beginScan(): Long {
+        val token = session.incrementAndGet()
+        _state.value = State.Idle
+        return token
+    }
+
+    /** True when [token] still owns the visible session (the result may publish). */
+    fun isCurrentScan(token: Long): Boolean = token == session.get()
+
+    /** True when [request]'s session is still the visible one (its outcome may be shown). */
+    fun isCurrent(request: ApplyRequest): Boolean = request.session == session.get()
+
+    /**
+     * Publishes the plan a scan produced, if [token] is still current.
+     *
+     * @return false when a newer scan/dismiss superseded this one: the plan is
+     * dropped and the current preview stays as the listener left it.
+     */
+    fun completeScan(token: Long, plan: ImportPlan, treeUri: String): Boolean {
+        while (true) {
+            if (!isCurrentScan(token)) return false
+            val current = _state.value
+            if (_state.compareAndSet(current, State.Editing(plan, treeUri))) return true
+        }
+    }
+
+    /**
+     * A scan produced no plan or failed: only its own session may show that
+     * message, a superseded scan cannot replace the current one's notice.
+     */
+    fun reportScanProblem(token: Long): Boolean = isCurrentScan(token)
+
+    /**
+     * A scan produced a plan synchronously (test/simple callers — production
+     * scans go through [beginScan]/[completeScan]): a new session starts here too.
+     *
+     * @return false while a confirmed write is in flight — that plan is frozen.
      */
     fun begin(plan: ImportPlan, treeUri: String): Boolean {
-        if (_state.value is State.Applying) return false
+        if (writeInFlight.get()) return false
+        session.incrementAndGet()
         _state.value = State.Editing(plan, treeUri)
         return true
     }
@@ -102,6 +160,10 @@ class ImportPlanLifecycle(
     fun dismiss(): Boolean {
         while (true) {
             val current = _state.value
+            if (current is State.Applying) return false
+            // A dismissed scan must not reopen its preview when it finishes, so
+            // the session moves even when there is nothing visible to clear.
+            session.incrementAndGet()
             when (current) {
                 is State.Editing, is State.Failed ->
                     if (_state.compareAndSet(current, State.Idle)) return true
@@ -132,10 +194,13 @@ class ImportPlanLifecycle(
                 }
                 is State.Applying, State.Idle -> return null
             }
+            if (!writeInFlight.compareAndSet(false, true)) return null
+            val owner = session.get()
             if (_state.compareAndSet(current, State.Applying(plan, treeUri))) {
-                return ApplyRequest(plan, treeUri)
+                return ApplyRequest(plan, treeUri, owner)
             }
-            // Another caller won the transition; re-read and answer from it.
+            // Another caller won the transition; release the write slot and answer from it.
+            writeInFlight.set(false)
         }
     }
 
@@ -151,22 +216,39 @@ class ImportPlanLifecycle(
      * @return the honest write result, or null when nothing was written.
      */
     suspend fun apply(request: ApplyRequest): LocalImportResult? {
-        val current = _state.value as? State.Applying ?: return null
-        if (current.plan !== request.plan || current.treeUri != request.treeUri) return null
-        val result = try {
-            applyPlan(request.plan, request.treeUri)
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (storage: Exception) {
-            _state.value = State.Failed(
-                plan = request.plan,
-                treeUri = request.treeUri,
-                reason = storage.message ?: REASON_APPLY_FAILED
-            )
-            return null
+        try {
+            val current = _state.value as? State.Applying ?: return null
+            if (current.plan !== request.plan || current.treeUri != request.treeUri) return null
+            val result = try {
+                applyPlan(request.plan, request.treeUri)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (storage: Exception) {
+                publishOutcome(request) {
+                    State.Failed(request.plan, request.treeUri, storage.message ?: REASON_APPLY_FAILED)
+                }
+                return null
+            }
+            publishOutcome(request) { State.Idle }
+            return result
+        } finally {
+            // Released on every path, including a superseded pre-start guard:
+            // otherwise a later import confirm would silently return null.
+            writeInFlight.set(false)
         }
-        _state.value = State.Idle
-        return result
+    }
+
+    /**
+     * Publishes an outcome only when the request still belongs to the visible
+     * session; a late result of a superseded session must not clear the newer
+     * preview (#1243), though its caller still receives the honest write result.
+     */
+    private fun publishOutcome(request: ApplyRequest, outcome: () -> State) {
+        while (true) {
+            if (request.session != session.get()) return
+            val current = _state.value
+            if (_state.compareAndSet(current, outcome())) return
+        }
     }
 
     companion object {

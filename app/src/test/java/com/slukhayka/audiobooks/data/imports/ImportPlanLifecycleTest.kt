@@ -132,6 +132,120 @@ class ImportPlanLifecycleTest {
     }
 
     @Test
+    fun `a slow scan cannot replace a newer preview`() = runTest {
+        val lifecycle = ImportPlanLifecycle { _, _ -> result() }
+        val slow = lifecycle.beginScan()
+        val fast = lifecycle.beginScan()
+
+        assertFalse("the superseded scan is dropped", lifecycle.completeScan(slow, plan("content://a"), "content://a"))
+        assertTrue(lifecycle.completeScan(fast, plan("content://b"), "content://b"))
+        // The reverse completion order must be just as safe: B published first,
+        // then the stale A arrives last.
+        assertFalse("the stale scan stays dropped", lifecycle.completeScan(slow, plan("content://a"), "content://a"))
+
+        val editing = lifecycle.state.value as ImportPlanLifecycle.State.Editing
+        assertEquals("content://b", editing.treeUri)
+    }
+
+    @Test
+    fun `a dismissed scan does not reopen its preview`() = runTest {
+        val lifecycle = ImportPlanLifecycle { _, _ -> result() }
+        val scan = lifecycle.beginScan()
+        assertFalse("nothing visible to dismiss", lifecycle.dismiss())
+
+        assertFalse("the finished scan belongs to a closed session", lifecycle.completeScan(scan, plan(), "content://tree-a"))
+        assertEquals(ImportPlanLifecycle.State.Idle, lifecycle.state.value)
+    }
+
+    @Test
+    fun `a late apply result does not clear a newer preview`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val lifecycle = ImportPlanLifecycle { _, _ ->
+            gate.await()
+            result(books = 3)
+        }
+        lifecycle.begin(plan("content://old"), "content://old")
+        val request = lifecycle.beginApply()!!
+
+        // The listener moved on to a newer scan while the old write was running.
+        val newer = lifecycle.beginScan()
+        assertTrue(lifecycle.completeScan(newer, plan("content://new"), "content://new"))
+        val applying = launch { lifecycle.apply(request) }
+        runCurrent()
+        gate.complete(Unit)
+        applying.join()
+
+        val editing = lifecycle.state.value as ImportPlanLifecycle.State.Editing
+        assertEquals("the newer preview survives the late result", "content://new", editing.treeUri)
+        assertFalse("the late result is not the visible session's", lifecycle.isCurrent(request))
+    }
+
+    @Test
+    fun `a late apply failure does not turn the newer preview into a retry`() = runTest {
+        val lifecycle = ImportPlanLifecycle { _, _ -> throw IllegalStateException("disk full") }
+        lifecycle.begin(plan("content://old"), "content://old")
+        val request = lifecycle.beginApply()!!
+        val newer = lifecycle.beginScan()
+        assertTrue(lifecycle.completeScan(newer, plan("content://new"), "content://new"))
+
+        assertNull(lifecycle.apply(request))
+
+        assertTrue(
+            "the newer preview is not replaced by the old failure",
+            lifecycle.state.value is ImportPlanLifecycle.State.Editing
+        )
+    }
+
+    @Test
+    fun `a superseded request before the coroutine starts releases the write slot`() = runTest {
+        val lifecycle = ImportPlanLifecycle { _, _ -> result() }
+        lifecycle.begin(plan("content://old"), "content://old")
+        val request = lifecycle.beginApply()!!
+
+        // The preview is superseded before apply() gets to run its first line.
+        val newer = lifecycle.beginScan()
+        assertTrue(lifecycle.completeScan(newer, plan("content://new"), "content://new"))
+        assertNull("the superseded request writes nothing", lifecycle.apply(request))
+
+        assertTrue(
+            "the slot is free for the next confirm",
+            lifecycle.beginApply() != null
+        )
+    }
+
+    @Test
+    fun `cancellation releases the write slot`() = runTest {
+        val lifecycle = ImportPlanLifecycle { _, _ -> throw CancellationException("cancelled") }
+        lifecycle.begin(plan(), "content://tree-a")
+        val request = lifecycle.beginApply()!!
+
+        runCatching { lifecycle.apply(request) }
+
+        // A new plan may confirm again: the cancelled write released its slot.
+        assertTrue(lifecycle.begin(plan("content://tree-b"), "content://tree-b"))
+        assertTrue("the next confirm can start", lifecycle.beginApply() != null)
+    }
+
+    @Test
+    fun `a new scan cannot start a second write while one is in flight`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val lifecycle = ImportPlanLifecycle { _, _ ->
+            gate.await()
+            result()
+        }
+        lifecycle.begin(plan(), "content://tree-a")
+        val first = lifecycle.beginApply()!!
+        val applying = launch { lifecycle.apply(first) }
+        runCurrent()
+
+        assertNull("one write at a time across sessions", lifecycle.beginApply())
+
+        gate.complete(Unit)
+        applying.join()
+        assertTrue(lifecycle.state.value is ImportPlanLifecycle.State.Idle)
+    }
+
+    @Test
     fun `a result for an already finished session writes nothing`() = runTest {
         var calls = 0
         val lifecycle = ImportPlanLifecycle { _, _ ->

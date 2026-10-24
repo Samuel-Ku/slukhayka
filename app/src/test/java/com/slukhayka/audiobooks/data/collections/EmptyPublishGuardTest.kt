@@ -12,7 +12,9 @@ import org.junit.Test
  * UI state: the publish sheet merely hides the button. Every door out of the
  * device (the one factory that builds the document, the shared store, the gate
  * in front of it) must refuse an empty composition, and `firestore.rules`
- * rejects an empty `bookIds` even from a caller that skips all three.
+ * rejects an empty `bookIds` on create even from a caller that skips all three.
+ * The reader does render an empty document as «0 книг», which is exactly why
+ * the document must never be written.
  */
 class EmptyPublishGuardTest {
 
@@ -35,7 +37,7 @@ class EmptyPublishGuardTest {
     @Test
     fun `the factory never builds a document from an empty collection`() {
         assertNull(
-            "an empty published document would be invisible on every honest surface",
+            "an empty published document renders as «Книг у добірці: 0», so the factory must refuse it",
             PublishedCollectionFactory.of(collection(emptyList()), author, "Читач", 1L)
         )
     }

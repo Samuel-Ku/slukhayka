@@ -50,6 +50,29 @@ def build_repo(base: Path, files: dict[str, str], gitignore: str = "") -> Path:
     )
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    # #1420 — the fixture must OWN its git state, not borrow the machine's.
+    #
+    # `git init` on a path that already sits INSIDE another repository is a
+    # re-init: it creates no new `.git`, and every later call with `cwd=repo`
+    # walks up the tree and finds the REAL repository. In a worktree that
+    # turned into commits named «base» on the working branch — three of them
+    # on the release lane, twice reproduced (#1420).
+    #
+    # The check sits HERE, before the first `git` call that could touch
+    # anything: if isolation ever breaks again for any other reason, the test
+    # fails loudly instead of committing into a checkout.
+    resolved_git_dir = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if not Path(resolved_git_dir).resolve().is_relative_to(base.resolve()):
+        raise AssertionError(
+            f"build_repo: `{repo}` is not its own repository — git resolves to "
+            f"`{resolved_git_dir}`, which is outside `{base}`. The fixture "
+            f"would commit into a foreign checkout (#1420)."
+        )
     run("config", "user.email", "test@example.com", cwd=repo)
     run("config", "user.name", "Test", cwd=repo)
     for relative, content in files.items():

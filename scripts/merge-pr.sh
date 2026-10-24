@@ -422,6 +422,35 @@ if [ "$MERGE_STATUS" = "BLOCKED" ]; then
     "перевір налаштування захисту '$BASE' і вимоги PR; сам гейт цього не обходить."
 fi
 
+# --- 1b) #1338: дерево PR не може підмінити гейт, який його перевіряє --------
+# pull_request біжить у контексті merge-коміта, тож крок у ci.yml і самі
+# скрипти гейтів приходять ІЗ PR. Захист гілки на main закриває частину:
+# видалений обов'язковий чек стає ВІДСУТНІМ, і GitHub блокує мердж. Але дерево
+# PR усе ще може переписати САМ гейт — тому такі PR не зливаються без явного
+# дозволу власника (MERGE_PR_ALLOW_GATE_EDITS=1).
+GATE_PATHS='^\.github/workflows/|^scripts/merge-pr\.sh$|^scripts/review-pass\.sh$'
+if [ "${MERGE_PR_ALLOW_GATE_EDITS:-0}" != "1" ]; then
+  if "$GH" pr view "$PR_NUMBER" --json files >"$TMP/gate-files.json" 2>/dev/null; then
+    TOUCHED="$(python3 - "$TMP/gate-files.json" <<'PYGATE'
+import json
+import sys
+
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+for item in data.get("files") or []:
+    if isinstance(item, dict) and item.get("path"):
+        print(item["path"])
+PYGATE
+)"
+    if printf '%s\n' "$TOUCHED" | grep -qE "$GATE_PATHS"; then
+      refuse "PR #$PR_NUMBER змінює сам гейт (.github/workflows/ або scripts/merge-pr.sh|review-pass.sh): дерево PR не може переписувати те, що його перевіряє (#1338)." \
+        "якщо це справді потрібно — MERGE_PR_ALLOW_GATE_EDITS=1 scripts/merge-pr.sh $PR_NUMBER, і скажи вголос, що гейт змінено"
+    fi
+  fi
+fi
+
 # --- 2) Робоча копія не посеред операції ------------------------------------
 # Ребаз лишає по собі `rebase-merge` (merge-backend) або `rebase-apply`
 # (apply-backend, він же `git am`). Поки маркер на місці, гілка, яку рухали, є

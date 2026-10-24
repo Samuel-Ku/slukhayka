@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.source.SourceRegistry
+import com.slukhayka.audiobooks.testing.TestDataFactory
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.first
@@ -81,14 +82,26 @@ class NewWaveAwardTest {
         sourceType: String = DATED_SOURCE,
         rowId: String = "row-$bookId-$sourceType",
         addedAt: Long = appeared.plusDays(offsetDays).atStartOfDay(kyiv).toInstant().toEpochMilli()
-    ) = database.audiobookDao().insertSources(
-        listOf(
-            SourceEntity(
-                id = rowId, bookId = bookId, type = sourceType, url = "https://example.test/$rowId",
-                addedAt = addedAt
+    ) {
+        val dao = database.audiobookDao()
+        // ADR-0063 — «Нова хвиля» is a fact about a PERSONAL book: an
+        // automatic mirror row is not the listener's arrival. The fixture
+        // therefore seeds the materialized book AND its personal link.
+        if (dao.getAudiobookById(bookId) == null) {
+            dao.insertAudiobooks(
+                listOf(TestDataFactory.dataBooks().first().copy(id = bookId, title = "Книга $bookId"))
+            )
+            dao.upsertLibraryEntry(bookId, bookId, false, 1L, 0f)
+        }
+        dao.insertSources(
+            listOf(
+                SourceEntity(
+                    id = rowId, bookId = bookId, type = sourceType, url = "https://example.test/$rowId",
+                    addedAt = addedAt
+                )
             )
         )
-    )
+    }
 
     /** The production reader by default: the Source Registry is the date. */
     private suspend fun snapshot(

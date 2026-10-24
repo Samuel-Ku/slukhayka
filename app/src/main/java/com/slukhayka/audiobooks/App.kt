@@ -1362,28 +1362,6 @@ class App : Application() {
     }
 
     /**
-     * Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): bounded
-     * verified pass over the catalogue union — resolve → preflight the first
-     * stream → import through the ordinary door. The probe rides the shared
-     * transport (HEAD, streams are outside the gate per ADR-0039); the
-     * already-known check keeps repeat passes nearly free.
-     */
-    val librarySeeder: com.slukhayka.audiobooks.data.catalog.LibrarySeeder by lazy {
-        com.slukhayka.audiobooks.data.catalog.LibrarySeeder(
-            candidates = { sourceCatalog.unifiedCatalog.value },
-            adapterFor = { sourceId -> sourceAdapters.firstOrNull { it.sourceId == sourceId } },
-            streamProbe = { url -> HttpFetcher().isReachable(url) },
-            known = { mergeKey -> database.audiobookDao().findByMergeKey(mergeKey) != null },
-            import = { sourceId, detail ->
-                // A scam source is never seeded into the library.
-                if (!com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(sourceId)) {
-                    libraryImport.importBookFromSource(sourceId, detail, origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.AUTO_SEED)
-                }
-            }
-        )
-    }
-
-    /**
      * Spec-25 (#171/#173): the lazy series-universe resolution — the curated
      * universe assets first (offline-capable for the seeded universes), then
      * the Wikidata provider for unseeded series, behind the same seam. The
@@ -1545,6 +1523,15 @@ class App : Application() {
             onActualPlaybackStarted = { offline ->
                 recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.PLAYBACK_STARTED)
                 if (offline) recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.OFFLINE_PLAYBACK_STARTED)
+                // ADR-0063 §4 — actual playback is Personal Intent: a card
+                // materialized from the mirror becomes the listener's book, so
+                // «Продовжити» keeps it after a restart. Opening the page
+                // alone never reaches this callback.
+                playerManager.playerState.value.currentBook?.id?.let { bookId ->
+                    achievementScope.launch {
+                        runCatching { libraryEntries.markPlaybackStarted(bookId) }
+                    }
+                }
             },
             // #1173 (T9): the arm of «до кінця розділу» is a durable counter,
             // not a TIMER_STOP event — the timer re-arms at a chapter boundary

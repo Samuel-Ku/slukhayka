@@ -16,6 +16,16 @@ class AchievementEngine(
     private val onFailure: (Throwable) -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis
 ) {
+    /**
+     * ADR-0063 §7 — the first snapshot after process start is HISTORICAL: it
+     * may award everything the listener already earned before this build, and
+     * announcing that queue is exactly the spam that devalues the awards. The
+     * first successful evaluation awards and silences; every later snapshot is
+     * caused by a live action and gets its quiet one-line notice.
+     */
+    @Volatile
+    var backfilled: Boolean = false
+        private set
     val earned get() = store.observeEarned()
 
     /**
@@ -26,7 +36,24 @@ class AchievementEngine(
      */
     val snapshot get() = progress.observe().distinctUntilChanged()
     fun start(scope: CoroutineScope): Job = progress.observe().distinctUntilChanged()
-        .onEach { evaluateSnapshot(it) }
+        .onEach { snapshot ->
+            if (backfilled) {
+                evaluateSnapshot(snapshot)
+            } else {
+                // Mark the whole backlog seen — including awards written by an
+                // older build — and insert THIS snapshot's awards already
+                // seen, so no notice queue survives the upgrade and no race
+                // window lets a historical award slip into a toast.
+                val at = now()
+                store.silencePending(AchievementCatalog.definitions.map { it.id }.toSet(), at)
+                store.awardSilently(
+                    AchievementEvaluator.evaluate(snapshot, store.earned().map { it.id }.toSet()),
+                    earnedAt = at,
+                    seenAt = at
+                )
+                backfilled = true
+            }
+        }
         .retryWhen { cause, attempt ->
             if (cause is CancellationException) false else {
                 onFailure(cause)

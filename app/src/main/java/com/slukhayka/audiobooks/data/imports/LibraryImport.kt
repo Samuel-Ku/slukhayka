@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
+import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
@@ -186,10 +187,20 @@ class LibraryImport(
         // no resolution, and re-writing would roll freshness and burn the
         // free-tier write quota.
         writeBackProfile: Boolean = true,
-        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.UNKNOWN,
+        // ADR-0063 — an import with no explicit intent is a TECHNICAL
+        // materialization of a catalogue card: it gives the page and player
+        // their rows plus a HIDDEN anchor, never a personal link. Only
+        // Personal Intent (EXPLICIT_SAVE / EXPLICIT_IMPORT) creates that.
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.TECHNICAL_OPEN,
         onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity =
         withContext(Dispatchers.IO) {
+            // ADR-0063 §2 — the ONE write rule: only a personal origin makes
+            // the link personal. A technical materialization stays fully
+            // playable (Edition, Chapters, Sources) with a hidden anchor and
+            // never pretends to be the listener's choice.
+            val writesEntry = com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy
+                .writesLibraryEntry(origin)
             // ADR-0010: the Work key is bibliographic (title|author) — the
             // narrator is an Edition property, never part of the Work.
             val mergeKey = MergeKey.keyFor(detail.title, detail.author)
@@ -306,20 +317,34 @@ class LibraryImport(
                     bookId
                 }
                 dao.getWorkById(workId)?.let { work -> authorIndex.indexWorks(listOf(work), sourceId) }
+                // ADR-0063 — the anchor row links the book to its Work and
+                // carries the origin fact. A non-personal origin keeps it
+                // hidden from every personal surface (and out of «Імпортоване»);
+                // it is a relational anchor, not a library choice. It goes
+                // through the UPSERT, not `INSERT OR REPLACE`: when the Edition
+                // lookup missed but the bookId is the same (blank merge key, a
+                // changed narrator/language claim), the conflict arm preserves
+                // the listener's isFavorite/createdAt/download columns and never
+                // downgrades a personal origin.
                 dao.upsertLibraryEntry(
                     id = bookId,
                     workId = workId,
                     isFavorite = false,
                     createdAt = System.currentTimeMillis(),
-                    downloadProgress = 0f
+                    downloadProgress = 0f,
+                    downloadState = DownloadState.IDLE,
+                    preserveExistingDownloads = true,
+                    origin = origin.name
                 )
-                // #581 W0.3 — the honest moment for the cloud: the Work
-                // entered the library, so its relationship row becomes
-                // `entry` (over any older tombstone, per the server-stamp
-                // LWW). Best-effort — never breaks the import.
-                if (mergeKey.isNotBlank()) {
-                    runCatching {
-                        workRelationshipsSync?.pushEntry(mergeKey, book.title, book.author)
+                if (writesEntry) {
+                    // #581 W0.3 — the honest moment for the cloud: the Work
+                    // entered the listener's library, so its relationship row
+                    // becomes `entry` (over any older tombstone, per the
+                    // server-stamp LWW). Best-effort — never breaks the import.
+                    if (mergeKey.isNotBlank()) {
+                        runCatching {
+                            workRelationshipsSync?.pushEntry(mergeKey, book.title, book.author)
+                        }
                     }
                 }
                 // Spec-26 T8 (#182): a NEW book with a series fires the
@@ -362,9 +387,12 @@ class LibraryImport(
                     chapterCount = detail.chapters.size
                 )
                 // An explicit import is a user action: any tombstone of the
-                // work is cleared so a re-added book never stays hidden.
-                dao.deleteTombstone(bookId)
-                dao.updateLibraryEntryOrigin(bookId, origin.name)
+                // work is cleared so a re-added book never stays hidden. A
+                // technical materialization never resurrects a hidden Work
+                // into the mirror.
+                if (writesEntry) {
+                    dao.deleteTombstone(bookId)
+                }
                 // The JOINed projection carries the series/mergeKey the Works
                 // row now holds, so callers get a fully shaped row.
                 val imported = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: book
@@ -418,13 +446,31 @@ class LibraryImport(
                         )
                     }
                 }
-                dao.deleteTombstone(existing.id)
-                // #581 W0.3 — an explicit re-add over a tombstone is a user
-                // action: the relationship row flips back to `entry`.
-                val reAddKey = existing.mergeKey
-                if (!reAddKey.isNullOrBlank()) {
-                    runCatching {
-                        workRelationshipsSync?.pushEntry(reAddKey, existing.title, existing.author)
+                // ADR-0063 — the same rule on the merge path: a personal
+                // origin creates or upgrades the link; a technical one only
+                // adds the missing anchor so the Works row stays reachable,
+                // and never overwrites a personal origin.
+                val existingEntry = dao.libraryEntryById(existing.id)
+                val workId = existing.workId?.takeIf { it.isNotBlank() } ?: existing.id
+                when {
+                    existingEntry == null -> dao.insertLibraryEntryWithOrigin(
+                        id = existing.id,
+                        workId = workId,
+                        origin = origin.name,
+                        createdAt = System.currentTimeMillis()
+                    )
+                    writesEntry && existingEntry.origin != origin.name ->
+                        dao.updateLibraryEntryOrigin(existing.id, origin.name)
+                }
+                if (writesEntry) {
+                    dao.deleteTombstone(existing.id)
+                    // #581 W0.3 — an explicit re-add over a tombstone is a
+                    // user action: the relationship row flips back to `entry`.
+                    val reAddKey = existing.mergeKey
+                    if (!reAddKey.isNullOrBlank()) {
+                        runCatching {
+                            workRelationshipsSync?.pushEntry(reAddKey, existing.title, existing.author)
+                        }
                     }
                 }
                 existing.toAudiobookEntity()
@@ -469,7 +515,8 @@ class LibraryImport(
         sourceId: String,
         url: String,
         known: KnownBookIdentity? = null,
-        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.UNKNOWN,
+        // ADR-0063 — no explicit intent means a technical materialization.
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.TECHNICAL_OPEN,
         onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
@@ -545,7 +592,8 @@ class LibraryImport(
         sourceId: String,
         url: String,
         known: KnownBookIdentity? = null,
-        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.UNKNOWN,
+        // ADR-0063 — no explicit intent means a technical materialization.
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.TECHNICAL_OPEN,
         onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
@@ -1690,13 +1738,18 @@ class LibraryImport(
                 sourceId = book.url.takeIf(String::isNotBlank)?.let(::sourceIdForUrl) ?: "catalog-union"
             )
         }
+        // ADR-0063 — this is the automatic catalogue-section write, so a new
+        // anchor row is CATALOG_SYNC (hidden from every personal surface). An
+        // existing personal origin is never overwritten: a saved book stays
+        // saved (the upsert's own conflict rule pins that).
         dao.upsertLibraryEntry(
             id = bookId,
             workId = workId,
             isFavorite = false,
             createdAt = System.currentTimeMillis(),
             downloadProgress = 0f,
-            preserveExistingDownloads = true
+            preserveExistingDownloads = true,
+            origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC.name
         )
         // #388 — blank-key books have no Works row (workId == bookId), so
         // a work_source would violate the FK (workId → works.id). Skip it.

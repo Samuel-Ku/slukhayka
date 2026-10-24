@@ -19,4 +19,26 @@ interface AchievementStore {
      */
     suspend fun incrementCounter(key: String)
     suspend fun claimNotice(knownIds: Set<String>, seenAt: Long): EarnedAchievement?
+
+    /**
+     * ADR-0063 §7 — the startup backfill: mark every pending notice as seen
+     * WITHOUT emitting one. Awards already earned (an upgrade, historical
+     * progress) are not news, and a queue of old toasts devalues them.
+     */
+    suspend fun silencePending(knownIds: Set<String>, seenAt: Long)
+
+    /**
+     * ADR-0063 §7 — award the historical snapshot already SEEN, in one write:
+     * no window where a freshly inserted award is briefly claimable as a
+     * notice. The default keeps non-Room stores correct; Room overrides it
+     * with a single insert that carries `seenAt`.
+     */
+    suspend fun awardSilently(
+        definitions: List<AchievementDefinition>,
+        earnedAt: Long,
+        seenAt: Long
+    ) {
+        award(definitions, earnedAt)
+        silencePending(definitions.map { it.id }.toSet(), seenAt)
+    }
 }

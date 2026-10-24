@@ -17,6 +17,10 @@ class LibraryEntryOriginPolicyTest {
 
         assertFalse(LibraryEntryOriginPolicy.isPersonal(LibraryEntryOrigin.AUTO_SEED))
         assertFalse(LibraryEntryOriginPolicy.isPersonal(LibraryEntryOrigin.CATALOG_SYNC))
+        assertFalse(
+            "ADR-0063 — a technical card open is mechanics, not a choice",
+            LibraryEntryOriginPolicy.isPersonal(LibraryEntryOrigin.TECHNICAL_OPEN)
+        )
         assertFalse(LibraryEntryOriginPolicy.isPersonal(LibraryEntryOrigin.UNKNOWN))
     }
 
@@ -44,6 +48,10 @@ class LibraryEntryOriginPolicyTest {
             LibraryEntryOriginPolicy.needsTriage(LibraryEntryOrigin.AUTO_SEED)
         )
         assertFalse(LibraryEntryOriginPolicy.needsTriage(LibraryEntryOrigin.CATALOG_SYNC))
+        assertFalse(
+            "a technical open is a KNOWN automatic state, not a legacy mystery",
+            LibraryEntryOriginPolicy.needsTriage(LibraryEntryOrigin.TECHNICAL_OPEN)
+        )
         assertFalse(LibraryEntryOriginPolicy.needsTriage(LibraryEntryOrigin.EXPLICIT_SAVE))
     }
 
@@ -72,6 +80,20 @@ class LibraryEntryOriginPolicyTest {
         assertEquals(LibraryEntryOrigin.EXPLICIT_SAVE, confirmed)
         assertTrue(LibraryEntryOriginPolicy.isPersonal(confirmed!!))
         assertFalse(LibraryEntryOriginPolicy.needsTriage(confirmed))
+        assertEquals(
+            "an explicit save upgrades ANY non-personal state (ADR-0063)",
+            LibraryEntryOrigin.EXPLICIT_SAVE,
+            LibraryEntryOriginPolicy.confirmAsPersonal(LibraryEntryOrigin.TECHNICAL_OPEN)
+        )
+        assertEquals(
+            "the import core reads the one write rule",
+            false,
+            LibraryEntryOriginPolicy.writesLibraryEntry(LibraryEntryOrigin.TECHNICAL_OPEN)
+        )
+        assertEquals(
+            true,
+            LibraryEntryOriginPolicy.writesLibraryEntry(LibraryEntryOrigin.EXPLICIT_SAVE)
+        )
     }
 
     @Test

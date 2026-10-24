@@ -340,4 +340,133 @@ class LibraryProjectionTest {
         assertTrue(projection.entries("").isEmpty())
         assertTrue(libraryWorkKeysAt(emptyList(), listOf(0, 1)).isEmpty())
     }
+
+    /**
+     * #1372 — where `continueBook` comes from once the filter hides it.
+     *
+     * The rule arrived with the whole-library projection (spec-56 T3, #730) and
+     * moved into this module without a test. The resume card is the LIBRARY's
+     * resume, not the narrowed view's: it is computed from every row, so a
+     * status filter or a search that hides that book must not blank the card.
+     *
+     * Pinned deliberately, not assumed: an untested move is where behaviour
+     * changes without anyone noticing.
+     */
+    @Test
+    fun `continueBook stays the library's resume even when the filter hides it`() {
+        val rows = listOf(
+            row("a", "k1", title = "А", position = 90, lastListenedAt = 100),
+            row("b", "k2", title = "Б", started = false)
+        )
+
+        val all = project(rows)
+        assertEquals("a", all.continueBook?.book?.id)
+
+        val searched = project(rows, query = "Б")
+        assertEquals(listOf("b"), searched.shownBooks.map { it.book.id })
+        assertEquals(
+            "a filter that hides the resume card's book does not change whose resume it is",
+            "a",
+            searched.continueBook?.book?.id
+        )
+
+        val empty = project(rows, query = "нічого не збігається")
+        assertTrue("the narrowed view has nothing to show", empty.shownBooks.isEmpty())
+        assertEquals("the resume card survives an empty result", "a", empty.continueBook?.book?.id)
+    }
+
+    // ── #1285: the return anchor is the Work, not the narration id ─────────
+
+    @Test
+    fun `the return anchor is the book's own entry while it is still primary`() {
+        val projection = project(listOf(row("a", "k", position = 90)))
+        val entries = projection.entries("")
+
+        val index = projection.indexOfReturnAnchor(entries, "a")
+
+        assertTrue(index >= 0)
+        assertEquals("a", entries[index].shownBook?.book?.id)
+    }
+
+    @Test
+    fun `a changed primary narration keeps the same Work card as the return anchor`() {
+        // The listener opened narration "b", then started it: progress makes it
+        // the card's voice, so the entries now SHOW "b" while the saved anchor
+        // is still "a" — the exact order the ticket describes.
+        val before = project(
+            listOf(
+                row("a", "k", narrator = "Іван", position = 90),
+                row("b", "k", narrator = "Петро", position = 10)
+            )
+        )
+        val entriesBefore = before.entries("")
+        val anchorBefore = before.indexOfReturnAnchor(entriesBefore, "b")
+        assertEquals(
+            "before the change the card still speaks with the other narration",
+            "a",
+            entriesBefore[anchorBefore].shownBook?.book?.id
+        )
+
+        val after = project(
+            listOf(
+                row("a", "k", narrator = "Іван", position = 10),
+                row("b", "k", narrator = "Петро", position = 95)
+            )
+        )
+        val entriesAfter = after.entries("")
+        val anchorAfter = after.indexOfReturnAnchor(entriesAfter, "a")
+
+        assertTrue("the Work card is still in the projection", anchorAfter >= 0)
+        assertEquals(
+            "the anchor lands on the card that owns the opened narration",
+            "b",
+            entriesAfter[anchorAfter].shownBook?.book?.id
+        )
+    }
+
+    @Test
+    fun `a Work hidden by the current filter has no return anchor`() {
+        val rows = listOf(
+            row("a", "k1", title = "Кобзар", position = 90),
+            row("b", "k2", title = "Лісова пісня", position = 10)
+        )
+
+        val filtered = project(rows, query = "Кобзар")
+
+        assertEquals(
+            "a Work the filter hides must not receive an invented anchor",
+            -1,
+            filtered.indexOfReturnAnchor(filtered.entries(""), "b")
+        )
+        assertEquals(
+            "the filter itself is untouched",
+            listOf("a"),
+            filtered.shownBooks.map { it.book.id }
+        )
+    }
+
+    @Test
+    fun `a filter that hides the opened narration still finds its Work card`() {
+        // The opened narration "b" no longer matches the search, but the Work
+        // card is still visible through narration "a" — membership must be
+        // resolved over the whole library, not the filtered rows.
+        val rows = listOf(
+            row("a", "k", narrator = "Іван", title = "Кобзар", position = 90),
+            row("b", "k", narrator = "Петро", title = "Лісова пісня", position = 10)
+        )
+
+        val filtered = project(rows, query = "Кобзар")
+        val entries = filtered.entries("")
+        val anchor = filtered.indexOfReturnAnchor(entries, "b")
+
+        assertTrue("the Work card is visible through its other narration", anchor >= 0)
+        assertEquals("a", entries[anchor].shownBook?.book?.id)
+    }
+
+    @Test
+    fun `an unknown book has no return anchor`() {
+        val projection = project(listOf(row("a", "k", position = 90)))
+
+        assertEquals(-1, projection.indexOfReturnAnchor(projection.entries(""), "missing"))
+    }
 }

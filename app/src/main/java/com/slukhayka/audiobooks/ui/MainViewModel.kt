@@ -402,6 +402,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerState: StateFlow<PlayerState> = playerManager.playerState
     private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
 
+    /**
+     * #1240 — the shared start seam of an explicit playback gesture: it clears
+     * the previous failure and sets the automatic-recovery allowance for the
+     * intent, so a new door cannot skip one of them.
+     */
+    private val explicitPlaybackAttempts = ExplicitPlaybackAttempts(
+        recoveryGate = automaticPlaybackRecoveryGate,
+        clearPreviousFailure = { playerManager.clearPlaybackFailureForNewAttempt() }
+    )
+
     // Closing the mini player hides the bar WITHOUT forgetting the book: the
     // listening position stays, playback merely pauses. Audio starting again
     // from any surface (bar, full player, notification, widget) brings the bar
@@ -5236,6 +5246,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chapterId: String? = null
     ) {
         withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
+            if (autoPlay) {
+                explicitPlaybackAttempts.begin(book.id, ExplicitPlaybackAttempts.Kind.RESUME)
+            }
             if (autoPlay && pendingRecommendationBookId.compareAndSet(book.id, null)) {
                 recommendationPersonalization.recordPlaybackStart()
             }
@@ -5254,7 +5267,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // position 0, logged as RELISTEN, no smart-rewind of a stale pause marker.
     fun relistenBook(book: AudiobookEntity) {
         withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
-            automaticPlaybackRecoveryGate.arm(book.id)
+            explicitPlaybackAttempts.begin(book.id, ExplicitPlaybackAttempts.Kind.RELISTEN)
             startAudiobookPlayback(book, chapterIndex = null, autoPlay = true, forceRelisten = true)
         }
     }
@@ -5287,7 +5300,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         preferredSource: SourceEntity? = null,
         chapterId: String? = null
     ) {
-            if (autoPlay) automaticPlaybackRecoveryGate.beginAttempt(book.id)
             var chapterStructureVersion = playerManager.chapterStructureVersion(book.id)
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
@@ -5373,10 +5385,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             withContext(Dispatchers.Main) {
                 if (autoPlay) {
-                    // The Play gesture may have started while the previous
-                    // session still held an error. Clear that stale emission,
-                    // then arm recovery only for the attempt installed below.
-                    playerManager.clearPlaybackFailureForNewAttempt()
+                    // #1240 — the failure was cleared at the gesture's start
+                    // seam; here the successful preparation arms recovery for
+                    // the attempt it actually installed.
                     automaticPlaybackRecoveryGate.arm(playbackBook.id)
                 }
                 playerManager.loadAndPlayBook(
@@ -5472,8 +5483,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch(Dispatchers.Main) {
                 if (playerState.value.currentBook?.id != bookmark.bookId ||
                     chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
-                    playerManager.clearPlaybackFailureForNewAttempt()
-                    automaticPlaybackRecoveryGate.arm(book.id)
+                    // #1240 — the same start seam as Play: no stale error, and
+                    // the deliberate bookmark gesture arms its own recovery.
+                    explicitPlaybackAttempts.begin(book.id, ExplicitPlaybackAttempts.Kind.BOOKMARK)
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,

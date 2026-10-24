@@ -72,7 +72,14 @@ class LibraryProjection internal constructor(
     val continueBook: LibraryBook?,
     /** Whether the dense header carries the remaining-time total. */
     val summarisesRemaining: Boolean,
-    private val denseTitle: String
+    private val denseTitle: String,
+    /**
+     * #1285 — book id -> Work key over the WHOLE library, not the filtered
+     * rows. The opened narration may stop matching the current filter while
+     * another narration of the same Work keeps the card visible; resolving the
+     * membership from the filtered cards would lose that card.
+     */
+    private val workKeyByBookId: Map<String, String>
 ) {
     /**
      * One row per Work: the narration that speaks for each card.
@@ -114,20 +121,22 @@ class LibraryProjection internal constructor(
      * card is found by that membership, never by guessing a narration id or
      * rebuilding the Work grouping in the screen.
      *
-     * @return -1 when the Work is not in this projection at all (filtered out,
-     * deleted, or hidden by the search): the caller keeps its heading fallback
-     * and the filter stays as the listener set it.
+     * @return -1 when the Work is not in this projection at all (its card is
+     * hidden by the filter/search or gone): the caller keeps its heading
+     * fallback and the filter stays as the listener set it.
      */
     fun indexOfReturnAnchor(entries: List<LibraryGridEntry>, bookId: String): Int {
-        val direct = entries.indexOfFirst { it.showsBook(bookId) }
+        val direct = libraryIndexOfBook(entries, bookId)
         if (direct >= 0) return direct
+        // The Work membership is resolved over the whole library, so a
+        // narration that no longer matches the filter cannot hide its card.
+        val workKey = workKeyByBookId[bookId] ?: return -1
         val card = cards.firstOrNull { card ->
-            card.narrations.any { narration -> narration.book.id == bookId }
+            card.workKey.ifBlank { "row:${card.primary.book.id}" } == workKey
         } ?: return -1
-        return entries.indexOfFirst { it.showsBook(card.primary.book.id) }
+        return libraryIndexOfBook(entries, card.primary.book.id)
     }
 }
-
 
 /**
  * Projects the library's rows into the Книги tab's one [LibraryProjection].
@@ -155,6 +164,11 @@ fun projectLibraryBooks(
         cards = workBookCards(visible),
         shape = LibraryBooksShape.denseTab(gridMode),
         continueBook = continueBook,
+        // #1285 — membership over EVERY row, so the anchor survives a filter
+        // that hides the opened narration but keeps its Work card.
+        workKeyByBookId = books.associate { book ->
+            book.book.id to book.book.mergeKey.ifBlank { "row:${book.book.id}" }
+        },
         // The header summarises only a NARROWED-DOWN list. This was the
         // screen's `browsing` variable; it is not the entry form, and the two
         // are kept apart here on purpose.

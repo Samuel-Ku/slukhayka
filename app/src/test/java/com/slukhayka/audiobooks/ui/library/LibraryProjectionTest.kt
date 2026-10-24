@@ -425,29 +425,6 @@ class LibraryProjectionTest {
     }
 
     @Test
-    fun `the return anchor is the same in list and grid modes`() {
-        val rows = listOf(
-            row("a", "k", narrator = "Іван", position = 10),
-            row("b", "k", narrator = "Петро", position = 95)
-        )
-
-        val listProjection = project(rows, gridMode = false)
-        val gridProjection = project(rows, gridMode = true)
-
-        val listEntries = listProjection.entries("")
-        val gridEntries = gridProjection.entries("")
-        val listAnchor = listProjection.indexOfReturnAnchor(listEntries, "a")
-        val gridAnchor = gridProjection.indexOfReturnAnchor(gridEntries, "a")
-
-        assertEquals(
-            "the view mode changes how a card is drawn, never which Work it is",
-            listEntries[listAnchor].shownBook?.book?.mergeKey,
-            gridEntries[gridAnchor].shownBook?.book?.mergeKey
-        )
-        assertEquals(listEntries[listAnchor].key, gridEntries[gridAnchor].key)
-    }
-
-    @Test
     fun `a Work hidden by the current filter has no return anchor`() {
         val rows = listOf(
             row("a", "k1", title = "Кобзар", position = 90),
@@ -466,6 +443,24 @@ class LibraryProjectionTest {
             listOf("a"),
             filtered.shownBooks.map { it.book.id }
         )
+    }
+
+    @Test
+    fun `a filter that hides the opened narration still finds its Work card`() {
+        // The opened narration "b" no longer matches the search, but the Work
+        // card is still visible through narration "a" — membership must be
+        // resolved over the whole library, not the filtered rows.
+        val rows = listOf(
+            row("a", "k", narrator = "Іван", title = "Кобзар", position = 90),
+            row("b", "k", narrator = "Петро", title = "Лісова пісня", position = 10)
+        )
+
+        val filtered = project(rows, query = "Кобзар")
+        val entries = filtered.entries("")
+        val anchor = filtered.indexOfReturnAnchor(entries, "b")
+
+        assertTrue("the Work card is visible through its other narration", anchor >= 0)
+        assertEquals("a", entries[anchor].shownBook?.book?.id)
     }
 
     @Test

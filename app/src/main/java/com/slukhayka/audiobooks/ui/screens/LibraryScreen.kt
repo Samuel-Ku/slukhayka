@@ -438,12 +438,21 @@ fun LibraryScreen(
             }
     }
 
-    // #1285 — the effects stay in the UI adapter; the RULES (which entry is
-    // the anchor, including a Work whose primary narration changed) live in
-    // the projection module.
+    // #1285 — ONE resolved anchor for both the effect and the renderer. The
+    // renderer attaches the focus requester to the card it draws, so it must be
+    // told the card's SHOWN narration id; the token may be a narration that is
+    // no longer drawn (the Work's primary changed while the details were open).
+    // Resolving here, once, keeps the attachment and the scroll target equal by
+    // construction instead of letting `requestFocus()` throw on an uninitialised
+    // requester.
+    val returnAnchorIndex = remember(restoreFocusBookId, gridEntries, libraryProjection) {
+        restoreFocusBookId?.let { libraryProjection.indexOfReturnAnchor(gridEntries, it) } ?: -1
+    }
+    val returnAnchorBookId = gridEntries.getOrNull(returnAnchorIndex)?.shownBook?.book?.id
+    // The effects stay in the UI adapter; the RULES (which entry is the anchor,
+    // including a Work whose primary narration changed) live in the projection.
     LibraryReturnFocusEffect(
-        projection = libraryProjection,
-        entries = gridEntries,
+        anchorIndex = returnAnchorIndex,
         restoreFocusBookId = restoreFocusBookId,
         activeTab = activeTab,
         modalVisible = modalVisible,
@@ -647,7 +656,9 @@ fun LibraryScreen(
                             shape = libraryProjection.shape,
                             availability = libraryAvailability,
                             downloadCounts = bookDownloadCounts,
-                            restoreFocusBookId = restoreFocusBookId,
+                            // #1285 — the RESOLVED card's shown narration, not
+                            // the raw token: see returnAnchorBookId above.
+                            restoreFocusBookId = returnAnchorBookId,
                             bookReturnFocusRequester = bookReturnFocusRequester,
                             awaitingSubmissionBookIds = awaitingSubmissionBookIds,
                             submissionBadges = submissionBadges,

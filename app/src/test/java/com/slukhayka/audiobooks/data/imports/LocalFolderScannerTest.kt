@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.imports
 
 import android.content.Context
+import android.net.Uri
 import androidx.documentfile.provider.FakeDocumentFile
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
@@ -120,5 +121,35 @@ class LocalFolderScannerTest {
             entries.map { it.uri }
         )
         assertEquals(listOf("Кобзар", null), entries.map { it.parentFolder })
+    }
+
+    /**
+     * #1374: гілка названої відмови мусить мати тест, інакше наступний
+     * рефактор тихо поверне голий NPE.
+     *
+     * Природний шлях недосяжний: `ContentResolver.openInputStream` — `final`,
+     * `ShadowContentResolver` цієї версії не має `setInputStream`, а невідомий
+     * URI кидає `FileNotFoundException`, а не вертає `null`. Тому opener
+     * підставляється явно — і саме це перевіряємо: потік не відкрився →
+     * відмова НАЗИВАЄ документ, а не падає безіменним NPE.
+     */
+    @Test
+    fun `openOrFail names the document when the stream is gone`() {
+        val resolver = ApplicationProvider.getApplicationContext<Context>().contentResolver
+        val uri = Uri.parse("content://com.slukhayka.test/vanished")
+
+        val failure = try {
+            LocalFolderScanner.openOrFail(resolver, uri) { _, _ -> null }
+            null
+        } catch (e: IllegalStateException) {
+            e
+        }
+
+        assertTrue("очікували названу відмову, а не тихий успіх", failure != null)
+        assertTrue(
+            "відмова мусить називати документ, а не бути безіменною: «${failure?.message}»",
+            failure.message?.contains("no longer readable") == true &&
+                failure.message?.contains(uri.toString()) == true,
+        )
     }
 }

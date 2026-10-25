@@ -12,9 +12,12 @@
 пройдено, тож реліз паритету не вважається прийнятим.
 
 - **Web Transport** (ADR-0024): серверні двері до джерел у
-  `src/worker/` — адаптери дванадцяти джерел (4read, Sluhay, SoundBooks,
-  Lihtar, Knigionline, Chitaka, Chytaylo, AudiobookMP3, AudiobookCoua,
-  Librivox, PlayerJS, SluhayUA), огляд каталогу й сторінка книги.
+  `src/worker/` — **11 worker-адаптерів** (4read, SoundBooks, Sluhay,
+  Lihtar, SluhayUA, Librivox, AudiobookCoua, Chytaylo, Knigionline,
+  Chitaka, AudiobookMP3), огляд каталогу й сторінка книги. `PlayerJS` —
+  не джерело: `adapters/playerjs.ts` це спільний парсер плейлістів.
+  `ukrainianaudiobooks` — джерело **лише в браузері**: worker-адаптера
+  немає, його двері відкривають браузер слухача (ADR-0036).
 - **Каталог і пошук:** Огляд, індекси (серії, колекції, ТОП, виконавці),
   жанрові фільтри, глобальний пошук зі збереженням місця.
 - **Плеєр:** відтворення розділів, швидкість, Smart Rewind, MediaSession,

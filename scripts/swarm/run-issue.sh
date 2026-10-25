@@ -72,8 +72,19 @@ fi
 # `/etc/ssh/ssh_config.d/*` на hub має власника nobody:nobody (один файл — 777),
 # і штатний ssh падає «Bad owner or permissions». Обхід — локальний, не змінює
 # системних файлів: явні опції замість конфіга.
+# Користувач воркера залежить від машини: openclaw-home — `semen`, dragonborn —
+# `viktoriyayastremska`. Раніше тут стояло жорстке `semen`, і будь-який агент,
+# що віддавав задачу на dragonborn, діставав «Permission denied» — виглядало як
+# відкинутий ключ, а насправді не існувало такого користувача.
+if [ -z "${SWARM_WORKER_USER:-}" ]; then
+  case "$WORKER" in
+    192.168.2.167|dragonborn*) SWARM_WORKER_USER=viktoriyayastremska ;;
+    *) SWARM_WORKER_USER=semen ;;
+  esac
+fi
+
 SSH_BASE=(-F /dev/null -o BatchMode=yes -o ConnectTimeout=10
-          -o StrictHostKeyChecking=accept-new -o User="${SWARM_WORKER_USER:-semen}"
+          -o StrictHostKeyChecking=accept-new -o User="$SWARM_WORKER_USER"
           -i "$SWARM_SSH_KEY")
 # Для git окремий рядок і ОКРЕМИЙ ключ: github-адреса сама несе `git@`, а явний
 # користувач перебив би його — git пішов би як `semen@github.com` і дістав
@@ -169,6 +180,15 @@ say "reserve #$ISSUE locally as $OWNER"
 # hub-локальний, незакомічений і тимчасовий, тож у СПІЛЬНОМУ реєстрі він був би
 # саме тим записом, який карає new-lane.sh. У origin/main `--plan`
 # необов'язковий (default=None), і без нього запис чесно отримує null.
+# Preflight: тікет не займаємо, поки не переконалися, що воркер узагалі
+# відповідає. Раніше acquire стояв ПЕРЕД першим ssh, і кожна з трьох збоїв цієї
+# сесії (мрехтований host key, машина зникла з мережі, старий ключ) спершу
+# займала тікет і потім звільняла його — зайва робота й зайвий шум у тікеті.
+if ! ssh -T "${SSH_BASE[@]}" "$WORKER" true 2>/dev/null; then
+  say "FAIL: воркер $WORKER недоступний по ssh — тікет #$ISSUE не резервую"
+  exit 3
+fi
+
 python3 scripts/agent-work-claim.py acquire "$ISSUE" --owner "$OWNER" \
   --reservation "swarm-$WORKER" >/dev/null \
   || fail "резервування не вдалося (код 2 = зайнято; якщо копія agent-work-claim.py старіша за origin/main — онови дерево)"

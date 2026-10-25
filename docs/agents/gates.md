@@ -180,8 +180,8 @@ to `CASES`, and the mechanism will name every number that moves.
 Its named limits are in its docstring, and the first one is the price of the
 whole idea: **the mechanism sees only the shapes and files it lists.** A scan
 that demanded a command beside *every* number would drown — `python3
-scripts/doc_numbers.py --audit` counts 188 figures of "number + unit" across
-`docs/agents/*.md` and `scripts/**/*.py`, and 181 of them sit on a line with no
+scripts/doc_numbers.py --audit` counts 193 figures of "number + unit" across
+`docs/agents/*.md` and `scripts/**/*.py`, and 186 of them sit on a line with no
 date, most being records of the past (the seconds and gigabytes of one build on
 one machine on 2026-10-12) that no command reproduces at HEAD. So
 bytes and seconds are outside `SCANNED`; where such a number must stay, what is

@@ -1,0 +1,21 @@
+[Unit]
+Description=Нічний UI/UX-патруль: аудит і ready-for-agent тікети
+Documentation=file:%h/Projects/slukhayka/docs/runbooks/ui-ux-patrol.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/slukhayka
+# GH_TOKEN і PATH (dsh, gh) живуть тут; файл створює `ui-ux-patrol.py install`
+# з правами 0600. Без GH_TOKEN таймер впаде на першому ж `gh issue list`.
+EnvironmentFile=-%h/.config/slukhayka/ui-ux-patrol.env
+# Скрипт беремо з `origin/main`, а не з робочого дерева: головне дерево
+# мейнтейнера стоїть на своїй гілці, і після мержу PR скрипта в ньому може не
+# бути. HTTPS-адреса явна — SSH цієї машини ламається на власнику
+# /etc/ssh/ssh_config.d, і таймер не має від нього залежати.
+ExecStart=/usr/bin/env bash -c 'cd %h/Projects/slukhayka && GIT_TERMINAL_PROMPT=0 git fetch --prune --force https://github.com/Samuel-Ku/slukhayka.git refs/heads/main:refs/remotes/origin/main && git show origin/main:scripts/ui-ux-patrol.py | python3 - run --repo %h/Projects/slukhayka'
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+TimeoutStartSec=75min

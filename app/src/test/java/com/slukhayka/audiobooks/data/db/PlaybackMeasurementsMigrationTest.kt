@@ -61,9 +61,13 @@ class PlaybackMeasurementsMigrationTest {
                 assertEquals("каст стартує з нуля", 0L, row.getLong(3))
                 assertEquals("ніч стартує з нуля", 0L, row.getLong(4))
             }
+            // #1413-регресія: вподобана книга (isFavorite=1) — явно збережена,
+            // тому міграція 54->55 підвищує її до EXPLICIT_SAVE. Книга БЕЗ
+            // доказу лишається UNKNOWN — це доведено окремо в
+            // OriginBackfillMigrationTest.
             db.query("SELECT origin FROM library_entries WHERE id='book'").use {
                 check(it.moveToFirst())
-                assertEquals("UNKNOWN", it.getString(0))
+                assertEquals("EXPLICIT_SAVE", it.getString(0))
             }
             db.query("SELECT earnedAt FROM achievements WHERE id='first_book'").use {
                 check(it.moveToFirst())
@@ -77,7 +81,10 @@ class PlaybackMeasurementsMigrationTest {
             }
             db.query("PRAGMA user_version").use {
                 check(it.moveToFirst())
-                assertEquals("53→54 виконалась рівно раз", 54, it.getInt(0))
+                // Версія після ВСІХ міграцій — тепер 55 (54->55 повертає
+                // дані, які v1.6 сховав фільтром origin). Тест пінить, що
+                // ланцюг дійшов до останньої версії рівно раз.
+                assertEquals("ланцюг міграцій дійшов до останньої версії", 55, it.getInt(0))
             }
         } finally {
             migrated.close()
@@ -164,7 +171,7 @@ class PlaybackMeasurementsMigrationTest {
     private fun openCurrent(context: Context, name: String) = Room.databaseBuilder(
         context, AudiobookDatabase::class.java, name
     )
-        .addMigrations(AudiobookDatabase.MIGRATION_53_54)
+        .addMigrations(AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55)
         .allowMainThreadQueries()
         .build()
 }

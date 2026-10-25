@@ -52,7 +52,7 @@ class AchievementMigrationTest {
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
             .addMigrations(
                 AudiobookDatabase.MIGRATION_50_51, AudiobookDatabase.MIGRATION_51_52,
-                AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54
+                AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55
             )
             .allowMainThreadQueries().build()
         try {
@@ -61,8 +61,12 @@ class AchievementMigrationTest {
                 check(it.moveToFirst()); assertEquals(18000000L, it.getLong(0))
             }
             db.query("SELECT verifiedListenedMillis FROM listening_stats").use { check(it.moveToFirst()); assertEquals(0L,it.getLong(0)) }
+            // #1413-регресія: рядок із isFavorite=1 — це ЯВНО збережена книга
+            // (вподобати = свідома дія), тож міграція 54->55 законно підвищує
+            // його з UNKNOWN до EXPLICIT_SAVE. Раніше тут очікували UNKNOWN,
+            // бо правила 54->55 ще не існувало.
             db.query("SELECT origin,isFavorite,createdAt,downloadProgress FROM library_entries WHERE id='book'").use {
-                check(it.moveToFirst()); assertEquals("UNKNOWN",it.getString(0)); assertEquals(1,it.getInt(1)); assertEquals(123L,it.getLong(2)); assertEquals(0.5,it.getDouble(3),0.0)
+                check(it.moveToFirst()); assertEquals("EXPLICIT_SAVE",it.getString(0)); assertEquals(1,it.getInt(1)); assertEquals(123L,it.getLong(2)); assertEquals(0.5,it.getDouble(3),0.0)
             }
             db.query("SELECT note,timestampSeconds FROM bookmarks WHERE bookId='book'").use {
                 check(it.moveToFirst()); assertEquals("Нотатка",it.getString(0)); assertEquals(37L,it.getLong(1))

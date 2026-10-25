@@ -146,10 +146,11 @@ class LocalFolderScannerTest {
         }
 
         assertTrue("очікували названу відмову, а не тихий успіх", failure != null)
+        // assertTrue не дає smart-cast, тому повідомлення дістаємо явно.
+        val message = failure?.message.orEmpty()
         assertTrue(
-            "відмова мусить називати документ, а не бути безіменною: «${failure?.message}»",
-            failure.message?.contains("no longer readable") == true &&
-                failure.message?.contains(uri.toString()) == true,
+            "відмова мусить називати документ, а не бути безіменною: «$message»",
+            message.contains("no longer readable") && message.contains(uri.toString()),
         )
     }
 }

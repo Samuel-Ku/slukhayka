@@ -54,7 +54,13 @@ class OriginBackfillMigrationTest {
                             )
                             val indices = entity.optJSONArray("indices") ?: continue
                             for (j in 0 until indices.length()) {
-                                db.execSQL(indices.getJSONObject(j).getString("createSql"))
+                                // SQL індексів у схемі ТЕЖ містить плейсхолдер
+                                // ${'$'}{TABLE_NAME} — без заміни SQLite падає з
+                                // "no such table: main.${'$'}{TABLE_NAME}".
+                                db.execSQL(
+                                    indices.getJSONObject(j).getString("createSql")
+                                        .replace("${'$'}{TABLE_NAME}", table)
+                                )
                             }
                         }
                         val setup = schema.getJSONArray("setupQueries")

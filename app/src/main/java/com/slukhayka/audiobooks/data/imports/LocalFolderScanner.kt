@@ -87,7 +87,8 @@ object LocalFolderScanner {
         uri: Uri,
         open: (ContentResolver, Uri) -> InputStream? = { r, u -> r.openInputStream(u) },
     ): InputStream =
-        open(resolver, uri)!!
+        open(resolver, uri)
+            ?: throw IllegalStateException("SAF document is no longer readable: $uri")
 
     private fun collect(
         dir: DocumentFile,

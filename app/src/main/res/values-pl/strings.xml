@@ -29,21 +29,14 @@
     <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
     <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
-    <string name="chapter_order_edit">Редагувати порядок розділів</string>
     <string name="chapter_order_reverse">Зворотний порядок</string>
     <string name="chapter_order_saving">Зберігаємо…</string>
-    <string name="chapter_order_changed">Список розділів змінився. Закрийте редактор і відкрийте його знову.</string>
-    <string name="chapter_order_failed">Не вдалося зберегти порядок розділів. Спробуйте ще раз.</string>
     <string name="metadata_edit_series">Серія</string>
     <string name="metadata_edit_series_index">Номер у серії</string>
     <!-- #1163 — the storage card's two figures, so the new labels cost no
          MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
     <string name="storage_stat_downloads">Завантаження</string>
     <string name="storage_stat_local_copies">Локальні копії</string>
-    <string name="book_detail_rate_unavailable_no_backend">Оцінка начитки недоступна: сервіс оцінок не налаштований.</string>
-    <string name="book_detail_rate_unavailable_no_profile">Оцінка начитки недоступна: потрібен профіль слухача.</string>
-    <string name="book_detail_rate_unavailable_no_edition">Оцінка начитки недоступна: у цієї книги немає видання, яке можна оцінити.</string>
-    <string name="book_detail_save_to_library">Зберегти в бібліотеку</string>
     <string name="a11y_chapter_drag_handle">Перетягнути розділ</string>
     <string name="a11y_chapter_move_up">Перемістити розділ вгору</string>
     <string name="a11y_chapter_move_down">Перемістити розділ вниз</string>

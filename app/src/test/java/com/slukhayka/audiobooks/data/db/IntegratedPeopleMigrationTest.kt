@@ -290,7 +290,7 @@ class IntegratedPeopleMigrationTest {
                 AudiobookDatabase.MIGRATION_51_52, AudiobookDatabase.MIGRATION_52_53,
                 // #1173 (T9) — the current version is 54 now: the measurements
                 // layer rides this chain too.
-                AudiobookDatabase.MIGRATION_53_54
+                AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55
             )
             .allowMainThreadQueries().build()
         try {

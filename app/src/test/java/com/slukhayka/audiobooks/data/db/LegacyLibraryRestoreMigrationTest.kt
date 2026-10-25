@@ -71,11 +71,22 @@ class LegacyLibraryRestoreMigrationTest {
                         for (i in 0 until setup.length()) db.execSQL(setup.getString(i))
 
                         // The owner's library as it was at schema 26/46: many rows, no favourite
-                        // except one, no playback progress at all.
+                        // except one, no playback progress at all. `downloadProgress` has no
+                        // DEFAULT in this schema, so it must be supplied or the fixture itself
+                        // throws SQLiteConstraintException instead of proving anything.
                         for (i in 0 until seededBooks) {
                             db.execSQL(
-                                "INSERT INTO library_entries (id, workId, isFavorite, createdAt) " +
-                                    "VALUES ('e$i', 'w$i', ${if (i == 0) 1 else 0}, ${1700000000000L + i})"
+                                "INSERT INTO audiobooks " +
+                                    "(id, title, author, narrator, description, coverDrawableRes, " +
+                                    "genre, sourceUrl, isDownloaded, totalDurationSeconds, " +
+                                    "totalChapters, rating) " +
+                                    "VALUES ('w$i', 'Book $i', 'A', 'N', 'D', 0, 'G', '', 0, 0, 0, 0.0)"
+                            )
+                            db.execSQL(
+                                "INSERT INTO library_entries " +
+                                    "(id, workId, isFavorite, createdAt, downloadProgress) " +
+                                    "VALUES ('e$i', 'w$i', ${if (i == 0) 1 else 0}, " +
+                                    "${1700000000000L + i}, 0.0)"
                             )
                         }
                     }
@@ -109,8 +120,9 @@ class LegacyLibraryRestoreMigrationTest {
     /** Counts exactly what the library screen counts — the same predicate the DAO uses. */
     private fun visibleToLibrary(db: SupportSQLiteDatabase): Int =
         db.query(
-            "SELECT COUNT(*) FROM library_entries " +
-                "WHERE origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')"
+            "SELECT COUNT(*) FROM library_entries le " +
+                "JOIN audiobooks a ON a.id = le.workId " +
+                "WHERE le.origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')"
         ).use { it.moveToFirst(); it.getInt(0) }
 
     @Test

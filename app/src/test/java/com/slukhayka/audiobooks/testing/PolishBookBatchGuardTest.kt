@@ -44,6 +44,18 @@ class PolishBookBatchGuardTest {
     private val res: File get() = File(appRoot, "src/main/res")
 
     /** The batch boundary: the sources that own the book, reviews, rating and player surfaces. */
+    /**
+     * The batch boundary: the four surfaces NAMED by #1388 and the composables
+     * they actually render — the achievement cards/award notices, the bookmark
+     * and metadata dialogs, the chapter-order dialog, the sleep-timer sheet and
+     * the showcase publish sheet. A screen file alone is not the surface: these
+     * dialogs and notice labels are visible lines of the same screens, and when
+     * they were missing here the guard's "green" proved only the screen files.
+     *
+     * Batch 3 (#1389) keeps app-shell navigation labels (`MainActivity` panes,
+     * `HomeScreen` catalog nav) and background-service accessibility messages
+     * (`AudioPlayerManager` errors) — those are not lines of the four surfaces.
+     */
     private val areaSources: List<File> by lazy {
         val files = listOf(
             "src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt",
@@ -52,20 +64,29 @@ class PolishBookBatchGuardTest {
             "src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryRatingScreen.kt",
             "src/main/java/com/slukhayka/audiobooks/ui/screens/PlayerScreen.kt",
             "src/main/java/com/slukhayka/audiobooks/ui/screens/AchievementsScreen.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/AchievementPinButton.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/ListenScreen.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/ShowcasePreviewSheet.kt",
             "src/main/java/com/slukhayka/audiobooks/ui/components/MiniPlayerBar.kt",
             "src/main/java/com/slukhayka/audiobooks/ui/components/PlayerPane.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/BookmarkDialog.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/MetadataCorrectionDialog.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/ChapterOrderDialog.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/SleepTimerSheet.kt",
         ).map { File(appRoot, it) }
-        val bookDetail = File(
-            appRoot,
-            "src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail"
-        ).walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        val trees = listOf(
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail",
+            "src/main/java/com/slukhayka/audiobooks/ui/achievements",
+        ).map { dir ->
+            File(appRoot, dir).walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        }
         val missing = files.filterNot { it.isFile }
         assertTrue(
             "the batch area lists sources that no longer exist (the area moved, not the test): " +
                 missing.joinToString { it.path },
             missing.isEmpty()
         )
-        files + bookDetail
+        files + trees.flatten()
     }
 
     private val reference = Regex("""R\.(string|plurals|array)\.([a-z0-9_]+)""")
@@ -110,7 +131,7 @@ class PolishBookBatchGuardTest {
         assertTrue(
             "the batch area produced ${found.size} keys — the source walk found nothing, so a " +
                 "green run here would prove nothing",
-            found.size >= 200
+            found.size >= 400
         )
         return found
     }

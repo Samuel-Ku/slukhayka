@@ -29,10 +29,6 @@
     <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
     <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
-    <string name="chapter_order_reverse">Зворотний порядок</string>
-    <string name="chapter_order_saving">Зберігаємо…</string>
-    <string name="metadata_edit_series">Серія</string>
-    <string name="metadata_edit_series_index">Номер у серії</string>
     <!-- #1163 — the storage card's two figures, so the new labels cost no
          MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
     <string name="storage_stat_downloads">Завантаження</string>

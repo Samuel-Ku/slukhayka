@@ -41,13 +41,21 @@ if [ "${1:-}" = "--check" ]; then
   [ -x "$JDK_DIR/bin/java" ] && ok "JDK 21" || bad_ "JDK 21 ($JDK_DIR)"
   ls -d "$SDK_DIR"/platforms/android-36* >/dev/null 2>&1 && ok "SDK android-36" || bad_ "SDK android-36"
   ls -d "$SDK_DIR"/build-tools/36* >/dev/null 2>&1 && ok "build-tools 36" || bad_ "build-tools 36"
-  command -v dsh >/dev/null 2>&1 && ok "dsh у PATH" || bad_ "dsh у PATH"
+  # --check запускають через `bash script` по ssh, без логін-шелла, тож PATH
+  # без env.sh порожній і dsh «не знаходиться». Спершу підхоплюємо env.sh.
+  [ -f "$HOME/swarm/env.sh" ] && . "$HOME/swarm/env.sh"
+  command -v dsh >/dev/null 2>&1 && ok "dsh у PATH" || bad_ "dsh у PATH (немає env.sh?)"
   "$BIN_DIR/gh" auth status >/dev/null 2>&1 && ok "gh auth" || bad_ "gh auth (токен недійсний?)"
   [ -s "$HOME/.dsh/.credentials.yaml" ] && ok "ключ провайдера" || bad_ "ключ провайдера"
   [ -e "$REPO_DIR/.git" ] && ok "клон репозиторію" || bad_ "клон репозиторію"
   free_gb=$(df -BG --output=avail "$REPO_DIR" 2>/dev/null | tail -1 | tr -dc 0-9)
   [ "${free_gb:-0}" -ge 10 ] && ok "диск (${free_gb}G вільно)" || bad_ "диск (${free_gb:-?}G вільно)"
-  [ "$(pgrep -fc '[d]sh --profile headless' 2>/dev/null || echo 0)" -eq 0 ] && ok "немає осиротілих dsh" || bad_ "осиротілі dsh-процеси"
+  # dsh-процеси — норма під час виконання задачі; сирота відрізняється тим, що
+  # його нема кому прибрати. Порахувати це ззовні не можна, тож рапортуємо факт
+  # і не валимо перевірку: справжня ознака сироти — смуга без резервування, і
+  # її видно в реєстрі, а не тут.
+  running=$(pgrep -fc '[d]sh --profile headless' 2>/dev/null || echo 0)
+  if [ "${running:-0}" -eq 0 ]; then ok "немає активних dsh"; else ok "dsh-процесів: $running (норма під час задачі)"; fi
   exit "$bad"
 fi
 

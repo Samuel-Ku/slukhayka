@@ -107,6 +107,24 @@ internal enum class SecondaryBookParent {
     PERSON
 }
 
+/**
+ * #1235 — which «Огляд» parents keep their list beside the selected work.
+ *
+ * The owner's decision on #1208 (2026-10-11) makes this list exactly the four
+ * book lists «Огляду»: genre, series, the library rating and a person's works.
+ * It is a named predicate, not an inline pair of comparisons, so the phone and
+ * wide routes cannot disagree about which parents own the list-detail contract.
+ */
+internal fun exploreParentKeepsListBesideDetail(parent: SecondaryBookParent?): Boolean =
+    when (parent) {
+        SecondaryBookParent.SERIES,
+        SecondaryBookParent.GENRE,
+        SecondaryBookParent.TOP_100,
+        SecondaryBookParent.PERSON -> true
+
+        null -> false
+    }
+
 internal data class SecondaryBookRouteFrame(
     val parent: SecondaryBookParent? = null,
     val originBookId: String = "",
@@ -849,23 +867,28 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
-    // #900 — «Огляд»: does the list the work was opened FROM stay beside the
-    // work's card? The answer lives in ui/adaptive (the one place that decides
-    // layouts); it is read into a val HERE, before the list lambdas, because
-    // those lists consult it to hold their focus-return marker back.
+    // #900 / #1208 / #1235 — «Огляд»: does the list the work was opened FROM
+    // stay beside the work's card? The answer lives in ui/adaptive (the one
+    // place that decides layouts); it is read into a val HERE, before the list
+    // lambdas, because those lists consult it to hold their focus-return marker
+    // back.
+    //
+    // All four book lists of «Огляду» — genre, series, the library rating and a
+    // person's works — go through the SAME predicate. Before an explicit tap
+    // `secondaryBookDetailOpen` is false, so the list keeps the whole window;
+    // there is no empty pane and no first-row auto-selection.
     val wideExploreParent = secondaryBookRoute.parent
     val wideExplorePaneOpen = showsWideExploreDetailPane(
         layout = windowLayout,
         tab = selectedTab,
-        hasParentList = secondaryBookDetailOpen &&
-            (wideExploreParent == SecondaryBookParent.SERIES ||
-                wideExploreParent == SecondaryBookParent.GENRE)
+        detailOpenFromParentList = secondaryBookDetailOpen &&
+            exploreParentKeepsListBesideDetail(wideExploreParent)
     )
 
-    // #900 — the two «Огляд» lists the owner named («добірка/жанр»), wired
-    // ONCE for the same reason the library is: the phone route pushes them
-    // full-screen, the wide route keeps them beside the work's card, and both
-    // get identical callbacks and the same scroll state.
+    // #900 — the «Огляд» book lists, wired ONCE for the same reason the library
+    // is: the phone route pushes them full-screen, the wide route keeps them
+    // beside the work's card, and both get identical callbacks and the same
+    // scroll state.
     //
     // While the pane is open the focus-return marker is HELD BACK (not
     // consumed): the list must not steal focus from the card beside it, and
@@ -931,14 +954,77 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
-    // Null for a parent this slice deliberately leaves on the phone route (the
-    // rating, a person's books) — the question is recorded on issue #900, and
-    // [wideExplorePaneOpen] is false for exactly those, so the branch below
-    // never asks for this value when it is null.
+    val top100ListContent: @Composable () -> Unit = {
+        LibraryRatingScreen(
+            viewModel = viewModel,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closeTop100()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.TOP_100,
+                    originBookId = id,
+                    detailBookId = id
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.TOP_100
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.TOP_100 &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = top100BookListState
+        )
+    }
+
+    val personListContent: @Composable () -> Unit = {
+        PersonBooksScreen(
+            viewModel = viewModel,
+            personBookmarks = viewModel.personBookmarks,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closePersonBooks()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.PERSON,
+                    originBookId = id,
+                    detailBookId = id,
+                    parentName = selectedPerson?.name.orEmpty(),
+                    parentPath = selectedPerson?.path.orEmpty(),
+                    parentRole = selectedPerson?.role
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.PERSON
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.PERSON &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = personBookListState
+        )
+    }
+
+    // The same four lists the phone route pushes. Every parent that
+    // [exploreParentKeepsListBesideDetail] names has an entry here, so the wide
+    // branch below can always require a non-null content.
     val wideExploreListContent: (@Composable () -> Unit)? = when (wideExploreParent) {
         SecondaryBookParent.SERIES -> seriesListContent
         SecondaryBookParent.GENRE -> genreListContent
-        else -> null
+        SecondaryBookParent.TOP_100 -> top100ListContent
+        SecondaryBookParent.PERSON -> personListContent
+        null -> null
     }
 
     // #705 (T7) — the showcase's consent. Rendered at the top level so it is the
@@ -1099,11 +1185,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             }
                         )
 
-                        // #900 — on a wide «Огляд», the genre/series the work was
-                        // opened from keeps the left pane and the work's card takes
-                        // the right: the same two screens the phone shows one at a
-                        // time. Any other parent list keeps the phone route below
-                        // (the question is on issue #900).
+                        // #900 / #1208 / #1235 — on a wide «Огляд», the book
+                        // list the work was opened from (genre, series, rating
+                        // or a person's works) keeps the left pane and the
+                        // work's card takes the right: the same two screens the
+                        // phone shows one at a time. The branch requires an
+                        // EXPLICITLY opened book, so an idle wide window has no
+                        // empty pane and no auto-selected first row.
                         wideExplorePaneOpen && !playerPaneOpen -> WideDetailPane(
                             list = requireNotNull(wideExploreListContent),
                             detail = bookDetailContent
@@ -1254,33 +1342,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // Genre (category) page ("Аудіокниги жанру:").
                         selectedGenre != null -> genreListContent()
 
-                        // #738 — the library rating (local, offline).
-                        selectedTop100 -> LibraryRatingScreen(
-                            viewModel = viewModel,
-                            onBackClick = {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                                viewModel.closeTop100()
-                            },
-                            onBookClick = { id ->
-                                secondaryBookRoute = SecondaryBookRouteFrame(
-                                    parent = SecondaryBookParent.TOP_100,
-                                    originBookId = id,
-                                    detailBookId = id
-                                )
-                                viewModel.selectBook(id)
-                            },
-                            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                                secondaryBookRoute.parent == SecondaryBookParent.TOP_100
-                            },
-                            onBookFocusRestored = { restoredId ->
-                                if (secondaryBookRoute.parent == SecondaryBookParent.TOP_100 &&
-                                    secondaryBookRoute.originBookId == restoredId
-                                ) {
-                                    secondaryBookRoute = SecondaryBookRouteFrame()
-                                }
-                            },
-                            listState = top100BookListState
-                        )
+                        // #738 — the library rating (local, offline). The same
+                        // content the wide branch keeps beside the work (#1235).
+                        selectedTop100 -> top100ListContent()
 
                         authorsIndexOpen -> {
                             // The full 10k-capable alphabetical projection is cold:
@@ -1302,36 +1366,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         }
 
                         // One person's books (opened from Виконавці/Автори index).
-                        selectedPerson != null -> PersonBooksScreen(
-                            viewModel = viewModel,
-                            personBookmarks = viewModel.personBookmarks,
-                            onBackClick = {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                                viewModel.closePersonBooks()
-                            },
-                            onBookClick = { id ->
-                                secondaryBookRoute = SecondaryBookRouteFrame(
-                                    parent = SecondaryBookParent.PERSON,
-                                    originBookId = id,
-                                    detailBookId = id,
-                                    parentName = selectedPerson?.name.orEmpty(),
-                                    parentPath = selectedPerson?.path.orEmpty(),
-                                    parentRole = selectedPerson?.role
-                                )
-                                viewModel.selectBook(id)
-                            },
-                            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                                secondaryBookRoute.parent == SecondaryBookParent.PERSON
-                            },
-                            onBookFocusRestored = { restoredId ->
-                                if (secondaryBookRoute.parent == SecondaryBookParent.PERSON &&
-                                    secondaryBookRoute.originBookId == restoredId
-                                ) {
-                                    secondaryBookRoute = SecondaryBookRouteFrame()
-                                }
-                            },
-                            listState = personBookListState
-                        )
+                        // The same content the wide branch keeps beside the work
+                        // (#1235).
+                        selectedPerson != null -> personListContent()
 
                         // Виконавці or Автори index.
                         selectedPeopleKind != null -> PeopleScreen(

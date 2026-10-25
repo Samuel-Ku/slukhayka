@@ -30,6 +30,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +53,32 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 private val RowCoverSize = 64.dp
+
+/**
+ * #1235 — the width under which the canonical row stops sharing its one line
+ * between the title and the non-text slots.
+ *
+ * A wide window's list pane is 0.4 of its content width: 208 dp at the 600 dp
+ * breakpoint (after the 80 dp rail) and 192 dp at 840 dp when the mini-player
+ * column takes its 360 dp. At those widths the 64 dp cover, the 36 dp rank and
+ * the 48 dp play target left the title a strip of a few letters. The row is
+ * still ONE component and one merged TalkBack node — only its layout responds:
+ * the title gets the whole text column, and [leading]/[badges]/[trailing] move
+ * to the row's own second line (the owner's decision on #1208, delivered by
+ * #1235).
+ */
+val NarrowBookRowMaxWidth = 240.dp
+
+/**
+ * #1235 — does the canonical row lay itself out for a narrow list pane?
+ *
+ * [com.slukhayka.audiobooks.ui.components.WideDetailPane] provides it from the
+ * pane's measured width, so every BookRow inside the pane follows the real
+ * container rather than the window (the same rule ADR-0017 asks a delivery to
+ * show). Defaults to false: a full-width list keeps the canonical one-line row
+ * byte for byte.
+ */
+val LocalBookRowCompact = staticCompositionLocalOf { false }
 
 /** h:mm:ss / mm:ss — the same duration line every row slot renders. */
 internal fun formatRowDuration(seconds: Long): String {
@@ -76,6 +103,13 @@ internal fun formatRowDuration(seconds: Long): String {
  * The a11y contract rides inside: one merged row node carrying
  * [stateDescription]/[contentDescription], trailing actions as separate
  * 48 dp targets, and a trailing [HorizontalDivider] as the separator.
+ *
+ * #1235 — in a container narrower than [NarrowBookRowMaxWidth] the same row
+ * gives the title the text column and puts [leading], [badges] and [trailing]
+ * on a second line inside the SAME clickable/merged node. That is a layout of
+ * the canonical row, not a second row component (ADR-0018 / ADR-0033), and it
+ * is what keeps a 192/208 dp list pane readable instead of squeezing the title
+ * behind the rank, the cover and the play action.
  */
 @Composable
 fun BookRow(
@@ -121,11 +155,20 @@ fun BookRow(
     footnoteInColumn: Boolean = false,
     testTag: String? = null
 ) {
+    val compact = LocalBookRowCompact.current
+    val horizontalPadding = if (compact) AppDimens.SpaceSm else AppDimens.PageSides
+    val titleMaxLines = if (compact) 2 else 1
+    // The title keeps a per-row tag when the caller already named the row, so a
+    // test can read the text column's own bounds instead of the merged row's.
+    val titleTag = testTag?.let { "${it}_title" }
+
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(
+        // The clickable + merged a11y node wraps BOTH lines in compact mode, so
+        // TalkBack still announces one row and the rank/play slots stay inside
+        // its bounds instead of becoming separate focus stops.
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 76.dp)
                 .semantics(mergeDescendants = true) {
                     if (stateDescription != null) this.stateDescription = stateDescription
                     if (contentDescription != null) this.contentDescription = contentDescription
@@ -147,101 +190,159 @@ fun BookRow(
                         else -> Modifier
                     }
                 )
-                .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
-            verticalAlignment = Alignment.CenterVertically
         ) {
-            leading?.invoke(this)
-            if (book != null) {
-                Box(modifier = Modifier.size(RowCoverSize)) {
-                    BookCoverImage(
-                        book = book,
-                        semantics = BookCoverSemantics.Decorative,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(AppDimens.RadiusCover)),
-                        contentScale = ContentScale.Crop
-                    )
-                    coverBadge?.invoke(this)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 76.dp)
+                    .padding(horizontal = horizontalPadding, vertical = AppDimens.SpaceSm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!compact) leading?.invoke(this)
+                if (book != null) {
+                    Box(modifier = Modifier.size(RowCoverSize)) {
+                        BookCoverImage(
+                            book = book,
+                            semantics = BookCoverSemantics.Decorative,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(AppDimens.RadiusCover)),
+                            contentScale = ContentScale.Crop
+                        )
+                        coverBadge?.invoke(this)
+                    }
+                    Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+                } else if (!coverUrl.isNullOrBlank()) {
+                    // Catalogue rows (search, work feed) carry a cover URL, not a
+                    // library entity — the same 64 dp slot, artwork or placeholder.
+                    Box(modifier = Modifier.size(RowCoverSize)) {
+                        CatalogCoverImage(
+                            coverImageUrl = coverUrl,
+                            title = title,
+                            semantics = BookCoverSemantics.Decorative,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(AppDimens.RadiusCover))
+                        )
+                        coverBadge?.invoke(this)
+                    }
+                    Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
                 }
-                Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
-            } else if (!coverUrl.isNullOrBlank()) {
-                // Catalogue rows (search, work feed) carry a cover URL, not a
-                // library entity — the same 64 dp slot, artwork or placeholder.
-                Box(modifier = Modifier.size(RowCoverSize)) {
-                    CatalogCoverImage(
-                        coverImageUrl = coverUrl,
-                        title = title,
-                        semantics = BookCoverSemantics.Decorative,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(AppDimens.RadiusCover))
-                    )
-                    coverBadge?.invoke(this)
+                Column(modifier = Modifier.weight(1f)) {
+                    if (!genre.isNullOrBlank()) {
+                        Text(
+                            text = genre,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (compact) {
+                        // The title owns the whole text column: the rank, the
+                        // badges and the play action are on the second line.
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            maxLines = titleMaxLines,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (titleTag != null) {
+                                        Modifier.testTag(titleTag)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // The title yields before the badges do: without this the
+                            // badges got whatever width was left over and a long title
+                            // squeezed «Очікує» into a one-letter-wide column (#843).
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                maxLines = titleMaxLines,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (titleTag != null) {
+                                            Modifier.testTag(titleTag)
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                            )
+                            badges?.invoke(this)
+                        }
+                    }
+                    if (!author.isNullOrBlank()) {
+                        Text(
+                            text = author,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (!stats.isNullOrBlank()) {
+                        Text(
+                            text = stats,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (progress != null && progress > 0f) {
+                        LinearProgressIndicator(
+                            progress = { progress.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .padding(top = AppDimens.SpaceXs)
+                                .fillMaxWidth()
+                                .height(PosterProgressHairlineHeight)
+                                .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                                .then(
+                                    if (progressTestTag != null) {
+                                        Modifier.testTag(progressTestTag)
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    }
+                    if (footnoteInColumn) footnote?.invoke(this)
                 }
-                Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+                if (!compact) trailing?.invoke(this)
             }
-            Column(modifier = Modifier.weight(1f)) {
-                if (!genre.isNullOrBlank()) {
-                    Text(
-                        text = genre,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // The title yields before the badges do: without this the
-                    // badges got whatever width was left over and a long title
-                    // squeezed «Очікує» into a one-letter-wide column (#843).
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f)
-                    )
-                    badges?.invoke(this)
-                }
-                if (!author.isNullOrBlank()) {
-                    Text(
-                        text = author,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (!stats.isNullOrBlank()) {
-                    Text(
-                        text = stats,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (progress != null && progress > 0f) {
-                    LinearProgressIndicator(
-                        progress = { progress.coerceIn(0f, 1f) },
+            if (compact) {
+                val hasSecondarySlots = leading != null || badges != null || trailing != null
+                if (hasSecondarySlots) {
+                    Row(
                         modifier = Modifier
-                            .padding(top = AppDimens.SpaceXs)
                             .fillMaxWidth()
-                            .height(PosterProgressHairlineHeight)
-                            .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                            .then(
-                                if (progressTestTag != null) {
-                                    Modifier.testTag(progressTestTag)
-                                } else {
-                                    Modifier
-                                }
+                            .padding(
+                                start = horizontalPadding,
+                                end = horizontalPadding,
+                                bottom = AppDimens.SpaceSm
                             ),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant
-                    )
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        leading?.invoke(this)
+                        if (leading != null && badges != null) {
+                            Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
+                        }
+                        badges?.invoke(this)
+                        Spacer(modifier = Modifier.weight(1f))
+                        trailing?.invoke(this)
+                    }
                 }
-                if (footnoteInColumn) footnote?.invoke(this)
             }
-            trailing?.invoke(this)
         }
         if (!footnoteInColumn) footnote?.invoke(this)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))

@@ -9,7 +9,8 @@
 |---|---|---|---|---|---|
 | hub (координатор) | ця машина | — | `~/.ssh/id_ed25519` (GitHub) | 4 ядра / 15 ГБ | проєктний `gradle.properties` |
 | ~~воркер `openclaw-home`~~ | ~~`192.168.2.223`~~ | ~~`semen`~~ | — | 4 ядра / 19 ГБ | **виведено з використання 2026-10-25**; не диспетчити |
-| воркер `dragonborn` | `192.168.2.167` | `viktoriyayastremska` | `~/.ssh/id_ed25519_omarchy` | 12 ядер / 31 ГБ | `-Xmx6g`, 6 воркерів через `.worktrees/gt` |
+| воркер `dragonborn` | `192.168.2.167` | `viktoriyayastremska` | `~/.ssh/id_ed25519_omarchy` | 12 ядер / 31 ГБ | **тихий режим**: 6 ядер із 12 (`taskset 0-5`), `nice +10`, `-Xmx4g`, `workers.max=2`, `parallel=false` |
+
 
 ## Як це використовує раннер
 

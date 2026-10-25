@@ -5,6 +5,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -36,24 +38,56 @@ fun ChapterOrderDialog(
         onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(stringResource(R.string.chapter_order_edit), modifier = Modifier.focusRequester(headingFocus).focusable().semantics { heading() }.testTag("chapter_order_heading")) },
         text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            val scrollState = rememberScrollState()
+            val autoScroll = remember {
+                ChapterDragAutoScroll(scrollState, viewportTop = 0f, viewportBottom = 0f, edgePx = 72f, stepPx = 48f)
+            }
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 420.dp)
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInWindow()
+                        autoScroll.update(bounds.top, bounds.bottom)
+                    }
+                    .verticalScroll(scrollState)
+            ) {
                 TextButton(
                     onClick = { order = order.reversed() }, enabled = !saving,
                     modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_reverse")
                 ) { Text(stringResource(R.string.chapter_order_reverse)) }
+                val density = androidx.compose.ui.platform.LocalDensity.current
                 order.forEachIndexed { index, chapter ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${index + 1}. ${chapter.title}", modifier = Modifier.weight(1f))
-                        TextButton(
-                            onClick = { order = movedOrder(order.size, index, index - 1).map { order[it] } },
-                            enabled = !saving && index > 0,
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_up_${chapter.id}")
-                        ) { Text(stringResource(R.string.lib_import_move_up)) }
-                        TextButton(
-                            onClick = { order = movedOrder(order.size, index, index + 1).map { order[it] } },
-                            enabled = !saving && index < order.lastIndex,
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_down_${chapter.id}")
-                        ) { Text(stringResource(R.string.lib_import_move_down)) }
+                    // #1188 — stable identity per chapter: without key() a
+                    // continuing multi-step drag would follow the SLOT and move
+                    // whatever chapter now occupies it.
+                    key(chapter.id) {
+                        var rowHeightPx by remember { mutableFloatStateOf(with(density) { 48.dp.toPx() }) }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.onGloballyPositioned { rowHeightPx = it.size.height.toFloat() }
+                        ) {
+                            Text("${index + 1}. ${chapter.title}", modifier = Modifier.weight(1f))
+                            // #1188 — one shared handle/gesture language with the
+                            // import preview; arrows below remain the second path.
+                            ChapterDragHandle(
+                                index = index,
+                                count = order.size,
+                                onMove = { from, to -> order = movedOrder(order.size, from, to).map { order[it] } },
+                                enabled = !saving,
+                                autoScroll = autoScroll,
+                                rowHeightPx = rowHeightPx,
+                                modifier = Modifier.testTag("chapter_order_drag_${chapter.id}")
+                            )
+                            TextButton(
+                                onClick = { order = movedOrder(order.size, index, index - 1).map { order[it] } },
+                                enabled = !saving && index > 0,
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_up_${chapter.id}")
+                            ) { Text(stringResource(R.string.lib_import_move_up)) }
+                            TextButton(
+                                onClick = { order = movedOrder(order.size, index, index + 1).map { order[it] } },
+                                enabled = !saving && index < order.lastIndex,
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("chapter_order_down_${chapter.id}")
+                            ) { Text(stringResource(R.string.lib_import_move_down)) }
+                        }
                     }
                 }
                 errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("chapter_order_error")) }

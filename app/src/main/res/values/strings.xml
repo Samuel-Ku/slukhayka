@@ -692,6 +692,9 @@
     <string name="lib_import_chapter_order">Порядок розділів</string>
     <string name="lib_import_move_up">Вгору</string>
     <string name="lib_import_move_down">Вниз</string>
+    <string name="a11y_chapter_drag_handle">Перетягнути розділ</string>
+    <string name="a11y_chapter_move_up">Перемістити розділ вгору</string>
+    <string name="a11y_chapter_move_down">Перемістити розділ вниз</string>
     <string name="lib_import_title_label">Назва</string>
     <string name="lib_import_save">Зберегти</string>
     <string name="lib_import_retry">Повторити</string>

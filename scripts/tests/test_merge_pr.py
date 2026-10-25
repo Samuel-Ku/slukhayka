@@ -255,9 +255,10 @@ def page(*events):
 def pr_payload(*, checks=None, labels=(VERDICT_LABEL,), state="OPEN",
                draft=False, mergeable="MERGEABLE", merge_state="CLEAN",
                base="main", head=HEAD, head_ref=PR_BRANCH, cross_repo=False,
-               number=1215):
+               number=1215, files=()):
     return {
         "number": number,
+        "files": [{"path": one} for one in files],
         "state": state,
         "isDraft": draft,
         "mergeable": mergeable,
@@ -273,6 +274,17 @@ def pr_payload(*, checks=None, labels=(VERDICT_LABEL,), state="OPEN",
 
 
 class MergePrTest(unittest.TestCase):
+    def test_a_pr_that_rewrites_the_gate_is_refused(self):
+        """#1338: дерево PR не може переписати гейт, який його перевіряє."""
+        result = self.gate(pr=pr_payload(files=(".github/workflows/ci.yml",)))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+
+    def test_a_pr_that_only_touches_app_code_is_not_refused(self):
+        """Межа не має бити по звичайних PR: лише гейтові шляхи."""
+        result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)))
+        self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)

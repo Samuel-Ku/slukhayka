@@ -15,7 +15,9 @@ import java.util.Locale
  * preference never translates the interface.
  *
  * [AppLocale.SYSTEM] follows the device locale (the Activity context is left
- * unpinned); [AppLocale.UKRAINIAN]/[AppLocale.ENGLISH] pin the Activity
+ * unpinned) WHEN that language has a complete resource set; a language still
+ * being translated is pinned to Ukrainian instead — see [SYSTEM_FOLLOWS].
+ * [AppLocale.UKRAINIAN]/[AppLocale.ENGLISH] pin the Activity
  * context so app strings AND Material/embedded library resources speak one
  * language. The default is [AppLocale.SYSTEM] (spec-45 #405 R7 #514): a new
  * install follows the device, so an English-system device speaks English
@@ -24,12 +26,32 @@ import java.util.Locale
  * the app pinned one.
  */
 enum class AppLocale(val tag: String) {
-    /** Follow the device locale without pinning the context. */
+    /**
+     * Follow the device locale when its language is in [SYSTEM_FOLLOWS];
+     * otherwise keep the coherent Ukrainian UI instead of pinning a
+     * half-translated one.
+     */
     SYSTEM(""),
     UKRAINIAN("uk"),
     ENGLISH("en");
 
     companion object {
+        /**
+         * #1387 — the languages whose resource set is COMPLETE enough for
+         * [SYSTEM] to follow the device.
+         *
+         * Polish is translated in three sequential batches
+         * (#1387/#1388/#1389) into `values-pl`; until the LAST batch adds `pl`
+         * here (and a `POLISH` entry to this enum, with its row on the
+         * interface-language screen), a Polish-system device must NOT resolve
+         * the `pl` qualifier: a partly translated language shows two languages
+         * on one screen, which is exactly the #1385 defect that made a partial
+         * translation worse than none. This set is the switch, not a comment —
+         * `AppLocaleTest` pins both that `pl` is absent here and that a Polish
+         * device resolves to Ukrainian.
+         */
+        val SYSTEM_FOLLOWS: Set<String> = setOf("uk", "en")
+
         /**
          * Unknown or absent stored values follow the system. An EXPLICITLY
          * stored choice from any earlier store version is preserved — only
@@ -96,14 +118,23 @@ object AppLocaleApplier {
 
 /**
  * Returns the Activity context localized for [locale]. [AppLocale.SYSTEM]
- * returns [this] unchanged — the app follows the device. Any concrete locale
- * pins the context (and with it Material + embedded Android controls), so a
- * Polish device running a Ukrainian locale never mixes Polish library labels
- * into the Ukrainian interface.
+ * returns [this] unchanged when the device language is one of
+ * [AppLocale.SYSTEM_FOLLOWS] — the app follows the device. A device language
+ * still being translated (#1387: Polish until #1389) and any concrete locale
+ * pin the context (and with it Material + embedded Android controls), so a
+ * Polish device never mixes the half-finished `values-pl` set into the
+ * Ukrainian interface.
  */
 internal fun Context.withAppLocale(locale: AppLocale): Context {
-    if (locale == AppLocale.SYSTEM) return this
-    val localeTag = Locale.forLanguageTag(locale.tag)
+    val targetTag = when (locale) {
+        AppLocale.SYSTEM -> {
+            val deviceLanguage = resources.configuration.locales[0].language
+            if (deviceLanguage in AppLocale.SYSTEM_FOLLOWS) return this
+            AppLocale.UKRAINIAN.tag
+        }
+        else -> locale.tag
+    }
+    val localeTag = Locale.forLanguageTag(targetTag)
     val configuration = Configuration(resources.configuration).apply {
         setLocale(localeTag)
         setLayoutDirection(localeTag)

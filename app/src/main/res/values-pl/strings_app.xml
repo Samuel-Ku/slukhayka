@@ -1,0 +1,301 @@
+<resources>
+    <!-- THE REAL POLISH TRANSLATION — batch 1 of 3 (#1387).
+
+         `values-pl/strings.xml` is NOT this file and never was: it holds the
+         Ukrainian Material3 overrides that keep TalkBack coherent on a Polish
+         device (#371, #1385). Its guard (`scripts/tests/test_locale_overrides.py`)
+         still requires every value there to equal Ukrainian, and the keys that
+         moved here were removed from it — a key may live in exactly one file of
+         the `pl` qualifier.
+
+         #1387 is the first of three batches (library / shelves / saved). The
+         Polish text is complete for the surfaces that reference it; the other
+         batches append their own keys to this same file, which is why they go
+         one after another. Until the LAST batch adds `pl` to
+         `AppLocale.SYSTEM_FOLLOWS` (and to the interface-language screen), a
+         Polish-system device keeps the coherent Ukrainian UI: a partly
+         translated language shown to the listener is exactly the #1385 defect.
+
+         Rules this file keeps (and `PolishLibraryBatchGuardTest` enforces):
+         * every key the library/shelves/saved sources reference has a value
+           here — a missing one would silently fall back to Ukrainian;
+         * no value is a copy of the Ukrainian one (no Cyrillic letters);
+         * every format placeholder (`%1$s`, `%2$d`, `%%`) matches the
+           Ukrainian source, so `String.format` cannot throw at runtime. -->
+
+    <plurals name="author_count">
+        <item quantity="one">%1$d autor</item>
+        <item quantity="few">%1$d autorzy</item>
+        <item quantity="many">%1$d autorów</item>
+        <item quantity="other">%1$d autorów</item>
+    </plurals>
+    <plurals name="book_count">
+        <item quantity="one">%1$d książka</item>
+        <item quantity="few">%1$d książki</item>
+        <item quantity="many">%1$d książek</item>
+        <item quantity="other">%1$d książek</item>
+    </plurals>
+    <plurals name="collection_book_count">
+        <item quantity="one">Książka w kolekcji: %1$d</item>
+        <item quantity="few">Książki w kolekcji: %1$d</item>
+        <item quantity="many">Książek w kolekcji: %1$d</item>
+        <item quantity="other">Książek w kolekcji: %1$d</item>
+    </plurals>
+    <plurals name="lib_import_file_count">
+        <item quantity="one">%1$d plik</item>
+        <item quantity="few">%1$d pliki</item>
+        <item quantity="many">%1$d plików</item>
+        <item quantity="other">%1$d plików</item>
+    </plurals>
+    <plurals name="library_rating_votes">
+        <item quantity="one">%1$d ocena</item>
+        <item quantity="few">%1$d oceny</item>
+        <item quantity="many">%1$d ocen</item>
+        <item quantity="other">%1$d ocen</item>
+    </plurals>
+    <plurals name="performer_count">
+        <item quantity="one">%1$d lektor</item>
+        <item quantity="few">%1$d lektorzy</item>
+        <item quantity="many">%1$d lektorów</item>
+        <item quantity="other">%1$d lektorów</item>
+    </plurals>
+
+    <string name="a11y_close_page">Zamknij stronę</string>
+    <string name="a11y_library_add">Dodaj audio do biblioteki</string>
+    <string name="a11y_library_back_to_books">Wróć do książek</string>
+    <string name="a11y_library_clear_search">Wyczyść wyszukiwanie w bibliotece</string>
+    <string name="a11y_library_delete_bookmark">Usuń zakładkę z książki %1$s, %2$s, %3$s</string>
+    <string name="a11y_library_entry_description">%1$s, %2$s</string>
+    <string name="a11y_library_filter_close">Zamknij filtr i sortowanie</string>
+    <string name="a11y_library_filter_pane">Filtr i sortowanie biblioteki</string>
+    <string name="a11y_library_import_close">Zamknij dodawanie audio</string>
+    <string name="a11y_library_import_pane">Dodaj audio do biblioteki</string>
+    <string name="a11y_library_import_preview_pane">Podgląd importu</string>
+    <string name="a11y_library_import_preview_title">Przed importem</string>
+    <string name="a11y_library_jump_bookmark">Przejdź do zakładki w książce %1$s, %2$s, %3$s</string>
+    <string name="a11y_library_local">Książka lokalna</string>
+    <string name="a11y_library_more_actions">Więcej działań w bibliotece</string>
+    <string name="a11y_library_offline">Pobrano do słuchania bez internetu</string>
+    <string name="a11y_library_online">Dostępna online</string>
+    <string name="a11y_library_open_book">Otwórz książkę %1$s</string>
+    <string name="a11y_library_pane">Biblioteka</string>
+    <string name="a11y_library_progress">Przesłuchano %1$d procent, pozostało %2$s</string>
+    <string name="a11y_library_progress_unknown">Czas trwania nieznany</string>
+    <string name="a11y_library_search">Szukaj w bibliotece</string>
+    <string name="a11y_library_source">Źródło: %1$s</string>
+    <string name="achievements_showcase">Witryna</string>
+    <string name="action_cancel">Anuluj</string>
+    <string name="action_delete">Usuń</string>
+    <string name="author_index_title">Autorzy</string>
+    <string name="book_detail_add_to_collection">Dodaj do kolekcji</string>
+    <string name="book_detail_author_label">Autor: %1$s</string>
+    <string name="book_detail_correct_metadata">Popraw metadane</string>
+    <string name="book_detail_narrator_label">Czyta: %1$s</string>
+    <string name="book_detail_series_pill">„%1$s”</string>
+    <string name="book_detail_series_pill_index">„%1$s” • t. %2$d</string>
+    <string name="collection_by_pseudonym">kolekcja słuchacza %1$s</string>
+    <string name="collection_cancel">Anuluj</string>
+    <string name="collection_create">Utwórz</string>
+    <string name="collection_delete">Usuń kolekcję</string>
+    <string name="collection_delete_body">Kolekcja „%1$s” zniknie. Książki w bibliotece pozostaną.</string>
+    <string name="collection_delete_confirm">Usuń</string>
+    <string name="collection_delete_title">Usunąć kolekcję?</string>
+    <string name="collection_detail_empty">W kolekcji nie ma jeszcze książek</string>
+    <string name="collection_hidden_by_reports">Ukryta z powodu zgłoszeń</string>
+    <string name="collection_item_unknown">Książka poza biblioteką lokalną</string>
+    <string name="collection_new_description_label">Opis (opcjonalnie)</string>
+    <string name="collection_new_open">Nowa kolekcja…</string>
+    <string name="collection_new_title_label">Nazwa kolekcji</string>
+    <string name="collection_new_title_limit">do %1$d znaków</string>
+    <string name="collection_no_ratings">Jeszcze bez ocen</string>
+    <string name="collection_publish">Opublikuj</string>
+    <string name="collection_remove_book">Usuń</string>
+    <string name="collection_report">Zgłoś</string>
+    <string name="collection_save_for_you">Zapisz dla siebie</string>
+    <string name="collection_with_book_title">Kolekcje z tą książką</string>
+    <string name="collection_your_rating">Twoja ocena</string>
+    <string name="collections_index_empty">Kolekcje pojawią się po pobraniu katalogu.</string>
+    <string name="collections_index_title">Kolekcje</string>
+    <string name="collections_rail_title">Kolekcje słuchaczy</string>
+    <string name="curator_profile_empty">Ten kurator nie ma jeszcze widocznych kolekcji</string>
+    <string name="feedback_retry">Ponów</string>
+    <string name="import_option_link">Wyślij link</string>
+    <string name="import_option_link_subtitle">Film YouTube, playlista lub post TG</string>
+    <string name="lib_add_own_files">Dodaj własne pliki</string>
+    <string name="lib_audiobook_fallback">Audiobook</string>
+    <string name="lib_bookmark_at">Na %1$s: %2$s</string>
+    <string name="lib_chapter_of">Rozdział %1$d z %2$d</string>
+    <string name="lib_continue_label">KONTYNUUJ</string>
+    <string name="lib_filter">Filtr</string>
+    <string name="lib_filter_all">Wszystkie</string>
+    <string name="lib_filter_completed">Ukończone</string>
+    <string name="lib_filter_downloaded">Na urządzeniu</string>
+    <string name="lib_filter_favorite">Ulubione</string>
+    <string name="lib_filter_listening">Słucham</string>
+    <string name="lib_filter_local">Lokalne</string>
+    <string name="lib_filter_new">Nowe</string>
+    <string name="lib_filter_online">Online</string>
+    <string name="lib_filter_section">Filtr</string>
+    <string name="lib_filter_sheet_title">Filtr i sortowanie</string>
+    <string name="lib_find_book">Znajdź książkę</string>
+    <string name="lib_format_audio">Audio</string>
+    <string name="lib_grid_pane_too_narrow">Panel zbyt wąski na dwie kolumny — kafelki w jednym słupku</string>
+    <string name="lib_import_add_audio">Dodaj audio</string>
+    <string name="lib_import_add_file">Dodaj plik</string>
+    <string name="lib_import_add_file_subtitle">Jeden audiobook z urządzenia</string>
+    <string name="lib_import_add_folder">Dodaj folder</string>
+    <string name="lib_import_add_folder_subtitle">Wszystkie pliki audio w wybranym folderze</string>
+    <string name="lib_import_chapter_order">Kolejność rozdziałów</string>
+    <string name="lib_import_confirm">Importuj %1$d</string>
+    <string name="lib_import_confirm_merged">Importuj (%1$d nowych, %2$d połączyć)</string>
+    <string name="lib_import_connect">Połącz</string>
+    <string name="lib_import_existing_book">książką w bibliotece</string>
+    <string name="lib_import_folder_grouping_hint">Ten wybór dotyczy plików bezpośrednio w folderze. Podfoldery pozostają osobnymi książkami.</string>
+    <string name="lib_import_folder_name">Folder „%1$s”</string>
+    <string name="lib_import_folder_unknown">Wybrany folder</string>
+    <string name="lib_import_grouping_reset_confirm">Zmień i zresetuj zmiany</string>
+    <string name="lib_import_grouping_reset_message">Nazwy, kolejność rozdziałów, podziały i połączenia książek zawierających pliki w głównym folderze zostaną zresetowane. Zmiany w innych podfolderach pozostaną.</string>
+    <string name="lib_import_grouping_reset_title">Zmienić grupowanie?</string>
+    <string name="lib_import_merge_choose_hint">Wybrana książka zachowa tytuł i pozostałe dane. Te rozdziały zostaną dodane na końcu.</string>
+    <string name="lib_import_merge_choose_title">Do której książki dodać rozdziały?</string>
+    <string name="lib_import_merge_planned">Połącz z inną książką</string>
+    <string name="lib_import_move_down">W dół</string>
+    <string name="lib_import_move_up">W górę</string>
+    <string name="lib_import_not_this">Nie to</string>
+    <string name="lib_import_preview_found">Znaleziono %1$d książek — nic nie zapisano, dopóki nie potwierdzisz.</string>
+    <string name="lib_import_retry">Ponów</string>
+    <string name="lib_import_retry_body">Zapis przerwany. Plan zachowany — spróbuj ponownie.</string>
+    <string name="lib_import_similar">Podobne do „%1$s” (%2$s)</string>
+    <string name="lib_import_split_here">Podziel przed tym rozdziałem</string>
+    <string name="lib_import_title_required">Podaj tytuł książki przed importem.</string>
+    <string name="lib_import_will_merge">Zostanie połączone z „%1$s”</string>
+    <string name="lib_imported_confirm">To moja książka</string>
+    <string name="lib_imported_empty_body">Wszystkie wpisy uporządkowane — nie ma tu nic nieokreślonego.</string>
+    <string name="lib_imported_empty_title">Zaimportowane jest puste</string>
+    <string name="lib_imported_explain">Pochodzenia tych wpisów nie da się odtworzyć z dostępnych danych. Potwierdź je jako osobiste albo usuń powiązanie.</string>
+    <string name="lib_imported_remove">Usuń powiązanie</string>
+    <string name="lib_listen_continue">Słuchaj dalej</string>
+    <string name="lib_listen_continue_remaining">Słuchaj dalej · %1$s</string>
+    <string name="lib_no_results_body">Spróbuj innego filtra albo zmień zapytanie wyszukiwania.</string>
+    <string name="lib_no_results_title">Nic nie znaleziono</string>
+    <string name="lib_person_notify_disable">Wyłącz powiadomienia</string>
+    <string name="lib_person_notify_enable">Włącz powiadomienia</string>
+    <string name="lib_person_notify_off">Powiadomienia wyłączone</string>
+    <string name="lib_person_notify_on">Powiadomienia włączone</string>
+    <string name="lib_person_role_author">Autor</string>
+    <string name="lib_person_role_narrator">Lektor</string>
+    <string name="lib_person_state_off">Zakładka, powiadomienia wyłączone</string>
+    <string name="lib_person_state_on">Zakładka, powiadomienia włączone</string>
+    <string name="lib_progress_done">gotowe</string>
+    <string name="lib_progress_new">nowa</string>
+    <string name="lib_progress_percent">Przesłuchano %1$d%%</string>
+    <string name="lib_remaining_total">razem %1$s</string>
+    <string name="lib_saved_count">Zapisane (%1$d)</string>
+    <string name="lib_saved_empty_bookmarks_body">Dodawaj zakładki podczas słuchania w odtwarzaczu.</string>
+    <string name="lib_saved_empty_bookmarks_title">Brak zakładek</string>
+    <string name="lib_saved_empty_people_body">Dodawaj zakładki autorów lub lektorów ze strony książki.</string>
+    <string name="lib_saved_empty_people_title">Brak zakładek osób</string>
+    <string name="lib_search_placeholder">Tytuł, autor lub seria</string>
+    <string name="lib_search_section_title">Wyszukiwanie</string>
+    <string name="lib_section_bookmarks">Zakładki</string>
+    <string name="lib_section_books">Książki</string>
+    <string name="lib_section_imported">Zaimportowane</string>
+    <string name="lib_section_people">Osoby</string>
+    <string name="lib_section_saved">Zapisane</string>
+    <string name="lib_section_shelves">Półki</string>
+    <string name="lib_section_year">Mój rok</string>
+    <string name="lib_series_volume">%1$s · książka %2$d</string>
+    <string name="lib_sort_author">Według autora</string>
+    <string name="lib_sort_duration">Według długości</string>
+    <string name="lib_sort_progress">Według postępu</string>
+    <string name="lib_sort_recently_added">Ostatnio dodane</string>
+    <string name="lib_sort_recently_listened">Ostatnio słuchane</string>
+    <string name="lib_sort_section">Sortowanie</string>
+    <string name="lib_sort_title">Według tytułu</string>
+    <string name="lib_source_local">Lokalna</string>
+    <string name="lib_statistics">Statystyki</string>
+    <string name="lib_stats_heading">Statystyki słuchania</string>
+    <string name="lib_stats_streak">Seria dni</string>
+    <string name="lib_stats_streak_value">%1$d dni z rzędu</string>
+    <string name="lib_stats_today">Dzisiaj</string>
+    <string name="lib_stats_today_value">%1$d min</string>
+    <string name="lib_stats_total">Razem w bibliotece</string>
+    <string name="lib_stats_total_value">%1$d książek</string>
+    <string name="lib_stats_week">W tym tygodniu</string>
+    <string name="lib_stats_week_value">%1$s godz.</string>
+    <string name="lib_untitled">Bez tytułu</string>
+    <string name="lib_view_grid">Siatka</string>
+    <string name="lib_view_list">Lista</string>
+    <string name="lib_view_section">Widok</string>
+    <string name="lib_year_empty_body">Ukończ podejście do książki — pojawi się tutaj.</string>
+    <string name="lib_year_empty_title">Nie ma jeszcze ukończonych podejść</string>
+    <string name="lib_year_error_body">Ostatni znany widok pozostaje, dopóki odczyt się nie powiedzie. Spróbuj ponownie.</string>
+    <string name="lib_year_error_title">Nie udało się odczytać postępu</string>
+    <string name="lib_year_finish">Ukończ</string>
+    <string name="lib_year_finished">Podejście ukończone.</string>
+    <string name="lib_year_format">%1$s: %2$d</string>
+    <string name="lib_year_heading">Rok %1$d</string>
+    <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
+    <string name="lib_year_hero_units">ukończonych podejść</string>
+    <string name="lib_year_record">Zapisz</string>
+    <string name="lib_year_record_hint">Strony lub procent</string>
+    <string name="lib_year_recorded">Zapisano w dzienniku podejścia.</string>
+    <string name="lib_year_refresh_failed">Nie udało się ponownie odczytać postępu — widok może być nieaktualny.</string>
+    <string name="lib_year_refused_closed">To podejście jest już ukończone lub zamknięte — nic nie zapisano.</string>
+    <string name="lib_year_refused_unknown">Tego podejścia nie ma w magazynie — nic nie zapisano.</string>
+    <string name="lib_year_rule">Cel liczy UKOŃCZONE podejścia; formaty są raportowane osobno, bo stron, procentów i czasu nie sumuje się.</string>
+    <string name="lib_year_save_failed">Nie udało się zapisać rekordu. Spróbuj ponownie.</string>
+    <string name="lib_year_total">Ukończone podejścia: %1$d</string>
+    <string name="library_abandoned_badge">Porzucona</string>
+    <string name="library_availability_checking">Sprawdzamy dostępność…</string>
+    <string name="library_availability_found">Znaleziono w %1$s</string>
+    <string name="library_availability_not_found">Nie znaleziono źródeł · sprawdzono %1$s</string>
+    <string name="library_availability_refused">Audio źródła wyłączone</string>
+    <string name="library_empty_body">Dodaj własne audiobooki z urządzenia albo znajdź nowe w katalogu.</string>
+    <string name="library_empty_title">Moje książki są puste</string>
+    <string name="library_remaining">Pozostało %1$s</string>
+    <string name="manual_add_format_ebook">Elektroniczna</string>
+    <string name="manual_add_format_paper">Papierowa</string>
+    <string name="manual_add_menu">Dodaj książkę ręcznie</string>
+    <string name="my_collections_title">Moje kolekcje</string>
+    <string name="nav_library">Moje książki</string>
+    <string name="offline_partial_badge">Offline (%1$d/%2$d)</string>
+    <string name="offline_partial_badge_compact">%1$d/%2$d</string>
+    <string name="people_index_backfill">Lista się uzupełnia…</string>
+    <string name="people_narrators_title">Lektorzy</string>
+    <string name="publish_collection_impossible_empty">Nie można opublikować tej kolekcji: nie ma w niej żadnej książki</string>
+    <string name="publish_collection_impossible_title">Nie można opublikować tej kolekcji: nie ma nazwy</string>
+    <string name="publish_collection_preview_lead">Na zewnątrz pójdzie dokładnie to:</string>
+    <string name="publish_collection_preview_line_book_count">Książek w kolekcji: %1$d</string>
+    <string name="publish_collection_preview_line_description_absent">Opis: nie dodano</string>
+    <string name="publish_collection_preview_line_description_included">Opis: zostanie opublikowany</string>
+    <string name="publish_collection_preview_line_pseudonym">Pseudonim: %1$s</string>
+    <string name="publish_collection_preview_line_title">Nazwa: %1$s</string>
+    <string name="publish_collection_pseudonym_hint">Tak zobaczą Cię inni</string>
+    <string name="publish_collection_pseudonym_label">Pseudonim</string>
+    <string name="publish_collection_pseudonym_required">Podaj pseudonim — zobaczysz, co dokładnie pójdzie</string>
+    <string name="publish_collection_title">Opublikować kolekcję?</string>
+    <string name="published_collections_title">Opublikowane kolekcje</string>
+    <string name="remaining_units_h">%1$d godz.</string>
+    <string name="remaining_units_hm">%1$d godz. %2$d min</string>
+    <string name="remaining_units_m">%1$d min</string>
+    <string name="remaining_units_minute">1 min</string>
+    <string name="rename_pseudonym_action">Zmień pseudonim</string>
+    <string name="rename_pseudonym_body">Tak będą Cię widzieć we wszystkich opublikowanych kolekcjach</string>
+    <string name="rename_pseudonym_confirm">Zapisz</string>
+    <string name="rename_pseudonym_title">Zmień pseudonim</string>
+    <string name="secondary_loading">Wczytywanie treści</string>
+    <string name="secondary_people_empty">Na tej liście nie ma jeszcze nikogo.</string>
+    <string name="secondary_people_error">Nie udało się wczytać listy. Sprawdź połączenie.</string>
+    <string name="secondary_state_error">Błąd</string>
+    <string name="storage_delete_dialog_title">Usunąć pobrane pliki?</string>
+    <string name="submission_awaiting_badge">Oczekuje</string>
+    <string name="submission_badge_in_shared_base">We wspólnej bazie</string>
+    <string name="submission_badge_pending_moderation">W moderacji</string>
+    <string name="submission_badge_rejected">Odrzucono</string>
+    <string name="submission_deferred_publication_badge">Opublikujemy jutro</string>
+    <string name="submission_playlist_one_book">Jedna książka (rozdziały)</string>
+    <string name="submission_playlist_separate">Osobne książki</string>
+    <string name="submission_published_toast">Udostępniono książkę społeczności</string>
+    <string name="submission_watching_source">Szukamy źródła</string>
+</resources>

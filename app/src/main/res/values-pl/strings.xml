@@ -1,34 +1,30 @@
 <resources>
-    <!-- THIS IS NOT A POLISH TRANSLATION. Every value here is UKRAINIAN.
+    <!-- POLISH — the Material3 overrides, in the app's own accent language.
 
-         The app's UI is Ukrainian (CONTEXT.md). This directory exists for one
-         reason: on a Polish-system device Android would otherwise voice
-         Material3's own Polish strings ("Zamknij arkusz", "Uchwyt do
-         przeciągania") through TalkBack. A `pl` qualifier holding Ukrainian
-         text wins over the library's Polish and keeps the spoken language
-         coherent — that is the whole purpose (#371).
+         HISTORY. This file started as a UKRAINIAN override (#371): while the
+         app UI was Ukrainian, Android would otherwise voice Material3's own
+         Polish strings ("Zamknij arkusz", "Uchwyt do przeciągania") through
+         TalkBack on a Polish device, mixing two languages in the ear. A `pl`
+         qualifier holding Ukrainian text won over the library's Polish.
 
-         #1385 — it used to be a MIXTURE: five such Ukrainian overrides plus 31
-         genuine Polish translations added for app features. The result on a
-         Polish device was half Ukrainian, half Polish on the same screen
-         («Książki» beside «Полиці», «Mój rok w książkach» beside «Збережене»).
-         A partially translated language is worse than an untranslated one: the
-         untranslated one falls back to one coherent language.
+         #1385/#1387–#1389 changed the premise: the app itself is now fully
+         translated into Polish (`strings_app.xml`, `strings_rest.xml`), the
+         language switch is ON, and a Polish device resolves the `pl` qualifier
+         everywhere. A Ukrainian override HERE would now be the exact defect it
+         was invented to prevent — Polish UI with Ukrainian bottom-sheet
+         announcements.
 
-         So: do NOT add Polish translations here. The real Polish lives in
-         `values-pl/strings_app.xml` (batch 1 of 3, #1387); the keys that file
-         translates were REMOVED from here, and a key may live in exactly one
-         file of the `pl` qualifier. What stays here is Ukrainian on purpose:
-         the five Material3 overrides plus the app keys no batch has reached
-         yet. Until the last batch (#1389) turns Polish on, the app never
-         resolves the `pl` qualifier at all (#1387 — AppLocale gates SYSTEM to
-         complete languages), so this file cannot leak a mixture into the UI. -->
-
-    <string name="m3c_bottom_sheet_collapse_description">Згорнути аркуш</string>
-    <string name="m3c_bottom_sheet_dismiss_description">Закрити аркуш</string>
-    <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
-    <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
-    <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
-    <!-- #1163 — the storage card's two figures, so the new labels cost no
-         MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
+         So the file keeps its purpose (match the library's own phrasing, not
+         a machine translation of our own) but flips its language: the values
+         are the same Polish sentences Compose Material3 1.3.2 ships in
+         `material3-release.aar`, kept in sync by
+         `scripts/tests/test_polish_locale.py` (which fails on Cyrillic here and
+         on a drifted/extra override). App-owned strings never belong in this
+         file: they live in `strings_app.xml` and `strings_rest.xml`, and a key
+         may be defined in exactly one file of the `pl` qualifier. -->
+    <string name="m3c_bottom_sheet_collapse_description">Zwiń planszę dolną</string>
+    <string name="m3c_bottom_sheet_dismiss_description">Zamknij planszę dolną</string>
+    <string name="m3c_bottom_sheet_drag_handle_description">Uchwyt do przeciągania</string>
+    <string name="m3c_bottom_sheet_expand_description">Rozwiń planszę dolną</string>
+    <string name="m3c_bottom_sheet_pane_title">Plansza dolna</string>
 </resources>

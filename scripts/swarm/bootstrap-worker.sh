@@ -9,7 +9,8 @@
 # виходу). Тому воркеру потрібні рівно три речі понад системні: JDK 21 (репо
 # вимагає його, а на воркері був лише 17), Android platform 36 (compileSdk 36)
 # і сам dsh. Усе інше — ізоляція: власний GRADLE_USER_HOME, щоб обмеження
-# воркера (workers.max=2, -Xmx3g) не зачіпали інші проєкти цієї машини.
+# воркера (workers.max=1, -Xmx2g, без parallel) не зачіпали інші проєкти цієї
+# машини й не змушували її гудіти на всі ядра.
 #
 # Виклик (на воркері):
 #   bash ~/swarm/bin/bootstrap-worker.sh
@@ -280,11 +281,12 @@ log "git identity: $(git -C "$REPO_DIR" config user.name) <$(git -C "$REPO_DIR" 
 # 6) ізоляція Gradle ------------------------------------------------------
 cat >"$GRADLE_HOME/gradle.properties" <<'EOF'
 # Керується scripts/swarm/bootstrap-worker.sh — не редагувати руками.
-org.gradle.parallel=true
+org.gradle.parallel=false
 org.gradle.caching=true
+org.gradle.daemon.idletimeout=60000
 # Воркер ділить 4 ядра й 19G з 17 контейнерами: два робітники й 3G heap.
-org.gradle.workers.max=2
-org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
+org.gradle.workers.max=1
+org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
 EOF
 
 # local.properties — саме з кореня клону його переносить у смугу new-lane.sh.

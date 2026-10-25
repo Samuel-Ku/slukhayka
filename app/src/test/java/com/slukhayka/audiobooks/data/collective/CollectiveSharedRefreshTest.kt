@@ -181,7 +181,12 @@ class CollectiveSharedRefreshTest {
                 CollectiveRefreshOutcome.Success(block("Повільна", fetchedAt = 0L))
             },
             clock = { now },
-            sharedLease = CollectiveSharedLease(shared, ownerToken = "device-old", clock = { now })
+            sharedLease = CollectiveSharedLease(
+                shared,
+                ownerToken = "device-old",
+                ttlMs = 1_000L,
+                clock = { now }
+            )
         )
         val newOwner = CollectiveFeedRefresh(
             store = localNew,

@@ -61,9 +61,13 @@ class PlaybackMeasurementsMigrationTest {
                 assertEquals("каст стартує з нуля", 0L, row.getLong(3))
                 assertEquals("ніч стартує з нуля", 0L, row.getLong(4))
             }
+            // #1413-регресія: вподобана книга (isFavorite=1) — явно збережена,
+            // тому міграція 54->55 підвищує її до EXPLICIT_SAVE. Книга БЕЗ
+            // доказу лишається UNKNOWN — це доведено окремо в
+            // OriginBackfillMigrationTest.
             db.query("SELECT origin FROM library_entries WHERE id='book'").use {
                 check(it.moveToFirst())
-                assertEquals("UNKNOWN", it.getString(0))
+                assertEquals("EXPLICIT_SAVE", it.getString(0))
             }
             db.query("SELECT earnedAt FROM achievements WHERE id='first_book'").use {
                 check(it.moveToFirst())

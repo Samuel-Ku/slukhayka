@@ -12,7 +12,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "icons": "node scripts/make-icons.mjs",
-    "prepare": "git config core.hooksPath web/.husky || true"
+    "prepare": "git config core.hooksPath \"$(git rev-parse --show-toplevel)/web/.husky\" || true"
   },
   "dependencies": {
     "css-select": "^7.0.0",
@@ -32,6 +32,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.10",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
     "vite-plugin-pwa": "^0.20.5",

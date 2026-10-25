@@ -1,28 +1,13 @@
 <resources>
-    <!-- THE REAL POLISH TRANSLATION — batch 1 of 3 (#1387).
+    <!-- THE REAL POLISH TRANSLATION — batches 1–2 of 3 (#1387/#1388).
 
-         `values-pl/strings.xml` is NOT this file and never was: it holds the
-         Ukrainian Material3 overrides that keep TalkBack coherent on a Polish
-         device (#371, #1385). Its guard (`scripts/tests/test_locale_overrides.py`)
-         still requires every value there to equal Ukrainian, and the keys that
-         moved here were removed from it — a key may live in exactly one file of
-         the `pl` qualifier.
+         `values-pl/strings.xml` is NOT this file: it holds the five Material3
+         overrides, in Polish since #1389 (the app UI is Polish now, so the
+         library's own Polish and ours must agree). `strings_rest.xml` carries
+         batch 3 — the rest of the screens, settings, accessibility and service
+         messages. A key lives in exactly one file of the `pl` qualifier; the
+         batch guards and `scripts/tests/test_polish_locale.py` pin that. -->
 
-         #1387 and #1388 are the first two of three batches (library / shelves / saved;
-         book screen / reviews / rating / player). The
-         Polish text is complete for the surfaces that reference it; the other
-         batches append their own keys to this same file, which is why they go
-         one after another. Until the LAST batch adds `pl` to
-         `AppLocale.SYSTEM_FOLLOWS` (and to the interface-language screen), a
-         Polish-system device keeps the coherent Ukrainian UI: a partly
-         translated language shown to the listener is exactly the #1385 defect.
-
-         Rules this file keeps (and `PolishLibraryBatchGuardTest` enforces):
-         * every key the library/shelves/saved sources reference has a value
-           here — a missing one would silently fall back to Ukrainian;
-         * no value is a copy of the Ukrainian one (no Cyrillic letters);
-         * every format placeholder (`%1$s`, `%2$d`, `%%`) matches the
-           Ukrainian source, so `String.format` cannot throw at runtime. -->
 
     <plurals name="author_count">
         <item quantity="one">%1$d autor</item>

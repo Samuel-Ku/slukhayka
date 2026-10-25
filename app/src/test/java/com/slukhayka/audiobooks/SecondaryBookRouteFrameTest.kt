@@ -46,4 +46,22 @@ class SecondaryBookRouteFrameTest {
         assertTrue(nestedBook.ownsDetail("book-b", parentActive = true))
         assertFalse(nestedBook.ownsDetail("book-a", parentActive = true))
     }
+
+    /**
+     * #1208 / #1235 — the list-detail contract belongs to ALL four Explore book
+     * lists, not only genre and series. A parent that is not one of them (or no
+     * route at all) never keeps a pane.
+     */
+    @Test
+    fun everyExploreBookListKeepsItsListBesideTheDetail() {
+        listOf(
+            SecondaryBookParent.SERIES,
+            SecondaryBookParent.GENRE,
+            SecondaryBookParent.TOP_100,
+            SecondaryBookParent.PERSON
+        ).forEach { parent ->
+            assertTrue("$parent must keep the list", exploreParentKeepsListBesideDetail(parent))
+        }
+        assertFalse(exploreParentKeepsListBesideDetail(null))
+    }
 }

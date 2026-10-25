@@ -105,7 +105,7 @@ class LegacyLibraryRestoreMigrationTest {
                 }).build()
         ).writableDatabase
 
-    private val migrations46To55 = arrayOf(
+    private val migrations46ToCurrent = arrayOf(
         AudiobookDatabase.MIGRATION_46_47,
         AudiobookDatabase.MIGRATION_47_48,
         AudiobookDatabase.MIGRATION_48_49,
@@ -115,6 +115,7 @@ class LegacyLibraryRestoreMigrationTest {
         AudiobookDatabase.MIGRATION_52_53,
         AudiobookDatabase.MIGRATION_53_54,
         AudiobookDatabase.MIGRATION_54_55,
+        AudiobookDatabase.MIGRATION_55_56,
     )
 
     /** Counts exactly what the library screen counts — the same predicate the DAO uses. */
@@ -143,8 +144,8 @@ class LegacyLibraryRestoreMigrationTest {
                 .use { it.moveToFirst(); it.getInt(0) }
             assertEquals("fixture must reproduce the owner's library", seededBooks, before)
 
-            for (migration in migrations46To55) migration.migrate(db)
-            db.version = 55
+            for (migration in migrations46ToCurrent) migration.migrate(db)
+            db.version = 56
 
             assertEquals(
                 "every book the owner had must survive the migration into the library",
@@ -170,8 +171,8 @@ class LegacyLibraryRestoreMigrationTest {
 
         val db = rawDb(name, 46)
         try {
-            for (migration in migrations46To55) migration.migrate(db)
-            db.version = 55
+            for (migration in migrations46ToCurrent) migration.migrate(db)
+            db.version = 56
 
             db.query("SELECT COUNT(*) FROM library_entries WHERE isFavorite = 1")
                 .use { it.moveToFirst(); assertEquals(1, it.getInt(0)) }

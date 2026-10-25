@@ -253,9 +253,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [timing-start, classify]
-    if: needs.classify.outputs.android == 'true'
 
     steps:
+      - name: Пропущено — android-змін немає
+        if: needs.classify.outputs.android != 'true'
+        run: echo "Нога lint не потрібна для цієї зміни"
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -264,23 +266,27 @@ jobs:
           fetch-depth: 2
 
       - name: Setup JDK 21 (Temurin)
+        if: needs.classify.outputs.android == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
+        if: needs.classify.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
+        if: needs.classify.outputs.android == 'true'
         uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Make gradlew executable
+        if: needs.classify.outputs.android == 'true'
         run: chmod +x ./gradlew
 
       # `updateLintBaseline` writes the path of the checkout it runs in, so a
@@ -291,6 +297,7 @@ jobs:
       # Gradle cache, keyed by a hash that the next machine need not share.
       # Fail loudly instead of letting dead entries accumulate.
       - name: Refuse a baseline that cites a machine path
+        if: needs.classify.outputs.android == 'true'
         run: |
           if grep -qE 'file="[^"]*(\.worktrees/|\$HOME/|\$GRADLE_USER_HOME/)' app/lint-baseline.xml; then
             echo "::error::app/lint-baseline.xml cites a worktree, home or Gradle-cache path — regenerate it from the repository root, and drop entries that point outside the module"
@@ -317,6 +324,7 @@ jobs:
       # It needs no Gradle, so it runs BEFORE the 30-minute lint: growth is
       # visible in a minute.
       - name: Fail when the lint baseline grew
+        if: needs.classify.outputs.android == 'true'
         env:
           # Empty on push and workflow_dispatch: there the base is HEAD^.
           BASE_REF: ${{ github.base_ref }}
@@ -339,6 +347,7 @@ jobs:
       # baseline absorbs the inherited debt; a NEW issue outside it fails here,
       # which is the point: mechanical violations stop reaching review.
       - name: Run Android Lint
+        if: needs.classify.outputs.android == 'true'
         run: ./gradlew :app:lintDebug
 
   timing-start:
@@ -375,7 +384,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [timing-start, classify]
-    if: needs.classify.outputs.android == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -414,16 +422,21 @@ jobs:
             needs-robolectric: true
 
     steps:
+      - name: Пропущено — android-змін немає
+        if: needs.classify.outputs.android != 'true'
+        run: echo "Нога jvm-partitions не потрібна для цієї зміни"
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
+        if: needs.classify.outputs.android == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
+        if: needs.classify.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
@@ -433,6 +446,7 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
+        if: needs.classify.outputs.android == 'true'
         uses: android-actions/setup-android@v4
         with:
           # compileSdk is 36.1 — install it explicitly everywhere so AGP
@@ -440,17 +454,18 @@ jobs:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Make gradlew executable
+        if: needs.classify.outputs.android == 'true'
         run: chmod +x ./gradlew
 
       - name: Cache e5 model
-        if: matrix.needs-model
+        if: (matrix.needs-model) && needs.classify.outputs.android == 'true'
         uses: actions/cache@v6
         with:
           path: app/src/main/assets/models/e5
           key: e5-model-v1
 
       - name: Cache Robolectric android-all jars
-        if: matrix.needs-robolectric
+        if: (matrix.needs-robolectric) && needs.classify.outputs.android == 'true'
         uses: actions/cache@v6
         with:
           # Robolectric resolves its ~100 MB-per-SDK android-all jars at test
@@ -461,6 +476,7 @@ jobs:
           restore-keys: robolectric-androidall-v1-
 
       - name: Run ${{ matrix.name }}
+        if: needs.classify.outputs.android == 'true'
         run: |
           started_at=$(date +%s)
           mkdir -p app/build/kover/partition
@@ -539,7 +555,7 @@ jobs:
           echo "${{ matrix.name }}: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload worker-identity fragment
-        if: matrix.uploads-worker-id
+        if: (matrix.uploads-worker-id) && needs.classify.outputs.android == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: worker-ids-${{ matrix.id }}
@@ -548,6 +564,7 @@ jobs:
           retention-days: 2
 
       - name: Upload partition coverage
+        if: needs.classify.outputs.android == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: kover-${{ matrix.id }}
@@ -556,7 +573,7 @@ jobs:
           retention-days: 2
 
       - name: Upload test results
-        if: always()
+        if: (always()) && needs.classify.outputs.android == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.id }}
@@ -565,7 +582,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Roborazzi failure artifacts
-        if: always() && matrix.id == 'compose-roborazzi'
+        if: (always() && matrix.id == 'compose-roborazzi') && needs.classify.outputs.android == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: roborazzi-results
@@ -580,47 +597,56 @@ jobs:
   coverage:
     name: Kover aggregate gate
     needs: [timing-start, classify, jvm-partitions]
-    if: needs.classify.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
+      - name: Пропущено — android-змін немає
+        if: needs.classify.outputs.android != 'true'
+        run: echo "Нога coverage не потрібна для цієї зміни"
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
+        if: needs.classify.outputs.android == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
+        if: needs.classify.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
+        if: needs.classify.outputs.android == 'true'
         uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Download all partition coverage
+        if: needs.classify.outputs.android == 'true'
         uses: actions/download-artifact@v8
         with:
           pattern: kover-*
           path: app/build/kover/ci
 
       - name: Download worker-identity fragments
+        if: needs.classify.outputs.android == 'true'
         uses: actions/download-artifact@v8
         with:
           pattern: worker-ids-*
           path: app/build/worker-ids
 
       - name: Require all partition reports
+        if: needs.classify.outputs.android == 'true'
         run: test "$(find app/build/kover/ci -name '*.ic' | wc -l)" -eq 6
 
       - name: Require both native worker probes
+        if: needs.classify.outputs.android == 'true'
         run: |
           # NativeRoomWorkerIdentity appends one "pid<TAB>sdk=NN;sqlite=framework"
           # row per probe test (@AfterClass): RecommendationPreferencesRoomTest
@@ -641,15 +667,18 @@ jobs:
       # did, so the gate failed with "Release build requires the E5 model
       # assets" — the coverage itself was always fine.
       - name: Cache e5 model
+        if: needs.classify.outputs.android == 'true'
         uses: actions/cache@v6
         with:
           path: app/src/main/assets/models/e5
           key: e5-model-v1
 
       - name: Download e5 model
+        if: needs.classify.outputs.android == 'true'
         run: ./gradlew :app:downloadE5Model --no-daemon
 
       - name: Generate merged reports and enforce thresholds
+        if: needs.classify.outputs.android == 'true'
         run: |
           chmod +x ./gradlew
           ./gradlew :app:koverXmlReport :app:koverHtmlReport :app:koverVerify \
@@ -661,7 +690,7 @@ jobs:
           python3 scripts/verify_partition_coverage.py app/build/reports/kover/report.xml
 
       - name: Upload Kover HTML report
-        if: always()
+        if: (always()) && needs.classify.outputs.android == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: kover-html-report
@@ -669,7 +698,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Kover XML report
-        if: always()
+        if: (always()) && needs.classify.outputs.android == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: kover-xml-report
@@ -681,39 +710,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [timing-start, classify]
-    if: needs.classify.outputs.android == 'true'
 
     steps:
+      - name: Пропущено — android-змін немає
+        if: needs.classify.outputs.android != 'true'
+        run: echo "Нога recommendation-eval не потрібна для цієї зміни"
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
+        if: needs.classify.outputs.android == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
+        if: needs.classify.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
+        if: needs.classify.outputs.android == 'true'
         uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Cache e5 model
+        if: needs.classify.outputs.android == 'true'
         uses: actions/cache@v6
         with:
           path: app/src/main/assets/models/e5
           key: e5-model-v1
 
       - name: Download e5 model
+        if: needs.classify.outputs.android == 'true'
         run: ./gradlew :app:downloadE5Model --no-daemon
 
       - name: Recommendation eval gate (real ONNX model)
+        if: needs.classify.outputs.android == 'true'
         run: ./gradlew :app:runRecommendationEval --no-daemon
         env:
           FAIL_ON_NO_GO: "true"
@@ -731,13 +768,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [timing-start, classify]
-    if: needs.classify.outputs.web == 'true'
 
     steps:
+      - name: Пропущено — web-змін немає
+        if: needs.classify.outputs.web != 'true'
+        run: echo "Нога web не потрібна для цієї зміни"
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Setup Node 22
+        if: needs.classify.outputs.web == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -747,14 +787,17 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install web dependencies
+        if: needs.classify.outputs.web == 'true'
         working-directory: web
         run: npm ci
 
       - name: Typecheck (tsc --noEmit)
+        if: needs.classify.outputs.web == 'true'
         working-directory: web
         run: npx tsc --noEmit
 
       - name: Run vitest
+        if: needs.classify.outputs.web == 'true'
         working-directory: web
         run: npx vitest run
 
@@ -790,39 +833,46 @@ jobs:
   accessibility-api35:
     name: Accessibility journey (API 35)
     needs: [release-lineage, timing-start, classify]
-    if: needs.classify.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     # A signed candidate must pass the real listener accessibility journey.
 
     steps:
+      - name: Пропущено — android-змін немає
+        if: needs.classify.outputs.android != 'true'
+        run: echo "Нога accessibility-api35 не потрібна для цієї зміни"
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
+        if: needs.classify.outputs.android == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
+        if: needs.classify.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
+        if: needs.classify.outputs.android == 'true'
         uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Make gradlew executable
+        if: needs.classify.outputs.android == 'true'
         run: chmod +x ./gradlew
 
       # #424: build both APKs before the emulator starts so a 15-minute AVD
       # boot never hides a compile failure, and the readiness script inside
       # the journey sees the packages already installed.
       - name: Prebuild accessibility APKs
+        if: needs.classify.outputs.android == 'true'
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=1 --stacktrace
 
       # GitHub's Linux runner exposes /dev/kvm, but the default permissions do
@@ -830,12 +880,14 @@ jobs:
       # unresponsive while installing the APK and turn a short journey into a
       # 20+ minute infrastructure failure.
       - name: Enable KVM group permissions
+        if: needs.classify.outputs.android == 'true'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
       - name: Run the seeded MainActivity accessibility journey
+        if: needs.classify.outputs.android == 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -858,7 +910,7 @@ jobs:
           script: bash .github/scripts/run-accessibility-test.sh || { echo "::warning::first attempt failed — retrying once (this leg flakes before the tests start)"; bash .github/scripts/run-accessibility-test.sh; }
 
       - name: Upload API 35 accessibility results
-        if: always()
+        if: (always()) && needs.classify.outputs.android == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: accessibility-api35-results

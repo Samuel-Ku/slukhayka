@@ -78,8 +78,16 @@ object LocalFolderScanner {
      * still non-null by contract, so the fix is not a nullable return — it is
      * refusing with a message that names the document.
      */
-    private fun openOrFail(resolver: ContentResolver, uri: Uri): InputStream =
-        resolver.openInputStream(uri)
+    // `Resolver.openInputStream` є `final`, а ShadowContentResolver цієї версії
+    // не має `setInputStream`, тож гілку `null` інакше не покрити тестом
+    // (#1374). Відкриття винесено в параметр: типове значення робить рівно те,
+    // що було, а тест підставляє opener, який повертає null.
+    internal fun openOrFail(
+        resolver: ContentResolver,
+        uri: Uri,
+        open: (ContentResolver, Uri) -> InputStream? = { r, u -> r.openInputStream(u) },
+    ): InputStream =
+        open(resolver, uri)
             ?: throw IllegalStateException("SAF document is no longer readable: $uri")
 
     private fun collect(

@@ -77,13 +77,13 @@ class PlaybackMeasurementsMigrationTest {
             }
             db.query("PRAGMA user_version").use {
                 check(it.moveToFirst())
-                assertEquals("53→54 виконалась рівно раз", 54, it.getInt(0))
+                assertEquals("Міграції завершилися поточною схемою", 55, it.getInt(0))
             }
         } finally {
             migrated.close()
         }
 
-        // Reopen: Room runs 53→54 exactly once (user_version is 54), so the
+        // Reopen: the 53→54→55 chain already reached schema55, so the
         // second open is a no-op and every number must be exactly as it was.
         // DDL replay is not idempotent by nature — this is the honest form of
         // "running it again changes nothing" for a schema migration.
@@ -164,7 +164,7 @@ class PlaybackMeasurementsMigrationTest {
     private fun openCurrent(context: Context, name: String) = Room.databaseBuilder(
         context, AudiobookDatabase::class.java, name
     )
-        .addMigrations(AudiobookDatabase.MIGRATION_53_54)
+        .addMigrations(AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55)
         .allowMainThreadQueries()
         .build()
 }

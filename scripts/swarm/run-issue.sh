@@ -38,6 +38,13 @@
 # Коди виходу: код виконавця; 2 — перевірка не пройшла; 3 — воркер недоступний.
 set -euo pipefail
 
+# Дерево мусить бути робочим: `core.bare=true` (слід інструментів на кшталт
+# git filter-repo) робить кожну git-команду фатальною, і без цієї перевірки
+# раннер падає невиразно на першому ж кроці.
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf '%s\n' "[swarm] FAIL: дерево не є робочим (git не бачить work tree) — перевір core.bare і git worktree" >&2
+  exit 2
+fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
@@ -186,6 +193,13 @@ say "reserve #$ISSUE locally as $OWNER"
 # займала тікет і потім звільняла його — зайва робота й зайвий шум у тікеті.
 if ! ssh -T "${SSH_BASE[@]}" "$WORKER" true 2>/dev/null; then
   say "FAIL: воркер $WORKER недоступний по ssh — тікет #$ISSUE не резервую"
+  exit 3
+fi
+
+# Друга половина preflight: credentials воркера. Токен `gh` ротується, і без
+# цієї перевірки перший симптом — провалений push після години роботи (#1286).
+if ! ssh -T "${SSH_BASE[@]}" "$WORKER" '$HOME/swarm/bin/gh auth status' >/dev/null 2>&1; then
+  say "FAIL: на воркері $WORKER недійсні credentials gh — тікет #$ISSUE не резервую"
   exit 3
 fi
 

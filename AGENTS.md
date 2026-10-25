@@ -72,6 +72,12 @@ verdict is re-issued with `scripts/review-pass.sh <PR>`, not `gh pr edit
 so the verdict keeps its old timestamp and the gate refuses (#1259). See
 `docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
 
+## Remote worker
+
+Механічну роботу, якій не потрібен цей екран, виконуй на воркері, а не
+локально. Машини, їхні користувачі, ключі й ліміти — `docs/agents/machines.md`;
+як віддати задачу й межі автономії — `docs/agents/swarm.md`.
+
 ## Testing and verification
 
 The suite runs as **partitions**, one Gradle task each: `:app:testPureJvm`,

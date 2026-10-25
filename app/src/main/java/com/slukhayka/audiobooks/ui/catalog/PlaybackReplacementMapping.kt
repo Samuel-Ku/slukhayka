@@ -35,9 +35,15 @@ class PlaybackReplacementMapping(
     suspend fun mapIfNeeded(
         book: AudiobookEntity,
         playableEmpty: Boolean,
-        hasPreferredSource: Boolean
+        hasPreferredSource: Boolean,
+        // #1230 — a local book's «інше джерело» is first another file on the
+        // device. Mapping it to the network before the local doors would turn
+        // a lost file into a different narration (ADR-0007/ADR-0037). The
+        // book page owns the local recovery language; automatic mapping stays
+        // silent for these books and the network remains an explicit action.
+        localProvenance: Boolean = false
     ): AudiobookEntity? {
-        if (!playableEmpty || hasPreferredSource) return null
+        if (!playableEmpty || hasPreferredSource || localProvenance) return null
         val mergeKey = book.mergeKey.ifBlank { MergeKey.keyFor(book.title, book.author) }
         if (mergeKey.isBlank()) return null
         val match = try {

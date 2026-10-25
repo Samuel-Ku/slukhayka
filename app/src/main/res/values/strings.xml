@@ -177,6 +177,12 @@
     <string name="narration_claim_action">Це та сама начитка — об’єднати</string>
     <string name="narration_claim_done">Об’єднано. Прогрес перенесено.</string>
     <string name="book_detail_audio_unavailable">Аудіо цієї книги зараз недоступне — шукаємо в інших джерелах.</string>
+    <!-- #1230 — local files are the first door for a local book, never the network. -->
+    <string name="book_detail_local_access_unavailable">Аудіо цієї книги більше не читається з пристрою. Відновіть доступ до файлів або теки — книга, поступ і закладки залишаться на місці.</string>
+    <string name="book_detail_recover_file">Обрати файл заново</string>
+    <string name="book_detail_recover_folder">Обрати теку заново</string>
+    <string name="book_detail_recover_rescan">Пересканувати відому теку</string>
+    <string name="book_detail_recover_network_hint">Не знайшли на пристрої? Пошук в інших джерелах — окрема подальша дія.</string>
     <string name="book_detail_watch_action">Поставити на спостереження</string>
     <string name="book_detail_watching">Чекаємо на джерело…</string>
     <string name="book_detail_stop_watching">Прибрати спостереження</string>

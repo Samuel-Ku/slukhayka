@@ -115,6 +115,10 @@ fun BookDetailScreen(
     playerModalVisible: Boolean = false,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     fullPlayerModalActive: Boolean = false,
+    // #1230 — SAF doors live in the composition root (the same place
+    // LibraryScreen keeps its pickers); the page only names the book.
+    onRecoverAccessFile: (String) -> Unit = {},
+    onRecoverAccessFolder: (String) -> Unit = {},
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
 ) {
@@ -198,6 +202,10 @@ fun BookDetailScreen(
     // Source Watch (§6, the T4 seam): the refused-only page offers the
     // watch, never a browser door.
     val audioUnavailable by viewModel.bookAudioUnavailable.collectAsState()
+    // #1230 — the local-access state of the open book (a local book whose
+    // files cannot be read). Its ordered door list is the shared recovery
+    // seam; the network suggestion is last.
+    val localAccess by viewModel.bookLocalAccess.collectAsState()
     val bookWatched by viewModel.bookWatched.collectAsState()
     val narrationClaimDone by viewModel.narrationClaimDone.collectAsState()
     // Spec-53 T7 — the correction dialog and the shared-base gate.
@@ -389,6 +397,15 @@ fun BookDetailScreen(
     // a catalogue book whose page could not be fetched — surface that instead
     // of the button silently doing nothing.
     val snackbarHostState = remember { SnackbarHostState() }
+    // #1230 — the local-access recovery says what happened on THIS page; the
+    // library snackbar may not be composed behind the book page on a phone.
+    val localRecoveryMessage by viewModel.localRecoveryMessage.collectAsState()
+    LaunchedEffect(localRecoveryMessage) {
+        localRecoveryMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeLocalRecoveryMessage()
+        }
+    }
     // ADR-0037 §4 — the merged-confirmation snackbar, consumed once so a
     // rotation never repeats it.
     val context = LocalContext.current
@@ -1093,7 +1110,22 @@ fun BookDetailScreen(
                     // state: every source that can play this book is refused.
                     // No browser door exists for a refusal — the page offers
                     // the Source Watch action instead.
-                    if (audioUnavailable) {
+                    //
+                    // #1230 — for a local book the FIRST door is the listener's
+                    // own file/folder, not the network. The shared recovery
+                    // seam decides the order; the panel renders it verbatim.
+                    val recoveryState = localAccess
+                    if (recoveryState?.recoverable == true) {
+                        LocalAccessRecoveryPanel(
+                            state = recoveryState,
+                            bookWatched = bookWatched,
+                            onRecoverFile = { onRecoverAccessFile(currentBook.id) },
+                            onRecoverFolder = { onRecoverAccessFolder(currentBook.id) },
+                            onRescanKnownFolder = { viewModel.rescanLocalFolderForBook(currentBook.id) },
+                            onWatch = { viewModel.watchCurrentBook() },
+                            onStopWatching = { viewModel.stopWatchingCurrentBook() }
+                        )
+                    } else if (audioUnavailable) {
                         val unavailable = stringResource(R.string.book_detail_audio_unavailable)
                         Surface(
                             shape = RoundedCornerShape(AppDimens.RadiusPanel),

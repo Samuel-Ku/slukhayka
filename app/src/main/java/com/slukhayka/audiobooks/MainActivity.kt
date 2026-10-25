@@ -783,6 +783,42 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    // #1230 — the book page's local-access recovery doors. The SAF launchers
+    // live here (the composition root), exactly like LibraryScreen's import
+    // pickers; the page only names the book. A persistable read grant is
+    // taken so the relinked document URI survives a process restart.
+    var recoveryTargetBookId by remember { mutableStateOf<String?>(null) }
+    val recoveryFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val bookId = recoveryTargetBookId
+        recoveryTargetBookId = null
+        if (uri != null && bookId != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            viewModel.recoverLocalAccessWithFile(bookId, uri)
+        }
+    }
+    val recoveryFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        val bookId = recoveryTargetBookId
+        recoveryTargetBookId = null
+        if (uri != null && bookId != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            viewModel.recoverLocalAccessWithFolder(bookId, uri)
+        }
+    }
+
     val bookDetailContent: @Composable () -> Unit = {
         BookDetailScreen(
             viewModel = viewModel,
@@ -804,6 +840,15 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             returnFocusOrigin = bookDetailChildFocusOrigin
                 ?.takeIf { bookDetailChildEditionId == selectedBookId },
             fullPlayerModalActive = fullPlayerModalActive,
+            // #1230 — local-access recovery opens the SAF picker for THIS book.
+            onRecoverAccessFile = { bookId ->
+                recoveryTargetBookId = bookId
+                recoveryFileLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+            },
+            onRecoverAccessFolder = { bookId ->
+                recoveryTargetBookId = bookId
+                recoveryFolderLauncher.launch(null)
+            },
             onChildRouteOpened = { origin ->
                 bookDetailChildRouteOpen = true
                 bookDetailChildOrigin = origin.name

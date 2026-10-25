@@ -37,6 +37,7 @@ import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.imports.LocalAccessRecovery
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
@@ -4689,6 +4690,49 @@ class MainViewModel @JvmOverloads constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    /**
+     * #1230 — whether the open book is a LOCAL book whose files no longer
+     * read, plus the facts the recovery panel needs. This is the one read
+     * path for the local-first door order; the network is never first here.
+     *
+     * The DAO rows are the truth: a local Source exists, its tracks have no
+     * readable locator, and no other (non-refused) Source can play the
+     * Edition. A content:// track is treated as present — its grant failure
+     * surfaces at playback, not as a fabricated absence here.
+     */
+    val bookLocalAccess: StateFlow<LocalAccessRecovery.State?> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(null as LocalAccessRecovery.State?)
+            else {
+                val dao = App.instance.audiobookDao
+                val refused = App.instance.sourceAudioRefusal.refusedSources
+                combine(
+                    flow { emit(dao.getAudiobookById(bookId)) },
+                    dao.getSourcesForBook(bookId),
+                    dao.getTracksForBook(bookId),
+                    refused
+                ) { book, sources, tracks, refusedSet ->
+                    val localIds = sources.filter { it.type == "local" }.map { it.id }.toSet()
+                    val localTracks = tracks.filter { it.sourceId in localIds }
+                    val localUnreadable = localTracks.any { track ->
+                        !(SmartRetryPolicy.localFileReady(track.localFilePath) ||
+                            (track.localFilePath.isNullOrBlank() && track.url.startsWith("content://")))
+                    }
+                    val otherPlayable = sources.any { source ->
+                        source.type != "local" && source.type !in refusedSet &&
+                            tracks.any { it.sourceId == source.id && it.url.startsWith("http") }
+                    }
+                    LocalAccessRecovery.State(
+                        localBook = localIds.isNotEmpty(),
+                        hasKnownFolder = !book?.sourceTreeUri.isNullOrBlank(),
+                        localFilesUnreadable = localUnreadable,
+                        otherPlayableSource = otherPlayable
+                    )
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** Whether the open book is on the Source Watch (ADR-0037 §6). */
     val bookWatched: StateFlow<Boolean> = _selectedBookId
         .flatMapLatest { bookId ->
@@ -5348,12 +5392,22 @@ class MainViewModel @JvmOverloads constructor(
             // door (progress carries on narrator agreement — T3). A miss or
             // a failure keeps the honest path below; an explicit source
             // choice is always respected, never mapped over.
+            //
+            // #1230 — a local book is excluded from that automatic mapping:
+            // its first «інше джерело» is another file on the device, and the
+            // book page offers that recovery before any network search. The
+            // row is read here so the local provenance is a fact, not a guess
+            // from a blank sourceUrl.
+            val hasLocalSource = App.instance.audiobookDao
+                .getSourcesForBookSync(updatedBook.id)
+                .any { it.type == "local" }
             var playbackBook = updatedBook
             try {
                 playbackReplacementMapping.mapIfNeeded(
                     book = playbackBook,
                     playableEmpty = playable.isEmpty(),
-                    hasPreferredSource = preferredSource != null
+                    hasPreferredSource = preferredSource != null,
+                    localProvenance = hasLocalSource
                 )?.let { imported ->
                     if (libraryEntries.getBookSync(imported.id) != null) {
                         playbackBook = imported
@@ -6277,9 +6331,80 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * #1230 — «Відновити доступ» → re-pick ONE file for this book. The data
+     * layer hashes it first and relinks only exact stored bytes; the report
+     * never turns a name match into an Edition fork or a progress move.
+     */
+    fun recoverLocalAccessWithFile(bookId: String, uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val report = libraryImport.recoverLocalAccessWithFile(bookId, uri)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecovery(report)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Local access recovery (file) failed", e)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecoveryFailed()
+            } finally {
+                refreshCacheSize()
+            }
+        }
+    }
+
+    /**
+     * #1230 — re-pick the FOLDER for this book (the moved-tree case). Only
+     * exact-hash files are relinked; unknown files are reported, not imported,
+     * so a second card can never appear behind the listener's back.
+     */
+    fun recoverLocalAccessWithFolder(bookId: String, treeUri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val report = libraryImport.recoverLocalAccessWithFolder(bookId, treeUri)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecovery(report)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Local access recovery (folder) failed", e)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecoveryFailed()
+            } finally {
+                refreshCacheSize()
+            }
+        }
+    }
+
+    /**
+     * #1230 — «Пересканувати відому теку»: the same recovery core against the
+     * tree the book already remembers. Ordinary rescan imports new files as
+     * new chapters; recovery only relinks stored bytes, because the chapter
+     * list and listening state are the listener's, not the folder's.
+     */
+    fun rescanLocalFolderForBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val report = libraryImport.recoverLocalAccessFromKnownFolder(bookId)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecovery(report)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Local access recovery (rescan) failed", e)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecoveryFailed()
+            } finally {
+                refreshCacheSize()
+            }
+        }
+    }
+
     /** One-shot user-facing message for import outcomes (consumed by the UI). */
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
+
+    /**
+     * #1230 — the book page's own one-shot recovery outcome. It is separate
+     * from [importMessage] because the book page owns the recovery door and
+     * must speak on its own snackbar; the library screen may not even be
+     * composed behind it on a phone.
+     */
+    private val _localRecoveryMessage = MutableStateFlow<String?>(null)
+    val localRecoveryMessage: StateFlow<String?> = _localRecoveryMessage.asStateFlow()
+
+    fun consumeLocalRecoveryMessage() {
+        _localRecoveryMessage.value = null
+    }
 
     /**
      * #1081 — a bookmark whose book no longer resolves used to fail in silence:

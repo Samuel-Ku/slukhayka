@@ -58,6 +58,28 @@ class PlaybackReplacementMappingTest {
     }
 
     @Test
+    fun `local book never maps to the network automatically`() = runTest {
+        // #1230 — a local book's first «інше джерело» is another device file.
+        // The automatic mapping would offer a different narration; the book
+        // page owns the local recovery order instead.
+        var resolveCalls = 0
+        val mapping = PlaybackReplacementMapping(
+            resolve = { _, _, _ -> resolveCalls++; match() },
+            importMatch = { _, _ -> error("no network import for a local book") }
+        )
+
+        assertNull(
+            mapping.mapIfNeeded(
+                book(),
+                playableEmpty = true,
+                hasPreferredSource = false,
+                localProvenance = true
+            )
+        )
+        assertEquals(0, resolveCalls)
+    }
+
+    @Test
     fun `explicit preferred source is respected`() = runTest {
         var resolveCalls = 0
         val mapping = PlaybackReplacementMapping(

@@ -162,6 +162,37 @@ interface AudiobookDao {
     @Query("UPDATE sources SET lastScanFingerprint = :fingerprint WHERE id = :sourceId")
     suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?)
 
+    /**
+     * #1230 — the local book now lives under another SAF tree (the listener
+     * re-picked a moved folder). Only the physical origin changes: the Work,
+     * Edition, Chapters, Listening State and bookmarks stay untouched.
+     */
+    @Query("UPDATE audiobooks SET sourceTreeUri = :treeUri WHERE id = :bookId")
+    suspend fun updateBookSourceTree(bookId: String, treeUri: String?)
+
+    @Query("SELECT * FROM source_tracks WHERE id = :trackId LIMIT 1")
+    suspend fun getTrackById(trackId: String): SourceTrackEntity?
+
+    /**
+     * #1230 — one compare-and-set write for local-access recovery. Expected
+     * rows are re-read inside the transaction: a concurrent import/rescan
+     * changed the truth, so the recovery refuses instead of overwriting it.
+     * Chapters, Edition and progress are deliberately absent from the write.
+     */
+    @Transaction
+    suspend fun applyLocalTrackRelinks(
+        expected: List<SourceTrackEntity>,
+        updated: List<SourceTrackEntity>,
+        bookId: String,
+        treeUri: String?
+    ): Boolean {
+        if (expected.isEmpty() || expected.size != updated.size) return false
+        if (expected.map { getTrackById(it.id) } != expected) return false
+        insertSourceTrackRows(updated)
+        if (treeUri != null) updateBookSourceTree(bookId, treeUri)
+        return true
+    }
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAudiobooks(books: List<AudiobookEntity>)
 

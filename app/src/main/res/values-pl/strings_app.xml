@@ -370,6 +370,11 @@
     <string name="book_detail_add_bookmark">Dodaj zakładkę do «%1$s»</string>
     <string name="book_detail_add_bookmark_short">Dodaj zakładkę</string>
     <string name="book_detail_audio_unavailable">Audio tej książki jest teraz niedostępne — szukamy w innych źródłach.</string>
+    <string name="book_detail_local_access_unavailable">Audio tej książki nie jest już czytane z urządzenia. Przywróć dostęp do pliku lub folderu — książka, pozycja i zakładki pozostaną bez zmian.</string>
+    <string name="book_detail_recover_file">Wybierz plik ponownie</string>
+    <string name="book_detail_recover_folder">Wybierz folder ponownie</string>
+    <string name="book_detail_recover_rescan">Przeskanuj znany folder</string>
+    <string name="book_detail_recover_network_hint">Nie ma go na urządzeniu? Szukanie w innych źródłach to osobna, późniejsza czynność.</string>
     <string name="book_detail_back">Wstecz</string>
     <string name="book_detail_bookmark_default_note">Zakładka na %1$s</string>
     <string name="book_detail_bookmark_delete">Usuń zakładkę w «%1$s», rozdział «%2$s», %3$s</string>

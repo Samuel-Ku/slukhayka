@@ -2661,6 +2661,207 @@ class LibraryImport(
         }
     }
 
+    // ---------------------------------------------------------------------
+    // #1230 — local-access recovery («відновити доступ»)
+    // ---------------------------------------------------------------------
+
+    /**
+     * The tree the app still remembers for a local book, or null for a
+     * single-file import. This is the address of the «Пересканувати відому
+     * теку» action; it never guesses a folder from a title.
+     */
+    suspend fun knownLocalTree(bookId: String): String? =
+        dao.getAudiobookById(bookId)?.sourceTreeUri?.takeIf { it.isNotBlank() }
+
+    /**
+     * #1230 — re-pick a FILE for an existing local book. The file is hashed
+     * first; only an exact hash match with a stored track is relinked. A
+     * different file — even one with the same name or chapter count — leaves
+     * the book untouched and asks the listener to choose the other narration
+     * explicitly through the ordinary import door (ADR-0007 §4).
+     *
+     * No copy is made: the track points at the picked SAF document URI
+     * (ADR-0061 — the folder is the storage). Chapters, Edition, Listening
+     * State and bookmarks are never touched, so a relink cannot fork the
+     * Edition or move progress to another narration.
+     */
+    suspend fun recoverLocalAccessWithFile(bookId: String, uri: Uri): LocalAccessRecoveryReport =
+        withContext(Dispatchers.IO) {
+            val ctx = context ?: return@withContext LocalAccessRecoveryReport(skippedFiles = 1)
+            val displayName = queryDisplayName(ctx, uri) ?: "Аудіокнига"
+            val entry = LocalAudioEntry(displayName, null, uri.toString()) {
+                ctx.contentResolver.openInputStream(uri)
+                    ?: throw java.io.IOException("Could not open the picked document $uri")
+            }
+            recoverLocalAccessFromEntries(bookId, listOf(entry), treeUri = null)
+        }
+
+    /**
+     * #1230 — re-pick a FOLDER for an existing local book (the moved-tree
+     * case). Every audio file in the tree is hashed; only files whose bytes
+     * this book already stored are relinked. Unknown files are reported, never
+     * imported silently — no second card, no guessed identity.
+     *
+     * A full recovery (every stored track proven) moves the book's remembered
+     * tree to the new one, so the next rescan follows the listener's folder
+     * instead of the dead path.
+     */
+    suspend fun recoverLocalAccessWithFolder(bookId: String, treeUri: Uri): LocalAccessRecoveryReport =
+        withContext(Dispatchers.IO) {
+            val ctx = context ?: return@withContext LocalAccessRecoveryReport(skippedFiles = 1)
+            val entries = try {
+                LocalFolderScanner.scan(ctx, treeUri)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("AudiobookRepo", "Local recovery could not scan $treeUri", e)
+                return@withContext LocalAccessRecoveryReport(skippedFiles = 1)
+            }
+            val report = recoverLocalAccessFromEntries(bookId, entries, treeUri.toString())
+            if (report.relinkedTracks > 0) {
+                ImportGrantStore(ctx).addTreeUri(treeUri.toString())
+            }
+            report
+        }
+
+    /**
+     * #1230 — the «Пересканувати відому теку» action: the same recovery core
+     * against the tree the book still remembers. It is not the ordinary
+     * [rescanLocalFolder] (which imports new files as new chapters): recovery
+     * only relinks exact stored bytes, because the book's chapter list and
+     * progress are the listener's state, not the folder's.
+     */
+    suspend fun recoverLocalAccessFromKnownFolder(bookId: String): LocalAccessRecoveryReport {
+        val tree = knownLocalTree(bookId)
+            ?: return LocalAccessRecoveryReport(skippedFiles = 1)
+        return recoverLocalAccessWithFolder(bookId, Uri.parse(tree))
+    }
+
+    private suspend fun recoverLocalAccessFromEntries(
+        bookId: String,
+        entries: List<LocalAudioEntry>,
+        treeUri: String?
+    ): LocalAccessRecoveryReport = withContext(Dispatchers.IO) {
+        localWriteMutex.withLock {
+            cleanupStaging()
+            val localSource = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "local" }
+                ?: return@withLock LocalAccessRecoveryReport()
+            val storedTracks = dao.getTracksForSourceSync(localSource.id)
+            if (storedTracks.isEmpty()) return@withLock LocalAccessRecoveryReport()
+
+            var skipped = 0
+            val picked = entries.mapNotNull { entry ->
+                val hash = try {
+                    contentHashOf(entry.openStream())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w("AudiobookRepo", "Local recovery could not hash ${entry.fileName}", e)
+                    null
+                }
+                if (hash.isNullOrBlank()) {
+                    skipped++
+                    null
+                } else {
+                    entry to hash
+                }
+            }
+            val plan = LocalAccessRecovery.match(
+                stored = storedTracks.map { LocalAccessRecovery.StoredTrack(it.trackIndex, it.contentHash) },
+                picked = picked.map { (entry, hash) ->
+                    LocalAccessRecovery.PickedFile(entry.fileName, hash, entry.uri)
+                }
+            )
+            if (!plan.identityProven) {
+                return@withLock LocalAccessRecoveryReport(
+                    identityProven = false,
+                    unprovenFiles = plan.unprovenFiles.size,
+                    skippedFiles = skipped
+                )
+            }
+
+            val byHash = picked.groupBy { it.second }
+            val relinks = plan.relinks.mapNotNull { relink ->
+                val (entry, hash) = byHash[relink.picked.contentHash]?.firstOrNull() ?: return@mapNotNull null
+                // Without a SAF locator the recovered file cannot become a
+                // playable address; it stays a skipped observation, not a
+                // fabricated track.
+                val locator = entry.uri ?: return@mapNotNull null
+                val stored = storedTracks.firstOrNull { it.trackIndex == relink.trackIndex }
+                    ?: return@mapNotNull null
+                stored to stored.copy(
+                    url = locator,
+                    localFilePath = null,
+                    contentHash = hash,
+                    isDownloaded = true
+                )
+            }
+            if (relinks.isEmpty()) {
+                return@withLock LocalAccessRecoveryReport(
+                    identityProven = false,
+                    unprovenFiles = plan.unprovenFiles.size,
+                    skippedFiles = skipped + plan.relinks.size
+                )
+            }
+
+            // A full proof may move the remembered tree. A partial recovery
+            // keeps the old address: other tracks still live there, and a
+            // half-moved book must not pretend the rest of its files moved.
+            val fullRecovery = storedTracks.all { track ->
+                !track.contentHash.isNullOrBlank() &&
+                    relinks.any { (stored, _) -> stored.id == track.id }
+            }
+            val newTree = treeUri?.takeIf { fullRecovery }
+            val applied = dao.applyLocalTrackRelinks(
+                expected = relinks.map { it.first },
+                updated = relinks.map { it.second },
+                bookId = bookId,
+                treeUri = newTree
+            )
+            if (!applied) {
+                // A concurrent import/rescan changed the tracks; refuse rather
+                // than overwrite newer truth.
+                return@withLock LocalAccessRecoveryReport(
+                    identityProven = false,
+                    unprovenFiles = plan.unprovenFiles.size,
+                    skippedFiles = skipped + relinks.size
+                )
+            }
+            if (treeUri != null) {
+                try {
+                    writeBatchRunner {
+                        val grouping = context?.let { ImportGrantStore(it).folder(treeUri).grouping }
+                            ?: LocalFolderGrouping.SEPARATE_BOOKS
+                        val files = relinks.mapNotNull { (_, updated) ->
+                            val hash = updated.contentHash ?: return@mapNotNull null
+                            val (entry, _) = byHash[hash].orEmpty().firstOrNull()
+                                ?: return@mapNotNull null
+                            FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
+                        }
+                        LocalFolderMemory(dao).remember(
+                            bookId,
+                            LocalFolderOrigin(treeUri, grouping, files)
+                        )
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Provenance memory is a convenience for the NEXT rescan;
+                    // the relink itself is committed and must not be reported
+                    // as failed because the memory row could not be written.
+                    Log.w("AudiobookRepo", "Local recovery provenance not remembered", e)
+                }
+            }
+            updateFingerprintFor(bookId, localSource)
+            LocalAccessRecoveryReport(
+                identityProven = true,
+                relinkedTracks = relinks.size,
+                unprovenFiles = plan.unprovenFiles.size,
+                skippedFiles = skipped
+            )
+        }
+    }
+
     private sealed interface LocalChapterCopy {
         data class Copied(val input: LocalChapterInput) : LocalChapterCopy
         data object Duplicate : LocalChapterCopy
@@ -2849,6 +3050,18 @@ data class LocalImportResult(
     // wayfinder #48: files whose bytes already existed in the library; they
     // were never copied, so no storage was consumed.
     val duplicateFiles: Int = 0
+)
+
+/**
+ * #1230 — outcome of one local-access recovery attempt. [identityProven] is
+ * byte identity (at least one stored content hash matched a picked file),
+ * never a title/name/count guess. Nothing is written unless it is true.
+ */
+data class LocalAccessRecoveryReport(
+    val identityProven: Boolean = false,
+    val relinkedTracks: Int = 0,
+    val unprovenFiles: Int = 0,
+    val skippedFiles: Int = 0
 )
 
 /**

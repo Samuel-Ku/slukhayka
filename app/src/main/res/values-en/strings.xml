@@ -179,6 +179,12 @@
     <string name="narration_claim_action">Same narration — merge</string>
     <string name="narration_claim_done">Merged. Progress carried over.</string>
     <string name="book_detail_audio_unavailable">No audio for this book right now — we keep looking in other sources.</string>
+    <!-- #1230 — local files are the first door for a local book, never the network. -->
+    <string name="book_detail_local_access_unavailable">This book’s audio can no longer be read from the device. Restore access to the file or folder — the book, your position and bookmarks stay as they are.</string>
+    <string name="book_detail_recover_file">Choose the file again</string>
+    <string name="book_detail_recover_folder">Choose the folder again</string>
+    <string name="book_detail_recover_rescan">Rescan the known folder</string>
+    <string name="book_detail_recover_network_hint">Not on the device? Searching other sources is a separate, later action.</string>
     <string name="book_detail_watch_action">Watch for a source</string>
     <string name="book_detail_watching">Waiting for a source…</string>
     <string name="book_detail_stop_watching">Stop watching</string>

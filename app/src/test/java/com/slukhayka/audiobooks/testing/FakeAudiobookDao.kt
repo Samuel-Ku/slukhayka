@@ -191,6 +191,12 @@ class FakeAudiobookDao(
     override fun observeAudiobookById(id: String): Flow<BookRow?> =
         booksState.map { books -> books.firstOrNull { it.id == id }?.toBookRow() }
 
+    override suspend fun updateBookSourceTree(bookId: String, treeUri: String?) {
+        booksState.update { current ->
+            current.map { book -> if (book.id == bookId) book.copy(sourceTreeUri = treeUri) else book }
+        }
+    }
+
     override suspend fun insertAudiobooks(books: List<AudiobookEntity>) {
         val incomingIds = books.map { it.id }.toSet()
         booksState.update { current -> current.filterNot { it.id in incomingIds } + books }
@@ -512,6 +518,9 @@ class FakeAudiobookDao(
 
     override suspend fun getTrackByContentHash(hash: String): SourceTrackEntity? =
         tracksState.value.firstOrNull { it.contentHash == hash }
+
+    override suspend fun getTrackById(trackId: String): SourceTrackEntity? =
+        tracksState.value.firstOrNull { it.id == trackId }
 
     override suspend fun getAllTrackContentHashes(): List<String> =
         tracksState.value.mapNotNull { it.contentHash }

@@ -1,8 +1,9 @@
 <resources>
     <!-- THIS IS NOT A POLISH TRANSLATION. Every value here is UKRAINIAN.
 
-         The app's UI is Ukrainian (CONTEXT.md). This directory exists for one
-         reason: on a Polish-system device Android would otherwise voice
+         Ukrainian is the source locale (CONTEXT.md), and this qualifier keeps
+         one coherent spoken language on Polish devices. This directory exists
+         for one reason: on a Polish-system device Android would otherwise voice
          Material3's own Polish strings ("Zamknij arkusz", "Uchwyt do
          przeciągania") through TalkBack. A `pl` qualifier holding Ukrainian
          text wins over the library's Polish and keeps the spoken language
@@ -16,24 +17,20 @@
          untranslated one falls back to one coherent language.
 
          So: do NOT add Polish translations here. The real Polish lives in
-         `values-pl/strings_app.xml` (batch 1 of 3, #1387); the keys that file
-         translates were REMOVED from here, and a key may live in exactly one
-         file of the `pl` qualifier. What stays here is Ukrainian on purpose:
-         the five Material3 overrides plus the app keys no batch has reached
-         yet. Until the last batch (#1389) turns Polish on, the app never
-         resolves the `pl` qualifier at all (#1387 — AppLocale gates SYSTEM to
-         complete languages), so this file cannot leak a mixture into the UI. -->
+         `values-pl/strings_app.xml` (#1387/#1388/#1389); every app key that
+         used to sit here was moved to that file, and a key may live in exactly
+         one file of the `pl` qualifier.
+
+         #1389 — only the five Material3 TalkBack overrides remain. A `pl-PL`
+         device gets their Polish twins from `values-pl-rPL`, so the visible
+         interface is Polish end to end; a language-only `pl` device keeps
+         these five spoken labels Ukrainian, which is the price of the #371
+         override and is NOT an app screen. `PolishCoverageGuardTest` pins the
+         resolved (`pl-rPL` over `pl`) set. -->
 
     <string name="m3c_bottom_sheet_collapse_description">Згорнути аркуш</string>
     <string name="m3c_bottom_sheet_dismiss_description">Закрити аркуш</string>
     <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
     <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
-    <!-- #1163 — the storage card's two figures, so the new labels cost no
-         MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
-    <string name="storage_stat_downloads">Завантаження</string>
-    <string name="storage_stat_local_copies">Локальні копії</string>
-    <string name="a11y_chapter_drag_handle">Перетягнути розділ</string>
-    <string name="a11y_chapter_move_up">Перемістити розділ вгору</string>
-    <string name="a11y_chapter_move_down">Перемістити розділ вниз</string>
 </resources>

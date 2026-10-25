@@ -83,6 +83,7 @@
     <string name="app_locale_system">Same as system</string>
     <string name="app_locale_ukrainian">Ukrainian</string>
     <string name="app_locale_english">English</string>
+    <string name="app_locale_polish">Polish</string>
 
     <string name="storage_title">Downloads and storage</string>
     <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`.

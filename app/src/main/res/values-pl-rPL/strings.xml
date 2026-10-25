@@ -3,6 +3,17 @@
          оверрайд, який перебиває польські рядки Material3 (див. шапку
          scripts/tests/test_locale_overrides.py). Цей файл конкретніший за
          `pl` (кваліфікатор `pl-rPL`), тож на польському пристрої він
-         перемагає values-pl. -->
+         перемагає values-pl.
+
+         #1389 — тут живуть польські відповідники п'яти Material3-оверрайдів
+         з values-pl/strings.xml, щоб на pl-PL жоден рядок не лишався
+         українським. Решта застосунку — у values-pl/strings_app.xml.
+         `lib_year_hero_title` лишається тут як другий, конкретніший шар
+         (його вимірює PolishQualifierResolutionTest). -->
     <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
+    <string name="m3c_bottom_sheet_collapse_description">Zwiń arkusz</string>
+    <string name="m3c_bottom_sheet_dismiss_description">Zamknij arkusz</string>
+    <string name="m3c_bottom_sheet_drag_handle_description">Uchwyt do przeciągania</string>
+    <string name="m3c_bottom_sheet_expand_description">Rozwiń arkusz</string>
+    <string name="m3c_bottom_sheet_pane_title">Arkusz</string>
 </resources>

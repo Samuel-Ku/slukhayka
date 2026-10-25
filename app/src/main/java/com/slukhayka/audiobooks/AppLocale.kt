@@ -17,7 +17,8 @@ import java.util.Locale
  * [AppLocale.SYSTEM] follows the device locale (the Activity context is left
  * unpinned) WHEN that language has a complete resource set; a language still
  * being translated is pinned to Ukrainian instead — see [SYSTEM_FOLLOWS].
- * [AppLocale.UKRAINIAN]/[AppLocale.ENGLISH] pin the Activity
+ * Ukrainian, English and Polish are complete; [AppLocale.UKRAINIAN]/
+ * [AppLocale.ENGLISH]/[AppLocale.POLISH] pin the Activity
  * context so app strings AND Material/embedded library resources speak one
  * language. The default is [AppLocale.SYSTEM] (spec-45 #405 R7 #514): a new
  * install follows the device, so an English-system device speaks English
@@ -33,24 +34,24 @@ enum class AppLocale(val tag: String) {
      */
     SYSTEM(""),
     UKRAINIAN("uk"),
-    ENGLISH("en");
+    ENGLISH("en"),
+    POLISH("pl");
 
     companion object {
         /**
-         * #1387 — the languages whose resource set is COMPLETE enough for
-         * [SYSTEM] to follow the device.
+         * #1387/#1388/#1389 — the languages whose resource set is COMPLETE
+         * enough for [SYSTEM] to follow the device.
          *
-         * Polish is translated in three sequential batches
-         * (#1387/#1388/#1389) into `values-pl`; until the LAST batch adds `pl`
-         * here (and a `POLISH` entry to this enum, with its row on the
-         * interface-language screen), a Polish-system device must NOT resolve
-         * the `pl` qualifier: a partly translated language shows two languages
-         * on one screen, which is exactly the #1385 defect that made a partial
-         * translation worse than none. This set is the switch, not a comment —
-         * `AppLocaleTest` pins both that `pl` is absent here and that a Polish
-         * device resolves to Ukrainian.
+         * Polish arrived in three sequential batches into `values-pl`; the
+         * last one (#1389) translated the remaining screens, settings,
+         * accessibility labels and service messages, so `pl` joins the set.
+         * The switch and the coverage are ONE decision: a language may be
+         * listed here only while every source-derived string resolves to a
+         * real Polish value (`PolishCoverageGuardTest`). Turning it on with a
+         * single missing line would show two languages on one screen — exactly
+         * the #1385 defect that made a partial translation worse than none.
          */
-        val SYSTEM_FOLLOWS: Set<String> = setOf("uk", "en")
+        val SYSTEM_FOLLOWS: Set<String> = setOf("uk", "en", "pl")
 
         /**
          * Unknown or absent stored values follow the system. An EXPLICITLY
@@ -119,11 +120,11 @@ object AppLocaleApplier {
 /**
  * Returns the Activity context localized for [locale]. [AppLocale.SYSTEM]
  * returns [this] unchanged when the device language is one of
- * [AppLocale.SYSTEM_FOLLOWS] — the app follows the device. A device language
- * still being translated (#1387: Polish until #1389) and any concrete locale
- * pin the context (and with it Material + embedded Android controls), so a
- * Polish device never mixes the half-finished `values-pl` set into the
- * Ukrainian interface.
+ * [AppLocale.SYSTEM_FOLLOWS] — the app follows the device, so a Polish device
+ * resolves `values-pl-rPL`/`values-pl` and speaks one language end to end. A
+ * device language still being translated and any concrete locale pin the
+ * context (and with it Material + embedded Android controls) instead of
+ * mixing a partial resource set into another language's interface.
  */
 internal fun Context.withAppLocale(locale: AppLocale): Context {
     val targetTag = when (locale) {

@@ -379,7 +379,7 @@ A published build of the app itself, tagged `v<versionName>` on GitHub Releases 
 _Avoid_: version (for an Edition), update feed
 
 **App Locale**:
-The language of the interface chrome — a dimension fully separate from the content Language that NEVER filters content (US12, ADR-0029). Android: `AppLocale` (Ukrainian default, `en` pins the context) with the full `values-en` resource set (381 keys of parity, incl. the hardcoded-literal migration). Web: the typed uk/en dictionary `i18n/strings.ts` (key parity at compile time) with `locale.ts` device resolution — English on English-speaking devices (US15) — and a persisted manual override in the header. EN/UA badges on cards show the rendition's Language, not the App Locale.
+The language of the interface chrome — a dimension fully separate from the content Language that NEVER filters content (US12, ADR-0029). Android: `AppLocale` (Ukrainian source locale, `en`/`pl` pin the context, SYSTEM follows a language only when its resource set is complete) with the full `values-en` and `values-pl` resource sets (translated in three batches, #1387/#1388/#1389). Web: the typed uk/en dictionary `i18n/strings.ts` (key parity at compile time) with `locale.ts` device resolution — English on English-speaking devices (US15) — and a persisted manual override in the header. EN/UA badges on cards show the rendition's Language, not the App Locale.
 _Avoid_: UI language filtering content, locale stored in sync, UI strings mixed with content metadata
 
 **Crash Reporting Consent**:

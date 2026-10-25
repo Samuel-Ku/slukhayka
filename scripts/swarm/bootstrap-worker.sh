@@ -32,6 +32,25 @@ JDK_URL="https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/n
 log() { printf '[bootstrap] %s\n' "$*"; }
 die() { printf '[bootstrap] FAIL: %s\n' "$*" >&2; exit 1; }
 
+# --check: лише читає й друкує по рядку на складову; ненульовий код, якщо хоч
+# одна зламана. Токени ротуються, тому «колись працювало» — не доказ.
+if [ "${1:-}" = "--check" ]; then
+  bad=0
+  ok()  { printf '[check] ok   %s\n' "$1"; }
+  bad_() { printf '[check] FAIL %s\n' "$1"; bad=1; }
+  [ -x "$JDK_DIR/bin/java" ] && ok "JDK 21" || bad_ "JDK 21 ($JDK_DIR)"
+  ls -d "$SDK_DIR"/platforms/android-36* >/dev/null 2>&1 && ok "SDK android-36" || bad_ "SDK android-36"
+  ls -d "$SDK_DIR"/build-tools/36* >/dev/null 2>&1 && ok "build-tools 36" || bad_ "build-tools 36"
+  command -v dsh >/dev/null 2>&1 && ok "dsh у PATH" || bad_ "dsh у PATH"
+  "$BIN_DIR/gh" auth status >/dev/null 2>&1 && ok "gh auth" || bad_ "gh auth (токен недійсний?)"
+  [ -s "$HOME/.dsh/.credentials.yaml" ] && ok "ключ провайдера" || bad_ "ключ провайдера"
+  [ -e "$REPO_DIR/.git" ] && ok "клон репозиторію" || bad_ "клон репозиторію"
+  free_gb=$(df -BG --output=avail "$REPO_DIR" 2>/dev/null | tail -1 | tr -dc 0-9)
+  [ "${free_gb:-0}" -ge 10 ] && ok "диск (${free_gb}G вільно)" || bad_ "диск (${free_gb:-?}G вільно)"
+  [ "$(pgrep -fc '[d]sh --profile headless' 2>/dev/null || echo 0)" -eq 0 ] && ok "немає осиротілих dsh" || bad_ "осиротілі dsh-процеси"
+  exit "$bad"
+fi
+
 mkdir -p "$SWARM_ROOT" "$LOG_DIR" "$BIN_DIR" "$GRADLE_HOME"
 
 # Неінтерактивна ssh-сесія не читає ~/.bashrc, тож ~/.npm-global/bin у PATH не

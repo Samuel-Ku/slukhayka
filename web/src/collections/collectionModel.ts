@@ -92,8 +92,8 @@ export function cleanCollectionReason(reason: string | null | undefined): string
  */
 export function decodePublishedCollection(document: Record<string, unknown> | null | undefined): PublishedCollection | null {
   if (document === null || document === undefined) return null
-  const authorId = nonBlankString(document['authorId'])
-  const collectionId = nonBlankString(document['collectionId'])
+  const authorId = rawNonBlankString(document['authorId'])
+  const collectionId = rawNonBlankString(document['collectionId'])
   const rawTitle = document['title']
   if (authorId === null || collectionId === null) return null
   if (typeof rawTitle !== 'string') return null
@@ -131,21 +131,27 @@ export function decodePublishedCollection(document: Record<string, unknown> | nu
 function decodePublishedCollectionItem(entry: unknown): PublishedCollectionItem | null {
   if (typeof entry !== 'object' || entry === null) return null
   const map = entry as Record<string, unknown>
-  const bookId = nonBlankString(map['bookId'])
+  const bookId = rawNonBlankString(map['bookId'])
   if (bookId === null) return null
   return {
     bookId,
     title: cleanCollectionTitle(typeof map['title'] === 'string' ? map['title'] : null),
     author: cleanCollectionText(typeof map['author'] === 'string' ? map['author'] : null, CollectionLimits.MAX_AUTHOR_LEN),
-    coverUrl: nonBlankString(map['coverUrl']) ?? undefined,
+    coverUrl: rawNonBlankString(map['coverUrl']) ?? undefined,
     reason: cleanCollectionReason(typeof map['reason'] === 'string' ? map['reason'] : null),
   }
 }
 
-function nonBlankString(raw: unknown): string | null {
+/**
+ * An identity field is never NORMALISED, only blank-checked: Kotlin's
+ * `PublishedCollectionCodec.decode` keeps `authorId`, `collectionId` and a
+ * snapshot's `bookId`/`coverUrl` byte-for-byte as stored. Trimming here would
+ * change the derived document id and make the browser address a document the
+ * phone never wrote.
+ */
+function rawNonBlankString(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
-  const trimmed = raw.trim()
-  return trimmed === '' ? null : trimmed
+  return raw.trim() === '' ? null : raw
 }
 
 function stringList(raw: unknown): string[] {

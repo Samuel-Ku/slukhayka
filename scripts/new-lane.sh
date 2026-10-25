@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+
+# `core.bare=true` (його ставить інструмент огляду) ламає будь-яку git-команду
+# голим `fatal: this operation must be run in a work tree` — без підказки, що
+# робити, і вже після резервування тікета. Тому перевіряємо найперше (#1447).
+if [ "$(git config --get core.bare 2>/dev/null)" = "true" ] \
+   || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf '%s\n' "FAIL: дерево не є робочим (core.bare=true?). Виправ: git config core.bare false" >&2
+  exit 2
+fi
+
 #
 # Одна команда замість трьох ручних: резервує тікет, бере свіжий `origin/main`,
 # створює копію смуги й друкує факти для брифа.

@@ -140,7 +140,12 @@ describe('InMemoryCollectionsStore complaints (#696)', () => {
     store.seed(collection({ collectionId: 'c1' }))
     const documentId = 'author-a-c1'
 
-    expect(await store.report(documentId, CollectionIdentity.voterKey('uid-1', 'c1'))).toBe(true)
+    const firstKey = CollectionIdentity.voterKey('uid-1', 'c1')
+    expect(await store.report(documentId, firstKey)).toBe(true)
+    // The complaint document id IS the vote key: Android's `CollectionIdentity`
+    // derives `sha256(uid + collectionId)` for both, so the same person lands
+    // on the same key shape across clients.
+    expect(store.reports.has(firstKey)).toBe(true)
     expect(await store.report(documentId, CollectionIdentity.voterKey('uid-2', 'c1'))).toBe(true)
     let result = await store.readContaining('work-1')
     if (result.kind !== 'data') throw new Error('expected data')

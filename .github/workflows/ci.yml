@@ -214,11 +214,46 @@ jobs:
           echo "ГЕЙТ: origin/$BASE_REF:scripts/adr_numbers.py, blob $(git hash-object "$gate"), $(wc -c <"$gate") байт — дерево з PR"
           python3 "$gate" --root "$GITHUB_WORKSPACE" --base "origin/$BASE_REF" --head HEAD
 
+
+  classify:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.d.outputs.android }}
+      web: ${{ steps.d.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: d
+        shell: bash
+        # Fail-safe: будь-яка невдача визначення -> усе біжить, як доти.
+        # Мета — не пропустити нічого, а зекономити Android-ноги на правках,
+        # які фізично не можуть їх зламати (docs/**, scripts/**).
+        run: |
+          set +e
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"; head="${{ github.sha }}"
+          fi
+          changed=$(git diff --name-only "$base".."$head" 2>/dev/null)
+          if [ -z "$changed" ]; then
+            echo "android=true" >> "$GITHUB_OUTPUT"; echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if printf '%s\n' "$changed" | grep -qvE '^(docs/|.*\.md$|scripts/)'; then
+            echo "android=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "android=false" >> "$GITHUB_OUTPUT"
+          fi
+          if printf '%s\n' "$changed" | grep -qE '^web/'; then echo "web=true" >> "$GITHUB_OUTPUT"; else echo "web=false" >> "$GITHUB_OUTPUT"; fi
+
   lint:
     name: Android Lint
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: timing-start
+    needs: [timing-start, classify]
+    if: needs.classify.outputs.android == 'true'
 
     steps:
       - name: Checkout
@@ -339,7 +374,8 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: timing-start
+    needs: [timing-start, classify]
+    if: needs.classify.outputs.android == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -543,7 +579,8 @@ jobs:
 
   coverage:
     name: Kover aggregate gate
-    needs: [timing-start, jvm-partitions]
+    needs: [timing-start, classify, jvm-partitions]
+    if: needs.classify.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -643,7 +680,8 @@ jobs:
     name: Recommendation eval
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: timing-start
+    needs: [timing-start, classify]
+    if: needs.classify.outputs.android == 'true'
 
     steps:
       - name: Checkout
@@ -692,7 +730,8 @@ jobs:
     name: Web typecheck and vitest
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: timing-start
+    needs: [timing-start, classify]
+    if: needs.classify.outputs.web == 'true'
 
     steps:
       - name: Checkout
@@ -750,7 +789,8 @@ jobs:
   # let a green PR merge into a red main (#769); it runs everywhere now.
   accessibility-api35:
     name: Accessibility journey (API 35)
-    needs: [release-lineage, timing-start]
+    needs: [release-lineage, timing-start, classify]
+    if: needs.classify.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     # A signed candidate must pass the real listener accessibility journey.

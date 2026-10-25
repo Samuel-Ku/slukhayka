@@ -34,6 +34,13 @@ die() { printf '[bootstrap] FAIL: %s\n' "$*" >&2; exit 1; }
 
 # --check: лише читає й друкує по рядку на складову; ненульовий код, якщо хоч
 # одна зламана. Токени ротуються, тому «колись працювало» — не доказ.
+#
+# PATH ставимо ДО перевірок: `command -v dsh` у блоці --check інакше не бачить
+# ~/.npm-global/bin і каже FAIL навіть тоді, коли dsh встановлений правильно.
+NPM_PREFIX="$(npm config get prefix 2>/dev/null || true)"
+[ -n "$NPM_PREFIX" ] || NPM_PREFIX="$HOME/.npm-global"
+export PATH="$NPM_PREFIX/bin:$PATH"
+
 if [ "${1:-}" = "--check" ]; then
   bad=0
   ok()  { printf '[check] ok   %s\n' "$1"; }
@@ -47,18 +54,16 @@ if [ "${1:-}" = "--check" ]; then
   [ -e "$REPO_DIR/.git" ] && ok "клон репозиторію" || bad_ "клон репозиторію"
   free_gb=$(df -BG --output=avail "$REPO_DIR" 2>/dev/null | tail -1 | tr -dc 0-9)
   [ "${free_gb:-0}" -ge 10 ] && ok "диск (${free_gb}G вільно)" || bad_ "диск (${free_gb:-?}G вільно)"
-  [ "$(pgrep -fc '[d]sh --profile headless' 2>/dev/null || echo 0)" -eq 0 ] && ok "немає осиротілих dsh" || bad_ "осиротілі dsh-процеси"
+  # pgrep -c друкує «0» І виходить з 1, коли збігів немає. `|| echo 0` додавав
+  # ДРУГИЙ нуль, і `[ "0\n0" -eq 0 ]` падав з «мало бути використано ціле
+  # значення» — тобто перевірка не виконувалась узагалі.
+  orphans=$(pgrep -fc '[d]sh --profile headless' 2>/dev/null) || :
+  [ "${orphans:-0}" -eq 0 ] && ok "немає осиротілих dsh" || bad_ "осиротілі dsh: $orphans"
   exit "$bad"
 fi
 
 mkdir -p "$SWARM_ROOT" "$LOG_DIR" "$BIN_DIR" "$GRADLE_HOME"
 
-# Неінтерактивна ssh-сесія не читає ~/.bashrc, тож ~/.npm-global/bin у PATH не
-# потрапляє — а саме туди npm -g кладе `dsh`. Без цього рядка скрипт ставив
-# пакет і одразу казав, що dsh немає.
-NPM_PREFIX="$(npm config get prefix 2>/dev/null || true)"
-[ -n "$NPM_PREFIX" ] || NPM_PREFIX="$HOME/.npm-global"
-export PATH="$NPM_PREFIX/bin:$PATH"
 
 # 1) JDK 21 ---------------------------------------------------------------
 if [ -x "$JDK_DIR/bin/java" ]; then

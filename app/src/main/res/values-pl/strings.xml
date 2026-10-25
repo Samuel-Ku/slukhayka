@@ -31,9 +31,4 @@
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
     <!-- #1163 — the storage card's two figures, so the new labels cost no
          MissingTranslation entry (scripts/lint_baseline.py check-growth). -->
-    <string name="storage_stat_downloads">Завантаження</string>
-    <string name="storage_stat_local_copies">Локальні копії</string>
-    <string name="a11y_chapter_drag_handle">Перетягнути розділ</string>
-    <string name="a11y_chapter_move_up">Перемістити розділ вгору</string>
-    <string name="a11y_chapter_move_down">Перемістити розділ вниз</string>
 </resources>

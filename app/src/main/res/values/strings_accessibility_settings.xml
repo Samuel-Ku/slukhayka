@@ -90,6 +90,7 @@
     <string name="app_locale_system">Як у системі</string>
     <string name="app_locale_ukrainian">Українська</string>
     <string name="app_locale_english">English</string>
+    <string name="app_locale_polish">Polski</string>
 
     <string name="storage_title">Завантаження та пам\'ять</string>
     <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`.

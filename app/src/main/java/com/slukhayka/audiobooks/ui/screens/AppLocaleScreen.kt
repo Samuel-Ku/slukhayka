@@ -34,8 +34,8 @@ import com.slukhayka.audiobooks.AppLocalePrefs
 import com.slukhayka.audiobooks.R
 
 /**
- * Spec-45 (#405) R7 (#514) — the «Мова інтерфейсу» destination: a three-value
- * radio (Система / Українська / English). The choice applies IMMEDIATELY
+ * Spec-45 (#405) R7 (#514) — the «Мова інтерфейсу» destination: a four-value
+ * radio (Система / Українська / English / Polski; Polish since #1389). The choice applies IMMEDIATELY
  * through [onApply] (the platform applier: LocaleManager on API 33+, an
  * Activity recreation on older Android) — no manual restart, no reinstall —
  * and only touches the App Locale: content languages, the library and
@@ -95,35 +95,51 @@ fun AppLocaleScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // #885 — three SHORT labels, so the pill form fits here. The
-            // network screen keeps rows: its options carry descriptions a pill
-            // would drop. Siblings stay inside `selectableGroup()` so a screen
-            // reader can still say "2 of 3" (the pill carries the same role,
-            // target size and state description as the row did).
-            Row(
+            // #885 — SHORT labels, so the pill form fits here. The network
+            // screen keeps rows: its options carry descriptions a pill would
+            // drop. #1389 added the fourth language, so the pills sit on two
+            // rows of two instead of one overflowing row. Siblings stay inside
+            // `selectableGroup()` so a screen reader can still say "2 of 4"
+            // (the pill carries the same role, target size and state
+            // description as the row did).
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .selectableGroup(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SettingsRadioPill(
-                    title = stringResource(R.string.app_locale_system),
-                    selected = current == AppLocale.SYSTEM,
-                    onSelect = { choose(AppLocale.SYSTEM) },
-                    testTag = "app_locale_system_option"
-                )
-                SettingsRadioPill(
-                    title = stringResource(R.string.app_locale_ukrainian),
-                    selected = current == AppLocale.UKRAINIAN,
-                    onSelect = { choose(AppLocale.UKRAINIAN) },
-                    testTag = "app_locale_ukrainian_option"
-                )
-                SettingsRadioPill(
-                    title = stringResource(R.string.app_locale_english),
-                    selected = current == AppLocale.ENGLISH,
-                    onSelect = { choose(AppLocale.ENGLISH) },
-                    testTag = "app_locale_english_option"
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsRadioPill(
+                        title = stringResource(R.string.app_locale_system),
+                        selected = current == AppLocale.SYSTEM,
+                        onSelect = { choose(AppLocale.SYSTEM) },
+                        testTag = "app_locale_system_option",
+                        modifier = Modifier.weight(1f)
+                    )
+                    SettingsRadioPill(
+                        title = stringResource(R.string.app_locale_ukrainian),
+                        selected = current == AppLocale.UKRAINIAN,
+                        onSelect = { choose(AppLocale.UKRAINIAN) },
+                        testTag = "app_locale_ukrainian_option",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsRadioPill(
+                        title = stringResource(R.string.app_locale_english),
+                        selected = current == AppLocale.ENGLISH,
+                        onSelect = { choose(AppLocale.ENGLISH) },
+                        testTag = "app_locale_english_option",
+                        modifier = Modifier.weight(1f)
+                    )
+                    SettingsRadioPill(
+                        title = stringResource(R.string.app_locale_polish),
+                        selected = current == AppLocale.POLISH,
+                        onSelect = { choose(AppLocale.POLISH) },
+                        testTag = "app_locale_polish_option",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }

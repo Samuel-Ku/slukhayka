@@ -163,14 +163,41 @@ class PolishBookBatchGuardTest {
         )
     }
 
+    /**
+     * `plurals` keeps its categories in `<item quantity=…>` children; a raw
+     * concatenation would compare four Polish forms against three Ukrainian
+     * ones only because Polish needs an extra `many` category. That is a real
+     * language difference, not a lost placeholder: compare category by
+     * category, and for a category the Ukrainian source does not have (Polish
+     * `many` vs Ukrainian `one/few/other`) fall back to the source's `other`
+     * form — the same fallback Android itself uses for an unknown quantity.
+     */
+    private val quantityItem = Regex("""<item\s+quantity="([a-z]+)"[^>]*>(.*?)</item>""", RegexOption.DOT_MATCHES_ALL)
+
+    private fun quantitiesOf(raw: String): Map<String, List<String>> =
+        quantityItem.findAll(raw).associate { match ->
+            match.groupValues[1] to placeholder.findAll(match.groupValues[2]).map { it.value }.sorted().toList()
+        }
+
     @Test
     fun `placeholders in the batch area match the ukrainian source`() {
         val offenders = area().keys.mapNotNull { key ->
             val ukrainianText = ukrainian[key] ?: return@mapNotNull "$key: no Ukrainian source"
             val polishText = polish[key] ?: return@mapNotNull null
-            val expected = placeholder.findAll(ukrainianText).map { it.value }.sorted().toList()
-            val actual = placeholder.findAll(polishText).map { it.value }.sorted().toList()
-            if (expected == actual) null else "$key: expected $expected, found $actual"
+            val ukrainianQuantities = quantitiesOf(ukrainianText)
+            val polishQuantities = quantitiesOf(polishText)
+            if (ukrainianQuantities.isEmpty() && polishQuantities.isEmpty()) {
+                val expected = placeholder.findAll(ukrainianText).map { it.value }.sorted().toList()
+                val actual = placeholder.findAll(polishText).map { it.value }.sorted().toList()
+                return@mapNotNull if (expected == actual) null else "$key: expected $expected, found $actual"
+            }
+            val fallback = ukrainianQuantities["other"]
+            val diff = polishQuantities.mapNotNull { (quantity, actual) ->
+                val expected = ukrainianQuantities[quantity] ?: fallback
+                    ?: return@mapNotNull "$key/$quantity: no Ukrainian quantity to compare"
+                if (expected == actual) null else "$key/$quantity: expected $expected, found $actual"
+            }
+            if (diff.isEmpty()) null else diff.joinToString("; ")
         }.sorted()
         assertTrue(
             "placeholders differ from the Ukrainian source, so `String.format` could throw on a " +

@@ -80,7 +80,7 @@ class GenreClaimRenormalizationMigrationTest {
             // #1173 — the chain must reach the CURRENT version, or Room finds
             // no path from v52 and fails with "A migration from 52 to 54 was
             // required but not found".
-            .addMigrations(AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54)
+            .addMigrations(AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55)
             .allowMainThreadQueries()
             .build()
         try {

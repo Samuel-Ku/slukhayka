@@ -86,7 +86,7 @@ body {
   cursor: pointer;
 }
 
-.tab-bar button[aria-selected='true'] {
+.tab-bar button[aria-selected="true"] {
   color: var(--accent);
   font-weight: 600;
 }
@@ -1659,11 +1659,12 @@ span.bookrow-body {
  * SECOND copy of that number, and two copies drift — #1206 pulled the Android
  * grid's columns and its floor back onto one rule for exactly that reason.
  *
- * This is width and grid only. The rail and the two panes of the shared map
- * (spec 2026-09-16 §11 step 4) are NOT here: the owner scoped #1207
- * (2026-10-10) to the minimum, and that line of the map is a separate decision.
+ * This block owns width and grid. The rail, the list-detail panes and the
+ * player's second line (spec 2026-09-16 §11 step 4) are the #1236 block at the
+ * end of the file; they read the same `data-layout` attribute and the same two
+ * lines in `ui/adaptiveLayout.ts`, never a second media query.
  */
-.app[data-layout='expanded'] {
+.app[data-layout="expanded"] {
   /* One list column is 320 px — the order of width a phone already gives a
      row (a 360 px window minus its two 16 px gutters leaves 328 px), so a
      grid column is not a squeezed row: `.bookrow` keeps its 64 px cover, its
@@ -1676,7 +1677,10 @@ span.bookrow-body {
      layout it holds. A cap at all because the reading surfaces (`.description`,
      `.review-list`) stay one column wide: past three columns the extra width
      would only stretch prose. */
-  --layout-max-width: calc(3 * var(--list-column-min) + 2 * var(--list-column-gap) + 2 * var(--layout-gutter));
+  --layout-max-width: calc(
+    3 * var(--list-column-min) + 2 * var(--list-column-gap) + 2 *
+      var(--layout-gutter)
+  );
 }
 
 /* A list becomes columns only while EVERY entry in it is exactly one BookRow,
@@ -1689,10 +1693,12 @@ span.bookrow-body {
    renders one when every Work is hidden, and an empty list must not draw a
    closing hairline above nothing. The auto-fill idiom is the «Серії» index's
    (#585 `.index-grid`), at the column width above. */
-.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))):not(:empty),
-.app[data-layout='expanded'] .surface .narrations,
-.app[data-layout='expanded'] .surface .chapters,
-.app[data-layout='expanded'] .surface .collection-list {
+.app[data-layout="expanded"]
+  .surface
+  .card-list:not(:has(> :not(.bookrow))):not(:empty),
+.app[data-layout="expanded"] .surface .narrations,
+.app[data-layout="expanded"] .surface .chapters,
+.app[data-layout="expanded"] .surface .collection-list {
   grid-template-columns: repeat(auto-fill, minmax(var(--list-column-min), 1fr));
   column-gap: var(--list-column-gap);
 }
@@ -1701,12 +1707,17 @@ span.bookrow-body {
    columns its rows touch, and the grid's own top edge draws the one closing
    line every column shares — the line `.bookrow:first-child` draws alone
    while there is a single column. */
-.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))):not(:empty) {
+.app[data-layout="expanded"]
+  .surface
+  .card-list:not(:has(> :not(.bookrow))):not(:empty) {
   row-gap: 0;
   border-top: 1px solid var(--line);
 }
 
-.app[data-layout='expanded'] .surface .card-list:not(:has(> :not(.bookrow))):not(:empty) > .bookrow:first-child {
+.app[data-layout="expanded"]
+  .surface
+  .card-list:not(:has(> :not(.bookrow))):not(:empty)
+  > .bookrow:first-child {
   border-top: none;
 }
 
@@ -1715,10 +1726,204 @@ span.bookrow-body {
    #1207 reaches past «width and grid»: the owner confirmed it on 2026-10-11,
    so it is a decision, not a side effect. The scroll-snap left on `.shelf-rail`
    is inert once nothing scrolls. */
-.app[data-layout='expanded'] .surface .shelf-rail,
-.app[data-layout='expanded'] .surface .poster-row,
-.app[data-layout='expanded'] .surface .collection-rail-row {
+.app[data-layout="expanded"] .surface .shelf-rail,
+.app[data-layout="expanded"] .surface .poster-row,
+.app[data-layout="expanded"] .surface .collection-rail-row {
   flex-wrap: wrap;
   overflow: visible;
 }
 
+/* --- #1236: the rail and the list-detail panes of the shared map ---------- */
+
+/* The shell that lets the rail lead on a wide window; on a phone it is just
+   the column the app already was. */
+.app-frame {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.app-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-header-titles {
+  min-width: 0;
+}
+
+.app-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gear,
+.lang-switch {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.gear {
+  font-size: 18px;
+  line-height: 1.2;
+  padding: 3px 9px;
+}
+
+/* A row that owns the pane beside it keeps a quiet, non-colour-only mark:
+   `aria-current` carries the same fact to assistive technology. */
+.bookrow-selected {
+  background: var(--surface);
+}
+
+/* The wide window: a leading rail instead of the bottom bar, and a content
+   rectangle whose height no longer changes when a mini-player appears. The
+   window owns the viewport height so the leading column can put the bar at
+   its BOTTOM, visible without scrolling a whole document first. */
+.app[data-layout="expanded"] {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.app[data-layout="expanded"] .app-frame {
+  flex-direction: row;
+  min-height: 0;
+  height: 100%;
+}
+
+.app[data-layout="expanded"] .app-leading {
+  width: 88px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+/* The mini-player lives under the rail in a column wide enough to hold the
+   bar (Android's MiniPlayerColumnWidth), not squeezed into the 88 px rail.
+   With the player pane open the bar is absent, so the column returns to the
+   rail width and gives the pane its room. */
+.app[data-layout="expanded"] .app-leading-with-mini {
+  width: 360px;
+}
+
+.app[data-layout="expanded"] .app-leading-with-mini .nav-rail {
+  width: 88px;
+  flex: none;
+}
+
+.app[data-layout="expanded"] .nav-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 4px;
+}
+
+.app[data-layout="expanded"] .nav-rail-item {
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  border-radius: 12px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 2px;
+  text-align: center;
+}
+
+.app[data-layout="expanded"] .nav-rail-item[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--surface-raised);
+  font-weight: 600;
+}
+
+.app[data-layout="expanded"] .nav-rail-icon {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.app[data-layout="expanded"] .nav-rail-label {
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+}
+
+.app[data-layout="expanded"] .mini-player-rail {
+  width: 100%;
+  border-radius: 0;
+}
+
+/* The list keeps the smaller share; the page is read, the list is scanned.
+   The split exists only while there IS something to put beside the list — an
+   empty right-hand pane is never drawn (owner's decision in #1208). */
+.app[data-layout="expanded"] .surface-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.app[data-layout="expanded"] .list-detail {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.app[data-layout="expanded"] .list-pane {
+  flex: 0 0 40%;
+  max-width: 40%;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 8px var(--layout-gutter) 24px;
+  border-right: 1px solid var(--line);
+}
+
+.app[data-layout="expanded"] .detail-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 8px var(--layout-gutter) 24px;
+}
+
+.app[data-layout="expanded"] .detail-pane:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A player in the right-hand pane is the same content as the full-screen one;
+   it owns the pane and never sits over the list beside it. */
+.app[data-layout="expanded"] .detail-pane .player-sheet-pane {
+  min-height: 100%;
+}
+
+/* The detail's own local facts, not a fabricated Source page. */
+.library-book-detail .library-detail-progress {
+  margin-left: 8px;
+  color: var(--fg-dim);
+  font-size: 13px;
+}

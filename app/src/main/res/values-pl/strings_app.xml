@@ -301,6 +301,7 @@
     <string name="submission_watching_source">Szukamy źródła</string>
 
 
+    <string name="achievements_title">Osiągnięcia</string>
     <!-- #1388 — batch 2 of 3: book screen, reviews, rating, player,
          achievements labels (appended by the batch-2 lane). -->
     <string name="a11y_available_offline">Dostępne offline</string>
@@ -633,6 +634,7 @@
     <plurals name="achievement_books">
         <item quantity="one">Przeczytano %1$d książkę</item>
         <item quantity="few">Przeczytano %1$d książki</item>
+        <item quantity="many">Przeczytano %1$d książek</item>
         <item quantity="other">Przeczytano %1$d książek</item>
     </plurals>
     <string name="achievement_browser_guest">Gość</string>
@@ -670,6 +672,7 @@
     <plurals name="achievement_hours">
         <item quantity="one">Wysłuchano %1$d godzinę</item>
         <item quantity="few">Wysłuchano %1$d godziny</item>
+        <item quantity="many">Wysłuchano %1$d godzin</item>
         <item quantity="other">Wysłuchano %1$d godzin</item>
     </plurals>
     <string name="achievement_in_cycle">W cyklu</string>

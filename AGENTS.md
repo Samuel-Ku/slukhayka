@@ -82,7 +82,7 @@ so the verdict keeps its old timestamp and the gate refuses (#1259). See
 
 The suite runs as **partitions**, one Gradle task each: `:app:testPureJvm`,
 `:app:testRoomNativeSdk35`, `:app:testRoomNativeSdk36`,
-`:app:testRoomNativeDefault`, `:app:testRoomRoBolectricOnly`,
+`:app:testRoomNativeDefault`, `:app:testRoomRobolectricOnly`,
 `:app:testComposeRoborazzi`. A partition task takes no `--tests`; narrowing a
 run means `-Ptest.selectedClasses=<FQCN,...>`.
 

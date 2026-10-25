@@ -198,11 +198,21 @@ describe("#1207 theme.css half of the seam", () => {
   );
   // Rules only: a comment must never be able to satisfy a pin (the seam block
   // above, for one, talks ABOUT `@media` while the sheet has none).
-  const css = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  //
+  // The pins below spell the attribute selector with single quotes and on one
+  // line, while Prettier's CSS printer writes `[data-layout="expanded"]` and
+  // breaks long selector lists over several lines (`singleQuote: false` in
+  // web/.prettierrc.json). Neither is part of the #1207 contract: CSS treats
+  // the quoting and the line breaks as identical. Normalising both here keeps
+  // the seam pinned to the selector MEANING, so a formatter run is not a red
+  // suite and the contract cannot be satisfied by formatting alone either.
+  const css = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\[([a-z-]+)="([^"]*)"\]/gi, "[$1='$2']");
 
   /** Every `selectors { declarations }` rule of the sheet, in file order. */
   const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
-    selectors: match[1]!.trim(),
+    selectors: match[1]!.trim().replace(/\s+/g, " "),
     declarations: match[2]!.trim(),
   }));
   const wide = rules.filter((rule) =>

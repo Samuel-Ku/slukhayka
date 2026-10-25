@@ -833,7 +833,11 @@ class SourceCatalog(
         }
         com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
             com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
-                blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind),
+                blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(
+                    sourceId,
+                    kind,
+                    SourceRegistry.facts(sourceId)?.homeUrl.orEmpty()
+                ),
                 sourceId = sourceId,
                 kind = kind,
                 name = sourceDisplayName(sourceId),
@@ -895,15 +899,22 @@ class SourceCatalog(
             )
         }
         val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
+        // #1238 — the identity and the provenance name the COLLECTION PAGE,
+        // never the page cursor: page 2 is still the same collection, while a
+        // different genre path is a different related collection that must
+        // coexist instead of replacing its sibling.
+        val provenanceUrl = com.slukhayka.audiobooks.data.collective.genreProvenanceUrl(sourceId, genrePath)
         com.slukhayka.audiobooks.data.collective.CollectiveGenreFetch(
             outcome = com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
                 com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
-                    blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind),
+                    blockKey = com.slukhayka.audiobooks.data.collective.collectiveGenreBlockKey(
+                        sourceId,
+                        genrePath
+                    ),
                     sourceId = sourceId,
                     kind = kind,
                     name = sourceDisplayName(sourceId),
-                    provenanceUrl = SourceRegistry.facts(sourceId)?.homeUrl.orEmpty() +
-                        (cursor ?: genrePath),
+                    provenanceUrl = provenanceUrl,
                     cards = page.books.map { book ->
                         com.slukhayka.audiobooks.data.collective.CollectiveBlockCard(
                             sourceId = book.sourceId.ifBlank { sourceId },

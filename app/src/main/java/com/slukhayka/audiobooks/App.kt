@@ -702,6 +702,17 @@ class App : Application() {
      * persisted block answers instantly, and only a lease owner refreshes a
      * stale one through ONE source page.
      */
+    /**
+     * #1238 — the cross-device refresh lease. The transport is null without
+     * Firebase keys: the object then always answers Unavailable, and the lane
+     * degrades to the local stale-while-revalidate behaviour above.
+     */
+    private val collectiveSharedLease: com.slukhayka.audiobooks.data.collective.CollectiveSharedLease by lazy {
+        com.slukhayka.audiobooks.data.collective.CollectiveSharedLease(
+            com.slukhayka.audiobooks.data.collective.FirestoreCollectiveSharedLeaseStore.create(this)
+        )
+    }
+
     val collectiveFeedRefresh: com.slukhayka.audiobooks.data.collective.CollectiveFeedRefresh by lazy {
         com.slukhayka.audiobooks.data.collective.CollectiveFeedRefresh(
             store = com.slukhayka.audiobooks.data.collective.RoomCollectiveFeedBlockStore(
@@ -716,9 +727,11 @@ class App : Application() {
                     sourceCatalog.collectiveBlockFetch(ref.sourceId, ref.kind)
                 }
             },
-            // #527 — the ONE owner that observed the block shares it, so another
-            // install shows it without repeating the genre/catalogue request.
-            onActivated = { block -> collectiveBlockStore?.putBlock(block) }
+            // #1238 — sharing is fenced: the owner publishes under its lease
+            // grant, so a stale owner cannot overwrite the owner that took over.
+            // The old unconditional `putBlock` hook is deliberately NOT wired:
+            // with a lease configured it would bypass the fence.
+            sharedLease = collectiveSharedLease
         )
     }
 

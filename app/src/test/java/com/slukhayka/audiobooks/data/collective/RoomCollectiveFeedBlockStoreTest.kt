@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.db.FeedSnapshotEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -136,5 +137,88 @@ class RoomCollectiveFeedBlockStoreTest {
         store.activate(block())
 
         assertNull(store.active(collectiveBlockKey("sluhayua", CollectiveBlockKind.NEW_ARRIVALS)))
+    }
+
+    private fun collectionBlock(
+        key: String,
+        provenanceUrl: String,
+        title: String,
+        revision: Long = 0L
+    ) = block().copy(
+        blockKey = key,
+        kind = CollectiveBlockKind.COLLECTIONS,
+        provenanceUrl = provenanceUrl,
+        cards = listOf(
+            CollectiveBlockCard("soundbooks", "https://sound-books.net/$title", title, "Автор")
+        ),
+        revision = revision
+    )
+
+    @Test
+    fun `two related collections keep separate Room rows`() = runBlocking {
+        val a = collectiveBlockKey(
+            "soundbooks",
+            CollectiveBlockKind.COLLECTIONS,
+            "https://sound-books.net/collections/do-a"
+        )
+        val b = collectiveBlockKey(
+            "soundbooks",
+            CollectiveBlockKind.COLLECTIONS,
+            "https://sound-books.net/collections/do-b"
+        )
+
+        assertTrue(store.activate(collectionBlock(a, "https://sound-books.net/collections/do-a", "А")))
+        assertTrue(store.activate(collectionBlock(b, "https://sound-books.net/collections/do-b", "Б")))
+
+        assertEquals(listOf("А"), store.active(a)!!.cards.map { it.title })
+        assertEquals(listOf("Б"), store.active(b)!!.cards.map { it.title })
+    }
+
+    @Test
+    fun `a context-bearing key reads the legacy row as its last good block`() = runBlocking {
+        val legacy = collectionBlock(
+            collectiveBlockKey("soundbooks", CollectiveBlockKind.COLLECTIONS),
+            "https://sound-books.net/collections/old",
+            "Легасі"
+        )
+        dao.upsertFeedSnapshot(
+            FeedSnapshotEntity(
+                sourceId = "soundbooks",
+                feedKey = collectiveFeedKey(CollectiveBlockKind.COLLECTIONS),
+                pageCursor = "",
+                fetchedAt = legacy.fetchedAt,
+                cardsJson = CollectiveFeedBlockCodec.encode(legacy)
+            )
+        )
+
+        val contextual = collectiveBlockKey(
+            "soundbooks",
+            CollectiveBlockKind.COLLECTIONS,
+            "https://sound-books.net/collections/do-a"
+        )
+
+        assertEquals(listOf("Легасі"), store.active(contextual)!!.cards.map { it.title })
+    }
+
+    @Test
+    fun `the server revision is recorded without touching cards or version`() = runBlocking {
+        store.activate(block(version = 4L))
+
+        store.recordRevision(key, revision = 7L, expectedVersion = 4L)
+
+        val active = store.active(key)!!
+        assertEquals(7L, active.revision)
+        assertEquals(4L, active.version)
+        assertEquals(listOf("Кобзар"), active.cards.map { it.title })
+    }
+
+    @Test
+    fun `a late revision for an older activation is ignored`() = runBlocking {
+        store.activate(block(version = 4L))
+        store.recordRevision(key, revision = 7L, expectedVersion = 4L)
+
+        store.recordRevision(key, revision = 9L, expectedVersion = 3L)
+
+        assertEquals(7L, store.active(key)!!.revision)
     }
 }

@@ -314,10 +314,15 @@ service cloud.firestore {
     // own order. The allowed-field set is the gate: a query, a cookie/session
     // header, a contributor identity or a track URL can never ride along, and a
     // card list is bounded and non-empty.
+    //
+    // #1238 — `revision` is the SERVER order of the shared lane (the block's
+    // `fetchedAt` stays the observation time). It is optional on create so the
+    // #527 rows and the rules matrix stay valid, but an update may only move it
+    // forward by exactly one step; a rewind is a denial, not a new order.
     function isWellFormedCatalogBlock(d) {
       return d.keys().hasOnly([
           'blockKey', 'sourceId', 'kind', 'name', 'provenanceUrl',
-          'fetchedAt', 'staleAfter', 'version', 'cards'
+          'fetchedAt', 'staleAfter', 'version', 'revision', 'cards'
         ])
         && d.blockKey is string && d.blockKey.size() > 0 && d.blockKey.size() <= 200
         && d.sourceId is string && d.sourceId.size() > 0 && d.sourceId.size() <= 64
@@ -327,13 +332,40 @@ service cloud.firestore {
         && d.fetchedAt is number && d.fetchedAt > 0
         && d.staleAfter is number && d.staleAfter >= d.fetchedAt
         && d.version is number && d.version >= 0
+        && (!('revision' in d) || (d.revision is int && d.revision >= 0))
         && d.cards is list && d.cards.size() > 0 && d.cards.size() <= 100;
+    }
+
+    // #1238 — one device's lease of one block identity. It carries the owner
+    // token and the fence, so it is NOT public: only an authenticated,
+    // App-Checked install may read or write it. The shape gate keeps the token
+    // bounded and the fence/expiry numeric; the conditional publish in the
+    // client transaction is what turns these fields into a fence.
+    function isWellFormedCatalogBlockLease(d) {
+      return d.keys().hasOnly(['blockKey', 'ownerToken', 'fence', 'expiresAt'])
+        && d.blockKey is string && d.blockKey.size() > 0 && d.blockKey.size() <= 200
+        && d.ownerToken is string && d.ownerToken.size() <= 128
+        && d.fence is int && d.fence >= 1
+        && d.expiresAt is number && d.expiresAt >= 0;
     }
 
     match /catalog_blocks/{document} {
       allow read: if true;
-      allow create, update: if isAppCheckValid() && request.auth != null
+      allow create: if isAppCheckValid() && request.auth != null
         && isWellFormedCatalogBlock(request.resource.data);
+      allow update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCatalogBlock(request.resource.data)
+        && (
+          !('revision' in resource.data)
+          || request.resource.data.revision == resource.data.revision + 1
+        );
+      allow delete: if false;
+    }
+
+    match /catalog_block_leases/{document} {
+      allow read: if isAppCheckValid() && request.auth != null;
+      allow create, update: if isAppCheckValid() && request.auth != null
+        && isWellFormedCatalogBlockLease(request.resource.data);
       allow delete: if false;
     }
 

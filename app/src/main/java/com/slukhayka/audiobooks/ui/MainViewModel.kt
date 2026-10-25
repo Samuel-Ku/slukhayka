@@ -3101,8 +3101,12 @@ class MainViewModel @JvmOverloads constructor(
      */
     fun openSourceCategory(sourceId: String, genrePath: String, cursor: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
-            val key = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind)
+            // #1238 — the key names the collection PAGE, so «до A» and «до B»
+            // of one Source coexist instead of overwriting one shared row.
+            val key = com.slukhayka.audiobooks.data.collective.collectiveGenreBlockKey(
+                sourceId,
+                genrePath
+            )
             val block = App.instance.collectiveFeedRefresh.observeExplicit(key) {
                 val fetched = sourceCatalog.collectiveGenreBlockFetch(sourceId, genrePath, cursor)
                 _categoryNextCursor.value = fetched.nextCursor

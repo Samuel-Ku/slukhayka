@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+
+# `core.bare=true` (його ставить інструмент огляду) ламає будь-яку git-команду
+# голим `fatal: this operation must be run in a work tree` — без підказки, що
+# робити, і вже після резервування тікета. Тому перевіряємо найперше (#1447).
+if [ "$(git config --get core.bare 2>/dev/null)" = "true" ] \
+   || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf '%s\n' "FAIL: дерево не є робочим (core.bare=true?). Виправ: git config core.bare false" >&2
+  exit 2
+fi
+
 #
 # Віддає один тікет одному воркеру сварму й повертає результат.
 #
@@ -41,10 +51,6 @@ set -euo pipefail
 # Дерево мусить бути робочим: `core.bare=true` (слід інструментів на кшталт
 # git filter-repo) робить кожну git-команду фатальною, і без цієї перевірки
 # раннер падає невиразно на першому ж кроці.
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf '%s\n' "[swarm] FAIL: дерево не є робочим (git не бачить work tree) — перевір core.bare і git worktree" >&2
-  exit 2
-fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 

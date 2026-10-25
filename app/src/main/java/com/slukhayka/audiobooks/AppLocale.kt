@@ -33,24 +33,32 @@ enum class AppLocale(val tag: String) {
      */
     SYSTEM(""),
     UKRAINIAN("uk"),
-    ENGLISH("en");
+    ENGLISH("en"),
+
+    /**
+     * #1389 — the third batch completed the translation, so Polish is now a
+     * real interface language: it is in [SYSTEM_FOLLOWS] (a Polish device
+     * follows the device) and selectable on the interface-language screen.
+     */
+    POLISH("pl");
 
     companion object {
         /**
          * #1387 — the languages whose resource set is COMPLETE enough for
          * [SYSTEM] to follow the device.
          *
-         * Polish is translated in three sequential batches
-         * (#1387/#1388/#1389) into `values-pl`; until the LAST batch adds `pl`
-         * here (and a `POLISH` entry to this enum, with its row on the
-         * interface-language screen), a Polish-system device must NOT resolve
-         * the `pl` qualifier: a partly translated language shows two languages
-         * on one screen, which is exactly the #1385 defect that made a partial
-         * translation worse than none. This set is the switch, not a comment —
-         * `AppLocaleTest` pins both that `pl` is absent here and that a Polish
-         * device resolves to Ukrainian.
+         * Polish was translated in three sequential batches
+         * (#1387/#1388/#1389) into `values-pl`. `pl` entered this set only with
+         * the LAST batch, after the coverage guard
+         * (`PolishCoverageGuardTest`) proved that every string the app can
+         * reach has a Polish value: a partly translated language shows two
+         * languages on one screen, which is exactly the #1385 defect that made
+         * a partial translation worse than none. This set is the switch, not a
+         * comment — the coverage guard fails if `pl` is here with a missing
+         * line, and `AppLocaleTest` pins that a Polish device now follows
+         * Polish instead of falling back to Ukrainian.
          */
-        val SYSTEM_FOLLOWS: Set<String> = setOf("uk", "en")
+        val SYSTEM_FOLLOWS: Set<String> = setOf("uk", "en", "pl")
 
         /**
          * Unknown or absent stored values follow the system. An EXPLICITLY
@@ -119,11 +127,10 @@ object AppLocaleApplier {
 /**
  * Returns the Activity context localized for [locale]. [AppLocale.SYSTEM]
  * returns [this] unchanged when the device language is one of
- * [AppLocale.SYSTEM_FOLLOWS] — the app follows the device. A device language
- * still being translated (#1387: Polish until #1389) and any concrete locale
- * pin the context (and with it Material + embedded Android controls), so a
- * Polish device never mixes the half-finished `values-pl` set into the
- * Ukrainian interface.
+ * [AppLocale.SYSTEM_FOLLOWS] — the app follows the device, and since #1389
+ * that includes Polish (all three translation batches landed). A concrete
+ * locale pins the context (and with it Material + embedded Android controls),
+ * so an explicitly chosen language never mixes with the device one.
  */
 internal fun Context.withAppLocale(locale: AppLocale): Context {
     val targetTag = when (locale) {

@@ -7,6 +7,7 @@ import com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus
 import com.slukhayka.audiobooks.data.collective.CollectiveBlockKind
 import com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome
 import com.slukhayka.audiobooks.data.collective.classifyCollectiveFailure
+import com.slukhayka.audiobooks.data.collective.collectiveGenreBlockKey
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.source.GenrePage
@@ -171,14 +172,43 @@ class CollectiveBlockFetchTest {
         assertEquals(CollectiveBlockKind.COLLECTIONS, block.kind)
         assertEquals("audiobookmp3", block.sourceId)
         assertEquals("https://audiobook-mp3.com/uk-genre-12-fantastyka", block.provenanceUrl)
+        assertEquals(
+            "the identity names the collection page, not the cursor",
+            collectiveGenreBlockKey("audiobookmp3", "/uk-genre-12-fantastyka"),
+            block.blockKey
+        )
         assertEquals(listOf("Клуб боягузів"), block.cards.map { it.title })
         assertEquals("one page for one action", 1, adapter.genreCalls)
         assertEquals("/uk-genre-12-fantastyka/page/2/", fetch.nextCursor)
+
+        // #1238 — a second related collection of the SAME source gets its own
+        // identity, so opening A and then B does not overwrite A's row.
+        val other = catalog(listOf(adapter))
+            .collectiveGenreBlockFetch("audiobookmp3", "/uk-genre-99-detektyvy")
+        val otherBlock = (other.outcome as CollectiveRefreshOutcome.Success).block
+        assertEquals(
+            "two related collections never share one key",
+            false,
+            otherBlock.blockKey == block.blockKey
+        )
+        assertEquals(
+            collectiveGenreBlockKey("audiobookmp3", "/uk-genre-99-detektyvy"),
+            otherBlock.blockKey
+        )
 
         // The cursor is the NEXT action's call, not an implicit walk.
         val second = catalog(listOf(adapter))
             .collectiveGenreBlockFetch("audiobookmp3", "/uk-genre-12-fantastyka", fetch.nextCursor)
         assertTrue(second.outcome is CollectiveRefreshOutcome.Success)
+        assertEquals(
+            "page 2 is still the same collection identity and provenance",
+            block.blockKey,
+            (second.outcome as CollectiveRefreshOutcome.Success).block.blockKey
+        )
+        assertEquals(
+            block.provenanceUrl,
+            (second.outcome as CollectiveRefreshOutcome.Success).block.provenanceUrl
+        )
         assertNull("the last page has no cursor", second.nextCursor)
 
         // A source without the genre door is an honest empty.

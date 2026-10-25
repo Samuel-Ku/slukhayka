@@ -55,28 +55,139 @@ data class CollectiveBlockCard(
     val coverUrl: String? = null
 )
 
-/** #523 — the Source+kind a stable block key names. */
+/**
+ * #523/#1238 — the Source, the kind and the canonical provenance context a
+ * stable block key names.
+ *
+ * The context is empty only for keys written before #1238 (the #527 wire docs
+ * and Room rows already in the wild). A non-empty context is what keeps two
+ * related collections of ONE Source apart: «до A» and «до B» are different
+ * blocks, not the same row rewritten.
+ */
 data class CollectiveBlockRef(
     val sourceId: String,
-    val kind: CollectiveBlockKind
+    val kind: CollectiveBlockKind,
+    val provenanceContext: String = LEGACY_BLOCK_CONTEXT
 )
 
-/** #523 — the ONE stable, Source-scoped block identity. */
+/** The context of a key written before #1238 (or of a block without provenance). */
+const val LEGACY_BLOCK_CONTEXT: String = ""
+
+/**
+ * #1238 — the canonical provenance context of one URL: the observation page
+ * itself, without the transport noise that would make one page look like two
+ * identities.
+ *
+ * Canonical means deterministic and total: scheme and fragment are dropped,
+ * the authority is lowercased, a default port and a trailing slash go away,
+ * and the key separator `|` is escaped. The path and the query stay — they are
+ * exactly what distinguishes related page A from related page B. A blank URL
+ * yields a blank context (the legacy identity), never an exception.
+ */
+fun canonicalProvenanceContext(url: String): String {
+    val trimmed = url.trim()
+    if (trimmed.isEmpty()) return ""
+    val withoutFragment = trimmed.substringBefore('#')
+    val schemeEnd = withoutFragment.indexOf("://")
+    val rest = if (schemeEnd >= 0) withoutFragment.substring(schemeEnd + 3) else withoutFragment
+    val boundary = rest.indexOfAny(charArrayOf('?', '/'))
+    var authority = (if (boundary >= 0) rest.substring(0, boundary) else rest).lowercase()
+    val pathAndQuery = (if (boundary >= 0) rest.substring(boundary) else "").trimEnd('/')
+    authority = when {
+        authority.endsWith(":80") -> authority.dropLast(3)
+        authority.endsWith(":443") -> authority.dropLast(4)
+        else -> authority
+    }
+    if (authority.isEmpty()) return ""
+    return (authority + pathAndQuery).replace("|", "%7C")
+}
+
+/**
+ * #523 — the legacy, Source-scoped block identity for a producer that has no
+ * provenance URL to name. Kept because the #527 wire docs and Room rows
+ * already use it; new producers should use the provenance-bearing key below.
+ */
 fun collectiveBlockKey(sourceId: String, kind: CollectiveBlockKind): String =
     "$sourceId|${kind.name}"
 
-/** Parses a block key back to its Source+kind; null for anything else. */
-fun parseCollectiveBlockKey(blockKey: String): CollectiveBlockRef? {
-    val separator = blockKey.lastIndexOf('|')
-    if (separator <= 0) return null
-    val sourceId = blockKey.substring(0, separator)
-    val kind = CollectiveBlockKind.entries.firstOrNull { it.name == blockKey.substring(separator + 1) }
-        ?: return null
-    return CollectiveBlockRef(sourceId, kind)
+/**
+ * #1238 — the block identity of one observed provenance URL. This is the key
+ * every new producer should use: the canonical context travels inside the
+ * identity, so a related collection never overwrites its sibling.
+ */
+fun collectiveBlockKey(
+    sourceId: String,
+    kind: CollectiveBlockKind,
+    provenanceUrl: String
+): String {
+    val context = canonicalProvenanceContext(provenanceUrl)
+    return if (context.isEmpty()) {
+        collectiveBlockKey(sourceId, kind)
+    } else {
+        "$sourceId|${kind.name}|$context"
+    }
 }
 
-/** #523 — the `feed_snapshots` feed key one block persists under. */
+/** Parses a block key back to its Source, kind and provenance context. */
+fun parseCollectiveBlockKey(blockKey: String): CollectiveBlockRef? {
+    val parts = blockKey.split('|', limit = 3)
+    if (parts.size < 2) return null
+    val sourceId = parts[0]
+    if (sourceId.isEmpty()) return null
+    val kind = CollectiveBlockKind.entries.firstOrNull { it.name == parts[1] } ?: return null
+    val context = if (parts.size == 3) parts[2] else LEGACY_BLOCK_CONTEXT
+    if (parts.size == 3 && context.isEmpty()) return null
+    return CollectiveBlockRef(sourceId, kind, context)
+}
+
+/** The key of [ref]; the inverse of [parseCollectiveBlockKey]. */
+fun collectiveBlockKey(ref: CollectiveBlockRef): String =
+    if (ref.provenanceContext.isEmpty()) {
+        collectiveBlockKey(ref.sourceId, ref.kind)
+    } else {
+        "${ref.sourceId}|${ref.kind.name}|${ref.provenanceContext}"
+    }
+
+/** #523 — the `feed_snapshots` feed key of a source-scoped block. */
 fun collectiveFeedKey(kind: CollectiveBlockKind): String = "collective-${kind.name.lowercase()}"
+
+/**
+ * #1238 — the `feed_snapshots` feed key of one identity. A context-bearing
+ * block gets a stable short-hash suffix, so its row never collides with its
+ * sibling; the legacy context keeps the #527 key, so an upgraded install still
+ * reads its last good block.
+ */
+fun collectiveFeedKey(ref: CollectiveBlockRef): String =
+    if (ref.provenanceContext.isEmpty()) {
+        collectiveFeedKey(ref.kind)
+    } else {
+        "${collectiveFeedKey(ref.kind)}-${stableContextHash(ref.provenanceContext)}"
+    }
+
+/**
+ * #1238 — the shared document id of one identity. Firestore document ids are
+ * bounded and cannot carry a URL, so the context rides as a stable hash; the
+ * legacy context keeps the #527 id, so existing shared rows stay addressable.
+ */
+fun collectiveBlockDocumentId(ref: CollectiveBlockRef): String =
+    if (ref.provenanceContext.isEmpty()) {
+        "${ref.sourceId}-${ref.kind.name.lowercase()}"
+    } else {
+        "${ref.sourceId}-${ref.kind.name.lowercase()}-${stableContextHash(ref.provenanceContext)}"
+    }
+
+/**
+ * #1238 — a deterministic, bounded FNV-1a (64 bit) digest of the canonical
+ * context. It is NOT a security boundary: it only gives a URL a stable row id.
+ */
+fun stableContextHash(context: String): String {
+    var hash = -0x340d631b7bdddcdbL // 0xcbf29ce484222325
+    for (byte in context.encodeToByteArray()) {
+        hash = hash xor (byte.toLong() and 0xff)
+        hash *= 0x100000001b3L
+    }
+    return java.lang.Long.toHexString(hash).padStart(16, '0')
+}
 
 /** The status of the latest refresh attempt — honest, never a guess. */
 enum class CollectiveAttemptStatus {
@@ -113,7 +224,15 @@ data class CollectiveFeedBlock(
     val fetchedAt: Long,
     val staleAfter: Long,
     val version: Long,
-    val lastAttempt: CollectiveAttempt
+    val lastAttempt: CollectiveAttempt,
+    /**
+     * #1238 — the server revision of the shared row. `0` means "observed
+     * locally, not published yet": [fetchedAt] stays the honest time the
+     * listener's device saw the page, while this number is the SERVER order of
+     * the shared delta, assigned by the conditional publish (never by a device
+     * clock). Legacy #527 rows decode as 0.
+     */
+    val revision: Long = 0L
 ) {
     fun isStale(now: Long): Boolean = now >= staleAfter
 

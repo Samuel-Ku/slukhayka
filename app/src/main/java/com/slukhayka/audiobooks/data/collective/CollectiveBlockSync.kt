@@ -16,9 +16,12 @@ interface CollectiveBlockStore {
     /** Publishes one observed block; a rejected/invalid block is a no-op. */
     suspend fun putBlock(block: CollectiveFeedBlock) = Unit
 
-    /** Bounded ordered remote delta page of blocks. */
+    /** Bounded ordered remote delta page of blocks, ordered by the server revision. */
     suspend fun getBlocksPage(after: CollectiveBlockCursor?, limit: Int): CollectiveBlockPage =
         CollectiveBlockPage(emptyList(), null)
+
+    /** #1238 — one shared row by identity, for a follower awaiting the owner's result. */
+    suspend fun getBlock(blockKey: String): CollectiveFeedBlock? = null
 }
 
 /** The last shared block page fully mirrored locally. */
@@ -39,43 +42,58 @@ class InMemoryCollectiveBlockSyncCursorStore(
     }
 }
 
-/** Durable high-water mark of the shared block lane (own prefs). */
+/**
+ * Durable high-water mark of the shared block lane (own prefs).
+ *
+ * #1238 — the mark is the SERVER revision of the last applied page, not the
+ * observation time. A cursor written by the pre-#1238 code carries only
+ * `fetched_at`; it is treated as ABSENT on purpose: re-reading the bounded few
+ * pages is cheap and safe (activation is idempotent by revision), while
+ * guessing a revision from a device clock would silently skip rows.
+ */
 class SharedPreferencesCollectiveBlockSyncCursorStore(context: Context) : CollectiveBlockSyncCursorStore {
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     override fun load(): CollectiveBlockCursor? {
-        if (!prefs.contains(KEY_FETCHED_AT) || !prefs.contains(KEY_DOCUMENT_ID)) return null
-        val fetchedAt = prefs.getLong(KEY_FETCHED_AT, -1L)
+        if (!prefs.contains(KEY_REVISION) || !prefs.contains(KEY_DOCUMENT_ID)) return null
+        val revision = prefs.getLong(KEY_REVISION, -1L)
         val documentId = prefs.getString(KEY_DOCUMENT_ID, null).orEmpty()
-        return CollectiveBlockCursor(fetchedAt, documentId)
-            .takeIf { it.fetchedAt >= 0L && it.documentId.isNotBlank() }
+        if (revision < 0L || documentId.isBlank()) return null
+        return CollectiveBlockCursor(revision, documentId)
     }
 
     override fun save(cursor: CollectiveBlockCursor) {
-        require(cursor.fetchedAt >= 0L && cursor.documentId.isNotBlank())
+        require(cursor.revision >= 0L && cursor.documentId.isNotBlank())
         check(
             prefs.edit()
-                .putLong(KEY_FETCHED_AT, cursor.fetchedAt)
+                .putLong(KEY_REVISION, cursor.revision)
                 .putString(KEY_DOCUMENT_ID, cursor.documentId)
+                .remove(KEY_LEGACY_FETCHED_AT)
                 .commit()
         ) { "Collective block sync cursor was not persisted" }
     }
 
     companion object {
         internal const val PREFS_NAME = "collective_block_sync_cursor"
-        private const val KEY_FETCHED_AT = "fetched_at"
+        private const val KEY_REVISION = "revision"
         private const val KEY_DOCUMENT_ID = "document_id"
+        private const val KEY_LEGACY_FETCHED_AT = "fetched_at"
     }
 }
 
 /**
- * #527 — mirrors the blocks other installs observed into this install's local
- * snapshot store, so «Огляд» shows a genre/new-arrivals block WITHOUT repeating
- * the genre or catalogue request. A newer observation ([CollectiveFeedBlock.fetchedAt])
- * replaces the local one; an older or empty candidate never does. Best-effort
- * by contract: a failing page read leaves the cursor and the local blocks
- * exactly as they were, and a single bad card never aborts the page.
+ * #527/#1238 — mirrors the blocks other installs observed into this install's
+ * local snapshot store, so «Огляд» shows a genre/new-arrivals block WITHOUT
+ * repeating the genre or catalogue request.
+ *
+ * Ordering is the SERVER revision of the shared row ([CollectiveBlockCursor]).
+ * [CollectiveFeedBlock.fetchedAt] stays the observation time and is only the
+ * tie-breaker for the pre-#1238 rows that all carry revision 0. A shared row
+ * that is not newer never replaces a newer local activation; an empty
+ * candidate never does. Best-effort by contract: a failing page read leaves
+ * the cursor and the local blocks exactly as they were, and a single bad card
+ * never aborts the page.
  */
 class CollectiveBlockSync(
     private val store: CollectiveBlockStore?,
@@ -100,8 +118,7 @@ class CollectiveBlockSync(
             for (block in page.blocks) {
                 val mirrored = runCatching {
                     val existing = local.active(block.blockKey)
-                    val newer = existing == null || block.fetchedAt > existing.fetchedAt
-                    newer && block.cards.isNotEmpty() && local.activate(block)
+                    block.cards.isNotEmpty() && block.isNewerThan(existing) && local.activate(block)
                 }.getOrDefault(false)
                 if (mirrored) applied++
             }

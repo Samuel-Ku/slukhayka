@@ -81,7 +81,10 @@ class PlaybackMeasurementsMigrationTest {
             }
             db.query("PRAGMA user_version").use {
                 check(it.moveToFirst())
-                assertEquals("53→54 виконалась рівно раз", 54, it.getInt(0))
+                // Версія після ВСІХ міграцій — тепер 55 (54->55 повертає
+                // дані, які v1.6 сховав фільтром origin). Тест пінить, що
+                // ланцюг дійшов до останньої версії рівно раз.
+                assertEquals("ланцюг міграцій дійшов до останньої версії", 55, it.getInt(0))
             }
         } finally {
             migrated.close()

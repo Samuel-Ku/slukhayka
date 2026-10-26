@@ -1,16 +1,18 @@
 package com.slukhayka.audiobooks.ui.components
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
 /**
  * ADR-0018 — the canonical NAVIGATION chip: a filled pill with NO outline
@@ -32,15 +34,21 @@ fun NavigationChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+        shape = RoundedCornerShape(percent = 50),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.testTag("navigation_chip_$title")
+        modifier = modifier
+            .height(36.dp)
+            .testTag("navigation_chip_$title")
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-        )
+        Box(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = title,
+                style = PaperInkType.Label,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }

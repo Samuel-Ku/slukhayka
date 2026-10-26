@@ -32,7 +32,7 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.ui.screens.homeFeedContent
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -184,7 +184,7 @@ class HomeFeedOrderSnapshotTest {
     @Test
     fun curated_content_sits_above_the_endless_feed() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
                     val feedItems = feedFlow.collectAsLazyPagingItems()
@@ -297,7 +297,7 @@ class HomeFeedOrderSnapshotTest {
             )
         )
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
                     val feedItems = feedFlow.collectAsLazyPagingItems()

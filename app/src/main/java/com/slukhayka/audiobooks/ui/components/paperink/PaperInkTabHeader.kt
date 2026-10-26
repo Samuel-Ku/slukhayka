@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -47,6 +48,9 @@ fun PaperInkTabHeader(
     modifier: Modifier = Modifier,
     headingTestTag: String? = null,
     compact: Boolean = false,
+    // Optional root actions (refresh, search…) rendered before the gear. The
+    // gear stays the LAST control on every root, so its place never moves.
+    actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Row(
@@ -89,6 +93,7 @@ fun PaperInkTabHeader(
                 color = colorScheme.onSurface,
             )
         }
+        if (actions != null) actions()
         val settingsDescription = stringResource(R.string.a11y_open_settings)
         Box(
             modifier = Modifier

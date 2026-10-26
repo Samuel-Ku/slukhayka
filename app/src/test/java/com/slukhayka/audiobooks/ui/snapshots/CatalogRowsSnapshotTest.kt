@@ -19,7 +19,7 @@ import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.screens.EmptyCatalogState
 import com.slukhayka.audiobooks.ui.screens.HomeHeader
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -59,7 +59,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun row_header() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) { CatalogSurface { AppSectionHeader(title = "Новинки") } }
+            PaperInkTheme(darkTheme = true) { CatalogSurface { AppSectionHeader(title = "Новинки") } }
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/catalog_row_header.png"
@@ -69,7 +69,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun book_card_without_cover() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     PosterCard(title = book.title, coverUrl = book.coverImageUrl, onClick = {})
                 }
@@ -86,7 +86,7 @@ class CatalogRowsSnapshotTest {
     fun book_card_with_duration() {
         val withDuration = book.copy(totalDurationSeconds = 2_548L) // 42 min 28 s
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     PosterCard(
                     title = withDuration.title,
@@ -106,7 +106,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun book_card_unknown_duration_renders_nothing() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     PosterCard(title = book.title, coverUrl = book.coverImageUrl, onClick = {})
                 }
@@ -122,7 +122,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun series_chip_without_cover() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     CycleCard(title = series.title, coverUrl = series.coverImageUrl, onClick = {})
                 }
@@ -136,7 +136,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun empty_catalog_state() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     EmptyCatalogState(onRefreshClick = {}, onImportClick = {})
                 }
@@ -156,7 +156,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun explore_header_withEmptySearch() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     HomeHeader(
                         searchQuery = "",
@@ -175,7 +175,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun explore_header_withTypedQuery() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     HomeHeader(
                         searchQuery = "Шевченко",

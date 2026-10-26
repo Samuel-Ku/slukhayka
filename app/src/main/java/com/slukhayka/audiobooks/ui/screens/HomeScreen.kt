@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
@@ -80,6 +81,7 @@ import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
@@ -737,68 +739,83 @@ fun HomeHeader(
     // empty field leaves Back to the navigation contract.
     // The IME owns the first system Back; only the next one clears the query.
     val keyboardVisible = WindowInsets.isImeVisible
+    val refreshDescription = stringResource(R.string.a11y_refresh_catalogue)
     BackHandler(enabled = searchQuery.isNotEmpty() && !keyboardVisible) { onSearchQueryChange("") }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        AppTabHeader(
-            title = stringResource(R.string.app_name),
-            showBrandMark = true,
-            actions = {
-                // #860 — the gear sits in the SAME place on every root.
-                com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
-                com.slukhayka.audiobooks.ui.components.AppHeaderAction(
-                    icon = Icons.Default.Refresh,
-                    contentDescription = stringResource(R.string.a11y_refresh_catalogue),
-                    onClick = onRefresh,
-                    testTag = "home_refresh"
-                )
-            }
-        )
-
-        Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            label = { Text(searchFieldLabel) },
-            placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
-            trailingIcon = {
-                // The field stays; ✕ only empties it (US-2).
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(
-                        onClick = { onSearchQueryChange("") },
-                        modifier = Modifier.testTag("home_search_clear")
+    // The screen's chrome takes the direction's theme before the un-migrated
+    // rails below do: a root can be migrated in pieces exactly like «Слухати».
+    PaperInkThemedContent {
+        Column(modifier = modifier.fillMaxWidth()) {
+            PaperInkTabHeader(
+                title = stringResource(R.string.nav_explore),
+                onSettingsClick = onOpenSettings,
+                actions = {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onRefresh)
+                            .testTag("home_refresh")
+                            .semantics {
+                                contentDescription = refreshDescription
+                            },
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Clear,
-                            contentDescription = stringResource(R.string.a11y_clear_search)
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp),
                         )
                     }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = AppDimens.PageSides)
-                .testTag("home_search_input"),
-            // #885 (wave 3) — the same pill as «Мої книги»; the two roots had
-            // this one control at 12 dp and 24 dp.
-            shape = RoundedCornerShape(AppDimens.RadiusPill),
-            colors = OutlinedTextFieldDefaults.colors(
-                // MD3: input fills sit on the highest tonal container.
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            singleLine = true
-        )
+                },
+            )
+
+            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceLg))
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                label = { Text(searchFieldLabel) },
+                placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
+                textStyle = PaperInkType.Body,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                trailingIcon = {
+                    // The field stays; ✕ only empties it (US-2).
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onSearchQueryChange("") },
+                            modifier = Modifier.testTag("home_search_clear")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = stringResource(R.string.a11y_clear_search),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = PaperInkDimens.SpacePage)
+                    .heightIn(min = 52.dp)
+                    .testTag("home_search_input"),
+                shape = RoundedCornerShape(PaperInkDimens.RadiusMedium),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                ),
+                singleLine = true
+            )
+        }
     }
 }
 

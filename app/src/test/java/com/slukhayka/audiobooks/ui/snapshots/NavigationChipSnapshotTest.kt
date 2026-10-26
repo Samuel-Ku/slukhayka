@@ -11,7 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import com.slukhayka.audiobooks.ui.screens.CatalogNavRow
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
@@ -44,7 +44,7 @@ class NavigationChipSnapshotTest {
     @Test
     fun navigation_chip_row() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     CatalogNavRow(
                         onTop100Click = {},
@@ -67,7 +67,7 @@ class NavigationChipSnapshotTest {
     fun navigation_chip_tap_forwards() {
         var opened: String? = null
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
                     CatalogNavRow(
                         onTop100Click = { opened = "top100" },

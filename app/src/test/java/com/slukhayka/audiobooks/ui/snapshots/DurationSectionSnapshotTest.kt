@@ -11,7 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.ui.screens.DurationSection
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
@@ -47,7 +47,7 @@ class DurationSectionSnapshotTest {
     @Test
     fun short_row_renders() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface {
                     Column(modifier = Modifier.padding(16.dp)) {
                         DurationSection(
@@ -69,7 +69,7 @@ class DurationSectionSnapshotTest {
     @Test
     fun both_rows_render() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface {
                     Column(modifier = Modifier.padding(16.dp)) {
                         DurationSection(
@@ -91,7 +91,7 @@ class DurationSectionSnapshotTest {
     @Test
     fun hides_when_nothing_is_bucketed() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface {
                     DurationSection(shortBooks = emptyList(), longBooks = emptyList(), onBookClick = {})
                 }
@@ -104,7 +104,7 @@ class DurationSectionSnapshotTest {
     fun tapping_a_card_opens_that_book() {
         var clickedId: String? = null
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface {
                     Column(modifier = Modifier.padding(16.dp)) {
                         DurationSection(

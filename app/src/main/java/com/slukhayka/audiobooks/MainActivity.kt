@@ -1484,7 +1484,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
                                 onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
                             ) }
-                            SelectedTab.EXPLORE ->                        HomeScreen(
+                            // Plan 2026-2027: «Огляд» is the next screen on the
+                            // direction. The header/search/chips are migrated;
+                            // the rails follow while they keep their layout.
+                            SelectedTab.EXPLORE -> PaperInkTheme { HomeScreen(
                                 // #860 — the gear opens Settings from THIS root.
                                 onOpenSettings = {
                                     settingsReturnTab = SelectedTab.EXPLORE
@@ -1522,7 +1525,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 } else {
                                     null
                                 }
-                            )
+                            ) }
                             SelectedTab.LIBRARY -> libraryRootContent()
                             SelectedTab.FRIENDS -> FriendsScreen(
                                 // #916 — the state that EXISTS: the friendship and

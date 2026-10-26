@@ -2378,11 +2378,12 @@ class LibraryImport(
 
     /**
      * Re-scans one previously imported SAF tree (wayfinder #42): walks it,
-     * hashes every stream (no copies — files the library already knows never
-     * touch disk), diffs against the stored chapters by content hash, applies
-     * new files as chapters/books, and reports missing/moved/duplicate files.
-     * The library entry and its private copies survive every outcome
-     * (wayfinder #59): nothing here ever deletes a row or a file.
+     * reads only the files whose SAF metadata is unknown or changed (ADR-0061
+     * §3; an unchanged file keeps its remembered hash and never touches disk),
+     * diffs against the stored chapters by content hash, applies new files as
+     * chapters/books, and reports missing/moved/duplicate files. The library
+     * entry and its private copies survive every outcome (wayfinder #59):
+     * nothing here ever deletes a row or a file.
      */
     suspend fun rescanLocalFolder(treeUri: String): RescanReport = withContext(Dispatchers.IO) {
         val ctx = context ?: return@withContext RescanReport(treeUri)
@@ -2395,12 +2396,13 @@ class LibraryImport(
     }
 
     /**
-     * Testable core of the re-scan (wayfinder #42): hashes every stream (no
-     * copies — files the library already knows never touch disk), diffs
-     * against the stored chapters by content hash, applies new files as
-     * chapters/books, and reports missing/moved/duplicate files. The library
-     * entry and its private copies survive every outcome (wayfinder #59):
-     * nothing here ever deletes a row or a file.
+     * Testable core of the re-scan (wayfinder #42): reads only the files whose
+     * SAF metadata is unknown or changed (ADR-0061 §3; an unchanged file keeps
+     * its remembered hash and never touches disk), diffs against the stored
+     * chapters by content hash, applies new files as chapters/books, and
+     * reports missing/moved/duplicate files. The library entry and its private
+     * copies survive every outcome (wayfinder #59): nothing here ever deletes a
+     * row or a file.
      */
     suspend fun rescanAudioEntries(entries: List<LocalAudioEntry>, treeUri: String): RescanReport =
         withContext(Dispatchers.IO) {
@@ -2409,10 +2411,13 @@ class LibraryImport(
             localWriteMutex.withLock {
                 cleanupStaging()
                 // ADR-0061 §3 — a file is NOT read when the folder memory knows
-                // its current hash AND (size, last-modified) still match. Memory
-                // written by the previous format (v2), or a path whose owners
-                // disagree on the current hash, is read once and then rewritten
-                // with today's observation — so the next scan can reuse it.
+                // its current hash AND (size, last-modified) still match. A miss
+                // (v2 memory, a changed timestamp, owners that disagree, or a
+                // provider that reports no metadata at all) always reads — and
+                // the fresh observation below usually lets the NEXT scan reuse
+                // the hash. It is not a guarantee: memory of a tombstoned owner
+                // is never rewritten, and a provider with no size/timestamp
+                // keeps missing.
                 val memory = LocalFolderMemory(dao).read(treeUri)
                 val remembered = mergedRecords(memory)
                 val scanned = entries.mapNotNull { entry ->

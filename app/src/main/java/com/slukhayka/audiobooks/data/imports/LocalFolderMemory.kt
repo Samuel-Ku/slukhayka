@@ -98,6 +98,7 @@ internal class LocalFolderMemory(private val dao: AudiobookDao) {
                     } else {
                         LocalFileRecord(
                             hashes = previous.hashes + record.hashes,
+                            lastHash = agree(previous.lastHash, record.lastHash),
                             sizeBytes = agree(previous.sizeBytes, record.sizeBytes),
                             lastModifiedMs = agree(previous.lastModifiedMs, record.lastModifiedMs)
                         )

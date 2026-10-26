@@ -228,6 +228,48 @@ class LocalSourceAppendTest {
         assertEquals(2, chapters(bookId).size)
     }
 
+    @Test
+    fun `a changed file is read once and then reused by its new metadata`() = runBlocking {
+        importKobzar("01.mp3" to 1, "02.mp3" to 2)
+        val opens = mutableMapOf<String, Int>()
+        fun counted(name: String, byte: Int, size: Int, lastModified: Long) = LocalAudioEntry(
+            fileName = name,
+            parentFolder = "Кобзар",
+            sizeBytes = size.toLong(),
+            lastModifiedMs = lastModified
+        ) {
+            opens[name] = (opens[name] ?: 0) + 1
+            ByteArrayInputStream(ByteArray(size) { byte.toByte() })
+        }
+
+        // 1) Перший скан після імпорту: метадані ще невідомі — читає обидва файли
+        //    і записує їхні (розмір, дата).
+        imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 1, 16, 100L), counted("02.mp3", 2, 17, 200L)),
+            TREE
+        )
+
+        // 2) 01.mp3 змінився (інший вміст, розмір і дата): читається лише він;
+        //    незмінений 02.mp3 не відкривається взагалі.
+        opens.clear()
+        val changed = imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 17, 200L)),
+            TREE
+        )
+        assertEquals("незмінений файл не мусить відкриватися", null, opens["02.mp3"])
+        assertTrue("змінений файл мусить прочитатися", (opens["01.mp3"] ?: 0) >= 1)
+        assertEquals(1, changed.newChapters)
+
+        // 3) Після зміни обидва шляхи мають поточний хеш і свіжі метадані —
+        //    наступний скан не читає жодного файла.
+        opens.clear()
+        imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 17, 200L)),
+            TREE
+        )
+        assertEquals("після перезапису метаданих читати нічого", emptyMap<String, Int>(), opens)
+    }
+
     companion object {
         private const val TREE = "content://tree/books"
     }

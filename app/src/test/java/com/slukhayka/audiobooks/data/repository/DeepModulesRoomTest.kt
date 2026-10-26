@@ -1891,12 +1891,16 @@ class DeepModulesRoomTest {
         assertEquals(1, chapters.size)
         assertEquals(book.id, chapters.first().bookId)
         assertEquals(0, chapters.first().chapterIndex)
-        // ADR-0007: the physical copy lives on the local source's TRACK.
+        // ADR-0061: the document URI IS the track's address; no copy exists.
         val tracks = dao.getTracksForBookSync(book.id)
         assertEquals(1, tracks.size)
         val track = tracks.first()
-        assertTrue("local file must exist", File(track.localFilePath!!).exists())
-        assertEquals(track.localFilePath, track.url)
+        assertEquals("content://test/Моя книга.mp3", track.url)
+        assertNull("жодної приватної копії", track.localFilePath)
+        assertTrue(
+            "local_imports мусить лишитися порожнім",
+            File(context.filesDir, "local_imports").listFiles().isNullOrEmpty()
+        )
 
         // The imported book shows in the downloaded set.
         val downloaded = dao.getDownloadedAudiobooks().first()
@@ -1929,13 +1933,12 @@ class DeepModulesRoomTest {
         val rootBook = books.first { it.title == "Лісова пісня" }
         val historyBook = books.first { it.title == "Історія" }
 
-        // Folder book: two chapters, all downloaded, pointing at copied files
-        // (ADR-0007: the copies live on the TRACK rows).
+        // Folder book: two chapters, addresses are document URIs (ADR-0061).
         assertEquals(2, dao.getChaptersListForBook(folderBook.id).size)
         val folderTracks = dao.getTracksForBookSync(folderBook.id)
         assertEquals(2, folderTracks.size)
-        assertTrue(folderTracks.all { it.isDownloaded && it.localFilePath != null })
-        assertTrue(folderTracks.all { File(it.localFilePath!!).exists() })
+        assertTrue(folderTracks.all { it.isDownloaded && it.localFilePath == null })
+        assertTrue(folderTracks.all { it.url.startsWith("content://") })
 
         // Root book: single chapter, title = file name (T7 behaviour).
         assertEquals(1, dao.getChaptersListForBook(rootBook.id).size)
@@ -2004,21 +2007,25 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `importAudioEntries preserves the original file extension`() = runBlocking {
+    fun `importAudioEntries keeps each document address and its extension`() = runBlocking {
         val mods = modules()
 
         mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("Розділ.ogg", "Книга", uri = "content://test/local") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("Глава.m4a", "Книга", uri = "content://test/local") { ByteArrayInputStream(ByteArray(9)) }
+                LocalAudioEntry("Розділ.ogg", "Книга", uri = "content://tree/Книга/Розділ.ogg") {
+                    ByteArrayInputStream(ByteArray(8))
+                },
+                LocalAudioEntry("Глава.m4a", "Книга", uri = "content://tree/Книга/Глава.m4a") {
+                    ByteArrayInputStream(ByteArray(9))
+                }
             )
         )
 
         val book = dao.getAllAudiobooks().first().first { it.title == "Книга" }
-        // ADR-0007: the copied files live on the TRACK rows.
-        val paths = dao.getTracksForBookSync(book.id).mapNotNull { it.localFilePath }
-        assertTrue(paths.any { it.endsWith(".ogg") })
-        assertTrue(paths.any { it.endsWith(".m4a") })
+        // ADR-0061: the address is the SAF document itself.
+        val urls = dao.getTracksForBookSync(book.id).map { it.url }
+        assertTrue(urls.any { it.endsWith(".ogg") })
+        assertTrue(urls.any { it.endsWith(".m4a") })
     }
 
     // ---------------------------------------------------------------------
@@ -2168,11 +2175,11 @@ class DeepModulesRoomTest {
 
         val book = dao.getAllAudiobooks().first().first { it.title == "Кобзар" }
         assertEquals(3, dao.getChaptersListForBook(book.id).size)
-        // ADR-0007: the rebuilt local copies live on the TRACK rows.
+        // ADR-0061: new tracks point at document URIs; no copies are rebuilt.
         val tracks = dao.getTracksForBookSync(book.id)
         assertEquals(3, tracks.size)
-        assertTrue(tracks.all { it.isDownloaded && it.localFilePath != null })
-        assertTrue(tracks.all { File(it.localFilePath!!).exists() })
+        assertTrue(tracks.all { it.isDownloaded && it.localFilePath == null })
+        assertTrue(tracks.all { it.url.startsWith("content://") })
     }
 
     @Test
@@ -2273,9 +2280,8 @@ class DeepModulesRoomTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `importLocalAudioStream twice with identical bytes returns the existing book and copies once`() = runBlocking {
+    fun `importLocalAudioStream twice with identical bytes returns the existing book without a second address`() = runBlocking {
         val mods = modules()
-        val filesDir = File(context.filesDir, "local_imports")
 
         val first = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)), "content://test/Книга.mp3")
         val second = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)), "content://test/Книга.mp3")
@@ -2283,7 +2289,13 @@ class DeepModulesRoomTest {
         assertEquals("duplicate import must return the same book", first.id, second.id)
         assertEquals(1, dao.getAllAudiobooks().first().size)
         assertEquals(1, dao.getChaptersListForBook(first.id).size)
-        assertEquals("only one copy may exist on disk", 1, filesDir.listFiles()?.size ?: 0)
+        val tracks = dao.getTracksForBookSync(first.id)
+        assertEquals("the duplicate never adds a second track", 1, tracks.size)
+        assertEquals("content://test/Книга.mp3", tracks.single().url)
+        assertTrue(
+            "nothing was copied for either import",
+            File(context.filesDir, "local_imports").listFiles().isNullOrEmpty()
+        )
     }
 
     @Test

@@ -1630,7 +1630,9 @@ private fun BookProgressLine(
             }
             progress.bookmarkMarkers.forEach { marker ->
                 val color = if (marker <= progress.bookFraction) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)
-                drawCircle(color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
+                // A read-only ruler must not offer a slider-looking dot: the
+                // bookmark is a small tick on the line, not a thumb.
+                drawCircle(color, radius = 2.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
             }
         }
         if (bookmarkTarget != null) {

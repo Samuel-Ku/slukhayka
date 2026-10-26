@@ -131,6 +131,17 @@ class OrphanBookmarkTest {
 
         // A REAL book row, so `getBookSync` resolves and the chapter check is
         // the one under test (the orphan path is covered above).
+        //
+        // The blank [sourceUrl] is load-bearing, not cosmetic: a book that
+        // claims a DIRECT source and has zero chapters sends
+        // `SourceCatalog.getPlayableChapters` into its own-source fallback —
+        // `bookAdapter.fetchBookPage(sourceUrl)`, a LIVE page request. In a
+        // unit test there is no network, so that call never answers and the
+        // coroutine in `jumpToBookmark` never reaches the branch that sets the
+        // message; `awaitBookmarkMessage` then times out and the tap looks
+        // silent for a reason that has nothing to do with chapters. A local
+        // import is also the honest shape of this case: a book with no
+        // chapters at all is one the app never materialized from a page.
         runBlocking {
             com.slukhayka.audiobooks.data.db.AudiobookDatabase.getDatabase(app)
                 .audiobookDao()
@@ -144,7 +155,7 @@ class OrphanBookmarkTest {
                         description = "",
                         coverDrawableRes = 0,
                         genre = "",
-                        sourceUrl = "https://sound-books.net/x"
+                        sourceUrl = ""
                     )
                 )
             )

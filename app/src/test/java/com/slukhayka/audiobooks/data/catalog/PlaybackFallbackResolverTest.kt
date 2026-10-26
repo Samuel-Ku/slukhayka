@@ -56,7 +56,7 @@ class PlaybackFallbackResolverTest {
         val resolver = PlaybackFallbackResolver(
             allBooks = { error("No library-wide lookup for an existing Edition source") },
             chaptersFor = { error("No network resolution") },
-            sameEditionChapters = { local },
+            sameEditionChapters = { listOf(local) },
         )
 
         val match = resolver.resolve(book(), 1, 0, "soundbooks")

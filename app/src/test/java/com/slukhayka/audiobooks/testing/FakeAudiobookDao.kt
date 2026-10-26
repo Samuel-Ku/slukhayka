@@ -1771,6 +1771,16 @@ class FakeAudiobookDao(
     override suspend fun allReadthroughs(): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
         readthroughs.value.values.toList()
 
+    /**
+     * #1469 — mirrors the DAO's `SELECT DISTINCT workId … WHERE finishedAt IS
+     * NOT NULL`: the state is read through [map], not snapshotted, so a pass
+     * finished during a test moves the «Прослухані» shelf in the same run.
+     */
+    override fun observeFinishedWorkIds(): Flow<List<String>> =
+        readthroughs.map { passes ->
+            passes.values.filter { it.finishedAt != null }.map { it.workId }.distinct()
+        }
+
     /** #1174 — the abandoned AUDIO passes, exactly as the Room query reads them. */
     override fun observeAbandonedAudioPasses(): Flow<List<String>> =
         readthroughs.map { rows ->

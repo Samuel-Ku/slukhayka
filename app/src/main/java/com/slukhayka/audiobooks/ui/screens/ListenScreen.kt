@@ -46,7 +46,10 @@ import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
+import com.slukhayka.audiobooks.ui.components.formatRowDuration
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkBookRow
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkHeroCard
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkPosterCard
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
@@ -534,11 +537,14 @@ private fun ListenShelfRow(
 }
 
 /**
- * spec-28 (#191) — one Listen block as a horizontal shelf of compact posters
- * ([PosterCard] in a LazyRow), replacing the old full-width vertical
- * rows. No default play triangle: tapping a poster opens the book page (the
- * hero card is the resume CTA); the Listen-only «Не цікаво» dismiss stays on
- * each poster.
+ * spec-28 (#191) — one Listen block as a horizontal shelf of compact posters,
+ * now on the «Папір і голос» card: 132×198 cover, UI-sans title, 3 dp progress
+ * and the «слухаєш» pill. No one-tap play triangle (ADR-0018): the hero is the
+ * resume CTA, a poster opens the book page.
+ *
+ * The reversible «Не цікаво» action stays, but it is NOT a cross over the
+ * artwork (the reference design removed that): it is a quiet 32 dp target at
+ * the end of the meta line, named after the book for a screen reader.
  */
 @Composable
 fun ListenBlockShelf(
@@ -550,25 +556,45 @@ fun ListenBlockShelf(
     // shelf keeps the bare canonical card.
     captionFor: ((LibraryBook) -> String?)? = null
 ) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.testTag("listen_block_shelf")
-    ) {
-        // Ключ не має бути порожнім: дві книжки з порожнім id валять список
-        // («Key "" was already used»). Індекс гарантує унікальність.
-        itemsIndexed(books, key = { index, entry -> entry.book.id.ifBlank { "shelf-$index" } }) { _, entry ->
-            PosterCard(
-                book = entry.book,
-                onClick = { onBookClick(entry.book.id) },
-                onNotInterested = { onNotInterested(entry.book.id) },
-                // US-3 (spec-28 #199): the card's hairline is fed by the
-                // REAL listening percent the library module computed from the
-                // playback-progress rows — a started book shows the line, an
-                // unstarted one keeps a clean cover.
-                progress = entry.percent,
-                caption = captionFor?.invoke(entry)
-            )
+    PaperInkThemedContent {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.testTag("listen_block_shelf")
+        ) {
+            // Ключ не має бути порожнім: дві книжки з порожнім id валять список
+            // («Key "" was already used»). Індекс гарантує унікальність.
+            itemsIndexed(books, key = { index, entry -> entry.book.id.ifBlank { "shelf-$index" } }) { _, entry ->
+                val book = entry.book
+                val progressDescription = entry.percent
+                    .takeIf { it > 0f }
+                    ?.let { percent -> stringResource(R.string.a11y_listened_percent, (percent * 100).toInt()) }
+                val availability = if (book.isDownloaded || book.sourceUrl.isBlank()) {
+                    stringResource(R.string.a11y_available_offline)
+                } else {
+                    stringResource(R.string.a11y_connection_required)
+                }
+                val workState = listOfNotNull(progressDescription, availability).joinToString(". ")
+                val caption = captionFor?.invoke(entry)
+                    ?: entry.totalDurationSeconds
+                        .takeIf { it > 0L }
+                        ?.let { formatRowDuration(it) }
+                        .orEmpty()
+                PaperInkPosterCard(
+                    title = book.title,
+                    author = book.displayAuthor,
+                    meta = caption,
+                    progress = entry.percent,
+                    onClick = { onBookClick(book.id) },
+                    onNotInterested = { onNotInterested(book.id) },
+                    dismissContentDescription = stringResource(
+                        R.string.a11y_not_interested_work,
+                        book.title
+                    ),
+                    stateDescription = workState,
+                    testTag = "compact_book_${book.id}",
+                )
+            }
         }
     }
 }
@@ -664,83 +690,33 @@ fun RecentlyListenedRow(
 ) {
     val totalSec = book.totalDurationSeconds
     val positionSec = cumulativePositionSeconds.coerceAtLeast(0L)
-    // Duration-less local imports: keep the bar empty instead of a full bar.
+    // #1353 — duration-less local imports keep a bare position and no bar.
     val hasDuration = totalSec > 0
-    val progressFraction = if (hasDuration) (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f) else 0f
+    val progressFraction = if (hasDuration) {
+        (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val chapterPosition = stringResource(
+        R.string.listen_chapter_position,
+        progress.currentChapterIndex + 1,
+        MainViewModel.formatTime(positionSec)
+    )
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .semantics(mergeDescendants = true) { }
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .testTag("recently_listened_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                com.slukhayka.audiobooks.ui.components.BookCoverImage(
-                    book = book,
-                    semantics = com.slukhayka.audiobooks.ui.components.BookCoverSemantics.Decorative,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusInner)),
-                    contentScale = ContentScale.Crop
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = book.title,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = stringResource(
-                            R.string.listen_chapter_position,
-                            progress.currentChapterIndex + 1,
-                            MainViewModel.formatTime(positionSec)
-                        ),
-                        // Spec-22 T2: tabular figures — the live position ticks
-                        // without shifting the row's digit widths.
-                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(
-                    onClick = onPlayClick,
-                    modifier = Modifier
-                        .size(AppDimens.TouchTarget)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = stringResource(R.string.a11y_play_work, book.title),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            if (hasDuration) {
-                LinearProgressIndicator(
-                    progress = { progressFraction },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                    color = MaterialTheme.colorScheme.secondary,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant
-                )
-            } else {
-                // #1353 — same rule as the hero: no bar without a known total.
-                Spacer(modifier = Modifier.fillMaxWidth().height(4.dp))
-            }
-        }
+    PaperInkThemedContent {
+        PaperInkBookRow(
+            title = book.title,
+            author = book.displayAuthor,
+            series = chapterPosition,
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 5.dp)
+                .testTag("recently_listened_${book.id}"),
+            progress = progressFraction.takeIf { hasDuration },
+            showDivider = false,
+            onClick = onClick,
+            onPlayClick = onPlayClick,
+            playContentDescription = stringResource(R.string.a11y_play_work, book.title)
+        )
     }
 }
 

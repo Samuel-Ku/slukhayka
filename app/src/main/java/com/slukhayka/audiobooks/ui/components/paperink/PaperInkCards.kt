@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
@@ -38,7 +39,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -300,11 +303,23 @@ fun PaperInkPosterCard(
     progress: Float? = null,
     nowPlaying: Boolean = false,
     onClick: (() -> Unit)? = null,
+    onNotInterested: (() -> Unit)? = null,
+    dismissContentDescription: String? = null,
+    stateDescription: String? = null,
+    testTag: String? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Column(
         modifier = modifier
             .width(PaperInkDimens.CoverShelfWidth)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
+            .then(
+                if (stateDescription != null) {
+                    Modifier.semantics { this.stateDescription = stateDescription }
+                } else {
+                    Modifier
+                },
+            )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Box(
@@ -353,13 +368,42 @@ fun PaperInkPosterCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = meta,
-            style = PaperInkType.Micro,
-            color = colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = meta,
+                style = PaperInkType.Micro,
+                color = colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (onNotInterested != null) {
+                // The dismissed action stays OFF the artwork (the reference
+                // design has no «×» over the cover), but it remains a real
+                // visible target with its contextual name.
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onNotInterested)
+                        .then(
+                            if (dismissContentDescription != null) {
+                                Modifier.semantics { contentDescription = dismissContentDescription }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
+        }
         if (progress != null && progress > 0f) {
             Spacer(modifier = Modifier.height(8.dp))
             PaperInkProgress(progress = progress)
@@ -377,12 +421,14 @@ fun PaperInkBookRow(
     title: String,
     author: String,
     series: String,
-    progress: Float,
-    remainingLabel: String,
-    sourceLabel: String,
     modifier: Modifier = Modifier,
+    progress: Float? = null,
+    remainingLabel: String? = null,
+    sourceLabel: String? = null,
     showDivider: Boolean = true,
     onClick: (() -> Unit)? = null,
+    onPlayClick: (() -> Unit)? = null,
+    playContentDescription: String? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Column(modifier = modifier.fillMaxWidth()) {
@@ -427,17 +473,48 @@ fun PaperInkBookRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                PaperInkProgress(progress = progress)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = remainingLabel,
-                        style = PaperInkType.Timer,
-                        color = colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
+                if (progress != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PaperInkProgress(progress = progress)
+                }
+                if (remainingLabel != null || sourceLabel != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = remainingLabel.orEmpty(),
+                            style = PaperInkType.Timer,
+                            color = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (sourceLabel != null) {
+                            Text(text = sourceLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            if (onPlayClick != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(PaperInkDimens.TouchTarget)
+                        .clip(CircleShape)
+                        .background(colorScheme.primaryContainer)
+                        .clickable(onClick = onPlayClick)
+                        .then(
+                            if (playContentDescription != null) {
+                                Modifier.semantics { contentDescription = playContentDescription }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(22.dp),
                     )
-                    Text(text = sourceLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)
                 }
             }
         }

@@ -30,6 +30,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -178,7 +179,12 @@ fun PaperInkNavigationBar(
                                 .width(50.dp)
                                 .height(30.dp)
                                 .clip(CircleShape)
-                                .background(if (selected) colorScheme.primaryContainer else colorScheme.background),
+                                .background(
+                                    // Unselected tabs carry no pill: a tonal
+                                    // box on the same ground would read as a
+                                    // shadow the direction does not use.
+                                    if (selected) colorScheme.primaryContainer else Color.Transparent,
+                                ),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(

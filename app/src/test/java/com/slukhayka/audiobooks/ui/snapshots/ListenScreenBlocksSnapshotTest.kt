@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
 import com.slukhayka.audiobooks.testing.TestDataFactory
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer

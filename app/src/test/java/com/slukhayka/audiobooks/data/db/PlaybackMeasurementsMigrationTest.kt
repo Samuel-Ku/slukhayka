@@ -84,7 +84,7 @@ class PlaybackMeasurementsMigrationTest {
                 // Версія після ВСІХ міграцій — тепер 55 (54->55 повертає
                 // дані, які v1.6 сховав фільтром origin). Тест пінить, що
                 // ланцюг дійшов до останньої версії рівно раз.
-                assertEquals("ланцюг міграцій дійшов до останньої версії", 55, it.getInt(0))
+                assertEquals("ланцюг міграцій дійшов до останньої версії", 56, it.getInt(0))
             }
         } finally {
             migrated.close()
@@ -171,7 +171,7 @@ class PlaybackMeasurementsMigrationTest {
     private fun openCurrent(context: Context, name: String) = Room.databaseBuilder(
         context, AudiobookDatabase::class.java, name
     )
-        .addMigrations(AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55)
+        .addMigrations(AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55, AudiobookDatabase.MIGRATION_55_56)
         .allowMainThreadQueries()
         .build()
 }

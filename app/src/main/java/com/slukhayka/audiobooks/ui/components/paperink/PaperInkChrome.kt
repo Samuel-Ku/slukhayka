@@ -148,7 +148,9 @@ fun PaperInkNavigationBar(
             val selected = index == selectedIndex
             Column(
                 modifier = Modifier
-                    .weight(1f)
+                    // Intrinsic width, not weight(1/4): at a 200 % font scale
+                    // «Огляд» is wider than a quarter of a 320 dp bar, and an
+                    // equal slot would clip the one word it cannot wrap.
                     .selectable(
                         selected = selected,
                         role = Role.Tab,

@@ -198,11 +198,28 @@ describe("#1207 theme.css half of the seam", () => {
   );
   // Rules only: a comment must never be able to satisfy a pin (the seam block
   // above, for one, talks ABOUT `@media` while the sheet has none).
-  const css = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  //
+  // Attribute selectors are normalized to ONE spelling before anything is
+  // matched. A CSS attribute selector may be quoted either way and the sheet
+  // now writes `.app[data-layout="expanded"]` while the pins below spell the
+  // same selector with single quotes — an equivalent selector, not a different
+  // contract. Comparing the raw text made a pure re-quoting of the stylesheet
+  // red the whole seam (#1463: five pins fell with `expected '' to contain
+  // '--list-column-min: 320px'`), which pinned the punctuation instead of the
+  // layout. The contract stays fully checkable: every expectation below still
+  // names the selector it needs, only the quote character is made irrelevant.
+  const css = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(\[[a-z-]+=)"([^"]*)"/g, "$1'$2'");
 
   /** Every `selectors { declarations }` rule of the sheet, in file order. */
   const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
-    selectors: match[1]!.trim(),
+    // Runs of whitespace in a selector are one space to CSS, and the sheet
+    // wraps its long grid selector across lines (`.surface` ends one line,
+    // `.card-list:…` opens the next). Collapsing them keeps a selector
+    // readable to a human from being unreadable to a pin — the same class of
+    // punctuation-over-meaning failure as the quoting above (#1463).
+    selectors: match[1]!.trim().replace(/\s+/g, " "),
     declarations: match[2]!.trim(),
   }));
   const wide = rules.filter((rule) =>

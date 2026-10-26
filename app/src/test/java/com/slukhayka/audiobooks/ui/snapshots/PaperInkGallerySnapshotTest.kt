@@ -138,6 +138,7 @@ class PaperInkGallerySnapshotTest {
                 progress = 0.28f,
                 isPlaying = true,
                 onPlayPauseClick = {},
+                playContentDescription = "Пауза: Трохи ненависті",
             )
             PaperInkNavigationBar(
                 items = navItems,

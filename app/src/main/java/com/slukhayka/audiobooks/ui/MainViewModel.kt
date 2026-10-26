@@ -1942,7 +1942,7 @@ class MainViewModel @JvmOverloads constructor(
             val track = playable.getOrNull(freshIndex)?.track
             when (
                 SmartRetryPolicy.decide(
-                    localFileReady = SmartRetryPolicy.localAddressReady(track?.localFilePath, track?.url),
+                    localAddressReady = SmartRetryPolicy.localAddressReady(track?.localFilePath, track?.url),
                     canReResolve = smartRetryMemo.canAttempt(bookId)
                 )
             ) {
@@ -4735,6 +4735,10 @@ class MainViewModel @JvmOverloads constructor(
                 }
             }
         }
+        // The readiness probe opens every local document until one fails; on the
+        // main thread that is one binder round-trip per track per emission, so
+        // the whole transform runs on IO — only the resulting State is observed.
+        .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**

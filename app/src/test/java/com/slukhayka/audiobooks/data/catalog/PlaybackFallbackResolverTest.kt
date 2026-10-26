@@ -32,6 +32,41 @@ class PlaybackFallbackResolverTest {
     }
 
     @Test
+    fun `a by-reference local chapter is a valid same-narration fallback`() = runTest {
+        val local = listOf(
+            SourceCatalog.PlayableChapter(
+                chapter = ChapterEntity(
+                    id = "self-ch0",
+                    bookId = "self",
+                    chapterIndex = 0,
+                    title = "Розділ 1",
+                    durationSeconds = 60L,
+                ),
+                track = SourceTrackEntity(
+                    id = "local_tr_1",
+                    sourceId = "local",
+                    trackIndex = 0,
+                    url = "content://tree/books/0.mp3",
+                    localFilePath = null,
+                    isDownloaded = true,
+                ),
+                sourceId = "local",
+            )
+        )
+        val resolver = PlaybackFallbackResolver(
+            allBooks = { error("No library-wide lookup for an existing Edition source") },
+            chaptersFor = { error("No network resolution") },
+            sameEditionChapters = { local },
+        )
+
+        val match = resolver.resolve(book(), 1, 0, "soundbooks")
+
+        assertEquals("local", match?.sourceId)
+        assertEquals("content://tree/books/0.mp3", match?.url)
+        assertNull("ADR-0061: копії немає — адреса і є локатором", match?.localFilePath)
+    }
+
+    @Test
     fun `same Edition candidates cannot return the failed source a refusal or the notice`() = runTest {
         val notice = chapters("self", "audiobookmp3", 1, "example.com").map {
             it.copy(track = it.track!!.copy(url = "https://reasd.org/notice/4read-notice.mp3"))

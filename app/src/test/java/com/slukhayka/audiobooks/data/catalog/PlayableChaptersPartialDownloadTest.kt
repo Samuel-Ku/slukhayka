@@ -36,10 +36,11 @@ import java.io.File
  * anywhere stays honestly unavailable (`track = null`) — never an empty
  * URI to the engine, never another narration or source.
  *
- * The local verdict rides the ONE threshold (#471) —
- * [SmartRetryPolicy.localFileReady] — so a stub file (< [SmartRetryPolicy.LOCAL_MIN_BYTES])
- * counts exactly as "not on disk". Books with NO local files keep the
- * full-remote selection unchanged.
+ * The local verdict rides the ONE address rule (#471, ADR-0061) —
+ * [SmartRetryPolicy.localAddressReady]: a stub file (< [SmartRetryPolicy.LOCAL_MIN_BYTES])
+ * counts exactly as "not on disk", and a by-reference track's SAF document URI
+ * counts as local. Books with NO local addresses keep the full-remote
+ * selection unchanged.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -284,7 +285,6 @@ class PlayableChaptersPartialDownloadTest {
     }
 
     // ------------------------------------------------------------------
-    // (a) Partial coverage → local chapters play from LOCAL; chapters    // ------------------------------------------------------------------
     // (a) Partial coverage → local chapters play from LOCAL; chapters
     //     without a copy STREAM from the same source's remote tracks (#505
     //     revises #472: presence of local files must not block streaming).

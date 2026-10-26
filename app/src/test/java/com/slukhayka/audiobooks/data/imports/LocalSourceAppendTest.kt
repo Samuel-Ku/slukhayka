@@ -229,8 +229,8 @@ class LocalSourceAppendTest {
     }
 
     @Test
-    fun `a changed file is read once and then reused by its new metadata`() = runBlocking {
-        importKobzar("01.mp3" to 1, "02.mp3" to 2)
+    fun `a changed file is re-read and then reused by its new metadata`() = runBlocking {
+        importKobzar("01.mp3" to 1, "02.mp3" to 2) // обидва по 16 байт — як у скані
         val opens = mutableMapOf<String, Int>()
         fun counted(name: String, byte: Int, size: Int, lastModified: Long) = LocalAudioEntry(
             fileName = name,
@@ -242,29 +242,32 @@ class LocalSourceAppendTest {
             ByteArrayInputStream(ByteArray(size) { byte.toByte() })
         }
 
-        // 1) Перший скан після імпорту: метадані ще невідомі — читає обидва файли
-        //    і записує їхні (розмір, дата).
+        // 1) Перший скан: метадані ще невідомі — читає обидва файли по одному разу.
         imports().rescanAudioEntries(
-            listOf(counted("01.mp3", 1, 16, 100L), counted("02.mp3", 2, 17, 200L)),
+            listOf(counted("01.mp3", 1, 16, 100L), counted("02.mp3", 2, 16, 200L)),
             TREE
         )
+        assertEquals("перший скан мусить прочитати обидва файли", mapOf("01.mp3" to 1, "02.mp3" to 1), opens)
 
         // 2) 01.mp3 змінився (інший вміст, розмір і дата): читається лише він;
-        //    незмінений 02.mp3 не відкривається взагалі.
+        //    незмінений 02.mp3 не відкривається взагалі. Змінений файл сьогодні
+        //    відкривається двічі — хеш і копія нового файла; після T1-кроку-2
+        //    (запис за посиланням) число стане 1, і тест це покаже.
         opens.clear()
         val changed = imports().rescanAudioEntries(
-            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 17, 200L)),
+            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 16, 200L)),
             TREE
         )
         assertEquals("незмінений файл не мусить відкриватися", null, opens["02.mp3"])
-        assertTrue("змінений файл мусить прочитатися", (opens["01.mp3"] ?: 0) >= 1)
+        assertEquals("змінений файл читається: хеш + копія", 2, opens["01.mp3"])
         assertEquals(1, changed.newChapters)
+        assertEquals("старий вміст 01.mp3 зник із теки", 1, changed.missingFiles)
 
         // 3) Після зміни обидва шляхи мають поточний хеш і свіжі метадані —
         //    наступний скан не читає жодного файла.
         opens.clear()
         imports().rescanAudioEntries(
-            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 17, 200L)),
+            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 16, 200L)),
             TREE
         )
         assertEquals("після перезапису метаданих читати нічого", emptyMap<String, Int>(), opens)

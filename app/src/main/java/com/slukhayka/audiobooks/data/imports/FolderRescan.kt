@@ -16,8 +16,8 @@ package com.slukhayka.audiobooks.data.imports
  * wayfinder #59), moved files (same bytes, different name — the private copy
  * is still valid, report only), duplicates (bytes already in another book —
  * never copied). Pure JVM, no Android, no I/O: the caller decides which
- * streams must be read (ADR-0061 §3 — unchanged files keep their remembered
- * hash) and feeds [RescanFile]s.
+ * streams must be read (ADR-0061 §3 — a file with matching metadata and a
+ * known current hash keeps its remembered hash) and feeds [RescanFile]s.
  */
 object FolderRescan {
 

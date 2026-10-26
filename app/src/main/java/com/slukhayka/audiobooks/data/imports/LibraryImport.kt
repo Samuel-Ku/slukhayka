@@ -2378,9 +2378,11 @@ class LibraryImport(
 
     /**
      * Re-scans one previously imported SAF tree (wayfinder #42): walks it,
-     * reads only the files whose SAF metadata is unknown or changed (ADR-0061
-     * §3; an unchanged file keeps its remembered hash and never touches disk),
-     * diffs against the stored chapters by content hash, applies new files as
+     * reads only the files whose SAF metadata is unknown or changed, or whose
+     * current hash the memory cannot agree on (ADR-0061 §3; a file with
+     * matching metadata and a known current hash keeps its remembered hash and
+     * never touches disk), diffs against the stored chapters by content hash,
+     * applies new files as
      * chapters/books, and reports missing/moved/duplicate files. The library
      * entry and its private copies survive every outcome (wayfinder #59):
      * nothing here ever deletes a row or a file.
@@ -2397,9 +2399,11 @@ class LibraryImport(
 
     /**
      * Testable core of the re-scan (wayfinder #42): reads only the files whose
-     * SAF metadata is unknown or changed (ADR-0061 §3; an unchanged file keeps
-     * its remembered hash and never touches disk), diffs against the stored
-     * chapters by content hash, applies new files as chapters/books, and
+     * SAF metadata is unknown or changed, or whose current hash the memory
+     * cannot agree on (ADR-0061 §3; a file with matching metadata and a known
+     * current hash keeps its remembered hash and never touches disk), diffs
+     * against the stored chapters by content hash, applies new files as
+     * chapters/books, and
      * reports missing/moved/duplicate files. The library entry and its private
      * copies survive every outcome (wayfinder #59): nothing here ever deletes a
      * row or a file.

@@ -1672,7 +1672,8 @@ class SourceCatalog(
                         // [SmartRetryPolicy.localFileReady] buildMediaItem and
                         // the heal gate apply, so source ordering can never
                         // disagree with what the engine would actually play.
-                        track.isDownloaded && SmartRetryPolicy.localFileReady(track.localFilePath)
+                        track.isDownloaded &&
+                            SmartRetryPolicy.localAddressReady(track.localFilePath, track.url)
                     }
                 )
             }
@@ -1706,7 +1707,7 @@ class SourceCatalog(
         val localReadySource = if (applyLocalLock && preferred == null) {
             playbackOrder.firstOrNull { source ->
                 tracksBySource[source].orEmpty().any { track ->
-                    SmartRetryPolicy.localFileReady(track.localFilePath)
+                    SmartRetryPolicy.localAddressReady(track.localFilePath, track.url)
                 }
             }
         } else {
@@ -1734,8 +1735,9 @@ class SourceCatalog(
             tracksBySource[source].orEmpty().map { source to it }
         }
         fun resolveTrack(index: Int): Pair<SourceEntity?, SourceTrackEntity?> {
-            lockedTracks.firstOrNull { it.trackIndex == index && SmartRetryPolicy.localFileReady(it.localFilePath) }
-                ?.let { return localReadySource to it }
+            lockedTracks.firstOrNull {
+                it.trackIndex == index && SmartRetryPolicy.localAddressReady(it.localFilePath, it.url)
+            }?.let { return localReadySource to it }
             lockedTracks.firstOrNull { it.trackIndex == index && it.url?.startsWith("http") == true }
                 ?.let { return localReadySource to it }
             fallbackTracks.firstOrNull { (_, track) -> track.trackIndex == index && track.url?.startsWith("http") == true }

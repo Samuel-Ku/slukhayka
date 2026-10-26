@@ -28,6 +28,27 @@ class SmartRetryPolicyTest {
         assertTrue(SmartRetryPolicy.localFileReady(file.absolutePath))
     }
 
+    // --- (a.1) ADR-0061: a SAF document URI is a local address too ---------
+
+    @Test
+    fun `a document uri counts as a local address without any copy`() {
+        assertTrue(SmartRetryPolicy.isLocalDocumentAddress("content://tree/books/01.mp3"))
+        assertFalse(SmartRetryPolicy.isLocalDocumentAddress("https://example.com/01.mp3"))
+        assertFalse(SmartRetryPolicy.isLocalDocumentAddress(null))
+        assertFalse(SmartRetryPolicy.isLocalDocumentAddress(""))
+    }
+
+    @Test
+    fun `a track is local when its file exists or its address is a document`() {
+        val file = tmp.newFile("ready.mp3")
+        file.writeBytes(ByteArray(512))
+
+        assertTrue(SmartRetryPolicy.localAddressReady(file.absolutePath, "content://tree/books/01.mp3"))
+        assertTrue(SmartRetryPolicy.localAddressReady(null, "content://tree/books/01.mp3"))
+        assertFalse(SmartRetryPolicy.localAddressReady(null, "https://example.com/01.mp3"))
+        assertFalse(SmartRetryPolicy.localAddressReady("/nonexistent/missing.mp3", "https://example.com/01.mp3"))
+    }
+
     @Test
     fun `a missing or empty local path never counts as local`() {
         assertFalse(SmartRetryPolicy.localFileReady(null))

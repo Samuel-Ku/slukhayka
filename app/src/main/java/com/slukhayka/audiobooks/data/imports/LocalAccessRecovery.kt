@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.imports
 
+import com.slukhayka.audiobooks.player.SmartRetryPolicy
+
 /**
  * #1230 — the ONE recovery language for «аудіо книги більше не читається».
  * The same seam is what #1185/T2 («тека недоступна» + «відновити доступ»)
@@ -62,6 +64,40 @@ object LocalAccessRecovery {
                 add(Action.SOURCE_WATCH)
             }
         }
+    }
+
+    /**
+     * The stored address of one local track: a copied file (legacy imports and
+     * downloads) and/or the SAF document URI a by-reference import wrote
+     * (ADR-0061 — then it is the track's only address).
+     */
+    data class LocalTrackAddress(val localFilePath: String?, val url: String)
+
+    /**
+     * #1185/T2 — the recovery state of the open book, from its stored rows.
+     * [isDocumentReadable] is the caller's REAL verdict on a SAF document URI:
+     * a revoked grant or a dead provider makes the local audio unreadable, so
+     * the panel must say «тека недоступна» and offer «відновити доступ» —
+     * trusting the `content://` scheme alone would hide exactly that case.
+     */
+    fun stateOf(
+        localBook: Boolean,
+        hasKnownFolder: Boolean,
+        localTracks: List<LocalTrackAddress>,
+        isLocalFileReady: (String?) -> Boolean,
+        isDocumentReadable: (String) -> Boolean,
+        otherPlayableSource: Boolean
+    ): State {
+        val localFilesUnreadable = localTracks.any { track ->
+            !isLocalFileReady(track.localFilePath) &&
+                !(SmartRetryPolicy.isLocalDocumentAddress(track.url) && isDocumentReadable(track.url!!))
+        }
+        return State(
+            localBook = localBook,
+            hasKnownFolder = hasKnownFolder,
+            localFilesUnreadable = localFilesUnreadable,
+            otherPlayableSource = otherPlayableSource
+        )
     }
 
     /** One stored physical track of the Edition, identified by its bytes. */

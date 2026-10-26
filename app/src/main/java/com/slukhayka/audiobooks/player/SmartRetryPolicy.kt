@@ -71,6 +71,23 @@ object SmartRetryPolicy {
     }
 
     /**
+     * ADR-0061 — whether a track's [url] is a SAF document URI, i.e. a local
+     * address with no private copy behind it. The check is the scheme only:
+     * whether the grant still resolves is the engine's verdict, and a dead
+     * document surfaces as the honest playback failure (T2's «відновити
+     * доступ»), never as a silent network switch.
+     */
+    fun isLocalDocumentAddress(url: String?): Boolean = url?.startsWith("content://") == true
+
+    /**
+     * Whether a track can play LOCALLY: a real copied file (legacy imports and
+     * downloads) or a by-reference document URI. One shared verdict for the
+     * catalogue pairing, the player's local branch and the retry policy.
+     */
+    fun localAddressReady(localFilePath: String?, url: String?): Boolean =
+        localFileReady(localFilePath) || isLocalDocumentAddress(url)
+
+    /**
      * The distinct BROWSER-mode source ids of a book, in the given order —
      * the explicit browser doors of the honest failure. DIRECT and UNKNOWN
      * sources never get a door: they are re-resolved, not browsed, and the

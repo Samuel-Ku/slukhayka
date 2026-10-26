@@ -968,7 +968,7 @@ class AudioPlayerManager(
                 // #471: the local-file verdict is one shared decision
                 // ([SmartRetryPolicy.localFileReady]) — the retry policy can
                 // never disagree with what the engine actually plays.
-                val isLocal = SmartRetryPolicy.localFileReady(currentTrack?.localFilePath)
+                val isLocal = SmartRetryPolicy.localAddressReady(currentTrack?.localFilePath, currentTrack?.url)
                 _playerState.value = _playerState.value.copy(
                     isBuffering = false,
                     durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
@@ -1165,7 +1165,7 @@ class AudioPlayerManager(
      */
     private fun isNetworkStream(track: SourceTrackEntity?): Boolean {
         if (track == null) return false
-        val playsLocally = SmartRetryPolicy.localFileReady(track.localFilePath)
+        val playsLocally = SmartRetryPolicy.localAddressReady(track.localFilePath, track.url)
         return !playsLocally && track.url?.startsWith("http", ignoreCase = true) == true
     }
 
@@ -1708,7 +1708,7 @@ class AudioPlayerManager(
         // AND no remote URL) never reaches the engine: an empty URI loops
         // ExoPlayer on FILE_NOT_FOUND. Publish an honest UNAVAILABLE state;
         // an explicit Play has already armed one bounded recovery pass.
-        val hasLocal = SmartRetryPolicy.localFileReady(track?.localFilePath)
+        val hasLocal = SmartRetryPolicy.localAddressReady(track?.localFilePath, track?.url)
         if (track == null || (!hasLocal && track.url.isNullOrBlank())) {
             Log.w("AudioPlayer", "No playable locator for chapter $chapterIndex")
             reportPlaybackFailure(

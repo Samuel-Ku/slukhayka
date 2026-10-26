@@ -188,13 +188,26 @@ fun PaperInkNavigationBar(
                                 modifier = Modifier.size(23.dp),
                             )
                         }
-                        Text(
-                            text = item.label,
-                            style = PaperInkType.Micro,
-                            color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            textAlign = TextAlign.Center,
-                        )
+                        val metrics = androidx.compose.ui.platform.LocalDensity.current
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            // Chrome micro-copy is capped: the four Ukrainian
+                            // labels are a navigation aid, not reading content,
+                            // and an uncapped 22 sp label cannot fit a 320 dp
+                            // bar without clipping. The tab still has its icon
+                            // and its full TalkBack name.
+                            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
+                                density = metrics.density,
+                                fontScale = metrics.fontScale.coerceAtMost(1.3f),
+                            ),
+                        ) {
+                            Text(
+                                text = item.label,
+                                style = PaperInkType.Micro,
+                                color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     }
                 }
             }

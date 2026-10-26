@@ -1470,6 +1470,15 @@ private fun DualProgress(
         }
         // #292: drawStopIndicator = {} removes the M3 stop dot that users
         // confused with a bookmark marker.
+        //
+        // M3's custom Track carries its OWN colours parameter (defaulting to
+        // the theme primary), so the slider's colours must be handed to both —
+        // otherwise the thumb follows the lamp while the track stays verdigris.
+        val chapterSliderColors = SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.tertiary,
+            activeTrackColor = MaterialTheme.colorScheme.tertiary,
+            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+        )
         Slider(
             value = progress.chapterFraction,
             onValueChange = onSeek,
@@ -1480,14 +1489,11 @@ private fun DualProgress(
                     stateDescription = chapterTimeDescription
                 }
                 .testTag("player_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.tertiary,
-                activeTrackColor = MaterialTheme.colorScheme.tertiary,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            ),
+            colors = chapterSliderColors,
             track = { sliderState ->
                 SliderDefaults.Track(
                     sliderState = sliderState,
+                    colors = chapterSliderColors,
                     drawStopIndicator = {}
                 )
             }
@@ -1508,6 +1514,11 @@ private fun BookProgressTrack(
     onShowAllBookmarks: () -> Unit
 ) {
     val active = MaterialTheme.colorScheme.tertiary
+    val sliderColors = SliderDefaults.colors(
+        thumbColor = active,
+        activeTrackColor = active,
+        inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+    )
     val activeMarker = MaterialTheme.colorScheme.onTertiary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
@@ -1526,14 +1537,11 @@ private fun BookProgressTrack(
                     stateDescription = timeDescription
                 }
                 .testTag("book_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = active,
-                activeTrackColor = active,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            ),
+            colors = sliderColors,
             track = { sliderState ->
                 SliderDefaults.Track(
                     sliderState = sliderState,
+                    colors = sliderColors,
                     drawStopIndicator = {}
                 )
             }

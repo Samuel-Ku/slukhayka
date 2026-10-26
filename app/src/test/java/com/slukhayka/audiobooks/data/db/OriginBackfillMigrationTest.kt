@@ -119,7 +119,7 @@ class OriginBackfillMigrationTest {
         legacy.close()
 
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
-            .addMigrations(AudiobookDatabase.MIGRATION_54_55)
+            .addMigrations(AudiobookDatabase.MIGRATION_54_55, AudiobookDatabase.MIGRATION_55_56)
             .allowMainThreadQueries().build()
         try {
             val db = migrated.openHelper.writableDatabase

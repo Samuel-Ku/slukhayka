@@ -171,7 +171,7 @@ class PlaybackMeasurementsMigrationTest {
     private fun openCurrent(context: Context, name: String) = Room.databaseBuilder(
         context, AudiobookDatabase::class.java, name
     )
-        .addMigrations(AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55)
+        .addMigrations(AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55, AudiobookDatabase.MIGRATION_55_56)
         .allowMainThreadQueries()
         .build()
 }

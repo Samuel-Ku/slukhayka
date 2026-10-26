@@ -156,12 +156,10 @@ class PlayerAccessibilityTest {
     }
 
     @Test
-    fun bookAndChapterSlidersStayDistinctHonestAndAdjustable() {
+    fun chapterSeekStaysAdjustableAndTheBookRulerStaysReadOnly() {
         var chapterSeek = -1f
-        var bookSeek = -1f
         setPlayerContent(
             onSeek = { chapterSeek = it },
-            onBookSeek = { bookSeek = it }
         )
 
         composeTestRule.onNodeWithTag("player_progress_slider")
@@ -174,7 +172,7 @@ class PlayerAccessibilityTest {
             )
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
             .performSemanticsAction(SemanticsActions.SetProgress) { it(0.25f) }
-        composeTestRule.onNodeWithTag("book_progress_slider")
+        composeTestRule.onNodeWithTag("book_progress_line")
             .assertContentDescriptionEquals("Позиція у книзі")
             .assert(
                 SemanticsMatcher.expectValue(
@@ -182,8 +180,9 @@ class PlayerAccessibilityTest {
                     "15:20 із 33:00"
                 )
             )
-            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
-            .performSemanticsAction(SemanticsActions.SetProgress) { it(0.75f) }
+            // The reference player has ONE seek: the chapter. The book ruler is
+            // read-only, so a screen reader must not be offered SetProgress.
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress).not())
         composeTestRule.onNodeWithTag("book_progress_markers", useUnmergedTree = true)
             .assert(
                 SemanticsMatcher.expectValue(
@@ -199,13 +198,12 @@ class PlayerAccessibilityTest {
             .assert(
                 SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion).not()
             )
-        composeTestRule.onNodeWithTag("book_progress_slider")
+        composeTestRule.onNodeWithTag("book_progress_line")
             .assert(
                 SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion).not()
             )
 
         assertEquals(0.25f, chapterSeek, 0.001f)
-        assertEquals(0.75f, bookSeek, 0.001f)
     }
 
     @Test
@@ -232,7 +230,7 @@ class PlayerAccessibilityTest {
                     "Тривалість невідома"
                 )
             )
-        composeTestRule.onNodeWithTag("book_progress_slider")
+        composeTestRule.onNodeWithTag("book_progress_line")
             .assert(
                 SemanticsMatcher.expectValue(
                     SemanticsProperties.StateDescription,

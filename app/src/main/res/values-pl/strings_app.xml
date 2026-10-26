@@ -576,7 +576,7 @@
     <string name="player_feedback_timer_minutes">Wyłącznik na %1$d min</string>
     <string name="player_find_another_source">Znajdź w innym źródle</string>
     <string name="player_narrated_by">Czyta %1$s</string>
-    <string name="player_now_playing">TERAZ GRA</string>
+    <string name="player_now_playing">Teraz gra</string>
     <string name="player_problem_report_body_note">Te pola są widoczne przed wysłaniem. Nic nie jest wysyłane automatycznie.</string>
     <string name="player_problem_report_close">Zamknij</string>
     <string name="player_problem_report_share">Udostępnij</string>

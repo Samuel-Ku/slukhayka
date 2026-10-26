@@ -191,7 +191,7 @@
     <string name="source_audio_refusal_title">Аудіо джерел</string>
     <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
     <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
-    <string name="player_now_playing">ЗАРАЗ ЗВУЧИТЬ</string>
+    <string name="player_now_playing">Зараз звучить</string>
     <string name="player_favorite_add">Додати в обране</string>
     <string name="player_favorite_remove">Прибрати з обраного</string>
     <string name="timer_off">Вимкнено</string>

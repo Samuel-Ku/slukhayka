@@ -139,52 +139,64 @@ fun PaperInkNavigationBar(
     modifier: Modifier = Modifier,
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    Row(
+    // Four labels at 200 % do not fit one 320 dp row («Слухати» alone is ~90 dp
+    // and a single word cannot wrap). Above 160 % the bar becomes two rows of
+    // two, growing in height instead of clipping the labels — the accessible
+    // answer for a bar, unlike shrinking the reader's text.
+    val perRow = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.6f) {
+        2
+    } else {
+        items.size
+    }
+    androidx.compose.foundation.layout.Column(
         modifier = modifier.fillMaxWidth().heightIn(min = 64.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalArrangement = Arrangement.Center,
     ) {
-        items.forEachIndexed { index, item ->
-            val selected = index == selectedIndex
-            Column(
-                modifier = Modifier
-                    // Intrinsic width, not weight(1/4): at a 200 % font scale
-                    // «Огляд» is wider than a quarter of a 320 dp bar, and an
-                    // equal slot would clip the one word it cannot wrap.
-                    .selectable(
-                        selected = selected,
-                        role = Role.Tab,
-                        onClick = { onSelect(index) },
-                    )
-                    .then(if (item.testTag != null) Modifier.testTag(item.testTag) else Modifier)
-                    .padding(vertical = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+        items.withIndex().chunked(perRow).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(50.dp)
-                        .height(30.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) colorScheme.primaryContainer else colorScheme.background),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = null,
-                        tint = if (selected) colorScheme.onPrimaryContainer else colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(23.dp),
-                    )
+                row.forEach { (index, item) ->
+                    val selected = index == selectedIndex
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .selectable(
+                                selected = selected,
+                                role = Role.Tab,
+                                onClick = { onSelect(index) },
+                            )
+                            .then(if (item.testTag != null) Modifier.testTag(item.testTag) else Modifier)
+                            .padding(vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(50.dp)
+                                .height(30.dp)
+                                .clip(CircleShape)
+                                .background(if (selected) colorScheme.primaryContainer else colorScheme.background),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = null,
+                                tint = if (selected) colorScheme.onPrimaryContainer else colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(23.dp),
+                            )
+                        }
+                        Text(
+                            text = item.label,
+                            style = PaperInkType.Micro,
+                            color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
-                Text(
-                    text = item.label,
-                    style = PaperInkType.Micro,
-                    color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
-                    // A 200 % font scale must wrap, not clip: the bar is allowed
-                    // to grow with its labels (a clipped label is an unreadable one).
-                    maxLines = 2,
-                    textAlign = TextAlign.Center,
-                )
             }
         }
     }

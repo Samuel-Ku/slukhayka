@@ -52,7 +52,7 @@ class LocalSourceAppendTest {
     private fun imports() = LibraryImport(dao, context, emptyList())
 
     private fun entry(name: String, byte: Int, folder: String = "Кобзар") =
-        LocalAudioEntry(name, folder) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        LocalAudioEntry(name, folder, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
 
     private suspend fun importKobzar(vararg files: Pair<String, Int>): String {
         imports().importAudioEntries(

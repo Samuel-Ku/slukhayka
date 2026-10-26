@@ -104,7 +104,7 @@ class AchievementImportProvenanceTest {
     }
     @Test fun `new explicit local and submitted books have recorded intent without invented playback`() = verify { db,context ->
         val imports=LibraryImport(db.audiobookDao(),context,emptyList())
-        val local=imports.importLocalAudioStream("Особиста книга.mp3",byteArrayOf(1,2,3).inputStream())
+        val local=imports.importLocalAudioStream("Особиста книга.mp3",byteArrayOf(1,2,3).inputStream(),"content://test/Особиста книга.mp3")
         val preview=imports.importWatchingTelegram("https://t.me/books/1","Книга з допису","Автор",null,null,null)
         val youtube=imports.importSubmittedYouTube("https://www.youtube.com/watch?v=6XIPkMFZf-0",
             """{"id":"6XIPkMFZf-0","title":"Книга слухача","formats":[]}""","UC-listener")

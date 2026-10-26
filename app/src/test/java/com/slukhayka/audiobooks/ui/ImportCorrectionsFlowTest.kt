@@ -23,7 +23,7 @@ class ImportCorrectionsFlowTest {
     @get:Rule val compose = createComposeRule()
     @Test fun `a folder without a display name needs a confirmed book title before import`() {
         var reads = 0
-        val file = LocalAudioEntry("Назва яку не слід вгадувати.mp3", null) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        val file = LocalAudioEntry("Назва яку не слід вгадувати.mp3", null, uri = "content://test/local") { reads++; ByteArrayInputStream(byteArrayOf(1)) }
         var plan by mutableStateOf(ImportPlanner.buildPlan(SourceRef.Folder("content://tree", grouping = LocalFolderGrouping.ONE_BOOK), listOf(file)))
         var confirmed: ImportPlan? = null
         compose.setContent { AudiobookTheme {
@@ -44,7 +44,7 @@ class ImportCorrectionsFlowTest {
     }
 
     private fun validPlan(): ImportPlan {
-        val file = LocalAudioEntry("00.mp3", null) { ByteArrayInputStream(byteArrayOf(1)) }
+        val file = LocalAudioEntry("00.mp3", null, uri = "content://test/local") { ByteArrayInputStream(byteArrayOf(1)) }
         return ImportPlanner.editBook(
             ImportPlanner.buildPlan(
                 SourceRef.Folder("content://tree", grouping = LocalFolderGrouping.ONE_BOOK),
@@ -90,7 +90,7 @@ class ImportCorrectionsFlowTest {
 
     @Test fun `planned merge requires an explicit target even when titles match and restores focus`() {
         var reads = 0
-        fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder, uri = "content://test/local") { reads++; ByteArrayInputStream(byteArrayOf(1)) }
         var draft = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), listOf(file("00.mp3"), file("01.mp3", "A"), file("01.mp3", "B")))
         draft = ImportPlanner.editBook(draft, "folder:A", title = "Поезії", author = "Автор A")
         draft = ImportPlanner.editBook(draft, "folder:B", title = "Поезії", author = "Автор B", narrator = "Диктор B")
@@ -129,7 +129,7 @@ class ImportCorrectionsFlowTest {
 
     @Test fun `changing folder mode asks before discarding merged corrections and restores focus on cancel`() {
         var reads = 0
-        fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        fun file(name: String, folder: String? = null) = LocalAudioEntry(name, folder, uri = "content://test/local") { reads++; ByteArrayInputStream(byteArrayOf(1)) }
         var draft = ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), listOf(file("00.mp3"), file("01.mp3", "Інша"), file("02.mp3", "Інша")))
         draft = ImportPlanner.editBook(draft, "folder:Інша", title = "Моя папка", author = "Автор")
         draft = ImportPlanner.splitBook(draft, "folder:Інша", 1)
@@ -171,8 +171,8 @@ class ImportCorrectionsFlowTest {
 
     @Test fun `folder mode groups only direct files and stays a draft until confirmation`() {
         var reads = 0
-        val files = listOf("03.mp3", "01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, null) { reads++; ByteArrayInputStream(byteArrayOf(1)) } } +
-            LocalAudioEntry("01.mp3", "Інша") { reads++; ByteArrayInputStream(byteArrayOf(2)) }
+        val files = listOf("03.mp3", "01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, null, uri = "content://test/local") { reads++; ByteArrayInputStream(byteArrayOf(1)) } } +
+            LocalAudioEntry("01.mp3", "Інша", uri = "content://test/local") { reads++; ByteArrayInputStream(byteArrayOf(2)) }
         var plan by mutableStateOf(ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), files))
         val unrelated = plan.books.single { it.id == "folder:Інша" }
         var confirmed: ImportPlan? = null
@@ -199,7 +199,7 @@ class ImportCorrectionsFlowTest {
 
     @Test fun `preview edits all metadata and splits without reading or importing audio`() {
         var streamReads = 0
-        val files = listOf("01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, "Кобзар") { streamReads++; ByteArrayInputStream(byteArrayOf(1)) } }
+        val files = listOf("01.mp3", "02.mp3").map { name -> LocalAudioEntry(name, "Кобзар", uri = "content://test/local") { streamReads++; ByteArrayInputStream(byteArrayOf(1)) } }
         var plan by mutableStateOf(ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), files))
         var confirmed: ImportPlan? = null
         compose.setContent {

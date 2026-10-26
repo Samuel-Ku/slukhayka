@@ -58,7 +58,7 @@ class LocalSourceAtomicityTest {
     private fun stagingDir() = File(context.filesDir, LibraryImport.LOCAL_STAGING_DIR)
 
     private fun entry(name: String, byte: Int, folder: String? = null) =
-        LocalAudioEntry(name, folder) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        LocalAudioEntry(name, folder, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
 
     /**
      * The real Room transaction seam, with an optional injected failure on the
@@ -90,7 +90,7 @@ class LocalSourceAtomicityTest {
         com.slukhayka.audiobooks.data.listening.ListeningStateStore(dao).updateProgress(prior.id, 0, 17L)
         val listening = dao.getPlaybackProgressSync(prior.id)
         val priorCopy = libraryDir().listFiles()!!.single()
-        val unreadable = LocalAudioEntry("03.mp3", "A") { throw java.io.IOException("unreadable fixture") }
+        val unreadable = LocalAudioEntry("03.mp3", "A", uri = "content://test/local") { throw java.io.IOException("unreadable fixture") }
         val entries = listOf(entry("01.mp3", 1, "A"), entry("02.mp3", 2, "A"), unreadable,
             entry("04.mp3", 9, "A"), entry("01.mp3", 5, "B"))
         val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree/partial-write"), entries)
@@ -119,7 +119,7 @@ class LocalSourceAtomicityTest {
         val progress = dao.getPlaybackProgressSync(existing.id)
         val committedCopies = libraryDir().listFiles()!!.toSet()
         for (merge in listOf(false, true)) {
-            val cancelled = LocalAudioEntry("03.mp3", "Кобзар") { throw kotlinx.coroutines.CancellationException("cancel plan copy") }
+            val cancelled = LocalAudioEntry("03.mp3", "Кобзар", uri = "content://test/local") { throw kotlinx.coroutines.CancellationException("cancel plan copy") }
             var plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree/cancel-plan"), listOf(entry("02.mp3", 2, "Кобзар"), cancelled),
                 listOf(ImportPlanner.ExistingWork(existing.id, existing.title, existing.mergeKey.orEmpty())))
             if (merge) plan = ImportPlanner.acceptMerge(plan, plan.books.single().id)
@@ -140,7 +140,7 @@ class LocalSourceAtomicityTest {
         val committedCopies = libraryDir().listFiles()!!.toSet()
         fun cancelling(name: String, byte: Int): LocalAudioEntry {
             var reads = 0
-            return LocalAudioEntry(name, "Кобзар") {
+            return LocalAudioEntry(name, "Кобзар", uri = "content://test/local") {
                 reads++
                 if (reads == 2) throw kotlinx.coroutines.CancellationException("cancel second copy")
                 ByteArrayInputStream(ByteArray(16) { byte.toByte() })
@@ -175,7 +175,7 @@ class LocalSourceAtomicityTest {
     @Test
     fun `a source changed between hashing and copying is skipped without a book or private copy`() = runBlocking {
         var reads = 0
-        val changing = LocalAudioEntry("01.mp3", "Кобзар") {
+        val changing = LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") {
             reads++
             ByteArrayInputStream(ByteArray(16) { reads.toByte() })
         }

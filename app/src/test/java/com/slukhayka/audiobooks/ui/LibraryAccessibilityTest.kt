@@ -285,7 +285,7 @@ class LibraryAccessibilityTest {
         val preview = MainViewModel.ImportPreviewState(
             plan = ImportPlanner.buildPlan(
                 SourceRef.Files(listOf("content://library-preview/01.mp3")),
-                listOf(LocalAudioEntry("01.mp3", null) { error("Preview must not open audio") })
+                listOf(LocalAudioEntry("01.mp3", null, uri = "content://test/local") { error("Preview must not open audio") })
             ),
             treeUri = "content://library-preview"
         )

@@ -86,6 +86,7 @@ import com.slukhayka.audiobooks.data.listening.knownBookTotalSeconds
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.slukhayka.audiobooks.ui.theme.TabularTimerStyle
 
 /** Values shared by the visual progress treatment and its unit tests. */
@@ -350,6 +351,7 @@ fun PlayerScreen(
     // above it), so LocalContentColor would otherwise stay at its framework
     // default (BLACK) and every IconButton/Icon without an explicit tint
     // would render near-invisible black glyphs on the dark backdrop.
+    PaperInkTheme(darkTheme = true) {
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         PlayerModalUnderlay(
             activeTool = activeTool,
@@ -472,7 +474,9 @@ fun PlayerScreen(
         }
         }
     }
+    }
 
+    PaperInkTheme(darkTheme = true) {
     when (activeTool) {
         PlayerQuickTool.Timer -> SleepTimerSheet(
             currentTimerMinutes = playerState.sleepTimerMinutes,
@@ -550,6 +554,7 @@ fun PlayerScreen(
         )
         null -> Unit
     }
+    }
 }
 
 /**
@@ -572,8 +577,88 @@ internal fun PlayerModalUnderlay(
 }
 
 /** Pure player surface, separated from the ViewModel for snapshot and interaction tests. */
+/**
+ * The player is the ONE always-ink surface of the product (decision A): it is
+ * wrapped in [PaperInkTheme] no matter which scheme the rest of the app shows,
+ * and every call site — the app, the wide pane and the tests — gets that for
+ * free from this boundary.
+ */
 @Composable
 fun PlayerScreenContent(
+    playerState: PlayerState,
+    book: AudiobookEntity,
+    currentChapterTitle: String,
+    progress: PlayerProgressUi,
+    artworkAccent: Color?,
+    artworkAspect: Float = 2f / 3f,
+    onArtworkLoaded: (Drawable) -> Unit,
+    onDismiss: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onToggleDebug: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onBookSeek: (Float) -> Unit,
+    onPreviousChapter: () -> Unit,
+    onBack: () -> Unit,
+    onPlayPause: () -> Unit,
+    onForward: () -> Unit,
+    onNextChapter: () -> Unit,
+    onUndoSeek: () -> Unit,
+    onSpeed: () -> Unit,
+    onTimer: () -> Unit,
+    onBookmark: () -> Unit,
+    onChapters: () -> Unit,
+    modifier: Modifier = Modifier,
+    activeTool: PlayerQuickTool? = null,
+    castReady: Boolean = false,
+    lastBookmarkTarget: BookmarkEntity? = null,
+    onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+    onShowAllBookmarks: () -> Unit = {},
+    onRetryPlayback: () -> Unit = {},
+    onFindAnotherSource: () -> Unit = {},
+    // #530 — the ordered fallback offer of #519's action; empty renders nothing.
+    fallbackCandidates: List<com.slukhayka.audiobooks.data.editions.FallbackCandidate> = emptyList(),
+    onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {}
+) {
+    PaperInkTheme(darkTheme = true) {
+        PlayerScreenContentBody(
+            playerState = playerState,
+            book = book,
+            currentChapterTitle = currentChapterTitle,
+            progress = progress,
+            artworkAccent = artworkAccent,
+            artworkAspect = artworkAspect,
+            onArtworkLoaded = onArtworkLoaded,
+            onDismiss = onDismiss,
+            onToggleFavorite = onToggleFavorite,
+            onToggleDebug = onToggleDebug,
+            onSeek = onSeek,
+            onBookSeek = onBookSeek,
+            onPreviousChapter = onPreviousChapter,
+            onBack = onBack,
+            onPlayPause = onPlayPause,
+            onForward = onForward,
+            onNextChapter = onNextChapter,
+            onUndoSeek = onUndoSeek,
+            onSpeed = onSpeed,
+            onTimer = onTimer,
+            onBookmark = onBookmark,
+            onChapters = onChapters,
+            modifier = modifier,
+            activeTool = activeTool,
+            castReady = castReady,
+            lastBookmarkTarget = lastBookmarkTarget,
+            onJumpToBookmark = onJumpToBookmark,
+            onShowAllBookmarks = onShowAllBookmarks,
+            onRetryPlayback = onRetryPlayback,
+            onFindAnotherSource = onFindAnotherSource,
+            fallbackCandidates = fallbackCandidates,
+            onSelectFallback = onSelectFallback,
+        )
+    }
+}
+
+@Composable
+private fun PlayerScreenContentBody(
     playerState: PlayerState,
     book: AudiobookEntity,
     currentChapterTitle: String,

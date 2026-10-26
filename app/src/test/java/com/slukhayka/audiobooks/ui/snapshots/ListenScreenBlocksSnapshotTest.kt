@@ -16,7 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
 import com.slukhayka.audiobooks.testing.TestDataFactory
-import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
@@ -28,6 +28,7 @@ import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
 import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.screens.RecentlyListenedRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -201,17 +202,19 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
-                    Column {
-                        AppSectionHeader(
-                            title = "Далі по серії",
-                            subtitle = "книги, які ви почали",
-                            modifier = Modifier.testTag("listen_block_heading_NEXT_IN_SERIES")
-                        )
-                        ListenBlockShelf(
-                            books = shelfBooks,
-                            onBookClick = {},
-                            onNotInterested = {}
-                        )
+                    PaperInkTheme(darkTheme = true) {
+                        Column {
+                            PaperInkSectionHeader(
+                                title = "Далі по серії",
+                                subtitle = "книги, які ви почали",
+                                modifier = Modifier.testTag("listen_block_heading_NEXT_IN_SERIES")
+                            )
+                            ListenBlockShelf(
+                                books = shelfBooks,
+                                onBookClick = {},
+                                onNotInterested = {}
+                            )
+                        }
                     }
                 }
             }

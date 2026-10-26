@@ -71,6 +71,7 @@ fun PaperInkScreenTitle(
 fun PaperInkSectionHeader(
     title: String,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
     action: String? = null,
     onActionClick: (() -> Unit)? = null,
 ) {
@@ -78,12 +79,22 @@ fun PaperInkSectionHeader(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Bottom,
     ) {
-        Text(
-            text = title,
-            style = PaperInkType.SectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = PaperInkType.SectionTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = PaperInkType.Micro,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         if (action != null && onActionClick != null) {
             Text(
                 text = action,

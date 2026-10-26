@@ -214,6 +214,15 @@ object PaperInkType {
         letterSpacing = 0.sp,
     )
 
+    /** The wordmark eyebrow above a root title: 11/15, 800, +0.35 tracking. */
+    val TrackingLabel = TextStyle(
+        fontFamily = Ui,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
+        letterSpacing = 0.35.sp,
+    )
+
     /** All timers: tabular figures so seconds never jitter. */
     val Timer = TextStyle(
         fontFamily = Ui,

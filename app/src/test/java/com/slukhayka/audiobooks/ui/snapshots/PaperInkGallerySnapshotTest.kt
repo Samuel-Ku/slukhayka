@@ -28,6 +28,7 @@ import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavigationBar
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkPosterCard
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkScreenTitle
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Rule
 import org.junit.Test
@@ -145,6 +146,36 @@ class PaperInkGallerySnapshotTest {
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
+    }
+
+    @Composable
+    private fun HeaderGallery(darkTheme: Boolean) {
+        GallerySurface(darkTheme) {
+            PaperInkTabHeader(
+                title = "Слухати",
+                onSettingsClick = {},
+            )
+            PaperInkSectionHeader(
+                title = "Продовжити",
+                subtitle = "книги, які ви почали",
+                action = "Сортувати",
+                onActionClick = {},
+            )
+        }
+    }
+
+    @Test
+    fun paperink_header_dark() {
+        composeTestRule.setContent { HeaderGallery(darkTheme = true) }
+        composeTestRule.onNodeWithText("Слухати").assertExists()
+        composeTestRule.onRoot().captureRoboImage("src/test/snapshots/paperink_header_dark.png")
+    }
+
+    @Test
+    fun paperink_header_light() {
+        composeTestRule.setContent { HeaderGallery(darkTheme = false) }
+        composeTestRule.onNodeWithText("Слухати").assertExists()
+        composeTestRule.onRoot().captureRoboImage("src/test/snapshots/paperink_header_light.png")
     }
 
     @Test

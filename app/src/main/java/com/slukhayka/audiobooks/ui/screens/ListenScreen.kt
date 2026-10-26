@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +51,8 @@ import com.slukhayka.audiobooks.ui.components.formatRowDuration
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkBookRow
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkHeroCard
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkPosterCard
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
@@ -126,16 +129,11 @@ fun ListenScreen(
         // The title comes from the SAME resource the bottom bar uses
         // (spec-54 T06 / #873), so a literal here cannot drift from the tab.
         item {
-            AppTabHeader(
+            PaperInkTabHeader(
                 title = stringResource(R.string.nav_listen),
-                // #885 (wave 3) — the prototype puts the wordmark on EVERY
-                // root (`isRoot`), not only on Огляд.
-                showBrandMark = true,
                 headingTestTag = "listen_heading",
                 compact = landscapePhone,
-                actions = {
-                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
-                }
+                onSettingsClick = onOpenSettings,
             )
         }
         // Fresh install: placeholder hero + clear next actions.
@@ -189,7 +187,7 @@ fun ListenScreen(
                 else -> {
                     if (block.books.isEmpty()) continue
                     item(key = "block-${block.id.name}") {
-                        AppSectionHeader(
+                        PaperInkSectionHeader(
                             title = block.title,
                             subtitle = block.reason,
                             modifier = Modifier.testTag("listen_block_heading_${block.id.name}")
@@ -730,44 +728,82 @@ fun ListenEmptyState(
     onBrowseClick: () -> Unit,
     onImportClick: () -> Unit
 ) {
-    EmptyState(
-        icon = Icons.Default.PlayCircle,
-        // spec-46 T16 (#577): the Слухати empty state had hardcoded Ukrainian
-        // in an otherwise translated screen — the chrome comes from resources.
-        title = stringResource(R.string.listen_empty_title),
-        body = stringResource(R.string.listen_empty_body)
-    ) {
-        Button(
-            onClick = onBrowseClick,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
+    // The fresh install is not an error state: a quiet paper page with a lamp,
+    // one Literata line and the two honest next steps. No grey icon placeholder.
+    PaperInkThemedContent {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(AppDimens.TouchTarget)
-        ) {
-            Icon(imageVector = Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.profile_view_catalogue), fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedButton(
-            onClick = onImportClick,
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(AppDimens.TouchTarget)
+                .padding(horizontal = PaperInkDimens.SpacePage, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
-                imageVector = Icons.Default.FileUpload,
+                imageVector = Icons.Filled.Headphones,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(28.dp),
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.profile_import_from_device), color = MaterialTheme.colorScheme.onSurface)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.listen_empty_title),
+                style = PaperInkType.EmptyTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.listen_empty_body),
+                style = PaperInkType.Body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(28.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(PaperInkDimens.PrimaryButtonHeight)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable(onClick = onBrowseClick),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Explore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.profile_view_catalogue),
+                    style = PaperInkType.BodyStrong,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(PaperInkDimens.PrimaryButtonHeight)
+                    .clip(CircleShape)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                    .clickable(onClick = onImportClick),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.FileUpload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.profile_import_from_device),
+                    style = PaperInkType.BodyStrong,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }

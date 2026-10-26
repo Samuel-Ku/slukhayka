@@ -25,7 +25,13 @@ object FolderRescan {
         val fileName: String,
         /** Same grouping key as the import: full relative folder path or null for root files. */
         val parentFolder: String?,
-        val contentHash: String
+        val contentHash: String,
+        /**
+         * SAF metadata observed at scan time (ADR-0061 §3). Null when the
+         * provider reports none — compare metadata only when both sides know it.
+         */
+        val sizeBytes: Long? = null,
+        val lastModifiedMs: Long? = null
     )
 
     /** One stored track of a book: its chapter title + the track's hash. */

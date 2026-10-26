@@ -1953,7 +1953,11 @@ class LibraryImport(
                             ) { hash ->
                                 if (targetBookId != null && ownsLocalHash(targetBookId, hash)) {
                                     duplicateEntries += FolderRescan.RescanFile(
-                                        chapter.file.fileName, chapter.file.parentFolder, hash
+                                        chapter.file.fileName,
+                                        chapter.file.parentFolder,
+                                        hash,
+                                        chapter.file.sizeBytes,
+                                        chapter.file.lastModifiedMs
                                     )
                                 }
                             } ?: continue
@@ -1961,7 +1965,13 @@ class LibraryImport(
                             copiedEntries += chapter.file
                         }
                         val copiedFiles = copiedEntries.zip(chapters).map { (entry, copied) ->
-                            FolderRescan.RescanFile(entry.fileName, entry.parentFolder, copied.contentHash)
+                            FolderRescan.RescanFile(
+                                entry.fileName,
+                                entry.parentFolder,
+                                copied.contentHash,
+                                entry.sizeBytes,
+                                entry.lastModifiedMs
+                            )
                         }
                         if (chapters.isEmpty()) {
                             if (targetBookId != null && duplicateEntries.isNotEmpty()) writeBatchRunner {
@@ -2398,9 +2408,21 @@ class LibraryImport(
             // stale staging leftovers before it runs.
             localWriteMutex.withLock {
                 cleanupStaging()
-                // Hash every file once — pure stream read, the re-scan baseline.
+                // ADR-0061 §3 — a file is NOT read when the folder memory knows
+                // its current hash AND (size, last-modified) still match. Memory
+                // written by the previous format (v2), or a path whose owners
+                // disagree on the current hash, is read once and then rewritten
+                // with today's observation — so the next scan can reuse it.
+                val memory = LocalFolderMemory(dao).read(treeUri)
+                val remembered = mergedRecords(memory)
                 val scanned = entries.mapNotNull { entry ->
-                    val hash = try {
+                    val hash = rememberedHashFor(
+                        remembered,
+                        entry.fileName,
+                        entry.parentFolder,
+                        entry.sizeBytes,
+                        entry.lastModifiedMs
+                    ) ?: try {
                         contentHashOf(entry.openStream())
                     } catch (e: CancellationException) {
                         throw e
@@ -2408,14 +2430,23 @@ class LibraryImport(
                         Log.w("AudiobookRepo", "Re-scan could not hash ${entry.fileName}", e)
                         null
                     }
-                    if (hash.isNullOrBlank()) null else FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
+                    if (hash.isNullOrBlank()) {
+                        null
+                    } else {
+                        FolderRescan.RescanFile(
+                            entry.fileName,
+                            entry.parentFolder,
+                            hash,
+                            entry.sizeBytes,
+                            entry.lastModifiedMs
+                        )
+                    }
                 }
                 if (scanned.isEmpty()) return@withLock RescanReport(treeUri, skippedFiles = entries.size)
 
                 // ADR-0007: hashes live on the track rows — the library-wide dedupe
                 // pool is every track's content hash.
                 val libraryHashSet = dao.getAllTrackContentHashes().toSet()
-                val memory = LocalFolderMemory(dao).read(treeUri)
                 val existingBooks = (dao.getAudiobooksBySourceTree(treeUri) +
                     memory.mapNotNull { dao.getAudiobookById(it.bookId) }).distinctBy { it.id }
                 val folder = context?.let { ImportGrantStore(it).folder(treeUri) } ?: SourceRef.Folder(treeUri)
@@ -2580,7 +2611,7 @@ class LibraryImport(
                     val missing = if (lineage == null) diff.missingTracks else diff.missingTracks.filter { it.contentHash in lineage.hashes }
                     val moved = if (lineage == null) diff.movedFiles else files.filter { file ->
                         localTracks.any { it.contentHash == file.contentHash } &&
-                            file.contentHash !in lineage.files[LocalImportGrouping.fileKey(file.fileName, file.parentFolder)].orEmpty()
+                            file.contentHash !in lineage.files[LocalImportGrouping.fileKey(file.fileName, file.parentFolder)]?.hashes.orEmpty()
                     }
                     report = report.copy(
                         missingFiles = report.missingFiles + missing.size,
@@ -2589,17 +2620,16 @@ class LibraryImport(
                     )
                     if (diff.newFiles.isEmpty()) {
                         val proven = files.filter { file -> localTracks.any { it.contentHash == file.contentHash } }
-                        val observed = observedOrigin(book.id, proven)
-                        val newProof = proven.filter { file ->
-                            val key = LocalImportGrouping.key(file.fileName, file.parentFolder, grouping)
-                            file.contentHash !in lineage?.files?.get(LocalImportGrouping.fileKey(file.fileName, file.parentFolder)).orEmpty() ||
-                                (key in observed.claimedGroups && key !in lineage?.groups.orEmpty())
-                        }
-                        if (newProof.isNotEmpty()) {
-                            // A rename is a physical observation, not a logical edit.
-                            // Remember it even when no new Chapter is appended.
+                        // ADR-0061 §3 — persist the fresh SAF observation even when
+                        // nothing structural changed. Without this a v2 record (every
+                        // import made before the metadata format) or a file whose
+                        // bytes are the same but whose timestamp moved would stay
+                        // metadata-unknown, and every re-scan would read it again.
+                        // A rename is a physical observation too, so it is remembered
+                        // even when no new Chapter is appended.
+                        if (proven.isNotEmpty()) {
                             try {
-                                writeBatchRunner { LocalFolderMemory(dao).remember(book.id, observedOrigin(book.id, newProof)) }
+                                writeBatchRunner { LocalFolderMemory(dao).remember(book.id, observedOrigin(book.id, proven)) }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -2836,7 +2866,13 @@ class LibraryImport(
                             val hash = updated.contentHash ?: return@mapNotNull null
                             val (entry, _) = byHash[hash].orEmpty().firstOrNull()
                                 ?: return@mapNotNull null
-                            FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
+                            FolderRescan.RescanFile(
+                                entry.fileName,
+                                entry.parentFolder,
+                                hash,
+                                entry.sizeBytes,
+                                entry.lastModifiedMs
+                            )
                         }
                         LocalFolderMemory(dao).remember(
                             bookId,

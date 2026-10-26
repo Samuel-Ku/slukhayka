@@ -3,8 +3,6 @@ package com.slukhayka.audiobooks.data.imports
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
 import com.slukhayka.audiobooks.data.sha256Hex
-import okio.ByteString.Companion.decodeBase64
-import okio.ByteString.Companion.encodeUtf8
 
 /** Physical provenance, independent of the listener's editable book title. */
 internal data class LocalFolderOrigin(
@@ -14,29 +12,57 @@ internal data class LocalFolderOrigin(
     val claimedGroups: Set<String> = files.map { LocalImportGrouping.key(it.fileName, it.parentFolder, grouping) }.toSet()
 )
 
+/**
+ * What the folder memory knows about ONE relative path (ADR-0057/0061): the
+ * content hashes observed there and the SAF metadata at the last scan.
+ * [sizeBytes]/[lastModifiedMs] are null for records written before the
+ * metadata format (v2) and when a provider reports neither — "unknown", never
+ * a fabricated number.
+ */
+internal data class LocalFileRecord(
+    /** Every content hash ever observed at this path — the missing-detection history. */
+    val hashes: Set<String>,
+    /**
+     * The hash of the NEWEST observation at this path. History is not enough to
+     * reuse: after one content change the path carries two hashes forever, and
+     * an unchanged file would then be re-read on every scan. Null when unknown
+     * (a v2 record, or several owners disagree) — the caller then reads.
+     */
+    val lastHash: String? = null,
+    val sizeBytes: Long? = null,
+    val lastModifiedMs: Long? = null
+) {
+    /**
+     * ADR-0061 §3 — metadata-equal only when BOTH observations are known and
+     * equal. An unknown side is not a match: the re-scan must read the file.
+     */
+    fun sameMetadata(sizeBytes: Long?, lastModifiedMs: Long?): Boolean =
+        this.sizeBytes != null && lastModifiedMs != null &&
+            this.sizeBytes == sizeBytes && this.lastModifiedMs == lastModifiedMs
+}
+
 internal data class LocalFolderLineage(
     val bookId: String,
     val grouping: LocalFolderGrouping,
     val groups: Set<String>,
-    val files: Map<String, Set<String>>
+    val files: Map<String, LocalFileRecord>
 ) {
-    val hashes: Set<String> get() = files.values.flatten().toSet()
+    val hashes: Set<String> get() = files.values.flatMapTo(mutableSetOf()) { it.hashes }
 }
-
 
 /** Lives in correction memory; callers write it inside the Edition's Room transaction. */
 internal class LocalFolderMemory(private val dao: AudiobookDao) {
     suspend fun read(treeUri: String): List<LocalFolderLineage> =
-        dao.getCorrectionsForMergeKey(key(treeUri)).mapNotNull { decode(it.value) }
+        dao.getCorrectionsForMergeKey(key(treeUri)).mapNotNull { LocalFolderMemoryCodec.decode(it.value) }
 
     suspend fun remember(bookId: String, origin: LocalFolderOrigin) {
         val mergeKey = key(origin.treeUri)
         val rows = dao.getCorrectionsForMergeKey(mergeKey).filter { it.kind == "FIELD" }
-        val previous = rows.mapNotNull { decode(it.value) }.firstOrNull { it.bookId == bookId }
+        val previous = rows.mapNotNull { LocalFolderMemoryCodec.decode(it.value) }.firstOrNull { it.bookId == bookId }
         val files = previous?.files.orEmpty().toMutableMap()
         origin.files.forEach { file ->
             val path = LocalImportGrouping.fileKey(file.fileName, file.parentFolder)
-            files[path] = files[path].orEmpty() + file.contentHash
+            files[path] = observedRecord(files[path], file)
         }
         val lineage = LocalFolderLineage(
             bookId, origin.grouping,
@@ -46,60 +72,53 @@ internal class LocalFolderMemory(private val dao: AudiobookDao) {
         // Preserve other owners' timestamps and opaque records. Replacing
         // only this owner's snapshot prevents stale compound-PK duplicates.
         dao.deleteCorrection(mergeKey, "FIELD")
-        rows.filter { decode(it.value)?.bookId != bookId }.forEach { dao.upsertCorrection(it) }
-        dao.upsertCorrection(CorrectionEntity(mergeKey = mergeKey, kind = "FIELD", value = encode(lineage), origin = "USER_MADE"))
+        rows.filter { LocalFolderMemoryCodec.decode(it.value)?.bookId != bookId }.forEach { dao.upsertCorrection(it) }
+        dao.upsertCorrection(
+            CorrectionEntity(
+                mergeKey = mergeKey,
+                kind = "FIELD",
+                value = LocalFolderMemoryCodec.encode(lineage),
+                origin = "USER_MADE"
+            )
+        )
     }
 
     /** Same transaction as the Source re-anchor and removal of the sibling. */
     suspend fun reparent(fromBookId: String, toBookId: String) {
         for ((mergeKey, rows) in dao.getLocalFolderCorrections().groupBy { it.mergeKey }) {
-            val decoded = rows.mapNotNull { decode(it.value) }
+            val decoded = rows.mapNotNull { LocalFolderMemoryCodec.decode(it.value) }
             if (decoded.none { it.bookId == fromBookId }) continue
             val owners = decoded.filter { it.bookId == fromBookId || it.bookId == toBookId }
-            val files = mutableMapOf<String, Set<String>>()
-            owners.forEach { owner -> owner.files.forEach { (path, hashes) ->
-                files[path] = files[path].orEmpty() + hashes
-            } }
+            val files = mutableMapOf<String, LocalFileRecord>()
+            owners.forEach { owner ->
+                owner.files.forEach { (path, record) ->
+                    val previous = files[path]
+                    files[path] = if (previous == null) {
+                        record
+                    } else {
+                        LocalFileRecord(
+                            hashes = previous.hashes + record.hashes,
+                            sizeBytes = agree(previous.sizeBytes, record.sizeBytes),
+                            lastModifiedMs = agree(previous.lastModifiedMs, record.lastModifiedMs)
+                        )
+                    }
+                }
+            }
             val survivor = owners.first().copy(
                 bookId = toBookId,
                 groups = owners.flatMap { it.groups }.toSet(),
                 files = files
             )
             dao.deleteCorrection(mergeKey, "FIELD")
-            rows.filter { decode(it.value)?.bookId !in setOf(fromBookId, toBookId) }
+            rows.filter { LocalFolderMemoryCodec.decode(it.value)?.bookId !in setOf(fromBookId, toBookId) }
                 .forEach { dao.upsertCorrection(it) }
             dao.upsertCorrection(CorrectionEntity(
-                mergeKey = mergeKey, kind = "FIELD", value = encode(survivor), origin = "USER_MADE"
+                mergeKey = mergeKey, kind = "FIELD", value = LocalFolderMemoryCodec.encode(survivor), origin = "USER_MADE"
             ))
         }
     }
 
-    private fun key(treeUri: String) = "local-folder:${sha256Hex(treeUri.toByteArray(Charsets.UTF_8))}"
-    private fun token(value: String): String = value.encodeUtf8().base64Url().trimEnd('=')
-    private fun untoken(value: String): String {
-        require(value.matches(URL_SAFE_TOKEN))
-        return requireNotNull(value.decodeBase64()).utf8()
-    }
-    private val URL_SAFE_TOKEN = Regex("[A-Za-z0-9_-]*={0,2}")
-    private fun encode(lineage: LocalFolderLineage): String = listOf(
-        "2", token(lineage.bookId), lineage.grouping.name,
-        lineage.groups.sorted().joinToString(".", transform = ::token),
-        lineage.files.toSortedMap().entries.joinToString(".") { (path, hashes) -> token(path) + ":" + hashes.sorted().joinToString(",") }
-    ).joinToString("|")
+    private fun agree(a: Long?, b: Long?): Long? = if (a != null && a == b) a else null
 
-    private fun decode(value: String): LocalFolderLineage? = runCatching {
-        val fields = value.split('|')
-        require(fields.size == 5 && fields[0] == "2")
-        val id = untoken(fields[1])
-        require(id.isNotBlank())
-        LocalFolderLineage(id, LocalFolderGrouping.valueOf(fields[2]),
-            fields[3].split('.').filter { it.isNotEmpty() }.map(::untoken).toSet(),
-            fields[4].split('.').filter { it.isNotEmpty() }.associate { file ->
-                val parts = file.split(':', limit = 2)
-                require(parts.size == 2)
-                val hashes = parts[1].split(',').toSet()
-                require(hashes.all { it.matches(Regex("[0-9a-f]{64}")) })
-                untoken(parts[0]) to hashes
-            })
-    }.getOrNull()
+    private fun key(treeUri: String) = "local-folder:${sha256Hex(treeUri.toByteArray(Charsets.UTF_8))}"
 }

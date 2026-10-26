@@ -153,4 +153,35 @@ class LocalFolderScannerTest {
             message.contains("no longer readable") && message.contains(uri.toString()),
         )
     }
+
+    @Test
+    fun `scan captures SAF size and last-modified beside the address`() {
+        val tree = FakeDocumentFile(
+            "Books", directory = true,
+            children = listOf(
+                FakeDocumentFile(
+                    "01.mp3",
+                    directory = false,
+                    sizeBytes = 1_234L,
+                    lastModifiedMs = 1_700_000_000_000L
+                )
+            )
+        )
+
+        val entry = LocalFolderScanner.scan(tree, context.contentResolver).single()
+
+        assertEquals(1_234L, entry.sizeBytes)
+        assertEquals(1_700_000_000_000L, entry.lastModifiedMs)
+    }
+
+    @Test
+    fun `an unknown SAF size or timestamp stays unknown, never zero`() {
+        val entry = LocalFolderScanner.scan(
+            FakeDocumentFile("solo.mp3", directory = false, sizeBytes = 0L, lastModifiedMs = 0L),
+            context.contentResolver
+        ).single()
+
+        assertTrue(entry.sizeBytes == null)
+        assertTrue(entry.lastModifiedMs == null)
+    }
 }

@@ -130,9 +130,12 @@ class PlaybackFallbackResolver(
         if (track.url.toHttpUrlOrNull()?.let(AudioNoticePolicy::isBlockedAudio) == true) return null
         if (track.trackIndex != chapterIndex) return null
         val local = track.localFilePath?.takeIf { SmartRetryPolicy.localFileReady(it) }
+        // ADR-0061: a by-reference local track's only address is its SAF
+        // document URI — still a local locator, never a network one.
+        val localDocument = track.url?.takeIf { SmartRetryPolicy.isLocalDocumentAddress(it) }
         val remote = track.url.toHttpUrlOrNull()?.toString()
-        val locator = local ?: remote ?: return null
-        if (sourceId == "local" && local == null) return null
+        val locator = local ?: localDocument ?: remote ?: return null
+        if (sourceId == "local" && local == null && localDocument == null) return null
         return FallbackChapter(locator, sourceId, local)
     }
 }

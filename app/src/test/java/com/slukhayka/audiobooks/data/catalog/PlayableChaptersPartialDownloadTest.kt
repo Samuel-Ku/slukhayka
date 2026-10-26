@@ -162,6 +162,80 @@ class PlayableChaptersPartialDownloadTest {
         dao.insertTracks(tracks)
     }
 
+    /** ADR-0061 — a by-reference import: tracks carry SAF document URIs, no private copy. */
+    private fun seedByReferenceBook(bookId: String, chapterCount: Int) = runBlocking {
+        dao.insertAudiobooks(
+            listOf(
+                AudiobookEntity(
+                    id = bookId,
+                    title = "Книга $bookId",
+                    author = "Автор",
+                    narrator = "",
+                    description = "",
+                    coverDrawableRes = 0,
+                    sourceUrl = "",
+                    genre = ""
+                )
+            )
+        )
+        val editionId = "ed-$bookId"
+        dao.insertEdition(
+            EditionEntity(id = editionId, workId = bookId, narrator = "", totalChapters = chapterCount)
+        )
+        dao.insertChapters(
+            (0 until chapterCount).map { index ->
+                ChapterEntity(
+                    id = "$bookId-ch$index",
+                    bookId = bookId,
+                    chapterIndex = index,
+                    title = "Розділ ${index + 1}",
+                    durationSeconds = 60L,
+                    editionId = editionId
+                )
+            }
+        )
+        val sourceId = "local-$bookId"
+        dao.insertSources(
+            listOf(SourceEntity(id = sourceId, bookId = bookId, editionId = editionId, type = "local", url = ""))
+        )
+        dao.insertTracks(
+            (0 until chapterCount).map { index ->
+                SourceTrackEntity(
+                    id = "$sourceId-tr$index",
+                    sourceId = sourceId,
+                    trackIndex = index,
+                    url = "content://tree/books/$bookId/$index.mp3",
+                    localFilePath = null,
+                    isDownloaded = true
+                )
+            }
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // (a.0) ADR-0061 — by-reference local book: no copy exists, the SAF
+    //       document URI is the playable address. The pairing must accept it;
+    //       otherwise a #1479-style import would play nothing at all.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `by-reference local tracks pair from their document uri`() = runBlocking {
+        val bookId = "byref"
+        seedByReferenceBook(bookId, chapterCount = 3)
+
+        val playable = catalog.getPlayableChapters(bookId)
+
+        assertEquals(3, playable.size)
+        playable.forEachIndexed { index, pair ->
+            assertEquals("local", pair.sourceId)
+            val track = pair.track
+            assertNotNull("глава $index мусить мати трек", track)
+            requireNotNull(track)
+            assertEquals("content://tree/books/$bookId/$index.mp3", track.url)
+            assertNull("ADR-0061: приватної копії немає", track.localFilePath)
+        }
+    }
+
     // ------------------------------------------------------------------
     // (a) Partial coverage → local chapters play from LOCAL; chapters
     //     without a copy STREAM from the same source's remote tracks (#505

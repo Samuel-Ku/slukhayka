@@ -593,6 +593,7 @@ fun ListenBlockShelf(
                     ),
                     stateDescription = workState,
                     testTag = "compact_book_${book.id}",
+                    progressTestTag = "compact_book_progress_${book.id}",
                 )
             }
         }

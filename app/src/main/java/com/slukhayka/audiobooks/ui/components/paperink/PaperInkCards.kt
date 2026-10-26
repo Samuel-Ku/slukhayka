@@ -307,6 +307,7 @@ fun PaperInkPosterCard(
     dismissContentDescription: String? = null,
     stateDescription: String? = null,
     testTag: String? = null,
+    progressTestTag: String? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Column(
@@ -406,7 +407,10 @@ fun PaperInkPosterCard(
         }
         if (progress != null && progress > 0f) {
             Spacer(modifier = Modifier.height(8.dp))
-            PaperInkProgress(progress = progress)
+            PaperInkProgress(
+                progress = progress,
+                modifier = if (progressTestTag != null) Modifier.testTag(progressTestTag) else Modifier,
+            )
         }
     }
 }

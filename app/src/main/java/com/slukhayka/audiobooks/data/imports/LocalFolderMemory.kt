@@ -54,14 +54,7 @@ internal class LocalFolderMemory(private val dao: AudiobookDao) {
         val files = previous?.files.orEmpty().toMutableMap()
         origin.files.forEach { file ->
             val path = LocalImportGrouping.fileKey(file.fileName, file.parentFolder)
-            val previousRecord = files[path]
-            // The hash set keeps every observed owner of this path; the SAF
-            // metadata describes the NEWEST observation (the scan that just ran).
-            files[path] = LocalFileRecord(
-                hashes = previousRecord?.hashes.orEmpty() + file.contentHash,
-                sizeBytes = file.sizeBytes ?: previousRecord?.sizeBytes,
-                lastModifiedMs = file.lastModifiedMs ?: previousRecord?.lastModifiedMs
-            )
+            files[path] = observedRecord(files[path], file)
         }
         val lineage = LocalFolderLineage(
             bookId, origin.grouping,

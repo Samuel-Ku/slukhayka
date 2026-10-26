@@ -86,6 +86,20 @@ internal fun rememberedHashFor(
 }
 
 /**
+ * Folds one fresh observation into what the memory already knew about that
+ * path. Hashes accumulate (several owners may share a path); the SAF metadata
+ * comes from the NEW observation and never falls back to an older one: a
+ * provider that stops reporting it turns the metadata unknown, so the next
+ * re-scan reads the file instead of trusting a stale timestamp.
+ */
+internal fun observedRecord(previous: LocalFileRecord?, file: FolderRescan.RescanFile): LocalFileRecord =
+    LocalFileRecord(
+        hashes = previous?.hashes.orEmpty() + file.contentHash,
+        sizeBytes = file.sizeBytes,
+        lastModifiedMs = file.lastModifiedMs
+    )
+
+/**
  * One record per relative path across every lineage of a tree. Records that
  * disagree on metadata collapse to "unknown" rather than a silent choice:
  * the caller then reads the file, which is always safe.

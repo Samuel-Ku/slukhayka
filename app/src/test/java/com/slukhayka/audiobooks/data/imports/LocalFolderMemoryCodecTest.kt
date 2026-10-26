@@ -88,13 +88,36 @@ class LocalFolderMemoryCodecTest {
     @Test
     fun `merged records collapse disagreeing metadata to unknown`() {
         val one = lineage(mapOf("p" to LocalFileRecord(setOf(hashA), 10L, 5L)))
-        val two = lineage(mapOf("p" to LocalFileRecord(setOf(hashB), 10L, 6L))).copy(bookId = "local-2")
+        val two = lineage(mapOf("p" to LocalFileRecord(setOf(hashB), 11L, 6L))).copy(bookId = "local-2")
 
         val merged = mergedRecords(listOf(one, two)).getValue("p")
 
         assertEquals(setOf(hashA, hashB), merged.hashes)
         assertNull(merged.sizeBytes)
         assertNull(merged.lastModifiedMs)
+    }
+
+    @Test
+    fun `merged records keep the half both owners agree on`() {
+        val one = lineage(mapOf("p" to LocalFileRecord(setOf(hashA), 10L, 5L)))
+        val two = lineage(mapOf("p" to LocalFileRecord(setOf(hashB), 10L, 6L))).copy(bookId = "local-2")
+
+        val merged = mergedRecords(listOf(one, two)).getValue("p")
+
+        assertEquals(10L, merged.sizeBytes)
+        assertNull(merged.lastModifiedMs)
+    }
+
+    @Test
+    fun `a fresh observation never inherits stale metadata`() {
+        val stale = LocalFileRecord(setOf(hashA), 10L, 5L)
+        val observed = FolderRescan.RescanFile("01.mp3", "Кобзар", hashB)
+
+        val record = observedRecord(stale, observed)
+
+        assertEquals(setOf(hashA, hashB), record.hashes)
+        assertNull("метадані мусять стати невідомими, а не успадкувати старі", record.sizeBytes)
+        assertNull(record.lastModifiedMs)
     }
 
     @Test

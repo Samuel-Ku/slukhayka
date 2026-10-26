@@ -435,7 +435,14 @@ fun PaperInkBookRow(
     playContentDescription: String? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    Column(modifier = modifier.fillMaxWidth()) {
+    // The click belongs to the WHOLE row: the caller's testTag lands on the
+    // same node, so the merged text (title, author, chapter) is announced and
+    // findable, exactly as the old Card did.
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+    ) {
         if (showDivider) {
             HorizontalDivider(color = colorScheme.outlineVariant)
         }
@@ -443,7 +450,6 @@ fun PaperInkBookRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = PaperInkDimens.BookRowHeight)
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
                 .padding(vertical = 12.dp),
         ) {
             PaperInkCoverFlat(

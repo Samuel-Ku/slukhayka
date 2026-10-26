@@ -99,6 +99,7 @@ import com.slukhayka.audiobooks.ui.screens.LibraryRatingScreen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 
 internal enum class SecondaryBookParent {
     SERIES,
@@ -1455,7 +1456,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             tabKey = selectedTab.name
                         ) { when (selectedTab) {
                             // Spec-9: first tab is the listening panel, not the storefront.
-                            SelectedTab.LISTEN -> ListenScreen(
+                            // Plan 2026-2027, step 3: the Слухати tab is the first
+                            // screen moved onto «Папір і голос». The other roots
+                            // keep the legacy theme until their own migration, so a
+                            // half-migrated screen cannot leak into another tab.
+                            SelectedTab.LISTEN -> PaperInkTheme { ListenScreen(
                                 // #958 — the gear opens Settings from THIS root,
                                 // wired exactly as EXPLORE, LIBRARY and FRIENDS
                                 // already are (ADR-0049: the gear sits in the SAME
@@ -1479,7 +1484,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 },
                                 onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
                                 onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
-                            )
+                            ) }
                             SelectedTab.EXPLORE ->                        HomeScreen(
                                 // #860 — the gear opens Settings from THIS root.
                                 onOpenSettings = {

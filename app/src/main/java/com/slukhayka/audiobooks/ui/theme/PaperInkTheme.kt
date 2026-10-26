@@ -35,3 +35,20 @@ fun PaperInkTheme(
         content = content,
     )
 }
+
+/**
+ * Migration seam for a single rebuilt block while its screen still uses the
+ * legacy theme.
+ *
+ * The block is wrapped in [PaperInkTheme] and the scheme is chosen from the
+ * OUTER background's luminance: the legacy dark scheme is graphite-dark and the
+ * paper scheme is light, so the new block follows whichever scheme the screen
+ * already shows without asking the caller for a `darkTheme` flag. When the root
+ * theme switches to [PaperInkTheme], this adapter becomes a no-op and should be
+ * deleted with the last migrated block.
+ */
+@Composable
+fun PaperInkThemedContent(content: @Composable () -> Unit) {
+    val darkTheme = ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5
+    PaperInkTheme(darkTheme = darkTheme, content = content)
+}

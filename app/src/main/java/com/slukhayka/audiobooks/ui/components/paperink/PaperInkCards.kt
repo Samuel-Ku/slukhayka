@@ -33,6 +33,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -106,7 +112,8 @@ fun PaperInkProgress(
             .fillMaxWidth()
             .height(height)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .semantics { progressBarRangeInfo = ProgressBarRangeInfo(clamped, 0f..1f) },
     ) {
         Box(
             modifier = Modifier
@@ -120,7 +127,11 @@ fun PaperInkProgress(
 /**
  * «Продовжити» — the one card on the listening screen. A book lying on paper
  * with a warm lamp under it: cover 104×156, Literata title, exact remaining
- * time and a 52 dp play target, all inside 193 dp.
+ * time and a 52 dp play target. The height is a MINIMUM (193 dp): a long title
+ * grows the card instead of being clipped.
+ *
+ * [onClick] makes the whole card open the book; [playContentDescription] carries
+ * the contextual "resume THIS book" name for a screen reader.
  */
 @Composable
 fun PaperInkHeroCard(
@@ -129,14 +140,28 @@ fun PaperInkHeroCard(
     narrator: String,
     chapterLabel: String,
     remainingLabel: String,
-    progress: Float,
+    progress: Float?,
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier,
     eyebrow: String = "Продовжити",
+    progressLabel: String? = null,
+    onClick: (() -> Unit)? = null,
+    playContentDescription: String? = null,
+    cardContentDescription: String? = null,
+    eyebrowHeading: Boolean = false,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (cardContentDescription != null) {
+                    Modifier.semantics { contentDescription = cardContentDescription }
+                } else {
+                    Modifier
+                },
+            ),
         shape = PaperInkShapes.extraLarge,
         color = colorScheme.surface,
         border = BorderStroke(1.dp, colorScheme.outlineVariant),
@@ -161,12 +186,21 @@ fun PaperInkHeroCard(
             ) {
                 PaperInkCover(
                     title = title,
-                    modifier = Modifier.width(PaperInkDimens.CoverHeroWidth).height(PaperInkDimens.CoverHeroHeight),
+                    modifier = Modifier
+                        .width(PaperInkDimens.CoverHeroWidth)
+                        .height(PaperInkDimens.CoverHeroHeight)
+                        // The title below states the book; the letter is decoration.
+                        .clearAndSetSemantics { },
                     radius = PaperInkDimens.RadiusSmall,
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    Text(text = eyebrow, style = PaperInkType.Label, color = colorScheme.onSurfaceVariant)
+                    Text(
+                        text = eyebrow,
+                        style = PaperInkType.Label,
+                        color = colorScheme.onSurfaceVariant,
+                        modifier = if (eyebrowHeading) Modifier.semantics { heading() } else Modifier,
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = title,
@@ -183,15 +217,34 @@ fun PaperInkHeroCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = narrator,
-                        style = PaperInkType.Micro,
-                        color = colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (narrator.isNotBlank()) {
+                        Text(
+                            text = narrator,
+                            style = PaperInkType.Micro,
+                            color = colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Spacer(modifier = Modifier.weight(1f))
-                    PaperInkProgress(progress = progress, modifier = Modifier.padding(end = 64.dp))
+                    if (progress != null) {
+                        Row(
+                            modifier = Modifier.padding(end = 64.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            PaperInkProgress(progress = progress, modifier = Modifier.weight(1f))
+                            if (progressLabel != null) {
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = progressLabel,
+                                    style = PaperInkType.Timer,
+                                    color = colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = chapterLabel,
@@ -200,7 +253,9 @@ fun PaperInkHeroCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(text = remainingLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)
+                    if (remainingLabel.isNotBlank()) {
+                        Text(text = remainingLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             Box(
@@ -210,12 +265,19 @@ fun PaperInkHeroCard(
                     .size(PaperInkDimens.PrimaryButtonHeight)
                     .clip(CircleShape)
                     .background(colorScheme.tertiary)
-                    .clickable(onClick = onPlayClick),
+                    .clickable(onClick = onPlayClick)
+                    .then(
+                        if (playContentDescription != null) {
+                            Modifier.semantics { contentDescription = playContentDescription }
+                        } else {
+                            Modifier
+                        },
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = "Продовжити",
+                    contentDescription = null,
                     tint = colorScheme.onTertiary,
                     modifier = Modifier.size(22.dp),
                 )
@@ -252,7 +314,7 @@ fun PaperInkPosterCard(
         ) {
             PaperInkCover(
                 title = title,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().clearAndSetSemantics { },
                 radius = PaperInkDimens.RadiusMedium,
             )
             if (nowPlaying) {
@@ -336,7 +398,10 @@ fun PaperInkBookRow(
         ) {
             PaperInkCoverFlat(
                 title = title,
-                modifier = Modifier.width(PaperInkDimens.CoverRowWidth).height(PaperInkDimens.CoverRowHeight),
+                modifier = Modifier
+                    .width(PaperInkDimens.CoverRowWidth)
+                    .height(PaperInkDimens.CoverRowHeight)
+                    .clearAndSetSemantics { },
                 radius = PaperInkDimens.RadiusSmall,
             )
             Spacer(modifier = Modifier.width(16.dp))

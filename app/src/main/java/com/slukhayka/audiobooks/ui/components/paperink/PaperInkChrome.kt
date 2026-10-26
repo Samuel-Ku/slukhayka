@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
@@ -65,7 +66,10 @@ fun PaperInkMiniPlayerBar(
         ) {
             PaperInkCoverFlat(
                 title = title,
-                modifier = Modifier.width(48.dp).height(48.dp),
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(48.dp)
+                    .clearAndSetSemantics { },
                 radius = PaperInkDimens.RadiusSmall,
             )
             Spacer(modifier = Modifier.width(12.dp))
